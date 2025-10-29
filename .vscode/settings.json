@@ -1,0 +1,36 @@
+{
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.wordWrap": "on",
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": true,
+  "editor.showFoldingControls": "always",
+  "editor.folding": true,
+  "trailing-spaces.includeEmptyLines": false,
+  "trailing-spaces.trimOnSave": true,
+  "go.useLanguageServer": true,
+  "go.delveConfig": {
+    "dlvLoadConfig": {
+      "maxStringLen": 1024
+    },
+    "apiVersion": 2
+  },
+  "go.goroot": "/usr/local/go",
+  "go.toolsGopath": "/tmp/gotools",
+  "go.formatTool": "gofmt",
+  "go.lintTool": "golangci-lint",
+  "go.lintOnSave": "package",
+  "go.lintFlags": [
+    "--fast"
+  ],
+  "[go]": {
+    "editor.insertSpaces": false,
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  },
+  "gopls": {
+    "ui.semanticTokens": true
+  },
+}

@@ -1,0 +1,89 @@
+# cSpell:disable #
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+linters:
+  enable:
+    - unused
+    - misspell
+    - ineffassign
+    - goconst
+    - errcheck
+    - unparam
+    - staticcheck
+    - unused
+    - gosimple
+    - unconvert
+    - gocyclo
+    - gosec
+    - gocritic
+    - gocognit
+    - nestif
+    - noctx
+    - unparam
+    - wrapcheck
+    - whitespace
+    - wsl
+    - govet
+    - typecheck
+    - gochecknoglobals
+    - goconst
+    - nlreturn
+    - containedctx
+    - forcetypeassert
+    - ginkgolinter
+linters-settings:
+  nestif:
+    # minimal complexity of if statements to report, 5 by default
+    min-complexity: 7
+  misspell:
+    # Correct spellings using locale preferences for US or UK.
+    # Setting locale to US will correct the British spelling of 'colour' to 'color'.
+    # Default is to use a neutral variety of English.
+    locale: US
+  govet:
+    # Settings per analyzer.
+    settings:
+      shadow:
+        # Whether to be strict about shadowing; can be noisy.
+        # Default: false
+        strict: true
+      # Analyzer name, run `go tool vet help` to see all analyzers.
+      printf:
+        # Comma-separated list of print function names to check (in addition to default, see `go tool vet help printf`).
+        # Default: []
+        funcs:
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
+    # Enable analyzers by name (in addition to default).
+    # Run `go tool vet help` to see all analyzers.
+    # Default: []
+    enable: []
+    # Enable all analyzers.
+    # Default: false
+    enable-all: true
+    # Disable analyzers by name.
+    # Run `go tool vet help` to see all analyzers.
+    # Default: []
+    disable: []
+issues:
+  exclude-rules:
+    # Allow dot imports for ginkgo and gomega
+    - source: ginkgo|gomega
+      linters:
+        - golint
+      text: "should not use dot imports"
+
+    - linters:
+        - gosec
+      # these exclusion rules are for current failures in the code base for gosec which are
+      # excluded for future PRs which include:
+      # G110: Potential DoS vulnerability via decompression bomb
+      # G115: integer overflow conversion int
+      # G204: Audit use of command execution
+      # G306: Poor file permissions used when writing to a new file
+      # G404: Insecure random number source (rand)
+      # G601: Implicit memory aliasing of items from a range statement
+      text: "G110|G115|G601|G404|G204|G306"

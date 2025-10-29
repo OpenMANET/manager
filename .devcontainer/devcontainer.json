@@ -1,0 +1,123 @@
+/* cSpell:disable */
+{
+  "name": "DevContainer",
+  // Update the 'dockerFile' property if you aren't using the standard 'Dockerfile' filename.
+  "dockerFile": "Dockerfile",
+  "features": {
+    "ghcr.io/stuartleeks/dev-container-features/shell-history:0": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "1.25",
+      "golangciLintVersion": "latest"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": false
+    }
+  },
+  "onCreateCommand": {
+    "git-safe": "git config --global --add safe.directory ${containerWorkspaceFolder}"
+  },
+  "postCreateCommand": {
+    "buf": "go install github.com/bufbuild/buf/cmd/buf@v1.55.1"
+  },
+  "containerEnv": {
+    "SOURCE_FILEPATH": "${localWorkspaceFolder}"
+  },
+  // The optional 'runArgs' property can be used to specify additional runtime arguments.
+  "runArgs": [
+    // Uncomment the next line to use Docker from inside the container. See https://aka.ms/vscode-remote/samples/docker-in-docker for details.
+    "-v",
+    "/var/run/docker.sock:/var/run/docker.sock",
+    // Uncomment the next line if you will use a ptrace-based debugger like C++, Go, and Rust
+    "--cap-add=SYS_ADMIN",
+    "--security-opt",
+    "apparmor:unconfined",
+    "--privileged",
+    // "--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined",
+    // Uncomment the next line to use a non-root user. On Linux, this will prevent
+    // new files getting created as root, but you may need to update the USER_UID
+    // and USER_GID in .devcontainer/Dockerfile to match your user if not 1000.
+    "-v",
+    "/dev:/dev",
+    "-u",
+    "root"
+  ],
+  // Uncomment the next line if you want to publish any ports.
+  "appPort": [],
+  // Uncomment the next line if you want to add in default container specific settings.json values
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "extensions.ignoreRecommendations": false,
+        "terminal.integrated.fontFamily": "MesloLGS NF, Source Code Pro",
+        "terminal.integrated.fontSize": 12,
+        "git.autofetch": true,
+        "git.autofetchPeriod": 360,
+        "git.autorefresh": true,
+        "merge-conflict.codeLens.enabled": true,
+        "merge-conflict.decorators.enabled": true,
+        "merge-conflict.autoNavigateNextConflict.enabled": true,
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "editor.wordWrap": "on",
+        "editor.formatOnSave": true,
+        "editor.formatOnPaste": true,
+        "editor.showFoldingControls": "always",
+        "editor.folding": true,
+        "gitlens.statusBar.enabled": false,
+        "gitlens.hovers.enabled": false,
+        "gitlens.blame.highlight.enabled": true,
+        "gitlens.blame.avatars": true,
+        "trailing-spaces.includeEmptyLines": false,
+        "trailing-spaces.trimOnSave": true,
+        "yaml.format.enable": true,
+        "go.useLanguageServer": true,
+        "go.languageServerExperimentalFeatures": {
+          "diagnostics": true
+        },
+        "go.liveErrors": {
+          "enabled": true,
+          "delay": 500
+        },
+        "go.delveConfig": {
+          "dlvLoadConfig": {
+            "maxStringLen": 1024
+          },
+          "apiVersion": 2
+        },
+        "go.goroot": "/usr/local/go",
+        "go.toolsGopath": "/tmp/gotools",
+        "go.autocompleteUnimportedPackages": true,
+        "go.docsTool": "gogetdoc",
+        "go.formatTool": "gofmt",
+        "go.lintTool": "golangci-lint",
+        "go.lintOnSave": "package",
+        "go.lintFlags": [
+          "--fast"
+        ],
+        "[go]": {
+          "editor.insertSpaces": false,
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": true
+          }
+        }
+      },
+      "extensions": [
+        "shd101wyy.markdown-preview-enhanced",
+        "redhat.vscode-yaml",
+        "shardulm94.trailing-spaces",
+        "eamodio.gitlens",
+        "mohsen1.prettify-json",
+        "adamhartford.vscode-base64",
+        "pbkit.vscode-pbkit",
+        "bufbuild.vscode-buf",
+        "golang.go",
+        "github.vscode-github-actions",
+        "github.copilot"
+      ]
+    }
+  }
+}
