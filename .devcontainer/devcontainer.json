@@ -20,6 +20,10 @@
     "git-safe": "git config --global --add safe.directory ${containerWorkspaceFolder}"
   },
   "postCreateCommand": {
+    "gopls": "go install golang.org/x/tools/gopls@latest",
+    "betteralign": "go install github.com/dkorunic/betteralign/cmd/betteralign@latest",
+    "cobra-cli": "go install github.com/spf13/cobra-cli@latest",
+    "go-enum": "go install github.com/abice/go-enum@latest",
     "buf": "go install github.com/bufbuild/buf/cmd/buf@v1.55.1"
   },
   "containerEnv": {
@@ -101,7 +105,7 @@
           "editor.insertSpaces": false,
           "editor.formatOnSave": true,
           "editor.codeActionsOnSave": {
-            "source.organizeImports": true
+            "source.organizeImports": "always"
           }
         }
       },
