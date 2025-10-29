@@ -1,3 +1,0 @@
-[submodule "protobufs"]
-	path = protobufs
-	url = git@github.com:OpenMANET/protobufs.git
