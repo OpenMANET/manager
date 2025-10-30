@@ -1,0 +1,88 @@
+{
+  "name": "ucitrack",
+  "sections": [{
+    "type": "network",
+    "options": [
+      { "name": "init", "type":"option",    "values": ["network"] },
+      { "name": "affects", "type":"list", "values": ["dhcp", "radvd"] }
+    ]
+  },{
+    "type": "wireless",
+    "options": [
+      { "name": "affects", "type":"list", "values": ["network"] }
+    ]
+  },{
+    "type": "firewall",
+    "options": [
+      { "name": "init", "type":"option",    "values": ["firewall"] },
+      { "name": "affects", "type":"list", "values": ["luci-splash", "qos", "miniupnpd"] }
+    ]
+  },{
+    "type": "olsr",
+    "options": [
+      { "name": "init", "type":"option", "values": ["olsrd"] }
+    ]
+  },{
+    "type": "dhcp",
+    "options": [
+      { "name": "init",  "type":"option",   "values": ["dnsmasq"] },
+      { "name": "affects", "type":"list", "values": ["odhcpd"] }
+    ]
+  },{
+    "type": "odhcpd",
+    "options": [
+      { "name": "init", "type":"option", "values": ["odhcpd"] }
+    ]
+  },{
+    "type": "dropbear",
+    "options": [
+      { "name": "init", "type":"option", "values": ["dropbear"] }
+    ]
+  },{
+    "type": "httpd",
+    "options": [
+      { "name": "init", "type":"option", "values": ["httpd"] }
+    ]
+  },{
+    "type": "fstab",
+    "options": [
+      { "name": "init", "type":"option", "values": ["fstab"] }
+    ]
+  },{
+    "type": "qos",
+    "options": [
+      { "name": "init","type":"option", "values": ["qos"] }
+    ]
+  },{
+    "type": "system",
+    "options": [
+      { "name": "init", "type":"option",    "values": ["led"] },
+      { "name": "affects", "type":"list", "values": ["luci_statistics", "dhcp"] }
+    ]
+  },{
+    "type": "luci_splash",
+    "options": [
+      { "name": "init", "type":"option", "values": ["luci_splash"] }
+    ]
+  },{
+    "type": "upnpd",
+    "options": [
+      { "name": "init", "type":"option", "values": ["miniupnpd"] }
+    ]
+  },{
+    "type": "ntpclient",
+    "options": [
+      { "name": "init", "type":"option", "values": ["ntpclient"] }
+    ]
+  },{
+    "type": "samba",
+    "options": [
+      { "name": "init", "type":"option", "values": ["samba"] }
+    ]
+  },{
+    "type": "tinyproxy",
+    "options": [
+      { "name": "init", "type":"option", "values": ["tinyproxy"] }
+    ]
+  }]
+}
