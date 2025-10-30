@@ -10,6 +10,7 @@ require (
 )
 
 require (
+	github.com/digineo/go-uci/v2 v2.0.0-20231120164223-60c14814b8fe // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
