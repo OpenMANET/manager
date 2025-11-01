@@ -24,11 +24,22 @@ import (
 	"github.com/spf13/viper"
 )
 
+
+const (
+	versionText = "Print the version"
+)
+
+var (
+	Version   = "DEV"
+	BuildTime = "unknown"
+	BuildType = ""
+)
+
 var cfgFile string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "openmanet-manager",
+	Use:   "openmanet",
 	Short: "A management process for OpenMANET nodes",
 	Long: `OpenMANET Manager is a management application for OpenMANET nodes.
 It provides a way to configure and monitor OpenMANET networks.`,
@@ -53,7 +64,7 @@ func init() {
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.manager.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is /etc/openmanet/manager.yml)")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
@@ -66,14 +77,10 @@ func initConfig() {
 		// Use config file from the flag.
 		viper.SetConfigFile(cfgFile)
 	} else {
-		// Find home directory.
-		home, err := os.UserHomeDir()
-		cobra.CheckErr(err)
-
-		// Search config in home directory with name ".manager" (without extension).
-		viper.AddConfigPath(home)
-		viper.SetConfigType("yaml")
-		viper.SetConfigName(".manager")
+		// Search config in home directory with name "manager" (without extension).
+		viper.AddConfigPath("/etc/openmanet")
+		viper.SetConfigType("yml")
+		viper.SetConfigName("manager")
 	}
 
 	viper.AutomaticEnv() // read in environment variables that match
