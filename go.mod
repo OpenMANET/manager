@@ -1,4 +1,4 @@
-module github.com/openmanet/manager
+module github.com/openmanet/openmanetd
 
 go 1.25.3
 
