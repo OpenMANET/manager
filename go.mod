@@ -1,8 +1,9 @@
-module github.com/OpenMANET/manager
+module github.com/openmanet/manager
 
 go 1.25.3
 
 require (
+	github.com/digineo/go-uci/v2 v2.0.0-20231120164223-60c14814b8fe
 	github.com/planetscale/vtprotobuf v0.6.0
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
@@ -10,7 +11,6 @@ require (
 )
 
 require (
-	github.com/digineo/go-uci/v2 v2.0.0-20231120164223-60c14814b8fe // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

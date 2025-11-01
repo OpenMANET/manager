@@ -16,7 +16,7 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 package main
 
-import "github.com/OpenMANET/manager/cmd"
+import "github.com/openmanet/manager/cmd"
 
 func main() {
 	cmd.Execute()
