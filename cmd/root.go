@@ -20,10 +20,10 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/openmanet/openmanetd/internal/openmanet"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
-
 
 const (
 	versionText = "Print the version"
@@ -45,7 +45,10 @@ var rootCmd = &cobra.Command{
 It provides a way to configure and monitor OpenMANET networks.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("OpenMANET Manager\nVersion: %s\nBuild Time: %s\nBuild Type: %s\n", Version, BuildTime, BuildType)
+		openmanet.Start()
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

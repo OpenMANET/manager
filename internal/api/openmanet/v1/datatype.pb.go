@@ -80,8 +80,8 @@ const file_openmanet_v1_datatype_proto_rawDesc = "" +
 	"\bDataType\x12\x19\n" +
 	"\x15DATA_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11DATA_TYPE_GATEWAY\x10d\x12!\n" +
-	"\x1dDATA_TYPE_ADDRESS_RESERVATION\x10eB\x82\x01\n" +
-	"\x10com.openmanet.v1B\rDatatypeProtoP\x01Z\x0einternal/proto\xa2\x02\x03OXX\xaa\x02\fOpenmanet.V1\xca\x02\fOpenmanet\\V1\xe2\x02\x18Openmanet\\V1\\GPBMetadata\xea\x02\rOpenmanet::V1b\x06proto3"
+	"\x1dDATA_TYPE_ADDRESS_RESERVATION\x10eB\x86\x01\n" +
+	"\x10com.openmanet.v1B\rDatatypeProtoP\x01Z\x12internal/api/proto\xa2\x02\x03OXX\xaa\x02\fOpenmanet.V1\xca\x02\fOpenmanet\\V1\xe2\x02\x18Openmanet\\V1\\GPBMetadata\xea\x02\rOpenmanet::V1b\x06proto3"
 
 var (
 	file_openmanet_v1_datatype_proto_rawDescOnce sync.Once
