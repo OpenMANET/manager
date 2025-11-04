@@ -1,3 +1,6 @@
 [submodule "proto"]
 	path = proto
 	url = git@github.com:OpenMANET/protobufs.git
+[submodule "internal/alfred"]
+	path = internal/alfred
+	url = git@github.com:OpenMANET/go-alfred.git
