@@ -7,6 +7,7 @@ toolchain go1.21.13
 require (
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
 	github.com/digineo/go-uci/v2 v2.0.0-20231120164223-60c14814b8fe
+	github.com/openmanet/go-alfred v0.0.0-202404291200151-8f3f3f4e2f4e
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.20.0
@@ -30,3 +31,5 @@ require (
 	golang.org/x/text v0.21.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/openmanet/go-alfred => ./internal/alfred

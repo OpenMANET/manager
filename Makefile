@@ -30,7 +30,7 @@ vet: ## Run go vet against code.
 
 .PHONY: build
 build: fmt vet ## Build manager binary.
-	go build -o bin/openmanetd main.go
+	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -o bin/openmanetd main.go
 
 .PHONY: run
 run: fmt vet ## Run a controller from your host.
