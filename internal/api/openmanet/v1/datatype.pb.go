@@ -29,6 +29,8 @@ const (
 	DataType_DATA_TYPE_GATEWAY DataType = 100
 	// Address Reservation data type
 	DataType_DATA_TYPE_ADDRESS_RESERVATION DataType = 101
+	// Node data type
+	DataType_DATA_TYPE_NODE DataType = 102
 )
 
 // Enum value maps for DataType.
@@ -37,11 +39,13 @@ var (
 		0:   "DATA_TYPE_UNSPECIFIED",
 		100: "DATA_TYPE_GATEWAY",
 		101: "DATA_TYPE_ADDRESS_RESERVATION",
+		102: "DATA_TYPE_NODE",
 	}
 	DataType_value = map[string]int32{
 		"DATA_TYPE_UNSPECIFIED":         0,
 		"DATA_TYPE_GATEWAY":             100,
 		"DATA_TYPE_ADDRESS_RESERVATION": 101,
+		"DATA_TYPE_NODE":                102,
 	}
 )
 
@@ -76,11 +80,12 @@ var File_openmanet_v1_datatype_proto protoreflect.FileDescriptor
 
 const file_openmanet_v1_datatype_proto_rawDesc = "" +
 	"\n" +
-	"\x1bopenmanet/v1/datatype.proto\x12\fopenmanet.v1*_\n" +
+	"\x1bopenmanet/v1/datatype.proto\x12\fopenmanet.v1*s\n" +
 	"\bDataType\x12\x19\n" +
 	"\x15DATA_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11DATA_TYPE_GATEWAY\x10d\x12!\n" +
-	"\x1dDATA_TYPE_ADDRESS_RESERVATION\x10eB\x86\x01\n" +
+	"\x1dDATA_TYPE_ADDRESS_RESERVATION\x10e\x12\x12\n" +
+	"\x0eDATA_TYPE_NODE\x10fB\x86\x01\n" +
 	"\x10com.openmanet.v1B\rDatatypeProtoP\x01Z\x12internal/api/proto\xa2\x02\x03OXX\xaa\x02\fOpenmanet.V1\xca\x02\fOpenmanet\\V1\xe2\x02\x18Openmanet\\V1\\GPBMetadata\xea\x02\rOpenmanet::V1b\x06proto3"
 
 var (
