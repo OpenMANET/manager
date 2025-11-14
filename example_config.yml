@@ -1,0 +1,11 @@
+logLevel: info
+alfred:
+  mode: primary
+  netInterface: br-ahwlan
+  batInterface: bat0
+  socketPath: /var/run/alfred.sock
+  dataTypes:
+    gateway: true
+    node: true
+    position: true
+    addressReservation: true
