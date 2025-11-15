@@ -7,10 +7,14 @@ toolchain go1.21.13
 require (
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
 	github.com/digineo/go-uci/v2 v2.0.0-20231120164223-60c14814b8fe
+	github.com/gordonklaus/portaudio v0.0.0-20250206071425-98a94950218b
+	github.com/gvalkov/golang-evdev v0.0.0-20220815104727-7e27d6ce89b6
+	github.com/hraban/opus v0.0.0-20230925203106-0188a62cb302
 	github.com/openmanet/go-alfred v0.0.0-202404291200151-8f3f3f4e2f4e
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.20.0
+	golang.org/x/net v0.33.0
 	google.golang.org/protobuf v1.36.1
 )
 
