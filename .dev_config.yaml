@@ -1,0 +1,19 @@
+logLevel: debug
+netInterface: eth0
+alfred:
+  mode: primary
+  batInterface: bat0
+  socketPath: /var/run/alfred.sock
+  dataTypes:
+    gateway: true
+    node: true
+    position: true
+    addressReservation: true
+ptt:
+  enable: false
+  mcastAddr: 224.0.0.1
+  mcastPort: 5007
+  pttKey: any
+  debug: true
+  loopback: true
+  pttDevice: Generic AB13X USB Audio

@@ -10,7 +10,7 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
-func getDeviceByIndex(index int) *portaudio.DeviceInfo {
+func (ptt *PTTConfig) getDeviceByIndex(index int) *portaudio.DeviceInfo {
 	devs, err := portaudio.Devices()
 	if err != nil {
 		log.Fatalf("portaudio.Devices: %v", err)
@@ -22,7 +22,7 @@ func getDeviceByIndex(index int) *portaudio.DeviceInfo {
 	return devs[index]
 }
 
-func findPTTDevice() *evdev.InputDevice {
+func (ptt *PTTConfig) findPTTDevice() *evdev.InputDevice {
 	devs, err := evdev.ListInputDevices()
 	if err != nil {
 		log.Fatalf("evdev.ListInputDevices: %v", err)
@@ -30,30 +30,30 @@ func findPTTDevice() *evdev.InputDevice {
 
 	for _, d := range devs {
 		if d.Name == pttDeviceName {
-			debugf("Matched PTT device %s (%s)", d.Name, d.Fn)
+			ptt.Log.Debug().Msgf("Matched PTT device %s (%s)", d.Name, d.Fn)
 
 			return d
 		}
 	}
-	log.Fatalf("PTT device %q not found", pttDeviceName)
+	ptt.Log.Fatal().Msgf("PTT device %q not found", pttDeviceName)
 
 	return nil
 }
 
-func logInputDeviceList() {
+func (ptt *PTTConfig) logInputDeviceList() {
 	devs, err := evdev.ListInputDevices()
 	if err != nil {
-		log.Printf("Unable to list input devices: %v", err)
+		ptt.Log.Error().Err(err).Msg("Unable to list input devices")
 		return
 	}
 
-	log.Printf("Discovered %d input devices:", len(devs))
+	ptt.Log.Info().Msgf("Discovered %d input devices:", len(devs))
 	for _, d := range devs {
-		log.Printf(" - %s (%s)", d.Name, d.Fn)
+		ptt.Log.Info().Msgf(" - %s (%s)", d.Name, d.Fn)
 	}
 }
 
-func getIfaceIPv4(name string) (string, *net.Interface, error) {
+func (ptt *PTTConfig) getIfaceIPv4(name string) (string, *net.Interface, error) {
 	ifi, err := net.InterfaceByName(name)
 	if err != nil {
 		return "", nil, err
@@ -73,7 +73,7 @@ func getIfaceIPv4(name string) (string, *net.Interface, error) {
 	return "", ifi, fmt.Errorf("no IPv4 on iface %s", name)
 }
 
-func joinMulticastGroup(iface *net.Interface, conn *net.UDPConn, group net.IP) error {
+func (ptt *PTTConfig) joinMulticastGroup(iface *net.Interface, conn *net.UDPConn, group net.IP) error {
 	p := ipv4.NewPacketConn(conn)
 
 	return p.JoinGroup(iface, &net.UDPAddr{IP: group})

@@ -10,16 +10,16 @@ import (
 	evdev "github.com/gvalkov/golang-evdev"
 )
 
-func receiveLoop(udpConn *net.UDPConn) {
+func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 	buf := make([]byte, 1500)
 	for {
 		n, src, err := udpConn.ReadFromUDP(buf)
 		if err != nil {
-			log.Println("Recv error:", err)
+			ptt.Log.Error().Err(err).Msg("Recv error")
 			continue
 		}
 
-		debugf("Received %d bytes from %s", n, src.IP.String())
+		ptt.Log.Debug().Msgf("Received %d bytes from %s", n, src.IP.String())
 		if !loopbackAudio && (src.IP.IsLoopback() || src.IP.String() == localIP) {
 			continue
 		}
@@ -39,14 +39,14 @@ func receiveLoop(udpConn *net.UDPConn) {
 
 		select {
 		case playbackBuffer <- out:
-			debugf("Queued playback buffer with %d samples (depth=%d)", len(out), len(playbackBuffer))
+			ptt.Log.Debug().Msgf("Queued playback buffer with %d samples (depth=%d)", len(out), len(playbackBuffer))
 		default:
-			log.Println("⚠️ Playback buffer full! Dropping packet.")
+			ptt.Log.Warn().Msg("⚠️ Playback buffer full! Dropping packet.")
 		}
 	}
 }
 
-func monitorPTT(dev *evdev.InputDevice, bcastStream *portaudio.Stream) {
+func (ptt *PTTConfig) monitorPTT(dev *evdev.InputDevice, bcastStream *portaudio.Stream) {
 	for {
 		ev, err := dev.ReadOne()
 		if err != nil {
@@ -67,16 +67,16 @@ func monitorPTT(dev *evdev.InputDevice, bcastStream *portaudio.Stream) {
 
 		switch ev.Value {
 		case 1:
-			debugf("PTT down (code=%d)", ev.Code)
+			ptt.Log.Debug().Msgf("PTT down (code=%d)", ev.Code)
 			if isBroadcasting() {
-				debugf("PTT toggle: stopping transmission")
-				endTransmission(bcastStream)
+				ptt.Log.Debug().Msgf("PTT toggle: stopping transmission")
+				ptt.endTransmission(bcastStream)
 			} else {
-				debugf("PTT toggle: starting transmission")
-				beginTransmission(bcastStream)
+				ptt.Log.Debug().Msgf("PTT toggle: starting transmission")
+				ptt.beginTransmission(bcastStream)
 			}
 		case 0:
-			debugf("PTT up (code=%d)", ev.Code)
+			ptt.Log.Debug().Msgf("PTT up (code=%d)", ev.Code)
 		}
 	}
 }
@@ -97,17 +97,17 @@ func drainPlaybackBuffer() {
 	}
 }
 
-func beginTransmission(bcastStream *portaudio.Stream) {
+func (ptt *PTTConfig) beginTransmission(bcastStream *portaudio.Stream) {
 	recordMutex.Lock()
 	if broadcasting {
-		debugf("PTT down ignored; already broadcasting")
+		ptt.Log.Debug().Msgf("PTT down ignored; already broadcasting")
 		recordMutex.Unlock()
 		return
 	}
 	broadcasting = true
 	recordMutex.Unlock()
 
-	debugf("Begin transmission: playing start tone and starting mic stream")
+	ptt.Log.Debug().Msgf("Begin transmission: playing start tone and starting mic stream")
 	drainPlaybackBuffer()
 	playbackBuffer <- beepBufferStart
 	time.Sleep(200 * time.Millisecond)
@@ -120,25 +120,25 @@ func beginTransmission(bcastStream *portaudio.Stream) {
 		return
 	}
 
-	debugf("Mic stream started")
+	ptt.Log.Debug().Msg("Mic stream started")
 }
 
-func endTransmission(bcastStream *portaudio.Stream) {
+func (ptt *PTTConfig) endTransmission(bcastStream *portaudio.Stream) {
 	recordMutex.Lock()
 
 	if !broadcasting {
-		debugf("PTT up ignored; mic already idle")
+		ptt.Log.Debug().Msgf("PTT up ignored; mic already idle")
 		recordMutex.Unlock()
 		return
 	}
 
 	recordMutex.Unlock()
 
-	debugf("End transmission: stopping mic stream and playing stop tone")
+	ptt.Log.Debug().Msg("End transmission: stopping mic stream and playing stop tone")
 	if err := bcastStream.Stop(); err != nil {
-		log.Printf("stop mic: %v", err)
+		ptt.Log.Error().Err(err).Msg("stop mic")
 	} else {
-		debugf("Mic stream stopped")
+		ptt.Log.Debug().Msg("Mic stream stopped")
 	}
 
 	drainPlaybackBuffer()
