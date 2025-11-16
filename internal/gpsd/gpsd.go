@@ -2,7 +2,6 @@ package gpsd
 
 import "time"
 
-
 // source: https://gpsd.gitlab.io/gpsd/gpsd_json.html
 type GPSPosition struct {
 	Class  string    `json:"class"`

@@ -64,6 +64,12 @@ func (gw *GatewayWorker) StartSend() {
 					hostname = "unknown"
 				}
 
+				// Check if the interface has at least one IP address
+				if len(iface.IP) == 0 {
+					gw.Config.Log.Error().Msg("Interface has no IP addresses configured")
+					continue
+				}
+
 				gatewayData := proto.Gateway{
 					// We use the mesh interface MAC as the gateway identifier
 					// Not the br-awhlan MAC.  Batman-adv uses the mesh MAC to identify gateways.
