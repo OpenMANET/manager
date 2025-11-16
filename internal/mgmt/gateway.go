@@ -77,6 +77,10 @@ func (gw *GatewayWorker) StartSend() {
 
 				var gatewayDataBytes []byte
 				gatewayDataBytes, err = gatewayData.MarshalVT()
+				if err != nil {
+					gw.Config.Log.Error().Err(err).Msg("Error marshaling gateway data")
+					continue
+				}
 
 				err = gw.Client.Set(GatewayDataType, GatewayDataTypeVersion, gatewayDataBytes)
 				if err != nil {
