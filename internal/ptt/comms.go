@@ -58,7 +58,7 @@ func (ptt *PTTConfig) monitorPTT(dev *evdev.InputDevice, bcastStream *portaudio.
 		match := false
 		if pttKey == "any" {
 			match = true
-		} else if kc, err := strconv.Atoi(pttKey); err == nil && ev.Code == uint16(kc) {
+		} else if kc, err := strconv.Atoi(pttKey); err == nil && kc >= 0 && kc <= 65535 && ev.Code == uint16(kc) {
 			match = true
 		}
 		if !match {
