@@ -146,7 +146,9 @@ func (gw *GatewayWorker) StartReceive() {
 							// Replace default route with the matched gateway IP
 							ipString := net.ParseIP(gatewayData.Ipaddr)
 							if ipString != nil {
-								network.ReplaceDefaultRoute(ipString)
+								if err := network.ReplaceDefaultRoute(ipString); err != nil {
+									gw.Config.Log.Error().Err(err).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
+								}
 							}
 
 						}
