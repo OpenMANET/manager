@@ -1,7 +1,6 @@
 package ptt
 
 import (
-	"fmt"
 	"math"
 	"net"
 	"os"
