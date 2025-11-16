@@ -144,8 +144,16 @@ func (ptt *PTTConfig) Start() {
 	if err := portaudio.Initialize(); err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to initialize PortAudio")
 	}
-	defer portaudio.Terminate()
 
+	// Setup signal handler for cleanup
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigs
+		ptt.Log.Info().Msg("Received shutdown signal, cleaning up PortAudio")
+		portaudio.Terminate()
+		os.Exit(0)
+	}()
 	// playback stream
 	device := ptt.getDeviceByIndex(1)
 	params := portaudio.StreamParameters{
