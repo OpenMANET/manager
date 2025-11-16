@@ -3,6 +3,7 @@ package batmanadv
 import (
 	"encoding/json"
 	"os/exec"
+	"strconv"
 )
 
 type MeshConfig struct {
@@ -186,7 +187,7 @@ func formatFloat(f float64) string {
 
 // formatInt converts an integer to string
 func formatInt(i int) string {
-	return string(rune(i + '0'))
+	return strconv.Itoa(i)
 }
 
 // formatDecimal formats a decimal number

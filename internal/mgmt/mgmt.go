@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	nodeDataWorkerInterval    time.Duration = 5 * time.Second
+	nodeDataWorkerInterval        time.Duration = 5 * time.Second
 	gatewayDataWorkerSendInterval time.Duration = 60 * time.Second
 	gatewayDataWorkerRecvInterval time.Duration = 1 * time.Second
 )
