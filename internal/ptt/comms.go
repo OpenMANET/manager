@@ -68,7 +68,7 @@ func (ptt *PTTConfig) monitorPTT(dev *evdev.InputDevice, bcastStream *portaudio.
 		switch ev.Value {
 		case 1:
 			ptt.Log.Debug().Msgf("PTT down (code=%d)", ev.Code)
-			if isBroadcasting() {
+			if ptt.isBroadcasting() {
 				ptt.Log.Debug().Msgf("PTT toggle: stopping transmission")
 				ptt.endTransmission(bcastStream)
 			} else {
@@ -81,10 +81,10 @@ func (ptt *PTTConfig) monitorPTT(dev *evdev.InputDevice, bcastStream *portaudio.
 	}
 }
 
-func isBroadcasting() bool {
-	recordMutex.Lock()
-	defer recordMutex.Unlock()
-	return broadcasting
+func (ptt *PTTConfig) isBroadcasting() bool {
+	ptt.recordMutex.Lock()
+	defer ptt.recordMutex.Unlock()
+	return ptt.broadcasting
 }
 
 func drainPlaybackBuffer() {
@@ -98,14 +98,14 @@ func drainPlaybackBuffer() {
 }
 
 func (ptt *PTTConfig) beginTransmission(bcastStream *portaudio.Stream) {
-	recordMutex.Lock()
-	if broadcasting {
+	ptt.recordMutex.Lock()
+	if ptt.broadcasting {
 		ptt.Log.Debug().Msgf("PTT down ignored; already broadcasting")
-		recordMutex.Unlock()
+		ptt.recordMutex.Unlock()
 		return
 	}
-	broadcasting = true
-	recordMutex.Unlock()
+	ptt.broadcasting = true
+	ptt.recordMutex.Unlock()
 
 	ptt.Log.Debug().Msgf("Begin transmission: playing start tone and starting mic stream")
 	drainPlaybackBuffer()
@@ -114,9 +114,9 @@ func (ptt *PTTConfig) beginTransmission(bcastStream *portaudio.Stream) {
 
 	if err := bcastStream.Start(); err != nil {
 		ptt.Log.Error().Err(err).Msg("Failed to start mic stream")
-		recordMutex.Lock()
-		broadcasting = false
-		recordMutex.Unlock()
+		ptt.recordMutex.Lock()
+		ptt.broadcasting = false
+		ptt.recordMutex.Unlock()
 		return
 	}
 
@@ -124,15 +124,15 @@ func (ptt *PTTConfig) beginTransmission(bcastStream *portaudio.Stream) {
 }
 
 func (ptt *PTTConfig) endTransmission(bcastStream *portaudio.Stream) {
-	recordMutex.Lock()
+	ptt.recordMutex.Lock()
 
-	if !broadcasting {
+	if !ptt.broadcasting {
 		ptt.Log.Debug().Msgf("PTT up ignored; mic already idle")
-		recordMutex.Unlock()
+		ptt.recordMutex.Unlock()
 		return
 	}
 
-	recordMutex.Unlock()
+	ptt.recordMutex.Unlock()
 
 	ptt.Log.Debug().Msg("End transmission: stopping mic stream and playing stop tone")
 	if err := bcastStream.Stop(); err != nil {
@@ -144,7 +144,7 @@ func (ptt *PTTConfig) endTransmission(bcastStream *portaudio.Stream) {
 	drainPlaybackBuffer()
 	playbackBuffer <- beepBufferStop
 
-	recordMutex.Lock()
-	broadcasting = false
-	recordMutex.Unlock()
+	ptt.recordMutex.Lock()
+	ptt.broadcasting = false
+	ptt.recordMutex.Unlock()
 }

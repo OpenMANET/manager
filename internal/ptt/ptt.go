@@ -42,8 +42,6 @@ var (
 	beepBufferStart = make([]float32, frameSize)
 	beepBufferStop  = make([]float32, frameSize)
 	broadcastStream *portaudio.Stream
-	broadcasting    bool
-	recordMutex     sync.Mutex
 
 	// config from UCI (with fallbacks)
 	ifaceName     = defaultIface
@@ -65,6 +63,10 @@ type PTTConfig struct {
 	Debug     bool
 	Loopback  bool
 	PttDevice string
+
+	// instance-specific concurrency state
+	broadcasting bool
+	recordMutex  sync.Mutex
 }
 
 func NewPTT(cfg PTTConfig) *PTTConfig {
