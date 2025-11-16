@@ -2,6 +2,7 @@ package batmanadv
 
 import (
 	"encoding/json"
+	"fmt"
 	"os/exec"
 )
 
@@ -178,22 +179,11 @@ func formatKbit(kbit int) string {
 
 // formatFloat formats a float with appropriate precision
 func formatFloat(f float64) string {
-	if f == float64(int(f)) {
-		return formatInt(int(f))
+	// Format with 1 decimal place
+	s := fmt.Sprintf("%.1f", f)
+	// Remove trailing .0 for whole numbers
+	if len(s) >= 2 && s[len(s)-2:] == ".0" {
+		return s[:len(s)-2]
 	}
-	return formatDecimal(f)
-}
-
-// formatInt converts an integer to string
-func formatInt(i int) string {
-	return string(rune(i + '0'))
-}
-
-// formatDecimal formats a decimal number
-func formatDecimal(f float64) string {
-	// Simple formatting for bandwidth display
-	if f < 10 {
-		return string(rune(int(f*10)/10+'0')) + "." + string(rune(int(f*10)%10+'0'))
-	}
-	return string(rune(int(f) + '0'))
+	return s
 }
