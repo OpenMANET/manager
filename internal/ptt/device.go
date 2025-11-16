@@ -25,7 +25,7 @@ func (ptt *PTTConfig) getDeviceByIndex(index int) *portaudio.DeviceInfo {
 func (ptt *PTTConfig) findPTTDevice() *evdev.InputDevice {
 	devs, err := evdev.ListInputDevices()
 	if err != nil {
-		log.Fatalf("evdev.ListInputDevices: %v", err)
+		ptt.Log.Fatal().Err(err).Msg("evdev.ListInputDevices")
 	}
 
 	for _, d := range devs {
