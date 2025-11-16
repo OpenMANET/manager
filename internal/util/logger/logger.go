@@ -31,7 +31,7 @@ func InitLogging(ctx context.Context) zerolog.Logger {
 	zerolog.MessageFieldName = MessageFieldName
 	zerolog.ErrorFieldName = errorFieldName
 
-	// UNIX Time is faster and smaller than most timestamps
+	// Use RFC3339 for human-readable timestamps
 	zerolog.TimeFieldFormat = time.RFC3339
 
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
