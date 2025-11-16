@@ -2,7 +2,9 @@ package batmanadv
 
 import (
 	"encoding/json"
+	"fmt"
 	"os/exec"
+	"strconv"
 )
 
 type MeshConfig struct {
@@ -186,14 +188,10 @@ func formatFloat(f float64) string {
 
 // formatInt converts an integer to string
 func formatInt(i int) string {
-	return string(rune(i + '0'))
+	return strconv.Itoa(i)
 }
 
 // formatDecimal formats a decimal number
 func formatDecimal(f float64) string {
-	// Simple formatting for bandwidth display
-	if f < 10 {
-		return string(rune(int(f*10)/10+'0')) + "." + string(rune(int(f*10)%10+'0'))
-	}
-	return string(rune(int(f) + '0'))
+	return fmt.Sprintf("%.1f", f)
 }
