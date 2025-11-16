@@ -16,7 +16,7 @@
       "moby": false
     },
     "ghcr.io/rocker-org/devcontainer-features/apt-packages:1": {
-      "packages": "build-essential,libnl-3-dev,libnl-genl-3-dev,libgps-dev,libcap-dev"
+      "packages": "build-essential,libnl-3-dev,libnl-genl-3-dev,libgps-dev,libcap-dev,pkg-config,libopus-dev,libopusfile-dev,portaudio19-dev,batctl,net-tools,alfred"
     }
   },
   "onCreateCommand": {
@@ -46,6 +46,7 @@
     // Uncomment the next line to use a non-root user. On Linux, this will prevent
     // new files getting created as root, but you may need to update the USER_UID
     // and USER_GID in .devcontainer/Dockerfile to match your user if not 1000.
+    "--network=host",
     "-v",
     "/dev:/dev",
     "-u",

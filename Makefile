@@ -28,6 +28,10 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
+.PHONY: alfred
+alfred: ## Make Alfred for Go Bindings
+	make -C internal/alfred/alfred
+
 .PHONY: build
 build: fmt vet ## Build manager binary.
 	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -o bin/openmanetd main.go

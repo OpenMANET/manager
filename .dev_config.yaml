@@ -1,5 +1,5 @@
-logLevel: info
-meshNetInterface: br-ahwlan
+logLevel: debug
+meshNetInterface: eth0
 gatewayMode: false
 alfred:
   mode: primary
