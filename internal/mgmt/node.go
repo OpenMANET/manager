@@ -57,6 +57,10 @@ func (ndw *NodeDataWorker) StartSend() {
 
 			var nodeDataBytes []byte
 			nodeDataBytes, err = nodeData.MarshalVT()
+			if err != nil {
+				ndw.Config.Log.Error().Err(err).Msg("Error marshaling node data")
+				continue
+			}
 
 			err = ndw.Client.Set(NodeDataType, NodeDataTypeVersion, nodeDataBytes)
 			if err != nil {
