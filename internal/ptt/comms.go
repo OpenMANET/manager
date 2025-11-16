@@ -1,7 +1,6 @@
 package ptt
 
 import (
-	"log"
 	"net"
 	"strconv"
 	"time"
