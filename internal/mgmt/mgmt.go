@@ -27,8 +27,6 @@ type ManagementConfig struct {
 
 	gatewayWorkerSendInterval time.Duration
 	gatewayWorkerRecvInterval time.Duration
-	nodeDataWorkerSendInterval time.Duration
-	nodeDataWorkerRecvInterval time.Duration
 }
 
 func NewManager(cfg ManagementConfig) *ManagementConfig {
