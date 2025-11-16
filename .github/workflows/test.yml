@@ -18,5 +18,8 @@ jobs:
         with:
           go-version-file: "go.mod"
 
+      - name: Install Dependencies
+        run: apt install -y build-essential libnl-3-dev libnl-genl-3-dev libgps-dev libcap-dev pkg-config libopus-dev libopusfile-dev portaudio19-dev batctl net-tools alfred
+
       - name: Run tests
         run: make test
