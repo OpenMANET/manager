@@ -25,8 +25,8 @@ const (
 	LogComponentFieldName string = "component"
 )
 
-// InitLogging initializes the logging configuration
-func InitLogging(ctx context.Context) zerolog.Logger {
+// initializeZerologConfig sets up the global zerolog configuration
+func initializeZerologConfig() {
 	zerolog.TimestampFieldName = timestampFieldName
 	zerolog.MessageFieldName = MessageFieldName
 	zerolog.ErrorFieldName = errorFieldName
@@ -35,70 +35,52 @@ func InitLogging(ctx context.Context) zerolog.Logger {
 	zerolog.TimeFieldFormat = time.RFC3339
 
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
+}
 
+// createBaseLogger creates a zerolog.Logger with console output and basic configuration
+func createBaseLogger() zerolog.Logger {
 	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+	return zerolog.New(output)
+}
 
-	zlog := zerolog.New(output)
+// finalizeLogger sets the global log level and configures the standard library logger
+func finalizeLogger(zlog zerolog.Logger) {
+	// Set Global Log Level From Environment Configuration
+	setLogLevel(viper.GetString("logLevel"))
+
+	// Set our logger as the writer for standard library log
+	stdlog.SetFlags(0)
+	stdlog.SetOutput(zlog)
+}
+
+// InitLogging initializes the logging configuration
+func InitLogging(ctx context.Context) zerolog.Logger {
+	initializeZerologConfig()
+
+	zlog := createBaseLogger()
 
 	zlog = zlog.With().Timestamp().
 		Ctx(ctx).
 		Stack().
 		Logger()
 
-	// Set Global Log Level From Environment Configuration
-	setLogLevel(viper.GetString("logLevel"))
-
-	// Set our logger as the writer for standard library log
-	stdlog.SetFlags(0)
-	stdlog.SetOutput(zlog)
+	finalizeLogger(zlog)
 
 	return zlog
 }
 
 // getLogger returns a logger with the given component name
 func getLogger(component string) zerolog.Logger {
+	initializeZerologConfig()
 
-	zerolog.TimestampFieldName = timestampFieldName
-	zerolog.MessageFieldName = MessageFieldName
-	zerolog.ErrorFieldName = errorFieldName
-
-	// UNIX Time is faster and smaller than most timestamps
-	zerolog.TimeFieldFormat = time.RFC3339
-
-	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
-
-	/* output := zerolog.ConsoleWriter{
-		Out:        os.Stdout,
-		TimeFormat: time.RFC3339,
-		FormatLevel: func(i interface{}) string {
-			return strings.ToUpper(fmt.Sprintf("[%s]", i))
-		},
-		FormatMessage: func(i interface{}) string {
-			return fmt.Sprintf("*%s*", i)
-		},
-		FormatFieldName: func(i interface{}) string {
-			return fmt.Sprintf("%s:", i)
-		},
-		FormatFieldValue: func(i interface{}) string {
-			return strings.ToUpper(fmt.Sprintf("%s", i))
-		},
-	} */
-
-	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
-
-	zlog := zerolog.New(output)
+	zlog := createBaseLogger()
 
 	zlog = zlog.With().Timestamp().
 		Str(LogComponentFieldName, component).
 		Stack().
 		Logger()
 
-	// Set Global Log Level From Environment Configuration
-	setLogLevel(viper.GetString("logLevel"))
-
-	// Set our logger as the writer for standard library log
-	stdlog.SetFlags(0)
-	stdlog.SetOutput(zlog)
+	finalizeLogger(zlog)
 
 	return zlog
 }
