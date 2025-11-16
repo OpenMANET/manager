@@ -7,22 +7,34 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const (
+	nodeDataWorkerInterval    time.Duration = 5 * time.Second
+	gatewayDataWorkerSendInterval time.Duration = 60 * time.Second
+	gatewayDataWorkerRecvInterval time.Duration = 1 * time.Second
+)
+
 type ManagementConfig struct {
 	Log                        zerolog.Logger
-	Mode                       string
+	GatewayMode                bool
 	IFace                      string
+	AlfredMode                 string
 	BatInterface               string
 	SocketPath                 string
 	GatewayDataType            bool
 	NodeDataType               bool
 	PositionDataType           bool
 	AddressReservationDataType bool
+
+	gatewayWorkerSendInterval time.Duration
+	gatewayWorkerRecvInterval time.Duration
+	nodeDataWorkerSendInterval time.Duration
+	nodeDataWorkerRecvInterval time.Duration
 }
 
 func NewManager(cfg ManagementConfig) *ManagementConfig {
 	return &ManagementConfig{
 		Log:                        cfg.Log,
-		Mode:                       cfg.Mode,
+		AlfredMode:                 cfg.AlfredMode,
 		IFace:                      cfg.IFace,
 		BatInterface:               cfg.BatInterface,
 		SocketPath:                 cfg.SocketPath,
@@ -30,41 +42,26 @@ func NewManager(cfg ManagementConfig) *ManagementConfig {
 		NodeDataType:               cfg.NodeDataType,
 		PositionDataType:           cfg.PositionDataType,
 		AddressReservationDataType: cfg.AddressReservationDataType,
+		gatewayWorkerSendInterval:  gatewayDataWorkerSendInterval,
+		gatewayWorkerRecvInterval:  gatewayDataWorkerRecvInterval,
 	}
 }
 
 func (m *ManagementConfig) Start() {
 	client, err := alfred.NewClient(alfred.WithSocketPath(m.SocketPath))
 	if err != nil {
-		panic(err)
+		m.Log.Fatal().Err(err).Msg("Failed to create Alfred client")
 	}
-	//defer client.Close()
 
-	/* 	switch cfg.Mode {
-	   	case "primary":
-	   		err = client.ModeSwitch(alfred.ModePrimary)
-	   	case "secondary":
-	   		err = client.ModeSwitch(alfred.ModeSecondary)
-	   	default:
-	   		panic("invalid alfred mode in config")
-	   	}
-	   	if err != nil {
-	   		panic(err)
-	   	}
-
-	   	if err = client.ChangeInterfaces(cfg.IFace); err != nil {
-	   		panic(err)
-	   	}
-
-	   	if err = client.ChangeBatmanInterface(cfg.BatInterface); err != nil {
-	   		panic(err)
-	   	}
-	*/
 	m.Log.Info().Msg("Alfred Client Started")
 
-	nodeDataWorker := NewNodeDataWorker(m, client, 5*time.Second, make(chan any))
-
+	nodeDataWorker := NewNodeDataWorker(m, client, nodeDataWorkerInterval, make(chan any))
 	go nodeDataWorker.StartSend()
 	go nodeDataWorker.StartReceive()
+
+	// Start the gateway worker
+	gatewayDataWorker := NewGatewayWorker(m, client, make(chan any))
+	go gatewayDataWorker.StartSend()
+	go gatewayDataWorker.StartReceive()
 
 }

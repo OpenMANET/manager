@@ -9,6 +9,11 @@ import (
 	"github.com/openmanet/openmanetd/internal/network"
 )
 
+const (
+	NodeDataType        uint8 = 102
+	NodeDataTypeVersion uint8 = 1
+)
+
 type NodeDataWorker struct {
 	Config       ManagementConfig
 	Client       *alfred.Client
@@ -17,6 +22,8 @@ type NodeDataWorker struct {
 }
 
 func NewNodeDataWorker(config *ManagementConfig, client *alfred.Client, interval time.Duration, shutdownChan <-chan any) *NodeDataWorker {
+	config.Log.Info().Msg("NodeDataWorker initialized")
+
 	return &NodeDataWorker{
 		Config:       *config,
 		Client:       client,
@@ -51,7 +58,7 @@ func (ndw *NodeDataWorker) StartSend() {
 			var nodeDataBytes []byte
 			nodeDataBytes, err = nodeData.MarshalVT()
 
-			err = ndw.Client.Set(65, 1, nodeDataBytes)
+			err = ndw.Client.Set(NodeDataType, NodeDataTypeVersion, nodeDataBytes)
 			if err != nil {
 				ndw.Config.Log.Error().Err(err).Msg("Error sending node data")
 			}
@@ -69,7 +76,7 @@ func (ndw *NodeDataWorker) StartReceive() {
 		case <-ndw.ShutdownChan:
 			return
 		case <-ticker.C:
-			record, err := ndw.Client.Request(65)
+			record, err := ndw.Client.Request(NodeDataType)
 			if err != nil {
 				ndw.Config.Log.Error().Err(err).Msg("Error receiving node data")
 			} else {

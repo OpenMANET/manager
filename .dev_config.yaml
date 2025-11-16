@@ -1,5 +1,6 @@
 logLevel: debug
-netInterface: eth0
+meshNetInterface: eth0
+gatewayMode: false
 alfred:
   mode: primary
   batInterface: bat0

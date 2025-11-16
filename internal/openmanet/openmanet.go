@@ -25,7 +25,7 @@ func Start() {
 	ptt := ptt.NewPTT(ptt.PTTConfig{
 		Log:       logger.GetLogger("ptt"),
 		Enable:    viper.GetBool("ptt.enable"),
-		Iface:     viper.GetString("netInterface"),
+		Iface:     viper.GetString("meshNetInterface"),
 		McastAddr: viper.GetString("ptt.mcastAddr"),
 		McastPort: viper.GetInt("ptt.mcastPort"),
 		PttKey:    viper.GetString("ptt.pttKey"),
@@ -38,8 +38,9 @@ func Start() {
 
 	mgmt := mgmt.NewManager(mgmt.ManagementConfig{
 		Log:                        logger.GetLogger("mgmt"),
-		Mode:                       viper.GetString("alfred.mode"),
-		IFace:                      viper.GetString("netInterface"),
+		GatewayMode:                viper.GetBool("gatewayMode"),
+		AlfredMode:                 viper.GetString("alfred.mode"),
+		IFace:                      viper.GetString("meshNetInterface"),
 		BatInterface:               viper.GetString("alfred.batInterface"),
 		SocketPath:                 viper.GetString("alfred.socketPath"),
 		GatewayDataType:            viper.GetBool("alfred.dataTypes.gateway"),

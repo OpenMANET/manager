@@ -1,5 +1,6 @@
 logLevel: info
-netInterface: br-ahwlan
+meshNetInterface: br-ahwlan
+gatewayMode: false
 alfred:
   mode: primary
   batInterface: bat0
