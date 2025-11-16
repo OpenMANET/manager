@@ -11,7 +11,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
         with:
-          submodules: 'true'
+          submodules: 'recursive'
 
       - name: Set up Go
         uses: actions/setup-go@v6
