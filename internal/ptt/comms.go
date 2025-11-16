@@ -113,7 +113,7 @@ func (ptt *PTTConfig) beginTransmission(bcastStream *portaudio.Stream) {
 	time.Sleep(200 * time.Millisecond)
 
 	if err := bcastStream.Start(); err != nil {
-		log.Printf("start mic: %v", err)
+		ptt.Log.Error().Err(err).Msg("Failed to start mic stream")
 		recordMutex.Lock()
 		broadcasting = false
 		recordMutex.Unlock()
