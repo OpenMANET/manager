@@ -25,8 +25,8 @@ const (
 	LogComponentFieldName string = "component"
 )
 
-// InitLogging initializes the logging configuration
-func InitLogging(ctx context.Context) zerolog.Logger {
+// configureZerolog sets up the common zerolog configuration
+func configureZerolog() {
 	zerolog.TimestampFieldName = timestampFieldName
 	zerolog.MessageFieldName = MessageFieldName
 	zerolog.ErrorFieldName = errorFieldName
@@ -35,6 +35,11 @@ func InitLogging(ctx context.Context) zerolog.Logger {
 	zerolog.TimeFieldFormat = time.RFC3339
 
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
+}
+
+// InitLogging initializes the logging configuration
+func InitLogging(ctx context.Context) zerolog.Logger {
+	configureZerolog()
 
 	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
 
@@ -57,15 +62,7 @@ func InitLogging(ctx context.Context) zerolog.Logger {
 
 // getLogger returns a logger with the given component name
 func getLogger(component string) zerolog.Logger {
-
-	zerolog.TimestampFieldName = timestampFieldName
-	zerolog.MessageFieldName = MessageFieldName
-	zerolog.ErrorFieldName = errorFieldName
-
-	// UNIX Time is faster and smaller than most timestamps
-	zerolog.TimeFieldFormat = time.RFC3339
-
-	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
+	configureZerolog()
 
 	/* output := zerolog.ConsoleWriter{
 		Out:        os.Stdout,
