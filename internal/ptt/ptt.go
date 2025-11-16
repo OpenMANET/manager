@@ -251,7 +251,7 @@ func (ptt *PTTConfig) Start() {
 
 	// PTT input (kept as-is for now)
 	pttDevice := ptt.findPTTDevice()
-	fmt.Println("🎙️ Listening for PTT on:", pttDevice.Name)
+	ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", pttDevice.Name)
 	ptt.Log.Debug().Msgf("Monitoring PTT device %s", pttDevice.Name)
 	go ptt.monitorPTT(pttDevice, broadcastStream)
 
