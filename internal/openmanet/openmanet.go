@@ -18,11 +18,13 @@ func Start() {
 		ctx    = context.Background()
 		banner = figure.NewFigure("OpenMANET", "big", true)
 		log    = logger.InitLogging(ctx)
+		c      = make(chan os.Signal, 1)
 	)
 
 	banner.Print()
 
 	ptt := ptt.NewPTT(ptt.PTTConfig{
+		Interupt:  c,
 		Log:       logger.GetLogger("ptt"),
 		Enable:    viper.GetBool("ptt.enable"),
 		Iface:     viper.GetString("meshNetInterface"),
@@ -37,6 +39,7 @@ func Start() {
 	ptt.Start()
 
 	mgmt := mgmt.NewManager(mgmt.ManagementConfig{
+		InteruptChan:               c,
 		Log:                        logger.GetLogger("mgmt"),
 		GatewayMode:                viper.GetBool("gatewayMode"),
 		AlfredMode:                 viper.GetString("alfred.mode"),
@@ -51,7 +54,6 @@ func Start() {
 
 	mgmt.Start()
 
-	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
 	log.Info().Msg("Exiting OpenMANETd")

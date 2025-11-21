@@ -56,6 +56,7 @@ var (
 
 type PTTConfig struct {
 	Log       zerolog.Logger
+	Interupt  chan os.Signal
 	Enable    bool
 	Iface     string
 	McastAddr string
@@ -69,6 +70,7 @@ type PTTConfig struct {
 func NewPTT(cfg PTTConfig) *PTTConfig {
 	return &PTTConfig{
 		Log:       cfg.Log,
+		Interupt:  cfg.Interupt,
 		Enable:    cfg.Enable,
 		Iface:     cfg.Iface,
 		McastAddr: cfg.McastAddr,
@@ -144,15 +146,14 @@ func (ptt *PTTConfig) Start() {
 		ptt.Log.Fatal().Err(err).Msg("Failed to initialize PortAudio")
 	}
 
-	// Setup signal handler for cleanup
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	// handle shutdown
 	go func() {
-		<-sigs
+		<-ptt.Interupt
 		ptt.Log.Info().Msg("Received shutdown signal, cleaning up PortAudio")
 		portaudio.Terminate()
 		os.Exit(0)
 	}()
+	
 	// playback stream
 	device := ptt.getDeviceByIndex(1)
 	params := portaudio.StreamParameters{
