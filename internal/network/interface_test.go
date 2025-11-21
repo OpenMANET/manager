@@ -330,3 +330,178 @@ func TestGetInterfaceByNameCaseSensitivity(t *testing.T) {
 		}
 	})
 }
+
+func TestNetworkInterface_GetCIDR(t *testing.T) {
+	tests := []struct {
+		name      string
+		iface     NetworkInterface
+		wantCIDRs []string
+	}{
+		{
+			name: "single IPv4 address",
+			iface: NetworkInterface{
+				Name: "eth0",
+				IP: []IPAddress{
+					{
+						IP:      net.ParseIP("192.168.1.10"),
+						Netmask: net.CIDRMask(24, 32),
+					},
+				},
+			},
+			wantCIDRs: []string{"192.168.1.10/24"},
+		},
+		{
+			name: "multiple IP addresses",
+			iface: NetworkInterface{
+				Name: "eth0",
+				IP: []IPAddress{
+					{
+						IP:      net.ParseIP("192.168.1.10"),
+						Netmask: net.CIDRMask(24, 32),
+					},
+					{
+						IP:      net.ParseIP("10.0.0.5"),
+						Netmask: net.CIDRMask(8, 32),
+					},
+				},
+			},
+			wantCIDRs: []string{"192.168.1.10/24", "10.0.0.5/8"},
+		},
+		{
+			name: "IPv6 address",
+			iface: NetworkInterface{
+				Name: "eth0",
+				IP: []IPAddress{
+					{
+						IP:      net.ParseIP("2001:db8::1"),
+						Netmask: net.CIDRMask(64, 128),
+					},
+				},
+			},
+			wantCIDRs: []string{"2001:db8::1/64"},
+		},
+		{
+			name: "mixed IPv4 and IPv6",
+			iface: NetworkInterface{
+				Name: "eth0",
+				IP: []IPAddress{
+					{
+						IP:      net.ParseIP("192.168.1.10"),
+						Netmask: net.CIDRMask(24, 32),
+					},
+					{
+						IP:      net.ParseIP("fe80::1"),
+						Netmask: net.CIDRMask(64, 128),
+					},
+				},
+			},
+			wantCIDRs: []string{"192.168.1.10/24", "fe80::1/64"},
+		},
+		{
+			name: "no IP addresses",
+			iface: NetworkInterface{
+				Name: "eth0",
+				IP:   []IPAddress{},
+			},
+			wantCIDRs: []string{},
+		},
+		{
+			name: "nil IP in address",
+			iface: NetworkInterface{
+				Name: "eth0",
+				IP: []IPAddress{
+					{
+						IP:      nil,
+						Netmask: net.CIDRMask(24, 32),
+					},
+				},
+			},
+			wantCIDRs: []string{},
+		},
+		{
+			name: "nil netmask in address",
+			iface: NetworkInterface{
+				Name: "eth0",
+				IP: []IPAddress{
+					{
+						IP:      net.ParseIP("192.168.1.10"),
+						Netmask: nil,
+					},
+				},
+			},
+			wantCIDRs: []string{},
+		},
+		{
+			name: "different subnet masks",
+			iface: NetworkInterface{
+				Name: "eth0",
+				IP: []IPAddress{
+					{
+						IP:      net.ParseIP("192.168.0.1"),
+						Netmask: net.CIDRMask(32, 32),
+					},
+					{
+						IP:      net.ParseIP("172.16.0.1"),
+						Netmask: net.CIDRMask(16, 32),
+					},
+					{
+						IP:      net.ParseIP("10.0.0.1"),
+						Netmask: net.CIDRMask(8, 32),
+					},
+				},
+			},
+			wantCIDRs: []string{"192.168.0.1/32", "172.16.0.1/16", "10.0.0.1/8"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.iface.GetCIDR()
+
+			if len(got) != len(tt.wantCIDRs) {
+				t.Errorf("GetCIDR() returned %d CIDRs, want %d", len(got), len(tt.wantCIDRs))
+				t.Errorf("Got: %v", got)
+				t.Errorf("Want: %v", tt.wantCIDRs)
+				return
+			}
+
+			for i, cidr := range got {
+				if cidr != tt.wantCIDRs[i] {
+					t.Errorf("GetCIDR()[%d] = %v, want %v", i, cidr, tt.wantCIDRs[i])
+				}
+			}
+		})
+	}
+}
+
+func TestNetworkInterface_GetCIDR_RealInterface(t *testing.T) {
+	// Test with a real network interface
+	interfaces, err := net.Interfaces()
+	if err != nil || len(interfaces) == 0 {
+		t.Skip("No network interfaces available for testing")
+	}
+
+	// Find an interface with at least one IP address
+	for _, iface := range interfaces {
+		netIface := GetInterfaceByName(iface.Name)
+		if len(netIface.IP) == 0 {
+			continue
+		}
+
+		cidrs := netIface.GetCIDR()
+		t.Logf("Interface %s has %d CIDR(s): %v", netIface.Name, len(cidrs), cidrs)
+
+		// Verify each CIDR is valid
+		for _, cidr := range cidrs {
+			_, _, err := net.ParseCIDR(cidr)
+			if err != nil {
+				t.Errorf("Invalid CIDR notation %q: %v", cidr, err)
+			}
+		}
+
+		// At least one test passed, we can return
+		return
+	}
+
+	t.Skip("No interface found with IP addresses")
+}

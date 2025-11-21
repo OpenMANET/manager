@@ -1,6 +1,7 @@
 package mgmt
 
 import (
+	"os"
 	"time"
 
 	"github.com/openmanet/go-alfred"
@@ -8,9 +9,13 @@ import (
 )
 
 const (
-	nodeDataWorkerInterval    time.Duration = 5 * time.Second
+	nodeDataWorkerInterval time.Duration = 5 * time.Second
+
 	gatewayDataWorkerSendInterval time.Duration = 60 * time.Second
 	gatewayDataWorkerRecvInterval time.Duration = 1 * time.Second
+
+	addressReservationWorkerSendInterval time.Duration = 30 * time.Second
+	addressReservationWorkerRecvInterval time.Duration = 5 * time.Second
 )
 
 type ManagementConfig struct {
@@ -24,9 +29,13 @@ type ManagementConfig struct {
 	NodeDataType               bool
 	PositionDataType           bool
 	AddressReservationDataType bool
+	InteruptChan               chan os.Signal
 
 	gatewayWorkerSendInterval time.Duration
 	gatewayWorkerRecvInterval time.Duration
+
+	addressReservationWorkerSendInterval time.Duration
+	addressReservationWorkerRecvInterval time.Duration
 }
 
 func NewManager(cfg ManagementConfig) *ManagementConfig {
@@ -40,8 +49,13 @@ func NewManager(cfg ManagementConfig) *ManagementConfig {
 		NodeDataType:               cfg.NodeDataType,
 		PositionDataType:           cfg.PositionDataType,
 		AddressReservationDataType: cfg.AddressReservationDataType,
-		gatewayWorkerSendInterval:  gatewayDataWorkerSendInterval,
-		gatewayWorkerRecvInterval:  gatewayDataWorkerRecvInterval,
+		InteruptChan:               cfg.InteruptChan,
+		GatewayMode:                cfg.GatewayMode,
+
+		gatewayWorkerSendInterval:            gatewayDataWorkerSendInterval,
+		gatewayWorkerRecvInterval:            gatewayDataWorkerRecvInterval,
+		addressReservationWorkerSendInterval: addressReservationWorkerSendInterval,
+		addressReservationWorkerRecvInterval: addressReservationWorkerRecvInterval,
 	}
 }
 
@@ -53,12 +67,16 @@ func (m *ManagementConfig) Start() {
 
 	m.Log.Info().Msg("Alfred Client Started")
 
-	nodeDataWorker := NewNodeDataWorker(m, client, nodeDataWorkerInterval, make(chan any))
+	addressReservationWorker := NewAddressReservationWorker(m, client, m.InteruptChan)
+	go addressReservationWorker.StartSend()
+	go addressReservationWorker.StartReceive()
+
+	nodeDataWorker := NewNodeDataWorker(m, client, nodeDataWorkerInterval, m.InteruptChan)
 	go nodeDataWorker.StartSend()
 	go nodeDataWorker.StartReceive()
 
 	// Start the gateway worker
-	gatewayDataWorker := NewGatewayWorker(m, client, make(chan any))
+	gatewayDataWorker := NewGatewayWorker(m, client, m.InteruptChan)
 	go gatewayDataWorker.StartSend()
 	go gatewayDataWorker.StartReceive()
 

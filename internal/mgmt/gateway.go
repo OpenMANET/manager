@@ -19,13 +19,13 @@ const (
 type GatewayWorker struct {
 	Config       ManagementConfig
 	Client       *alfred.Client
-	ShutdownChan <-chan any
+	ShutdownChan <-chan os.Signal
 
 	sendInterval time.Duration
 	recvInterval time.Duration
 }
 
-func NewGatewayWorker(config *ManagementConfig, client *alfred.Client, shutdownChan <-chan any) *GatewayWorker {
+func NewGatewayWorker(config *ManagementConfig, client *alfred.Client, shutdownChan <-chan os.Signal) *GatewayWorker {
 	config.Log.Info().Msg("GatewayWorker initialized")
 
 	return &GatewayWorker{
@@ -64,6 +64,19 @@ func (gw *GatewayWorker) StartSend() {
 					hostname = "unknown"
 				}
 
+				// Verify that the interface has an IP address
+				if len(iface.IP) == 0 {
+					gw.Config.Log.Warn().Msgf("Interface %s has no IP address", gw.Config.IFace)
+					continue
+				}
+
+				// Verify that the interface has a valid IPV4 address
+				if iface.IP[0].IP.To4() == nil {
+					gw.Config.Log.Warn().Msgf("Interface %s has no valid IPv4 address", gw.Config.IFace)
+					continue
+				}
+
+				// Prepare gateway data
 				gatewayData := proto.Gateway{
 					// We use the mesh interface MAC as the gateway identifier
 					// Not the br-awhlan MAC.  Batman-adv uses the mesh MAC to identify gateways.
@@ -131,20 +144,19 @@ func (gw *GatewayWorker) StartReceive() {
 				}
 
 				// If only one gateway is present from batman-adv, loop through the
-				// gateway records and match batman-adv router MAC to the received gateway MAC
+				// gateway records and match batman-adv original address MAC to the received gateway MAC
 				// This is to identify the active gateway in the mesh
 				if len(*batGwys) == 1 {
 					batGw := batGwys.GetBest()
 					for _, rec := range record {
 						var gatewayData proto.Gateway
 						err = gatewayData.UnmarshalVT(rec.Data)
-
 						if err != nil {
 							gw.Config.Log.Error().Err(err).Msg("Error unmarshaling gateway data")
 							continue
 						}
 
-						if gatewayData.Mac == batGw.Router {
+						if gatewayData.Mac == batGw.OrigAddress {
 							gw.Config.Log.Debug().Msgf("Matched gateway: %+v", &gatewayData)
 
 							// Replace default route with the matched gateway IP
@@ -162,6 +174,9 @@ func (gw *GatewayWorker) StartReceive() {
 				}
 
 				if len(*batGwys) > 1 {
+					// TODO: Handle multiple gateways in batman-adv
+					batGw := batGwys.GetBest()
+
 					gw.Config.Log.Debug().Msg("Multiple gateways present in batman-adv")
 					// Process received gateway records
 					for _, rec := range record {
@@ -173,7 +188,20 @@ func (gw *GatewayWorker) StartReceive() {
 							continue
 						}
 
-						// Check if this gateway is present in batman-adv
+						// TODO: Handle multiple gateways in batman-adv
+						if gatewayData.Mac == batGw.OrigAddress {
+							gw.Config.Log.Debug().Msgf("Matched gateway: %+v", &gatewayData)
+
+							// Replace default route with the matched gateway IP
+							ipString := net.ParseIP(gatewayData.Ipaddr)
+							if ipString != nil {
+								if err := network.ReplaceDefaultRoute(ipString); err != nil {
+									gw.Config.Log.Error().Err(err).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
+								}
+							}
+
+							break
+						}
 					}
 				}
 			}

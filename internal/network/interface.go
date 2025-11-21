@@ -99,3 +99,37 @@ func calculateBroadcastAddress(ipNet *net.IPNet) net.IP {
 	}
 	return broadcast
 }
+
+// GetCIDR returns the CIDR notation(s) for the network interface.
+// It converts each IP address and its netmask into CIDR format (e.g., "192.168.1.10/24").
+// If the interface has no IP addresses, an empty slice is returned.
+//
+// Returns:
+//   - []string: A slice of CIDR notation strings for all IP addresses on the interface.
+//
+// Example:
+//
+//	iface := GetInterfaceByName("eth0")
+//	cidrs := iface.GetCIDR()
+//	for _, cidr := range cidrs {
+//	    fmt.Println(cidr)  // Output: "192.168.1.10/24"
+//	}
+func (ni *NetworkInterface) GetCIDR() []string {
+	var cidrs []string
+
+	for _, ipAddr := range ni.IP {
+		if ipAddr.IP == nil || ipAddr.Netmask == nil {
+			continue
+		}
+
+		// Create IPNet from IP and Netmask
+		ipNet := &net.IPNet{
+			IP:   ipAddr.IP,
+			Mask: ipAddr.Netmask,
+		}
+
+		cidrs = append(cidrs, ipNet.String())
+	}
+
+	return cidrs
+}

@@ -1,11 +1,17 @@
 package network
 
 import (
+	"errors"
 	"fmt"
 	"net"
 
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
+)
+
+var (
+	// ErrNoRouteFound is returned when no route could be found for a given query
+	ErrNoRouteFound = errors.New("no route found")
 )
 
 // Route represents a routing table entry in the Linux kernel routing table.
@@ -545,7 +551,7 @@ func GetRouteToDestination(destination net.IP) (*Route, error) {
 	}
 
 	if len(nlRoute) == 0 {
-		return nil, fmt.Errorf("no route found to %s", destination)
+		return nil, ErrNoRouteFound
 	}
 
 	r := nlRoute[0]
