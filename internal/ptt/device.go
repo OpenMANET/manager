@@ -16,9 +16,9 @@ func (ptt *PTTConfig) getDeviceByIndex(index int) *portaudio.DeviceInfo {
 	}
 
 	if ptt.Debug {
-		ptt.Log.Log().Msgf("Discovered %d audio devices:", len(devs))
+		ptt.Log.Debug().Msgf("Discovered %d audio devices:", len(devs))
 		for i, d := range devs {
-			ptt.Log.Log().Msgf(" [%d] %s", i, d.Name)
+			ptt.Log.Debug().Msgf(" [%d] %s", i, d.Name)
 		}
 	}
 
