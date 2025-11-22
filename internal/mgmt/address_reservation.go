@@ -21,6 +21,7 @@ type AddressReservationWorker struct {
 
 	sendInterval time.Duration
 	recvInterval time.Duration
+	addressSet   bool
 }
 
 func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client, shutdownChan <-chan os.Signal) *AddressReservationWorker {
@@ -33,6 +34,7 @@ func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client
 
 		sendInterval: config.gatewayWorkerSendInterval,
 		recvInterval: config.gatewayWorkerRecvInterval,
+		addressSet:   false,
 	}
 }
 
@@ -94,6 +96,11 @@ func (arw *AddressReservationWorker) StartReceive() {
 		case <-arw.ShutdownChan:
 			return
 		case <-ticker.C:
+			// If address is already set, skip receiving
+			if arw.addressSet {
+				continue
+			}
+			
 			// Get address reservation data from the Alfred client
 			record, err := arw.Client.Request(AddressReservationDataType)
 			if err != nil {

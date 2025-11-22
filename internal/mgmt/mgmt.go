@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	nodeDataWorkerInterval time.Duration = 5 * time.Second
+	nodeDataWorkerInterval time.Duration = 10 * time.Second
 
 	gatewayDataWorkerSendInterval time.Duration = 60 * time.Second
 	gatewayDataWorkerRecvInterval time.Duration = 1 * time.Second
@@ -67,17 +67,24 @@ func (m *ManagementConfig) Start() {
 
 	m.Log.Info().Msg("Alfred Client Started")
 
-	addressReservationWorker := NewAddressReservationWorker(m, client, m.InteruptChan)
-	go addressReservationWorker.StartSend()
-	go addressReservationWorker.StartReceive()
+	if m.AddressReservationDataType {
+		addressReservationWorker := NewAddressReservationWorker(m, client, m.InteruptChan)
+		go addressReservationWorker.StartSend()
+		go addressReservationWorker.StartReceive()
+	}
 
-	nodeDataWorker := NewNodeDataWorker(m, client, nodeDataWorkerInterval, m.InteruptChan)
-	go nodeDataWorker.StartSend()
-	go nodeDataWorker.StartReceive()
+	if m.NodeDataType {
+		// Start the node data worker
+		nodeDataWorker := NewNodeDataWorker(m, client, nodeDataWorkerInterval, m.InteruptChan)
+		go nodeDataWorker.StartSend()
+		go nodeDataWorker.StartReceive()
 
-	// Start the gateway worker
-	gatewayDataWorker := NewGatewayWorker(m, client, m.InteruptChan)
-	go gatewayDataWorker.StartSend()
-	go gatewayDataWorker.StartReceive()
+	}
 
+	if m.GatewayDataType {
+		// Start the gateway worker
+		gatewayDataWorker := NewGatewayWorker(m, client, m.InteruptChan)
+		go gatewayDataWorker.StartSend()
+		go gatewayDataWorker.StartReceive()
+	}
 }

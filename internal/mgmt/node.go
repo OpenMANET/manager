@@ -90,6 +90,15 @@ func (ndw *NodeDataWorker) StartReceive() {
 					if err != nil {
 						ndw.Config.Log.Error().Err(err).Msg("Error unmarshaling node data")
 					} else {
+						hostname, err := os.Hostname()
+						if err != nil {
+							ndw.Config.Log.Error().Err(err).Msg("Error getting hostname")
+						}
+						// ignore our own node data
+						if nodeData.Hostname == hostname {
+							continue
+						}
+
 						ndw.Config.Log.Debug().Msgf("Received node data: %+v", &nodeData)
 					}
 				}

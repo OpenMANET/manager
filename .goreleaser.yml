@@ -8,7 +8,11 @@ gomod:
   proxy: false
 builds:
   - ldflags:
-      - "-s -w"
+      - '-w -extldflags "-static"'
+    flags:
+      - "-a"
+    tags:
+      - netgo
     goos:
       - linux
     goarch:

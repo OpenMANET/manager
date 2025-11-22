@@ -29,13 +29,13 @@ func (ptt *PTTConfig) findPTTDevice() *evdev.InputDevice {
 	}
 
 	for _, d := range devs {
-		if d.Name == pttDeviceName {
+		if d.Name == ptt.PttDevice {
 			ptt.Log.Debug().Msgf("Matched PTT device %s (%s)", d.Name, d.Fn)
 
 			return d
 		}
 	}
-	ptt.Log.Fatal().Msgf("PTT device %q not found", pttDeviceName)
+	ptt.Log.Fatal().Msgf("PTT device %q not found", ptt.PttDevice)
 
 	return nil
 }

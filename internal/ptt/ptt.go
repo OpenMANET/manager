@@ -27,7 +27,8 @@ const (
 	defaultPort       int    = 5007
 	defaultDebug      bool   = true
 	defaultLoopback   bool   = true
-	defaultPTTDevice  string = "Generic AB13X USB Audio"
+	// defaultPTTDevice  string = "Generic AB13X USB Audio"
+	defaultPTTDevice  string = "AllInOneCable"
 )
 
 var (
