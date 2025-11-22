@@ -101,13 +101,15 @@ func (ptt *PTTConfig) Start() {
 	}
 	if ptt.PttKey != "" {
 		pttKey = ptt.PttKey
+	} else {
+		pttKey = defaultKey
 	}
 
 	debugEnabled = ptt.Debug
 	if debugEnabled {
 		ptt.logInputDeviceList()
 	}
-	
+
 	loopbackAudio = ptt.Loopback
 
 	if ptt.PttDevice != "" {

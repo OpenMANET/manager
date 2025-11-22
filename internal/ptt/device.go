@@ -2,7 +2,6 @@ package ptt
 
 import (
 	"fmt"
-	"log"
 	"net"
 
 	"github.com/gordonklaus/portaudio"
@@ -13,11 +12,18 @@ import (
 func (ptt *PTTConfig) getDeviceByIndex(index int) *portaudio.DeviceInfo {
 	devs, err := portaudio.Devices()
 	if err != nil {
-		log.Fatalf("portaudio.Devices: %v", err)
+		ptt.Log.Fatal().Err(err).Msg("portaudio.Devices")
+	}
+
+	if ptt.Debug {
+		ptt.Log.Log().Msgf("Discovered %d audio devices:", len(devs))
+		for i, d := range devs {
+			ptt.Log.Log().Msgf(" [%d] %s", i, d.Name)
+		}
 	}
 
 	if len(devs) <= index {
-		log.Fatalf("Device index %d not found; only %d devices available", index, len(devs))
+		ptt.Log.Fatal().Msgf("Device index %d not found; only %d devices available", index, len(devs))
 	}
 	return devs[index]
 }
@@ -25,7 +31,7 @@ func (ptt *PTTConfig) getDeviceByIndex(index int) *portaudio.DeviceInfo {
 func (ptt *PTTConfig) findPTTDevice() *evdev.InputDevice {
 	devs, err := evdev.ListInputDevices()
 	if err != nil {
-		log.Fatalf("evdev.ListInputDevices: %v", err)
+		ptt.Log.Fatal().Err(err).Msg("evdev.ListInputDevices")
 	}
 
 	for _, d := range devs {
