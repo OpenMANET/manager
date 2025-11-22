@@ -100,7 +100,9 @@ func (arw *AddressReservationWorker) StartReceive() {
 			if arw.addressSet {
 				continue
 			}
-			
+
+			iface := network.GetInterfaceByName(arw.Config.IFace)
+
 			// Get address reservation data from the Alfred client
 			record, err := arw.Client.Request(AddressReservationDataType)
 			if err != nil {
@@ -112,6 +114,11 @@ func (arw *AddressReservationWorker) StartReceive() {
 					err = addrResData.UnmarshalVT(rec.Data)
 					if err != nil {
 						arw.Config.Log.Error().Err(err).Msg("Error unmarshaling address reservation data")
+						continue
+					}
+
+					// Ignore our own address reservation data
+					if addrResData.Mac == iface.MAC {
 						continue
 					}
 
