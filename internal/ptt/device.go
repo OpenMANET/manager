@@ -47,9 +47,9 @@ func (ptt *PTTConfig) logInputDeviceList() {
 		return
 	}
 
-	ptt.Log.Info().Msgf("Discovered %d input devices:", len(devs))
+	ptt.Log.Log().Msgf("Discovered %d input devices:", len(devs))
 	for _, d := range devs {
-		ptt.Log.Info().Msgf(" - %s (%s)", d.Name, d.Fn)
+		ptt.Log.Log().Msgf(" - %s (%s)", d.Name, d.Fn)
 	}
 }
 

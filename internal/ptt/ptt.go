@@ -104,6 +104,10 @@ func (ptt *PTTConfig) Start() {
 	}
 
 	debugEnabled = ptt.Debug
+	if debugEnabled {
+		ptt.logInputDeviceList()
+	}
+	
 	loopbackAudio = ptt.Loopback
 
 	if ptt.PttDevice != "" {
