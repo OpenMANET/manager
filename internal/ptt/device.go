@@ -29,25 +29,25 @@ func (ptt *PTTConfig) getDeviceByIndex(index int) *portaudio.DeviceInfo {
 }
 
 func (ptt *PTTConfig) findPTTDevice() *evdev.InputDevice {
-	devs, err := evdev.ListInputDevices()
+	devs, err := evdev.ListInputDevices(ptt.PttDevice)
 	if err != nil {
 		ptt.Log.Fatal().Err(err).Msg("evdev.ListInputDevices")
 	}
 
 	for _, d := range devs {
-		if d.Name == ptt.PttDevice {
+		if d.Name == ptt.PttDeviceName {
 			ptt.Log.Debug().Msgf("Matched PTT device %s (%s)", d.Name, d.Fn)
 
 			return d
 		}
 	}
-	ptt.Log.Fatal().Msgf("PTT device %q not found", ptt.PttDevice)
+	ptt.Log.Fatal().Msgf("PTT device %q not found", ptt.PttDeviceName)
 
 	return nil
 }
 
 func (ptt *PTTConfig) logInputDeviceList() {
-	devs, err := evdev.ListInputDevices()
+	devs, err := evdev.ListInputDevices(ptt.PttDevice)
 	if err != nil {
 		ptt.Log.Error().Err(err).Msg("Unable to list input devices")
 		return

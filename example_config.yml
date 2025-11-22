@@ -17,4 +17,5 @@ ptt:
   pttKey: any
   debug: true
   loopback: true
-  pttDevice: Generic AB13X USB Audio
+  pttDevice: /dev/hidraw0/*
+  pttDeviceName: Generic AB13X USB Audio

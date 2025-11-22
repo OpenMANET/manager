@@ -15,20 +15,20 @@ import (
 
 /********* defaults *********/
 const (
-	sampleRate        int    = 48000
-	channels          int    = 1
-	frameSize         int    = 960
-	targetBitrate     int    = 12000
-	encoderComplexity int    = 3
-	packetLossPerc    int    = 10
-	defaultKey        string = "any"
-	defaultIface      string = "br-ahwlan" // ← use bridge by default; override in UCI if needed
-	defaultG          string = "224.0.0.1"
-	defaultPort       int    = 5007
-	defaultDebug      bool   = true
-	defaultLoopback   bool   = true
-	// defaultPTTDevice  string = "Generic AB13X USB Audio"
-	defaultPTTDevice  string = "AllInOneCable"
+	sampleRate           int    = 48000
+	channels             int    = 1
+	frameSize            int    = 960
+	targetBitrate        int    = 12000
+	encoderComplexity    int    = 3
+	packetLossPerc       int    = 10
+	defaultKey           string = "any"
+	defaultIface         string = "br-ahwlan" // ← use bridge by default; override in UCI if needed
+	defaultG             string = "224.0.0.1"
+	defaultPort          int    = 5007
+	defaultDebug         bool   = true
+	defaultLoopback      bool   = true
+	defaultPTTDevice     string = "/dev/hidraw0/*"
+	defaultPTTDeviceName string = "AllInOneCable"
 )
 
 var (
@@ -52,34 +52,37 @@ var (
 	pttKey        = defaultKey
 	debugEnabled  = defaultDebug
 	loopbackAudio = defaultLoopback
-	pttDeviceName = defaultPTTDevice
+	pttDeviceName = defaultPTTDeviceName
+	pttDevice     = defaultPTTDevice
 )
 
 type PTTConfig struct {
-	Log       zerolog.Logger
-	Interupt  chan os.Signal
-	Enable    bool
-	Iface     string
-	McastAddr string
-	McastPort int
-	PttKey    string
-	Debug     bool
-	Loopback  bool
-	PttDevice string
+	Log           zerolog.Logger
+	Interupt      chan os.Signal
+	Enable        bool
+	Iface         string
+	McastAddr     string
+	McastPort     int
+	PttKey        string
+	Debug         bool
+	Loopback      bool
+	PttDevice     string
+	PttDeviceName string
 }
 
 func NewPTT(cfg PTTConfig) *PTTConfig {
 	return &PTTConfig{
-		Log:       cfg.Log,
-		Interupt:  cfg.Interupt,
-		Enable:    cfg.Enable,
-		Iface:     cfg.Iface,
-		McastAddr: cfg.McastAddr,
-		McastPort: cfg.McastPort,
-		PttKey:    cfg.PttKey,
-		Debug:     cfg.Debug,
-		Loopback:  cfg.Loopback,
-		PttDevice: cfg.PttDevice,
+		Log:           cfg.Log,
+		Interupt:      cfg.Interupt,
+		Enable:        cfg.Enable,
+		Iface:         cfg.Iface,
+		McastAddr:     cfg.McastAddr,
+		McastPort:     cfg.McastPort,
+		PttKey:        cfg.PttKey,
+		Debug:         cfg.Debug,
+		Loopback:      cfg.Loopback,
+		PttDevice:     cfg.PttDevice,
+		PttDeviceName: cfg.PttDeviceName,
 	}
 }
 
@@ -113,7 +116,11 @@ func (ptt *PTTConfig) Start() {
 	loopbackAudio = ptt.Loopback
 
 	if ptt.PttDevice != "" {
-		pttDeviceName = ptt.PttDevice
+		pttDevice = ptt.PttDevice
+	}
+
+	if ptt.PttDeviceName != "" {
+		pttDeviceName = ptt.PttDeviceName
 	}
 
 	ptt.Log.Info().Msgf("Starting PTT on iface=%s mcast=%s:%d key=%s debug=%t loopback=%t ptt_device=%s", ifaceName, mcastAddr, mcastPort, pttKey, debugEnabled, loopbackAudio, pttDeviceName)
@@ -160,7 +167,7 @@ func (ptt *PTTConfig) Start() {
 		portaudio.Terminate()
 		os.Exit(0)
 	}()
-	
+
 	// playback stream
 	device := ptt.getDeviceByIndex(1)
 	params := portaudio.StreamParameters{

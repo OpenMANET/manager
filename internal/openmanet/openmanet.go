@@ -24,16 +24,17 @@ func Start() {
 	banner.Print()
 
 	ptt := ptt.NewPTT(ptt.PTTConfig{
-		Interupt:  c,
-		Log:       logger.GetLogger("ptt"),
-		Enable:    viper.GetBool("ptt.enable"),
-		Iface:     viper.GetString("meshNetInterface"),
-		McastAddr: viper.GetString("ptt.mcastAddr"),
-		McastPort: viper.GetInt("ptt.mcastPort"),
-		PttKey:    viper.GetString("ptt.pttKey"),
-		Debug:     viper.GetBool("ptt.debug"),
-		Loopback:  viper.GetBool("ptt.loopback"),
-		PttDevice: viper.GetString("ptt.pttDevice"),
+		Interupt:      c,
+		Log:           logger.GetLogger("ptt"),
+		Enable:        viper.GetBool("ptt.enable"),
+		Iface:         viper.GetString("meshNetInterface"),
+		McastAddr:     viper.GetString("ptt.mcastAddr"),
+		McastPort:     viper.GetInt("ptt.mcastPort"),
+		PttKey:        viper.GetString("ptt.pttKey"),
+		Debug:         viper.GetBool("ptt.debug"),
+		Loopback:      viper.GetBool("ptt.loopback"),
+		PttDevice:     viper.GetString("ptt.pttDevice"),
+		PttDeviceName: viper.GetString("ptt.pttDeviceName"),
 	})
 
 	ptt.Start()
