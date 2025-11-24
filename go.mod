@@ -1,6 +1,6 @@
 module github.com/openmanet/openmanetd
 
-go 1.23.0
+go 1.24.0
 
 require (
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
@@ -14,8 +14,8 @@ require (
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
 	github.com/vishvananda/netlink v1.3.1
-	golang.org/x/net v0.38.0
-	golang.org/x/sys v0.31.0
+	golang.org/x/net v0.47.0
+	golang.org/x/sys v0.38.0
 	google.golang.org/protobuf v1.36.10
 )
 
@@ -35,7 +35,7 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/text v0.28.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 )
 
 replace github.com/openmanet/go-alfred => ./internal/alfred
