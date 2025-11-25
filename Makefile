@@ -41,7 +41,7 @@ run: fmt vet ## Run a controller from your host.
 	go run ./main.go
 
 .PHONY: buf
-protoc:
+buf: ## Generate protobuf code
 	buf generate
 
 .PHONY: test

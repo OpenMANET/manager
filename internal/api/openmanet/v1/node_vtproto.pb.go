@@ -30,6 +30,8 @@ func (m *AddressReservation) CloneVT() *AddressReservation {
 	r.Mac = m.Mac
 	r.StaticIp = m.StaticIp
 	r.ReservationCidr = m.ReservationCidr
+	r.UciDhcpStart = m.UciDhcpStart
+	r.UciDhcpLimit = m.UciDhcpLimit
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -93,6 +95,12 @@ func (this *AddressReservation) EqualVT(that *AddressReservation) bool {
 		return false
 	}
 	if this.ReservationCidr != that.ReservationCidr {
+		return false
+	}
+	if this.UciDhcpStart != that.UciDhcpStart {
+		return false
+	}
+	if this.UciDhcpLimit != that.UciDhcpLimit {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -187,6 +195,20 @@ func (m *AddressReservation) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.UciDhcpLimit) > 0 {
+		i -= len(m.UciDhcpLimit)
+		copy(dAtA[i:], m.UciDhcpLimit)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.UciDhcpLimit)))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if len(m.UciDhcpStart) > 0 {
+		i -= len(m.UciDhcpStart)
+		copy(dAtA[i:], m.UciDhcpStart)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.UciDhcpStart)))
+		i--
+		dAtA[i] = 0x22
 	}
 	if len(m.ReservationCidr) > 0 {
 		i -= len(m.ReservationCidr)
@@ -357,6 +379,20 @@ func (m *AddressReservation) MarshalToSizedBufferVTStrict(dAtA []byte) (int, err
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.UciDhcpLimit) > 0 {
+		i -= len(m.UciDhcpLimit)
+		copy(dAtA[i:], m.UciDhcpLimit)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.UciDhcpLimit)))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if len(m.UciDhcpStart) > 0 {
+		i -= len(m.UciDhcpStart)
+		copy(dAtA[i:], m.UciDhcpStart)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.UciDhcpStart)))
+		i--
+		dAtA[i] = 0x22
+	}
 	if len(m.ReservationCidr) > 0 {
 		i -= len(m.ReservationCidr)
 		copy(dAtA[i:], m.ReservationCidr)
@@ -511,6 +547,14 @@ func (m *AddressReservation) SizeVT() (n int) {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	l = len(m.ReservationCidr)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.UciDhcpStart)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.UciDhcpLimit)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
@@ -687,6 +731,70 @@ func (m *AddressReservation) UnmarshalVT(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.ReservationCidr = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UciDhcpStart", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.UciDhcpStart = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UciDhcpLimit", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.UciDhcpLimit = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -1113,6 +1221,78 @@ func (m *AddressReservation) UnmarshalVTUnsafe(dAtA []byte) error {
 				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
 			}
 			m.ReservationCidr = stringValue
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UciDhcpStart", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.UciDhcpStart = stringValue
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UciDhcpLimit", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.UciDhcpLimit = stringValue
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
