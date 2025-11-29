@@ -271,9 +271,10 @@ func GetAllRoutes() ([]*Route, error) {
 	return routes, nil
 }
 
-// GetDefaultRoute returns the default IPv4 route from the routing table.
+// GetDefaultRoute returns the default IPv4 route from the main routing table.
 // The default route is identified by having no destination (0.0.0.0/0) and a gateway.
-// If multiple default routes exist, the first one found is returned.
+// If multiple default routes exist in the main table, the one with the lowest metric
+// (highest priority) is returned.
 //
 // Returns:
 //   - A Route pointer to the default route
@@ -288,35 +289,50 @@ func GetAllRoutes() ([]*Route, error) {
 //	    fmt.Printf("Default gateway: %s via %s\n", defaultRoute.Gateway, defaultRoute.Interface)
 //	}
 //
-// Note: This function only looks for IPv4 default routes. For IPv6, a separate
-// function would be needed.
+// Note: This function only looks for IPv4 default routes in the main routing table.
+// For IPv6 or routes in other tables, separate functions would be needed.
 func GetDefaultRoute() (*Route, error) {
-	routes, err := netlink.RouteList(nil, netlink.FAMILY_V4)
+	filter := &netlink.Route{
+		Table: unix.RT_TABLE_MAIN,
+	}
+
+	routes, err := netlink.RouteListFiltered(netlink.FAMILY_V4, filter, netlink.RT_FILTER_TABLE)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list routes: %w", err)
 	}
 
+	var defaultRoute *Route
+	lowestMetric := -1
+
 	for _, nlRoute := range routes {
-		// Default route has no destination
+		// Default route has no destination and must have a gateway
 		if nlRoute.Dst == nil && nlRoute.Gw != nil {
 			link, err := netlink.LinkByIndex(nlRoute.LinkIndex)
 			if err != nil {
 				continue
 			}
 
-			return &Route{
-				Destination: nil,
-				Gateway:     nlRoute.Gw,
-				Interface:   link.Attrs().Name,
-				Metric:      nlRoute.Priority,
-				Table:       nlRoute.Table,
-				Scope:       nlRoute.Scope,
-				Protocol:    nlRoute.Protocol,
-			}, nil
+			// If this is the first default route or has a lower metric, use it
+			if lowestMetric == -1 || nlRoute.Priority < lowestMetric {
+				lowestMetric = nlRoute.Priority
+				defaultRoute = &Route{
+					Destination: nil,
+					Gateway:     nlRoute.Gw,
+					Interface:   link.Attrs().Name,
+					Metric:      nlRoute.Priority,
+					Table:       nlRoute.Table,
+					Scope:       nlRoute.Scope,
+					Protocol:    nlRoute.Protocol,
+				}
+			}
 		}
 	}
 
-	return nil, fmt.Errorf("no default route found")
+	if defaultRoute == nil {
+		return nil, fmt.Errorf("no default route found")
+	}
+
+	return defaultRoute, nil
 }
 
 // AddDefaultRoute adds a default route (0.0.0.0/0) via the specified gateway and interface.

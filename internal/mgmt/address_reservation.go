@@ -145,7 +145,7 @@ func (arw *AddressReservationWorker) StartReceive() {
 				dhcpiface string
 			)
 
-			// If we are a mesh gateway, skip sending
+			// If we are a mesh gateway, skip receiving
 			meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
 			if err != nil {
 				arw.Config.Log.Error().Err(err).Msg("Error getting mesh config")
@@ -153,7 +153,7 @@ func (arw *AddressReservationWorker) StartReceive() {
 			}
 
 			if meshCfg.IsGatewayMode() {
-				arw.Config.Log.Debug().Msg("Node is in gateway mode, skipping address reservation send")
+				arw.Config.Log.Debug().Msg("Node is in gateway mode, skipping address reservation receive")
 				ticker.Stop()
 
 				continue

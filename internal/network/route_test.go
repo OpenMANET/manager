@@ -497,11 +497,19 @@ func TestGetDefaultRoute(t *testing.T) {
 		t.Logf("GetDefaultRoute() error (may be expected in test environment): %v", err)
 	} else {
 		t.Logf("GetDefaultRoute() returned: %s", route.String())
+
+		// Validate the returned route
 		if route.Destination != nil {
 			t.Error("Default route should have nil destination")
 		}
 		if route.Gateway == nil {
 			t.Error("Default route should have a gateway")
+		}
+		if route.Table != unix.RT_TABLE_MAIN {
+			t.Errorf("Default route should be from main routing table, got table %d", route.Table)
+		}
+		if route.Interface == "" {
+			t.Error("Default route should have an interface")
 		}
 	}
 }
