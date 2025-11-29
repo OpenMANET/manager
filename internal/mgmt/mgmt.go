@@ -12,7 +12,7 @@ const (
 	nodeDataWorkerInterval time.Duration = 10 * time.Second
 
 	gatewayDataWorkerSendInterval time.Duration = 60 * time.Second
-	gatewayDataWorkerRecvInterval time.Duration = 1 * time.Second
+	gatewayDataWorkerRecvInterval time.Duration = 5 * time.Second
 
 	addressReservationWorkerSendInterval time.Duration = 30 * time.Second
 	addressReservationWorkerRecvInterval time.Duration = 5 * time.Second

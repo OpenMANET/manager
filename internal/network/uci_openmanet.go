@@ -159,7 +159,7 @@ func IsDHCPConfiguredWithReader(reader OpenMANETConfigReader) (bool, error) {
 	}
 
 	// Parse the dhcpconfigured value
-	if config.DHCPConfigured == "" {
+	if config.DHCPConfigured == "0" || config.DHCPConfigured == "" {
 		return false, nil
 	}
 

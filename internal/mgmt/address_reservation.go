@@ -73,6 +73,7 @@ func (arw *AddressReservationWorker) StartSend() {
 
 				// Skip if DHCP is not configured
 				if !configured {
+					arw.Config.Log.Debug().Msg("DHCP is not configured, skipping address reservation send")
 					continue
 				}
 			}
@@ -123,6 +124,8 @@ func (arw *AddressReservationWorker) StartSend() {
 			if err != nil {
 				arw.Config.Log.Error().Err(err).Msg("Error sending address reservation data")
 			}
+
+			arw.Config.Log.Debug().Interface("addressRes", &addrResData).Msg("Address reservation data sent")
 		}
 	}
 }
@@ -150,7 +153,7 @@ func (arw *AddressReservationWorker) StartReceive() {
 
 			if meshCfg.IsGatewayMode() {
 				arw.Config.Log.Debug().Msg("Node is in gateway mode, skipping address reservation receive")
-				ticker.Stop()
+				// ticker.Stop()
 
 				continue
 			}
@@ -164,6 +167,7 @@ func (arw *AddressReservationWorker) StartReceive() {
 
 			// Skip if DHCP is configured
 			if configured {
+				arw.Config.Log.Debug().Msg("DHCP is already configured, skipping address reservation receive")
 				continue
 			}
 
