@@ -63,22 +63,18 @@ func (arw *AddressReservationWorker) StartSend() {
 				continue
 			}
 
-			if meshCfg.IsGatewayMode() {
-				arw.Config.Log.Debug().Msg("Node is in gateway mode, skipping address reservation send")
-				ticker.Stop()
+			// If we are NOT in gateway mode, ensure DHCP is configured
+			if !meshCfg.IsGatewayMode() {
+				configured, err := network.IsDHCPConfigured()
+				if err != nil {
+					arw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
+					continue
+				}
 
-				continue
-			}
-
-			configured, err := network.IsDHCPConfigured()
-			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
-				continue
-			}
-
-			// Skip if DHCP is not configured
-			if !configured {
-				continue
+				// Skip if DHCP is not configured
+				if !configured {
+					continue
+				}
 			}
 
 			iface := network.GetInterfaceByName(arw.Config.IFace)

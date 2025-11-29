@@ -5,6 +5,11 @@ import (
 	"net"
 )
 
+const (
+	// Default Interface Name
+	DefaultInterfaceName = "br-ahwlan"
+)
+
 type NetworkInterface struct {
 	Name  string
 	MTU   int

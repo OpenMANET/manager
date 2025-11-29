@@ -16,7 +16,7 @@
       "moby": false
     },
     "ghcr.io/rocker-org/devcontainer-features/apt-packages:1": {
-      "packages": "build-essential,libnl-3-dev,libnl-genl-3-dev,libgps-dev,libcap-dev,pkg-config,libopus-dev,libopusfile-dev,portaudio19-dev,batctl,net-tools,alfred"
+      "packages": "build-essential,libnl-3-dev,libnl-genl-3-dev,libgps-dev,libcap-dev,pkg-config,libopus-dev,libopusfile-dev,portaudio19-dev,batctl,net-tools,alfred,iproute2"
     }
   },
   "onCreateCommand": {

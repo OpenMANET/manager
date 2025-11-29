@@ -1,6 +1,7 @@
 package network
 
 import (
+	"errors"
 	"net"
 	"testing"
 
@@ -494,7 +495,12 @@ func TestGetDefaultRoute(t *testing.T) {
 	// This test will only log results as we can't mock netlink easily
 	route, err := GetDefaultRoute()
 	if err != nil {
-		t.Logf("GetDefaultRoute() error (may be expected in test environment): %v", err)
+		// Check if it's the specific error we expect
+		if errors.Is(err, ErrNoDefaultRouteFound) {
+			t.Logf("GetDefaultRoute() returned ErrNoDefaultRouteFound (expected in test environment without default route)")
+		} else {
+			t.Logf("GetDefaultRoute() error: %v", err)
+		}
 	} else {
 		t.Logf("GetDefaultRoute() returned: %s", route.String())
 
@@ -533,14 +539,14 @@ func TestReplaceDefaultRoute(t *testing.T) {
 	}
 
 	// This test will verify the function handles the case where no default route exists
+	// ReplaceDefaultRoute now attempts to add a route if none exists
 	// We can't actually test replacing a real default route without disrupting connectivity
-	err := ReplaceDefaultRoute(net.ParseIP("192.168.1.254"))
+	err := ReplaceDefaultRoute(net.ParseIP("192.168.1.254"), "br-ahwlan")
 	if err != nil {
-		// Expected to fail in most test environments where no default route exists
-		// or we don't have permissions
+		// Expected to fail in most test environments due to permissions or invalid interface
 		t.Logf("ReplaceDefaultRoute() error (expected in test environment): %v", err)
 	} else {
-		t.Log("ReplaceDefaultRoute() succeeded (unexpected in test environment)")
+		t.Log("ReplaceDefaultRoute() succeeded")
 	}
 }
 

@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/openmanet/openmanetd/internal/util/logger"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
 
 var (
 	// ErrNoRouteFound is returned when no route could be found for a given query
-	ErrNoRouteFound = errors.New("no route found")
+	ErrNoRouteFound        = errors.New("no route found")
+	ErrNoDefaultRouteFound = errors.New("no default route found")
 )
 
 // Route represents a routing table entry in the Linux kernel routing table.
@@ -296,10 +298,14 @@ func GetDefaultRoute() (*Route, error) {
 		Table: unix.RT_TABLE_MAIN,
 	}
 
+	log := logger.GetLogger("route")
+
 	routes, err := netlink.RouteListFiltered(netlink.FAMILY_V4, filter, netlink.RT_FILTER_TABLE)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list routes: %w", err)
 	}
+
+	log.Debug().Any("routes", routes).Msg("Current Routes")
 
 	var defaultRoute *Route
 	lowestMetric := -1
@@ -329,7 +335,7 @@ func GetDefaultRoute() (*Route, error) {
 	}
 
 	if defaultRoute == nil {
-		return nil, fmt.Errorf("no default route found")
+		return nil, ErrNoDefaultRouteFound
 	}
 
 	return defaultRoute, nil
@@ -414,6 +420,7 @@ func DeleteDefaultRoute(gateway net.IP, iface string) error {
 //
 // Parameters:
 //   - newGateway: The IP address of the new default gateway
+//   - iface: The name of the network interface to use
 //
 // Returns an error if:
 //   - No default route currently exists
@@ -431,11 +438,16 @@ func DeleteDefaultRoute(gateway net.IP, iface string) error {
 // Note: This operation requires appropriate privileges (typically root/CAP_NET_ADMIN).
 // The function preserves the existing route's interface and metric while only changing
 // the gateway address.
-func ReplaceDefaultRoute(newGateway net.IP) error {
+func ReplaceDefaultRoute(newGateway net.IP, iface string) error {
 	// Get the current default route
 	currentRoute, err := GetDefaultRoute()
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrNoDefaultRouteFound) {
 		return fmt.Errorf("failed to get current default route: %w", err)
+	}
+
+	// If no default route exists, add a new one with the specified gateway
+	if errors.Is(err, ErrNoDefaultRouteFound) {
+		return AddDefaultRoute(newGateway, iface, 100)
 	}
 
 	// Get the interface
