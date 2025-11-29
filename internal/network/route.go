@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/openmanet/openmanetd/internal/util/logger"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
@@ -298,14 +297,10 @@ func GetDefaultRoute() (*Route, error) {
 		Table: unix.RT_TABLE_MAIN,
 	}
 
-	log := logger.GetLogger("route")
-
 	routes, err := netlink.RouteListFiltered(netlink.FAMILY_V4, filter, netlink.RT_FILTER_TABLE)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list routes: %w", err)
 	}
-
-	log.Debug().Any("routes", routes).Msg("Current Routes")
 
 	var defaultRoute *Route
 	lowestMetric := -1
@@ -467,6 +462,8 @@ func ReplaceDefaultRoute(newGateway net.IP, iface string) error {
 		LinkIndex: link.Attrs().Index,
 		Gw:        newGateway,
 		Priority:  currentRoute.Metric,
+		Protocol:  currentRoute.Protocol,
+		Scope:     currentRoute.Scope,
 		Table:     unix.RT_TABLE_MAIN,
 	}
 
