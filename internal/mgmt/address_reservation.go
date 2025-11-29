@@ -3,6 +3,7 @@ package mgmt
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/openmanet/go-alfred"
@@ -81,8 +82,8 @@ func (arw *AddressReservationWorker) StartSend() {
 			iface := network.GetInterfaceByName(arw.Config.IFace)
 
 			// if arw.Config.IFace is prefixed with "br-", remove the prefix because dhcp config is tied to the physical interface
-			if len(arw.Config.IFace) > 3 && arw.Config.IFace[:3] == "br-" {
-				dhcpiface = arw.Config.IFace[3:]
+			if after, ok := strings.CutPrefix(arw.Config.IFace, "br-"); ok {
+				dhcpiface = after
 			}
 
 			dhcp, err := network.GetDHCPConfig(dhcpiface)
@@ -194,8 +195,8 @@ func (arw *AddressReservationWorker) StartReceive() {
 				arw.Config.Log.Debug().Interface("dhcpConfig", dhcpConfig).Msg("Setting DHCP config")
 
 				// if arw.Config.IFace is prefixed with "br-", remove the prefix because dhcp config is tied to the physical interface
-				if len(arw.Config.IFace) > 3 && arw.Config.IFace[:3] == "br-" {
-					dhcpiface = arw.Config.IFace[3:]
+				if after, ok := strings.CutPrefix(arw.Config.IFace, "br-"); ok {
+					dhcpiface = after
 				}
 
 				err = network.SetDHCPConfig(dhcpiface, dhcpConfig)
