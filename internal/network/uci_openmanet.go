@@ -26,11 +26,16 @@ type OpenMANETConfigReader interface {
 	Del(config, section, option string) error
 	AddSection(config, section, typ string) error
 	DelSection(config, section string) error
+	Commit() error
 }
 
 // UCIOpenMANETConfigReader wraps the UCI functions for OpenMANET configuration.
 type UCIOpenMANETConfigReader struct {
 	tree uci.Tree
+}
+
+func (r *UCIOpenMANETConfigReader) Commit() error {
+	return r.tree.Commit()
 }
 
 // NewUCIOpenMANETConfigReader creates a new UCI OpenMANET config reader with the default tree.
@@ -129,6 +134,10 @@ func SetOpenMANETConfigWithReader(config *UCIOpenMANET, reader OpenMANETConfigRe
 		}
 	}
 
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
+	}
+
 	return nil
 }
 
@@ -193,6 +202,11 @@ func SetDHCPConfiguredWithReader(reader OpenMANETConfigReader) error {
 	if err := reader.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "1"); err != nil {
 		return fmt.Errorf("failed to set dhcpconfigured: %w", err)
 	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
+	}
+
 	return nil
 }
 
@@ -218,6 +232,11 @@ func ClearDHCPConfiguredWithReader(reader OpenMANETConfigReader) error {
 	if err := reader.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "0"); err != nil {
 		return fmt.Errorf("failed to clear dhcpconfigured: %w", err)
 	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
+	}
+	
 	return nil
 }
 

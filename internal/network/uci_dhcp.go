@@ -46,11 +46,17 @@ type DHCPConfigReader interface {
 	Del(config, section, option string) error
 	AddSection(config, section, typ string) error
 	DelSection(config, section string) error
+	Commit() error
 }
 
 // UCIDHCPConfigReader wraps the UCI functions for DHCP configuration.
 type UCIDHCPConfigReader struct {
 	tree uci.Tree
+}
+
+// Commit commits the current configuration changes to UCI.
+func (r *UCIDHCPConfigReader) Commit() error {
+	return r.tree.Commit()
 }
 
 // NewUCIDHCPConfigReader creates a new UCI DHCP config reader with the default tree.
@@ -244,6 +250,10 @@ func SetDHCPConfigWithReader(section string, config *UCIDHCP, reader DHCPConfigR
 		}
 	}
 
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit DHCP config: %w", err)
+	}
+
 	return nil
 }
 
@@ -271,6 +281,11 @@ func DeleteDHCPConfigWithReader(section string, reader DHCPConfigReader) error {
 	if err := reader.DelSection("dhcp", section); err != nil {
 		return fmt.Errorf("failed to delete DHCP section: %w", err)
 	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit DHCP config: %w", err)
+	}
+
 	return nil
 }
 
@@ -289,6 +304,11 @@ func EnableDHCPWithReader(section string, reader DHCPConfigReader) error {
 	if err := reader.SetType("dhcp", section, "ignore", uci.TypeOption, "0"); err != nil {
 		return fmt.Errorf("failed to enable DHCP: %w", err)
 	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit DHCP config: %w", err)
+	}
+
 	return nil
 }
 
@@ -307,6 +327,11 @@ func DisableDHCPWithReader(section string, reader DHCPConfigReader) error {
 	if err := reader.SetType("dhcp", section, "ignore", uci.TypeOption, "1"); err != nil {
 		return fmt.Errorf("failed to disable DHCP: %w", err)
 	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit DHCP config: %w", err)
+	}
+
 	return nil
 }
 
@@ -364,6 +389,11 @@ func SetDHCPRangeWithReader(section, start, limit string, reader DHCPConfigReade
 	if err := reader.SetType("dhcp", section, "limit", uci.TypeOption, limit); err != nil {
 		return fmt.Errorf("failed to set limit: %w", err)
 	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit DHCP config: %w", err)
+	}
+
 	return nil
 }
 
@@ -385,6 +415,11 @@ func SetDHCPLeaseTimeWithReader(section, leasetime string, reader DHCPConfigRead
 	if err := reader.SetType("dhcp", section, "leasetime", uci.TypeOption, leasetime); err != nil {
 		return fmt.Errorf("failed to set leasetime: %w", err)
 	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit DHCP config: %w", err)
+	}
+
 	return nil
 }
 

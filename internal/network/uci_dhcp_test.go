@@ -17,6 +17,11 @@ type mockDHCPConfigReader struct {
 	sections map[string]map[string]string              // config -> section -> type
 }
 
+// Commit is a no-op for the mock, simulating a successful commit.
+func (m *mockDHCPConfigReader) Commit() error {
+	return nil
+}
+
 func newMockDHCPConfigReader() *mockDHCPConfigReader {
 	return &mockDHCPConfigReader{
 		data:     make(map[string]map[string]map[string][]string),
@@ -371,6 +376,11 @@ func TestSetDHCPLeaseTimeWithReader(t *testing.T) {
 // mockDHCPConfigReaderWithErrors is a mock that returns errors for testing error paths.
 type mockDHCPConfigReaderWithErrors struct{}
 
+// Commit always returns an error for error simulation.
+func (m *mockDHCPConfigReaderWithErrors) Commit() error {
+	return errors.New("mock error")
+}
+
 func (m *mockDHCPConfigReaderWithErrors) Get(config, section, option string) ([]string, bool) {
 	return nil, false
 }
@@ -401,6 +411,20 @@ func TestSetDHCPConfigWithReader_ErrorHandling(t *testing.T) {
 	err := SetDHCPConfigWithReader("test", config, mock)
 	if err == nil {
 		t.Error("Expected error from SetDHCPConfigWithReader")
+	}
+}
+
+func TestCommitWithReader(t *testing.T) {
+	mock := newMockDHCPConfigReader()
+	// Should succeed (no error)
+	if err := mock.Commit(); err != nil {
+		t.Errorf("Expected Commit to succeed, got error: %v", err)
+	}
+
+	mockErr := &mockDHCPConfigReaderWithErrors{}
+	// Should fail (return error)
+	if err := mockErr.Commit(); err == nil {
+		t.Error("Expected Commit to fail, got nil error")
 	}
 }
 

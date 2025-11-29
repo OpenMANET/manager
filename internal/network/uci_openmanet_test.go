@@ -13,6 +13,11 @@ type mockOpenMANETConfigReader struct {
 	sections map[string]map[string]string              // config -> section -> type
 }
 
+// Commit is a no-op for the mock, simulating a successful commit.
+func (m *mockOpenMANETConfigReader) Commit() error {
+	return nil
+}
+
 func newMockOpenMANETConfigReader() *mockOpenMANETConfigReader {
 	return &mockOpenMANETConfigReader{
 		data:     make(map[string]map[string]map[string][]string),
@@ -358,6 +363,11 @@ func TestSetConfigPathWithReader_EmptyPath(t *testing.T) {
 // mockOpenMANETConfigReaderWithErrors is a mock that returns errors for testing error paths.
 type mockOpenMANETConfigReaderWithErrors struct{}
 
+// Commit always returns an error for error simulation.
+func (m *mockOpenMANETConfigReaderWithErrors) Commit() error {
+	return errors.New("mock error")
+}
+
 func (m *mockOpenMANETConfigReaderWithErrors) Get(config, section, option string) ([]string, bool) {
 	return nil, false
 }
@@ -388,6 +398,20 @@ func TestSetOpenMANETConfigWithReader_ErrorHandling(t *testing.T) {
 	err := SetOpenMANETConfigWithReader(config, mock)
 	if err == nil {
 		t.Error("Expected error from SetOpenMANETConfigWithReader")
+	}
+}
+
+func TestCommitWithOpenMANETReader(t *testing.T) {
+	mock := newMockOpenMANETConfigReader()
+	// Should succeed (no error)
+	if err := mock.Commit(); err != nil {
+		t.Errorf("Expected Commit to succeed, got error: %v", err)
+	}
+
+	mockErr := &mockOpenMANETConfigReaderWithErrors{}
+	// Should fail (return error)
+	if err := mockErr.Commit(); err == nil {
+		t.Error("Expected Commit to fail, got nil error")
 	}
 }
 
