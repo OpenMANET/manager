@@ -157,14 +157,13 @@ func (gw *GatewayWorker) StartReceive() {
 						}
 
 						if gatewayData.Mac == batGw.OrigAddress {
-							gw.Config.Log.Debug().Msgf("Matched gateway: %+v", &gatewayData)
-
 							// Replace default route with the matched gateway IP
 							ipString := net.ParseIP(gatewayData.Ipaddr)
 							if ipString != nil {
 								if err := network.ReplaceDefaultRoute(ipString, gw.Config.IFace); err != nil {
 									gw.Config.Log.Error().Err(err).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
 								}
+								gw.Config.Log.Debug().Msgf("Default route replaced with gateway IP: %s", gatewayData.Ipaddr)
 							}
 
 						}
@@ -190,14 +189,14 @@ func (gw *GatewayWorker) StartReceive() {
 
 						// TODO: Handle multiple gateways in batman-adv
 						if gatewayData.Mac == batGw.OrigAddress {
-							gw.Config.Log.Debug().Msgf("Matched gateway: %+v", &gatewayData)
-
 							// Replace default route with the matched gateway IP
 							ipString := net.ParseIP(gatewayData.Ipaddr)
 							if ipString != nil {
 								if err := network.ReplaceDefaultRoute(ipString, gw.Config.IFace); err != nil {
 									gw.Config.Log.Error().Err(err).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
 								}
+
+								gw.Config.Log.Debug().Msgf("Default route replaced with gateway IP: %s", gatewayData.Ipaddr)
 							}
 
 							break

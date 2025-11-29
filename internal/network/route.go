@@ -451,6 +451,11 @@ func ReplaceDefaultRoute(newGateway net.IP, iface string) error {
 		return AddDefaultRoute(newGateway, iface, 100)
 	}
 
+	// If the current route's gateway matches the new gateway, no action is needed
+	if currentRoute.Gateway.Equal(newGateway) {
+		return nil
+	}
+
 	// Get the interface
 	link, err := netlink.LinkByName(currentRoute.Interface)
 	if err != nil {

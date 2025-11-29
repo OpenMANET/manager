@@ -191,6 +191,8 @@ func (arw *AddressReservationWorker) StartReceive() {
 					Force:     "1",
 				}
 
+				arw.Config.Log.Debug().Interface("dhcpConfig", dhcpConfig).Msg("Setting DHCP config")
+
 				// if arw.Config.IFace is prefixed with "br-", remove the prefix because dhcp config is tied to the physical interface
 				if len(arw.Config.IFace) > 3 && arw.Config.IFace[:3] == "br-" {
 					dhcpiface = arw.Config.IFace[3:]
