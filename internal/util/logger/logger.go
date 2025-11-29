@@ -36,11 +36,16 @@ func InitLogging(ctx context.Context) zerolog.Logger {
 
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 
-	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+	output := zerolog.ConsoleWriter{
+		Out:           os.Stdout,
+		TimeFormat:    time.RFC3339,
+		PartsOrder:    []string{zerolog.LevelFieldName, LogComponentFieldName, MessageFieldName},
+		FieldsExclude: []string{zerolog.TimestampFieldName, LogComponentFieldName},
+	}
 
 	zlog := zerolog.New(output)
 
-	zlog = zlog.With().Timestamp().
+	zlog = zlog.With().
 		Ctx(ctx).
 		Stack().
 		Logger()
@@ -67,28 +72,16 @@ func getLogger(component string) zerolog.Logger {
 
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 
-	/* output := zerolog.ConsoleWriter{
-		Out:        os.Stdout,
-		TimeFormat: time.RFC3339,
-		FormatLevel: func(i interface{}) string {
-			return strings.ToUpper(fmt.Sprintf("[%s]", i))
-		},
-		FormatMessage: func(i interface{}) string {
-			return fmt.Sprintf("*%s*", i)
-		},
-		FormatFieldName: func(i interface{}) string {
-			return fmt.Sprintf("%s:", i)
-		},
-		FormatFieldValue: func(i interface{}) string {
-			return strings.ToUpper(fmt.Sprintf("%s", i))
-		},
-	} */
-
-	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+	output := zerolog.ConsoleWriter{
+		Out:           os.Stdout,
+		TimeFormat:    time.RFC3339,
+		PartsOrder:    []string{zerolog.LevelFieldName, LogComponentFieldName, MessageFieldName},
+		FieldsExclude: []string{zerolog.TimestampFieldName, LogComponentFieldName},
+	}
 
 	zlog := zerolog.New(output)
 
-	zlog = zlog.With().Timestamp().
+	zlog = zlog.With().
 		Str(LogComponentFieldName, component).
 		Stack().
 		Logger()
