@@ -79,10 +79,10 @@ func GetOpenMANETConfig() (*UCIOpenMANET, error) {
 func GetOpenMANETConfigWithReader(reader OpenMANETConfigReader) (*UCIOpenMANET, error) {
 	var config UCIOpenMANET
 
-	if values, ok := reader.Get("openmanet", "config", "dhcpconfigured"); ok && len(values) > 0 {
+	if values, ok := reader.Get("openmanetd", "config", "dhcpconfigured"); ok && len(values) > 0 {
 		config.DHCPConfigured = values[0]
 	}
-	if values, ok := reader.Get("openmanet", "config", "config"); ok && len(values) > 0 {
+	if values, ok := reader.Get("openmanetd", "config", "config"); ok && len(values) > 0 {
 		config.Config = values[0]
 	}
 
@@ -116,15 +116,15 @@ func SetOpenMANETConfigWithReader(config *UCIOpenMANET, reader OpenMANETConfigRe
 	}
 
 	// Add section if it doesn't exist (this will fail silently if it exists)
-	_ = reader.AddSection("openmanet", "config", "openmanet")
+	_ = reader.AddSection("openmanetd", "config", "openmanet")
 
 	if config.DHCPConfigured != "" {
-		if err := reader.SetType("openmanet", "config", "dhcpconfigured", uci.TypeOption, config.DHCPConfigured); err != nil {
+		if err := reader.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, config.DHCPConfigured); err != nil {
 			return fmt.Errorf("failed to set dhcpconfigured: %w", err)
 		}
 	}
 	if config.Config != "" {
-		if err := reader.SetType("openmanet", "config", "config", uci.TypeOption, config.Config); err != nil {
+		if err := reader.SetType("openmanetd", "config", "config", uci.TypeOption, config.Config); err != nil {
 			return fmt.Errorf("failed to set config: %w", err)
 		}
 	}
@@ -188,9 +188,9 @@ func SetDHCPConfigured() error {
 // SetDHCPConfiguredWithReader marks DHCP as configured using the provided reader.
 func SetDHCPConfiguredWithReader(reader OpenMANETConfigReader) error {
 	// Ensure the section exists
-	_ = reader.AddSection("openmanet", "config", "openmanet")
+	_ = reader.AddSection("openmanetd", "config", "openmanet")
 
-	if err := reader.SetType("openmanet", "config", "dhcpconfigured", uci.TypeOption, "1"); err != nil {
+	if err := reader.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "1"); err != nil {
 		return fmt.Errorf("failed to set dhcpconfigured: %w", err)
 	}
 	return nil
@@ -213,9 +213,9 @@ func ClearDHCPConfigured() error {
 // ClearDHCPConfiguredWithReader marks DHCP as not configured using the provided reader.
 func ClearDHCPConfiguredWithReader(reader OpenMANETConfigReader) error {
 	// Ensure the section exists
-	_ = reader.AddSection("openmanet", "config", "openmanet")
+	_ = reader.AddSection("openmanetd", "config", "openmanet")
 
-	if err := reader.SetType("openmanet", "config", "dhcpconfigured", uci.TypeOption, "0"); err != nil {
+	if err := reader.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "0"); err != nil {
 		return fmt.Errorf("failed to clear dhcpconfigured: %w", err)
 	}
 	return nil
@@ -274,9 +274,9 @@ func SetConfigPathWithReader(path string, reader OpenMANETConfigReader) error {
 	}
 
 	// Ensure the section exists
-	_ = reader.AddSection("openmanet", "config", "openmanet")
+	_ = reader.AddSection("openmanetd", "config", "openmanet")
 
-	if err := reader.SetType("openmanet", "config", "config", uci.TypeOption, path); err != nil {
+	if err := reader.SetType("openmanetd", "config", "config", uci.TypeOption, path); err != nil {
 		return fmt.Errorf("failed to set config path: %w", err)
 	}
 	return nil

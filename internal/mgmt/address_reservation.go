@@ -2,10 +2,12 @@ package mgmt
 
 import (
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/openmanet/go-alfred"
 	proto "github.com/openmanet/openmanetd/internal/api/openmanet/v1"
+	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/network"
 )
 
@@ -35,8 +37,8 @@ func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client
 		Client:       client,
 		ShutdownChan: shutdownChan,
 
-		sendInterval: config.gatewayWorkerSendInterval,
-		recvInterval: config.gatewayWorkerRecvInterval,
+		sendInterval: config.addressReservationWorkerSendInterval,
+		recvInterval: config.addressReservationWorkerRecvInterval,
 	}
 }
 
@@ -54,6 +56,19 @@ func (arw *AddressReservationWorker) StartSend() {
 				dhcpiface string
 				err       error
 			)
+			// If we are a mesh gateway, skip sending
+			meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
+			if err != nil {
+				arw.Config.Log.Error().Err(err).Msg("Error getting mesh config")
+				continue
+			}
+
+			if meshCfg.IsGatewayMode() {
+				arw.Config.Log.Debug().Msg("Node is in gateway mode, skipping address reservation send")
+				ticker.Stop()
+
+				continue
+			}
 
 			configured, err := network.IsDHCPConfigured()
 			if err != nil {
@@ -129,6 +144,21 @@ func (arw *AddressReservationWorker) StartReceive() {
 			var (
 				dhcpiface string
 			)
+
+			// If we are a mesh gateway, skip sending
+			meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
+			if err != nil {
+				arw.Config.Log.Error().Err(err).Msg("Error getting mesh config")
+				continue
+			}
+
+			if meshCfg.IsGatewayMode() {
+				arw.Config.Log.Debug().Msg("Node is in gateway mode, skipping address reservation send")
+				ticker.Stop()
+
+				continue
+			}
+
 			// If address is already set, skip receiving
 			configured, err := network.IsDHCPConfigured()
 			if err != nil {
@@ -155,8 +185,8 @@ func (arw *AddressReservationWorker) StartReceive() {
 
 				dhcpConfig := &network.UCIDHCP{
 					Interface: arw.Config.IFace,
-					Start:     string(dhcpStart),
-					Limit:     string(defaultAddressLimit),
+					Start:     strconv.Itoa(dhcpStart),
+					Limit:     strconv.Itoa(defaultAddressLimit),
 					LeaseTime: "12h",
 					Force:     "1",
 				}

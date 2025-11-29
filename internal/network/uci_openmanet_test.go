@@ -75,9 +75,9 @@ func (m *mockOpenMANETConfigReader) DelSection(config, section string) error {
 
 // setupMockOpenMANETData initializes the mock with sample OpenMANET configuration.
 func setupMockOpenMANETData(m *mockOpenMANETConfigReader) {
-	_ = m.AddSection("openmanet", "config", "openmanet")
-	_ = m.SetType("openmanet", "config", "dhcpconfigured", uci.TypeOption, "0")
-	_ = m.SetType("openmanet", "config", "config", uci.TypeOption, "/etc/openmanet/config.yml")
+	_ = m.AddSection("openmanetd", "config", "openmanet")
+	_ = m.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "0")
+	_ = m.SetType("openmanetd", "config", "config", uci.TypeOption, "/etc/openmanet/config.yml")
 }
 
 func TestGetOpenMANETConfigWithReader(t *testing.T) {
@@ -212,8 +212,8 @@ func TestIsDHCPConfiguredWithReader(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := newMockOpenMANETConfigReader()
 			if tt.dhcpConfigured != "" {
-				_ = mock.AddSection("openmanet", "config", "openmanet")
-				_ = mock.SetType("openmanet", "config", "dhcpconfigured", uci.TypeOption, tt.dhcpConfigured)
+				_ = mock.AddSection("openmanetd", "config", "openmanet")
+				_ = mock.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, tt.dhcpConfigured)
 			}
 
 			configured, err := IsDHCPConfiguredWithReader(mock)
@@ -244,7 +244,7 @@ func TestSetDHCPConfiguredWithReader(t *testing.T) {
 		t.Fatalf("SetDHCPConfiguredWithReader failed: %v", err)
 	}
 
-	values, ok := mock.Get("openmanet", "config", "dhcpconfigured")
+	values, ok := mock.Get("openmanetd", "config", "dhcpconfigured")
 	if !ok || len(values) == 0 || values[0] != "1" {
 		t.Errorf("Expected dhcpconfigured=1, got %v", values)
 	}
@@ -261,15 +261,15 @@ func TestSetDHCPConfiguredWithReader(t *testing.T) {
 
 func TestClearDHCPConfiguredWithReader(t *testing.T) {
 	mock := newMockOpenMANETConfigReader()
-	_ = mock.AddSection("openmanet", "config", "openmanet")
-	_ = mock.SetType("openmanet", "config", "dhcpconfigured", uci.TypeOption, "1")
+	_ = mock.AddSection("openmanetd", "config", "openmanet")
+	_ = mock.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "1")
 
 	err := ClearDHCPConfiguredWithReader(mock)
 	if err != nil {
 		t.Fatalf("ClearDHCPConfiguredWithReader failed: %v", err)
 	}
 
-	values, ok := mock.Get("openmanet", "config", "dhcpconfigured")
+	values, ok := mock.Get("openmanetd", "config", "dhcpconfigured")
 	if !ok || len(values) == 0 || values[0] != "0" {
 		t.Errorf("Expected dhcpconfigured=0, got %v", values)
 	}
@@ -306,8 +306,8 @@ func TestGetConfigPathWithReader(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := newMockOpenMANETConfigReader()
 			if tt.configPath != "" {
-				_ = mock.AddSection("openmanet", "config", "openmanet")
-				_ = mock.SetType("openmanet", "config", "config", uci.TypeOption, tt.configPath)
+				_ = mock.AddSection("openmanetd", "config", "openmanet")
+				_ = mock.SetType("openmanetd", "config", "config", uci.TypeOption, tt.configPath)
 			}
 
 			path, err := GetConfigPathWithReader(mock)
@@ -331,7 +331,7 @@ func TestSetConfigPathWithReader(t *testing.T) {
 		t.Fatalf("SetConfigPathWithReader failed: %v", err)
 	}
 
-	values, ok := mock.Get("openmanet", "config", "config")
+	values, ok := mock.Get("openmanetd", "config", "config")
 	if !ok || len(values) == 0 || values[0] != path {
 		t.Errorf("Expected config=%s, got %v", path, values)
 	}
@@ -422,8 +422,8 @@ func TestSetDHCPConfigured_UpdatesExistingValue(t *testing.T) {
 	mock := newMockOpenMANETConfigReader()
 
 	// Start with value set to 0
-	_ = mock.AddSection("openmanet", "config", "openmanet")
-	_ = mock.SetType("openmanet", "config", "dhcpconfigured", uci.TypeOption, "0")
+	_ = mock.AddSection("openmanetd", "config", "openmanet")
+	_ = mock.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "0")
 
 	configured, _ := IsDHCPConfiguredWithReader(mock)
 	if configured {
