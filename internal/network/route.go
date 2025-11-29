@@ -310,9 +310,15 @@ func GetDefaultRoute() (*Route, error) {
 	var defaultRoute *Route
 	lowestMetric := -1
 
+	// Define the default route destination (0.0.0.0/0)
+	var defaultDest = &net.IPNet{
+		IP:   net.IPv4zero,
+		Mask: net.CIDRMask(0, 32),
+	}
+
 	for _, nlRoute := range routes {
 		// Default route has no destination and must have a gateway
-		if nlRoute.Dst == nil && nlRoute.Gw != nil {
+		if nlRoute.Dst != nil && nlRoute.Dst.String() == defaultDest.String() && nlRoute.Gw != nil {
 			link, err := netlink.LinkByIndex(nlRoute.LinkIndex)
 			if err != nil {
 				continue
