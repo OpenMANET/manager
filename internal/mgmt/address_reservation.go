@@ -184,8 +184,13 @@ func (arw *AddressReservationWorker) StartReceive() {
 					continue
 				}
 
+				// if arw.Config.IFace is prefixed with "br-", remove the prefix because dhcp config is tied to the physical interface
+				if after, ok := strings.CutPrefix(arw.Config.IFace, "br-"); ok {
+					dhcpiface = after
+				}
+
 				dhcpConfig := &network.UCIDHCP{
-					Interface: arw.Config.IFace,
+					Interface: dhcpiface,
 					Start:     strconv.Itoa(dhcpStart),
 					Limit:     strconv.Itoa(defaultAddressLimit),
 					LeaseTime: "12h",
@@ -193,11 +198,6 @@ func (arw *AddressReservationWorker) StartReceive() {
 				}
 
 				arw.Config.Log.Debug().Interface("dhcpConfig", dhcpConfig).Msg("Setting DHCP config")
-
-				// if arw.Config.IFace is prefixed with "br-", remove the prefix because dhcp config is tied to the physical interface
-				if after, ok := strings.CutPrefix(arw.Config.IFace, "br-"); ok {
-					dhcpiface = after
-				}
 
 				err = network.SetDHCPConfig(dhcpiface, dhcpConfig)
 				if err != nil {
