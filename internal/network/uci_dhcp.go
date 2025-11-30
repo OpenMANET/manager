@@ -536,6 +536,16 @@ func CalculateAvailableDHCPStart(records []alfred.Record, networkAddr, subnetMas
 			continue
 		}
 
+		if addrRes.GetRequestingReservation() {
+			// Skip records that are requesting a reservation
+			continue
+		}
+
+		// Ensure we have valid DHCP start and limit
+		if addrRes.UciDhcpStart == "" || addrRes.UciDhcpLimit == "" {
+			continue
+		}
+
 		// Parse start and limit
 		start, err := strconv.Atoi(addrRes.UciDhcpStart)
 		if err != nil {

@@ -721,6 +721,107 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 			expectedMax:  768,
 			expectError:  false,
 		},
+		{
+			name: "skip records requesting reservation",
+			records: []alfred.Record{
+				{
+					Data: mustMarshalAddressReservation(&proto.AddressReservation{
+						UciDhcpStart:           "100",
+						UciDhcpLimit:           "150",
+						RequestingReservation:  true,
+					}),
+				},
+				{
+					Data: mustMarshalAddressReservation(&proto.AddressReservation{
+						UciDhcpStart: "300",
+						UciDhcpLimit: "50",
+					}),
+				},
+			},
+			networkAddr:  "10.41.0.0",
+			subnetMask:   "255.255.0.0",
+			desiredLimit: 50,
+			expectedMin:  100, // Should get 100 since first record is skipped
+			expectedMax:  100,
+			expectError:  false,
+		},
+		{
+			name: "skip records with empty start",
+			records: []alfred.Record{
+				{
+					Data: mustMarshalAddressReservation(&proto.AddressReservation{
+						UciDhcpStart: "",
+						UciDhcpLimit: "150",
+					}),
+				},
+				{
+					Data: mustMarshalAddressReservation(&proto.AddressReservation{
+						UciDhcpStart: "200",
+						UciDhcpLimit: "50",
+					}),
+				},
+			},
+			networkAddr:  "10.41.0.0",
+			subnetMask:   "255.255.0.0",
+			desiredLimit: 50,
+			expectedMin:  100, // Should get 100 since first record is skipped
+			expectedMax:  100,
+			expectError:  false,
+		},
+		{
+			name: "skip records with empty limit",
+			records: []alfred.Record{
+				{
+					Data: mustMarshalAddressReservation(&proto.AddressReservation{
+						UciDhcpStart: "100",
+						UciDhcpLimit: "",
+					}),
+				},
+				{
+					Data: mustMarshalAddressReservation(&proto.AddressReservation{
+						UciDhcpStart: "200",
+						UciDhcpLimit: "50",
+					}),
+				},
+			},
+			networkAddr:  "10.41.0.0",
+			subnetMask:   "255.255.0.0",
+			desiredLimit: 50,
+			expectedMin:  100, // Should get 100 since first record is skipped
+			expectedMax:  100,
+			expectError:  false,
+		},
+		{
+			name: "mixed requesting and confirmed reservations",
+			records: []alfred.Record{
+				{
+					Data: mustMarshalAddressReservation(&proto.AddressReservation{
+						UciDhcpStart:           "100",
+						UciDhcpLimit:           "50",
+						RequestingReservation:  true,
+					}),
+				},
+				{
+					Data: mustMarshalAddressReservation(&proto.AddressReservation{
+						UciDhcpStart: "100",
+						UciDhcpLimit: "50",
+					}),
+				},
+				{
+					Data: mustMarshalAddressReservation(&proto.AddressReservation{
+						UciDhcpStart:           "200",
+						UciDhcpLimit:           "100",
+						RequestingReservation:  true,
+					}),
+				},
+			},
+			networkAddr:  "10.41.0.0",
+			subnetMask:   "255.255.0.0",
+			desiredLimit: 40,
+			expectedMin:  150, // After the confirmed range (100-149)
+			expectedMax:  150,
+			expectError:  false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -746,6 +847,16 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 			for _, record := range tt.records {
 				var addrRes proto.AddressReservation
 				if err := addrRes.UnmarshalVT(record.Data); err != nil {
+					continue
+				}
+
+				// Skip records that are requesting reservations (same as the function logic)
+				if addrRes.GetRequestingReservation() {
+					continue
+				}
+
+				// Skip records with empty start or limit (same as the function logic)
+				if addrRes.UciDhcpStart == "" || addrRes.UciDhcpLimit == "" {
 					continue
 				}
 

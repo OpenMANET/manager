@@ -32,9 +32,11 @@ type AddressReservation struct {
 	// UCI DHCP start address
 	UciDhcpStart string `protobuf:"bytes,4,opt,name=uci_dhcp_start,json=uciDhcpStart,proto3" json:"uci_dhcp_start,omitempty"`
 	// UCI DHCP limit is the number of addresses to reserve
-	UciDhcpLimit  string `protobuf:"bytes,5,opt,name=uci_dhcp_limit,json=uciDhcpLimit,proto3" json:"uci_dhcp_limit,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	UciDhcpLimit string `protobuf:"bytes,5,opt,name=uci_dhcp_limit,json=uciDhcpLimit,proto3" json:"uci_dhcp_limit,omitempty"`
+	// Whether the node is requesting a reservation
+	RequestingReservation bool `protobuf:"varint,6,opt,name=requesting_reservation,json=requestingReservation,proto3" json:"requesting_reservation,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *AddressReservation) Reset() {
@@ -100,6 +102,13 @@ func (x *AddressReservation) GetUciDhcpLimit() string {
 		return x.UciDhcpLimit
 	}
 	return ""
+}
+
+func (x *AddressReservation) GetRequestingReservation() bool {
+	if x != nil {
+		return x.RequestingReservation
+	}
+	return false
 }
 
 type Node struct {
@@ -241,13 +250,14 @@ var File_openmanet_v1_node_proto protoreflect.FileDescriptor
 
 const file_openmanet_v1_node_proto_rawDesc = "" +
 	"\n" +
-	"\x17openmanet/v1/node.proto\x12\fopenmanet.v1\"\xba\x01\n" +
+	"\x17openmanet/v1/node.proto\x12\fopenmanet.v1\"\xf1\x01\n" +
 	"\x12AddressReservation\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12\x1b\n" +
 	"\tstatic_ip\x18\x02 \x01(\tR\bstaticIp\x12)\n" +
 	"\x10reservation_cidr\x18\x03 \x01(\tR\x0freservationCidr\x12$\n" +
 	"\x0euci_dhcp_start\x18\x04 \x01(\tR\fuciDhcpStart\x12$\n" +
-	"\x0euci_dhcp_limit\x18\x05 \x01(\tR\fuciDhcpLimit\"\x80\x01\n" +
+	"\x0euci_dhcp_limit\x18\x05 \x01(\tR\fuciDhcpLimit\x125\n" +
+	"\x16requesting_reservation\x18\x06 \x01(\bR\x15requestingReservation\"\x80\x01\n" +
 	"\x04Node\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x16\n" +

@@ -32,6 +32,7 @@ func (m *AddressReservation) CloneVT() *AddressReservation {
 	r.ReservationCidr = m.ReservationCidr
 	r.UciDhcpStart = m.UciDhcpStart
 	r.UciDhcpLimit = m.UciDhcpLimit
+	r.RequestingReservation = m.RequestingReservation
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -101,6 +102,9 @@ func (this *AddressReservation) EqualVT(that *AddressReservation) bool {
 		return false
 	}
 	if this.UciDhcpLimit != that.UciDhcpLimit {
+		return false
+	}
+	if this.RequestingReservation != that.RequestingReservation {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -195,6 +199,16 @@ func (m *AddressReservation) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.RequestingReservation {
+		i--
+		if m.RequestingReservation {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x30
 	}
 	if len(m.UciDhcpLimit) > 0 {
 		i -= len(m.UciDhcpLimit)
@@ -379,6 +393,16 @@ func (m *AddressReservation) MarshalToSizedBufferVTStrict(dAtA []byte) (int, err
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.RequestingReservation {
+		i--
+		if m.RequestingReservation {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x30
+	}
 	if len(m.UciDhcpLimit) > 0 {
 		i -= len(m.UciDhcpLimit)
 		copy(dAtA[i:], m.UciDhcpLimit)
@@ -557,6 +581,9 @@ func (m *AddressReservation) SizeVT() (n int) {
 	l = len(m.UciDhcpLimit)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.RequestingReservation {
+		n += 2
 	}
 	n += len(m.unknownFields)
 	return n
@@ -796,6 +823,26 @@ func (m *AddressReservation) UnmarshalVT(dAtA []byte) error {
 			}
 			m.UciDhcpLimit = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RequestingReservation", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.RequestingReservation = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -1294,6 +1341,26 @@ func (m *AddressReservation) UnmarshalVTUnsafe(dAtA []byte) error {
 			}
 			m.UciDhcpLimit = stringValue
 			iNdEx = postIndex
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RequestingReservation", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.RequestingReservation = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
