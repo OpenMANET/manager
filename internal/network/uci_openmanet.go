@@ -31,6 +31,7 @@ type OpenMANETConfigReader interface {
 	AddSection(config, section, typ string) error
 	DelSection(config, section string) error
 	Commit() error
+	ReloadConfig() error
 }
 
 // UCIOpenMANETConfigReader wraps the UCI functions for OpenMANET configuration.
@@ -146,6 +147,10 @@ func SetOpenMANETConfigWithReader(config *UCIOpenMANET, reader OpenMANETConfigRe
 		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
 	}
 
+	if err := reader.ReloadConfig(); err != nil {
+		return fmt.Errorf("failed to reload OpenMANET config: %w", err)
+	}
+
 	return nil
 }
 
@@ -215,6 +220,10 @@ func SetDHCPConfiguredWithReader(reader OpenMANETConfigReader) error {
 		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
 	}
 
+	if err := reader.ReloadConfig(); err != nil {
+		return fmt.Errorf("failed to reload OpenMANET config: %w", err)
+	}
+
 	return nil
 }
 
@@ -244,7 +253,11 @@ func ClearDHCPConfiguredWithReader(reader OpenMANETConfigReader) error {
 	if err := reader.Commit(); err != nil {
 		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
 	}
-	
+
+	if err := reader.ReloadConfig(); err != nil {
+		return fmt.Errorf("failed to reload OpenMANET config: %w", err)
+	}
+
 	return nil
 }
 

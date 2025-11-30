@@ -47,6 +47,7 @@ type DHCPConfigReader interface {
 	AddSection(config, section, typ string) error
 	DelSection(config, section string) error
 	Commit() error
+	ReloadConfig() error
 }
 
 // UCIDHCPConfigReader wraps the UCI functions for DHCP configuration.
@@ -57,6 +58,10 @@ type UCIDHCPConfigReader struct {
 // Commit commits the current configuration changes to UCI.
 func (r *UCIDHCPConfigReader) Commit() error {
 	return r.tree.Commit()
+}
+
+func (r *UCIDHCPConfigReader) ReloadConfig() error {
+	return r.tree.LoadConfig("dhcp", true)
 }
 
 // NewUCIDHCPConfigReader creates a new UCI DHCP config reader with the default tree.
@@ -254,6 +259,10 @@ func SetDHCPConfigWithReader(section string, config *UCIDHCP, reader DHCPConfigR
 		return fmt.Errorf("failed to commit DHCP config: %w", err)
 	}
 
+	if err := reader.ReloadConfig(); err != nil {
+		return fmt.Errorf("failed to reload DHCP config: %w", err)
+	}
+
 	return nil
 }
 
@@ -286,6 +295,10 @@ func DeleteDHCPConfigWithReader(section string, reader DHCPConfigReader) error {
 		return fmt.Errorf("failed to commit DHCP config: %w", err)
 	}
 
+	if err := reader.ReloadConfig(); err != nil {
+		return fmt.Errorf("failed to reload DHCP config: %w", err)
+	}
+
 	return nil
 }
 
@@ -309,6 +322,10 @@ func EnableDHCPWithReader(section string, reader DHCPConfigReader) error {
 		return fmt.Errorf("failed to commit DHCP config: %w", err)
 	}
 
+	if err := reader.ReloadConfig(); err != nil {
+		return fmt.Errorf("failed to reload DHCP config: %w", err)
+	}
+
 	return nil
 }
 
@@ -330,6 +347,10 @@ func DisableDHCPWithReader(section string, reader DHCPConfigReader) error {
 
 	if err := reader.Commit(); err != nil {
 		return fmt.Errorf("failed to commit DHCP config: %w", err)
+	}
+
+	if err := reader.ReloadConfig(); err != nil {
+		return fmt.Errorf("failed to reload DHCP config: %w", err)
 	}
 
 	return nil
@@ -394,6 +415,10 @@ func SetDHCPRangeWithReader(section, start, limit string, reader DHCPConfigReade
 		return fmt.Errorf("failed to commit DHCP config: %w", err)
 	}
 
+	if err := reader.ReloadConfig(); err != nil {
+		return fmt.Errorf("failed to reload DHCP config: %w", err)
+	}
+
 	return nil
 }
 
@@ -418,6 +443,10 @@ func SetDHCPLeaseTimeWithReader(section, leasetime string, reader DHCPConfigRead
 
 	if err := reader.Commit(); err != nil {
 		return fmt.Errorf("failed to commit DHCP config: %w", err)
+	}
+
+	if err := reader.ReloadConfig(); err != nil {
+		return fmt.Errorf("failed to reload DHCP config: %w", err)
 	}
 
 	return nil

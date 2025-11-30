@@ -22,6 +22,11 @@ func (m *mockDHCPConfigReader) Commit() error {
 	return nil
 }
 
+// ReloadConfig is a no-op for the mock, simulating a successful reload.
+func (m *mockDHCPConfigReader) ReloadConfig() error {
+	return nil
+}
+
 func newMockDHCPConfigReader() *mockDHCPConfigReader {
 	return &mockDHCPConfigReader{
 		data:     make(map[string]map[string]map[string][]string),
@@ -378,6 +383,11 @@ type mockDHCPConfigReaderWithErrors struct{}
 
 // Commit always returns an error for error simulation.
 func (m *mockDHCPConfigReaderWithErrors) Commit() error {
+	return errors.New("mock error")
+}
+
+// ReloadConfig always returns an error for error simulation.
+func (m *mockDHCPConfigReaderWithErrors) ReloadConfig() error {
 	return errors.New("mock error")
 }
 

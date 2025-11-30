@@ -18,6 +18,11 @@ func (m *mockOpenMANETConfigReader) Commit() error {
 	return nil
 }
 
+// ReloadConfig is a no-op for the mock, simulating a successful reload.
+func (m *mockOpenMANETConfigReader) ReloadConfig() error {
+	return nil
+}
+
 func newMockOpenMANETConfigReader() *mockOpenMANETConfigReader {
 	return &mockOpenMANETConfigReader{
 		data:     make(map[string]map[string]map[string][]string),
@@ -365,6 +370,11 @@ type mockOpenMANETConfigReaderWithErrors struct{}
 
 // Commit always returns an error for error simulation.
 func (m *mockOpenMANETConfigReaderWithErrors) Commit() error {
+	return errors.New("mock error")
+}
+
+// ReloadConfig always returns an error for error simulation.
+func (m *mockOpenMANETConfigReaderWithErrors) ReloadConfig() error {
 	return errors.New("mock error")
 }
 
