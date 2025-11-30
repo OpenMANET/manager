@@ -726,9 +726,9 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 			records: []alfred.Record{
 				{
 					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart:           "100",
-						UciDhcpLimit:           "150",
-						RequestingReservation:  true,
+						UciDhcpStart:          "100",
+						UciDhcpLimit:          "150",
+						RequestingReservation: true,
 					}),
 				},
 				{
@@ -796,9 +796,9 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 			records: []alfred.Record{
 				{
 					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart:           "100",
-						UciDhcpLimit:           "50",
-						RequestingReservation:  true,
+						UciDhcpStart:          "100",
+						UciDhcpLimit:          "50",
+						RequestingReservation: true,
 					}),
 				},
 				{
@@ -809,9 +809,9 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 				},
 				{
 					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart:           "200",
-						UciDhcpLimit:           "100",
-						RequestingReservation:  true,
+						UciDhcpStart:          "200",
+						UciDhcpLimit:          "100",
+						RequestingReservation: true,
 					}),
 				},
 			},
