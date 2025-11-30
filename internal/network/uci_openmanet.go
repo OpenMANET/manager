@@ -39,14 +39,6 @@ type UCIOpenMANETConfigReader struct {
 	tree uci.Tree
 }
 
-func (r *UCIOpenMANETConfigReader) Commit() error {
-	return r.tree.Commit()
-}
-
-func (r *UCIOpenMANETConfigReader) ReloadConfig() error {
-	return r.tree.LoadConfig(openmanetdConfigName, true)
-}
-
 // NewUCIOpenMANETConfigReader creates a new UCI OpenMANET config reader with the default tree.
 func NewUCIOpenMANETConfigReader() *UCIOpenMANETConfigReader {
 	return &UCIOpenMANETConfigReader{
@@ -73,6 +65,15 @@ func (r *UCIOpenMANETConfigReader) AddSection(config, section, typ string) error
 func (r *UCIOpenMANETConfigReader) DelSection(config, section string) error {
 	return uci.DelSection(config, section)
 }
+
+func (r *UCIOpenMANETConfigReader) Commit() error {
+	return r.tree.Commit()
+}
+
+func (r *UCIOpenMANETConfigReader) ReloadConfig() error {
+	return r.tree.LoadConfig(openmanetdConfigName, true)
+}
+
 
 // GetOpenMANETConfig loads and returns the OpenMANET configuration.
 //
@@ -151,10 +152,6 @@ func SetOpenMANETConfigWithReader(config *UCIOpenMANET, reader OpenMANETConfigRe
 		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
 	}
 
-	if err := reader.ReloadConfig(); err != nil {
-		return fmt.Errorf("failed to reload OpenMANET config: %w", err)
-	}
-
 	return nil
 }
 
@@ -224,10 +221,6 @@ func SetDHCPConfiguredWithReader(reader OpenMANETConfigReader) error {
 		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
 	}
 
-	if err := reader.ReloadConfig(); err != nil {
-		return fmt.Errorf("failed to reload OpenMANET config: %w", err)
-	}
-
 	return nil
 }
 
@@ -256,10 +249,6 @@ func ClearDHCPConfiguredWithReader(reader OpenMANETConfigReader) error {
 
 	if err := reader.Commit(); err != nil {
 		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
-	}
-
-	if err := reader.ReloadConfig(); err != nil {
-		return fmt.Errorf("failed to reload OpenMANET config: %w", err)
 	}
 
 	return nil

@@ -55,15 +55,6 @@ type UCIDHCPConfigReader struct {
 	tree uci.Tree
 }
 
-// Commit commits the current configuration changes to UCI.
-func (r *UCIDHCPConfigReader) Commit() error {
-	return r.tree.Commit()
-}
-
-func (r *UCIDHCPConfigReader) ReloadConfig() error {
-	return r.tree.LoadConfig("dhcp", true)
-}
-
 // NewUCIDHCPConfigReader creates a new UCI DHCP config reader with the default tree.
 func NewUCIDHCPConfigReader() *UCIDHCPConfigReader {
 	return &UCIDHCPConfigReader{
@@ -89,6 +80,15 @@ func (r *UCIDHCPConfigReader) AddSection(config, section, typ string) error {
 
 func (r *UCIDHCPConfigReader) DelSection(config, section string) error {
 	return uci.DelSection(config, section)
+}
+
+// Commit commits the current configuration changes to UCI.
+func (r *UCIDHCPConfigReader) Commit() error {
+	return r.tree.Commit()
+}
+
+func (r *UCIDHCPConfigReader) ReloadConfig() error {
+	return r.tree.LoadConfig("dhcp", true)
 }
 
 // GetDnsmasqConfig loads and returns the dnsmasq global configuration.

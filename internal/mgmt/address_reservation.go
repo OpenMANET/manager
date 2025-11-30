@@ -164,7 +164,7 @@ func (arw *AddressReservationWorker) StartReceive() {
 			}
 
 			// If address is already set, skip receiving
-			configured, err := network.IsDHCPConfiguredWithReader(arw.uciDHCPConfig)
+			configured, err := network.IsDHCPConfiguredWithReader(arw.uciOpenMANETConfig)
 			if err != nil {
 				arw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
 				continue
@@ -209,7 +209,7 @@ func (arw *AddressReservationWorker) StartReceive() {
 					continue
 				}
 
-				err = network.SetDHCPConfiguredWithReader(arw.uciDHCPConfig)
+				err = network.SetDHCPConfiguredWithReader(arw.uciOpenMANETConfig)
 				if err != nil {
 					arw.Config.Log.Error().Err(err).Msg("Error marking DHCP as configured")
 					continue
