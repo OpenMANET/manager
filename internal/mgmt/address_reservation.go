@@ -26,8 +26,10 @@ type AddressReservationWorker struct {
 	Client       *alfred.Client
 	ShutdownChan <-chan os.Signal
 
-	sendInterval time.Duration
-	recvInterval time.Duration
+	uciOpenMANETConfig *network.UCIOpenMANETConfigReader
+	uciDHCPConfig      *network.UCIDHCPConfigReader
+	sendInterval       time.Duration
+	recvInterval       time.Duration
 }
 
 func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client, shutdownChan <-chan os.Signal) *AddressReservationWorker {
@@ -38,8 +40,10 @@ func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client
 		Client:       client,
 		ShutdownChan: shutdownChan,
 
-		sendInterval: config.addressReservationWorkerSendInterval,
-		recvInterval: config.addressReservationWorkerRecvInterval,
+		uciOpenMANETConfig: network.NewUCIOpenMANETConfigReader(),
+		uciDHCPConfig:      network.NewUCIDHCPConfigReader(),
+		sendInterval:       config.addressReservationWorkerSendInterval,
+		recvInterval:       config.addressReservationWorkerRecvInterval,
 	}
 }
 
@@ -66,7 +70,7 @@ func (arw *AddressReservationWorker) StartSend() {
 
 			// If we are NOT in gateway mode, ensure DHCP is configured
 			if !meshCfg.IsGatewayMode() {
-				configured, err := network.IsDHCPConfigured()
+				configured, err := network.IsDHCPConfiguredWithReader(arw.uciOpenMANETConfig)
 				if err != nil {
 					arw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
 					continue
@@ -86,7 +90,7 @@ func (arw *AddressReservationWorker) StartSend() {
 				dhcpiface = after
 			}
 
-			dhcp, err := network.GetDHCPConfig(dhcpiface)
+			dhcp, err := network.GetDHCPConfigWithReader(dhcpiface, arw.uciDHCPConfig)
 			if err != nil {
 				arw.Config.Log.Error().Err(err).Msgf("Error getting DHCP config for interface %s", dhcpiface)
 				continue
@@ -160,7 +164,7 @@ func (arw *AddressReservationWorker) StartReceive() {
 			}
 
 			// If address is already set, skip receiving
-			configured, err := network.IsDHCPConfigured()
+			configured, err := network.IsDHCPConfiguredWithReader(arw.uciDHCPConfig)
 			if err != nil {
 				arw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
 				continue
@@ -199,13 +203,13 @@ func (arw *AddressReservationWorker) StartReceive() {
 
 				arw.Config.Log.Debug().Interface("dhcpConfig", dhcpConfig).Msg("Setting DHCP config")
 
-				err = network.SetDHCPConfig(dhcpiface, dhcpConfig)
+				err = network.SetDHCPConfigWithReader(dhcpiface, dhcpConfig, arw.uciDHCPConfig)
 				if err != nil {
 					arw.Config.Log.Error().Err(err).Msg("Error setting DHCP config")
 					continue
 				}
 
-				err = network.SetDHCPConfigured()
+				err = network.SetDHCPConfiguredWithReader(arw.uciDHCPConfig)
 				if err != nil {
 					arw.Config.Log.Error().Err(err).Msg("Error marking DHCP as configured")
 					continue
