@@ -13,7 +13,7 @@ config openmanet 'config'
 	option config '/etc/openmanet/config.yml'
 */
 
-const(
+const (
 	openmanetdConfigName string = "openmanetd"
 )
 
@@ -92,6 +92,10 @@ func GetOpenMANETConfig() (*UCIOpenMANET, error) {
 // GetOpenMANETConfigWithReader loads and returns the OpenMANET configuration using the provided reader.
 func GetOpenMANETConfigWithReader(reader OpenMANETConfigReader) (*UCIOpenMANET, error) {
 	var config UCIOpenMANET
+
+	if err := reader.ReloadConfig(); err != nil {
+		return nil, fmt.Errorf("failed to reload OpenMANET config: %w", err)
+	}
 
 	if values, ok := reader.Get(openmanetdConfigName, "config", "dhcpconfigured"); ok && len(values) > 0 {
 		config.DHCPConfigured = values[0]

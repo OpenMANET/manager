@@ -100,6 +100,10 @@ func GetDnsmasqConfig() (*UCIDnsmasq, error) {
 func GetDnsmasqConfigWithReader(reader DHCPConfigReader) (*UCIDnsmasq, error) {
 	var config UCIDnsmasq
 
+	if err := reader.ReloadConfig(); err != nil {
+		return nil, fmt.Errorf("failed to reload dnsmasq config: %w", err)
+	}
+
 	if values, ok := reader.Get("dhcp", "dnsmasq", "domainneeded"); ok && len(values) > 0 {
 		config.DomainNeeded = values[0]
 	}
@@ -145,6 +149,10 @@ func GetDHCPConfig(section string) (*UCIDHCP, error) {
 // GetDHCPConfigWithReader loads and returns the DHCP pool configuration using the provided reader.
 func GetDHCPConfigWithReader(section string, reader DHCPConfigReader) (*UCIDHCP, error) {
 	var config UCIDHCP
+
+	if err := reader.ReloadConfig(); err != nil {
+		return nil, fmt.Errorf("failed to reload DHCP config: %w", err)
+	}
 
 	if values, ok := reader.Get("dhcp", section, "interface"); ok && len(values) > 0 {
 		config.Interface = values[0]
