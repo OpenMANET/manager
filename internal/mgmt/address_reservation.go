@@ -115,6 +115,7 @@ func (arw *AddressReservationWorker) StartReceive() {
 		case <-ticker.C:
 			var (
 				dhcpiface string
+				iface = network.GetInterfaceByName(arw.Config.IFace)
 			)
 
 			// Get address reservation data from the Alfred client
@@ -142,6 +143,11 @@ func (arw *AddressReservationWorker) StartReceive() {
 					// If there is a reservation request, process it
 					if addrRes.RequestingReservation {
 						arw.Config.Log.Debug().Interface("addressRes", &addrRes).Msg("Processing address reservation request")
+
+						// Skip if the request is from ourselves
+						if addrRes.Mac == iface.MAC {
+							continue
+						}
 
 						// Create and send address reservation response
 						addrResDataBytes, err := arw.createAddressReservationResponse()
