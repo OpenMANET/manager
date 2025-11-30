@@ -93,10 +93,6 @@ func GetOpenMANETConfig() (*UCIOpenMANET, error) {
 func GetOpenMANETConfigWithReader(reader OpenMANETConfigReader) (*UCIOpenMANET, error) {
 	var config UCIOpenMANET
 
-	if err := reader.ReloadConfig(); err != nil {
-		return nil, fmt.Errorf("failed to reload OpenMANET config: %w", err)
-	}
-
 	if values, ok := reader.Get(openmanetdConfigName, "config", "dhcpconfigured"); ok && len(values) > 0 {
 		config.DHCPConfigured = values[0]
 	}
@@ -149,10 +145,6 @@ func SetOpenMANETConfigWithReader(config *UCIOpenMANET, reader OpenMANETConfigRe
 
 	if err := reader.Commit(); err != nil {
 		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
-	}
-
-	if err := reader.ReloadConfig(); err != nil {
-		return fmt.Errorf("failed to reload OpenMANET config: %w", err)
 	}
 
 	return nil
@@ -224,10 +216,6 @@ func SetDHCPConfiguredWithReader(reader OpenMANETConfigReader) error {
 		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
 	}
 
-	if err := reader.ReloadConfig(); err != nil {
-		return fmt.Errorf("failed to reload OpenMANET config: %w", err)
-	}
-
 	return nil
 }
 
@@ -256,10 +244,6 @@ func ClearDHCPConfiguredWithReader(reader OpenMANETConfigReader) error {
 
 	if err := reader.Commit(); err != nil {
 		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
-	}
-
-	if err := reader.ReloadConfig(); err != nil {
-		return fmt.Errorf("failed to reload OpenMANET config: %w", err)
 	}
 
 	return nil
