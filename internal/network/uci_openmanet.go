@@ -47,7 +47,7 @@ func NewUCIOpenMANETConfigReader() *UCIOpenMANETConfigReader {
 }
 
 func (r *UCIOpenMANETConfigReader) Get(config, section, option string) ([]string, bool) {
-	return uci.Get(config, section, option)
+	return r.tree.Get(config, section, option)
 }
 
 func (r *UCIOpenMANETConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
@@ -55,15 +55,15 @@ func (r *UCIOpenMANETConfigReader) SetType(config, section, option string, typ u
 }
 
 func (r *UCIOpenMANETConfigReader) Del(config, section, option string) error {
-	return uci.Del(config, section, option)
+	return r.tree.Del(config, section, option)
 }
 
 func (r *UCIOpenMANETConfigReader) AddSection(config, section, typ string) error {
-	return uci.AddSection(config, section, typ)
+	return r.tree.AddSection(config, section, typ)
 }
 
 func (r *UCIOpenMANETConfigReader) DelSection(config, section string) error {
-	return uci.DelSection(config, section)
+	return r.tree.DelSection(config, section)
 }
 
 func (r *UCIOpenMANETConfigReader) Commit() error {

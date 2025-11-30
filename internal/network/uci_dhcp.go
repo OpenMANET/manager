@@ -63,7 +63,7 @@ func NewUCIDHCPConfigReader() *UCIDHCPConfigReader {
 }
 
 func (r *UCIDHCPConfigReader) Get(config, section, option string) ([]string, bool) {
-	return uci.Get(config, section, option)
+	return r.tree.Get(config, section, option)
 }
 
 func (r *UCIDHCPConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
@@ -71,15 +71,15 @@ func (r *UCIDHCPConfigReader) SetType(config, section, option string, typ uci.Op
 }
 
 func (r *UCIDHCPConfigReader) Del(config, section, option string) error {
-	return uci.Del(config, section, option)
+	return r.tree.Del(config, section, option)
 }
 
 func (r *UCIDHCPConfigReader) AddSection(config, section, typ string) error {
-	return uci.AddSection(config, section, typ)
+	return r.tree.AddSection(config, section, typ)
 }
 
 func (r *UCIDHCPConfigReader) DelSection(config, section string) error {
-	return uci.DelSection(config, section)
+	return r.tree.DelSection(config, section)
 }
 
 // Commit commits the current configuration changes to UCI.
