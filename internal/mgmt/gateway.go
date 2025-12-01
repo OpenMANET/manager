@@ -159,6 +159,19 @@ func (gw *GatewayWorker) StartReceive() {
 						if gatewayData.Mac == batGw.OrigAddress {
 							// Replace default route with the matched gateway IP
 							ipString := net.ParseIP(gatewayData.Ipaddr)
+
+							currentDefaultRoute, err := network.GetDefaultRoute()
+							if err != nil {
+								gw.Config.Log.Error().Err(err).Msg("Failed to get current default route")
+								continue
+							}
+
+							if currentDefaultRoute != nil && currentDefaultRoute.Gateway.Equal(ipString) {
+								// Default route is already set to the correct gateway, skip
+								gw.Config.Log.Debug().Msgf("Default route already set to gateway IP: %s", gatewayData.Ipaddr)
+								continue
+							}
+
 							if ipString != nil {
 								if err := network.ReplaceDefaultRoute(ipString, gw.Config.IFace); err != nil {
 									gw.Config.Log.Error().Err(err).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
