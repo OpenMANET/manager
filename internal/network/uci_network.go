@@ -2,22 +2,31 @@ package network
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/digineo/go-uci/v2"
+	"github.com/openmanet/go-alfred"
+	proto "github.com/openmanet/openmanetd/internal/api/openmanet/v1"
 )
 
 const (
-	networkConfigName string = "network"
+	networkConfigName     string = "network"
+	DefaultNetworkAddress string = "10.41.0.0"
+	DefaultNetworkMask    string = "255.255.0.0"
+	DefaultNetworkProto   string = "static"
 )
 
 // UCINetworkConfig represents the UCI network configuration.
 type UCINetwork struct {
-	Proto   string `uci:"option proto"`
-	NetMask string `uci:"option netmask"`
-	IPAddr  string `uci:"option ipaddr"`
-	Gateway string `uci:"option gateway"`
-	DNS     string `uci:"option dns"`
-	Device  string `uci:"option device"`
+	Proto          string `uci:"option proto"`
+	NetMask        string `uci:"option netmask"`
+	IPAddr         string `uci:"option ipaddr"`
+	Gateway        string `uci:"option gateway"`
+	DNS            string `uci:"option dns"`
+	Device         string `uci:"option device"`
+	IPV6Assignment string `uci:"option ip6assign"`
+	IPV6IfaceID    string `uci:"option ip6ifaceid"`
+	IPV6Class      string `uci:"list ip6class"`
 }
 
 // ConfigReader defines an interface for reading UCI configuration values.
@@ -111,6 +120,15 @@ func GetUCINetworkByNameWithReader(name string, reader ConfigReader) (*UCINetwor
 	if values, ok := reader.Get(networkConfigName, name, "device"); ok && len(values) > 0 {
 		config.Device = values[0]
 	}
+	if values, ok := reader.Get(networkConfigName, name, "ip6assign"); ok && len(values) > 0 {
+		config.IPV6Assignment = values[0]
+	}
+	if values, ok := reader.Get(networkConfigName, name, "ip6ifaceid"); ok && len(values) > 0 {
+		config.IPV6IfaceID = values[0]
+	}
+	if values, ok := reader.Get(networkConfigName, name, "ip6class"); ok && len(values) > 0 {
+		config.IPV6Class = values[0]
+	}
 
 	return &config, nil
 }
@@ -174,6 +192,21 @@ func SetNetworkConfigWithReader(section string, config *UCINetwork, reader Confi
 	if config.Device != "" {
 		if err := reader.SetType(networkConfigName, section, "device", uci.TypeOption, config.Device); err != nil {
 			return fmt.Errorf("failed to set device: %w", err)
+		}
+	}
+	if config.IPV6Assignment != "" {
+		if err := reader.SetType(networkConfigName, section, "ip6assign", uci.TypeOption, config.IPV6Assignment); err != nil {
+			return fmt.Errorf("failed to set ip6assign: %w", err)
+		}
+	}
+	if config.IPV6IfaceID != "" {
+		if err := reader.SetType(networkConfigName, section, "ip6ifaceid", uci.TypeOption, config.IPV6IfaceID); err != nil {
+			return fmt.Errorf("failed to set ip6ifaceid: %w", err)
+		}
+	}
+	if config.IPV6Class != "" {
+		if err := reader.SetType(networkConfigName, section, "ip6class", uci.TypeList, config.IPV6Class); err != nil {
+			return fmt.Errorf("failed to set ip6class: %w", err)
 		}
 	}
 
@@ -370,4 +403,156 @@ func SetNetworkDeviceWithReader(section, device string, reader ConfigReader) err
 	}
 
 	return nil
+}
+
+// SetNetworkIPV6Assignment sets the IPv6 assignment (prefix length) for a network interface.
+//
+// Parameters:
+//   - section: The UCI section name (e.g., "lan", "wan")
+//   - ip6assign: The IPv6 prefix length to assign (e.g., "60", "64")
+//
+// Example:
+//
+//	err := SetNetworkIPV6Assignment("lan", "60")
+func SetNetworkIPV6Assignment(section, ip6assign string) error {
+	return SetNetworkIPV6AssignmentWithReader(section, ip6assign, NewUCIConfigReader())
+}
+
+// SetNetworkIPV6AssignmentWithReader sets the IPv6 assignment using the provided reader.
+func SetNetworkIPV6AssignmentWithReader(section, ip6assign string, reader ConfigReader) error {
+	if err := reader.SetType(networkConfigName, section, "ip6assign", uci.TypeOption, ip6assign); err != nil {
+		return fmt.Errorf("failed to set ip6assign: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit network config: %w", err)
+	}
+
+	return nil
+}
+
+// SetNetworkIPV6IfaceID sets the IPv6 interface ID for a network interface.
+//
+// Parameters:
+//   - section: The UCI section name (e.g., "lan", "wan")
+//   - ip6ifaceid: The IPv6 interface ID (e.g., "::1")
+//
+// Example:
+//
+//	err := SetNetworkIPV6IfaceID("lan", "::1")
+func SetNetworkIPV6IfaceID(section, ip6ifaceid string) error {
+	return SetNetworkIPV6IfaceIDWithReader(section, ip6ifaceid, NewUCIConfigReader())
+}
+
+// SetNetworkIPV6IfaceIDWithReader sets the IPv6 interface ID using the provided reader.
+func SetNetworkIPV6IfaceIDWithReader(section, ip6ifaceid string, reader ConfigReader) error {
+	if err := reader.SetType(networkConfigName, section, "ip6ifaceid", uci.TypeOption, ip6ifaceid); err != nil {
+		return fmt.Errorf("failed to set ip6ifaceid: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit network config: %w", err)
+	}
+
+	return nil
+}
+
+// SetNetworkIPV6Class sets the IPv6 class for a network interface.
+//
+// Parameters:
+//   - section: The UCI section name (e.g., "lan", "wan")
+//   - ip6class: The IPv6 class (e.g., "local", "wan6")
+//
+// Example:
+//
+//	err := SetNetworkIPV6Class("lan", "local")
+func SetNetworkIPV6Class(section, ip6class string) error {
+	return SetNetworkIPV6ClassWithReader(section, ip6class, NewUCIConfigReader())
+}
+
+// SetNetworkIPV6ClassWithReader sets the IPv6 class using the provided reader.
+func SetNetworkIPV6ClassWithReader(section, ip6class string, reader ConfigReader) error {
+	if err := reader.SetType(networkConfigName, section, "ip6class", uci.TypeList, ip6class); err != nil {
+		return fmt.Errorf("failed to set ip6class: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit network config: %w", err)
+	}
+
+	return nil
+}
+
+// SelectAvailableStaticIP selects an available static IP address from the 10.41.0.0/16 network.
+//
+// Parameters:
+//   - records: Array of Alfred records containing address reservations
+//
+// Returns:
+//   - An available IP address from the 10.41.0.0/16 range
+//   - An error if no available IP can be found
+//
+// The function excludes:
+//   - Already reserved IP addresses (from StaticIp field in AddressReservation)
+//   - The 10.41.253.0/24 range
+//   - The 10.41.254.0/24 range
+//   - Network address (10.41.0.0)
+//   - Broadcast address (10.41.255.255)
+//
+// Example:
+//
+//	records := []alfred.Record{ /* ... */ }
+//	ip, err := SelectAvailableStaticIP(records)
+//	if err != nil {
+//	    log.Fatalf("Failed to select IP: %v", err)
+//	}
+//	fmt.Printf("Selected IP: %s\n", ip)
+func SelectAvailableStaticIP(records []alfred.Record) (string, error) {
+	// Collect all reserved IP addresses
+	reservedIPs := make(map[string]bool)
+
+	for _, record := range records {
+		var addrRes proto.AddressReservation
+		if err := addrRes.UnmarshalVT(record.Data); err != nil {
+			// Skip records that can't be unmarshaled
+			continue
+		}
+
+		if addrRes.StaticIp != "" {
+			reservedIPs[addrRes.StaticIp] = true
+		}
+	}
+
+	// Define the base network: 10.41.0.0/16
+	baseIP := net.ParseIP(DefaultNetworkAddress)
+	if baseIP == nil {
+		return "", fmt.Errorf("failed to parse base IP")
+	}
+	baseIP = baseIP.To4()
+
+	// Iterate through the 10.41.0.0/16 range
+	// We have 256 * 256 = 65536 addresses total
+	// Start from 10.41.0.1 (skip network address 10.41.0.0)
+	for thirdOctet := 0; thirdOctet < 256; thirdOctet++ {
+		// Skip the restricted ranges: 10.41.253.0/24 and 10.41.254.0/24
+		if thirdOctet == 253 || thirdOctet == 254 {
+			continue
+		}
+
+		for fourthOctet := 1; fourthOctet < 255; fourthOctet++ {
+			// Skip broadcast address within each /24 subnet
+			if fourthOctet == 255 {
+				continue
+			}
+
+			candidateIP := fmt.Sprintf("10.41.%d.%d", thirdOctet, fourthOctet)
+
+			// Check if this IP is already reserved
+			if !reservedIPs[candidateIP] {
+				return candidateIP, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no available IP addresses in %s/16 range", DefaultNetworkAddress)
 }
