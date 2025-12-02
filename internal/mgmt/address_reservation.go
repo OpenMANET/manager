@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	AddressReservationDataType        uint8 = 104
+	AddressReservationDataType        uint8 = uint8(proto.DataType_DATA_TYPE_ADDRESS_RESERVATION)
 	AddressReservationDataTypeVersion uint8 = 1
 )
 

@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	NodeDataType        uint8 = 102
+	NodeDataType        uint8 = uint8(proto.DataType_DATA_TYPE_NODE)
 	NodeDataTypeVersion uint8 = 1
 )
 
