@@ -16,12 +16,6 @@ import (
 const (
 	AddressReservationDataType        uint8 = 104
 	AddressReservationDataTypeVersion uint8 = 1
-
-	defaultNetworkAddress string = "10.41.0.0"
-	defaultNetworkMask    string = "255.255.0.0"
-	defaultAddressLimit   int    = 16
-
-	defaultDHCPLeaseTime string = "12h"
 )
 
 type AddressReservationWorker struct {
@@ -188,7 +182,7 @@ func (arw *AddressReservationWorker) StartReceive() {
 			}
 
 			// Process received address reservation records
-			dhcpStart, err := network.CalculateAvailableDHCPStart(records, defaultNetworkAddress, defaultNetworkMask, defaultAddressLimit)
+			dhcpStart, err := network.CalculateAvailableDHCPStart(records, network.DefaultNetworkAddress, network.DefaultNetworkMask, network.DefaultDHCPAddressLimit)
 			if err != nil {
 				arw.Config.Log.Error().Err(err).Msg("Error calculating available DHCP start address")
 				continue
@@ -202,8 +196,8 @@ func (arw *AddressReservationWorker) StartReceive() {
 			dhcpConfig := &network.UCIDHCP{
 				Interface: dhcpiface,
 				Start:     strconv.Itoa(dhcpStart),
-				Limit:     strconv.Itoa(defaultAddressLimit),
-				LeaseTime: defaultDHCPLeaseTime,
+				Limit:     strconv.Itoa(network.DefaultDHCPAddressLimit),
+				LeaseTime: network.DefaultDHCPLeaseTime,
 				Force:     "1",
 			}
 

@@ -14,8 +14,8 @@ const (
 	gatewayDataWorkerSendInterval time.Duration = 60 * time.Second
 	gatewayDataWorkerRecvInterval time.Duration = 10 * time.Second
 
-	addressReservationWorkerSendInterval time.Duration = 5 * time.Second
-	addressReservationWorkerRecvInterval time.Duration = 10 * time.Second
+	addressReservationWorkerSendInterval time.Duration = 10 * time.Second
+	addressReservationWorkerRecvInterval time.Duration = 5 * time.Second
 )
 
 type ManagementConfig struct {

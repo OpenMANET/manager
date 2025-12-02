@@ -11,6 +11,13 @@ import (
 	proto "github.com/openmanet/openmanetd/internal/api/openmanet/v1"
 )
 
+const (
+	dhcpConfigName string = "dhcp"
+
+	DefaultDHCPAddressLimit int    = 16
+	DefaultDHCPLeaseTime    string = "12h"
+)
+
 // UCIDnsmasq represents the dnsmasq global configuration section.
 type UCIDnsmasq struct {
 	DomainNeeded    string `uci:"option domainneeded"`
@@ -88,7 +95,7 @@ func (r *UCIDHCPConfigReader) Commit() error {
 }
 
 func (r *UCIDHCPConfigReader) ReloadConfig() error {
-	return r.tree.LoadConfig("dhcp", true)
+	return r.tree.LoadConfig(dhcpConfigName, true)
 }
 
 // GetDnsmasqConfig loads and returns the dnsmasq global configuration.
@@ -100,37 +107,37 @@ func GetDnsmasqConfig() (*UCIDnsmasq, error) {
 func GetDnsmasqConfigWithReader(reader DHCPConfigReader) (*UCIDnsmasq, error) {
 	var config UCIDnsmasq
 
-	if values, ok := reader.Get("dhcp", "dnsmasq", "domainneeded"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "domainneeded"); ok && len(values) > 0 {
 		config.DomainNeeded = values[0]
 	}
-	if values, ok := reader.Get("dhcp", "dnsmasq", "localise_queries"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "localise_queries"); ok && len(values) > 0 {
 		config.LocaliseQueries = values[0]
 	}
-	if values, ok := reader.Get("dhcp", "dnsmasq", "rebind_localhost"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "rebind_localhost"); ok && len(values) > 0 {
 		config.RebindLocalhost = values[0]
 	}
-	if values, ok := reader.Get("dhcp", "dnsmasq", "local"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "local"); ok && len(values) > 0 {
 		config.Local = values[0]
 	}
-	if values, ok := reader.Get("dhcp", "dnsmasq", "domain"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "domain"); ok && len(values) > 0 {
 		config.Domain = values[0]
 	}
-	if values, ok := reader.Get("dhcp", "dnsmasq", "expandhosts"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "expandhosts"); ok && len(values) > 0 {
 		config.ExpandHosts = values[0]
 	}
-	if values, ok := reader.Get("dhcp", "dnsmasq", "cachesize"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "cachesize"); ok && len(values) > 0 {
 		config.CacheSize = values[0]
 	}
-	if values, ok := reader.Get("dhcp", "dnsmasq", "authoritative"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "authoritative"); ok && len(values) > 0 {
 		config.Authoritative = values[0]
 	}
-	if values, ok := reader.Get("dhcp", "dnsmasq", "readethers"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "readethers"); ok && len(values) > 0 {
 		config.ReadEthers = values[0]
 	}
-	if values, ok := reader.Get("dhcp", "dnsmasq", "localservice"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "localservice"); ok && len(values) > 0 {
 		config.LocalService = values[0]
 	}
-	if values, ok := reader.Get("dhcp", "dnsmasq", "ednspacket_max"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "ednspacket_max"); ok && len(values) > 0 {
 		config.EdnsPacketMax = values[0]
 	}
 
@@ -146,31 +153,31 @@ func GetDHCPConfig(section string) (*UCIDHCP, error) {
 func GetDHCPConfigWithReader(section string, reader DHCPConfigReader) (*UCIDHCP, error) {
 	var config UCIDHCP
 
-	if values, ok := reader.Get("dhcp", section, "interface"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, section, "interface"); ok && len(values) > 0 {
 		config.Interface = values[0]
 	}
-	if values, ok := reader.Get("dhcp", section, "start"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, section, "start"); ok && len(values) > 0 {
 		config.Start = values[0]
 	}
-	if values, ok := reader.Get("dhcp", section, "limit"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, section, "limit"); ok && len(values) > 0 {
 		config.Limit = values[0]
 	}
-	if values, ok := reader.Get("dhcp", section, "leasetime"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, section, "leasetime"); ok && len(values) > 0 {
 		config.LeaseTime = values[0]
 	}
-	if values, ok := reader.Get("dhcp", section, "ignore"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, section, "ignore"); ok && len(values) > 0 {
 		config.Ignore = values[0]
 	}
-	if values, ok := reader.Get("dhcp", section, "dhcp_option"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, section, "dhcp_option"); ok && len(values) > 0 {
 		config.DHCPOption = values[0]
 	}
-	if values, ok := reader.Get("dhcp", section, "ra"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, section, "ra"); ok && len(values) > 0 {
 		config.Ra = values[0]
 	}
-	if values, ok := reader.Get("dhcp", section, "ra_default"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, section, "ra_default"); ok && len(values) > 0 {
 		config.RaDefault = values[0]
 	}
-	if values, ok := reader.Get("dhcp", section, "force"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, section, "force"); ok && len(values) > 0 {
 		config.Force = values[0]
 	}
 
@@ -207,50 +214,50 @@ func SetDHCPConfigWithReader(section string, config *UCIDHCP, reader DHCPConfigR
 	}
 
 	// Add section if it doesn't exist (this will fail silently if it exists)
-	_ = reader.AddSection("dhcp", section, "dhcp")
+	_ = reader.AddSection(dhcpConfigName, section, "dhcp")
 
 	if config.Interface != "" {
-		if err := reader.SetType("dhcp", section, "interface", uci.TypeOption, config.Interface); err != nil {
+		if err := reader.SetType(dhcpConfigName, section, "interface", uci.TypeOption, config.Interface); err != nil {
 			return fmt.Errorf("failed to set interface: %w", err)
 		}
 	}
 	if config.Start != "" {
-		if err := reader.SetType("dhcp", section, "start", uci.TypeOption, config.Start); err != nil {
+		if err := reader.SetType(dhcpConfigName, section, "start", uci.TypeOption, config.Start); err != nil {
 			return fmt.Errorf("failed to set start: %w", err)
 		}
 	}
 	if config.Limit != "" {
-		if err := reader.SetType("dhcp", section, "limit", uci.TypeOption, config.Limit); err != nil {
+		if err := reader.SetType(dhcpConfigName, section, "limit", uci.TypeOption, config.Limit); err != nil {
 			return fmt.Errorf("failed to set limit: %w", err)
 		}
 	}
 	if config.LeaseTime != "" {
-		if err := reader.SetType("dhcp", section, "leasetime", uci.TypeOption, config.LeaseTime); err != nil {
+		if err := reader.SetType(dhcpConfigName, section, "leasetime", uci.TypeOption, config.LeaseTime); err != nil {
 			return fmt.Errorf("failed to set leasetime: %w", err)
 		}
 	}
 	if config.Ignore != "" {
-		if err := reader.SetType("dhcp", section, "ignore", uci.TypeOption, config.Ignore); err != nil {
+		if err := reader.SetType(dhcpConfigName, section, "ignore", uci.TypeOption, config.Ignore); err != nil {
 			return fmt.Errorf("failed to set ignore: %w", err)
 		}
 	}
 	if config.DHCPOption != "" {
-		if err := reader.SetType("dhcp", section, "dhcp_option", uci.TypeOption, config.DHCPOption); err != nil {
+		if err := reader.SetType(dhcpConfigName, section, "dhcp_option", uci.TypeOption, config.DHCPOption); err != nil {
 			return fmt.Errorf("failed to set dhcp_option: %w", err)
 		}
 	}
 	if config.Ra != "" {
-		if err := reader.SetType("dhcp", section, "ra", uci.TypeOption, config.Ra); err != nil {
+		if err := reader.SetType(dhcpConfigName, section, "ra", uci.TypeOption, config.Ra); err != nil {
 			return fmt.Errorf("failed to set ra: %w", err)
 		}
 	}
 	if config.RaDefault != "" {
-		if err := reader.SetType("dhcp", section, "ra_default", uci.TypeOption, config.RaDefault); err != nil {
+		if err := reader.SetType(dhcpConfigName, section, "ra_default", uci.TypeOption, config.RaDefault); err != nil {
 			return fmt.Errorf("failed to set ra_default: %w", err)
 		}
 	}
 	if config.Force != "" {
-		if err := reader.SetType("dhcp", section, "force", uci.TypeOption, config.Force); err != nil {
+		if err := reader.SetType(dhcpConfigName, section, "force", uci.TypeOption, config.Force); err != nil {
 			return fmt.Errorf("failed to set force: %w", err)
 		}
 	}
@@ -283,7 +290,7 @@ func DeleteDHCPConfig(section string) error {
 
 // DeleteDHCPConfigWithReader removes a DHCP pool configuration section using the provided reader.
 func DeleteDHCPConfigWithReader(section string, reader DHCPConfigReader) error {
-	if err := reader.DelSection("dhcp", section); err != nil {
+	if err := reader.DelSection(dhcpConfigName, section); err != nil {
 		return fmt.Errorf("failed to delete DHCP section: %w", err)
 	}
 
@@ -306,7 +313,7 @@ func EnableDHCP(section string) error {
 
 // EnableDHCPWithReader enables DHCP using the provided reader.
 func EnableDHCPWithReader(section string, reader DHCPConfigReader) error {
-	if err := reader.SetType("dhcp", section, "ignore", uci.TypeOption, "0"); err != nil {
+	if err := reader.SetType(dhcpConfigName, section, "ignore", uci.TypeOption, "0"); err != nil {
 		return fmt.Errorf("failed to enable DHCP: %w", err)
 	}
 
@@ -329,7 +336,7 @@ func DisableDHCP(section string) error {
 
 // DisableDHCPWithReader disables DHCP using the provided reader.
 func DisableDHCPWithReader(section string, reader DHCPConfigReader) error {
-	if err := reader.SetType("dhcp", section, "ignore", uci.TypeOption, "1"); err != nil {
+	if err := reader.SetType(dhcpConfigName, section, "ignore", uci.TypeOption, "1"); err != nil {
 		return fmt.Errorf("failed to disable DHCP: %w", err)
 	}
 
@@ -388,10 +395,10 @@ func SetDHCPRangeWithReader(section, start, limit string, reader DHCPConfigReade
 		return fmt.Errorf("limit must be a number: %w", err)
 	}
 
-	if err := reader.SetType("dhcp", section, "start", uci.TypeOption, start); err != nil {
+	if err := reader.SetType(dhcpConfigName, section, "start", uci.TypeOption, start); err != nil {
 		return fmt.Errorf("failed to set start: %w", err)
 	}
-	if err := reader.SetType("dhcp", section, "limit", uci.TypeOption, limit); err != nil {
+	if err := reader.SetType(dhcpConfigName, section, "limit", uci.TypeOption, limit); err != nil {
 		return fmt.Errorf("failed to set limit: %w", err)
 	}
 
@@ -417,7 +424,7 @@ func SetDHCPLeaseTime(section, leasetime string) error {
 
 // SetDHCPLeaseTimeWithReader sets the lease time using the provided reader.
 func SetDHCPLeaseTimeWithReader(section, leasetime string, reader DHCPConfigReader) error {
-	if err := reader.SetType("dhcp", section, "leasetime", uci.TypeOption, leasetime); err != nil {
+	if err := reader.SetType(dhcpConfigName, section, "leasetime", uci.TypeOption, leasetime); err != nil {
 		return fmt.Errorf("failed to set leasetime: %w", err)
 	}
 
