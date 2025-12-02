@@ -17,6 +17,8 @@ const (
 	DefaultIPv6Assign     string = "64"
 	DefaultIPv6Class      string = "local"
 	DefaultIPv6IfaceID    string = "eui64"
+
+	DefaultULAPrefix string = "fd01:ed20:ecb4::/48"
 )
 
 // UCINetworkConfig represents the UCI network configuration.

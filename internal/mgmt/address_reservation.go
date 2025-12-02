@@ -225,6 +225,18 @@ func (arw *AddressReservationWorker) StartReceive() {
 	}
 }
 
+// createAddressReservationResponse generates a serialized AddressReservation protobuf message
+// containing the network interface configuration details. It retrieves the MAC address, IP address,
+// CIDR notation, and DHCP configuration (start address and limit) for the configured interface.
+//
+// If the interface name is prefixed with "br-", the prefix is removed before querying DHCP configuration,
+// as DHCP config is associated with the physical interface rather than the bridge.
+//
+// Returns the marshaled protobuf bytes and an error if:
+//   - DHCP configuration cannot be retrieved
+//   - The interface has no IP address
+//   - The interface has no valid IPv4 address (unspecified, loopback, or non-IPv4)
+//   - Marshaling the protobuf message fails
 func (arw *AddressReservationWorker) createAddressReservationResponse() ([]byte, error) {
 	var (
 		dhcpiface string
