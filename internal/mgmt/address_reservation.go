@@ -25,6 +25,7 @@ type AddressReservationWorker struct {
 
 	uciOpenMANETConfig *network.UCIOpenMANETConfigReader
 	uciDHCPConfig      *network.UCIDHCPConfigReader
+	uciNetworkConfig   *network.UCINetworkConfigReader
 	sendInterval       time.Duration
 	recvInterval       time.Duration
 }
@@ -39,6 +40,7 @@ func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client
 
 		uciOpenMANETConfig: network.NewUCIOpenMANETConfigReader(),
 		uciDHCPConfig:      network.NewUCIDHCPConfigReader(),
+		uciNetworkConfig:   network.NewUCINetworkConfigReader(),
 		sendInterval:       config.addressReservationWorkerSendInterval,
 		recvInterval:       config.addressReservationWorkerRecvInterval,
 	}
@@ -57,47 +59,38 @@ func (arw *AddressReservationWorker) StartSend() {
 			var (
 				err error
 			)
-			// If we are a mesh gateway, skip sending
-			meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
+
+			configured, err := network.IsDHCPConfiguredWithReader(arw.uciOpenMANETConfig)
 			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error getting mesh config")
+				arw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
 				continue
 			}
 
-			// If we are NOT in gateway mode, ensure DHCP is configured
-			if !meshCfg.IsGatewayMode() {
-				configured, err := network.IsDHCPConfiguredWithReader(arw.uciOpenMANETConfig)
+			// If DHCP is not configured, send address reservation request
+			if !configured {
+				arw.Config.Log.Debug().Msg("DHCP is not configured, sending address reservation request")
+
+				iface := network.GetInterfaceByName(arw.Config.IFace)
+
+				addrResData := proto.AddressReservation{
+					Mac:                   iface.MAC,
+					StaticIp:              iface.IP[0].IP.String(),
+					RequestingReservation: true,
+				}
+
+				var addrResDataBytes []byte
+				addrResDataBytes, err = addrResData.MarshalVT()
 				if err != nil {
-					arw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
+					arw.Config.Log.Error().Err(err).Msg("Error marshaling address reservation data")
 					continue
 				}
 
-				// If DHCP is not configured, send address reservation request
-				if !configured {
-					arw.Config.Log.Debug().Msg("DHCP is not configured, sending address reservation request")
-
-					iface := network.GetInterfaceByName(arw.Config.IFace)
-
-					addrResData := proto.AddressReservation{
-						Mac:                   iface.MAC,
-						StaticIp:              iface.IP[0].IP.String(),
-						RequestingReservation: true,
-					}
-
-					var addrResDataBytes []byte
-					addrResDataBytes, err = addrResData.MarshalVT()
-					if err != nil {
-						arw.Config.Log.Error().Err(err).Msg("Error marshaling address reservation data")
-						continue
-					}
-
-					err = arw.Client.Set(AddressReservationDataType, AddressReservationDataTypeVersion, addrResDataBytes)
-					if err != nil {
-						arw.Config.Log.Error().Err(err).Msg("Error sending address reservation data")
-					}
-
-					arw.Config.Log.Debug().Interface("addressRes", &addrResData).Msg("Address reservation request sent")
+				err = arw.Client.Set(AddressReservationDataType, AddressReservationDataTypeVersion, addrResDataBytes)
+				if err != nil {
+					arw.Config.Log.Error().Err(err).Msg("Error sending address reservation data")
 				}
+
+				arw.Config.Log.Debug().Interface("addressRes", &addrResData).Msg("Address reservation request sent")
 			}
 		}
 	}
@@ -114,8 +107,8 @@ func (arw *AddressReservationWorker) StartReceive() {
 			return
 		case <-ticker.C:
 			var (
-				dhcpiface string
-				iface     = network.GetInterfaceByName(arw.Config.IFace)
+				normalizedIface string
+				iface           = network.GetInterfaceByName(arw.Config.IFace)
 			)
 
 			// Get address reservation data from the Alfred client
@@ -167,6 +160,7 @@ func (arw *AddressReservationWorker) StartReceive() {
 				continue
 			}
 
+			// DHCP and the Static IP are not configured, process received records to configure them
 			// If we are a mesh gateway, skip receiving
 			meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
 			if err != nil {
@@ -174,10 +168,28 @@ func (arw *AddressReservationWorker) StartReceive() {
 				continue
 			}
 
-			if meshCfg.IsGatewayMode() {
-				arw.Config.Log.Debug().Msg("Node is in gateway mode, skipping address reservation")
-				// ticker.Stop()
+			// if arw.Config.IFace is prefixed with "br-", remove the prefix because dhcp and network config is tied to the physical interface
+			if after, ok := strings.CutPrefix(arw.Config.IFace, "br-"); ok {
+				normalizedIface = after
+			}
 
+			staticIP, err := network.SelectAvailableStaticIP(records, meshCfg.IsGatewayMode())
+			if err != nil {
+				arw.Config.Log.Error().Err(err).Msg("Error selecting available static IP")
+				continue
+			}
+
+			if err := network.SetNetworkConfigWithReader(normalizedIface, &network.UCINetwork{
+				Proto:          network.DefaultNetworkProto,
+				IPAddr:         staticIP,
+				NetMask:        network.DefaultNetworkMask,
+				IPV6Class:      network.DefaultIPv6Class,
+				IPV6IfaceID:    network.DefaultIPv6IfaceID,
+				IPV6Assignment: network.DefaultIPv6Assign,
+				Device:         arw.Config.IFace,
+				DNS:            "1.1.1.1",
+			}, arw.uciNetworkConfig); err != nil {
+				arw.Config.Log.Error().Err(err).Msg("Error setting network config for address reservation")
 				continue
 			}
 
@@ -188,13 +200,8 @@ func (arw *AddressReservationWorker) StartReceive() {
 				continue
 			}
 
-			// if arw.Config.IFace is prefixed with "br-", remove the prefix because dhcp config is tied to the physical interface
-			if after, ok := strings.CutPrefix(arw.Config.IFace, "br-"); ok {
-				dhcpiface = after
-			}
-
 			dhcpConfig := &network.UCIDHCP{
-				Interface: dhcpiface,
+				Interface: normalizedIface,
 				Start:     strconv.Itoa(dhcpStart),
 				Limit:     strconv.Itoa(network.DefaultDHCPAddressLimit),
 				LeaseTime: network.DefaultDHCPLeaseTime,
@@ -203,7 +210,7 @@ func (arw *AddressReservationWorker) StartReceive() {
 
 			arw.Config.Log.Debug().Interface("dhcpConfig", dhcpConfig).Msg("Setting DHCP config")
 
-			err = network.SetDHCPConfigWithReader(dhcpiface, dhcpConfig, arw.uciDHCPConfig)
+			err = network.SetDHCPConfigWithReader(normalizedIface, dhcpConfig, arw.uciDHCPConfig)
 			if err != nil {
 				arw.Config.Log.Error().Err(err).Msg("Error setting DHCP config")
 				continue

@@ -14,6 +14,9 @@ const (
 	DefaultNetworkAddress string = "10.41.0.0"
 	DefaultNetworkMask    string = "255.255.0.0"
 	DefaultNetworkProto   string = "static"
+	DefaultIPv6Assign     string = "64"
+	DefaultIPv6Class      string = "local"
+	DefaultIPv6IfaceID    string = "eui64"
 )
 
 // UCINetworkConfig represents the UCI network configuration.
@@ -40,43 +43,43 @@ type ConfigReader interface {
 	ReloadConfig() error
 }
 
-// UCIConfigReader wraps the UCI functions for network configuration.
-type UCIConfigReader struct {
+// UCINetworkConfigReader wraps the UCI functions for network configuration.
+type UCINetworkConfigReader struct {
 	tree uci.Tree
 }
 
-// NewUCIConfigReader creates a new UCI network config reader with the default tree.
-func NewUCIConfigReader() *UCIConfigReader {
-	return &UCIConfigReader{
+// NewUCINetworkConfigReader creates a new UCI network config reader with the default tree.
+func NewUCINetworkConfigReader() *UCINetworkConfigReader {
+	return &UCINetworkConfigReader{
 		tree: uci.NewTree(uci.DefaultTreePath),
 	}
 }
 
-func (r *UCIConfigReader) Get(config, section, option string) ([]string, bool) {
+func (r *UCINetworkConfigReader) Get(config, section, option string) ([]string, bool) {
 	return r.tree.Get(config, section, option)
 }
 
-func (r *UCIConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
+func (r *UCINetworkConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
 	return r.tree.SetType(config, section, option, typ, values...)
 }
 
-func (r *UCIConfigReader) Del(config, section, option string) error {
+func (r *UCINetworkConfigReader) Del(config, section, option string) error {
 	return r.tree.Del(config, section, option)
 }
 
-func (r *UCIConfigReader) AddSection(config, section, typ string) error {
+func (r *UCINetworkConfigReader) AddSection(config, section, typ string) error {
 	return r.tree.AddSection(config, section, typ)
 }
 
-func (r *UCIConfigReader) DelSection(config, section string) error {
+func (r *UCINetworkConfigReader) DelSection(config, section string) error {
 	return r.tree.DelSection(config, section)
 }
 
-func (r *UCIConfigReader) Commit() error {
+func (r *UCINetworkConfigReader) Commit() error {
 	return r.tree.Commit()
 }
 
-func (r *UCIConfigReader) ReloadConfig() error {
+func (r *UCINetworkConfigReader) ReloadConfig() error {
 	return r.tree.LoadConfig(networkConfigName, true)
 }
 
@@ -95,7 +98,7 @@ func (r *UCIConfigReader) ReloadConfig() error {
 //	}
 //	fmt.Printf("IP Address: %s\n", config.IPAddr)
 func GetUCINetworkByName(name string) (*UCINetwork, error) {
-	return GetUCINetworkByNameWithReader(name, NewUCIConfigReader())
+	return GetUCINetworkByNameWithReader(name, NewUCINetworkConfigReader())
 }
 
 // GetUCINetworkByNameWithReader loads and returns the UCI network configuration by name using the provided reader.
@@ -152,7 +155,7 @@ func GetUCINetworkByNameWithReader(name string, reader ConfigReader) (*UCINetwor
 //
 // Note: This operation requires appropriate privileges and commits the configuration.
 func SetNetworkConfig(section string, config *UCINetwork) error {
-	return SetNetworkConfigWithReader(section, config, NewUCIConfigReader())
+	return SetNetworkConfigWithReader(section, config, NewUCINetworkConfigReader())
 }
 
 // SetNetworkConfigWithReader creates or updates a network interface configuration using the provided reader.
@@ -233,7 +236,7 @@ func SetNetworkConfigWithReader(section string, config *UCINetwork, reader Confi
 //
 // Note: This operation requires appropriate privileges and commits the configuration.
 func DeleteNetworkConfig(section string) error {
-	return DeleteNetworkConfigWithReader(section, NewUCIConfigReader())
+	return DeleteNetworkConfigWithReader(section, NewUCINetworkConfigReader())
 }
 
 // DeleteNetworkConfigWithReader removes a network interface configuration section using the provided reader.
@@ -259,7 +262,7 @@ func DeleteNetworkConfigWithReader(section string, reader ConfigReader) error {
 //
 //	err := SetNetworkProto("wan", "dhcp")
 func SetNetworkProto(section, proto string) error {
-	return SetNetworkProtoWithReader(section, proto, NewUCIConfigReader())
+	return SetNetworkProtoWithReader(section, proto, NewUCINetworkConfigReader())
 }
 
 // SetNetworkProtoWithReader sets the protocol using the provided reader.
@@ -285,7 +288,7 @@ func SetNetworkProtoWithReader(section, proto string, reader ConfigReader) error
 //
 //	err := SetNetworkIPAddr("lan", "192.168.1.1")
 func SetNetworkIPAddr(section, ipaddr string) error {
-	return SetNetworkIPAddrWithReader(section, ipaddr, NewUCIConfigReader())
+	return SetNetworkIPAddrWithReader(section, ipaddr, NewUCINetworkConfigReader())
 }
 
 // SetNetworkIPAddrWithReader sets the IP address using the provided reader.
@@ -311,7 +314,7 @@ func SetNetworkIPAddrWithReader(section, ipaddr string, reader ConfigReader) err
 //
 //	err := SetNetworkNetmask("lan", "255.255.255.0")
 func SetNetworkNetmask(section, netmask string) error {
-	return SetNetworkNetmaskWithReader(section, netmask, NewUCIConfigReader())
+	return SetNetworkNetmaskWithReader(section, netmask, NewUCINetworkConfigReader())
 }
 
 // SetNetworkNetmaskWithReader sets the netmask using the provided reader.
@@ -337,7 +340,7 @@ func SetNetworkNetmaskWithReader(section, netmask string, reader ConfigReader) e
 //
 //	err := SetNetworkGateway("wan", "192.168.1.254")
 func SetNetworkGateway(section, gateway string) error {
-	return SetNetworkGatewayWithReader(section, gateway, NewUCIConfigReader())
+	return SetNetworkGatewayWithReader(section, gateway, NewUCINetworkConfigReader())
 }
 
 // SetNetworkGatewayWithReader sets the gateway using the provided reader.
@@ -363,7 +366,7 @@ func SetNetworkGatewayWithReader(section, gateway string, reader ConfigReader) e
 //
 //	err := SetNetworkDNS("lan", "1.1.1.1")
 func SetNetworkDNS(section, dns string) error {
-	return SetNetworkDNSWithReader(section, dns, NewUCIConfigReader())
+	return SetNetworkDNSWithReader(section, dns, NewUCINetworkConfigReader())
 }
 
 // SetNetworkDNSWithReader sets the DNS server using the provided reader.
@@ -389,7 +392,7 @@ func SetNetworkDNSWithReader(section, dns string, reader ConfigReader) error {
 //
 //	err := SetNetworkDevice("lan", "br-lan")
 func SetNetworkDevice(section, device string) error {
-	return SetNetworkDeviceWithReader(section, device, NewUCIConfigReader())
+	return SetNetworkDeviceWithReader(section, device, NewUCINetworkConfigReader())
 }
 
 // SetNetworkDeviceWithReader sets the device using the provided reader.
@@ -415,7 +418,7 @@ func SetNetworkDeviceWithReader(section, device string, reader ConfigReader) err
 //
 //	err := SetNetworkIPV6Assignment("lan", "60")
 func SetNetworkIPV6Assignment(section, ip6assign string) error {
-	return SetNetworkIPV6AssignmentWithReader(section, ip6assign, NewUCIConfigReader())
+	return SetNetworkIPV6AssignmentWithReader(section, ip6assign, NewUCINetworkConfigReader())
 }
 
 // SetNetworkIPV6AssignmentWithReader sets the IPv6 assignment using the provided reader.
@@ -441,7 +444,7 @@ func SetNetworkIPV6AssignmentWithReader(section, ip6assign string, reader Config
 //
 //	err := SetNetworkIPV6IfaceID("lan", "::1")
 func SetNetworkIPV6IfaceID(section, ip6ifaceid string) error {
-	return SetNetworkIPV6IfaceIDWithReader(section, ip6ifaceid, NewUCIConfigReader())
+	return SetNetworkIPV6IfaceIDWithReader(section, ip6ifaceid, NewUCINetworkConfigReader())
 }
 
 // SetNetworkIPV6IfaceIDWithReader sets the IPv6 interface ID using the provided reader.
@@ -467,7 +470,7 @@ func SetNetworkIPV6IfaceIDWithReader(section, ip6ifaceid string, reader ConfigRe
 //
 //	err := SetNetworkIPV6Class("lan", "local")
 func SetNetworkIPV6Class(section, ip6class string) error {
-	return SetNetworkIPV6ClassWithReader(section, ip6class, NewUCIConfigReader())
+	return SetNetworkIPV6ClassWithReader(section, ip6class, NewUCINetworkConfigReader())
 }
 
 // SetNetworkIPV6ClassWithReader sets the IPv6 class using the provided reader.
@@ -487,27 +490,28 @@ func SetNetworkIPV6ClassWithReader(section, ip6class string, reader ConfigReader
 //
 // Parameters:
 //   - records: Array of Alfred records containing address reservations
+//   - gatewayMode: If true, selects from 10.41.1.0/24 range only. If false (default), selects from entire 10.41.0.0/16 range
 //
 // Returns:
-//   - An available IP address from the 10.41.0.0/16 range
+//   - An available IP address from the specified range
 //   - An error if no available IP can be found
 //
 // The function excludes:
 //   - Already reserved IP addresses (from StaticIp field in AddressReservation)
-//   - The 10.41.253.0/24 range
-//   - The 10.41.254.0/24 range
-//   - Network address (10.41.0.0)
-//   - Broadcast address (10.41.255.255)
+//   - The 10.41.253.0/24 range (when gatewayMode is false)
+//   - The 10.41.254.0/24 range (when gatewayMode is false)
+//   - Network address (10.41.0.0 or 10.41.1.0)
+//   - Broadcast address (10.41.255.255 or 10.41.1.255)
 //
 // Example:
 //
 //	records := []alfred.Record{ /* ... */ }
-//	ip, err := SelectAvailableStaticIP(records)
+//	ip, err := SelectAvailableStaticIP(records, false)
 //	if err != nil {
 //	    log.Fatalf("Failed to select IP: %v", err)
 //	}
 //	fmt.Printf("Selected IP: %s\n", ip)
-func SelectAvailableStaticIP(records []alfred.Record) (string, error) {
+func SelectAvailableStaticIP(records []alfred.Record, gatewayMode bool) (string, error) {
 	// Collect all reserved IP addresses
 	reservedIPs := make(map[string]bool)
 
@@ -530,7 +534,20 @@ func SelectAvailableStaticIP(records []alfred.Record) (string, error) {
 	}
 	baseIP = baseIP.To4()
 
-	// Iterate through the 10.41.0.0/16 range
+	if gatewayMode {
+		// Gateway mode: only search in 10.41.1.0/24 range
+		for fourthOctet := 1; fourthOctet < 255; fourthOctet++ {
+			candidateIP := fmt.Sprintf("10.41.1.%d", fourthOctet)
+
+			// Check if this IP is already reserved
+			if !reservedIPs[candidateIP] {
+				return candidateIP, nil
+			}
+		}
+		return "", fmt.Errorf("no available IP addresses in 10.41.1.0/24 range")
+	}
+
+	// Normal mode: iterate through the 10.41.0.0/16 range
 	// We have 256 * 256 = 65536 addresses total
 	// Start from 10.41.0.1 (skip network address 10.41.0.0)
 	for thirdOctet := 0; thirdOctet < 256; thirdOctet++ {

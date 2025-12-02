@@ -1032,7 +1032,7 @@ func TestSelectAvailableStaticIP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := SelectAvailableStaticIP(tt.records)
+			got, err := SelectAvailableStaticIP(tt.records, false)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SelectAvailableStaticIP() error = %v, wantErr %v", err, tt.wantErr)
@@ -1081,7 +1081,7 @@ func TestSelectAvailableStaticIP_RestrictedRanges(t *testing.T) {
 		})
 	}
 
-	got, err := SelectAvailableStaticIP(records)
+	got, err := SelectAvailableStaticIP(records, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1101,7 +1101,7 @@ func TestSelectAvailableStaticIP_SelectionOrder(t *testing.T) {
 	// With no reservations, should select 10.41.0.1 (first available)
 	records := []alfred.Record{}
 
-	got, err := SelectAvailableStaticIP(records)
+	got, err := SelectAvailableStaticIP(records, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1128,7 +1128,7 @@ func TestSelectAvailableStaticIP_ExhaustRange(t *testing.T) {
 	}
 
 	// Should still find an IP in 10.41.1.x range
-	got, err := SelectAvailableStaticIP(records)
+	got, err := SelectAvailableStaticIP(records, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1167,7 +1167,7 @@ func TestSelectAvailableStaticIP_Boundaries(t *testing.T) {
 				},
 			}
 
-			got, err := SelectAvailableStaticIP(records)
+			got, err := SelectAvailableStaticIP(records, false)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -1187,5 +1187,171 @@ func TestSelectAvailableStaticIP_Boundaries(t *testing.T) {
 				t.Errorf("SelectAvailableStaticIP() = %v, should be in 10.41.0.0/16", got)
 			}
 		})
+	}
+}
+
+func TestSelectAvailableStaticIP_GatewayMode(t *testing.T) {
+	tests := []struct {
+		name        string
+		records     []alfred.Record
+		gatewayMode bool
+		wantPrefix  string
+		wantErr     bool
+	}{
+		{
+			name:        "gateway_mode_no_reservations",
+			records:     []alfred.Record{},
+			gatewayMode: true,
+			wantPrefix:  "10.41.1.",
+			wantErr:     false,
+		},
+		{
+			name: "gateway_mode_with_reservations",
+			records: []alfred.Record{
+				{
+					Data: mustMarshalAddressReservation(&proto.AddressReservation{
+						StaticIp: "10.41.1.1",
+					}),
+				},
+				{
+					Data: mustMarshalAddressReservation(&proto.AddressReservation{
+						StaticIp: "10.41.1.2",
+					}),
+				},
+			},
+			gatewayMode: true,
+			wantPrefix:  "10.41.1.",
+			wantErr:     false,
+		},
+		{
+			name:        "normal_mode_selects_from_full_range",
+			records:     []alfred.Record{},
+			gatewayMode: false,
+			wantPrefix:  "10.41.",
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := SelectAvailableStaticIP(tt.records, tt.gatewayMode)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SelectAvailableStaticIP() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if tt.wantErr {
+				return
+			}
+
+			// Verify the returned IP starts with the expected prefix
+			if len(got) < len(tt.wantPrefix) || got[:len(tt.wantPrefix)] != tt.wantPrefix {
+				t.Errorf("SelectAvailableStaticIP() = %v, want prefix %v", got, tt.wantPrefix)
+			}
+
+			// For gateway mode, verify it's specifically in 10.41.1.0/24
+			if tt.gatewayMode {
+				if len(got) < 8 || got[:8] != "10.41.1." {
+					t.Errorf("SelectAvailableStaticIP() with gatewayMode = %v, should be in 10.41.1.0/24", got)
+				}
+			}
+
+			// Verify it's a valid IP
+			if ip := net.ParseIP(got); ip == nil {
+				t.Errorf("SelectAvailableStaticIP() = %v, not a valid IP address", got)
+			}
+		})
+	}
+}
+
+func TestSelectAvailableStaticIP_GatewayMode_FirstSelection(t *testing.T) {
+	// With no reservations in gateway mode, should select 10.41.1.1
+	records := []alfred.Record{}
+
+	got, err := SelectAvailableStaticIP(records, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got != "10.41.1.1" {
+		t.Errorf("SelectAvailableStaticIP() with gatewayMode = %v, want 10.41.1.1 as first selection", got)
+	}
+}
+
+func TestSelectAvailableStaticIP_GatewayMode_ExhaustRange(t *testing.T) {
+	// Reserve all IPs in 10.41.1.0/24 range except 10.41.1.254
+	records := []alfred.Record{}
+
+	for i := 1; i < 254; i++ {
+		records = append(records, alfred.Record{
+			Data: mustMarshalAddressReservation(&proto.AddressReservation{
+				StaticIp: fmt.Sprintf("10.41.1.%d", i),
+			}),
+		})
+	}
+
+	// Should select the last available IP
+	got, err := SelectAvailableStaticIP(records, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got != "10.41.1.254" {
+		t.Errorf("SelectAvailableStaticIP() with gatewayMode = %v, want 10.41.1.254", got)
+	}
+}
+
+func TestSelectAvailableStaticIP_GatewayMode_NoAvailableIPs(t *testing.T) {
+	// Reserve all IPs in 10.41.1.0/24 range
+	records := []alfred.Record{}
+
+	for i := 1; i < 255; i++ {
+		records = append(records, alfred.Record{
+			Data: mustMarshalAddressReservation(&proto.AddressReservation{
+				StaticIp: fmt.Sprintf("10.41.1.%d", i),
+			}),
+		})
+	}
+
+	// Should return an error
+	_, err := SelectAvailableStaticIP(records, true)
+	if err == nil {
+		t.Fatal("expected error when all IPs are reserved, got nil")
+	}
+
+	if !contains(err.Error(), "no available IP addresses in 10.41.1.0/24") {
+		t.Errorf("expected error about 10.41.1.0/24 range, got: %v", err)
+	}
+}
+
+func TestSelectAvailableStaticIP_GatewayMode_IgnoresOtherSubnets(t *testing.T) {
+	// Reserve IPs in other subnets - these should be ignored in gateway mode
+	records := []alfred.Record{
+		{
+			Data: mustMarshalAddressReservation(&proto.AddressReservation{
+				StaticIp: "10.41.0.1",
+			}),
+		},
+		{
+			Data: mustMarshalAddressReservation(&proto.AddressReservation{
+				StaticIp: "10.41.2.1",
+			}),
+		},
+		{
+			Data: mustMarshalAddressReservation(&proto.AddressReservation{
+				StaticIp: "10.41.100.1",
+			}),
+		},
+	}
+
+	got, err := SelectAvailableStaticIP(records, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should select 10.41.1.1 since nothing is reserved in that subnet
+	if got != "10.41.1.1" {
+		t.Errorf("SelectAvailableStaticIP() with gatewayMode = %v, want 10.41.1.1", got)
 	}
 }
