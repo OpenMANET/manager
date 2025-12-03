@@ -3,6 +3,7 @@ package network
 import (
 	"fmt"
 	"net"
+	"os/exec"
 
 	"github.com/digineo/go-uci/v2"
 	"github.com/openmanet/go-alfred"
@@ -576,3 +577,26 @@ func SelectAvailableStaticIP(records []alfred.Record, gatewayMode bool) (string,
 
 	return "", fmt.Errorf("no available IP addresses in %s/16 range", DefaultNetworkAddress)
 }
+
+// ReloadNetwork reloads the network configuration by executing the OpenWrt network init script.
+// It calls the '/etc/init.d/network reload' command to apply network configuration changes
+// without restarting the entire network subsystem.
+//
+// Returns an error if the reload command fails to execute or returns a non-zero exit code.
+func ReloadNetwork() error {
+	cmd := exec.Command("/etc/init.d/network", "reload")
+	return cmd.Run()
+}
+
+// RestartNetwork hard restarts the network service by executing the network init script.
+// It runs the '/etc/init.d/network restart' command and returns an error if the
+// command execution fails.
+//
+// Returns:
+//   - error: nil if the network restart command succeeds, otherwise returns the error
+//     from command execution
+func RestartNetwork() error {
+	cmd := exec.Command("/etc/init.d/network", "restart")
+	return cmd.Run()
+}
+

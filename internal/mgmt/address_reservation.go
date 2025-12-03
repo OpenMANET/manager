@@ -216,6 +216,16 @@ func (arw *AddressReservationWorker) StartReceive() {
 				continue
 			}
 
+			// Reload network to apply changes
+			err = network.ReloadNetwork()
+			if err != nil {
+				arw.Config.Log.Error().Err(err).Msg("Error reloading network configuration")
+				continue
+			}
+
+			arw.Config.Log.Info().Msgf("Static IP %s and DHCP configured via address reservation", staticIP)
+
+			// Mark DHCP as configured
 			err = network.SetDHCPConfiguredWithReader(arw.uciOpenMANETConfig)
 			if err != nil {
 				arw.Config.Log.Error().Err(err).Msg("Error marking DHCP as configured")
