@@ -1,7 +1,6 @@
 package mgmt
 
 import (
-	"errors"
 	"net"
 	"os"
 	"time"
@@ -161,27 +160,6 @@ func (gw *GatewayWorker) StartReceive() {
 							// Replace default route with the matched gateway IP
 							ipString := net.ParseIP(gatewayData.Ipaddr)
 
-							currentDefaultRoute, err := network.GetDefaultRoute()
-							if err != nil {
-								if errors.Is(err, network.ErrNoDefaultRouteFound) {
-									// No default route found, proceed to set it
-									if err := network.AddDefaultRoute(ipString, gw.Config.IFace, 100); err != nil {
-										gw.Config.Log.Error().Err(err).Msgf("Failed to add default route with gateway %s", gatewayData.Ipaddr)
-										continue
-									}
-									gw.Config.Log.Debug().Msgf("Default route created with gateway IP: %s", gatewayData.Ipaddr)
-									continue
-								}
-								gw.Config.Log.Error().Err(err).Msg("Error getting current default route")
-								continue
-							}
-
-							if currentDefaultRoute != nil && currentDefaultRoute.Gateway.Equal(ipString) {
-								// Default route is already set to the correct gateway, skip
-								gw.Config.Log.Debug().Msgf("Default route already set to gateway IP: %s", gatewayData.Ipaddr)
-								continue
-							}
-
 							if ipString != nil {
 								if err := network.ReplaceDefaultRoute(ipString, gw.Config.IFace); err != nil {
 									gw.Config.Log.Error().Err(err).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
@@ -214,29 +192,6 @@ func (gw *GatewayWorker) StartReceive() {
 						if gatewayData.Mac == batGw.OrigAddress {
 							// Replace default route with the matched gateway IP
 							ipString := net.ParseIP(gatewayData.Ipaddr)
-
-							currentDefaultRoute, err := network.GetDefaultRoute()
-							if err != nil {
-								if errors.Is(err, network.ErrNoDefaultRouteFound) {
-									// No default route found, proceed to set it
-									if err := network.AddDefaultRoute(ipString, gw.Config.IFace, 100); err != nil {
-										gw.Config.Log.Error().Err(err).Msgf("Failed to add default route with gateway %s", gatewayData.Ipaddr)
-										continue
-									}
-
-									gw.Config.Log.Debug().Msgf("Default route created with gateway IP: %s", gatewayData.Ipaddr)
-
-									continue
-								}
-								gw.Config.Log.Error().Err(err).Msg("Error getting current default route")
-								continue
-							}
-
-							if currentDefaultRoute != nil && currentDefaultRoute.Gateway.Equal(ipString) {
-								// Default route is already set to the correct gateway, skip
-								gw.Config.Log.Debug().Msgf("Default route already set to gateway IP: %s", gatewayData.Ipaddr)
-								continue
-							}
 
 							if ipString != nil {
 								if err := network.ReplaceDefaultRoute(ipString, gw.Config.IFace); err != nil {
