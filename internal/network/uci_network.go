@@ -492,7 +492,7 @@ func SetNetworkIPV6ClassWithReader(section, ip6class string, reader ConfigReader
 //
 // Parameters:
 //   - records: Array of Alfred records containing address reservations
-//   - gatewayMode: If true, selects from 10.41.1.0/24 range only. If false (default), selects from entire 10.41.0.0/16 range
+//   - gatewayMode: If true, selects from 10.41.0.0/24 range only. If false (default), selects from entire 10.41.0.0/16 range
 //
 // Returns:
 //   - An available IP address from the specified range
@@ -500,10 +500,11 @@ func SetNetworkIPV6ClassWithReader(section, ip6class string, reader ConfigReader
 //
 // The function excludes:
 //   - Already reserved IP addresses (from StaticIp field in AddressReservation)
+//   - The 10.41.0.0/24 range (when gatewayMode is false)
 //   - The 10.41.253.0/24 range (when gatewayMode is false)
 //   - The 10.41.254.0/24 range (when gatewayMode is false)
-//   - Network address (10.41.0.0 or 10.41.1.0)
-//   - Broadcast address (10.41.255.255 or 10.41.1.255)
+//   - Network address (10.41.0.0)
+//   - Broadcast address (10.41.255.255 or 10.41.0.255)
 //
 // Example:
 //
@@ -537,22 +538,22 @@ func SelectAvailableStaticIP(records []alfred.Record, gatewayMode bool) (string,
 	baseIP = baseIP.To4()
 
 	if gatewayMode {
-		// Gateway mode: only search in 10.41.1.0/24 range
+		// Gateway mode: only search in 10.41.0.0/24 range
 		for fourthOctet := 1; fourthOctet < 255; fourthOctet++ {
-			candidateIP := fmt.Sprintf("10.41.1.%d", fourthOctet)
+			candidateIP := fmt.Sprintf("10.41.0.%d", fourthOctet)
 
 			// Check if this IP is already reserved
 			if !reservedIPs[candidateIP] {
 				return candidateIP, nil
 			}
 		}
-		return "", fmt.Errorf("no available IP addresses in 10.41.1.0/24 range")
+		return "", fmt.Errorf("no available IP addresses in 10.41.0.0/24 range")
 	}
 
 	// Normal mode: iterate through the 10.41.0.0/16 range
 	// We have 256 * 256 = 65536 addresses total
-	// Start from 10.41.0.1 (skip network address 10.41.0.0)
-	for thirdOctet := 0; thirdOctet < 256; thirdOctet++ {
+	// Start from 10.41.1.1 (skip network address and 10.41.0.0/24)
+	for thirdOctet := 1; thirdOctet < 256; thirdOctet++ {
 		// Skip the restricted ranges: 10.41.253.0/24 and 10.41.254.0/24
 		if thirdOctet == 253 || thirdOctet == 254 {
 			continue
