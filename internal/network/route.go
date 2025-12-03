@@ -448,7 +448,7 @@ func ReplaceDefaultRoute(newGateway net.IP, iface string) error {
 
 	// If no default route exists, add a new one with the specified gateway
 	if errors.Is(err, ErrNoDefaultRouteFound) {
-		return AddDefaultRoute(newGateway, iface, 100)
+		return AddDefaultRoute(newGateway, iface, 10)
 	}
 
 	// If the current route's gateway matches the new gateway, no action is needed

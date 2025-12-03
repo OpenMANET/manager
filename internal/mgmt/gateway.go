@@ -164,9 +164,7 @@ func (gw *GatewayWorker) StartReceive() {
 								if err := network.ReplaceDefaultRoute(ipString, gw.Config.IFace); err != nil {
 									gw.Config.Log.Error().Err(err).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
 								}
-								gw.Config.Log.Debug().Msgf("Default route replaced with gateway IP: %s", gatewayData.Ipaddr)
 							}
-
 						}
 					}
 					// Skip further processing as we have already matched the single gateway
@@ -197,8 +195,6 @@ func (gw *GatewayWorker) StartReceive() {
 								if err := network.ReplaceDefaultRoute(ipString, gw.Config.IFace); err != nil {
 									gw.Config.Log.Error().Err(err).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
 								}
-
-								gw.Config.Log.Debug().Msgf("Default route replaced with gateway IP: %s", gatewayData.Ipaddr)
 							}
 
 							break
