@@ -48,6 +48,17 @@ func (gw *GatewayWorker) StartSend() {
 		case <-gw.ShutdownChan:
 			return
 		case <-ticker.C:
+			configured, err := network.IsDHCPConfiguredWithReader(gw.Config.uciOpenMANETConfig)
+			if err != nil {
+				gw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
+				continue
+			}
+
+			if !configured {
+				gw.Config.Log.Debug().Msg("Static Address & DHCP not configured, skipping gateway data send")
+				continue
+			}
+
 			// Get mesh config from batman-adv to check if we are in gateway mode
 			meshCfg, err := batmanadv.GetMeshConfig(gw.Config.BatInterface)
 			if err != nil {

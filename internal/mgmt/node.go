@@ -42,6 +42,17 @@ func (ndw *NodeDataWorker) StartSend() {
 		case <-ndw.ShutdownChan:
 			return
 		case <-ticker.C:
+			configured, err := network.IsDHCPConfiguredWithReader(ndw.Config.uciOpenMANETConfig)
+			if err != nil {
+				ndw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
+				continue
+			}
+
+			if !configured {
+				ndw.Config.Log.Debug().Msg("Static Address & DHCP not configured, skipping node data send")
+				continue
+			}
+
 			iface := network.GetInterfaceByName(ndw.Config.IFace)
 			hostname, err := os.Hostname()
 			if err != nil {

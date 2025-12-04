@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/openmanet/go-alfred"
+	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/rs/zerolog"
 )
 
@@ -36,6 +37,10 @@ type ManagementConfig struct {
 
 	addressReservationWorkerSendInterval time.Duration
 	addressReservationWorkerRecvInterval time.Duration
+
+	uciOpenMANETConfig *network.UCIOpenMANETConfigReader
+	uciDHCPConfig      *network.UCIDHCPConfigReader
+	uciNetworkConfig   *network.UCINetworkConfigReader
 }
 
 func NewManager(cfg ManagementConfig) *ManagementConfig {
@@ -56,6 +61,10 @@ func NewManager(cfg ManagementConfig) *ManagementConfig {
 		gatewayWorkerRecvInterval:            gatewayDataWorkerRecvInterval,
 		addressReservationWorkerSendInterval: addressReservationWorkerSendInterval,
 		addressReservationWorkerRecvInterval: addressReservationWorkerRecvInterval,
+
+		uciOpenMANETConfig: network.NewUCIOpenMANETConfigReader(),
+		uciDHCPConfig:      network.NewUCIDHCPConfigReader(),
+		uciNetworkConfig:   network.NewUCINetworkConfigReader(),
 	}
 }
 
