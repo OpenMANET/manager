@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/common-nighthawk/go-figure"
+	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/ptt"
 	"github.com/openmanet/openmanetd/internal/util/logger"
@@ -55,6 +56,16 @@ func Start() {
 
 	mgmt.Start()
 
+	// Clear the batman-adv hosts file on startup
+	// to remove any stale entries
+	// Stale entries can cause issues with name resolution for nodes that have changed IPs
+	// This can also cause issues with gateway selection if the stale entry is for a gateway node
+	err := batmanadv.ClearBatHosts()
+	if err != nil {
+		log.Error().Err(err).Msg("Error clearing batman-adv hosts file on startup")
+	}
+
+	// Wait for interrupt signal to gracefully shutdown the application
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
 	log.Info().Msg("Exiting OpenMANETd")

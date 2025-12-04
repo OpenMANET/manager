@@ -548,47 +548,71 @@ func CalculateAvailableDHCPStart(records []alfred.Record, networkAddr, subnetMas
 	})
 
 	// Find the first available gap that can fit our desired range
-	// Start from offset 1 (we typically don't use offset 0, which would be the network address + 1)
-	// In practice, many networks start DHCP at offset 100 or similar
-	candidate := 100 // Start with a reasonable default offset
+	// Strategy: Prefer offset 100 if available, otherwise find the first gap starting from 100 going forward,
+	// and only if nothing found after 100, search before 100
 
-	// Try to find a non-conflicting range
-	for candidate+desiredLimit-1 <= networkSize {
-		conflictFound := false
-		proposedEnd := candidate + desiredLimit - 1
-
+	// Helper function to check if a candidate range is available
+	checkCandidate := func(start int) bool {
+		if start < 1 || start+desiredLimit-1 > networkSize {
+			return false
+		}
+		proposedEnd := start + desiredLimit - 1
 		for _, existing := range existingRanges {
-			// Check if our proposed range overlaps with this existing range
+			if rangesOverlap(start, proposedEnd, existing.Start, existing.End) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// First, try offset 100 (preferred default)
+	if checkCandidate(100) {
+		return 100, nil
+	}
+
+	// If 100 doesn't work, scan from 100 forward to find the first available gap
+	candidate := 100
+	for candidate+desiredLimit-1 <= networkSize {
+		if checkCandidate(candidate) {
+			return candidate, nil
+		}
+
+		// Move past any conflicting range
+		moved := false
+		proposedEnd := candidate + desiredLimit - 1
+		for _, existing := range existingRanges {
 			if rangesOverlap(candidate, proposedEnd, existing.Start, existing.End) {
-				// Move candidate past this existing range
 				candidate = existing.End + 1
-				conflictFound = true
+				moved = true
 				break
 			}
 		}
 
-		if !conflictFound {
-			// Found a suitable range
-			return candidate, nil
+		if !moved {
+			candidate++
 		}
 	}
 
-	// If we couldn't find a gap starting from 100, try from offset 1
+	// If no space found after 100, search from offset 1 to 99
 	candidate = 1
-	for candidate+desiredLimit-1 <= networkSize {
-		conflictFound := false
-		proposedEnd := candidate + desiredLimit - 1
+	for candidate < 100 && candidate+desiredLimit-1 <= networkSize {
+		if checkCandidate(candidate) {
+			return candidate, nil
+		}
 
+		// Move past any conflicting range
+		moved := false
+		proposedEnd := candidate + desiredLimit - 1
 		for _, existing := range existingRanges {
 			if rangesOverlap(candidate, proposedEnd, existing.Start, existing.End) {
 				candidate = existing.End + 1
-				conflictFound = true
+				moved = true
 				break
 			}
 		}
 
-		if !conflictFound {
-			return candidate, nil
+		if !moved {
+			candidate++
 		}
 	}
 

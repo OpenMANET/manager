@@ -359,6 +359,38 @@ func SetNetworkGatewayWithReader(section, gateway string, reader ConfigReader) e
 	return nil
 }
 
+// DeleteNetworkGateway removes the gateway configuration for a network interface.
+//
+// Parameters:
+//   - section: The UCI section name (e.g., "lan", "wan")
+//
+// Returns an error if the gateway cannot be deleted.
+//
+// Example:
+//
+//	err := DeleteNetworkGateway("wan")
+//	if err != nil {
+//	    log.Fatalf("Failed to delete gateway: %v", err)
+//	}
+//
+// Note: This operation requires appropriate privileges and commits the configuration.
+func DeleteNetworkGateway(section string) error {
+	return DeleteNetworkGatewayWithReader(section, NewUCINetworkConfigReader())
+}
+
+// DeleteNetworkGatewayWithReader removes the gateway configuration using the provided reader.
+func DeleteNetworkGatewayWithReader(section string, reader ConfigReader) error {
+	if err := reader.Del(networkConfigName, section, "gateway"); err != nil {
+		return fmt.Errorf("failed to delete gateway: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit network config: %w", err)
+	}
+
+	return nil
+}
+
 // SetNetworkDNS sets the DNS server for a network interface.
 //
 // Parameters:
@@ -599,4 +631,3 @@ func RestartNetwork() error {
 	cmd := exec.Command("/etc/init.d/network", "restart")
 	return cmd.Run()
 }
-

@@ -19,6 +19,7 @@ type mockConfigReader struct {
 	delSectionErr  error
 	addSectionErr  error
 	reloadError    error
+	delError       error
 	commitCalled   bool
 	reloadCalled   bool
 	setTypeCalls   []setTypeCall
@@ -68,6 +69,15 @@ func (m *mockConfigReader) SetType(config, section, option string, typ uci.Optio
 }
 
 func (m *mockConfigReader) Del(config, section, option string) error {
+	if m.delError != nil {
+		return m.delError
+	}
+	// Delete the option from data
+	if configData, ok := m.data[config]; ok {
+		if sectionData, ok := configData[section]; ok {
+			delete(sectionData, option)
+		}
+	}
 	return nil
 }
 
@@ -550,6 +560,70 @@ func TestSetNetworkGatewayWithReader(t *testing.T) {
 	call := reader.setTypeCalls[0]
 	if call.option != "gateway" || call.values[0] != "192.168.1.254" {
 		t.Errorf("expected gateway=192.168.1.254, got %s", call.values[0])
+	}
+}
+
+func TestDeleteNetworkGatewayWithReader(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"network": {
+				"wan": {
+					"gateway": {"192.168.1.254"},
+				},
+			},
+		},
+	}
+
+	err := DeleteNetworkGatewayWithReader("wan", reader)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("expected Commit to be called")
+	}
+
+	// Verify the gateway was deleted
+	if _, exists := reader.data["network"]["wan"]["gateway"]; exists {
+		t.Error("expected gateway to be deleted")
+	}
+}
+
+func TestDeleteNetworkGatewayWithReader_DelError(t *testing.T) {
+	reader := &mockConfigReader{
+		data:     make(map[string]map[string]map[string][]string),
+		delError: fmt.Errorf("del failed"),
+	}
+
+	err := DeleteNetworkGatewayWithReader("wan", reader)
+	if err == nil {
+		t.Fatal("expected error from Del")
+	}
+
+	if !contains(err.Error(), "failed to delete gateway") {
+		t.Errorf("expected error about deleting gateway, got: %v", err)
+	}
+}
+
+func TestDeleteNetworkGatewayWithReader_CommitError(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"network": {
+				"wan": {
+					"gateway": {"192.168.1.254"},
+				},
+			},
+		},
+		commitError: fmt.Errorf("commit failed"),
+	}
+
+	err := DeleteNetworkGatewayWithReader("wan", reader)
+	if err == nil {
+		t.Fatal("expected error from Commit")
+	}
+
+	if !contains(err.Error(), "failed to commit network config") {
+		t.Errorf("expected error about committing config, got: %v", err)
 	}
 }
 
