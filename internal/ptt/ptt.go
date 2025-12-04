@@ -27,8 +27,8 @@ const (
 	defaultPort          int    = 5007
 	defaultDebug         bool   = true
 	defaultLoopback      bool   = true
-	defaultPTTDevice     string = "/dev/hidraw0/*"
-	defaultPTTDeviceName string = "AllInOneCable"
+	defaultPTTDevice     string = "/dev/hidraw*"
+	defaultPTTDeviceName string = "AIOC"
 )
 
 var (
@@ -263,7 +263,12 @@ func (ptt *PTTConfig) Start() {
 
 	go ptt.receiveLoop(udpRecvConn)
 
-	// PTT input (kept as-is for now)
+	// PTT input: Monitor the AIOC HID device for PTT button events
+	// The AIOC firmware (https://github.com/skuep/AIOC) provides:
+	//   - USB Audio interface (48kHz, 16-bit) for mic input and speaker output
+	//   - HID interface (CM108-compatible) at /dev/hidraw0 for PTT button
+	//   - Serial interface at /dev/ttyACM0 (optional, for alternative PTT via DTR/RTS)
+	// Uses push-to-talk mode: transmit while button is held down
 	pttDevice := ptt.findPTTDevice()
 	ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", pttDevice.Name)
 	ptt.Log.Debug().Msgf("Monitoring PTT device %s", pttDevice.Name)

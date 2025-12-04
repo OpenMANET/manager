@@ -9,6 +9,9 @@ import (
 	evdev "github.com/gvalkov/golang-evdev"
 )
 
+// receiveLoop continuously receives Opus-encoded audio from the UDP multicast stream,
+// decodes it, and queues it for playback through the AIOC USB audio interface.
+// This allows the operator to hear other stations transmitting on the mesh network.
 func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 	buf := make([]byte, 1500)
 	for {
@@ -45,6 +48,10 @@ func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 	}
 }
 
+// monitorPTT monitors the AIOC HID device for PTT button events.
+// The AIOC firmware sends CM108-compatible HID events (Volume Up/Down buttons)
+// when the PTT button is pressed. This uses push-to-talk mode:
+// transmission starts when button is pressed and stops when released.
 func (ptt *PTTConfig) monitorPTT(dev *evdev.InputDevice, bcastStream *portaudio.Stream) {
 	for {
 		ev, err := dev.ReadOne()
@@ -65,17 +72,14 @@ func (ptt *PTTConfig) monitorPTT(dev *evdev.InputDevice, bcastStream *portaudio.
 		}
 
 		switch ev.Value {
-		case 1:
-			ptt.Log.Debug().Msgf("PTT down (code=%d)", ev.Code)
+		case 1: // Button pressed
+			ptt.Log.Info().Msgf("PTT button pressed (code=%d) - starting transmission", ev.Code)
+			ptt.beginTransmission(bcastStream)
+		case 0: // Button released
+			ptt.Log.Info().Msgf("PTT button released (code=%d) - stopping transmission", ev.Code)
 			if isBroadcasting() {
-				ptt.Log.Debug().Msgf("PTT toggle: stopping transmission")
 				ptt.endTransmission(bcastStream)
-			} else {
-				ptt.Log.Debug().Msgf("PTT toggle: starting transmission")
-				ptt.beginTransmission(bcastStream)
 			}
-		case 0:
-			ptt.Log.Debug().Msgf("PTT up (code=%d)", ev.Code)
 		}
 	}
 }
