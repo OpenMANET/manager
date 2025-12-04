@@ -5,6 +5,7 @@ go 1.25.4
 require (
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
 	github.com/digineo/go-uci/v2 v2.0.0-20231120164223-60c14814b8fe
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gordonklaus/portaudio v0.0.0-20250206071425-98a94950218b
 	github.com/gvalkov/golang-evdev v0.0.0-20220815104727-7e27d6ce89b6
 	github.com/hraban/opus v0.0.0-20230925203106-0188a62cb302
@@ -20,7 +21,6 @@ require (
 )
 
 require (
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect

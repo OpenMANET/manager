@@ -8,10 +8,10 @@ import (
 
 	"github.com/common-nighthawk/go-figure"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
+	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/ptt"
 	"github.com/openmanet/openmanetd/internal/util/logger"
-	"github.com/spf13/viper"
 )
 
 func Start() {
@@ -20,6 +20,7 @@ func Start() {
 		banner = figure.NewFigure("OpenMANET", "big", true)
 		log    = logger.InitLogging(ctx)
 		c      = make(chan os.Signal, 1)
+		cfg    = config.New(nil)
 	)
 
 	banner.Print()
@@ -27,15 +28,15 @@ func Start() {
 	ptt := ptt.NewPTT(ptt.PTTConfig{
 		Interupt:      c,
 		Log:           logger.GetLogger("ptt"),
-		Enable:        viper.GetBool("ptt.enable"),
-		Iface:         viper.GetString("meshNetInterface"),
-		McastAddr:     viper.GetString("ptt.mcastAddr"),
-		McastPort:     viper.GetInt("ptt.mcastPort"),
-		PttKey:        viper.GetString("ptt.pttKey"),
-		Debug:         viper.GetBool("ptt.debug"),
-		Loopback:      viper.GetBool("ptt.loopback"),
-		PttDevice:     viper.GetString("ptt.pttDevice"),
-		PttDeviceName: viper.GetString("ptt.pttDeviceName"),
+		Enable:        cfg.GetPTTEnable(),
+		Iface:         cfg.GetMeshNetInterface(),
+		McastAddr:     cfg.GetPTTMcastAddr(),
+		McastPort:     cfg.GetPTTMcastPort(),
+		PttKey:        cfg.GetPTTPttKey(),
+		Debug:         cfg.GetPTTDebug(),
+		Loopback:      cfg.GetPTTLoopback(),
+		PttDevice:     cfg.GetPTTPttDevice(),
+		PttDeviceName: cfg.GetPTTPttDeviceName(),
 	})
 
 	ptt.Start()
@@ -43,15 +44,15 @@ func Start() {
 	mgmt := mgmt.NewManager(mgmt.ManagementConfig{
 		InteruptChan:               c,
 		Log:                        logger.GetLogger("mgmt"),
-		GatewayMode:                viper.GetBool("gatewayMode"),
-		AlfredMode:                 viper.GetString("alfred.mode"),
-		IFace:                      viper.GetString("meshNetInterface"),
-		BatInterface:               viper.GetString("alfred.batInterface"),
-		SocketPath:                 viper.GetString("alfred.socketPath"),
-		GatewayDataType:            viper.GetBool("alfred.dataTypes.gateway"),
-		NodeDataType:               viper.GetBool("alfred.dataTypes.node"),
-		PositionDataType:           viper.GetBool("alfred.dataTypes.position"),
-		AddressReservationDataType: viper.GetBool("alfred.dataTypes.addressReservation"),
+		GatewayMode:                cfg.GetGatewayMode(),
+		AlfredMode:                 cfg.GetAlfredMode(),
+		IFace:                      cfg.GetMeshNetInterface(),
+		BatInterface:               cfg.GetAlfredBatInterface(),
+		SocketPath:                 cfg.GetAlfredSocketPath(),
+		GatewayDataType:            cfg.GetAlfredDataTypeGateway(),
+		NodeDataType:               cfg.GetAlfredDataTypeNode(),
+		PositionDataType:           cfg.GetAlfredDataTypePosition(),
+		AddressReservationDataType: cfg.GetAlfredDataTypeAddressReservation(),
 	})
 
 	mgmt.Start()

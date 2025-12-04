@@ -25,14 +25,8 @@ import (
 	"github.com/spf13/viper"
 )
 
-const (
-	versionText = "Print the version"
-)
-
 var (
-	Version   = "DEV"
-	BuildTime = "unknown"
-	BuildType = ""
+	Version = "DEV"
 )
 
 var cfgFile string
@@ -46,7 +40,7 @@ It provides a way to configure and monitor OpenMANET networks.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("OpenMANET Manager\nVersion: %s\nBuild Time: %s\nBuild Type: %s\n", Version, BuildTime, BuildType)
+		fmt.Printf("OpenMANET Manager\nVersion: %s\n", Version)
 		openmanet.Start()
 	},
 }

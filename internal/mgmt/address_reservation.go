@@ -19,24 +19,24 @@ const (
 )
 
 type AddressReservationWorker struct {
-	Config       ManagementConfig
+	Config       *ManagementConfig
 	Client       *alfred.Client
 	ShutdownChan <-chan os.Signal
 
-	sendInterval       time.Duration
-	recvInterval       time.Duration
+	sendInterval time.Duration
+	recvInterval time.Duration
 }
 
 func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client, shutdownChan <-chan os.Signal) *AddressReservationWorker {
 	config.Log.Info().Msg("AddressReservationWorker initialized")
 
 	return &AddressReservationWorker{
-		Config:       *config,
+		Config:       config,
 		Client:       client,
 		ShutdownChan: shutdownChan,
 
-		sendInterval:       config.addressReservationWorkerSendInterval,
-		recvInterval:       config.addressReservationWorkerRecvInterval,
+		sendInterval: config.addressReservationWorkerSendInterval,
+		recvInterval: config.addressReservationWorkerRecvInterval,
 	}
 }
 

@@ -17,7 +17,7 @@ const (
 )
 
 type GatewayWorker struct {
-	Config       ManagementConfig
+	Config       *ManagementConfig
 	Client       *alfred.Client
 	ShutdownChan <-chan os.Signal
 
@@ -29,7 +29,7 @@ func NewGatewayWorker(config *ManagementConfig, client *alfred.Client, shutdownC
 	config.Log.Info().Msg("GatewayWorker initialized")
 
 	return &GatewayWorker{
-		Config:       *config,
+		Config:       config,
 		Client:       client,
 		ShutdownChan: shutdownChan,
 

@@ -15,7 +15,7 @@ const (
 )
 
 type NodeDataWorker struct {
-	Config       ManagementConfig
+	Config       *ManagementConfig
 	Client       *alfred.Client
 	Interval     time.Duration
 	ShutdownChan <-chan os.Signal
@@ -25,7 +25,7 @@ func NewNodeDataWorker(config *ManagementConfig, client *alfred.Client, interval
 	config.Log.Info().Msg("NodeDataWorker initialized")
 
 	return &NodeDataWorker{
-		Config:       *config,
+		Config:       config,
 		Client:       client,
 		Interval:     interval,
 		ShutdownChan: shutdownChan,
