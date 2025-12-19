@@ -6,7 +6,7 @@ The following guide is intended to get new users up and running with openmanetd 
 
 ### Pre-requisites
 
-- [Docker](https://docs.docker.com/engine/install/ubuntu/)
+- Install [Docker](https://docs.docker.com/engine/install/ubuntu/)
 - Install [devcontainers/cli](https://github.com/devcontainers/cli?tab=readme-ov-file#try-it-out)
 
 ### Building the project
