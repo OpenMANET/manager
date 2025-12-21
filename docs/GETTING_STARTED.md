@@ -36,10 +36,11 @@ go test
 - Install [podman](https://podman.io/docs/installation)
 - Shim podman
 
-  - Enable podman socket
+  - Enable and link podman socket
 
   ```shell
   systemctl --user enable --now podman.socket
+  sudo ln -sf $XDG_RUNTIME_DIR/podman/podman.sock /var/run/docker.sock
   ```
 
   - Create _podman_ passthrough for _docker_ binary
