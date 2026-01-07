@@ -27,8 +27,8 @@ docker exec -it -w /workspaces/openmanetd ${DEVCNTR} bash
 - Build and test the project
 
 ```shell
-go build
-go test
+make build
+make test
 ```
 
 ### Podman (for the stubborn)
