@@ -10,6 +10,6 @@ The protobuf specs are a sub module from [OpenMANET/protobuf](https://github.com
 
 ## Quickstart
 
-Start the devcontainer and run `go build` to get the binary built locally
+Start the devcontainer and run `make build` to get the binary built locally
 
 Further documentation can be found in the [Getting Started](docs/GETTING_STARTED.md) doc.
