@@ -594,7 +594,7 @@ func SelectAvailableStaticIP(records []alfred.Record, gatewayMode bool) (string,
 	if len(records) <= 1 {
 		// Initialize random seed
 		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-		
+
 		// Try to find a random available IP (max 1000 attempts to avoid infinite loop)
 		for attempt := 0; attempt < 1000; attempt++ {
 			// Generate random third octet (1-252, excluding 0, 253, 254, 255)
@@ -602,12 +602,12 @@ func SelectAvailableStaticIP(records []alfred.Record, gatewayMode bool) (string,
 			if thirdOctet == 253 {
 				thirdOctet = 252 // Avoid 253
 			}
-			
+
 			// Generate random fourth octet (1-254)
 			fourthOctet := rng.Intn(254) + 1 // Generates 1-254
-			
+
 			candidateIP := fmt.Sprintf("10.41.%d.%d", thirdOctet, fourthOctet)
-			
+
 			// Check if this IP is already reserved
 			if !reservedIPs[candidateIP] {
 				// IP is available, return it
