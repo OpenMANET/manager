@@ -11,6 +11,7 @@ import (
 	proto "github.com/openmanet/openmanetd/internal/api/openmanet/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/network"
+	"github.com/openmanet/openmanetd/internal/system"
 )
 
 const (
@@ -223,6 +224,14 @@ func (arw *AddressReservationWorker) StartReceive() {
 			err = network.SetDHCPConfiguredWithReader(arw.Config.uciOpenMANETConfig)
 			if err != nil {
 				arw.Config.Log.Error().Err(err).Msg("Error marking DHCP as configured")
+				continue
+			}
+
+			// Restart the system to apply new network settings
+			arw.Config.Log.Info().Msg("Rebooting system to apply new network settings")
+			err = system.Reboot()
+			if err != nil {
+				arw.Config.Log.Error().Err(err).Msg("Error rebooting system")
 				continue
 			}
 		}
