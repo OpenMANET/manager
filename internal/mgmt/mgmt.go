@@ -6,6 +6,7 @@ import (
 
 	"github.com/openmanet/go-alfred"
 	"github.com/openmanet/openmanetd/internal/network"
+	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/rs/zerolog"
 )
 
@@ -41,9 +42,17 @@ type ManagementConfig struct {
 	uciOpenMANETConfig *network.UCIOpenMANETConfigReader
 	uciDHCPConfig      *network.UCIDHCPConfigReader
 	uciNetworkConfig   *network.UCINetworkConfigReader
+
+	boardConfigInfo *board.Board
 }
 
 func NewManager(cfg ManagementConfig) *ManagementConfig {
+
+	boardConfigInfo, err := board.NewBoardConfigInfo()
+	if err != nil {
+		cfg.Log.Error().Err(err).Msg("Failed to load board configuration")
+	}
+
 	return &ManagementConfig{
 		Log:                        cfg.Log,
 		AlfredMode:                 cfg.AlfredMode,
@@ -65,6 +74,8 @@ func NewManager(cfg ManagementConfig) *ManagementConfig {
 		uciOpenMANETConfig: network.NewUCIOpenMANETConfigReader(),
 		uciDHCPConfig:      network.NewUCIDHCPConfigReader(),
 		uciNetworkConfig:   network.NewUCINetworkConfigReader(),
+
+		boardConfigInfo: boardConfigInfo,
 	}
 }
 
