@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-// NewBoard reads the board configuration from "/etc/board.json",
+// NewBoardConfigInfo reads the board configuration from "/etc/board.json",
 // unmarshals the JSON data into a Board struct, and returns a pointer to it.
 // Returns an error if the file cannot be read or the JSON is invalid.
 func NewBoardConfigInfo() (*Board, error) {
