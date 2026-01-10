@@ -1173,7 +1173,8 @@ func TestSelectAvailableStaticIP_RestrictedRanges(t *testing.T) {
 }
 
 func TestSelectAvailableStaticIP_SelectionOrder(t *testing.T) {
-	// With no reservations in normal mode, should select 10.41.1.1 (first available after excluded 10.41.0.0/24)
+	// With no reservations in normal mode, should select a random IP from valid range
+	// (not deterministic anymore due to randomization when records <= 1)
 	records := []alfred.Record{}
 
 	got, err := SelectAvailableStaticIP(records, false)
@@ -1181,8 +1182,19 @@ func TestSelectAvailableStaticIP_SelectionOrder(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got != "10.41.1.1" {
-		t.Errorf("SelectAvailableStaticIP() = %v, want 10.41.1.1 as first selection", got)
+	// Verify the IP is in the correct range
+	if len(got) < 6 || got[:6] != "10.41." {
+		t.Errorf("SelectAvailableStaticIP() = %v, should be in 10.41.0.0/16 range", got)
+	}
+
+	// Verify it's not in restricted ranges (0, 253, 254)
+	if len(got) >= 9 && (got[:9] == "10.41.0." || got[:9] == "10.41.253" || got[:9] == "10.41.254") {
+		t.Errorf("SelectAvailableStaticIP() = %v, should not be in restricted ranges", got)
+	}
+
+	// Verify it's a valid IP
+	if ip := net.ParseIP(got); ip == nil {
+		t.Errorf("SelectAvailableStaticIP() = %v, not a valid IP address", got)
 	}
 }
 
