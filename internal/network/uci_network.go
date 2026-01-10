@@ -2,8 +2,10 @@ package network
 
 import (
 	"fmt"
+	"math/rand"
 	"net"
 	"os/exec"
+	"time"
 
 	"github.com/digineo/go-uci/v2"
 	"github.com/openmanet/go-alfred"
@@ -576,11 +578,43 @@ func SelectAvailableStaticIP(records []alfred.Record, gatewayMode bool) (string,
 			candidateIP := fmt.Sprintf("10.41.0.%d", fourthOctet)
 
 			// Check if this IP is already reserved
+			if reservedIPs[candidateIP] {
+				// IP is reserved, continue to next candidate
+				continue
+			}
+
+			// IP is available, return it
+			return candidateIP, nil
+		}
+		return "", fmt.Errorf("no available IP addresses in 10.41.0.0/24 range")
+	}
+
+	// Normal mode: If there are 1 or fewer records, select a random IP to avoid conflicts
+	// when multiple nodes start simultaneously
+	if len(records) <= 1 {
+		// Initialize random seed
+		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+		// Try to find a random available IP (max 1000 attempts to avoid infinite loop)
+		for attempt := 0; attempt < 1000; attempt++ {
+			// Generate random third octet (1-252, excluding 0, 253, 254, 255)
+			thirdOctet := rng.Intn(252) + 1 // Generates 1-252
+			if thirdOctet == 253 {
+				thirdOctet = 252 // Avoid 253
+			}
+
+			// Generate random fourth octet (1-254)
+			fourthOctet := rng.Intn(254) + 1 // Generates 1-254
+
+			candidateIP := fmt.Sprintf("10.41.%d.%d", thirdOctet, fourthOctet)
+
+			// Check if this IP is already reserved
 			if !reservedIPs[candidateIP] {
+				// IP is available, return it
 				return candidateIP, nil
 			}
 		}
-		return "", fmt.Errorf("no available IP addresses in 10.41.0.0/24 range")
+		// If random selection didn't find an IP, fall through to sequential search
 	}
 
 	// Normal mode: iterate through the 10.41.0.0/16 range
@@ -601,9 +635,13 @@ func SelectAvailableStaticIP(records []alfred.Record, gatewayMode bool) (string,
 			candidateIP := fmt.Sprintf("10.41.%d.%d", thirdOctet, fourthOctet)
 
 			// Check if this IP is already reserved
-			if !reservedIPs[candidateIP] {
-				return candidateIP, nil
+			if reservedIPs[candidateIP] {
+				// IP is reserved, continue to next candidate
+				continue
 			}
+
+			// IP is available, return it
+			return candidateIP, nil
 		}
 	}
 

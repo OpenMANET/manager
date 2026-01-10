@@ -19,7 +19,7 @@ jobs:
           go-version-file: "go.mod"
 
       - name: Install Dependencies
-        run: sudo apt install -y build-essential libnl-3-dev libnl-genl-3-dev libgps-dev libcap-dev pkg-config libopus-dev libopusfile-dev portaudio19-dev batctl net-tools alfred
+        run: sudo apt update && sudo apt install -y build-essential libnl-3-dev libnl-genl-3-dev libgps-dev libcap-dev pkg-config libopus-dev libopusfile-dev portaudio19-dev batctl net-tools alfred
 
       - name: Compile Alfred Go Bindings
         run: make alfred

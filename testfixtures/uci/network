@@ -54,3 +54,7 @@ config interface 'bat0'
 config interface 'batmesh0'
 	option proto 'batadv_hardif'
 	option master 'bat0'
+
+config interface 'batmesh1'
+        option proto 'batadv_hardif'
+        option master 'bat0'
