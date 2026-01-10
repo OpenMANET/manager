@@ -301,6 +301,31 @@ func DeleteDHCPConfigWithReader(section string, reader DHCPConfigReader) error {
 	return nil
 }
 
+// DHCPSectionExists checks if a DHCP section exists in the configuration.
+//
+// Parameters:
+//   - section: The UCI section name to check (e.g., "lan", "wan", "ahwlan")
+//
+// Returns true if the section exists, false otherwise.
+//
+// Example:
+//
+//	exists := DHCPSectionExists("lan")
+//	if exists {
+//	    fmt.Println("DHCP section exists")
+//	}
+func DHCPSectionExists(section string) bool {
+	return DHCPSectionExistsWithReader(section, NewUCIDHCPConfigReader())
+}
+
+// DHCPSectionExistsWithReader checks if a DHCP section exists using the provided reader.
+func DHCPSectionExistsWithReader(section string, reader DHCPConfigReader) bool {
+	// Try to get any option from the section to verify it exists
+	// We check for 'interface' as it's a common option in DHCP sections
+	_, exists := reader.Get(dhcpConfigName, section, "interface")
+	return exists
+}
+
 // EnableDHCP enables DHCP on the specified interface section.
 //
 // Parameters:

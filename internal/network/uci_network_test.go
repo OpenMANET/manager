@@ -438,6 +438,84 @@ func TestDeleteNetworkConfigWithReader_CommitError(t *testing.T) {
 	}
 }
 
+func TestNetworkSectionExistsWithReader(t *testing.T) {
+	tests := []struct {
+		name    string
+		section string
+		data    map[string]map[string]map[string][]string
+		want    bool
+	}{
+		{
+			name:    "section_exists",
+			section: "lan",
+			data: map[string]map[string]map[string][]string{
+				"network": {
+					"lan": {
+						"proto": []string{"static"},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name:    "section_does_not_exist",
+			section: "wan",
+			data: map[string]map[string]map[string][]string{
+				"network": {
+					"lan": {
+						"proto": []string{"static"},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name:    "empty_config",
+			section: "lan",
+			data:    map[string]map[string]map[string][]string{},
+			want:    false,
+		},
+		{
+			name:    "section_exists_no_proto",
+			section: "guest",
+			data: map[string]map[string]map[string][]string{
+				"network": {
+					"guest": {
+						"ipaddr": []string{"192.168.1.1"},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name:    "section_exists_with_proto",
+			section: "ahwlan",
+			data: map[string]map[string]map[string][]string{
+				"network": {
+					"ahwlan": {
+						"proto":  []string{"batadv"},
+						"device": []string{"bat0"},
+					},
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := &mockConfigReader{
+				data: tt.data,
+			}
+
+			got := NetworkSectionExistsWithReader(tt.section, reader)
+			if got != tt.want {
+				t.Errorf("NetworkSectionExistsWithReader() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSetNetworkProtoWithReader(t *testing.T) {
 	tests := []struct {
 		name    string

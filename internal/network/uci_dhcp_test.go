@@ -270,6 +270,76 @@ func TestDeleteDHCPConfigWithReader(t *testing.T) {
 	}
 }
 
+func TestDHCPSectionExistsWithReader(t *testing.T) {
+	tests := []struct {
+		name    string
+		section string
+		setup   func(*mockDHCPConfigReader)
+		want    bool
+	}{
+		{
+			name:    "section_exists",
+			section: "lan",
+			setup: func(m *mockDHCPConfigReader) {
+				_ = m.AddSection("dhcp", "lan", "dhcp")
+				_ = m.SetType("dhcp", "lan", "interface", uci.TypeOption, "lan")
+			},
+			want: true,
+		},
+		{
+			name:    "section_does_not_exist",
+			section: "wan",
+			setup:   func(m *mockDHCPConfigReader) {},
+			want:    false,
+		},
+		{
+			name:    "section_exists_no_interface",
+			section: "guest",
+			setup: func(m *mockDHCPConfigReader) {
+				_ = m.AddSection("dhcp", "guest", "dhcp")
+				_ = m.SetType("dhcp", "guest", "start", uci.TypeOption, "100")
+			},
+			want: false,
+		},
+		{
+			name:    "section_exists_with_interface",
+			section: "ahwlan",
+			setup: func(m *mockDHCPConfigReader) {
+				_ = m.AddSection("dhcp", "ahwlan", "dhcp")
+				_ = m.SetType("dhcp", "ahwlan", "interface", uci.TypeOption, "ahwlan")
+				_ = m.SetType("dhcp", "ahwlan", "start", uci.TypeOption, "100")
+				_ = m.SetType("dhcp", "ahwlan", "limit", uci.TypeOption, "150")
+			},
+			want: true,
+		},
+		{
+			name:    "multiple_sections_check_specific",
+			section: "lan",
+			setup: func(m *mockDHCPConfigReader) {
+				_ = m.AddSection("dhcp", "lan", "dhcp")
+				_ = m.SetType("dhcp", "lan", "interface", uci.TypeOption, "lan")
+				_ = m.AddSection("dhcp", "wan", "dhcp")
+				_ = m.SetType("dhcp", "wan", "interface", uci.TypeOption, "wan")
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newMockDHCPConfigReader()
+			if tt.setup != nil {
+				tt.setup(mock)
+			}
+
+			got := DHCPSectionExistsWithReader(tt.section, mock)
+			if got != tt.want {
+				t.Errorf("DHCPSectionExistsWithReader() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEnableDHCPWithReader(t *testing.T) {
 	mock := newMockDHCPConfigReader()
 	_ = mock.AddSection("dhcp", "test", "dhcp")

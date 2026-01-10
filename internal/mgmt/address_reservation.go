@@ -211,19 +211,21 @@ func (arw *AddressReservationWorker) StartReceive() {
 				continue
 			}
 
-			// Reload network to apply changes
-			err = network.ReloadNetwork()
-			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error reloading network configuration")
-				continue
-			}
-
 			arw.Config.Log.Info().Msgf("Static IP %s and DHCP configured via address reservation", staticIP)
 
 			// Mark DHCP as configured
 			err = network.SetDHCPConfiguredWithReader(arw.Config.uciOpenMANETConfig)
 			if err != nil {
 				arw.Config.Log.Error().Err(err).Msg("Error marking DHCP as configured")
+				continue
+			}
+
+			// Clean up interfaces or configs if needed.
+			// This will only happen on initial configuration. If users create things later
+			// we will not change them unless they re-request an address reservation.
+			err = arw.cleanUpInterfaces()
+			if err != nil {
+				arw.Config.Log.Error().Err(err).Msg("Error cleaning up interfaces")
 				continue
 			}
 
@@ -296,4 +298,60 @@ func (arw *AddressReservationWorker) createAddressReservationResponse() ([]byte,
 	}
 
 	return addrResDataBytes, nil
+}
+
+func (arw *AddressReservationWorker) cleanUpInterfaces() error {
+	meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
+	if err != nil {
+		return fmt.Errorf("%w", err)
+	}
+
+	if meshCfg.IsGatewayMode() {
+		arw.Config.Log.Info().Msg("Mesh gateway mode enabled, skipping interface cleanup")
+		return nil
+	}
+
+	// Clean up 'wan' and 'lan' network sections if they exist
+	if network.NetworkSectionExistsWithReader("wan", arw.Config.uciNetworkConfig) {
+		arw.Config.Log.Info().Msg("Removing 'wan' network section")
+		if err := network.DeleteNetworkConfigWithReader("wan", arw.Config.uciNetworkConfig); err != nil {
+			return fmt.Errorf("error deleting 'wan' network section: %w", err)
+		}
+	}
+
+	if network.NetworkSectionExistsWithReader("lan", arw.Config.uciNetworkConfig) {
+		arw.Config.Log.Info().Msg("Removing 'lan' network section")
+		if err := network.DeleteNetworkConfigWithReader("lan", arw.Config.uciNetworkConfig); err != nil {
+			return fmt.Errorf("error deleting 'lan' network section: %w", err)
+		}
+	}
+
+	// Commit network changes
+	arw.Config.uciNetworkConfig.Commit()
+
+	// Clean up DHCP sections if they exist
+	if network.DHCPSectionExistsWithReader("wan", arw.Config.uciDHCPConfig) {
+		arw.Config.Log.Info().Msg("Removing 'wan' DHCP section")
+		if err := network.DeleteDHCPConfigWithReader("wan", arw.Config.uciDHCPConfig); err != nil {
+			return fmt.Errorf("error deleting 'wan' DHCP section: %w", err)
+		}
+	}
+
+	if network.DHCPSectionExistsWithReader("lan", arw.Config.uciDHCPConfig) {
+		arw.Config.Log.Info().Msg("Removing 'lan' DHCP section")
+		if err := network.DeleteDHCPConfigWithReader("lan", arw.Config.uciDHCPConfig); err != nil {
+			return fmt.Errorf("error deleting 'lan' DHCP section: %w", err)
+		}
+	}
+
+	// Commit DHCP changes
+	arw.Config.uciDHCPConfig.Commit()
+
+	// Reload network to apply changes
+	err = network.ReloadNetwork()
+	if err != nil {
+		return fmt.Errorf("error reloading network configuration: %w", err)
+	}
+
+	return nil
 }

@@ -257,6 +257,31 @@ func DeleteNetworkConfigWithReader(section string, reader ConfigReader) error {
 	return nil
 }
 
+// NetworkSectionExists checks if a network section exists in the configuration.
+//
+// Parameters:
+//   - section: The UCI section name to check (e.g., "lan", "wan", "ahwlan")
+//
+// Returns true if the section exists, false otherwise.
+//
+// Example:
+//
+//	exists := NetworkSectionExists("lan")
+//	if exists {
+//	    fmt.Println("LAN section exists")
+//	}
+func NetworkSectionExists(section string) bool {
+	return NetworkSectionExistsWithReader(section, NewUCINetworkConfigReader())
+}
+
+// NetworkSectionExistsWithReader checks if a network section exists using the provided reader.
+func NetworkSectionExistsWithReader(section string, reader ConfigReader) bool {
+	// Try to get any option from the section to verify it exists
+	// We check for 'proto' as it's a common option in network sections
+	_, exists := reader.Get(networkConfigName, section, "proto")
+	return exists
+}
+
 // SetNetworkProto sets the protocol for a network interface.
 //
 // Parameters:
