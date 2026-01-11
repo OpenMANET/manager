@@ -57,7 +57,7 @@ buf: ## Generate protobuf code
 
 .PHONY: test
 test:
-	go test ./...
+	go test ./... -coverprofile=coverage.out -covermode=atomic
 
 .PHONY: sysroot-pack
 sysroot-pack:
