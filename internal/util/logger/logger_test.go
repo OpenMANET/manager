@@ -190,7 +190,7 @@ func TestSetLogLevel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			setLogLevel(tt.logLevel)
-			
+
 			if got := zerolog.GlobalLevel(); got != tt.want {
 				t.Errorf("setLogLevel(%q) set global level to %v, want %v", tt.logLevel, got, tt.want)
 			}
@@ -218,7 +218,7 @@ func TestLoggerFieldNames(t *testing.T) {
 	// Test that zerolog uses the correct field names after initialization
 	viper.Reset()
 	viper.Set("logLevel", "info")
-	
+
 	ctx := context.Background()
 	_ = InitLogging(ctx)
 
