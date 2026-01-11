@@ -39,12 +39,16 @@ vet: ## Run go vet against code.
 alfred: ## Make Alfred for Go Bindings
 	make -C internal/alfred/alfred
 
+.PHONY: sqlc-gen
+sqlc-gen: ## Generate sqlc code
+	$(GOBIN)/sqlc generate
+
 .PHONY: build
-build: fmt vet ## Build manager binary.
+build: fmt vet sqlc-gen ## Build manager binary.
 	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -o bin/openmanetd main.go
 
 .PHONY: run
-run: fmt vet ## Run a controller from your host.
+run: fmt vet sqlc-gen ## Run a controller from your host.
 	go run ./main.go
 
 .PHONY: buf

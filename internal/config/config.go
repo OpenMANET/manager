@@ -11,6 +11,7 @@ import (
 const (
 	DefaultMeshNetInterface            = "br-ahwlan"
 	DefaultGatewayMode                 = false
+	DefaultDBFile                      = "/etc/openmanetd/openmanetd.db"
 	DefaultAlfredMode                  = "primary"
 	DefaultAlfredBatInterface          = "bat0"
 	DefaultAlfredSocketPath            = "/var/run/alfred.sock"
@@ -34,6 +35,7 @@ type Config struct {
 	v                           *viper.Viper
 	MeshNetInterface            string
 	GatewayMode                 bool
+	DBFile                      string
 	AlfredMode                  string
 	AlfredBatInterface          string
 	AlfredSocketPath            string
@@ -94,6 +96,12 @@ func (c *Config) reload() {
 		c.GatewayMode = c.v.GetBool("gatewayMode")
 	} else {
 		c.GatewayMode = DefaultGatewayMode
+	}
+
+	if val := c.v.GetString("dbFile"); val != "" {
+		c.DBFile = val
+	} else {
+		c.DBFile = DefaultDBFile
 	}
 
 	// Load Alfred configuration
@@ -221,6 +229,13 @@ func (c *Config) GetGatewayMode() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.GatewayMode
+}
+
+// GetDBFile returns the database file path.
+func (c *Config) GetDBFile() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.DBFile
 }
 
 // GetAlfredMode returns the Alfred operating mode (primary/secondary).

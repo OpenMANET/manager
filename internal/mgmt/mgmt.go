@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/openmanet/go-alfred"
+	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/rs/zerolog"
@@ -31,6 +32,7 @@ type ManagementConfig struct {
 	NodeDataType               bool
 	PositionDataType           bool
 	AddressReservationDataType bool
+	DB                         *models.Queries
 	InteruptChan               chan os.Signal
 
 	gatewayWorkerSendInterval time.Duration
@@ -65,6 +67,7 @@ func NewManager(cfg ManagementConfig) *ManagementConfig {
 		AddressReservationDataType: cfg.AddressReservationDataType,
 		InteruptChan:               cfg.InteruptChan,
 		GatewayMode:                cfg.GatewayMode,
+		DB:                         cfg.DB,
 
 		gatewayWorkerSendInterval:            gatewayDataWorkerSendInterval,
 		gatewayWorkerRecvInterval:            gatewayDataWorkerRecvInterval,
