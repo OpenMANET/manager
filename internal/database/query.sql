@@ -1,13 +1,13 @@
--- name: GetNode :one
-SELECT * FROM nodes
+-- name: GetMeshNode :one
+SELECT * FROM mesh_nodes
 WHERE mac_addr = ? LIMIT 1;
 
--- name: ListNodes :many
-SELECT * FROM nodes
+-- name: ListMeshNodes :many
+SELECT * FROM mesh_nodes
 ORDER BY hostname;
 
--- name: CreateNode :one
-INSERT INTO nodes (
+-- name: CreateMeshNode :one
+INSERT INTO mesh_nodes (
   mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at
 ) VALUES (
   ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -20,8 +20,8 @@ ON CONFLICT(mac_addr) DO UPDATE SET
   updated_at = CURRENT_TIMESTAMP
 RETURNING *;
 
--- name: UpdateNode :exec
-UPDATE nodes
+-- name: UpdateMeshNode :exec
+UPDATE mesh_nodes
 set hostname = ?,
 ip_addr = ?,
 uci_dhcp_start = ?,
@@ -29,6 +29,6 @@ uci_dhcp_limit = ?,
 updated_at = CURRENT_TIMESTAMP
 WHERE mac_addr = ?;
 
--- name: DeleteNode :exec
-DELETE FROM nodes
+-- name: DeleteMeshNode :exec
+DELETE FROM mesh_nodes
 WHERE mac_addr = ?;

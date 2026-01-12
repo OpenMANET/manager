@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-type Node struct {
+type MeshNode struct {
 	MacAddr      string
 	Hostname     string
 	IpAddr       string

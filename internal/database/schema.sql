@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS nodes (
+CREATE TABLE IF NOT EXISTS mesh_nodes (
   mac_addr       text PRIMARY KEY NOT NULL,
   hostname       text NOT NULL,
   ip_addr        text NOT NULL,

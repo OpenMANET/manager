@@ -53,6 +53,8 @@ func (m *Node) CloneVT() *Node {
 	r.Hostname = m.Hostname
 	r.Ipaddr = m.Ipaddr
 	r.Position = m.Position.CloneVT()
+	r.UciDhcpStart = m.UciDhcpStart
+	r.UciDhcpLimit = m.UciDhcpLimit
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -133,6 +135,12 @@ func (this *Node) EqualVT(that *Node) bool {
 		return false
 	}
 	if !this.Position.EqualVT(that.Position) {
+		return false
+	}
+	if this.UciDhcpStart != that.UciDhcpStart {
+		return false
+	}
+	if this.UciDhcpLimit != that.UciDhcpLimit {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -277,6 +285,20 @@ func (m *Node) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.UciDhcpLimit) > 0 {
+		i -= len(m.UciDhcpLimit)
+		copy(dAtA[i:], m.UciDhcpLimit)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.UciDhcpLimit)))
+		i--
+		dAtA[i] = 0x32
+	}
+	if len(m.UciDhcpStart) > 0 {
+		i -= len(m.UciDhcpStart)
+		copy(dAtA[i:], m.UciDhcpStart)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.UciDhcpStart)))
+		i--
+		dAtA[i] = 0x2a
 	}
 	if m.Position != nil {
 		size, err := m.Position.MarshalToSizedBufferVT(dAtA[:i])
@@ -471,6 +493,20 @@ func (m *Node) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.UciDhcpLimit) > 0 {
+		i -= len(m.UciDhcpLimit)
+		copy(dAtA[i:], m.UciDhcpLimit)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.UciDhcpLimit)))
+		i--
+		dAtA[i] = 0x32
+	}
+	if len(m.UciDhcpStart) > 0 {
+		i -= len(m.UciDhcpStart)
+		copy(dAtA[i:], m.UciDhcpStart)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.UciDhcpStart)))
+		i--
+		dAtA[i] = 0x2a
+	}
 	if m.Position != nil {
 		size, err := m.Position.MarshalToSizedBufferVTStrict(dAtA[:i])
 		if err != nil {
@@ -609,6 +645,14 @@ func (m *Node) SizeVT() (n int) {
 	}
 	if m.Position != nil {
 		l = m.Position.SizeVT()
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.UciDhcpStart)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.UciDhcpLimit)
+	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
@@ -1025,6 +1069,70 @@ func (m *Node) UnmarshalVT(dAtA []byte) error {
 			if err := m.Position.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UciDhcpStart", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.UciDhcpStart = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UciDhcpLimit", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.UciDhcpLimit = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -1555,6 +1663,78 @@ func (m *Node) UnmarshalVTUnsafe(dAtA []byte) error {
 			if err := m.Position.UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UciDhcpStart", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.UciDhcpStart = stringValue
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UciDhcpLimit", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.UciDhcpLimit = stringValue
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

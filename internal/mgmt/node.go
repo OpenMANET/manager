@@ -1,11 +1,14 @@
 package mgmt
 
 import (
+	"context"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/openmanet/go-alfred"
 	proto "github.com/openmanet/openmanetd/internal/api/openmanet/v1"
+	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/network"
 )
 
@@ -53,6 +56,7 @@ func (ndw *NodeDataWorker) StartSend() {
 				continue
 			}
 
+			// Get interface information
 			iface := network.GetInterfaceByName(ndw.Config.IFace)
 			hostname, err := os.Hostname()
 			if err != nil {
@@ -60,10 +64,21 @@ func (ndw *NodeDataWorker) StartSend() {
 				hostname = "unknown"
 			}
 
+			// if ndw.Config.IFace is prefixed with "br-", remove the prefix because dhcp and network config is tied to the physical interface
+			normalizedIface := ndw.Config.IFace
+			if after, ok := strings.CutPrefix(ndw.Config.IFace, "br-"); ok {
+				normalizedIface = after
+			}
+
+			// Get DHCP info from UCI
+			dhcp, err := network.GetDHCPConfigWithReader(normalizedIface, ndw.Config.uciDHCPConfig)
+
 			nodeData := proto.Node{
-				Mac:      iface.MAC,
-				Hostname: hostname,
-				Ipaddr:   iface.IP[0].IP.String(),
+				Mac:          iface.MAC,
+				Hostname:     hostname,
+				Ipaddr:       iface.IP[0].IP.String(),
+				UciDhcpStart: dhcp.Start,
+				UciDhcpLimit: dhcp.Limit,
 			}
 
 			var nodeDataBytes []byte
@@ -111,6 +126,17 @@ func (ndw *NodeDataWorker) StartReceive() {
 						}
 
 						ndw.Config.Log.Debug().Msgf("Received node data: %+v", &nodeData)
+
+						// Insert or update node data in the database
+						_, err = ndw.Config.DB.CreateMeshNode(context.Background(), models.CreateMeshNodeParams{
+							MacAddr:  nodeData.Mac,
+							IpAddr:   nodeData.Ipaddr,
+							Hostname: nodeData.Hostname,
+						})
+
+						if err != nil {
+							ndw.Config.Log.Error().Err(err).Msg("Error inserting node data into database")
+						}
 					}
 				}
 			}

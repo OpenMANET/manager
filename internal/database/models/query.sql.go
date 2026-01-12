@@ -10,8 +10,8 @@ import (
 	"database/sql"
 )
 
-const createNode = `-- name: CreateNode :one
-INSERT INTO nodes (
+const createMeshNode = `-- name: CreateMeshNode :one
+INSERT INTO mesh_nodes (
   mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at
 ) VALUES (
   ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -25,7 +25,7 @@ ON CONFLICT(mac_addr) DO UPDATE SET
 RETURNING mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at
 `
 
-type CreateNodeParams struct {
+type CreateMeshNodeParams struct {
 	MacAddr      string
 	Hostname     string
 	IpAddr       string
@@ -33,15 +33,15 @@ type CreateNodeParams struct {
 	UciDhcpLimit sql.NullInt64
 }
 
-func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, error) {
-	row := q.db.QueryRowContext(ctx, createNode,
+func (q *Queries) CreateMeshNode(ctx context.Context, arg CreateMeshNodeParams) (MeshNode, error) {
+	row := q.db.QueryRowContext(ctx, createMeshNode,
 		arg.MacAddr,
 		arg.Hostname,
 		arg.IpAddr,
 		arg.UciDhcpStart,
 		arg.UciDhcpLimit,
 	)
-	var i Node
+	var i MeshNode
 	err := row.Scan(
 		&i.MacAddr,
 		&i.Hostname,
@@ -54,24 +54,24 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 	return i, err
 }
 
-const deleteNode = `-- name: DeleteNode :exec
-DELETE FROM nodes
+const deleteMeshNode = `-- name: DeleteMeshNode :exec
+DELETE FROM mesh_nodes
 WHERE mac_addr = ?
 `
 
-func (q *Queries) DeleteNode(ctx context.Context, macAddr string) error {
-	_, err := q.db.ExecContext(ctx, deleteNode, macAddr)
+func (q *Queries) DeleteMeshNode(ctx context.Context, macAddr string) error {
+	_, err := q.db.ExecContext(ctx, deleteMeshNode, macAddr)
 	return err
 }
 
-const getNode = `-- name: GetNode :one
-SELECT mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at FROM nodes
+const getMeshNode = `-- name: GetMeshNode :one
+SELECT mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at FROM mesh_nodes
 WHERE mac_addr = ? LIMIT 1
 `
 
-func (q *Queries) GetNode(ctx context.Context, macAddr string) (Node, error) {
-	row := q.db.QueryRowContext(ctx, getNode, macAddr)
-	var i Node
+func (q *Queries) GetMeshNode(ctx context.Context, macAddr string) (MeshNode, error) {
+	row := q.db.QueryRowContext(ctx, getMeshNode, macAddr)
+	var i MeshNode
 	err := row.Scan(
 		&i.MacAddr,
 		&i.Hostname,
@@ -84,20 +84,20 @@ func (q *Queries) GetNode(ctx context.Context, macAddr string) (Node, error) {
 	return i, err
 }
 
-const listNodes = `-- name: ListNodes :many
-SELECT mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at FROM nodes
+const listMeshNodes = `-- name: ListMeshNodes :many
+SELECT mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at FROM mesh_nodes
 ORDER BY hostname
 `
 
-func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
-	rows, err := q.db.QueryContext(ctx, listNodes)
+func (q *Queries) ListMeshNodes(ctx context.Context) ([]MeshNode, error) {
+	rows, err := q.db.QueryContext(ctx, listMeshNodes)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Node
+	var items []MeshNode
 	for rows.Next() {
-		var i Node
+		var i MeshNode
 		if err := rows.Scan(
 			&i.MacAddr,
 			&i.Hostname,
@@ -120,8 +120,8 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 	return items, nil
 }
 
-const updateNode = `-- name: UpdateNode :exec
-UPDATE nodes
+const updateMeshNode = `-- name: UpdateMeshNode :exec
+UPDATE mesh_nodes
 set hostname = ?,
 ip_addr = ?,
 uci_dhcp_start = ?,
@@ -130,7 +130,7 @@ updated_at = CURRENT_TIMESTAMP
 WHERE mac_addr = ?
 `
 
-type UpdateNodeParams struct {
+type UpdateMeshNodeParams struct {
 	Hostname     string
 	IpAddr       string
 	UciDhcpStart sql.NullInt64
@@ -138,8 +138,8 @@ type UpdateNodeParams struct {
 	MacAddr      string
 }
 
-func (q *Queries) UpdateNode(ctx context.Context, arg UpdateNodeParams) error {
-	_, err := q.db.ExecContext(ctx, updateNode,
+func (q *Queries) UpdateMeshNode(ctx context.Context, arg UpdateMeshNodeParams) error {
+	_, err := q.db.ExecContext(ctx, updateMeshNode,
 		arg.Hostname,
 		arg.IpAddr,
 		arg.UciDhcpStart,
