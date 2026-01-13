@@ -1,6 +1,7 @@
 package mgmt
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -131,23 +132,11 @@ func (arw *AddressReservationWorker) StartReceive() {
 					// If there is a reservation request, process it
 					// only respond to requests not from ourselves
 					if addrRes.RequestingReservation && addrRes.Mac != iface.MAC {
-
-						arw.Config.Log.Debug().Interface("addressRes", &addrRes).Msg("Processing address reservation request")
-
-						// Create and send address reservation response
-						addrResDataBytes, err := arw.createAddressReservationResponse()
-						if err != nil {
-							arw.Config.Log.Error().Err(err).Msg("Error creating address reservation response")
-							continue
-						}
-
-						err = arw.Client.Set(AddressReservationDataType, AddressReservationDataTypeVersion, addrResDataBytes)
-						if err != nil {
+						// Send address reservation response
+						if err := arw.sendAddressReservationResponse(); err != nil {
 							arw.Config.Log.Error().Err(err).Msg("Error sending address reservation response")
 							continue
 						}
-
-						arw.Config.Log.Debug().Msg("Address reservation response sent")
 					}
 				}
 
@@ -240,6 +229,41 @@ func (arw *AddressReservationWorker) StartReceive() {
 	}
 }
 
+// sendAddressReservationResponse retrieves all mesh nodes from the database and broadcasts
+// their address reservation information via Alfred. For each mesh node, it marshals the
+// MAC address, static IP, UCI DHCP start, and UCI DHCP limit into a protobuf message
+// and sends it using the Alfred client with the configured data type and version.
+// Returns an error if database access, marshaling, or Alfred transmission fails.
+func (arw *AddressReservationWorker) sendAddressReservationResponse() error {
+	meshNodes, err := arw.Config.DB.ListMeshNodes(context.Background())
+	if err != nil {
+		return fmt.Errorf("error getting mesh nodes from database: %w", err)
+	}
+	for _, node := range meshNodes {
+		addrResData := proto.AddressReservation{
+			Mac:          node.MacAddr,
+			StaticIp:     node.IpAddr,
+			UciDhcpStart: strconv.FormatInt(node.UciDhcpStart.Int64, 10),
+			UciDhcpLimit: strconv.FormatInt(node.UciDhcpLimit.Int64, 10),
+		}
+
+		var addrResDataBytes []byte
+		addrResDataBytes, err = addrResData.MarshalVT()
+		if err != nil {
+			return fmt.Errorf("error marshaling address reservation data: %w", err)
+		}
+
+		err = arw.Client.Set(AddressReservationDataType, AddressReservationDataTypeVersion, addrResDataBytes)
+		if err != nil {
+			return fmt.Errorf("error sending address reservation data: %w", err)
+		}
+	}
+
+	arw.Config.Log.Debug().Msg("Address reservation response sent")
+
+	return nil
+}
+
 // createAddressReservationResponse generates a serialized AddressReservation protobuf message
 // containing the network interface configuration details. It retrieves the MAC address, IP address,
 // CIDR notation, and DHCP configuration (start address and limit) for the configured interface.
@@ -311,14 +335,7 @@ func (arw *AddressReservationWorker) cleanUpInterfaces() error {
 		return nil
 	}
 
-	// Clean up 'wan' and 'lan' network sections if they exist
-	if network.NetworkSectionExistsWithReader("wan", arw.Config.uciNetworkConfig) {
-		arw.Config.Log.Info().Msg("Removing 'wan' network section")
-		if err := network.DeleteNetworkConfigWithReader("wan", arw.Config.uciNetworkConfig); err != nil {
-			return fmt.Errorf("error deleting 'wan' network section: %w", err)
-		}
-	}
-
+	// Clean up 'lan' network sections if they exist
 	if network.NetworkSectionExistsWithReader("lan", arw.Config.uciNetworkConfig) {
 		arw.Config.Log.Info().Msg("Removing 'lan' network section")
 		if err := network.DeleteNetworkConfigWithReader("lan", arw.Config.uciNetworkConfig); err != nil {
@@ -330,13 +347,6 @@ func (arw *AddressReservationWorker) cleanUpInterfaces() error {
 	arw.Config.uciNetworkConfig.Commit()
 
 	// Clean up DHCP sections if they exist
-	if network.DHCPSectionExistsWithReader("wan", arw.Config.uciDHCPConfig) {
-		arw.Config.Log.Info().Msg("Removing 'wan' DHCP section")
-		if err := network.DeleteDHCPConfigWithReader("wan", arw.Config.uciDHCPConfig); err != nil {
-			return fmt.Errorf("error deleting 'wan' DHCP section: %w", err)
-		}
-	}
-
 	if network.DHCPSectionExistsWithReader("lan", arw.Config.uciDHCPConfig) {
 		arw.Config.Log.Info().Msg("Removing 'lan' DHCP section")
 		if err := network.DeleteDHCPConfigWithReader("lan", arw.Config.uciDHCPConfig); err != nil {

@@ -2,7 +2,9 @@ package mgmt
 
 import (
 	"context"
+	"database/sql"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -127,19 +129,63 @@ func (ndw *NodeDataWorker) StartReceive() {
 
 						ndw.Config.Log.Debug().Msgf("Received node data: %+v", &nodeData)
 
-						// Insert or update node data in the database
-						_, err = ndw.Config.DB.CreateMeshNode(context.Background(), models.CreateMeshNodeParams{
-							MacAddr:  nodeData.Mac,
-							IpAddr:   nodeData.Ipaddr,
-							Hostname: nodeData.Hostname,
-						})
-
-						if err != nil {
-							ndw.Config.Log.Error().Err(err).Msg("Error inserting node data into database")
+						if err := ndw.RecordNodeData(&nodeData); err != nil {
+							ndw.Config.Log.Error().Err(err).Msg("Error recording node data")
 						}
 					}
 				}
 			}
 		}
 	}
+}
+
+// RecordNodeData persists node information to the database by creating or updating
+// a mesh node record. It converts the protobuf Node data into database model parameters,
+// handling optional DHCP configuration fields (UciDhcpStart and UciDhcpLimit) by parsing
+// them into nullable int64 values. Any parsing errors are logged and returned immediately.
+// If database insertion fails, the error is logged but not returned, allowing the function
+// to complete successfully despite database errors.
+//
+// Parameters:
+//   - nodeData: A protobuf Node message containing mesh node information including
+//     MAC address, IP address, hostname, and optional DHCP settings
+//
+// Returns:
+//   - error: Returns an error if DHCP field parsing fails, otherwise returns nil
+//     even if database insertion fails
+func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error {
+	var dhcpStart, dhcpLimit sql.NullInt64
+
+	if nodeData.UciDhcpStart != "" {
+		start, err := strconv.ParseInt(nodeData.UciDhcpStart, 10, 64)
+		if err != nil {
+			ndw.Config.Log.Error().Err(err).Msg("Error parsing UciDhcpStart")
+			return err
+		}
+		dhcpStart = sql.NullInt64{Int64: start, Valid: true}
+	}
+
+	if nodeData.UciDhcpLimit != "" {
+		limit, err := strconv.ParseInt(nodeData.UciDhcpLimit, 10, 64)
+		if err != nil {
+			ndw.Config.Log.Error().Err(err).Msg("Error parsing UciDhcpLimit")
+			return err
+		}
+		dhcpLimit = sql.NullInt64{Int64: limit, Valid: true}
+	}
+
+	// Insert or update node data in the database
+	_, err := ndw.Config.DB.CreateMeshNode(context.Background(), models.CreateMeshNodeParams{
+		MacAddr:      nodeData.Mac,
+		IpAddr:       nodeData.Ipaddr,
+		Hostname:     nodeData.Hostname,
+		UciDhcpStart: dhcpStart,
+		UciDhcpLimit: dhcpLimit,
+	})
+
+	if err != nil {
+		ndw.Config.Log.Error().Err(err).Msg("Error inserting node data into database")
+	}
+
+	return nil
 }

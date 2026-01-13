@@ -175,6 +175,8 @@ func (gw *GatewayWorker) StartReceive() {
 								if err := network.ReplaceDefaultRoute(ipString, gw.Config.IFace); err != nil {
 									gw.Config.Log.Error().Err(err).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
 								}
+
+								// TODO: Set the DNS server address to the gateway IP on the ahwlan interface
 							}
 						}
 					}
