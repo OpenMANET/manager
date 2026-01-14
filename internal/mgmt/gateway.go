@@ -9,6 +9,7 @@ import (
 	proto "github.com/openmanet/openmanetd/internal/api/openmanet/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/network"
+	"github.com/openmanet/openmanetd/internal/util"
 )
 
 const (
@@ -176,7 +177,15 @@ func (gw *GatewayWorker) StartReceive() {
 									gw.Config.Log.Error().Err(err).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
 								}
 
-								// TODO: Set the DNS server address to the gateway IP on the ahwlan interface
+								iFaceName, err := util.InterfaceWithoutBridge(gw.Config.IFace)
+								if err != nil {
+									gw.Config.Log.Error().Err(err).Msg("Error normalizing interface name for DNS setting")
+									continue
+								}
+
+								if err := network.SetNetworkDNSWithReader(iFaceName, ipString.String(), gw.Config.uciNetworkConfig); err != nil {
+									gw.Config.Log.Error().Err(err).Msgf("Failed to set DNS server to gateway %s", gatewayData.Ipaddr)
+								}
 							}
 						}
 					}
@@ -207,6 +216,16 @@ func (gw *GatewayWorker) StartReceive() {
 							if ipString != nil {
 								if err := network.ReplaceDefaultRoute(ipString, gw.Config.IFace); err != nil {
 									gw.Config.Log.Error().Err(err).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
+								}
+
+								iFaceName, err := util.InterfaceWithoutBridge(gw.Config.IFace)
+								if err != nil {
+									gw.Config.Log.Error().Err(err).Msg("Error normalizing interface name for DNS setting")
+									continue
+								}
+
+								if err := network.SetNetworkDNSWithReader(iFaceName, ipString.String(), gw.Config.uciNetworkConfig); err != nil {
+									gw.Config.Log.Error().Err(err).Msgf("Failed to set DNS server to gateway %s", gatewayData.Ipaddr)
 								}
 							}
 

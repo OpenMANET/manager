@@ -13,6 +13,7 @@ import (
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/system"
+	"github.com/openmanet/openmanetd/internal/util"
 )
 
 const (
@@ -153,8 +154,10 @@ func (arw *AddressReservationWorker) StartReceive() {
 			}
 
 			// if arw.Config.IFace is prefixed with "br-", remove the prefix because dhcp and network config is tied to the physical interface
-			if after, ok := strings.CutPrefix(arw.Config.IFace, "br-"); ok {
-				normalizedIface = after
+			normalizedIface, err = util.InterfaceWithoutBridge(arw.Config.IFace)
+			if err != nil {
+				arw.Config.Log.Error().Err(err).Msg("Error normalizing interface name")
+				continue
 			}
 
 			staticIP, err := network.SelectAvailableStaticIP(records, meshCfg.IsGatewayMode())
@@ -171,7 +174,6 @@ func (arw *AddressReservationWorker) StartReceive() {
 				IPV6IfaceID:    network.DefaultIPv6IfaceID,
 				IPV6Assignment: network.DefaultIPv6Assign,
 				Device:         arw.Config.IFace,
-				DNS:            "1.1.1.1",
 			}, arw.Config.uciNetworkConfig); err != nil {
 				arw.Config.Log.Error().Err(err).Msg("Error setting network config for address reservation")
 				continue
