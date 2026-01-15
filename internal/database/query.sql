@@ -32,3 +32,6 @@ WHERE mac_addr = ?;
 -- name: DeleteMeshNode :exec
 DELETE FROM mesh_nodes
 WHERE mac_addr = ?;
+
+-- name: DeleteAllMeshNodes :exec
+DELETE FROM mesh_nodes;

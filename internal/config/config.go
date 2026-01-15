@@ -27,6 +27,7 @@ const (
 	DefaultPTTLoopback                 = false
 	DefaultPTTPttDevice                = "/dev/hidraw0/*"
 	DefaultPTTPttDeviceName            = ""
+	DefaultResetDBOnStart              = false
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -51,6 +52,7 @@ type Config struct {
 	PTTLoopback                 bool
 	PTTPttDevice                string
 	PTTPttDeviceName            string
+	ResetDBOnStart              bool
 	onChangeCallbacks           []func(*Config)
 }
 
@@ -102,6 +104,12 @@ func (c *Config) reload() {
 		c.DBFile = val
 	} else {
 		c.DBFile = DefaultDBFile
+	}
+
+	if c.v.IsSet("resetDBOnStart") {
+		c.ResetDBOnStart = c.v.GetBool("resetDBOnStart")
+	} else {
+		c.ResetDBOnStart = DefaultResetDBOnStart
 	}
 
 	// Load Alfred configuration
@@ -236,6 +244,13 @@ func (c *Config) GetDBFile() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.DBFile
+}
+
+// GetResetDBOnStart returns whether to reset the database on start.
+func (c *Config) GetResetDBOnStart() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ResetDBOnStart
 }
 
 // GetAlfredMode returns the Alfred operating mode (primary/secondary).

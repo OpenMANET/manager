@@ -54,6 +54,15 @@ func (q *Queries) CreateMeshNode(ctx context.Context, arg CreateMeshNodeParams) 
 	return i, err
 }
 
+const deleteAllMeshNodes = `-- name: DeleteAllMeshNodes :exec
+DELETE FROM mesh_nodes
+`
+
+func (q *Queries) DeleteAllMeshNodes(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAllMeshNodes)
+	return err
+}
+
 const deleteMeshNode = `-- name: DeleteMeshNode :exec
 DELETE FROM mesh_nodes
 WHERE mac_addr = ?

@@ -10,9 +10,11 @@ import (
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database"
+	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/ptt"
 	"github.com/openmanet/openmanetd/internal/util/logger"
+	"github.com/rs/zerolog"
 )
 
 func Start() {
@@ -54,6 +56,14 @@ func Start() {
 		log.Fatal().Err(err).Msg("Failed to connect to database")
 	}
 
+	if cfg.GetResetDBOnStart() {
+		err = resetDBOnStart(ctx, db, logger.GetLogger("database"))
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to reset database on start")
+		}
+	}
+
+	// Initialize and start management module
 	mgmt := mgmt.NewManager(mgmt.ManagementConfig{
 		InteruptChan:               c,
 		Log:                        logger.GetLogger("mgmt"),
@@ -87,4 +97,15 @@ func Start() {
 	database.CloseConnection()
 	log.Info().Msg("Exiting OpenMANETd")
 	os.Exit(0)
+}
+
+func resetDBOnStart(ctx context.Context, db *models.Queries, log zerolog.Logger) error {
+	log.Info().Msg("Resetting database on start as per configuration")
+	// Add any additional tables that need to be cleared here
+	err := db.DeleteAllMeshNodes(ctx)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
