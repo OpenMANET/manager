@@ -88,6 +88,11 @@ func (arw *AddressReservationWorker) StartSend() {
 				}
 
 				arw.Config.Log.Debug().Interface("addressRes", &addrResData).Msg("Address reservation request sent")
+
+				// Pause the goroutine briefly to avoid flooding Alfred with requests
+				// this is especially important on startup so we don't accidently send another request
+				// before processing any responses
+				time.Sleep(60 * time.Second)
 			}
 		}
 	}
