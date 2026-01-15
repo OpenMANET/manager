@@ -123,6 +123,11 @@ func (arw *AddressReservationWorker) StartReceive() {
 
 			// If DHCP is configured already, process records to see if there are any requests for reservations
 			if configured {
+				// If no records, continue
+				if len(records) == 0 {
+					continue
+				}
+
 				for _, record := range records {
 					var addrRes proto.AddressReservation
 					if err := addrRes.UnmarshalVT(record.Data); err != nil {
