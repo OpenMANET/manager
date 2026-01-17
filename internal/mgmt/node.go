@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/openmanet/go-alfred"
-	proto "github.com/openmanet/openmanetd/internal/api/openmanet/v1"
+	proto "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/network"
 )

@@ -2,9 +2,9 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: openmanet/v1/node.proto
+// source: openmanet/network/v1/node.proto
 
-package proto
+package networkv1
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -41,7 +41,7 @@ type AddressReservation struct {
 
 func (x *AddressReservation) Reset() {
 	*x = AddressReservation{}
-	mi := &file_openmanet_v1_node_proto_msgTypes[0]
+	mi := &file_openmanet_network_v1_node_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -53,7 +53,7 @@ func (x *AddressReservation) String() string {
 func (*AddressReservation) ProtoMessage() {}
 
 func (x *AddressReservation) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_v1_node_proto_msgTypes[0]
+	mi := &file_openmanet_network_v1_node_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66,7 +66,7 @@ func (x *AddressReservation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddressReservation.ProtoReflect.Descriptor instead.
 func (*AddressReservation) Descriptor() ([]byte, []int) {
-	return file_openmanet_v1_node_proto_rawDescGZIP(), []int{0}
+	return file_openmanet_network_v1_node_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *AddressReservation) GetMac() string {
@@ -131,7 +131,7 @@ type Node struct {
 
 func (x *Node) Reset() {
 	*x = Node{}
-	mi := &file_openmanet_v1_node_proto_msgTypes[1]
+	mi := &file_openmanet_network_v1_node_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -143,7 +143,7 @@ func (x *Node) String() string {
 func (*Node) ProtoMessage() {}
 
 func (x *Node) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_v1_node_proto_msgTypes[1]
+	mi := &file_openmanet_network_v1_node_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -156,7 +156,7 @@ func (x *Node) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Node.ProtoReflect.Descriptor instead.
 func (*Node) Descriptor() ([]byte, []int) {
-	return file_openmanet_v1_node_proto_rawDescGZIP(), []int{1}
+	return file_openmanet_network_v1_node_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Node) GetMac() string {
@@ -215,7 +215,7 @@ type Position struct {
 
 func (x *Position) Reset() {
 	*x = Position{}
-	mi := &file_openmanet_v1_node_proto_msgTypes[2]
+	mi := &file_openmanet_network_v1_node_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -227,7 +227,7 @@ func (x *Position) String() string {
 func (*Position) ProtoMessage() {}
 
 func (x *Position) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_v1_node_proto_msgTypes[2]
+	mi := &file_openmanet_network_v1_node_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -240,7 +240,7 @@ func (x *Position) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Position.ProtoReflect.Descriptor instead.
 func (*Position) Descriptor() ([]byte, []int) {
-	return file_openmanet_v1_node_proto_rawDescGZIP(), []int{2}
+	return file_openmanet_network_v1_node_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Position) GetLatitude() float64 {
@@ -264,51 +264,51 @@ func (x *Position) GetAltitude() float32 {
 	return 0
 }
 
-var File_openmanet_v1_node_proto protoreflect.FileDescriptor
+var File_openmanet_network_v1_node_proto protoreflect.FileDescriptor
 
-const file_openmanet_v1_node_proto_rawDesc = "" +
+const file_openmanet_network_v1_node_proto_rawDesc = "" +
 	"\n" +
-	"\x17openmanet/v1/node.proto\x12\fopenmanet.v1\"\xf1\x01\n" +
+	"\x1fopenmanet/network/v1/node.proto\x12\x14openmanet.network.v1\"\xf1\x01\n" +
 	"\x12AddressReservation\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12\x1b\n" +
 	"\tstatic_ip\x18\x02 \x01(\tR\bstaticIp\x12)\n" +
 	"\x10reservation_cidr\x18\x03 \x01(\tR\x0freservationCidr\x12$\n" +
 	"\x0euci_dhcp_start\x18\x04 \x01(\tR\fuciDhcpStart\x12$\n" +
 	"\x0euci_dhcp_limit\x18\x05 \x01(\tR\fuciDhcpLimit\x125\n" +
-	"\x16requesting_reservation\x18\x06 \x01(\bR\x15requestingReservation\"\xcc\x01\n" +
+	"\x16requesting_reservation\x18\x06 \x01(\bR\x15requestingReservation\"\xd4\x01\n" +
 	"\x04Node\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x16\n" +
-	"\x06ipaddr\x18\x03 \x01(\tR\x06ipaddr\x122\n" +
-	"\bposition\x18\x04 \x01(\v2\x16.openmanet.v1.PositionR\bposition\x12$\n" +
+	"\x06ipaddr\x18\x03 \x01(\tR\x06ipaddr\x12:\n" +
+	"\bposition\x18\x04 \x01(\v2\x1e.openmanet.network.v1.PositionR\bposition\x12$\n" +
 	"\x0euci_dhcp_start\x18\x05 \x01(\tR\fuciDhcpStart\x12$\n" +
 	"\x0euci_dhcp_limit\x18\x06 \x01(\tR\fuciDhcpLimit\"`\n" +
 	"\bPosition\x12\x1a\n" +
 	"\blatitude\x18\x01 \x01(\x01R\blatitude\x12\x1c\n" +
 	"\tlongitude\x18\x02 \x01(\x01R\tlongitude\x12\x1a\n" +
-	"\baltitude\x18\x03 \x01(\x02R\baltitudeB\x82\x01\n" +
-	"\x10com.openmanet.v1B\tNodeProtoP\x01Z\x12internal/api/proto\xa2\x02\x03OXX\xaa\x02\fOpenmanet.V1\xca\x02\fOpenmanet\\V1\xe2\x02\x18Openmanet\\V1\\GPBMetadata\xea\x02\rOpenmanet::V1b\x06proto3"
+	"\baltitude\x18\x03 \x01(\x02R\baltitudeB\xe4\x01\n" +
+	"\x18com.openmanet.network.v1B\tNodeProtoP\x01ZKgithub.com/openmanet/openmanetd/internal/api/openmanet/network/v1;networkv1\xa2\x02\x03ONX\xaa\x02\x14Openmanet.Network.V1\xca\x02\x14Openmanet\\Network\\V1\xe2\x02 Openmanet\\Network\\V1\\GPBMetadata\xea\x02\x16Openmanet::Network::V1b\x06proto3"
 
 var (
-	file_openmanet_v1_node_proto_rawDescOnce sync.Once
-	file_openmanet_v1_node_proto_rawDescData []byte
+	file_openmanet_network_v1_node_proto_rawDescOnce sync.Once
+	file_openmanet_network_v1_node_proto_rawDescData []byte
 )
 
-func file_openmanet_v1_node_proto_rawDescGZIP() []byte {
-	file_openmanet_v1_node_proto_rawDescOnce.Do(func() {
-		file_openmanet_v1_node_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_openmanet_v1_node_proto_rawDesc), len(file_openmanet_v1_node_proto_rawDesc)))
+func file_openmanet_network_v1_node_proto_rawDescGZIP() []byte {
+	file_openmanet_network_v1_node_proto_rawDescOnce.Do(func() {
+		file_openmanet_network_v1_node_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_openmanet_network_v1_node_proto_rawDesc), len(file_openmanet_network_v1_node_proto_rawDesc)))
 	})
-	return file_openmanet_v1_node_proto_rawDescData
+	return file_openmanet_network_v1_node_proto_rawDescData
 }
 
-var file_openmanet_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_openmanet_v1_node_proto_goTypes = []any{
-	(*AddressReservation)(nil), // 0: openmanet.v1.AddressReservation
-	(*Node)(nil),               // 1: openmanet.v1.Node
-	(*Position)(nil),           // 2: openmanet.v1.Position
+var file_openmanet_network_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_openmanet_network_v1_node_proto_goTypes = []any{
+	(*AddressReservation)(nil), // 0: openmanet.network.v1.AddressReservation
+	(*Node)(nil),               // 1: openmanet.network.v1.Node
+	(*Position)(nil),           // 2: openmanet.network.v1.Position
 }
-var file_openmanet_v1_node_proto_depIdxs = []int32{
-	2, // 0: openmanet.v1.Node.position:type_name -> openmanet.v1.Position
+var file_openmanet_network_v1_node_proto_depIdxs = []int32{
+	2, // 0: openmanet.network.v1.Node.position:type_name -> openmanet.network.v1.Position
 	1, // [1:1] is the sub-list for method output_type
 	1, // [1:1] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
@@ -316,26 +316,26 @@ var file_openmanet_v1_node_proto_depIdxs = []int32{
 	0, // [0:1] is the sub-list for field type_name
 }
 
-func init() { file_openmanet_v1_node_proto_init() }
-func file_openmanet_v1_node_proto_init() {
-	if File_openmanet_v1_node_proto != nil {
+func init() { file_openmanet_network_v1_node_proto_init() }
+func file_openmanet_network_v1_node_proto_init() {
+	if File_openmanet_network_v1_node_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_v1_node_proto_rawDesc), len(file_openmanet_v1_node_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_network_v1_node_proto_rawDesc), len(file_openmanet_network_v1_node_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_openmanet_v1_node_proto_goTypes,
-		DependencyIndexes: file_openmanet_v1_node_proto_depIdxs,
-		MessageInfos:      file_openmanet_v1_node_proto_msgTypes,
+		GoTypes:           file_openmanet_network_v1_node_proto_goTypes,
+		DependencyIndexes: file_openmanet_network_v1_node_proto_depIdxs,
+		MessageInfos:      file_openmanet_network_v1_node_proto_msgTypes,
 	}.Build()
-	File_openmanet_v1_node_proto = out.File
-	file_openmanet_v1_node_proto_goTypes = nil
-	file_openmanet_v1_node_proto_depIdxs = nil
+	File_openmanet_network_v1_node_proto = out.File
+	file_openmanet_network_v1_node_proto_goTypes = nil
+	file_openmanet_network_v1_node_proto_depIdxs = nil
 }

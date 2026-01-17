@@ -5,15 +5,22 @@ inputs:
 managed:
   enabled: true
   override:
+    - file_option: go_package_prefix
+      value: github.com/openmanet/openmanetd/internal/api
+  # Don't modify any file option or field option for Protovalidate. Without
+  # this, generated Go will fail to compile.
+  disable:
     - file_option: go_package
-      value: internal/api/proto
+      module: buf.build/bufbuild/protovalidate
 plugins:
-  - remote: buf.build/protocolbuffers/go
+  - local: protoc-gen-go
     out: internal/api
     opt: paths=source_relative
-  - remote: buf.build/connectrpc/go
+  - local: protoc-gen-connect-go
     out: internal/api
-    opt: paths=source_relative
+    opt:
+      - paths=source_relative
+      - simple
   - remote: buf.build/community/planetscale-vtprotobuf:v0.6.0
     out: internal/api
     opt:

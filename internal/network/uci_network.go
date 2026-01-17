@@ -9,7 +9,7 @@ import (
 
 	"github.com/digineo/go-uci/v2"
 	"github.com/openmanet/go-alfred"
-	proto "github.com/openmanet/openmanetd/internal/api/openmanet/v1"
+	proto "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
 )
 
 const (
