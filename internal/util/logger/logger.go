@@ -2,7 +2,8 @@ package logger
 
 import (
 	"context"
-	stdlog "log"
+	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -54,8 +55,8 @@ func InitLogging(ctx context.Context) zerolog.Logger {
 	setLogLevel(viper.GetString("logLevel"))
 
 	// Set our logger as the writer for standard library log
-	stdlog.SetFlags(0)
-	stdlog.SetOutput(zlog)
+	//log.SetFlags(0)
+	//log.SetOutput(zlog)
 
 	return zlog
 }
@@ -90,8 +91,8 @@ func getLogger(component string) zerolog.Logger {
 	setLogLevel(viper.GetString("logLevel"))
 
 	// Set our logger as the writer for standard library log
-	stdlog.SetFlags(0)
-	stdlog.SetOutput(zlog)
+	//log.SetFlags(0)
+	//log.SetOutput(zlog)
 
 	return zlog
 }
@@ -131,4 +132,55 @@ func setLogLevel(env string) {
 	default:
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
+}
+
+// Wraps a zerolog.Logger so its interoperable with Go's standard "log" package
+
+var _ StdLogger = &log.Logger{}
+
+type StdLogger interface {
+	Fatal(v ...interface{})
+	Fatalf(format string, v ...interface{})
+	Print(v ...interface{})
+	Println(v ...interface{})
+	Printf(format string, v ...interface{})
+}
+
+func StandardLogger(zlog zerolog.Logger) *log.Logger {
+	return log.New(&zerologWriter{zlog}, "", 0)
+}
+
+type zerologWriter struct {
+	log zerolog.Logger
+}
+
+func (w *zerologWriter) Write(p []byte) (n int, err error) {
+	w.log.Info().Msg(string(p))
+	return len(p), nil
+}
+
+type stdLogger struct {
+	log zerolog.Logger
+}
+
+func (s *stdLogger) Fatal(v ...interface{}) {
+	s.log.Fatal().Msg(fmt.Sprint(v...))
+	os.Exit(1)
+}
+
+func (s *stdLogger) Fatalf(format string, v ...interface{}) {
+	s.log.Fatal().Msg(fmt.Sprintf(format, v...))
+	os.Exit(1)
+}
+
+func (s *stdLogger) Print(v ...interface{}) {
+	s.log.Info().Msg(fmt.Sprint(v...))
+}
+
+func (s *stdLogger) Println(v ...interface{}) {
+	s.log.Info().Msg(fmt.Sprintln(v...))
+}
+
+func (s *stdLogger) Printf(format string, v ...interface{}) {
+	s.log.Info().Msg(fmt.Sprintf(format, v...))
 }

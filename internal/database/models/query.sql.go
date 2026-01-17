@@ -93,6 +93,26 @@ func (q *Queries) GetMeshNode(ctx context.Context, macAddr string) (MeshNode, er
 	return i, err
 }
 
+const getMeshNodeByHostname = `-- name: GetMeshNodeByHostname :one
+SELECT mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at FROM mesh_nodes
+WHERE hostname = ? LIMIT 1
+`
+
+func (q *Queries) GetMeshNodeByHostname(ctx context.Context, hostname string) (MeshNode, error) {
+	row := q.db.QueryRowContext(ctx, getMeshNodeByHostname, hostname)
+	var i MeshNode
+	err := row.Scan(
+		&i.MacAddr,
+		&i.Hostname,
+		&i.IpAddr,
+		&i.UciDhcpStart,
+		&i.UciDhcpLimit,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listMeshNodes = `-- name: ListMeshNodes :many
 SELECT mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at FROM mesh_nodes
 ORDER BY hostname

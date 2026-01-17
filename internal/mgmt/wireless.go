@@ -49,4 +49,3 @@ func (wc *WirelessConfig) GetMeshInterfaces() ([]*wifi.Interface, error) {
 
 	return meshIfaces, nil
 }
-

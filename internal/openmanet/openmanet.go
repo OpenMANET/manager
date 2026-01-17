@@ -2,6 +2,7 @@ package openmanet
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/database"
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/mgmt"
+	"github.com/openmanet/openmanetd/internal/openmanet/server"
 	"github.com/openmanet/openmanetd/internal/ptt"
 	"github.com/openmanet/openmanetd/internal/util/logger"
 	"github.com/rs/zerolog"
@@ -21,9 +23,9 @@ func Start() {
 	var (
 		ctx    = context.Background()
 		banner = figure.NewFigure("OpenMANET", "big", true)
-		log    = logger.InitLogging(ctx)
 		c      = make(chan os.Signal, 1)
 		cfg    = config.New(nil)
+		log    = logger.InitLogging(ctx)
 	)
 
 	banner.Print()
@@ -45,7 +47,7 @@ func Start() {
 	ptt.Start()
 
 	// Init nl80211 wirelsss client
-	_, err := mgmt.NewWirelessConfig()
+	wirelessCfg, err := mgmt.NewWirelessConfig()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to initialize wireless configuration")
 	}
@@ -90,11 +92,28 @@ func Start() {
 		log.Error().Err(err).Msg("Error clearing batman-adv hosts file on startup")
 	}
 
+	// Start API Server
+	api := server.NewAPIServer(server.APIServer{
+		Wifi: wirelessCfg,
+		Log:  logger.GetLogger("api"),
+		DB:   db,
+	})
+	log.Info().Msg("OpenMANETd API Server starting on port 8087")
+
 	// Wait for interrupt signal to gracefully shutdown the application
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+
+	// Start the API server in a goroutine so it doesn't block
+	go func() {
+		if err := api.ApiServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal().Err(err).Msg("API Server failed")
+		}
+	}()
 	<-c
 
+	api.Stop(ctx)
 	database.CloseConnection()
+
 	log.Info().Msg("Exiting OpenMANETd")
 	os.Exit(0)
 }

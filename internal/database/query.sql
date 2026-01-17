@@ -2,6 +2,10 @@
 SELECT * FROM mesh_nodes
 WHERE mac_addr = ? LIMIT 1;
 
+-- name: GetMeshNodeByHostname :one
+SELECT * FROM mesh_nodes
+WHERE hostname = ? LIMIT 1;
+
 -- name: ListMeshNodes :many
 SELECT * FROM mesh_nodes
 ORDER BY hostname;

@@ -1,0 +1,62 @@
+package server
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	node "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
+	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/openmanet/openmanetd/internal/mgmt"
+	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
+	"github.com/openmanet/openmanetd/internal/util/logger"
+	"github.com/rs/zerolog"
+)
+
+const (
+	serverAddress = "0.0.0.0:8087"
+)
+
+type APIServer struct {
+	Log       zerolog.Logger
+	DB        *models.Queries
+	ApiServer *http.Server
+	Wifi      *mgmt.WirelessConfig
+}
+
+func NewAPIServer(cfg APIServer) *APIServer {
+	api := http.NewServeMux()
+
+	api.Handle(node.NewNodeServiceHandler(&handlers.NodeService{
+		DB:  cfg.DB,
+		Log: cfg.Log,
+	}))
+
+	api.Handle(node.NewInterfaceServiceHandler(&handlers.InterfaceService{
+		Log:  cfg.Log,
+		Wifi: cfg.Wifi,
+	}))
+
+	p := new(http.Protocols)
+	p.SetHTTP1(true)
+	// Use h2c so we can serve HTTP/2 without TLS.
+	p.SetUnencryptedHTTP2(true)
+	server := http.Server{
+		Addr:         serverAddress,
+		Handler:      api,
+		Protocols:    p,
+		ReadTimeout:  time.Duration(30 * time.Second),
+		WriteTimeout: time.Duration(30 * time.Second),
+		ErrorLog:     logger.StandardLogger(cfg.Log),
+	}
+
+	return &APIServer{
+		Log:       cfg.Log,
+		DB:        cfg.DB,
+		ApiServer: &server,
+	}
+}
+
+func (s *APIServer) Stop(ctx context.Context) error {
+	return s.ApiServer.Shutdown(ctx)
+}
