@@ -155,6 +155,11 @@ func (arw *AddressReservationWorker) StartReceive() {
 				continue
 			}
 
+			if len(records) <= 1 {
+				arw.Config.Log.Debug().Msg("Not enough address reservation records received to process, waiting for more")
+				continue
+			}
+
 			// DHCP and the Static IP are not configured, process received records to configure them
 			// If we are a mesh gateway, skip receiving
 			meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
