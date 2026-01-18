@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	node "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
+	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
@@ -27,12 +27,17 @@ type APIServer struct {
 func NewAPIServer(cfg APIServer) *APIServer {
 	api := http.NewServeMux()
 
-	api.Handle(node.NewNodeServiceHandler(&handlers.NodeService{
+	api.Handle(services.NewNodeServiceHandler(&handlers.NodeService{
 		DB:  cfg.DB,
 		Log: cfg.Log,
 	}))
 
-	api.Handle(node.NewInterfaceServiceHandler(&handlers.InterfaceService{
+	api.Handle(services.NewInterfaceServiceHandler(&handlers.InterfaceService{
+		Log:  cfg.Log,
+		Wifi: cfg.Wifi,
+	}))
+
+	api.Handle(services.NewMeshNeighborServiceHandler(&handlers.MeshService{
 		Log:  cfg.Log,
 		Wifi: cfg.Wifi,
 	}))
