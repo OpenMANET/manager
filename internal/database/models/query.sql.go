@@ -63,6 +63,24 @@ func (q *Queries) DeleteAllMeshNodes(ctx context.Context) error {
 	return err
 }
 
+const deleteDuplicateMeshNodes = `-- name: DeleteDuplicateMeshNodes :exec
+DELETE FROM mesh_nodes
+WHERE rowid NOT IN (
+  SELECT mn.rowid
+  FROM mesh_nodes mn
+  INNER JOIN (
+    SELECT mac_addr, MAX(updated_at) as max_updated_at
+    FROM mesh_nodes
+    GROUP BY mac_addr
+  ) latest ON mn.mac_addr = latest.mac_addr AND mn.updated_at = latest.max_updated_at
+)
+`
+
+func (q *Queries) DeleteDuplicateMeshNodes(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteDuplicateMeshNodes)
+	return err
+}
+
 const deleteMeshNode = `-- name: DeleteMeshNode :exec
 DELETE FROM mesh_nodes
 WHERE mac_addr = ?

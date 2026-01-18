@@ -155,6 +155,7 @@ func (ndw *NodeDataWorker) StartReceive() {
 //     even if database insertion fails
 func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error {
 	var dhcpStart, dhcpLimit sql.NullInt64
+	var ctx context.Context = context.Background()
 
 	if nodeData.UciDhcpStart != "" {
 		start, err := strconv.ParseInt(nodeData.UciDhcpStart, 10, 64)
@@ -175,7 +176,7 @@ func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error {
 	}
 
 	// Insert or update node data in the database
-	_, err := ndw.Config.DB.CreateMeshNode(context.Background(), models.CreateMeshNodeParams{
+	_, err := ndw.Config.DB.CreateMeshNode(ctx, models.CreateMeshNodeParams{
 		MacAddr:      nodeData.Mac,
 		IpAddr:       nodeData.Ipaddr,
 		Hostname:     nodeData.Hostname,
@@ -185,6 +186,12 @@ func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error {
 
 	if err != nil {
 		ndw.Config.Log.Error().Err(err).Msg("Error inserting node data into database")
+	}
+
+	// Delete duplicate entries if any (should not happen due to unique constraint)
+	err = ndw.Config.DB.DeleteDuplicateMeshNodes(ctx)
+	if err != nil {
+		ndw.Config.Log.Error().Err(err).Msg("Error deleting duplicate mesh nodes")
 	}
 
 	return nil
