@@ -6,6 +6,7 @@ import (
 
 	"github.com/openmanet/go-alfred"
 	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/rs/zerolog"
@@ -25,6 +26,8 @@ type ManagementConfig struct {
 	Log          zerolog.Logger
 	DB           *models.Queries
 	InteruptChan chan os.Signal
+
+	GPS *gpsd.GPSService
 
 	uciOpenMANETConfig *network.UCIOpenMANETConfigReader
 	uciDHCPConfig      *network.UCIDHCPConfigReader

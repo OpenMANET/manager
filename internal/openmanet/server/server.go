@@ -8,6 +8,7 @@ import (
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/openmanet/openmanetd/internal/util/logger"
@@ -24,6 +25,7 @@ type APIServer struct {
 	DB        *models.Queries
 	ApiServer *http.Server
 	Wifi      *mgmt.WirelessConfig
+	GPS       *gpsd.GPSService
 }
 
 func NewAPIServer(cfg APIServer) *APIServer {

@@ -8,7 +8,7 @@ import (
 
 type GPSService struct {
 	Log            zerolog.Logger
-	PositionReport TPVReport
+	PositionReport *TPVReport
 	session        *Session
 	mu             sync.RWMutex
 }
@@ -36,7 +36,7 @@ func NewGPSServiceWithAddress(log zerolog.Logger, address string) (*GPSService, 
 	session.Subscribe(msgClassTPV, func(report interface{}) {
 		if tpv, ok := report.(*TPVReport); ok {
 			g.mu.Lock()
-			g.PositionReport = *tpv
+			g.PositionReport = tpv
 			g.mu.Unlock()
 			
 			log.Debug().
@@ -58,7 +58,7 @@ func NewGPSServiceWithAddress(log zerolog.Logger, address string) (*GPSService, 
 
 // GetPositionReport returns the current GPS position report.
 // This is safe to call from multiple goroutines.
-func (g *GPSService) GetPositionReport() TPVReport {
+func (g *GPSService) GetPositionReport() *TPVReport {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.PositionReport

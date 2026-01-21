@@ -11,6 +11,7 @@ import (
 	"github.com/openmanet/go-alfred"
 	proto "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
 	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/network"
 )
 
@@ -74,6 +75,10 @@ func (ndw *NodeDataWorker) StartSend() {
 
 			// Get DHCP info from UCI
 			dhcp, err := network.GetDHCPConfigWithReader(normalizedIface, ndw.Config.uciDHCPConfig)
+			if err != nil {
+				ndw.Config.Log.Error().Err(err).Msg("Error getting DHCP configuration")
+				continue
+			}
 
 			nodeData := proto.Node{
 				Mac:          iface.MAC,
@@ -81,6 +86,27 @@ func (ndw *NodeDataWorker) StartSend() {
 				Ipaddr:       iface.IP[0].IP.String(),
 				UciDhcpStart: dhcp.Start,
 				UciDhcpLimit: dhcp.Limit,
+			}
+
+			// Get position data if GPS is available
+			positionReport := ndw.Config.GPS.GetPositionReport()
+			if positionReport == nil || positionReport.Mode < gpsd.Mode2D {
+				ndw.Config.Log.Debug().Msg("No valid GPS position available")
+			}
+
+			if positionReport != nil {
+				ndw.Config.Log.Debug().
+					Float64("lat", positionReport.Lat).
+					Float64("lon", positionReport.Lon).
+					Float64("alt", positionReport.Alt).
+					Uint8("mode", uint8(positionReport.Mode)).
+					Msg("Current GPS position")
+
+				nodeData.Position = &proto.Position{
+					Latitude:  positionReport.Lat,
+					Longitude: positionReport.Lon,
+					Altitude:  float32(positionReport.Alt),
+				}
 			}
 
 			var nodeDataBytes []byte

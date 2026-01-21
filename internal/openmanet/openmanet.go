@@ -12,6 +12,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database"
 	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/openmanet/server"
 	"github.com/openmanet/openmanetd/internal/ptt"
@@ -26,6 +27,7 @@ func Start() {
 		c      = make(chan os.Signal, 1)
 		cfg    = config.New(nil)
 		log    = logger.InitLogging(ctx)
+		gps    *gpsd.GPSService
 	)
 
 	banner.Print()
@@ -65,10 +67,19 @@ func Start() {
 		}
 	}
 
+	if cfg.GetEnableGPS() {
+		// Initialize and start GPS module
+		gps, err = gpsd.NewGPSService(logger.GetLogger("gps"))
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to initialize GPS service")
+		}
+	}
+
 	// Initialize and start management module
 	mgmt := mgmt.NewManager(mgmt.ManagementConfig{
 		InteruptChan:               c,
 		Log:                        logger.GetLogger("mgmt"),
+		GPS:                        gps,
 		GatewayMode:                cfg.GetGatewayMode(),
 		AlfredMode:                 cfg.GetAlfredMode(),
 		IFace:                      cfg.GetMeshNetInterface(),
@@ -98,6 +109,7 @@ func Start() {
 		Wifi: wirelessCfg,
 		Log:  logger.GetLogger("api"),
 		DB:   db,
+		GPS:  gps,
 	})
 	log.Info().Msg("OpenMANETd API Server starting on port 8087")
 
@@ -114,6 +126,7 @@ func Start() {
 
 	api.Stop(ctx)
 	database.CloseConnection()
+	gps.Close()
 
 	log.Info().Msg("Exiting OpenMANETd")
 	os.Exit(0)

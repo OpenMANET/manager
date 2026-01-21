@@ -40,11 +40,11 @@ func TestNewGPSService_DefaultAddress(t *testing.T) {
 	// Note: This test will fail if no GPSD is running on default port
 	// We'll just test that the function exists and has the right signature
 	log := zerolog.New(bytes.NewBuffer(nil))
-	
+
 	// Mock the Dial function behavior by using a custom address
 	server, addr := newMockGPSDServer(t, []string{})
 	defer server.close()
-	
+
 	service, err := NewGPSServiceWithAddress(log, addr)
 	if err != nil {
 		t.Fatalf("Failed to create GPS service: %v", err)
@@ -63,15 +63,15 @@ func TestGPSService_GetPositionReport(t *testing.T) {
 	}
 	defer service.Close()
 
-	// Get initial report (should be zero values)
+	// Get initial report (should be nil)
 	report := service.GetPositionReport()
-	if report.Class != "" {
-		t.Errorf("Expected empty class, got %s", report.Class)
+	if report != nil {
+		t.Errorf("Expected nil report, got %+v", report)
 	}
 
 	// Manually set a report
 	service.mu.Lock()
-	service.PositionReport = TPVReport{
+	service.PositionReport = &TPVReport{
 		Class: "TPV",
 		Mode:  Mode3D,
 		Lat:   46.498293369,
@@ -82,6 +82,9 @@ func TestGPSService_GetPositionReport(t *testing.T) {
 
 	// Get the updated report
 	report = service.GetPositionReport()
+	if report == nil {
+		t.Fatal("Expected non-nil report")
+	}
 	if report.Class != "TPV" {
 		t.Errorf("Expected class TPV, got %s", report.Class)
 	}
@@ -111,6 +114,9 @@ func TestGPSService_TPVReportUpdate(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	report := service.GetPositionReport()
+	if report == nil {
+		t.Fatal("Expected non-nil report")
+	}
 	if report.Class != "TPV" {
 		t.Errorf("Expected class TPV, got %s", report.Class)
 	}
@@ -138,7 +144,7 @@ func TestGPSService_MultipleTPVUpdates(t *testing.T) {
 	tpv1 := `{"class":"TPV","mode":3,"lat":40.0,"lon":-75.0,"alt":100.0}`
 	tpv2 := `{"class":"TPV","mode":3,"lat":40.1,"lon":-75.1,"alt":101.0}`
 	tpv3 := `{"class":"TPV","mode":3,"lat":40.2,"lon":-75.2,"alt":102.0}`
-	
+
 	server, addr := newMockGPSDServer(t, []string{tpv1, tpv2, tpv3})
 	defer server.close()
 
@@ -154,6 +160,9 @@ func TestGPSService_MultipleTPVUpdates(t *testing.T) {
 
 	// Should have the last report
 	report := service.GetPositionReport()
+	if report == nil {
+		t.Fatal("Expected non-nil report")
+	}
 	if report.Lat != 40.2 {
 		t.Errorf("Expected lat 40.2 (last update), got %f", report.Lat)
 	}
@@ -219,7 +228,7 @@ func TestGPSService_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
 				report := service.GetPositionReport()
-				if report.Class == "TPV" && report.Lat != 46.498293369 {
+				if report != nil && report.Class == "TPV" && report.Lat != 46.498293369 {
 					t.Errorf("Concurrent read got unexpected lat: %f", report.Lat)
 				}
 			}
@@ -233,7 +242,7 @@ func TestGPSService_IgnoreNonTPVReports(t *testing.T) {
 	skyReport := `{"class":"SKY","device":"/dev/pts/1","hdop":1.24}`
 	versionReport := `{"class":"VERSION","release":"3.20"}`
 	tpvReport := `{"class":"TPV","mode":3,"lat":46.498293369,"lon":7.567411672}`
-	
+
 	server, addr := newMockGPSDServer(t, []string{skyReport, versionReport, tpvReport})
 	defer server.close()
 
@@ -249,6 +258,9 @@ func TestGPSService_IgnoreNonTPVReports(t *testing.T) {
 
 	// Should only have the TPV report
 	report := service.GetPositionReport()
+	if report == nil {
+		t.Fatal("Expected non-nil report")
+	}
 	if report.Class != "TPV" {
 		t.Errorf("Expected class TPV, got %s", report.Class)
 	}
@@ -273,6 +285,9 @@ func TestGPSService_NoFixMode(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	report := service.GetPositionReport()
+	if report == nil {
+		t.Fatal("Expected non-nil report")
+	}
 	if report.Mode != NoFix {
 		t.Errorf("Expected mode NoFix (1), got %d", report.Mode)
 	}
@@ -294,6 +309,9 @@ func TestGPSService_Mode2D(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	report := service.GetPositionReport()
+	if report == nil {
+		t.Fatal("Expected non-nil report")
+	}
 	if report.Mode != Mode2D {
 		t.Errorf("Expected mode Mode2D (2), got %d", report.Mode)
 	}
@@ -319,6 +337,9 @@ func TestGPSService_NegativeCoordinates(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	report := service.GetPositionReport()
+	if report == nil {
+		t.Fatal("Expected non-nil report")
+	}
 	if report.Lat != -33.865143 {
 		t.Errorf("Expected lat -33.865143, got %f", report.Lat)
 	}
@@ -335,7 +356,7 @@ func BenchmarkGetPositionReport(b *testing.B) {
 	log := zerolog.New(bytes.NewBuffer(nil))
 	service := &GPSService{
 		Log: log,
-		PositionReport: TPVReport{
+		PositionReport: &TPVReport{
 			Class: "TPV",
 			Mode:  Mode3D,
 			Lat:   46.498293369,
@@ -354,7 +375,7 @@ func BenchmarkGetPositionReport_Concurrent(b *testing.B) {
 	log := zerolog.New(bytes.NewBuffer(nil))
 	service := &GPSService{
 		Log: log,
-		PositionReport: TPVReport{
+		PositionReport: &TPVReport{
 			Class: "TPV",
 			Mode:  Mode3D,
 			Lat:   46.498293369,
