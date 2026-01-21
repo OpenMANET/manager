@@ -2,6 +2,7 @@ logLevel: debug
 meshNetInterface: eth0
 gatewayMode: false
 dbFile: bin/openmanetd.db
+enableGPS: false
 alfred:
   mode: primary
   batInterface: bat0

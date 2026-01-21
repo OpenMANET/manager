@@ -2,6 +2,7 @@ logLevel: info
 meshNetInterface: br-ahwlan
 gatewayMode: false
 dbFile: /etc/openmanetd/openmanetd.db
+enableGPS: true
 alfred:
   mode: primary
   batInterface: bat0

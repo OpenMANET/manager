@@ -790,3 +790,42 @@ func TestConfigOnChangeCallback(t *testing.T) {
 		t.Errorf("Callback config GetMeshNetInterface() = %v, want wlan0", got)
 	}
 }
+
+func TestGetEnableGPS(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns true when set to true",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when set to false",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultEnableGPS,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("enableGPS", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetEnableGPS()
+			if got != tt.want {
+				t.Errorf("GetEnableGPS() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

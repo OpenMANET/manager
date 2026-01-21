@@ -28,6 +28,7 @@ const (
 	DefaultPTTPttDevice                = "/dev/hidraw0/*"
 	DefaultPTTPttDeviceName            = ""
 	DefaultResetDBOnStart              = false
+	DefaultEnableGPS                   = false
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -54,6 +55,7 @@ type Config struct {
 	PTTDebug                    bool
 	PTTLoopback                 bool
 	ResetDBOnStart              bool
+	EnableGPS                   bool
 }
 
 // New creates a new Config instance with the given viper instance.
@@ -110,6 +112,12 @@ func (c *Config) reload() {
 		c.ResetDBOnStart = c.v.GetBool("resetDBOnStart")
 	} else {
 		c.ResetDBOnStart = DefaultResetDBOnStart
+	}
+
+	if c.v.IsSet("enableGPS") {
+		c.EnableGPS = c.v.GetBool("enableGPS")
+	} else {
+		c.EnableGPS = DefaultEnableGPS
 	}
 
 	// Load Alfred configuration
@@ -356,4 +364,11 @@ func (c *Config) GetPTTPttDeviceName() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.PTTPttDeviceName
+}
+
+// GetEnableGPS returns whether GPS is enabled.
+func (c *Config) GetEnableGPS() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.EnableGPS
 }
