@@ -94,6 +94,7 @@ func Start() {
 
 	// Start API Server
 	api := server.NewAPIServer(server.APIServer{
+		Cfg:  cfg,
 		Wifi: wirelessCfg,
 		Log:  logger.GetLogger("api"),
 		DB:   db,

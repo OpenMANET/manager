@@ -10,6 +10,7 @@ import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -133,7 +134,6 @@ func (x *WirelessInterface) GetChannelWidth() int32 {
 	return 0
 }
 
-// *
 // Request message for retrieving details about a specific wireless interface.
 type GetWirelessInterfaceRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -180,7 +180,6 @@ func (x *GetWirelessInterfaceRequest) GetName() string {
 	return ""
 }
 
-// *
 // Response message for retrieving details about a specific wireless interface.
 type GetWirelessInterfaceResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -227,45 +226,6 @@ func (x *GetWirelessInterfaceResponse) GetInterface() *WirelessInterface {
 	return nil
 }
 
-// *
-// Request message for listing wireless interfaces.
-type ListWirelessInterfacesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListWirelessInterfacesRequest) Reset() {
-	*x = ListWirelessInterfacesRequest{}
-	mi := &file_openmanet_service_v1_interface_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListWirelessInterfacesRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListWirelessInterfacesRequest) ProtoMessage() {}
-
-func (x *ListWirelessInterfacesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_interface_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListWirelessInterfacesRequest.ProtoReflect.Descriptor instead.
-func (*ListWirelessInterfacesRequest) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_interface_proto_rawDescGZIP(), []int{3}
-}
-
-// *
 // Response message for listing wireless interfaces.
 type ListWirelessInterfacesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -277,7 +237,7 @@ type ListWirelessInterfacesResponse struct {
 
 func (x *ListWirelessInterfacesResponse) Reset() {
 	*x = ListWirelessInterfacesResponse{}
-	mi := &file_openmanet_service_v1_interface_proto_msgTypes[4]
+	mi := &file_openmanet_service_v1_interface_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -289,7 +249,7 @@ func (x *ListWirelessInterfacesResponse) String() string {
 func (*ListWirelessInterfacesResponse) ProtoMessage() {}
 
 func (x *ListWirelessInterfacesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_interface_proto_msgTypes[4]
+	mi := &file_openmanet_service_v1_interface_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -302,7 +262,7 @@ func (x *ListWirelessInterfacesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWirelessInterfacesResponse.ProtoReflect.Descriptor instead.
 func (*ListWirelessInterfacesResponse) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_interface_proto_rawDescGZIP(), []int{4}
+	return file_openmanet_service_v1_interface_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ListWirelessInterfacesResponse) GetInterfaces() []*WirelessInterface {
@@ -316,7 +276,7 @@ var File_openmanet_service_v1_interface_proto protoreflect.FileDescriptor
 
 const file_openmanet_service_v1_interface_proto_rawDesc = "" +
 	"\n" +
-	"$openmanet/service/v1/interface.proto\x12\x14openmanet.service.v1\x1a\x1bbuf/validate/validate.proto\"\xfc\x01\n" +
+	"$openmanet/service/v1/interface.proto\x12\x14openmanet.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xfc\x01\n" +
 	"\x11WirelessInterface\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\x05R\x05index\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12)\n" +
@@ -329,15 +289,14 @@ const file_openmanet_service_v1_interface_proto_rawDesc = "" +
 	"\x1bGetWirelessInterfaceRequest\x12\x1b\n" +
 	"\x04name\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x04name\"e\n" +
 	"\x1cGetWirelessInterfaceResponse\x12E\n" +
-	"\tinterface\x18\x01 \x01(\v2'.openmanet.service.v1.WirelessInterfaceR\tinterface\"\x1f\n" +
-	"\x1dListWirelessInterfacesRequest\"i\n" +
+	"\tinterface\x18\x01 \x01(\v2'.openmanet.service.v1.WirelessInterfaceR\tinterface\"i\n" +
 	"\x1eListWirelessInterfacesResponse\x12G\n" +
 	"\n" +
 	"interfaces\x18\x01 \x03(\v2'.openmanet.service.v1.WirelessInterfaceR\n" +
-	"interfaces2\x9b\x02\n" +
+	"interfaces2\xfd\x01\n" +
 	"\x10InterfaceService\x12\x7f\n" +
-	"\x14GetWirelessInterface\x121.openmanet.service.v1.GetWirelessInterfaceRequest\x1a2.openmanet.service.v1.GetWirelessInterfaceResponse\"\x00\x12\x85\x01\n" +
-	"\x16ListWirelessInterfaces\x123.openmanet.service.v1.ListWirelessInterfacesRequest\x1a4.openmanet.service.v1.ListWirelessInterfacesResponse\"\x00B\xe9\x01\n" +
+	"\x14GetWirelessInterface\x121.openmanet.service.v1.GetWirelessInterfaceRequest\x1a2.openmanet.service.v1.GetWirelessInterfaceResponse\"\x00\x12h\n" +
+	"\x16ListWirelessInterfaces\x12\x16.google.protobuf.Empty\x1a4.openmanet.service.v1.ListWirelessInterfacesResponse\"\x00B\xe9\x01\n" +
 	"\x18com.openmanet.service.v1B\x0eInterfaceProtoP\x01ZKgithub.com/openmanet/openmanetd/internal/api/openmanet/service/v1;servicev1\xa2\x02\x03OSX\xaa\x02\x14Openmanet.Service.V1\xca\x02\x14Openmanet\\Service\\V1\xe2\x02 Openmanet\\Service\\V1\\GPBMetadata\xea\x02\x16Openmanet::Service::V1b\x06proto3"
 
 var (
@@ -352,21 +311,21 @@ func file_openmanet_service_v1_interface_proto_rawDescGZIP() []byte {
 	return file_openmanet_service_v1_interface_proto_rawDescData
 }
 
-var file_openmanet_service_v1_interface_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_openmanet_service_v1_interface_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_openmanet_service_v1_interface_proto_goTypes = []any{
 	(*WirelessInterface)(nil),              // 0: openmanet.service.v1.WirelessInterface
 	(*GetWirelessInterfaceRequest)(nil),    // 1: openmanet.service.v1.GetWirelessInterfaceRequest
 	(*GetWirelessInterfaceResponse)(nil),   // 2: openmanet.service.v1.GetWirelessInterfaceResponse
-	(*ListWirelessInterfacesRequest)(nil),  // 3: openmanet.service.v1.ListWirelessInterfacesRequest
-	(*ListWirelessInterfacesResponse)(nil), // 4: openmanet.service.v1.ListWirelessInterfacesResponse
+	(*ListWirelessInterfacesResponse)(nil), // 3: openmanet.service.v1.ListWirelessInterfacesResponse
+	(*emptypb.Empty)(nil),                  // 4: google.protobuf.Empty
 }
 var file_openmanet_service_v1_interface_proto_depIdxs = []int32{
 	0, // 0: openmanet.service.v1.GetWirelessInterfaceResponse.interface:type_name -> openmanet.service.v1.WirelessInterface
 	0, // 1: openmanet.service.v1.ListWirelessInterfacesResponse.interfaces:type_name -> openmanet.service.v1.WirelessInterface
 	1, // 2: openmanet.service.v1.InterfaceService.GetWirelessInterface:input_type -> openmanet.service.v1.GetWirelessInterfaceRequest
-	3, // 3: openmanet.service.v1.InterfaceService.ListWirelessInterfaces:input_type -> openmanet.service.v1.ListWirelessInterfacesRequest
+	4, // 3: openmanet.service.v1.InterfaceService.ListWirelessInterfaces:input_type -> google.protobuf.Empty
 	2, // 4: openmanet.service.v1.InterfaceService.GetWirelessInterface:output_type -> openmanet.service.v1.GetWirelessInterfaceResponse
-	4, // 5: openmanet.service.v1.InterfaceService.ListWirelessInterfaces:output_type -> openmanet.service.v1.ListWirelessInterfacesResponse
+	3, // 5: openmanet.service.v1.InterfaceService.ListWirelessInterfaces:output_type -> openmanet.service.v1.ListWirelessInterfacesResponse
 	4, // [4:6] is the sub-list for method output_type
 	2, // [2:4] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
@@ -385,7 +344,7 @@ func file_openmanet_service_v1_interface_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_service_v1_interface_proto_rawDesc), len(file_openmanet_service_v1_interface_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

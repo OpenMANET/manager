@@ -13,6 +13,7 @@ import (
 	status "google.golang.org/grpc/status"
 	proto "google.golang.org/protobuf/proto"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	io "io"
 	unsafe "unsafe"
 )
@@ -79,22 +80,6 @@ func (m *GetWirelessInterfaceResponse) CloneVT() *GetWirelessInterfaceResponse {
 }
 
 func (m *GetWirelessInterfaceResponse) CloneMessageVT() proto.Message {
-	return m.CloneVT()
-}
-
-func (m *ListWirelessInterfacesRequest) CloneVT() *ListWirelessInterfacesRequest {
-	if m == nil {
-		return (*ListWirelessInterfacesRequest)(nil)
-	}
-	r := new(ListWirelessInterfacesRequest)
-	if len(m.unknownFields) > 0 {
-		r.unknownFields = make([]byte, len(m.unknownFields))
-		copy(r.unknownFields, m.unknownFields)
-	}
-	return r
-}
-
-func (m *ListWirelessInterfacesRequest) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
@@ -199,22 +184,6 @@ func (this *GetWirelessInterfaceResponse) EqualMessageVT(thatMsg proto.Message) 
 	}
 	return this.EqualVT(that)
 }
-func (this *ListWirelessInterfacesRequest) EqualVT(that *ListWirelessInterfacesRequest) bool {
-	if this == that {
-		return true
-	} else if this == nil || that == nil {
-		return false
-	}
-	return string(this.unknownFields) == string(that.unknownFields)
-}
-
-func (this *ListWirelessInterfacesRequest) EqualMessageVT(thatMsg proto.Message) bool {
-	that, ok := thatMsg.(*ListWirelessInterfacesRequest)
-	if !ok {
-		return false
-	}
-	return this.EqualVT(that)
-}
 func (this *ListWirelessInterfacesResponse) EqualVT(that *ListWirelessInterfacesResponse) bool {
 	if this == that {
 		return true
@@ -258,18 +227,10 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type InterfaceServiceClient interface {
-	// *
 	// Retrieves detailed configuration and status information for a specific wireless interface.
-	//
-	// @param GetWirelessInterfaceRequest The request containing the identifier of the interface to retrieve.
-	// @return WirelessInterface The details of the requested wireless interface.
 	GetWirelessInterface(ctx context.Context, in *GetWirelessInterfaceRequest, opts ...grpc.CallOption) (*GetWirelessInterfaceResponse, error)
-	// *
 	// Lists all available wireless interfaces currently managed by the system.
-	//
-	// @param ListWirelessInterfacesRequest An empty request message.
-	// @return ListWirelessInterfacesResponse A list of all wireless interfaces.
-	ListWirelessInterfaces(ctx context.Context, in *ListWirelessInterfacesRequest, opts ...grpc.CallOption) (*ListWirelessInterfacesResponse, error)
+	ListWirelessInterfaces(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListWirelessInterfacesResponse, error)
 }
 
 type interfaceServiceClient struct {
@@ -289,7 +250,7 @@ func (c *interfaceServiceClient) GetWirelessInterface(ctx context.Context, in *G
 	return out, nil
 }
 
-func (c *interfaceServiceClient) ListWirelessInterfaces(ctx context.Context, in *ListWirelessInterfacesRequest, opts ...grpc.CallOption) (*ListWirelessInterfacesResponse, error) {
+func (c *interfaceServiceClient) ListWirelessInterfaces(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListWirelessInterfacesResponse, error) {
 	out := new(ListWirelessInterfacesResponse)
 	err := c.cc.Invoke(ctx, "/openmanet.service.v1.InterfaceService/ListWirelessInterfaces", in, out, opts...)
 	if err != nil {
@@ -302,18 +263,10 @@ func (c *interfaceServiceClient) ListWirelessInterfaces(ctx context.Context, in 
 // All implementations must embed UnimplementedInterfaceServiceServer
 // for forward compatibility
 type InterfaceServiceServer interface {
-	// *
 	// Retrieves detailed configuration and status information for a specific wireless interface.
-	//
-	// @param GetWirelessInterfaceRequest The request containing the identifier of the interface to retrieve.
-	// @return WirelessInterface The details of the requested wireless interface.
 	GetWirelessInterface(context.Context, *GetWirelessInterfaceRequest) (*GetWirelessInterfaceResponse, error)
-	// *
 	// Lists all available wireless interfaces currently managed by the system.
-	//
-	// @param ListWirelessInterfacesRequest An empty request message.
-	// @return ListWirelessInterfacesResponse A list of all wireless interfaces.
-	ListWirelessInterfaces(context.Context, *ListWirelessInterfacesRequest) (*ListWirelessInterfacesResponse, error)
+	ListWirelessInterfaces(context.Context, *emptypb.Empty) (*ListWirelessInterfacesResponse, error)
 	mustEmbedUnimplementedInterfaceServiceServer()
 }
 
@@ -324,7 +277,7 @@ type UnimplementedInterfaceServiceServer struct {
 func (UnimplementedInterfaceServiceServer) GetWirelessInterface(context.Context, *GetWirelessInterfaceRequest) (*GetWirelessInterfaceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetWirelessInterface not implemented")
 }
-func (UnimplementedInterfaceServiceServer) ListWirelessInterfaces(context.Context, *ListWirelessInterfacesRequest) (*ListWirelessInterfacesResponse, error) {
+func (UnimplementedInterfaceServiceServer) ListWirelessInterfaces(context.Context, *emptypb.Empty) (*ListWirelessInterfacesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListWirelessInterfaces not implemented")
 }
 func (UnimplementedInterfaceServiceServer) mustEmbedUnimplementedInterfaceServiceServer() {}
@@ -359,7 +312,7 @@ func _InterfaceService_GetWirelessInterface_Handler(srv interface{}, ctx context
 }
 
 func _InterfaceService_ListWirelessInterfaces_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListWirelessInterfacesRequest)
+	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -371,7 +324,7 @@ func _InterfaceService_ListWirelessInterfaces_Handler(srv interface{}, ctx conte
 		FullMethod: "/openmanet.service.v1.InterfaceService/ListWirelessInterfaces",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(InterfaceServiceServer).ListWirelessInterfaces(ctx, req.(*ListWirelessInterfacesRequest))
+		return srv.(InterfaceServiceServer).ListWirelessInterfaces(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -554,39 +507,6 @@ func (m *GetWirelessInterfaceResponse) MarshalToSizedBufferVT(dAtA []byte) (int,
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
 		i--
 		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *ListWirelessInterfacesRequest) MarshalVT() (dAtA []byte, err error) {
-	if m == nil {
-		return nil, nil
-	}
-	size := m.SizeVT()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *ListWirelessInterfacesRequest) MarshalToVT(dAtA []byte) (int, error) {
-	size := m.SizeVT()
-	return m.MarshalToSizedBufferVT(dAtA[:size])
-}
-
-func (m *ListWirelessInterfacesRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.unknownFields != nil {
-		i -= len(m.unknownFields)
-		copy(dAtA[i:], m.unknownFields)
 	}
 	return len(dAtA) - i, nil
 }
@@ -798,39 +718,6 @@ func (m *GetWirelessInterfaceResponse) MarshalToSizedBufferVTStrict(dAtA []byte)
 	return len(dAtA) - i, nil
 }
 
-func (m *ListWirelessInterfacesRequest) MarshalVTStrict() (dAtA []byte, err error) {
-	if m == nil {
-		return nil, nil
-	}
-	size := m.SizeVT()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBufferVTStrict(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *ListWirelessInterfacesRequest) MarshalToVTStrict(dAtA []byte) (int, error) {
-	size := m.SizeVT()
-	return m.MarshalToSizedBufferVTStrict(dAtA[:size])
-}
-
-func (m *ListWirelessInterfacesRequest) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
-	if m == nil {
-		return 0, nil
-	}
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.unknownFields != nil {
-		i -= len(m.unknownFields)
-		copy(dAtA[i:], m.unknownFields)
-	}
-	return len(dAtA) - i, nil
-}
-
 func (m *ListWirelessInterfacesResponse) MarshalVTStrict() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
@@ -937,16 +824,6 @@ func (m *GetWirelessInterfaceResponse) SizeVT() (n int) {
 		l = m.Interface.SizeVT()
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	n += len(m.unknownFields)
-	return n
-}
-
-func (m *ListWirelessInterfacesRequest) SizeVT() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
 	n += len(m.unknownFields)
 	return n
 }
@@ -1357,57 +1234,6 @@ func (m *GetWirelessInterfaceResponse) UnmarshalVT(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *ListWirelessInterfacesRequest) UnmarshalVT(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return protohelpers.ErrIntOverflow
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: ListWirelessInterfacesRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ListWirelessInterfacesRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -1921,57 +1747,6 @@ func (m *GetWirelessInterfaceResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *ListWirelessInterfacesRequest) UnmarshalVTUnsafe(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return protohelpers.ErrIntOverflow
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: ListWirelessInterfacesRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ListWirelessInterfacesRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

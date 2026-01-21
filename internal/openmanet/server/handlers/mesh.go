@@ -7,6 +7,7 @@ import (
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type MeshService struct {
@@ -14,7 +15,7 @@ type MeshService struct {
 	Wifi *mgmt.WirelessConfig
 }
 
-func (m *MeshService) ListMeshNeighbors(_ context.Context, req *serviceproto.ListMeshNeighborsRequest) (*serviceproto.ListMeshNeighborsResponse, error) {
+func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*serviceproto.ListMeshNeighborsResponse, error) {
 	var (
 		protoNeighbors []*serviceproto.MeshNeighbor
 	)

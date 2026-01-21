@@ -8,6 +8,7 @@ import (
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type NodeService struct {
@@ -15,7 +16,7 @@ type NodeService struct {
 	Log zerolog.Logger
 }
 
-func (n *NodeService) ListNodes(ctx context.Context, req *serviceproto.ListNodesRequest) (*serviceproto.ListNodesResponse, error) {
+func (n *NodeService) ListNodes(ctx context.Context, _ *emptypb.Empty) (*serviceproto.ListNodesResponse, error) {
 	n.Log.Debug().Msg("ListNodes Request Received")
 
 	nodes, err := n.DB.ListMeshNodes(ctx)

@@ -9,6 +9,7 @@ import (
 	context "context"
 	errors "errors"
 	v1 "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	http "net/http"
 	strings "strings"
 )
@@ -43,18 +44,10 @@ const (
 
 // InterfaceServiceClient is a client for the openmanet.service.v1.InterfaceService service.
 type InterfaceServiceClient interface {
-	// *
 	// Retrieves detailed configuration and status information for a specific wireless interface.
-	//
-	// @param GetWirelessInterfaceRequest The request containing the identifier of the interface to retrieve.
-	// @return WirelessInterface The details of the requested wireless interface.
 	GetWirelessInterface(context.Context, *v1.GetWirelessInterfaceRequest) (*v1.GetWirelessInterfaceResponse, error)
-	// *
 	// Lists all available wireless interfaces currently managed by the system.
-	//
-	// @param ListWirelessInterfacesRequest An empty request message.
-	// @return ListWirelessInterfacesResponse A list of all wireless interfaces.
-	ListWirelessInterfaces(context.Context, *v1.ListWirelessInterfacesRequest) (*v1.ListWirelessInterfacesResponse, error)
+	ListWirelessInterfaces(context.Context, *emptypb.Empty) (*v1.ListWirelessInterfacesResponse, error)
 }
 
 // NewInterfaceServiceClient constructs a client for the openmanet.service.v1.InterfaceService
@@ -74,7 +67,7 @@ func NewInterfaceServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(interfaceServiceMethods.ByName("GetWirelessInterface")),
 			connect.WithClientOptions(opts...),
 		),
-		listWirelessInterfaces: connect.NewClient[v1.ListWirelessInterfacesRequest, v1.ListWirelessInterfacesResponse](
+		listWirelessInterfaces: connect.NewClient[emptypb.Empty, v1.ListWirelessInterfacesResponse](
 			httpClient,
 			baseURL+InterfaceServiceListWirelessInterfacesProcedure,
 			connect.WithSchema(interfaceServiceMethods.ByName("ListWirelessInterfaces")),
@@ -86,7 +79,7 @@ func NewInterfaceServiceClient(httpClient connect.HTTPClient, baseURL string, op
 // interfaceServiceClient implements InterfaceServiceClient.
 type interfaceServiceClient struct {
 	getWirelessInterface   *connect.Client[v1.GetWirelessInterfaceRequest, v1.GetWirelessInterfaceResponse]
-	listWirelessInterfaces *connect.Client[v1.ListWirelessInterfacesRequest, v1.ListWirelessInterfacesResponse]
+	listWirelessInterfaces *connect.Client[emptypb.Empty, v1.ListWirelessInterfacesResponse]
 }
 
 // GetWirelessInterface calls openmanet.service.v1.InterfaceService.GetWirelessInterface.
@@ -99,7 +92,7 @@ func (c *interfaceServiceClient) GetWirelessInterface(ctx context.Context, req *
 }
 
 // ListWirelessInterfaces calls openmanet.service.v1.InterfaceService.ListWirelessInterfaces.
-func (c *interfaceServiceClient) ListWirelessInterfaces(ctx context.Context, req *v1.ListWirelessInterfacesRequest) (*v1.ListWirelessInterfacesResponse, error) {
+func (c *interfaceServiceClient) ListWirelessInterfaces(ctx context.Context, req *emptypb.Empty) (*v1.ListWirelessInterfacesResponse, error) {
 	response, err := c.listWirelessInterfaces.CallUnary(ctx, connect.NewRequest(req))
 	if response != nil {
 		return response.Msg, err
@@ -110,18 +103,10 @@ func (c *interfaceServiceClient) ListWirelessInterfaces(ctx context.Context, req
 // InterfaceServiceHandler is an implementation of the openmanet.service.v1.InterfaceService
 // service.
 type InterfaceServiceHandler interface {
-	// *
 	// Retrieves detailed configuration and status information for a specific wireless interface.
-	//
-	// @param GetWirelessInterfaceRequest The request containing the identifier of the interface to retrieve.
-	// @return WirelessInterface The details of the requested wireless interface.
 	GetWirelessInterface(context.Context, *v1.GetWirelessInterfaceRequest) (*v1.GetWirelessInterfaceResponse, error)
-	// *
 	// Lists all available wireless interfaces currently managed by the system.
-	//
-	// @param ListWirelessInterfacesRequest An empty request message.
-	// @return ListWirelessInterfacesResponse A list of all wireless interfaces.
-	ListWirelessInterfaces(context.Context, *v1.ListWirelessInterfacesRequest) (*v1.ListWirelessInterfacesResponse, error)
+	ListWirelessInterfaces(context.Context, *emptypb.Empty) (*v1.ListWirelessInterfacesResponse, error)
 }
 
 // NewInterfaceServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -162,6 +147,6 @@ func (UnimplementedInterfaceServiceHandler) GetWirelessInterface(context.Context
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.service.v1.InterfaceService.GetWirelessInterface is not implemented"))
 }
 
-func (UnimplementedInterfaceServiceHandler) ListWirelessInterfaces(context.Context, *v1.ListWirelessInterfacesRequest) (*v1.ListWirelessInterfacesResponse, error) {
+func (UnimplementedInterfaceServiceHandler) ListWirelessInterfaces(context.Context, *emptypb.Empty) (*v1.ListWirelessInterfacesResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.service.v1.InterfaceService.ListWirelessInterfaces is not implemented"))
 }

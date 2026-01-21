@@ -9,6 +9,7 @@ package servicev1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -111,42 +112,6 @@ func (x *MeshNeighbor) GetThroughput() int32 {
 	return 0
 }
 
-type ListMeshNeighborsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListMeshNeighborsRequest) Reset() {
-	*x = ListMeshNeighborsRequest{}
-	mi := &file_openmanet_service_v1_mesh_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListMeshNeighborsRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListMeshNeighborsRequest) ProtoMessage() {}
-
-func (x *ListMeshNeighborsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_mesh_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListMeshNeighborsRequest.ProtoReflect.Descriptor instead.
-func (*ListMeshNeighborsRequest) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_mesh_proto_rawDescGZIP(), []int{1}
-}
-
 type ListMeshNeighborsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// List of mesh neighbors
@@ -157,7 +122,7 @@ type ListMeshNeighborsResponse struct {
 
 func (x *ListMeshNeighborsResponse) Reset() {
 	*x = ListMeshNeighborsResponse{}
-	mi := &file_openmanet_service_v1_mesh_proto_msgTypes[2]
+	mi := &file_openmanet_service_v1_mesh_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -169,7 +134,7 @@ func (x *ListMeshNeighborsResponse) String() string {
 func (*ListMeshNeighborsResponse) ProtoMessage() {}
 
 func (x *ListMeshNeighborsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_mesh_proto_msgTypes[2]
+	mi := &file_openmanet_service_v1_mesh_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -182,7 +147,7 @@ func (x *ListMeshNeighborsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMeshNeighborsResponse.ProtoReflect.Descriptor instead.
 func (*ListMeshNeighborsResponse) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_mesh_proto_rawDescGZIP(), []int{2}
+	return file_openmanet_service_v1_mesh_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *ListMeshNeighborsResponse) GetNeighbors() []*MeshNeighbor {
@@ -196,7 +161,7 @@ var File_openmanet_service_v1_mesh_proto protoreflect.FileDescriptor
 
 const file_openmanet_service_v1_mesh_proto_rawDesc = "" +
 	"\n" +
-	"\x1fopenmanet/service/v1/mesh.proto\x12\x14openmanet.service.v1\"\xd3\x01\n" +
+	"\x1fopenmanet/service/v1/mesh.proto\x12\x14openmanet.service.v1\x1a\x1bgoogle/protobuf/empty.proto\"\xd3\x01\n" +
 	"\fMeshNeighbor\x12\x1a\n" +
 	"\bneighbor\x18\x01 \x01(\tR\bneighbor\x12'\n" +
 	"\x0fsignal_strength\x18\x02 \x01(\x05R\x0esignalStrength\x12)\n" +
@@ -205,12 +170,11 @@ const file_openmanet_service_v1_mesh_proto_rawDesc = "" +
 	"\tlast_seen\x18\x05 \x01(\x03R\blastSeen\x12\x1e\n" +
 	"\n" +
 	"throughput\x18\x06 \x01(\x05R\n" +
-	"throughput\"\x1a\n" +
-	"\x18ListMeshNeighborsRequest\"]\n" +
+	"throughput\"]\n" +
 	"\x19ListMeshNeighborsResponse\x12@\n" +
-	"\tneighbors\x18\x01 \x03(\v2\".openmanet.service.v1.MeshNeighborR\tneighbors2\x8b\x01\n" +
-	"\x13MeshNeighborService\x12t\n" +
-	"\x11ListMeshNeighbors\x12..openmanet.service.v1.ListMeshNeighborsRequest\x1a/.openmanet.service.v1.ListMeshNeighborsResponseB\xe4\x01\n" +
+	"\tneighbors\x18\x01 \x03(\v2\".openmanet.service.v1.MeshNeighborR\tneighbors2s\n" +
+	"\x13MeshNeighborService\x12\\\n" +
+	"\x11ListMeshNeighbors\x12\x16.google.protobuf.Empty\x1a/.openmanet.service.v1.ListMeshNeighborsResponseB\xe4\x01\n" +
 	"\x18com.openmanet.service.v1B\tMeshProtoP\x01ZKgithub.com/openmanet/openmanetd/internal/api/openmanet/service/v1;servicev1\xa2\x02\x03OSX\xaa\x02\x14Openmanet.Service.V1\xca\x02\x14Openmanet\\Service\\V1\xe2\x02 Openmanet\\Service\\V1\\GPBMetadata\xea\x02\x16Openmanet::Service::V1b\x06proto3"
 
 var (
@@ -225,16 +189,16 @@ func file_openmanet_service_v1_mesh_proto_rawDescGZIP() []byte {
 	return file_openmanet_service_v1_mesh_proto_rawDescData
 }
 
-var file_openmanet_service_v1_mesh_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_openmanet_service_v1_mesh_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_openmanet_service_v1_mesh_proto_goTypes = []any{
 	(*MeshNeighbor)(nil),              // 0: openmanet.service.v1.MeshNeighbor
-	(*ListMeshNeighborsRequest)(nil),  // 1: openmanet.service.v1.ListMeshNeighborsRequest
-	(*ListMeshNeighborsResponse)(nil), // 2: openmanet.service.v1.ListMeshNeighborsResponse
+	(*ListMeshNeighborsResponse)(nil), // 1: openmanet.service.v1.ListMeshNeighborsResponse
+	(*emptypb.Empty)(nil),             // 2: google.protobuf.Empty
 }
 var file_openmanet_service_v1_mesh_proto_depIdxs = []int32{
 	0, // 0: openmanet.service.v1.ListMeshNeighborsResponse.neighbors:type_name -> openmanet.service.v1.MeshNeighbor
-	1, // 1: openmanet.service.v1.MeshNeighborService.ListMeshNeighbors:input_type -> openmanet.service.v1.ListMeshNeighborsRequest
-	2, // 2: openmanet.service.v1.MeshNeighborService.ListMeshNeighbors:output_type -> openmanet.service.v1.ListMeshNeighborsResponse
+	2, // 1: openmanet.service.v1.MeshNeighborService.ListMeshNeighbors:input_type -> google.protobuf.Empty
+	1, // 2: openmanet.service.v1.MeshNeighborService.ListMeshNeighbors:output_type -> openmanet.service.v1.ListMeshNeighborsResponse
 	2, // [2:3] is the sub-list for method output_type
 	1, // [1:2] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
@@ -253,7 +217,7 @@ func file_openmanet_service_v1_mesh_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_service_v1_mesh_proto_rawDesc), len(file_openmanet_service_v1_mesh_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

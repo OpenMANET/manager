@@ -9,6 +9,7 @@ import (
 	context "context"
 	errors "errors"
 	v1 "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	http "net/http"
 	strings "strings"
 )
@@ -41,7 +42,7 @@ const (
 // MeshNeighborServiceClient is a client for the openmanet.service.v1.MeshNeighborService service.
 type MeshNeighborServiceClient interface {
 	// ListMeshNeighbors retrieves a list of all mesh neighbors for a given interface.
-	ListMeshNeighbors(context.Context, *v1.ListMeshNeighborsRequest) (*v1.ListMeshNeighborsResponse, error)
+	ListMeshNeighbors(context.Context, *emptypb.Empty) (*v1.ListMeshNeighborsResponse, error)
 }
 
 // NewMeshNeighborServiceClient constructs a client for the openmanet.service.v1.MeshNeighborService
@@ -55,7 +56,7 @@ func NewMeshNeighborServiceClient(httpClient connect.HTTPClient, baseURL string,
 	baseURL = strings.TrimRight(baseURL, "/")
 	meshNeighborServiceMethods := v1.File_openmanet_service_v1_mesh_proto.Services().ByName("MeshNeighborService").Methods()
 	return &meshNeighborServiceClient{
-		listMeshNeighbors: connect.NewClient[v1.ListMeshNeighborsRequest, v1.ListMeshNeighborsResponse](
+		listMeshNeighbors: connect.NewClient[emptypb.Empty, v1.ListMeshNeighborsResponse](
 			httpClient,
 			baseURL+MeshNeighborServiceListMeshNeighborsProcedure,
 			connect.WithSchema(meshNeighborServiceMethods.ByName("ListMeshNeighbors")),
@@ -66,11 +67,11 @@ func NewMeshNeighborServiceClient(httpClient connect.HTTPClient, baseURL string,
 
 // meshNeighborServiceClient implements MeshNeighborServiceClient.
 type meshNeighborServiceClient struct {
-	listMeshNeighbors *connect.Client[v1.ListMeshNeighborsRequest, v1.ListMeshNeighborsResponse]
+	listMeshNeighbors *connect.Client[emptypb.Empty, v1.ListMeshNeighborsResponse]
 }
 
 // ListMeshNeighbors calls openmanet.service.v1.MeshNeighborService.ListMeshNeighbors.
-func (c *meshNeighborServiceClient) ListMeshNeighbors(ctx context.Context, req *v1.ListMeshNeighborsRequest) (*v1.ListMeshNeighborsResponse, error) {
+func (c *meshNeighborServiceClient) ListMeshNeighbors(ctx context.Context, req *emptypb.Empty) (*v1.ListMeshNeighborsResponse, error) {
 	response, err := c.listMeshNeighbors.CallUnary(ctx, connect.NewRequest(req))
 	if response != nil {
 		return response.Msg, err
@@ -82,7 +83,7 @@ func (c *meshNeighborServiceClient) ListMeshNeighbors(ctx context.Context, req *
 // service.
 type MeshNeighborServiceHandler interface {
 	// ListMeshNeighbors retrieves a list of all mesh neighbors for a given interface.
-	ListMeshNeighbors(context.Context, *v1.ListMeshNeighborsRequest) (*v1.ListMeshNeighborsResponse, error)
+	ListMeshNeighbors(context.Context, *emptypb.Empty) (*v1.ListMeshNeighborsResponse, error)
 }
 
 // NewMeshNeighborServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -111,6 +112,6 @@ func NewMeshNeighborServiceHandler(svc MeshNeighborServiceHandler, opts ...conne
 // UnimplementedMeshNeighborServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedMeshNeighborServiceHandler struct{}
 
-func (UnimplementedMeshNeighborServiceHandler) ListMeshNeighbors(context.Context, *v1.ListMeshNeighborsRequest) (*v1.ListMeshNeighborsResponse, error) {
+func (UnimplementedMeshNeighborServiceHandler) ListMeshNeighbors(context.Context, *emptypb.Empty) (*v1.ListMeshNeighborsResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.service.v1.MeshNeighborService.ListMeshNeighbors is not implemented"))
 }

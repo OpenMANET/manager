@@ -6,6 +6,7 @@ import (
 	"time"
 
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
+	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
@@ -18,6 +19,7 @@ const (
 )
 
 type APIServer struct {
+	Cfg       *config.Config
 	Log       zerolog.Logger
 	DB        *models.Queries
 	ApiServer *http.Server
@@ -38,6 +40,12 @@ func NewAPIServer(cfg APIServer) *APIServer {
 	}))
 
 	api.Handle(services.NewMeshNeighborServiceHandler(&handlers.MeshService{
+		Log:  cfg.Log,
+		Wifi: cfg.Wifi,
+	}))
+
+	api.Handle(services.NewStatusServiceHandler(&handlers.StatusService{
+		Cfg:  cfg.Cfg,
 		Log:  cfg.Log,
 		Wifi: cfg.Wifi,
 	}))

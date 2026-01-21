@@ -6,6 +6,7 @@ import (
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type InterfaceService struct {
@@ -45,7 +46,7 @@ func (w *InterfaceService) GetWirelessInterface(_ context.Context, req *servicep
 	}, nil
 }
 
-func (w *InterfaceService) ListWirelessInterfaces(_ context.Context, _ *serviceproto.ListWirelessInterfacesRequest) (*serviceproto.ListWirelessInterfacesResponse, error) {
+func (w *InterfaceService) ListWirelessInterfaces(_ context.Context, _ *emptypb.Empty) (*serviceproto.ListWirelessInterfacesResponse, error) {
 	w.Log.Debug().Msg("ListWirelessInterfaces Request Received")
 
 	wifiInterfaces, err := w.Wifi.GetMeshInterfaces()

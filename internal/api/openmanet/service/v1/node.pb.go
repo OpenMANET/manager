@@ -11,6 +11,7 @@ import (
 	v1 "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -23,6 +24,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Request message for retrieving a specific node
 type GetNodeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Hostname of the node to retrieve
@@ -68,6 +70,7 @@ func (x *GetNodeRequest) GetHostname() string {
 	return ""
 }
 
+// Response message for retrieving a specific node
 type GetNodeResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Node information
@@ -113,42 +116,7 @@ func (x *GetNodeResponse) GetNode() *v1.Node {
 	return nil
 }
 
-type ListNodesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListNodesRequest) Reset() {
-	*x = ListNodesRequest{}
-	mi := &file_openmanet_service_v1_node_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListNodesRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListNodesRequest) ProtoMessage() {}
-
-func (x *ListNodesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_node_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListNodesRequest.ProtoReflect.Descriptor instead.
-func (*ListNodesRequest) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_node_proto_rawDescGZIP(), []int{2}
-}
-
+// Response message for listing nodes
 type ListNodesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// List of nodes
@@ -159,7 +127,7 @@ type ListNodesResponse struct {
 
 func (x *ListNodesResponse) Reset() {
 	*x = ListNodesResponse{}
-	mi := &file_openmanet_service_v1_node_proto_msgTypes[3]
+	mi := &file_openmanet_service_v1_node_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -171,7 +139,7 @@ func (x *ListNodesResponse) String() string {
 func (*ListNodesResponse) ProtoMessage() {}
 
 func (x *ListNodesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_node_proto_msgTypes[3]
+	mi := &file_openmanet_service_v1_node_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -184,7 +152,7 @@ func (x *ListNodesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListNodesResponse.ProtoReflect.Descriptor instead.
 func (*ListNodesResponse) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_node_proto_rawDescGZIP(), []int{3}
+	return file_openmanet_service_v1_node_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ListNodesResponse) GetNodes() []*v1.Node {
@@ -198,17 +166,16 @@ var File_openmanet_service_v1_node_proto protoreflect.FileDescriptor
 
 const file_openmanet_service_v1_node_proto_rawDesc = "" +
 	"\n" +
-	"\x1fopenmanet/service/v1/node.proto\x12\x14openmanet.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fopenmanet/network/v1/node.proto\"5\n" +
+	"\x1fopenmanet/service/v1/node.proto\x12\x14openmanet.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fopenmanet/network/v1/node.proto\x1a\x1bgoogle/protobuf/empty.proto\"5\n" +
 	"\x0eGetNodeRequest\x12#\n" +
 	"\bhostname\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bhostname\"A\n" +
 	"\x0fGetNodeResponse\x12.\n" +
-	"\x04node\x18\x01 \x01(\v2\x1a.openmanet.network.v1.NodeR\x04node\"\x12\n" +
-	"\x10ListNodesRequest\"E\n" +
+	"\x04node\x18\x01 \x01(\v2\x1a.openmanet.network.v1.NodeR\x04node\"E\n" +
 	"\x11ListNodesResponse\x120\n" +
-	"\x05nodes\x18\x01 \x03(\v2\x1a.openmanet.network.v1.NodeR\x05nodes2\xc7\x01\n" +
+	"\x05nodes\x18\x01 \x03(\v2\x1a.openmanet.network.v1.NodeR\x05nodes2\xb7\x01\n" +
 	"\vNodeService\x12X\n" +
-	"\aGetNode\x12$.openmanet.service.v1.GetNodeRequest\x1a%.openmanet.service.v1.GetNodeResponse\"\x00\x12^\n" +
-	"\tListNodes\x12&.openmanet.service.v1.ListNodesRequest\x1a'.openmanet.service.v1.ListNodesResponse\"\x00B\xe4\x01\n" +
+	"\aGetNode\x12$.openmanet.service.v1.GetNodeRequest\x1a%.openmanet.service.v1.GetNodeResponse\"\x00\x12N\n" +
+	"\tListNodes\x12\x16.google.protobuf.Empty\x1a'.openmanet.service.v1.ListNodesResponse\"\x00B\xe4\x01\n" +
 	"\x18com.openmanet.service.v1B\tNodeProtoP\x01ZKgithub.com/openmanet/openmanetd/internal/api/openmanet/service/v1;servicev1\xa2\x02\x03OSX\xaa\x02\x14Openmanet.Service.V1\xca\x02\x14Openmanet\\Service\\V1\xe2\x02 Openmanet\\Service\\V1\\GPBMetadata\xea\x02\x16Openmanet::Service::V1b\x06proto3"
 
 var (
@@ -223,21 +190,21 @@ func file_openmanet_service_v1_node_proto_rawDescGZIP() []byte {
 	return file_openmanet_service_v1_node_proto_rawDescData
 }
 
-var file_openmanet_service_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_openmanet_service_v1_node_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_openmanet_service_v1_node_proto_goTypes = []any{
 	(*GetNodeRequest)(nil),    // 0: openmanet.service.v1.GetNodeRequest
 	(*GetNodeResponse)(nil),   // 1: openmanet.service.v1.GetNodeResponse
-	(*ListNodesRequest)(nil),  // 2: openmanet.service.v1.ListNodesRequest
-	(*ListNodesResponse)(nil), // 3: openmanet.service.v1.ListNodesResponse
-	(*v1.Node)(nil),           // 4: openmanet.network.v1.Node
+	(*ListNodesResponse)(nil), // 2: openmanet.service.v1.ListNodesResponse
+	(*v1.Node)(nil),           // 3: openmanet.network.v1.Node
+	(*emptypb.Empty)(nil),     // 4: google.protobuf.Empty
 }
 var file_openmanet_service_v1_node_proto_depIdxs = []int32{
-	4, // 0: openmanet.service.v1.GetNodeResponse.node:type_name -> openmanet.network.v1.Node
-	4, // 1: openmanet.service.v1.ListNodesResponse.nodes:type_name -> openmanet.network.v1.Node
+	3, // 0: openmanet.service.v1.GetNodeResponse.node:type_name -> openmanet.network.v1.Node
+	3, // 1: openmanet.service.v1.ListNodesResponse.nodes:type_name -> openmanet.network.v1.Node
 	0, // 2: openmanet.service.v1.NodeService.GetNode:input_type -> openmanet.service.v1.GetNodeRequest
-	2, // 3: openmanet.service.v1.NodeService.ListNodes:input_type -> openmanet.service.v1.ListNodesRequest
+	4, // 3: openmanet.service.v1.NodeService.ListNodes:input_type -> google.protobuf.Empty
 	1, // 4: openmanet.service.v1.NodeService.GetNode:output_type -> openmanet.service.v1.GetNodeResponse
-	3, // 5: openmanet.service.v1.NodeService.ListNodes:output_type -> openmanet.service.v1.ListNodesResponse
+	2, // 5: openmanet.service.v1.NodeService.ListNodes:output_type -> openmanet.service.v1.ListNodesResponse
 	4, // [4:6] is the sub-list for method output_type
 	2, // [2:4] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
@@ -256,7 +223,7 @@ func file_openmanet_service_v1_node_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_service_v1_node_proto_rawDesc), len(file_openmanet_service_v1_node_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

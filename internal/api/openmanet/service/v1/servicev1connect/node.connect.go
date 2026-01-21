@@ -9,6 +9,7 @@ import (
 	context "context"
 	errors "errors"
 	v1 "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	http "net/http"
 	strings "strings"
 )
@@ -41,8 +42,10 @@ const (
 
 // NodeServiceClient is a client for the openmanet.service.v1.NodeService service.
 type NodeServiceClient interface {
+	// Retrieves detailed information for a specific node by hostname.
 	GetNode(context.Context, *v1.GetNodeRequest) (*v1.GetNodeResponse, error)
-	ListNodes(context.Context, *v1.ListNodesRequest) (*v1.ListNodesResponse, error)
+	// Lists all available nodes currently managed by the system.
+	ListNodes(context.Context, *emptypb.Empty) (*v1.ListNodesResponse, error)
 }
 
 // NewNodeServiceClient constructs a client for the openmanet.service.v1.NodeService service. By
@@ -62,7 +65,7 @@ func NewNodeServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(nodeServiceMethods.ByName("GetNode")),
 			connect.WithClientOptions(opts...),
 		),
-		listNodes: connect.NewClient[v1.ListNodesRequest, v1.ListNodesResponse](
+		listNodes: connect.NewClient[emptypb.Empty, v1.ListNodesResponse](
 			httpClient,
 			baseURL+NodeServiceListNodesProcedure,
 			connect.WithSchema(nodeServiceMethods.ByName("ListNodes")),
@@ -74,7 +77,7 @@ func NewNodeServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 // nodeServiceClient implements NodeServiceClient.
 type nodeServiceClient struct {
 	getNode   *connect.Client[v1.GetNodeRequest, v1.GetNodeResponse]
-	listNodes *connect.Client[v1.ListNodesRequest, v1.ListNodesResponse]
+	listNodes *connect.Client[emptypb.Empty, v1.ListNodesResponse]
 }
 
 // GetNode calls openmanet.service.v1.NodeService.GetNode.
@@ -87,7 +90,7 @@ func (c *nodeServiceClient) GetNode(ctx context.Context, req *v1.GetNodeRequest)
 }
 
 // ListNodes calls openmanet.service.v1.NodeService.ListNodes.
-func (c *nodeServiceClient) ListNodes(ctx context.Context, req *v1.ListNodesRequest) (*v1.ListNodesResponse, error) {
+func (c *nodeServiceClient) ListNodes(ctx context.Context, req *emptypb.Empty) (*v1.ListNodesResponse, error) {
 	response, err := c.listNodes.CallUnary(ctx, connect.NewRequest(req))
 	if response != nil {
 		return response.Msg, err
@@ -97,8 +100,10 @@ func (c *nodeServiceClient) ListNodes(ctx context.Context, req *v1.ListNodesRequ
 
 // NodeServiceHandler is an implementation of the openmanet.service.v1.NodeService service.
 type NodeServiceHandler interface {
+	// Retrieves detailed information for a specific node by hostname.
 	GetNode(context.Context, *v1.GetNodeRequest) (*v1.GetNodeResponse, error)
-	ListNodes(context.Context, *v1.ListNodesRequest) (*v1.ListNodesResponse, error)
+	// Lists all available nodes currently managed by the system.
+	ListNodes(context.Context, *emptypb.Empty) (*v1.ListNodesResponse, error)
 }
 
 // NewNodeServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -139,6 +144,6 @@ func (UnimplementedNodeServiceHandler) GetNode(context.Context, *v1.GetNodeReque
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.service.v1.NodeService.GetNode is not implemented"))
 }
 
-func (UnimplementedNodeServiceHandler) ListNodes(context.Context, *v1.ListNodesRequest) (*v1.ListNodesResponse, error) {
+func (UnimplementedNodeServiceHandler) ListNodes(context.Context, *emptypb.Empty) (*v1.ListNodesResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.service.v1.NodeService.ListNodes is not implemented"))
 }
