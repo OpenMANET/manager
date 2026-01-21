@@ -32,28 +32,28 @@ const (
 
 // Config holds the application configuration values with automatic reloading support.
 type Config struct {
-	mu                          sync.RWMutex
 	v                           *viper.Viper
 	MeshNetInterface            string
-	GatewayMode                 bool
 	DBFile                      string
 	AlfredMode                  string
 	AlfredBatInterface          string
 	AlfredSocketPath            string
+	PTTMcastAddr                string
+	PTTPttKey                   string
+	PTTPttDevice                string
+	PTTPttDeviceName            string
+	onChangeCallbacks           []func(*Config)
+	PTTMcastPort                int
+	mu                          sync.RWMutex
+	GatewayMode                 bool
 	AlfredDataTypeGateway       bool
 	AlfredDataTypeNode          bool
 	AlfredDataTypePosition      bool
 	AlfredDataTypeAddressReserv bool
 	PTTEnable                   bool
-	PTTMcastAddr                string
-	PTTMcastPort                int
-	PTTPttKey                   string
 	PTTDebug                    bool
 	PTTLoopback                 bool
-	PTTPttDevice                string
-	PTTPttDeviceName            string
 	ResetDBOnStart              bool
-	onChangeCallbacks           []func(*Config)
 }
 
 // New creates a new Config instance with the given viper instance.

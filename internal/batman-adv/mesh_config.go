@@ -8,32 +8,32 @@ import (
 type MeshConfig struct {
 	Version                    string         `json:"version"`
 	AlgoName                   string         `json:"algo_name"`
-	MeshIfindex                int            `json:"mesh_ifindex"`
 	MeshIfname                 string         `json:"mesh_ifname"`
 	MeshAddress                string         `json:"mesh_address"`
-	HardIfindex                int            `json:"hard_ifindex"`
 	HardIfname                 string         `json:"hard_ifname"`
 	HardAddress                string         `json:"hard_address"`
-	TtTtvn                     int            `json:"tt_ttvn"`
-	BlaCrc                     int            `json:"bla_crc"`
+	GwMode                     string         `json:"gw_mode"`
 	McastFlags                 McastFlags     `json:"mcast_flags"`
 	McastFlagsPriv             McastFlagsPriv `json:"mcast_flags_priv"`
-	AggregatedOgmsEnabled      bool           `json:"aggregated_ogms_enabled"`
-	ApIsolationEnabled         bool           `json:"ap_isolation_enabled"`
+	MeshIfindex                int            `json:"mesh_ifindex"`
+	HardIfindex                int            `json:"hard_ifindex"`
+	TtTtvn                     int            `json:"tt_ttvn"`
+	BlaCrc                     int            `json:"bla_crc"`
 	IsolationMark              int            `json:"isolation_mark"`
 	IsolationMask              int            `json:"isolation_mask"`
+	GwBandwidthDown            int            `json:"gw_bandwidth_down"`
+	GwBandwidthUp              int            `json:"gw_bandwidth_up"`
+	GwSelClass                 int            `json:"gw_sel_class"`
+	HopPenalty                 int            `json:"hop_penalty"`
+	OrigInterval               int            `json:"orig_interval"`
+	MulticastFanout            int            `json:"multicast_fanout"`
+	AggregatedOgmsEnabled      bool           `json:"aggregated_ogms_enabled"`
+	ApIsolationEnabled         bool           `json:"ap_isolation_enabled"`
 	BondingEnabled             bool           `json:"bonding_enabled"`
 	BridgeLoopAvoidanceEnabled bool           `json:"bridge_loop_avoidance_enabled"`
 	DistributedArpTableEnabled bool           `json:"distributed_arp_table_enabled"`
 	FragmentationEnabled       bool           `json:"fragmentation_enabled"`
-	GwBandwidthDown            int            `json:"gw_bandwidth_down"`
-	GwBandwidthUp              int            `json:"gw_bandwidth_up"`
-	GwMode                     string         `json:"gw_mode"`
-	GwSelClass                 int            `json:"gw_sel_class"`
-	HopPenalty                 int            `json:"hop_penalty"`
 	MulticastForcefloodEnabled bool           `json:"multicast_forceflood_enabled"`
-	OrigInterval               int            `json:"orig_interval"`
-	MulticastFanout            int            `json:"multicast_fanout"`
 }
 
 type McastFlags struct {

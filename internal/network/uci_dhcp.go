@@ -653,11 +653,11 @@ func rangesOverlap(start1, end1, start2, end2 int) bool {
 
 // DHCPLease represents a single DHCP lease entry.
 type DHCPLease struct {
-	Expires  int    `json:"expires"`
 	Hostname string `json:"hostname"`
 	MacAddr  string `json:"macaddr"`
 	DUID     string `json:"duid"`
 	IPAddr   string `json:"ipaddr"`
+	Expires  int    `json:"expires"`
 }
 
 // GetExpires returns the expiration time in seconds.

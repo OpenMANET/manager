@@ -22,18 +22,19 @@ const (
 )
 
 type ManagementConfig struct {
-	Log                        zerolog.Logger
-	GatewayMode                bool
-	IFace                      string
-	AlfredMode                 string
-	BatInterface               string
-	SocketPath                 string
-	GatewayDataType            bool
-	NodeDataType               bool
-	PositionDataType           bool
-	AddressReservationDataType bool
-	DB                         *models.Queries
-	InteruptChan               chan os.Signal
+	Log          zerolog.Logger
+	DB           *models.Queries
+	InteruptChan chan os.Signal
+
+	uciOpenMANETConfig *network.UCIOpenMANETConfigReader
+	uciDHCPConfig      *network.UCIDHCPConfigReader
+	uciNetworkConfig   *network.UCINetworkConfigReader
+
+	boardConfigInfo *board.Board
+	IFace           string
+	AlfredMode      string
+	BatInterface    string
+	SocketPath      string
 
 	gatewayWorkerSendInterval time.Duration
 	gatewayWorkerRecvInterval time.Duration
@@ -41,11 +42,11 @@ type ManagementConfig struct {
 	addressReservationWorkerSendInterval time.Duration
 	addressReservationWorkerRecvInterval time.Duration
 
-	uciOpenMANETConfig *network.UCIOpenMANETConfigReader
-	uciDHCPConfig      *network.UCIDHCPConfigReader
-	uciNetworkConfig   *network.UCINetworkConfigReader
-
-	boardConfigInfo *board.Board
+	GatewayMode                bool
+	GatewayDataType            bool
+	NodeDataType               bool
+	PositionDataType           bool
+	AddressReservationDataType bool
 }
 
 func NewManager(cfg ManagementConfig) *ManagementConfig {
