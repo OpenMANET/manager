@@ -1,8 +1,10 @@
 package network
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
+	"os/exec"
 	"sort"
 	"strconv"
 
@@ -647,4 +649,114 @@ func CalculateAvailableDHCPStart(records []alfred.Record, networkAddr, subnetMas
 // rangesOverlap checks if two ranges overlap.
 func rangesOverlap(start1, end1, start2, end2 int) bool {
 	return start1 <= end2 && start2 <= end1
+}
+
+// DHCPLease represents a single DHCP lease entry.
+type DHCPLease struct {
+	Expires  int    `json:"expires"`
+	Hostname string `json:"hostname"`
+	MacAddr  string `json:"macaddr"`
+	DUID     string `json:"duid"`
+	IPAddr   string `json:"ipaddr"`
+}
+
+// GetExpires returns the expiration time in seconds.
+func (l *DHCPLease) GetExpires() int {
+	return l.Expires
+}
+
+// GetHostname returns the hostname of the lease.
+func (l *DHCPLease) GetHostname() string {
+	return l.Hostname
+}
+
+// GetMacAddr returns the MAC address of the lease.
+func (l *DHCPLease) GetMacAddr() string {
+	return l.MacAddr
+}
+
+// GetDUID returns the DHCP Unique Identifier.
+func (l *DHCPLease) GetDUID() string {
+	return l.DUID
+}
+
+// GetIPAddr returns the IP address of the lease.
+func (l *DHCPLease) GetIPAddr() string {
+	return l.IPAddr
+}
+
+// DHCPLeasesResponse represents the response from ubus getDHCPLeases call.
+type DHCPLeasesResponse struct {
+	DHCPLeases  []DHCPLease `json:"dhcp_leases"`
+	DHCP6Leases []DHCPLease `json:"dhcp6_leases"`
+}
+
+// GetDHCPLeases returns all DHCP leases (IPv4).
+func (r *DHCPLeasesResponse) GetDHCPLeases() []DHCPLease {
+	return r.DHCPLeases
+}
+
+// GetDHCP6Leases returns all DHCPv6 leases.
+func (r *DHCPLeasesResponse) GetDHCP6Leases() []DHCPLease {
+	return r.DHCP6Leases
+}
+
+// GetAllLeases returns all leases (both IPv4 and IPv6).
+func (r *DHCPLeasesResponse) GetAllLeases() []DHCPLease {
+	all := make([]DHCPLease, 0, len(r.DHCPLeases)+len(r.DHCP6Leases))
+	all = append(all, r.DHCPLeases...)
+	all = append(all, r.DHCP6Leases...)
+	return all
+}
+
+// UbusCommandExecutor defines an interface for executing ubus commands.
+type UbusCommandExecutor interface {
+	Execute(args ...string) ([]byte, error)
+}
+
+// DefaultUbusExecutor executes real ubus commands.
+type DefaultUbusExecutor struct{}
+
+// Execute runs the ubus command with the given arguments.
+func (e *DefaultUbusExecutor) Execute(args ...string) ([]byte, error) {
+	cmd := exec.Command("ubus", args...)
+	return cmd.Output()
+}
+
+// GetCurrentDHCPLeases retrieves all current DHCP leases from OpenWRT using ubus.
+//
+// Returns:
+//   - A DHCPLeasesResponse containing all active DHCP leases
+//   - An error if the command fails or JSON parsing fails
+//
+// Example:
+//
+//	leases, err := GetCurrentDHCPLeases()
+//	if err != nil {
+//	    log.Fatalf("Failed to get DHCP leases: %v", err)
+//	}
+//	for _, lease := range leases.GetDHCPLeases() {
+//	    fmt.Printf("Host: %s, MAC: %s, IP: %s\n",
+//	        lease.GetHostname(), lease.GetMacAddr(), lease.GetIPAddr())
+//	}
+func GetCurrentDHCPLeases() (*DHCPLeasesResponse, error) {
+	return GetCurrentDHCPLeasesWithExecutor(&DefaultUbusExecutor{})
+}
+
+// GetCurrentDHCPLeasesWithExecutor retrieves DHCP leases using a custom executor.
+// This function is primarily used for testing with mocked ubus commands.
+func GetCurrentDHCPLeasesWithExecutor(executor UbusCommandExecutor) (*DHCPLeasesResponse, error) {
+	// Execute ubus command
+	output, err := executor.Execute("call", "luci-rpc", "getDHCPLeases")
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute ubus command: %w", err)
+	}
+
+	// Parse JSON response
+	var response DHCPLeasesResponse
+	if err := json.Unmarshal(output, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse DHCP leases JSON: %w", err)
+	}
+
+	return &response, nil
 }

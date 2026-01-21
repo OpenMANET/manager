@@ -1035,3 +1035,285 @@ func mustMarshalAddressReservation(ar *proto.AddressReservation) []byte {
 	}
 	return data
 }
+
+// mockUbusExecutor is a mock implementation of UbusCommandExecutor for testing.
+type mockUbusExecutor struct {
+	output []byte
+	err    error
+}
+
+// Execute returns the pre-configured output and error.
+func (m *mockUbusExecutor) Execute(args ...string) ([]byte, error) {
+	return m.output, m.err
+}
+
+func TestDHCPLease_GetMethods(t *testing.T) {
+	lease := DHCPLease{
+		Expires:  43141,
+		Hostname: "TestHost",
+		MacAddr:  "AA:BB:CC:DD:EE:FF",
+		DUID:     "01aabbccddeeff",
+		IPAddr:   "10.41.0.100",
+	}
+
+	if lease.GetExpires() != 43141 {
+		t.Errorf("GetExpires() = %d, want 43141", lease.GetExpires())
+	}
+	if lease.GetHostname() != "TestHost" {
+		t.Errorf("GetHostname() = %s, want TestHost", lease.GetHostname())
+	}
+	if lease.GetMacAddr() != "AA:BB:CC:DD:EE:FF" {
+		t.Errorf("GetMacAddr() = %s, want AA:BB:CC:DD:EE:FF", lease.GetMacAddr())
+	}
+	if lease.GetDUID() != "01aabbccddeeff" {
+		t.Errorf("GetDUID() = %s, want 01aabbccddeeff", lease.GetDUID())
+	}
+	if lease.GetIPAddr() != "10.41.0.100" {
+		t.Errorf("GetIPAddr() = %s, want 10.41.0.100", lease.GetIPAddr())
+	}
+}
+
+func TestDHCPLeasesResponse_GetMethods(t *testing.T) {
+	dhcpLeases := []DHCPLease{
+		{
+			Expires:  43141,
+			Hostname: "Host1",
+			MacAddr:  "AA:BB:CC:DD:EE:FF",
+			DUID:     "01aabbccddeeff",
+			IPAddr:   "10.41.0.100",
+		},
+		{
+			Expires: 42229,
+			MacAddr: "11:22:33:44:55:66",
+			DUID:    "01112233445566",
+			IPAddr:  "10.41.0.101",
+		},
+	}
+
+	dhcp6Leases := []DHCPLease{
+		{
+			Expires:  50000,
+			Hostname: "IPv6Host",
+			MacAddr:  "77:88:99:AA:BB:CC",
+			DUID:     "017788899aabbcc",
+			IPAddr:   "fe80::1",
+		},
+	}
+
+	response := DHCPLeasesResponse{
+		DHCPLeases:  dhcpLeases,
+		DHCP6Leases: dhcp6Leases,
+	}
+
+	// Test GetDHCPLeases
+	gotDHCP := response.GetDHCPLeases()
+	if len(gotDHCP) != 2 {
+		t.Errorf("GetDHCPLeases() returned %d leases, want 2", len(gotDHCP))
+	}
+
+	// Test GetDHCP6Leases
+	gotDHCP6 := response.GetDHCP6Leases()
+	if len(gotDHCP6) != 1 {
+		t.Errorf("GetDHCP6Leases() returned %d leases, want 1", len(gotDHCP6))
+	}
+
+	// Test GetAllLeases
+	gotAll := response.GetAllLeases()
+	if len(gotAll) != 3 {
+		t.Errorf("GetAllLeases() returned %d leases, want 3", len(gotAll))
+	}
+
+	// Verify the order is correct (DHCP4 first, then DHCP6)
+	if gotAll[0].GetIPAddr() != "10.41.0.100" {
+		t.Errorf("GetAllLeases()[0] IP = %s, want 10.41.0.100", gotAll[0].GetIPAddr())
+	}
+	if gotAll[2].GetIPAddr() != "fe80::1" {
+		t.Errorf("GetAllLeases()[2] IP = %s, want fe80::1", gotAll[2].GetIPAddr())
+	}
+}
+
+func TestGetCurrentDHCPLeasesWithExecutor(t *testing.T) {
+	tests := []struct {
+		name          string
+		mockOutput    string
+		mockErr       error
+		expectErr     bool
+		expectDHCP    int
+		expectDHCP6   int
+		validateFirst func(*testing.T, DHCPLease)
+	}{
+		{
+			name: "successful response with leases",
+			mockOutput: `{
+				"dhcp_leases": [
+					{
+						"expires": 43141,
+						"hostname": "Mac",
+						"macaddr": "9A:67:9D:6C:6E:92",
+						"duid": "019a679d6c6e92",
+						"ipaddr": "10.41.0.180"
+					},
+					{
+						"expires": 42229,
+						"macaddr": "26:D2:E5:9A:BF:55",
+						"duid": "0126d2e59abf55",
+						"ipaddr": "10.41.0.187"
+					}
+				],
+				"dhcp6_leases": []
+			}`,
+			mockErr:     nil,
+			expectErr:   false,
+			expectDHCP:  2,
+			expectDHCP6: 0,
+			validateFirst: func(t *testing.T, lease DHCPLease) {
+				if lease.GetHostname() != "Mac" {
+					t.Errorf("First lease hostname = %s, want Mac", lease.GetHostname())
+				}
+				if lease.GetMacAddr() != "9A:67:9D:6C:6E:92" {
+					t.Errorf("First lease MAC = %s, want 9A:67:9D:6C:6E:92", lease.GetMacAddr())
+				}
+				if lease.GetIPAddr() != "10.41.0.180" {
+					t.Errorf("First lease IP = %s, want 10.41.0.180", lease.GetIPAddr())
+				}
+				if lease.GetExpires() != 43141 {
+					t.Errorf("First lease expires = %d, want 43141", lease.GetExpires())
+				}
+			},
+		},
+		{
+			name: "empty leases response",
+			mockOutput: `{
+				"dhcp_leases": [],
+				"dhcp6_leases": []
+			}`,
+			mockErr:     nil,
+			expectErr:   false,
+			expectDHCP:  0,
+			expectDHCP6: 0,
+		},
+		{
+			name: "with IPv6 leases",
+			mockOutput: `{
+				"dhcp_leases": [
+					{
+						"expires": 1000,
+						"hostname": "test",
+						"macaddr": "AA:BB:CC:DD:EE:FF",
+						"duid": "01aabbccddeeff",
+						"ipaddr": "10.41.0.1"
+					}
+				],
+				"dhcp6_leases": [
+					{
+						"expires": 2000,
+						"hostname": "testv6",
+						"macaddr": "11:22:33:44:55:66",
+						"duid": "01112233445566",
+						"ipaddr": "fe80::1"
+					}
+				]
+			}`,
+			mockErr:     nil,
+			expectErr:   false,
+			expectDHCP:  1,
+			expectDHCP6: 1,
+		},
+		{
+			name:        "ubus command fails",
+			mockOutput:  "",
+			mockErr:     errors.New("ubus: command failed"),
+			expectErr:   true,
+			expectDHCP:  0,
+			expectDHCP6: 0,
+		},
+		{
+			name:        "invalid JSON response",
+			mockOutput:  `{"invalid": json}`,
+			mockErr:     nil,
+			expectErr:   true,
+			expectDHCP:  0,
+			expectDHCP6: 0,
+		},
+		{
+			name:        "empty response",
+			mockOutput:  "",
+			mockErr:     nil,
+			expectErr:   true,
+			expectDHCP:  0,
+			expectDHCP6: 0,
+		},
+		{
+			name: "lease without hostname",
+			mockOutput: `{
+				"dhcp_leases": [
+					{
+						"expires": 42229,
+						"macaddr": "26:D2:E5:9A:BF:55",
+						"duid": "0126d2e59abf55",
+						"ipaddr": "10.41.0.187"
+					}
+				],
+				"dhcp6_leases": []
+			}`,
+			mockErr:     nil,
+			expectErr:   false,
+			expectDHCP:  1,
+			expectDHCP6: 0,
+			validateFirst: func(t *testing.T, lease DHCPLease) {
+				if lease.GetHostname() != "" {
+					t.Errorf("Lease without hostname should have empty string, got %s", lease.GetHostname())
+				}
+				if lease.GetMacAddr() != "26:D2:E5:9A:BF:55" {
+					t.Errorf("MAC address = %s, want 26:D2:E5:9A:BF:55", lease.GetMacAddr())
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockUbusExecutor{
+				output: []byte(tt.mockOutput),
+				err:    tt.mockErr,
+			}
+
+			response, err := GetCurrentDHCPLeasesWithExecutor(mock)
+
+			if tt.expectErr {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if response == nil {
+				t.Fatal("Response is nil")
+			}
+
+			if len(response.DHCPLeases) != tt.expectDHCP {
+				t.Errorf("DHCPLeases count = %d, want %d", len(response.DHCPLeases), tt.expectDHCP)
+			}
+
+			if len(response.DHCP6Leases) != tt.expectDHCP6 {
+				t.Errorf("DHCP6Leases count = %d, want %d", len(response.DHCP6Leases), tt.expectDHCP6)
+			}
+
+			if tt.validateFirst != nil && len(response.DHCPLeases) > 0 {
+				tt.validateFirst(t, response.DHCPLeases[0])
+			}
+		})
+	}
+}
+
+func TestDefaultUbusExecutor_Execute(t *testing.T) {
+	// This test verifies that DefaultUbusExecutor implements UbusCommandExecutor interface.
+	// We can't actually run ubus in the test environment.
+	var _ UbusCommandExecutor = &DefaultUbusExecutor{}
+	// The actual execution is tested in integration tests
+}
