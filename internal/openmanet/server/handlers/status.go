@@ -20,6 +20,7 @@ type StatusService struct {
 func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*serviceproto.ServiceStatusResponse, error) {
 	var (
 		meshConnected      bool  = false
+		isMeshGateway      bool  = false
 		connectedNeighbors int32 = 0
 		numMeshInterfaces  int32 = 0
 	)
@@ -55,13 +56,15 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 		return nil, err
 	}
 
+	isMeshGateway = meshCfg.IsGatewayMode()
+
 	// For now, just return a static status
 	return &serviceproto.ServiceStatusResponse{
 		Status: &serviceproto.ServiceStatus{
 			IsConnected:          meshConnected,
 			ConnectedNeighbors:   connectedNeighbors,
 			ActiveMeshInterfaces: numMeshInterfaces,
-			IsMeshGateway:        meshCfg.IsGatewayMode(),
+			IsMeshGateway:        isMeshGateway,
 		},
 	}, nil
 }
