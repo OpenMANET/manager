@@ -180,9 +180,9 @@ WHERE mac_addr = ?
 type UpdateMeshNodeParams struct {
 	Hostname     string
 	IpAddr       string
+	MacAddr      string
 	UciDhcpStart sql.NullInt64
 	UciDhcpLimit sql.NullInt64
-	MacAddr      string
 }
 
 func (q *Queries) UpdateMeshNode(ctx context.Context, arg UpdateMeshNodeParams) error {

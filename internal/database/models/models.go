@@ -10,11 +10,11 @@ import (
 )
 
 type MeshNode struct {
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 	MacAddr      string
 	Hostname     string
 	IpAddr       string
 	UciDhcpStart sql.NullInt64
 	UciDhcpLimit sql.NullInt64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
 }
