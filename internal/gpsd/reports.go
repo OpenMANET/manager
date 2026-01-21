@@ -32,6 +32,9 @@ example:
 		"track":10.3788,"speed":0.091,"climb":-0.085,"mode":3}
 */
 type TPVReport struct {
+	// Time/date stamp in ISO8601 format, UTC. May have a fractional part of up to .001sec precision.
+	// May be absent if the mode is not 2D or 3D.
+	Time time.Time `json:"time"`
 	// Fixed: "TPV"
 	Class string `json:"class"`
 	// todo: add status
@@ -39,11 +42,6 @@ type TPVReport struct {
 	Tag string `json:"tag"`
 	// Name of the originating device.
 	Device string `json:"device"`
-	// NMEA mode: %d, 0=no mode value yet seen, 1=no fix, 2=2D, 3=3D.
-	Mode Mode `json:"mode"`
-	// Time/date stamp in ISO8601 format, UTC. May have a fractional part of up to .001sec precision.
-	// May be absent if the mode is not 2D or 3D.
-	Time time.Time `json:"time"`
 	// todo: update for altHAE and alt MSL
 	// Estimated timestamp error in seconds. Certainty unknown.
 	Ept float64 `json:"ept"`
@@ -72,6 +70,8 @@ type TPVReport struct {
 	Eps float64 `json:"eps"`
 	// Estimated climb error in meters per second. Certainty unknown.
 	Epc float64 `json:"epc"`
+	// NMEA mode: %d, 0=no mode value yet seen, 1=no fix, 2=2D, 3=3D.
+	Mode Mode `json:"mode"`
 }
 
 /*
@@ -104,14 +104,16 @@ example:
 			{"PRN":27,"el":71,"az":76,"ss":43,"used":true}]}
 */
 type SKYReport struct {
+	// Time/date stamp in ISO8601 format, UTC. May have a fractional part of up to .001sec precision.
+	Time time.Time `json:"time"`
 	// Fixed: "SKY"
 	Class string `json:"class"`
 	// todo: find out where tag is from and document
 	Tag string `json:"tag"`
 	// Name of originating device
 	Device string `json:"device"`
-	// Time/date stamp in ISO8601 format, UTC. May have a fractional part of up to .001sec precision.
-	Time time.Time `json:"time"`
+	// List of satellite objects in skyview
+	Satellites []Satellite `json:"satellites"`
 	// Longitudinal dilution of precision, a dimensionless factor which should be multiplied by a base
 	//  UERE to get an error estimate.
 	Xdop float64 `json:"xdop"`
@@ -133,8 +135,6 @@ type SKYReport struct {
 	// Geometric (hyperspherical) dilution of precision, a combination of PDOP and TDOP.
 	// A dimensionless factor which should be multiplied by a base UERE to get an error estimate.
 	Gdop float64 `json:"gdop"`
-	// List of satellite objects in skyview
-	Satellites []Satellite `json:"satellites"`
 }
 
 // Satellite describes a location of a GPS satellite
@@ -165,14 +165,14 @@ example:
 			"lat":1.600,"lon":1.200,"alt":2.520}
 */
 type GSTReport struct {
+	// Time/date stamp in ISO8601 format, UTC. May have a fractional part of up to .001sec precision.
+	Time time.Time `json:"time"`
 	// Fixed: "GST"
 	Class string `json:"class"`
 	// todo: find out where tag is from and document
 	Tag string `json:"tag"`
 	// Name of originating device
 	Device string `json:"device"`
-	// Time/date stamp in ISO8601 format, UTC. May have a fractional part of up to .001sec precision.
-	Time time.Time `json:"time"`
 	// Value of the standard deviation of the range inputs to the navigation process
 	//  (range inputs include pseudoranges and DGPS corrections).
 	Rms float64 `json:"rms"`
@@ -221,30 +221,30 @@ example:
 		"dip":13641.000,"mag_x":2454.000}
 */
 type ATTReport struct {
+	// Time/date stamp in ISO8601 format, UTC. May have a fractional part of up to .001sec precision.
+	Time time.Time `json:"time"`
 	// Fixed: "ATT"
 	Class string `json:"class"`
 	// todo: find out where tag is from and document
 	Tag string `json:"tag"`
 	// Name of originating device
 	Device string `json:"device"`
-	// Time/date stamp in ISO8601 format, UTC. May have a fractional part of up to .001sec precision.
-	Time time.Time `json:"time"`
-	// Heading, degrees from true north.
-	Heading float64 `json:"heading"`
 	// Magnetometer status.
 	MagSt string `json:"mag_st"`
-	// Pitch in degrees.
-	Pitch float64 `json:"pitch"`
 	// Pitch sensor status.
 	PitchSt string `json:"pitch_st"`
-	// Yaw in degrees
-	Yaw float64 `json:"yaw"`
 	// Yaw sensor status.
 	YawSt string `json:"yaw_st"`
-	// Roll in degrees.
-	Roll float64 `json:"roll"`
 	// Roll sensor status.
 	RollSt string `json:"roll_st"`
+	// Heading, degrees from true north.
+	Heading float64 `json:"heading"`
+	// Pitch in degrees.
+	Pitch float64 `json:"pitch"`
+	// Yaw in degrees
+	Yaw float64 `json:"yaw"`
+	// Roll in degrees.
+	Roll float64 `json:"roll"`
 	// Local magnetic inclination, degrees, positive when the magnetic field points downward (into the Earth).
 	Dip float64 `json:"dip"`
 	// Scalar magnetic field strength.
@@ -291,9 +291,9 @@ type VERSIONReport struct {
 	Class      string `json:"class"`
 	Release    string `json:"release"`
 	Rev        string `json:"rev"`
+	Remote     string `json:"remote"`
 	ProtoMajor int    `json:"proto_major"`
 	ProtoMinor int    `json:"proto_minor"`
-	Remote     string `json:"remote"`
 }
 
 /*
@@ -312,8 +312,8 @@ The data content of these objects will be described later as a response to the ?
 */
 type DEVICESReport struct {
 	Class   string         `json:"class"`
-	Devices []DEVICEReport `json:"devices"`
 	Remote  string         `json:"remote"`
+	Devices []DEVICEReport `json:"devices"`
 }
 
 // DEVICEReport reports a state of a particular device
@@ -321,11 +321,11 @@ type DEVICEReport struct {
 	Class     string  `json:"class"`
 	Path      string  `json:"path"`
 	Activated string  `json:"activated"`
-	Flags     int     `json:"flags"`
 	Driver    string  `json:"driver"`
 	Subtype   string  `json:"subtype"`
-	Bps       int     `json:"bps"`
 	Parity    string  `json:"parity"`
+	Flags     int     `json:"flags"`
+	Bps       int     `json:"bps"`
 	Stopbits  int     `json:"stopbits"`
 	Native    int     `json:"native"`
 	Cycle     float64 `json:"cycle"`
