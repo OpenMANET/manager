@@ -1,9 +1,15 @@
 package gpsd
 
 import (
+	"net"
 	"sync"
 
+	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/rs/zerolog"
+)
+
+const (
+	DefaultTAKGPSPort string = "2947"
 )
 
 type GPSService struct {
@@ -38,7 +44,7 @@ func NewGPSServiceWithAddress(log zerolog.Logger, address string) (*GPSService, 
 			g.mu.Lock()
 			g.PositionReport = tpv
 			g.mu.Unlock()
-			
+
 			log.Debug().
 				Float64("lat", tpv.Lat).
 				Float64("lon", tpv.Lon).
@@ -48,8 +54,15 @@ func NewGPSServiceWithAddress(log zerolog.Logger, address string) (*GPSService, 
 		}
 	})
 
+	// Example: Subscribe to NMEA GPGGA sentences
+	session.Subscribe("GPGGA", func(r interface{}) {
+		v := r.(string)
+
+		g.sendLocationtoEUDs(v)
+	})
+
 	// Start watching for NMEA messages in the background
-	session.Run(formatJSON)
+	session.Run(formatNMEA)
 
 	log.Info().Str("address", address).Msg("GPS service started")
 
@@ -70,4 +83,34 @@ func (g *GPSService) Close() error {
 		return g.session.Close()
 	}
 	return nil
+}
+
+// sendLocationtoEUDs sends the current GPS location to any connected EUD clients.
+// The eud devices are determined by the current dhcp leases.
+func (g *GPSService) sendLocationtoEUDs(nmeaString string) {
+	leases, err := network.GetCurrentDHCPLeases()
+	if err != nil {
+		g.Log.Error().Err(err).Msg("Error getting DHCP leases for EUD location update")
+		return
+	}
+
+	// TODO: If no leases, create a CoT message and send to a predefined multicast address
+
+	// loop through leases.DHCPleases and send location to each EUD
+	for _, lease := range leases.DHCPLeases {
+		// For each lease, send the current GPS location
+		// We send this as a UDP packet to the EUD's IP address on a the DefaultTAKGPSPort
+		addr := net.JoinHostPort(lease.IPAddr, DefaultTAKGPSPort)
+		conn, err := net.Dial("udp", addr)
+		if err != nil {
+			g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to connect to EUD")
+			continue
+		}
+
+		_, err = conn.Write([]byte(nmeaString))
+		if err != nil {
+			g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to send GPS data to EUD")
+		}
+		conn.Close()
+	}
 }
