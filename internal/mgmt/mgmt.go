@@ -72,6 +72,7 @@ func NewManager(cfg ManagementConfig) *ManagementConfig {
 		InteruptChan:               cfg.InteruptChan,
 		GatewayMode:                cfg.GatewayMode,
 		DB:                         cfg.DB,
+		GPS:                        cfg.GPS,
 
 		gatewayWorkerSendInterval:            gatewayDataWorkerSendInterval,
 		gatewayWorkerRecvInterval:            gatewayDataWorkerRecvInterval,
