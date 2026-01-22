@@ -11,7 +11,6 @@ import (
 	"github.com/openmanet/go-alfred"
 	proto "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
 	"github.com/openmanet/openmanetd/internal/database/models"
-	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/network"
 )
 
@@ -90,7 +89,7 @@ func (ndw *NodeDataWorker) StartSend() {
 
 			// Get position data if GPS is available
 			positionReport := ndw.Config.GPS.GetPositionReport()
-			if positionReport == nil || positionReport.Mode < gpsd.Mode2D {
+			if positionReport == nil {
 				ndw.Config.Log.Debug().Msg("No valid GPS position available")
 			}
 

@@ -15,7 +15,8 @@ const (
 type GPSService struct {
 	Log            zerolog.Logger
 	PositionReport *TPVReport
-	session        *Session
+	jsonSession    *Session
+	nmeaSession    *Session
 	mu             sync.RWMutex
 }
 
@@ -27,19 +28,29 @@ func NewGPSService(log zerolog.Logger) (*GPSService, error) {
 }
 
 // NewGPSServiceWithAddress creates a new GPS service with a custom GPSD address.
+// It creates two separate sessions: one for JSON/TPV reports and one for NMEA sentences.
 func NewGPSServiceWithAddress(log zerolog.Logger, address string) (*GPSService, error) {
-	session, err := Dial(address)
+	// Create JSON session for TPV reports
+	jsonSession, err := Dial(address)
 	if err != nil {
 		return nil, err
 	}
 
-	g := &GPSService{
-		Log:     log,
-		session: session,
+	// Create NMEA session for raw NMEA sentences
+	nmeaSession, err := Dial(address)
+	if err != nil {
+		jsonSession.Close()
+		return nil, err
 	}
 
-	// Subscribe to TPV (Time-Position-Velocity) reports
-	session.Subscribe(msgClassTPV, func(report interface{}) {
+	g := &GPSService{
+		Log:         log,
+		jsonSession: jsonSession,
+		nmeaSession: nmeaSession,
+	}
+
+	// Subscribe to TPV (Time-Position-Velocity) reports on JSON session
+	jsonSession.Subscribe(msgClassTPV, func(report interface{}) {
 		if tpv, ok := report.(*TPVReport); ok {
 			g.mu.Lock()
 			g.PositionReport = tpv
@@ -54,17 +65,19 @@ func NewGPSServiceWithAddress(log zerolog.Logger, address string) (*GPSService, 
 		}
 	})
 
-	// Example: Subscribe to NMEA GPGGA sentences
-	session.Subscribe("GPGGA", func(r interface{}) {
-		v := r.(string)
-
-		g.sendLocationtoEUDs(v)
+	// Subscribe to NMEA GPGGA sentences on NMEA session
+	nmeaSession.Subscribe("GPGGA", func(r interface{}) {
+		if nmeaString, ok := r.(string); ok {
+			g.sendLocationtoEUDs(nmeaString)
+		}
 	})
 
-	// Start watching for NMEA messages in the background
-	session.Run(formatNMEA)
+	// Start both sessions in the background
+	// These start goroutines and return immediately
+	jsonSession.Run(formatJSON)
+	nmeaSession.Run(formatNMEA)
 
-	log.Info().Str("address", address).Msg("GPS service started")
+	log.Info().Str("address", address).Msg("GPS service started with dual sessions")
 
 	return g, nil
 }
@@ -77,12 +90,24 @@ func (g *GPSService) GetPositionReport() *TPVReport {
 	return g.PositionReport
 }
 
-// Close stops the GPS service and closes the connection to GPSD.
+// Close stops the GPS service and closes both connections to GPSD.
 func (g *GPSService) Close() error {
-	if g.session != nil {
-		return g.session.Close()
+	var err error
+	if g.jsonSession != nil {
+		if closeErr := g.jsonSession.Close(); closeErr != nil {
+			g.Log.Error().Err(closeErr).Msg("Error closing JSON session")
+			err = closeErr
+		}
 	}
-	return nil
+	if g.nmeaSession != nil {
+		if closeErr := g.nmeaSession.Close(); closeErr != nil {
+			g.Log.Error().Err(closeErr).Msg("Error closing NMEA session")
+			if err == nil {
+				err = closeErr
+			}
+		}
+	}
+	return err
 }
 
 // sendLocationtoEUDs sends the current GPS location to any connected EUD clients.

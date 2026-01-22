@@ -20,8 +20,11 @@ func TestNewGPSService(t *testing.T) {
 	}
 	defer service.Close()
 
-	if service.session == nil {
-		t.Error("Expected session to be initialized")
+	if service.jsonSession == nil {
+		t.Error("Expected jsonSession to be initialized")
+	}
+	if service.nmeaSession == nil {
+		t.Error("Expected nmeaSession to be initialized")
 	}
 	if service.Log.GetLevel() != log.GetLevel() {
 		t.Error("Logger not properly set")
@@ -193,13 +196,14 @@ func TestGPSService_Close(t *testing.T) {
 func TestGPSService_CloseNilSession(t *testing.T) {
 	log := zerolog.New(bytes.NewBuffer(nil))
 	service := &GPSService{
-		Log:     log,
-		session: nil,
+		Log:         log,
+		jsonSession: nil,
+		nmeaSession: nil,
 	}
 
 	err := service.Close()
 	if err != nil {
-		t.Errorf("Close with nil session should not return error, got: %v", err)
+		t.Errorf("Close with nil sessions should not return error, got: %v", err)
 	}
 }
 
