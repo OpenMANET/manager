@@ -50,8 +50,11 @@ func NewGPSServiceWithAddress(log zerolog.Logger, address string) (*GPSService, 
 	}
 
 	// Subscribe to TPV (Time-Position-Velocity) reports on JSON session
-	jsonSession.Subscribe(msgClassTPV, func(report interface{}) {
-		if tpv, ok := report.(*TPVReport); ok {
+	jsonSession.Subscribe("GPRMC", func(report interface{}) {
+		v := report.(string)
+		log.Debug().Str("gprmc", v).Msg("Received GPRMC sentence")
+
+		/* 		if tpv, ok := report.(*TPVReport); ok {
 			g.mu.Lock()
 			g.PositionReport = tpv
 			g.mu.Unlock()
@@ -62,11 +65,12 @@ func NewGPSServiceWithAddress(log zerolog.Logger, address string) (*GPSService, 
 				Float64("alt", tpv.Alt).
 				Uint8("mode", uint8(tpv.Mode)).
 				Msg("GPS position updated")
-		}
+		} */
 	})
 
 	// Subscribe to NMEA GPGGA sentences on NMEA session
 	nmeaSession.Subscribe("GPGGA", func(r interface{}) {
+		log.Debug().Str("nmea", r.(string)).Msg("Received GPGGA Sentance")
 		if nmeaString, ok := r.(string); ok {
 			g.sendLocationtoEUDs(nmeaString)
 		}
