@@ -50,7 +50,7 @@ func NewGPSServiceWithAddress(log zerolog.Logger, address string) (*GPSService, 
 	}
 
 	// Subscribe to TPV (Time-Position-Velocity) reports on JSON session
-	jsonSession.Subscribe("GPRMC", func(report interface{}) {
+	g.jsonSession.Subscribe("GPRMC", func(report interface{}) {
 		v := report.(string)
 		log.Debug().Str("gprmc", v).Msg("Received GPRMC sentence")
 
@@ -69,7 +69,7 @@ func NewGPSServiceWithAddress(log zerolog.Logger, address string) (*GPSService, 
 	})
 
 	// Subscribe to NMEA GPGGA sentences on NMEA session
-	nmeaSession.Subscribe("GPGGA", func(r interface{}) {
+	g.nmeaSession.Subscribe("GPGGA", func(r interface{}) {
 		log.Debug().Str("nmea", r.(string)).Msg("Received GPGGA Sentance")
 		if nmeaString, ok := r.(string); ok {
 			g.sendLocationtoEUDs(nmeaString)
@@ -78,8 +78,8 @@ func NewGPSServiceWithAddress(log zerolog.Logger, address string) (*GPSService, 
 
 	// Start both sessions in the background
 	// These start goroutines and return immediately
-	jsonSession.Run(formatJSON)
-	nmeaSession.Run(formatNMEA)
+	g.jsonSession.Run(formatJSON)
+	g.nmeaSession.Run(formatNMEA)
 
 	log.Info().Str("address", address).Msg("GPS service started with dual sessions")
 
