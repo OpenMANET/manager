@@ -88,24 +88,28 @@ func (ndw *NodeDataWorker) StartSend() {
 			}
 
 			// Get position data if GPS is available
-			positionReport := ndw.Config.GPS.GetPosition()
-			if positionReport.Mode <= 1 {
-				ndw.Config.Log.Debug().Msg("No valid GPS position available")
-			}
-
-			if positionReport.Mode > 1 {
-				ndw.Config.Log.Debug().
-					Float64("lat", positionReport.Latitude).
-					Float64("lon", positionReport.Longitude).
-					Float64("alt", positionReport.Altitude).
-					Uint8("mode", uint8(positionReport.Mode)).
-					Msg("Current GPS position")
-
-				nodeData.Position = &proto.Position{
-					Latitude:  positionReport.Latitude,
-					Longitude: positionReport.Longitude,
-					Altitude:  float32(positionReport.Altitude),
+			if ndw.Config.GPS != nil {
+				positionReport := ndw.Config.GPS.GetPosition()
+				if positionReport.Mode <= 1 {
+					ndw.Config.Log.Debug().Msg("No valid GPS position available")
 				}
+
+				if positionReport.Mode > 1 {
+					ndw.Config.Log.Debug().
+						Float64("lat", positionReport.Latitude).
+						Float64("lon", positionReport.Longitude).
+						Float64("alt", positionReport.Altitude).
+						Uint8("mode", uint8(positionReport.Mode)).
+						Msg("Current GPS position")
+
+					nodeData.Position = &proto.Position{
+						Latitude:  positionReport.Latitude,
+						Longitude: positionReport.Longitude,
+						Altitude:  float32(positionReport.Altitude),
+					}
+				}
+			} else {
+				ndw.Config.Log.Debug().Msg("GPS service not available")
 			}
 
 			var nodeDataBytes []byte

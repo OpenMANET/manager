@@ -47,6 +47,7 @@ const (
 	ATAKSAAddress        string = "239.2.3.1:6969" // ATAK Situational Awareness multicast address
 	radioUnitType        string = "G-U-U-S-R"      // Gnd/RADIO UNIT;RADIO UNIT
 	defaultStaleDuration        = 10 * time.Minute
+	maxReconnectAttempts        = 3
 )
 
 // PositionReport holds the current GPS position data
@@ -77,14 +78,15 @@ type TPVReport struct {
 }
 
 type GPSService struct {
-	Log            zerolog.Logger
-	mu             sync.RWMutex
-	position       PositionReport
-	conn           net.Conn
-	ctx            context.Context
-	cancel         context.CancelFunc
-	address        string
-	reconnectDelay time.Duration
+	Log               zerolog.Logger
+	mu                sync.RWMutex
+	position          PositionReport
+	conn              net.Conn
+	ctx               context.Context
+	cancel            context.CancelFunc
+	address           string
+	reconnectDelay    time.Duration
+	reconnectAttempts int
 }
 
 // NewGPSService creates a new GPS service that connects to GPSD and monitors TPV reports.
@@ -137,10 +139,26 @@ func (g *GPSService) connectionHandler() {
 		default:
 			err := g.connect()
 			if err != nil {
-				g.Log.Error().Err(err).Msg("Failed to connect to GPSD")
+				g.mu.Lock()
+				g.reconnectAttempts++
+				attempt := g.reconnectAttempts
+				g.mu.Unlock()
+
+				g.Log.Error().Err(err).Int("attempt", attempt).Msg("Failed to connect to GPSD")
+
+				if attempt >= maxReconnectAttempts {
+					g.Log.Error().Msg("Maximum reconnection attempts reached, giving up")
+					return
+				}
+
 				time.Sleep(g.reconnectDelay)
 				continue
 			}
+
+			// Reset reconnection attempts on successful connection
+			g.mu.Lock()
+			g.reconnectAttempts = 0
+			g.mu.Unlock()
 
 			// Start reading data
 			g.readGPSD()
