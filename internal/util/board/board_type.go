@@ -8,28 +8,28 @@ type Board struct {
 		Phy0 struct {
 			Path string `json:"path"`
 			Info struct {
+				Radios    []interface{} `json:"radios"`
+				Bands     Bands         `json:"bands"`
 				AntennaRx int           `json:"antenna_rx"`
 				AntennaTx int           `json:"antenna_tx"`
-				Bands     Bands         `json:"bands"`
-				Radios    []interface{} `json:"radios"`
 			} `json:"info"`
 		} `json:"phy0"`
 		Phy1 struct {
 			Path string `json:"path"`
 			Info struct {
+				Radios    []interface{} `json:"radios"`
+				Bands     Bands         `json:"bands"`
 				AntennaRx int           `json:"antenna_rx"`
 				AntennaTx int           `json:"antenna_tx"`
-				Bands     Bands         `json:"bands"`
-				Radios    []interface{} `json:"radios"`
 			} `json:"info"`
 		} `json:"phy1"`
 		Phy2 struct {
 			Path string `json:"path"`
 			Info struct {
+				Radios    []interface{} `json:"radios"`
+				Bands     Bands         `json:"bands"`
 				AntennaRx int           `json:"antenna_rx"`
 				AntennaTx int           `json:"antenna_tx"`
-				Bands     Bands         `json:"bands"`
-				Radios    []interface{} `json:"radios"`
 			} `json:"info"`
 		} `json:"phy2"`
 	} `json:"wlan"`
@@ -57,24 +57,24 @@ type Lan struct {
 
 type Bands struct {
 	TwoG struct {
+		Modes          []string `json:"modes,omitempty"`
+		MaxWidth       int      `json:"max_width,omitempty"`
+		DefaultChannel int      `json:"default_channel,omitempty"`
 		Ht             bool     `json:"ht,omitempty"`
 		He             bool     `json:"he,omitempty"`
-		MaxWidth       int      `json:"max_width,omitempty"`
-		Modes          []string `json:"modes,omitempty"`
-		DefaultChannel int      `json:"default_channel,omitempty"`
 	} `json:"2G"`
 	FiveG struct {
+		Modes          []string `json:"modes,omitempty"`
+		MaxWidth       int      `json:"max_width,omitempty"`
+		DefaultChannel int      `json:"default_channel,omitempty"`
 		Ht             bool     `json:"ht,omitempty"`
 		Vht            bool     `json:"vht,omitempty"`
 		He             bool     `json:"he,omitempty"`
-		MaxWidth       int      `json:"max_width,omitempty"`
-		Modes          []string `json:"modes,omitempty"`
-		DefaultChannel int      `json:"default_channel,omitempty"`
 	} `json:"5G"`
 	SixG struct {
-		He             bool     `json:"he,omitempty"`
-		MaxWidth       int      `json:"max_width,omitempty"`
 		Modes          []string `json:"modes,omitempty"`
+		MaxWidth       int      `json:"max_width,omitempty"`
 		DefaultChannel int      `json:"default_channel,omitempty"`
+		He             bool     `json:"he,omitempty"`
 	} `json:"6G"`
 }

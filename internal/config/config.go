@@ -11,6 +11,7 @@ import (
 const (
 	DefaultMeshNetInterface            = "br-ahwlan"
 	DefaultGatewayMode                 = false
+	DefaultDBFile                      = "/etc/openmanetd/openmanetd.db"
 	DefaultAlfredMode                  = "primary"
 	DefaultAlfredBatInterface          = "bat0"
 	DefaultAlfredSocketPath            = "/var/run/alfred.sock"
@@ -26,30 +27,35 @@ const (
 	DefaultPTTLoopback                 = false
 	DefaultPTTPttDevice                = "/dev/hidraw0/*"
 	DefaultPTTPttDeviceName            = ""
+	DefaultResetDBOnStart              = false
+	DefaultEnableGPS                   = false
 )
 
 // Config holds the application configuration values with automatic reloading support.
 type Config struct {
-	mu                          sync.RWMutex
 	v                           *viper.Viper
 	MeshNetInterface            string
-	GatewayMode                 bool
+	DBFile                      string
 	AlfredMode                  string
 	AlfredBatInterface          string
 	AlfredSocketPath            string
+	PTTMcastAddr                string
+	PTTPttKey                   string
+	PTTPttDevice                string
+	PTTPttDeviceName            string
+	onChangeCallbacks           []func(*Config)
+	PTTMcastPort                int
+	mu                          sync.RWMutex
+	GatewayMode                 bool
 	AlfredDataTypeGateway       bool
 	AlfredDataTypeNode          bool
 	AlfredDataTypePosition      bool
 	AlfredDataTypeAddressReserv bool
 	PTTEnable                   bool
-	PTTMcastAddr                string
-	PTTMcastPort                int
-	PTTPttKey                   string
 	PTTDebug                    bool
 	PTTLoopback                 bool
-	PTTPttDevice                string
-	PTTPttDeviceName            string
-	onChangeCallbacks           []func(*Config)
+	ResetDBOnStart              bool
+	EnableGPS                   bool
 }
 
 // New creates a new Config instance with the given viper instance.
@@ -94,6 +100,24 @@ func (c *Config) reload() {
 		c.GatewayMode = c.v.GetBool("gatewayMode")
 	} else {
 		c.GatewayMode = DefaultGatewayMode
+	}
+
+	if val := c.v.GetString("dbFile"); val != "" {
+		c.DBFile = val
+	} else {
+		c.DBFile = DefaultDBFile
+	}
+
+	if c.v.IsSet("resetDBOnStart") {
+		c.ResetDBOnStart = c.v.GetBool("resetDBOnStart")
+	} else {
+		c.ResetDBOnStart = DefaultResetDBOnStart
+	}
+
+	if c.v.IsSet("enableGPS") {
+		c.EnableGPS = c.v.GetBool("enableGPS")
+	} else {
+		c.EnableGPS = DefaultEnableGPS
 	}
 
 	// Load Alfred configuration
@@ -223,6 +247,20 @@ func (c *Config) GetGatewayMode() bool {
 	return c.GatewayMode
 }
 
+// GetDBFile returns the database file path.
+func (c *Config) GetDBFile() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.DBFile
+}
+
+// GetResetDBOnStart returns whether to reset the database on start.
+func (c *Config) GetResetDBOnStart() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ResetDBOnStart
+}
+
 // GetAlfredMode returns the Alfred operating mode (primary/secondary).
 func (c *Config) GetAlfredMode() string {
 	c.mu.RLock()
@@ -326,4 +364,11 @@ func (c *Config) GetPTTPttDeviceName() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.PTTPttDeviceName
+}
+
+// GetEnableGPS returns whether GPS is enabled.
+func (c *Config) GetEnableGPS() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.EnableGPS
 }

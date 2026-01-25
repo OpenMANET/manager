@@ -2,6 +2,8 @@
 
 The following guide is intended to get new users up and running with openmanetd quickly
 
+**It is highly recommended to use VSCode with the DevContainers extension.  This will make it very easy to get your environment up and running.**
+
 ## Running DevContainers on Ubuntu
 
 ### Pre-requisites

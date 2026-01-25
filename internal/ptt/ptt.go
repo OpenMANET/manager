@@ -59,15 +59,15 @@ var (
 type PTTConfig struct {
 	Log           zerolog.Logger
 	Interupt      chan os.Signal
-	Enable        bool
 	Iface         string
 	McastAddr     string
-	McastPort     int
 	PttKey        string
-	Debug         bool
-	Loopback      bool
 	PttDevice     string
 	PttDeviceName string
+	McastPort     int
+	Enable        bool
+	Debug         bool
+	Loopback      bool
 }
 
 func NewPTT(cfg PTTConfig) *PTTConfig {

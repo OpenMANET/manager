@@ -8,8 +8,7 @@ import (
 	"time"
 
 	"github.com/digineo/go-uci/v2"
-	"github.com/openmanet/go-alfred"
-	proto "github.com/openmanet/openmanetd/internal/api/openmanet/v1"
+	"github.com/openmanet/openmanetd/internal/database/models"
 )
 
 const (
@@ -548,10 +547,10 @@ func SetNetworkIPV6ClassWithReader(section, ip6class string, reader ConfigReader
 	return nil
 }
 
-// SelectAvailableStaticIP selects an available static IP address from the 10.41.0.0/16 network.
+// SelectAvailableStaticIPFromNodeData selects an available static IP address from the 10.41.0.0/16 network.
 //
 // Parameters:
-//   - records: Array of Alfred records containing address reservations
+//   - nodes: Array of MeshNode records containing address reservations
 //   - gatewayMode: If true, selects from 10.41.0.0/24 range only. If false (default), selects from entire 10.41.0.0/16 range
 //
 // Returns:
@@ -568,25 +567,19 @@ func SetNetworkIPV6ClassWithReader(section, ip6class string, reader ConfigReader
 //
 // Example:
 //
-//	records := []alfred.Record{ /* ... */ }
-//	ip, err := SelectAvailableStaticIP(records, false)
+//	nodes := []models.MeshNode{ /* ... */ }
+//	ip, err := SelectAvailableStaticIPFromNodeData(nodes, false)
 //	if err != nil {
 //	    log.Fatalf("Failed to select IP: %v", err)
 //	}
 //	fmt.Printf("Selected IP: %s\n", ip)
-func SelectAvailableStaticIP(records []alfred.Record, gatewayMode bool) (string, error) {
+func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bool) (string, error) {
 	// Collect all reserved IP addresses
 	reservedIPs := make(map[string]bool)
 
-	for _, record := range records {
-		var addrRes proto.AddressReservation
-		if err := addrRes.UnmarshalVT(record.Data); err != nil {
-			// Skip records that can't be unmarshaled
-			continue
-		}
-
-		if addrRes.StaticIp != "" {
-			reservedIPs[addrRes.StaticIp] = true
+	for _, node := range nodes {
+		if node.IpAddr != "" {
+			reservedIPs[node.IpAddr] = true
 		}
 	}
 
@@ -614,9 +607,9 @@ func SelectAvailableStaticIP(records []alfred.Record, gatewayMode bool) (string,
 		return "", fmt.Errorf("no available IP addresses in 10.41.0.0/24 range")
 	}
 
-	// Normal mode: If there are 1 or fewer records, select a random IP to avoid conflicts
+	// Normal mode: If there are 1 or fewer nodes, select a random IP to avoid conflicts
 	// when multiple nodes start simultaneously
-	if len(records) <= 1 {
+	if len(nodes) <= 1 {
 		// Initialize random seed
 		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 

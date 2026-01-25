@@ -28,12 +28,12 @@ var (
 //   - Protocol: The routing protocol that installed this route (e.g., RTPROT_BOOT, RTPROT_STATIC).
 type Route struct {
 	Destination *net.IPNet
-	Gateway     net.IP
 	Interface   string
+	Gateway     net.IP
 	Metric      int
 	Table       int
-	Scope       netlink.Scope
 	Protocol    netlink.RouteProtocol
+	Scope       netlink.Scope
 }
 
 // AddRoute adds a new route to the kernel routing table.

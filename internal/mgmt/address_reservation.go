@@ -1,17 +1,18 @@
 package mgmt
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/openmanet/go-alfred"
-	proto "github.com/openmanet/openmanetd/internal/api/openmanet/v1"
+	proto "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/system"
+	"github.com/openmanet/openmanetd/internal/util"
 )
 
 const (
@@ -24,8 +25,7 @@ type AddressReservationWorker struct {
 	Client       *alfred.Client
 	ShutdownChan <-chan os.Signal
 
-	sendInterval time.Duration
-	recvInterval time.Duration
+	reserveInterval time.Duration
 }
 
 func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client, shutdownChan <-chan os.Signal) *AddressReservationWorker {
@@ -36,14 +36,12 @@ func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client
 		Client:       client,
 		ShutdownChan: shutdownChan,
 
-		sendInterval: config.addressReservationWorkerSendInterval,
-		recvInterval: config.addressReservationWorkerRecvInterval,
+		reserveInterval: config.addressReservationWorkerReserveInterval,
 	}
 }
 
-// Start begins the periodic sending of address reservation requests to the Alfred client.
-func (arw *AddressReservationWorker) StartSend() {
-	ticker := time.NewTicker(arw.sendInterval)
+func (arw *AddressReservationWorker) ReserveAddressIfNeeded() {
+	ticker := time.NewTicker(arw.reserveInterval)
 	defer ticker.Stop()
 
 	for {
@@ -51,253 +49,105 @@ func (arw *AddressReservationWorker) StartSend() {
 		case <-arw.ShutdownChan:
 			return
 		case <-ticker.C:
-			var (
-				err error
-			)
-
 			configured, err := network.IsDHCPConfiguredWithReader(arw.Config.uciOpenMANETConfig)
 			if err != nil {
 				arw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
 				continue
 			}
 
-			// If DHCP is not configured, send address reservation request
 			if !configured {
-				arw.Config.Log.Debug().Msg("DHCP is not configured, sending address reservation request")
+				arw.Config.Log.Debug().Msg("DHCP not configured, reserving address")
 
-				iface := network.GetInterfaceByName(arw.Config.IFace)
-
-				addrResData := proto.AddressReservation{
-					Mac:                   iface.MAC,
-					StaticIp:              iface.IP[0].IP.String(),
-					RequestingReservation: true,
-				}
-
-				var addrResDataBytes []byte
-				addrResDataBytes, err = addrResData.MarshalVT()
+				// Get mesh config to determine if we are a gateway
+				meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
 				if err != nil {
-					arw.Config.Log.Error().Err(err).Msg("Error marshaling address reservation data")
+					arw.Config.Log.Error().Err(err).Msg("Error getting mesh config")
 					continue
 				}
 
-				err = arw.Client.Set(AddressReservationDataType, AddressReservationDataTypeVersion, addrResDataBytes)
+				nodes, err := arw.Config.DB.ListMeshNodes(context.Background())
 				if err != nil {
-					arw.Config.Log.Error().Err(err).Msg("Error sending address reservation data")
+					arw.Config.Log.Error().Err(err).Msg("Error listing mesh nodes from database")
+					continue
 				}
 
-				arw.Config.Log.Debug().Interface("addressRes", &addrResData).Msg("Address reservation request sent")
+				staticIP, err := network.SelectAvailableStaticIPFromNodeData(nodes, meshCfg.IsGatewayMode())
+				if err != nil {
+					arw.Config.Log.Error().Err(err).Msg("Error selecting available static IP")
+					continue
+				}
+
+				// if arw.Config.IFace is prefixed with "br-", remove the prefix because dhcp and network config is tied to the physical interface
+				normalizedIface, err := util.InterfaceWithoutBridge(arw.Config.IFace)
+				if err != nil {
+					arw.Config.Log.Error().Err(err).Msg("Error normalizing interface name")
+					continue
+				}
+
+				if err := network.SetNetworkConfigWithReader(normalizedIface, &network.UCINetwork{
+					Proto:          network.DefaultNetworkProto,
+					IPAddr:         staticIP,
+					NetMask:        network.DefaultNetworkMask,
+					IPV6Class:      network.DefaultIPv6Class,
+					IPV6IfaceID:    network.DefaultIPv6IfaceID,
+					IPV6Assignment: network.DefaultIPv6Assign,
+					Device:         arw.Config.IFace,
+				}, arw.Config.uciNetworkConfig); err != nil {
+					arw.Config.Log.Error().Err(err).Msg("Error setting network config for address reservation")
+					continue
+				}
+
+				// Process received address reservation records
+				dhcpStart, err := network.CalculateAvailableDHCPStart(nodes, network.DefaultNetworkAddress, network.DefaultNetworkMask, network.DefaultDHCPAddressLimit)
+				if err != nil {
+					arw.Config.Log.Error().Err(err).Msg("Error calculating available DHCP start address")
+					continue
+				}
+
+				dhcpConfig := &network.UCIDHCP{
+					Interface: normalizedIface,
+					Start:     strconv.Itoa(dhcpStart),
+					Limit:     strconv.Itoa(network.DefaultDHCPAddressLimit),
+					LeaseTime: network.DefaultDHCPLeaseTime,
+					Force:     "1",
+				}
+
+				arw.Config.Log.Debug().Interface("dhcpConfig", dhcpConfig).Msg("Setting DHCP config")
+
+				err = network.SetDHCPConfigWithReader(normalizedIface, dhcpConfig, arw.Config.uciDHCPConfig)
+				if err != nil {
+					arw.Config.Log.Error().Err(err).Msg("Error setting DHCP config")
+					continue
+				}
+
+				arw.Config.Log.Info().Msgf("Static IP %s and DHCP configured via address reservation", staticIP)
+
+				// Mark DHCP as configured
+				err = network.SetDHCPConfiguredWithReader(arw.Config.uciOpenMANETConfig)
+				if err != nil {
+					arw.Config.Log.Error().Err(err).Msg("Error marking DHCP as configured")
+					continue
+				}
+
+				// Clean up interfaces or configs if needed.
+				// This will only happen on initial configuration. If users create things later
+				// we will not change them unless they re-request an address reservation.
+				err = arw.cleanUpInterfaces()
+				if err != nil {
+					arw.Config.Log.Error().Err(err).Msg("Error cleaning up interfaces")
+					continue
+				}
+
+				// Restart the system to apply new network settings
+				arw.Config.Log.Info().Msg("Rebooting system to apply new network settings")
+				err = system.Reboot()
+				if err != nil {
+					arw.Config.Log.Error().Err(err).Msg("Error rebooting system")
+					continue
+				}
 			}
 		}
 	}
-}
-
-// Start begins the periodic receiving of address reservation data from the Alfred client.
-func (arw *AddressReservationWorker) StartReceive() {
-	ticker := time.NewTicker(arw.recvInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-arw.ShutdownChan:
-			return
-		case <-ticker.C:
-			var (
-				normalizedIface string
-				iface           = network.GetInterfaceByName(arw.Config.IFace)
-			)
-
-			// Get address reservation data from the Alfred client
-			records, err := arw.Client.Request(AddressReservationDataType)
-			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error receiving address reservation data")
-				continue
-			}
-
-			configured, err := network.IsDHCPConfiguredWithReader(arw.Config.uciOpenMANETConfig)
-			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
-				continue
-			}
-
-			// If DHCP is configured already, process records to see if there are any requests for reservations
-			if configured {
-				for _, record := range records {
-					var addrRes proto.AddressReservation
-					if err := addrRes.UnmarshalVT(record.Data); err != nil {
-						arw.Config.Log.Error().Err(err).Msg("Error unmarshaling address reservation data")
-						continue
-					}
-
-					// If there is a reservation request, process it
-					// only respond to requests not from ourselves
-					if addrRes.RequestingReservation && addrRes.Mac != iface.MAC {
-
-						arw.Config.Log.Debug().Interface("addressRes", &addrRes).Msg("Processing address reservation request")
-
-						// Create and send address reservation response
-						addrResDataBytes, err := arw.createAddressReservationResponse()
-						if err != nil {
-							arw.Config.Log.Error().Err(err).Msg("Error creating address reservation response")
-							continue
-						}
-
-						err = arw.Client.Set(AddressReservationDataType, AddressReservationDataTypeVersion, addrResDataBytes)
-						if err != nil {
-							arw.Config.Log.Error().Err(err).Msg("Error sending address reservation response")
-							continue
-						}
-
-						arw.Config.Log.Debug().Msg("Address reservation response sent")
-					}
-				}
-
-				// DHCP is already configured, skip further processing
-				continue
-			}
-
-			// DHCP and the Static IP are not configured, process received records to configure them
-			// If we are a mesh gateway, skip receiving
-			meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
-			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error getting mesh config")
-				continue
-			}
-
-			// if arw.Config.IFace is prefixed with "br-", remove the prefix because dhcp and network config is tied to the physical interface
-			if after, ok := strings.CutPrefix(arw.Config.IFace, "br-"); ok {
-				normalizedIface = after
-			}
-
-			staticIP, err := network.SelectAvailableStaticIP(records, meshCfg.IsGatewayMode())
-			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error selecting available static IP")
-				continue
-			}
-
-			if err := network.SetNetworkConfigWithReader(normalizedIface, &network.UCINetwork{
-				Proto:          network.DefaultNetworkProto,
-				IPAddr:         staticIP,
-				NetMask:        network.DefaultNetworkMask,
-				IPV6Class:      network.DefaultIPv6Class,
-				IPV6IfaceID:    network.DefaultIPv6IfaceID,
-				IPV6Assignment: network.DefaultIPv6Assign,
-				Device:         arw.Config.IFace,
-				DNS:            "1.1.1.1",
-			}, arw.Config.uciNetworkConfig); err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error setting network config for address reservation")
-				continue
-			}
-
-			// Process received address reservation records
-			dhcpStart, err := network.CalculateAvailableDHCPStart(records, network.DefaultNetworkAddress, network.DefaultNetworkMask, network.DefaultDHCPAddressLimit)
-			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error calculating available DHCP start address")
-				continue
-			}
-
-			dhcpConfig := &network.UCIDHCP{
-				Interface: normalizedIface,
-				Start:     strconv.Itoa(dhcpStart),
-				Limit:     strconv.Itoa(network.DefaultDHCPAddressLimit),
-				LeaseTime: network.DefaultDHCPLeaseTime,
-				Force:     "1",
-			}
-
-			arw.Config.Log.Debug().Interface("dhcpConfig", dhcpConfig).Msg("Setting DHCP config")
-
-			err = network.SetDHCPConfigWithReader(normalizedIface, dhcpConfig, arw.Config.uciDHCPConfig)
-			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error setting DHCP config")
-				continue
-			}
-
-			arw.Config.Log.Info().Msgf("Static IP %s and DHCP configured via address reservation", staticIP)
-
-			// Mark DHCP as configured
-			err = network.SetDHCPConfiguredWithReader(arw.Config.uciOpenMANETConfig)
-			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error marking DHCP as configured")
-				continue
-			}
-
-			// Clean up interfaces or configs if needed.
-			// This will only happen on initial configuration. If users create things later
-			// we will not change them unless they re-request an address reservation.
-			err = arw.cleanUpInterfaces()
-			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error cleaning up interfaces")
-				continue
-			}
-
-			// Restart the system to apply new network settings
-			arw.Config.Log.Info().Msg("Rebooting system to apply new network settings")
-			err = system.Reboot()
-			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error rebooting system")
-				continue
-			}
-		}
-	}
-}
-
-// createAddressReservationResponse generates a serialized AddressReservation protobuf message
-// containing the network interface configuration details. It retrieves the MAC address, IP address,
-// CIDR notation, and DHCP configuration (start address and limit) for the configured interface.
-//
-// If the interface name is prefixed with "br-", the prefix is removed before querying DHCP configuration,
-// as DHCP config is associated with the physical interface rather than the bridge.
-//
-// Returns the marshaled protobuf bytes and an error if:
-//   - DHCP configuration cannot be retrieved
-//   - The interface has no IP address
-//   - The interface has no valid IPv4 address (unspecified, loopback, or non-IPv4)
-//   - Marshaling the protobuf message fails
-func (arw *AddressReservationWorker) createAddressReservationResponse() ([]byte, error) {
-	var (
-		dhcpiface string
-	)
-	iface := network.GetInterfaceByName(arw.Config.IFace)
-
-	// if arw.Config.IFace is prefixed with "br-", remove the prefix because dhcp config is tied to the physical interface
-	if after, ok := strings.CutPrefix(arw.Config.IFace, "br-"); ok {
-		dhcpiface = after
-	}
-
-	dhcp, err := network.GetDHCPConfig(dhcpiface)
-	if err != nil {
-		return nil, err
-	}
-
-	// Verify that the interface has an IP address
-	if len(iface.IP) == 0 {
-		return nil, fmt.Errorf("interface %s has no IP address", arw.Config.IFace)
-	}
-
-	ip := iface.IP[0].IP
-
-	if ip == nil || ip.IsUnspecified() || ip.IsLoopback() || ip.To4() == nil {
-		arw.Config.Log.Warn().Msgf("Interface %s has no valid IPv4 address", arw.Config.IFace)
-		return nil, fmt.Errorf("interface %s has no valid IPv4 address", arw.Config.IFace)
-	}
-
-	cidr := iface.GetCIDR()
-
-	addrResData := proto.AddressReservation{
-		Mac:                   iface.MAC,
-		StaticIp:              iface.IP[0].IP.String(),
-		ReservationCidr:       cidr[0],
-		UciDhcpStart:          dhcp.Start,
-		UciDhcpLimit:          dhcp.Limit,
-		RequestingReservation: false,
-	}
-
-	var addrResDataBytes []byte
-	addrResDataBytes, err = addrResData.MarshalVT()
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling address reservation data: %w", err)
-	}
-
-	return addrResDataBytes, nil
 }
 
 func (arw *AddressReservationWorker) cleanUpInterfaces() error {
@@ -311,14 +161,7 @@ func (arw *AddressReservationWorker) cleanUpInterfaces() error {
 		return nil
 	}
 
-	// Clean up 'wan' and 'lan' network sections if they exist
-	if network.NetworkSectionExistsWithReader("wan", arw.Config.uciNetworkConfig) {
-		arw.Config.Log.Info().Msg("Removing 'wan' network section")
-		if err := network.DeleteNetworkConfigWithReader("wan", arw.Config.uciNetworkConfig); err != nil {
-			return fmt.Errorf("error deleting 'wan' network section: %w", err)
-		}
-	}
-
+	// Clean up 'lan' network sections if they exist
 	if network.NetworkSectionExistsWithReader("lan", arw.Config.uciNetworkConfig) {
 		arw.Config.Log.Info().Msg("Removing 'lan' network section")
 		if err := network.DeleteNetworkConfigWithReader("lan", arw.Config.uciNetworkConfig); err != nil {
@@ -330,13 +173,6 @@ func (arw *AddressReservationWorker) cleanUpInterfaces() error {
 	arw.Config.uciNetworkConfig.Commit()
 
 	// Clean up DHCP sections if they exist
-	if network.DHCPSectionExistsWithReader("wan", arw.Config.uciDHCPConfig) {
-		arw.Config.Log.Info().Msg("Removing 'wan' DHCP section")
-		if err := network.DeleteDHCPConfigWithReader("wan", arw.Config.uciDHCPConfig); err != nil {
-			return fmt.Errorf("error deleting 'wan' DHCP section: %w", err)
-		}
-	}
-
 	if network.DHCPSectionExistsWithReader("lan", arw.Config.uciDHCPConfig) {
 		arw.Config.Log.Info().Msg("Removing 'lan' DHCP section")
 		if err := network.DeleteDHCPConfigWithReader("lan", arw.Config.uciDHCPConfig); err != nil {

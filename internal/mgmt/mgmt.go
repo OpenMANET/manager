@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/openmanet/go-alfred"
+	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/rs/zerolog"
@@ -16,34 +18,36 @@ const (
 	gatewayDataWorkerSendInterval time.Duration = 60 * time.Second
 	gatewayDataWorkerRecvInterval time.Duration = 10 * time.Second
 
-	addressReservationWorkerSendInterval time.Duration = 4 * time.Second
-	addressReservationWorkerRecvInterval time.Duration = 10 * time.Second
+	addressReservationWorkerReserveInterval time.Duration = 125 * time.Second
 )
 
 type ManagementConfig struct {
-	Log                        zerolog.Logger
-	GatewayMode                bool
-	IFace                      string
-	AlfredMode                 string
-	BatInterface               string
-	SocketPath                 string
-	GatewayDataType            bool
-	NodeDataType               bool
-	PositionDataType           bool
-	AddressReservationDataType bool
-	InteruptChan               chan os.Signal
+	Log          zerolog.Logger
+	DB           *models.Queries
+	InteruptChan chan os.Signal
 
-	gatewayWorkerSendInterval time.Duration
-	gatewayWorkerRecvInterval time.Duration
-
-	addressReservationWorkerSendInterval time.Duration
-	addressReservationWorkerRecvInterval time.Duration
+	GPS *gpsd.GPSService
 
 	uciOpenMANETConfig *network.UCIOpenMANETConfigReader
 	uciDHCPConfig      *network.UCIDHCPConfigReader
 	uciNetworkConfig   *network.UCINetworkConfigReader
 
 	boardConfigInfo *board.Board
+	IFace           string
+	AlfredMode      string
+	BatInterface    string
+	SocketPath      string
+
+	gatewayWorkerSendInterval time.Duration
+	gatewayWorkerRecvInterval time.Duration
+
+	addressReservationWorkerReserveInterval time.Duration
+
+	GatewayMode                bool
+	GatewayDataType            bool
+	NodeDataType               bool
+	PositionDataType           bool
+	AddressReservationDataType bool
 }
 
 func NewManager(cfg ManagementConfig) *ManagementConfig {
@@ -65,11 +69,12 @@ func NewManager(cfg ManagementConfig) *ManagementConfig {
 		AddressReservationDataType: cfg.AddressReservationDataType,
 		InteruptChan:               cfg.InteruptChan,
 		GatewayMode:                cfg.GatewayMode,
+		DB:                         cfg.DB,
+		GPS:                        cfg.GPS,
 
-		gatewayWorkerSendInterval:            gatewayDataWorkerSendInterval,
-		gatewayWorkerRecvInterval:            gatewayDataWorkerRecvInterval,
-		addressReservationWorkerSendInterval: addressReservationWorkerSendInterval,
-		addressReservationWorkerRecvInterval: addressReservationWorkerRecvInterval,
+		gatewayWorkerSendInterval:               gatewayDataWorkerSendInterval,
+		gatewayWorkerRecvInterval:               gatewayDataWorkerRecvInterval,
+		addressReservationWorkerReserveInterval: addressReservationWorkerReserveInterval,
 
 		uciOpenMANETConfig: network.NewUCIOpenMANETConfigReader(),
 		uciDHCPConfig:      network.NewUCIDHCPConfigReader(),
@@ -89,8 +94,7 @@ func (m *ManagementConfig) Start() {
 
 	if m.AddressReservationDataType {
 		addressReservationWorker := NewAddressReservationWorker(m, client, m.InteruptChan)
-		go addressReservationWorker.StartSend()
-		go addressReservationWorker.StartReceive()
+		go addressReservationWorker.ReserveAddressIfNeeded()
 	}
 
 	if m.NodeDataType {

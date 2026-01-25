@@ -316,6 +316,410 @@ func TestGetAlfredSocketPath(t *testing.T) {
 	}
 }
 
+func TestGetDBFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured path",
+			setValue: strPtr("/custom/db/openmanetd.db"),
+			want:     "/custom/db/openmanetd.db",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultDBFile,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("dbFile", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetDBFile()
+			if got != tt.want {
+				t.Errorf("GetDBFile() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetResetDBOnStart(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultResetDBOnStart,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("resetDBOnStart", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetResetDBOnStart()
+			if got != tt.want {
+				t.Errorf("GetResetDBOnStart() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAlfredBatInterface(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured interface",
+			setValue: strPtr("bat1"),
+			want:     "bat1",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultAlfredBatInterface,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("alfred.batInterface", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetAlfredBatInterface()
+			if got != tt.want {
+				t.Errorf("GetAlfredBatInterface() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAlfredDataTypeNode(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultAlfredDataTypeNode,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("alfred.dataTypes.node", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetAlfredDataTypeNode()
+			if got != tt.want {
+				t.Errorf("GetAlfredDataTypeNode() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAlfredDataTypePosition(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultAlfredDataTypePosition,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("alfred.dataTypes.position", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetAlfredDataTypePosition()
+			if got != tt.want {
+				t.Errorf("GetAlfredDataTypePosition() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAlfredDataTypeAddressReservation(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultAlfredDataTypeAddressReserv,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("alfred.dataTypes.addressReservation", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetAlfredDataTypeAddressReservation()
+			if got != tt.want {
+				t.Errorf("GetAlfredDataTypeAddressReservation() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPTTPttKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured key",
+			setValue: strPtr("space"),
+			want:     "space",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultPTTPttKey,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("ptt.pttKey", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetPTTPttKey()
+			if got != tt.want {
+				t.Errorf("GetPTTPttKey() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPTTDebug(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultPTTDebug,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("ptt.debug", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetPTTDebug()
+			if got != tt.want {
+				t.Errorf("GetPTTDebug() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPTTLoopback(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultPTTLoopback,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("ptt.loopback", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetPTTLoopback()
+			if got != tt.want {
+				t.Errorf("GetPTTLoopback() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPTTPttDevice(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured device",
+			setValue: strPtr("/dev/hidraw1/*"),
+			want:     "/dev/hidraw1/*",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultPTTPttDevice,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("ptt.pttDevice", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetPTTPttDevice()
+			if got != tt.want {
+				t.Errorf("GetPTTPttDevice() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPTTPttDeviceName(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured device name",
+			setValue: strPtr("Custom PTT Device"),
+			want:     "Custom PTT Device",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultPTTPttDeviceName,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("ptt.pttDeviceName", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetPTTPttDeviceName()
+			if got != tt.want {
+				t.Errorf("GetPTTPttDeviceName() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestConfigReload(t *testing.T) {
 	v := viper.New()
 	v.Set("meshNetInterface", "eth0")
@@ -384,5 +788,44 @@ func TestConfigOnChangeCallback(t *testing.T) {
 
 	if got := receivedConfig.GetMeshNetInterface(); got != "wlan0" {
 		t.Errorf("Callback config GetMeshNetInterface() = %v, want wlan0", got)
+	}
+}
+
+func TestGetEnableGPS(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns true when set to true",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when set to false",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultEnableGPS,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("enableGPS", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetEnableGPS()
+			if got != tt.want {
+				t.Errorf("GetEnableGPS() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

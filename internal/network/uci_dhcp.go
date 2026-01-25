@@ -1,14 +1,15 @@
 package network
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
+	"os/exec"
 	"sort"
 	"strconv"
 
 	"github.com/digineo/go-uci/v2"
-	"github.com/openmanet/go-alfred"
-	proto "github.com/openmanet/openmanetd/internal/api/openmanet/v1"
+	"github.com/openmanet/openmanetd/internal/database/models"
 )
 
 const (
@@ -470,7 +471,7 @@ type DHCPRange struct {
 // a non-conflicting DHCP start address within the network range.
 //
 // Parameters:
-//   - records: Array of Alfred records containing address reservations
+//   - nodes: Array of MeshNode containing address reservations
 //   - networkAddr: Network address (e.g., "10.41.0.0")
 //   - subnetMask: Subnet mask (e.g., "255.255.0.0")
 //   - desiredLimit: The desired DHCP limit (number of addresses)
@@ -481,8 +482,8 @@ type DHCPRange struct {
 //
 // Example:
 //
-//	records := []alfred.Record{ /* ... */ }
-//	start, err := CalculateAvailableDHCPStart(records, "10.41.0.0", "255.255.0.0", 150)
+//	nodes := []models.MeshNode{ /* ... */ }
+//	start, err := CalculateAvailableDHCPStart(nodes, "10.41.0.0", "255.255.0.0", 150)
 //	if err != nil {
 //	    log.Fatalf("Failed to calculate DHCP start: %v", err)
 //	}
@@ -491,7 +492,7 @@ type DHCPRange struct {
 // Note: This function accounts for existing DHCP ranges to prevent conflicts.
 // It attempts to find the lowest available start address that can accommodate
 // the desired limit without overlapping with existing ranges.
-func CalculateAvailableDHCPStart(records []alfred.Record, networkAddr, subnetMask string, desiredLimit int) (int, error) {
+func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMask string, desiredLimit int) (int, error) {
 	if desiredLimit <= 0 {
 		return 0, fmt.Errorf("desiredLimit must be greater than 0")
 	}
@@ -529,35 +530,16 @@ func CalculateAvailableDHCPStart(records []alfred.Record, networkAddr, subnetMas
 
 	// Collect existing DHCP ranges from records
 	var existingRanges []DHCPRange
-	for _, record := range records {
-		var addrRes proto.AddressReservation
-		if err := addrRes.UnmarshalVT(record.Data); err != nil {
-			// Skip records that can't be unmarshaled
-			continue
-		}
-
-		if addrRes.GetRequestingReservation() {
-			// Skip records that are requesting a reservation
-			continue
-		}
+	for _, node := range nodes {
 
 		// Ensure we have valid DHCP start and limit
-		if addrRes.UciDhcpStart == "" || addrRes.UciDhcpLimit == "" {
+		if !node.UciDhcpStart.Valid || !node.UciDhcpLimit.Valid {
 			continue
 		}
 
 		// Parse start and limit
-		start, err := strconv.Atoi(addrRes.UciDhcpStart)
-		if err != nil {
-			// Skip invalid start values
-			continue
-		}
-
-		limit, err := strconv.Atoi(addrRes.UciDhcpLimit)
-		if err != nil {
-			// Skip invalid limit values
-			continue
-		}
+		start := int(node.UciDhcpStart.Int64)
+		limit := int(node.UciDhcpLimit.Int64)
 
 		if start > 0 && limit > 0 {
 			existingRanges = append(existingRanges, DHCPRange{
@@ -647,4 +629,114 @@ func CalculateAvailableDHCPStart(records []alfred.Record, networkAddr, subnetMas
 // rangesOverlap checks if two ranges overlap.
 func rangesOverlap(start1, end1, start2, end2 int) bool {
 	return start1 <= end2 && start2 <= end1
+}
+
+// DHCPLease represents a single DHCP lease entry.
+type DHCPLease struct {
+	Hostname string `json:"hostname"`
+	MacAddr  string `json:"macaddr"`
+	DUID     string `json:"duid"`
+	IPAddr   string `json:"ipaddr"`
+	Expires  int    `json:"expires"`
+}
+
+// GetExpires returns the expiration time in seconds.
+func (l *DHCPLease) GetExpires() int {
+	return l.Expires
+}
+
+// GetHostname returns the hostname of the lease.
+func (l *DHCPLease) GetHostname() string {
+	return l.Hostname
+}
+
+// GetMacAddr returns the MAC address of the lease.
+func (l *DHCPLease) GetMacAddr() string {
+	return l.MacAddr
+}
+
+// GetDUID returns the DHCP Unique Identifier.
+func (l *DHCPLease) GetDUID() string {
+	return l.DUID
+}
+
+// GetIPAddr returns the IP address of the lease.
+func (l *DHCPLease) GetIPAddr() string {
+	return l.IPAddr
+}
+
+// DHCPLeasesResponse represents the response from ubus getDHCPLeases call.
+type DHCPLeasesResponse struct {
+	DHCPLeases  []DHCPLease `json:"dhcp_leases"`
+	DHCP6Leases []DHCPLease `json:"dhcp6_leases"`
+}
+
+// GetDHCPLeases returns all DHCP leases (IPv4).
+func (r *DHCPLeasesResponse) GetDHCPLeases() []DHCPLease {
+	return r.DHCPLeases
+}
+
+// GetDHCP6Leases returns all DHCPv6 leases.
+func (r *DHCPLeasesResponse) GetDHCP6Leases() []DHCPLease {
+	return r.DHCP6Leases
+}
+
+// GetAllLeases returns all leases (both IPv4 and IPv6).
+func (r *DHCPLeasesResponse) GetAllLeases() []DHCPLease {
+	all := make([]DHCPLease, 0, len(r.DHCPLeases)+len(r.DHCP6Leases))
+	all = append(all, r.DHCPLeases...)
+	all = append(all, r.DHCP6Leases...)
+	return all
+}
+
+// UbusCommandExecutor defines an interface for executing ubus commands.
+type UbusCommandExecutor interface {
+	Execute(args ...string) ([]byte, error)
+}
+
+// DefaultUbusExecutor executes real ubus commands.
+type DefaultUbusExecutor struct{}
+
+// Execute runs the ubus command with the given arguments.
+func (e *DefaultUbusExecutor) Execute(args ...string) ([]byte, error) {
+	cmd := exec.Command("ubus", args...)
+	return cmd.Output()
+}
+
+// GetCurrentDHCPLeases retrieves all current DHCP leases from OpenWRT using ubus.
+//
+// Returns:
+//   - A DHCPLeasesResponse containing all active DHCP leases
+//   - An error if the command fails or JSON parsing fails
+//
+// Example:
+//
+//	leases, err := GetCurrentDHCPLeases()
+//	if err != nil {
+//	    log.Fatalf("Failed to get DHCP leases: %v", err)
+//	}
+//	for _, lease := range leases.GetDHCPLeases() {
+//	    fmt.Printf("Host: %s, MAC: %s, IP: %s\n",
+//	        lease.GetHostname(), lease.GetMacAddr(), lease.GetIPAddr())
+//	}
+func GetCurrentDHCPLeases() (*DHCPLeasesResponse, error) {
+	return GetCurrentDHCPLeasesWithExecutor(&DefaultUbusExecutor{})
+}
+
+// GetCurrentDHCPLeasesWithExecutor retrieves DHCP leases using a custom executor.
+// This function is primarily used for testing with mocked ubus commands.
+func GetCurrentDHCPLeasesWithExecutor(executor UbusCommandExecutor) (*DHCPLeasesResponse, error) {
+	// Execute ubus command
+	output, err := executor.Execute("call", "luci-rpc", "getDHCPLeases")
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute ubus command: %w", err)
+	}
+
+	// Parse JSON response
+	var response DHCPLeasesResponse
+	if err := json.Unmarshal(output, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse DHCP leases JSON: %w", err)
+	}
+
+	return &response, nil
 }

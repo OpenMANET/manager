@@ -27,7 +27,11 @@
     "betteralign": "go install github.com/dkorunic/betteralign/cmd/betteralign@latest",
     "cobra-cli": "go install github.com/spf13/cobra-cli@latest",
     "go-enum": "go install github.com/abice/go-enum@latest",
-    "buf": "go install github.com/bufbuild/buf/cmd/buf@v1.55.1"
+    "buf": "go install github.com/bufbuild/buf/cmd/buf@v1.55.1",
+    "protoc-gen-go": "go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11",
+    "connect-rpc": "go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.19.1",
+    "protovalidate": "go install buf.build/go/protovalidate@v1.1.0",
+    "sqlc": "go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0"
   },
   "containerEnv": {
     "SOURCE_FILEPATH": "${localWorkspaceFolder}"

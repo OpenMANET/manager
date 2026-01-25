@@ -61,7 +61,7 @@ func init() {
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is /etc/openmanet/config.yml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is /etc/openmanetd/config.yml)")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
@@ -75,7 +75,7 @@ func initConfig() {
 		viper.SetConfigFile(cfgFile)
 	} else {
 		// Search config in home directory with name "config" (without extension).
-		viper.AddConfigPath("/etc/openmanet")
+		viper.AddConfigPath("/etc/openmanetd")
 		viper.SetConfigType("yml")
 		viper.SetConfigName("config")
 	}

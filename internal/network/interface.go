@@ -12,9 +12,9 @@ const (
 
 type NetworkInterface struct {
 	Name  string
-	MTU   int
 	MAC   string
 	IP    []IPAddress
+	MTU   int
 	Flags net.Flags
 }
 

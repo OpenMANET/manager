@@ -7,14 +7,14 @@ import (
 )
 
 type Gateway struct {
-	HardIfindex   int    `json:"hard_ifindex"`
 	HardIfname    string `json:"hard_ifname"`
 	OrigAddress   string `json:"orig_address"`
-	Best          bool   `json:"best"`
+	Router        string `json:"router"`
+	HardIfindex   int    `json:"hard_ifindex"`
 	Throughput    int    `json:"throughput"`
 	BandwidthUp   int    `json:"bandwidth_up"`
 	BandwidthDown int    `json:"bandwidth_down"`
-	Router        string `json:"router"`
+	Best          bool   `json:"best"`
 }
 
 type Gateways []Gateway
