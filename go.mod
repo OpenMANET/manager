@@ -6,6 +6,7 @@ require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.10-20251209175733-2a1774d88802.1
 	connectrpc.com/connect v1.19.1
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
+	github.com/coreywagehoft/go-tak v1.1.1
 	github.com/digineo/go-uci/v2 v2.0.0-20231120164223-60c14814b8fe
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gordonklaus/portaudio v0.0.0-20250206071425-98a94950218b
