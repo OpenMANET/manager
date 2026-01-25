@@ -9,8 +9,7 @@ import (
 	"strconv"
 
 	"github.com/digineo/go-uci/v2"
-	"github.com/openmanet/go-alfred"
-	proto "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
+	"github.com/openmanet/openmanetd/internal/database/models"
 )
 
 const (
@@ -472,7 +471,7 @@ type DHCPRange struct {
 // a non-conflicting DHCP start address within the network range.
 //
 // Parameters:
-//   - records: Array of Alfred records containing address reservations
+//   - nodes: Array of MeshNode containing address reservations
 //   - networkAddr: Network address (e.g., "10.41.0.0")
 //   - subnetMask: Subnet mask (e.g., "255.255.0.0")
 //   - desiredLimit: The desired DHCP limit (number of addresses)
@@ -483,8 +482,8 @@ type DHCPRange struct {
 //
 // Example:
 //
-//	records := []alfred.Record{ /* ... */ }
-//	start, err := CalculateAvailableDHCPStart(records, "10.41.0.0", "255.255.0.0", 150)
+//	nodes := []models.MeshNode{ /* ... */ }
+//	start, err := CalculateAvailableDHCPStart(nodes, "10.41.0.0", "255.255.0.0", 150)
 //	if err != nil {
 //	    log.Fatalf("Failed to calculate DHCP start: %v", err)
 //	}
@@ -493,7 +492,7 @@ type DHCPRange struct {
 // Note: This function accounts for existing DHCP ranges to prevent conflicts.
 // It attempts to find the lowest available start address that can accommodate
 // the desired limit without overlapping with existing ranges.
-func CalculateAvailableDHCPStart(records []alfred.Record, networkAddr, subnetMask string, desiredLimit int) (int, error) {
+func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMask string, desiredLimit int) (int, error) {
 	if desiredLimit <= 0 {
 		return 0, fmt.Errorf("desiredLimit must be greater than 0")
 	}
@@ -531,35 +530,16 @@ func CalculateAvailableDHCPStart(records []alfred.Record, networkAddr, subnetMas
 
 	// Collect existing DHCP ranges from records
 	var existingRanges []DHCPRange
-	for _, record := range records {
-		var addrRes proto.AddressReservation
-		if err := addrRes.UnmarshalVT(record.Data); err != nil {
-			// Skip records that can't be unmarshaled
-			continue
-		}
-
-		if addrRes.GetRequestingReservation() {
-			// Skip records that are requesting a reservation
-			continue
-		}
+	for _, node := range nodes {
 
 		// Ensure we have valid DHCP start and limit
-		if addrRes.UciDhcpStart == "" || addrRes.UciDhcpLimit == "" {
+		if !node.UciDhcpStart.Valid || !node.UciDhcpLimit.Valid {
 			continue
 		}
 
 		// Parse start and limit
-		start, err := strconv.Atoi(addrRes.UciDhcpStart)
-		if err != nil {
-			// Skip invalid start values
-			continue
-		}
-
-		limit, err := strconv.Atoi(addrRes.UciDhcpLimit)
-		if err != nil {
-			// Skip invalid limit values
-			continue
-		}
+		start := int(node.UciDhcpStart.Int64)
+		limit := int(node.UciDhcpLimit.Int64)
 
 		if start > 0 && limit > 0 {
 			existingRanges = append(existingRanges, DHCPRange{

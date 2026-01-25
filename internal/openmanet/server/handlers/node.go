@@ -32,6 +32,11 @@ func (n *NodeService) ListNodes(ctx context.Context, _ *emptypb.Empty) (*service
 			Mac:      node.MacAddr,
 			Hostname: node.Hostname,
 			Ipaddr:   node.IpAddr,
+			Position: &proto.Position{
+				Latitude:  node.Latitude.Float64,
+				Longitude: node.Longitude.Float64,
+				Altitude:  float32(node.Altitude.Float64),
+			},
 		})
 	}
 	return &serviceproto.ListNodesResponse{Nodes: protoNodes}, nil

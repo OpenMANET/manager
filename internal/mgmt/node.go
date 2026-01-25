@@ -173,7 +173,7 @@ func (ndw *NodeDataWorker) StartReceive() {
 //
 // Parameters:
 //   - nodeData: A protobuf Node message containing mesh node information including
-//     MAC address, IP address, hostname, and optional DHCP settings
+//     MAC address, IP address, hostname, position, and optional DHCP settings
 //
 // Returns:
 //   - error: Returns an error if DHCP field parsing fails, otherwise returns nil
@@ -205,6 +205,9 @@ func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error {
 		MacAddr:      nodeData.Mac,
 		IpAddr:       nodeData.Ipaddr,
 		Hostname:     nodeData.Hostname,
+		Latitude:     sql.NullFloat64{Float64: nodeData.Position.GetLatitude(), Valid: nodeData.Position != nil},
+		Longitude:    sql.NullFloat64{Float64: nodeData.Position.GetLongitude(), Valid: nodeData.Position != nil},
+		Altitude:     sql.NullFloat64{Float64: float64(nodeData.Position.GetAltitude()), Valid: nodeData.Position != nil},
 		UciDhcpStart: dhcpStart,
 		UciDhcpLimit: dhcpLimit,
 	})

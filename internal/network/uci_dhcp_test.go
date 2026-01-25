@@ -1,14 +1,14 @@
 package network
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
-	"strconv"
 	"testing"
 
 	"github.com/digineo/go-uci/v2"
-	"github.com/openmanet/go-alfred"
 	proto "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
+	"github.com/openmanet/openmanetd/internal/database/models"
 )
 
 // mockDHCPConfigReader is a mock implementation of DHCPConfigReader for testing.
@@ -556,7 +556,7 @@ func TestSetDHCPLeaseTimeWithReader_ErrorHandling(t *testing.T) {
 func TestCalculateAvailableDHCPStart(t *testing.T) {
 	tests := []struct {
 		name         string
-		records      []alfred.Record
+		nodes        []models.MeshNode
 		networkAddr  string
 		subnetMask   string
 		desiredLimit int
@@ -566,7 +566,7 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 	}{
 		{
 			name:         "no existing ranges",
-			records:      []alfred.Record{},
+			nodes:        []models.MeshNode{},
 			networkAddr:  "10.41.0.0",
 			subnetMask:   "255.255.0.0",
 			desiredLimit: 150,
@@ -576,12 +576,10 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 		},
 		{
 			name: "one existing range - find gap after",
-			records: []alfred.Record{
+			nodes: []models.MeshNode{
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "100",
-						UciDhcpLimit: "150",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 100, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Int64: 150, Valid: true},
 				},
 			},
 			networkAddr:  "10.41.0.0",
@@ -593,12 +591,10 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 		},
 		{
 			name: "one existing range - find gap before",
-			records: []alfred.Record{
+			nodes: []models.MeshNode{
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "200",
-						UciDhcpLimit: "50",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 200, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Int64: 50, Valid: true},
 				},
 			},
 			networkAddr:  "10.41.0.0",
@@ -610,24 +606,18 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 		},
 		{
 			name: "multiple existing ranges",
-			records: []alfred.Record{
+			nodes: []models.MeshNode{
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "100",
-						UciDhcpLimit: "50",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 100, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Int64: 50, Valid: true},
 				},
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "200",
-						UciDhcpLimit: "100",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 200, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Int64: 100, Valid: true},
 				},
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "400",
-						UciDhcpLimit: "50",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 400, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Int64: 50, Valid: true},
 				},
 			},
 			networkAddr:  "10.41.0.0",
@@ -639,12 +629,10 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 		},
 		{
 			name: "ranges starting from offset 1",
-			records: []alfred.Record{
+			nodes: []models.MeshNode{
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "1",
-						UciDhcpLimit: "50",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 1, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Int64: 50, Valid: true},
 				},
 			},
 			networkAddr:  "10.41.0.0",
@@ -656,12 +644,10 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 		},
 		{
 			name: "subnet class C",
-			records: []alfred.Record{
+			nodes: []models.MeshNode{
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "10",
-						UciDhcpLimit: "50",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 10, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Int64: 50, Valid: true},
 				},
 			},
 			networkAddr:  "192.168.1.0",
@@ -673,7 +659,7 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 		},
 		{
 			name:         "invalid network address",
-			records:      []alfred.Record{},
+			nodes:        []models.MeshNode{},
 			networkAddr:  "invalid",
 			subnetMask:   "255.255.0.0",
 			desiredLimit: 100,
@@ -681,7 +667,7 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 		},
 		{
 			name:         "invalid subnet mask",
-			records:      []alfred.Record{},
+			nodes:        []models.MeshNode{},
 			networkAddr:  "10.41.0.0",
 			subnetMask:   "invalid",
 			desiredLimit: 100,
@@ -689,7 +675,7 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 		},
 		{
 			name:         "zero desired limit",
-			records:      []alfred.Record{},
+			nodes:        []models.MeshNode{},
 			networkAddr:  "10.41.0.0",
 			subnetMask:   "255.255.0.0",
 			desiredLimit: 0,
@@ -697,23 +683,22 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 		},
 		{
 			name:         "negative desired limit",
-			records:      []alfred.Record{},
+			nodes:        []models.MeshNode{},
 			networkAddr:  "10.41.0.0",
 			subnetMask:   "255.255.0.0",
 			desiredLimit: -10,
 			expectError:  true,
 		},
 		{
-			name: "records with invalid data",
-			records: []alfred.Record{
+			name: "nodes with invalid DHCP data",
+			nodes: []models.MeshNode{
 				{
-					Data: []byte("invalid data"),
+					UciDhcpStart: sql.NullInt64{Valid: false},
+					UciDhcpLimit: sql.NullInt64{Valid: false},
 				},
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "100",
-						UciDhcpLimit: "50",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 100, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Int64: 50, Valid: true},
 				},
 			},
 			networkAddr:  "10.41.0.0",
@@ -724,13 +709,11 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 			expectError:  false,
 		},
 		{
-			name: "records with invalid start",
-			records: []alfred.Record{
+			name: "nodes with invalid start (null)",
+			nodes: []models.MeshNode{
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "invalid",
-						UciDhcpLimit: "50",
-					}),
+					UciDhcpStart: sql.NullInt64{Valid: false},
+					UciDhcpLimit: sql.NullInt64{Int64: 50, Valid: true},
 				},
 			},
 			networkAddr:  "10.41.0.0",
@@ -741,13 +724,11 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 			expectError:  false,
 		},
 		{
-			name: "records with invalid limit",
-			records: []alfred.Record{
+			name: "nodes with invalid limit (null)",
+			nodes: []models.MeshNode{
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "100",
-						UciDhcpLimit: "invalid",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 100, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Valid: false},
 				},
 			},
 			networkAddr:  "10.41.0.0",
@@ -759,12 +740,10 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 		},
 		{
 			name: "network too small for desired limit",
-			records: []alfred.Record{
+			nodes: []models.MeshNode{
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "1",
-						UciDhcpLimit: "200",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 1, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Int64: 200, Valid: true},
 				},
 			},
 			networkAddr:  "192.168.1.0",
@@ -776,12 +755,10 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 		},
 		{
 			name: "large subnet with spanning ranges",
-			records: []alfred.Record{
+			nodes: []models.MeshNode{
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "256",
-						UciDhcpLimit: "512",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 256, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Int64: 512, Valid: true},
 				},
 			},
 			networkAddr:  "10.41.0.0",
@@ -792,97 +769,57 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 			expectError:  false,
 		},
 		{
-			name: "skip records requesting reservation",
-			records: []alfred.Record{
+			name: "skip nodes with null start",
+			nodes: []models.MeshNode{
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart:          "100",
-						UciDhcpLimit:          "150",
-						RequestingReservation: true,
-					}),
+					UciDhcpStart: sql.NullInt64{Valid: false},
+					UciDhcpLimit: sql.NullInt64{Int64: 150, Valid: true},
 				},
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "300",
-						UciDhcpLimit: "50",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 200, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Int64: 50, Valid: true},
 				},
 			},
 			networkAddr:  "10.41.0.0",
 			subnetMask:   "255.255.0.0",
 			desiredLimit: 50,
-			expectedMin:  100, // Should get 100 since first record is skipped
+			expectedMin:  100, // Should get 100 since first node is skipped
 			expectedMax:  100,
 			expectError:  false,
 		},
 		{
-			name: "skip records with empty start",
-			records: []alfred.Record{
+			name: "skip nodes with null limit",
+			nodes: []models.MeshNode{
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "",
-						UciDhcpLimit: "150",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 100, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Valid: false},
 				},
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "200",
-						UciDhcpLimit: "50",
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 200, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Int64: 50, Valid: true},
 				},
 			},
 			networkAddr:  "10.41.0.0",
 			subnetMask:   "255.255.0.0",
 			desiredLimit: 50,
-			expectedMin:  100, // Should get 100 since first record is skipped
+			expectedMin:  100, // Should get 100 since first node is skipped
 			expectedMax:  100,
 			expectError:  false,
 		},
 		{
-			name: "skip records with empty limit",
-			records: []alfred.Record{
+			name: "mixed valid and invalid nodes",
+			nodes: []models.MeshNode{
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "100",
-						UciDhcpLimit: "",
-					}),
+					UciDhcpStart: sql.NullInt64{Valid: false},
+					UciDhcpLimit: sql.NullInt64{Int64: 50, Valid: true},
 				},
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "200",
-						UciDhcpLimit: "50",
-					}),
-				},
-			},
-			networkAddr:  "10.41.0.0",
-			subnetMask:   "255.255.0.0",
-			desiredLimit: 50,
-			expectedMin:  100, // Should get 100 since first record is skipped
-			expectedMax:  100,
-			expectError:  false,
-		},
-		{
-			name: "mixed requesting and confirmed reservations",
-			records: []alfred.Record{
-				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart:          "100",
-						UciDhcpLimit:          "50",
-						RequestingReservation: true,
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 100, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Int64: 50, Valid: true},
 				},
 				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart: "100",
-						UciDhcpLimit: "50",
-					}),
-				},
-				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						UciDhcpStart:          "200",
-						UciDhcpLimit:          "100",
-						RequestingReservation: true,
-					}),
+					UciDhcpStart: sql.NullInt64{Int64: 200, Valid: true},
+					UciDhcpLimit: sql.NullInt64{Valid: false},
 				},
 			},
 			networkAddr:  "10.41.0.0",
@@ -896,7 +833,7 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			start, err := CalculateAvailableDHCPStart(tt.records, tt.networkAddr, tt.subnetMask, tt.desiredLimit)
+			start, err := CalculateAvailableDHCPStart(tt.nodes, tt.networkAddr, tt.subnetMask, tt.desiredLimit)
 
 			if tt.expectError {
 				if err == nil {
@@ -914,32 +851,14 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 			}
 
 			// Verify no conflicts with existing ranges
-			for _, record := range tt.records {
-				var addrRes proto.AddressReservation
-				if err := addrRes.UnmarshalVT(record.Data); err != nil {
+			for _, node := range tt.nodes {
+				// Skip nodes with invalid DHCP data (same as the function logic)
+				if !node.UciDhcpStart.Valid || !node.UciDhcpLimit.Valid {
 					continue
 				}
 
-				// Skip records that are requesting reservations (same as the function logic)
-				if addrRes.GetRequestingReservation() {
-					continue
-				}
-
-				// Skip records with empty start or limit (same as the function logic)
-				if addrRes.UciDhcpStart == "" || addrRes.UciDhcpLimit == "" {
-					continue
-				}
-
-				existingStart, err := strconv.Atoi(addrRes.UciDhcpStart)
-				if err != nil {
-					continue
-				}
-
-				existingLimit, err := strconv.Atoi(addrRes.UciDhcpLimit)
-				if err != nil {
-					continue
-				}
-
+				existingStart := int(node.UciDhcpStart.Int64)
+				existingLimit := int(node.UciDhcpLimit.Int64)
 				existingEnd := existingStart + existingLimit - 1
 				proposedEnd := start + tt.desiredLimit - 1
 

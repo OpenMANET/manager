@@ -7,8 +7,7 @@ import (
 	"testing"
 
 	"github.com/digineo/go-uci/v2"
-	"github.com/openmanet/go-alfred"
-	proto "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
+	"github.com/openmanet/openmanetd/internal/database/models"
 )
 
 // mockConfigReader is a test double that returns predefined configuration values.
@@ -1089,434 +1088,349 @@ func stringContains(s, substr string) bool {
 	return false
 }
 
-func TestSelectAvailableStaticIP(t *testing.T) {
+func TestSelectAvailableStaticIPFromNodeData_GatewayMode(t *testing.T) {
 	tests := []struct {
 		name        string
-		records     []alfred.Record
-		wantPrefix  string
-		wantErr     bool
-		shouldAvoid []string
-	}{
-		{
-			name:       "no_existing_reservations",
-			records:    []alfred.Record{},
-			wantPrefix: "10.41.",
-			wantErr:    false,
-		},
-		{
-			name: "one_existing_reservation",
-			records: []alfred.Record{
-				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						StaticIp: "10.41.0.1",
-					}),
-				},
-			},
-			wantPrefix:  "10.41.",
-			wantErr:     false,
-			shouldAvoid: []string{"10.41.0.1"},
-		},
-		{
-			name: "multiple_existing_reservations",
-			records: []alfred.Record{
-				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						StaticIp: "10.41.0.1",
-					}),
-				},
-				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						StaticIp: "10.41.0.2",
-					}),
-				},
-				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						StaticIp: "10.41.1.5",
-					}),
-				},
-			},
-			wantPrefix:  "10.41.",
-			wantErr:     false,
-			shouldAvoid: []string{"10.41.0.1", "10.41.0.2", "10.41.1.5"},
-		},
-		{
-			name: "reservation_without_static_ip",
-			records: []alfred.Record{
-				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						StaticIp:              "",
-						RequestingReservation: true,
-						UciDhcpStart:          "100",
-						UciDhcpLimit:          "150",
-					}),
-				},
-			},
-			wantPrefix: "10.41.",
-			wantErr:    false,
-		},
-		{
-			name: "invalid_record_data",
-			records: []alfred.Record{
-				{
-					Data: []byte{0xFF, 0xFF, 0xFF}, // Invalid protobuf data
-				},
-			},
-			wantPrefix: "10.41.",
-			wantErr:    false,
-		},
-		{
-			name: "mixed_valid_and_invalid_records",
-			records: []alfred.Record{
-				{
-					Data: []byte{0xFF, 0xFF, 0xFF}, // Invalid
-				},
-				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						StaticIp: "10.41.5.10",
-					}),
-				},
-			},
-			wantPrefix:  "10.41.",
-			wantErr:     false,
-			shouldAvoid: []string{"10.41.5.10"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := SelectAvailableStaticIP(tt.records, false)
-
-			if (err != nil) != tt.wantErr {
-				t.Errorf("SelectAvailableStaticIP() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if tt.wantErr {
-				return
-			}
-
-			// Verify the returned IP starts with the expected prefix
-			if len(got) < len(tt.wantPrefix) || got[:len(tt.wantPrefix)] != tt.wantPrefix {
-				t.Errorf("SelectAvailableStaticIP() = %v, want prefix %v", got, tt.wantPrefix)
-			}
-
-			// Verify the returned IP is not in the avoid list
-			for _, avoidIP := range tt.shouldAvoid {
-				if got == avoidIP {
-					t.Errorf("SelectAvailableStaticIP() = %v, should not return reserved IP %v", got, avoidIP)
-				}
-			}
-
-			// Verify the IP is not in restricted ranges
-			if len(got) >= 9 {
-				if got[:9] == "10.41.253" || got[:9] == "10.41.254" {
-					t.Errorf("SelectAvailableStaticIP() = %v, should not return IP in restricted range", got)
-				}
-			}
-
-			// Verify it's a valid IP
-			if ip := net.ParseIP(got); ip == nil {
-				t.Errorf("SelectAvailableStaticIP() = %v, not a valid IP address", got)
-			}
-		})
-	}
-}
-
-func TestSelectAvailableStaticIP_RestrictedRanges(t *testing.T) {
-	// Fill up the 10.41.0.0/24 range to force selection from another range
-	records := []alfred.Record{}
-	for i := 1; i < 255; i++ {
-		records = append(records, alfred.Record{
-			Data: mustMarshalAddressReservation(&proto.AddressReservation{
-				StaticIp: fmt.Sprintf("10.41.0.%d", i),
-			}),
-		})
-	}
-
-	got, err := SelectAvailableStaticIP(records, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Should select from a different subnet (10.41.1.x since 10.41.0.x is excluded in normal mode)
-	// and not from 253 or 254
-	if len(got) >= 9 && (got[:9] == "10.41.253" || got[:9] == "10.41.254" || got[:9] == "10.41.0.") {
-		t.Errorf("SelectAvailableStaticIP() = %v, should not select from restricted ranges", got)
-	}
-
-	// Should still be in 10.41.x.x range
-	if len(got) < 6 || got[:6] != "10.41." {
-		t.Errorf("SelectAvailableStaticIP() = %v, should be in 10.41.0.0/16 range", got)
-	}
-}
-
-func TestSelectAvailableStaticIP_SelectionOrder(t *testing.T) {
-	// With no reservations in normal mode, should select a random IP from valid range
-	// (not deterministic anymore due to randomization when records <= 1)
-	records := []alfred.Record{}
-
-	got, err := SelectAvailableStaticIP(records, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Verify the IP is in the correct range
-	if len(got) < 6 || got[:6] != "10.41." {
-		t.Errorf("SelectAvailableStaticIP() = %v, should be in 10.41.0.0/16 range", got)
-	}
-
-	// Verify it's not in restricted ranges (0, 253, 254)
-	if len(got) >= 9 && (got[:9] == "10.41.0." || got[:9] == "10.41.253" || got[:9] == "10.41.254") {
-		t.Errorf("SelectAvailableStaticIP() = %v, should not be in restricted ranges", got)
-	}
-
-	// Verify it's a valid IP
-	if ip := net.ParseIP(got); ip == nil {
-		t.Errorf("SelectAvailableStaticIP() = %v, not a valid IP address", got)
-	}
-}
-
-func TestSelectAvailableStaticIP_ExhaustRange(t *testing.T) {
-	// This test would be too slow to actually exhaust the range,
-	// so we just verify the error case logic with a smaller conceptual test
-
-	// Reserve a large number of IPs in the first few subnets
-	records := []alfred.Record{}
-
-	// Reserve 10.41.0.1 through 10.41.0.254
-	for i := 1; i < 255; i++ {
-		records = append(records, alfred.Record{
-			Data: mustMarshalAddressReservation(&proto.AddressReservation{
-				StaticIp: fmt.Sprintf("10.41.0.%d", i),
-			}),
-		})
-	}
-
-	// Should still find an IP in 10.41.1.x range
-	got, err := SelectAvailableStaticIP(records, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Verify it's from a different subnet
-	if len(got) >= 8 && got[:8] == "10.41.0." {
-		t.Errorf("SelectAvailableStaticIP() = %v, should select from different subnet", got)
-	}
-}
-
-func TestSelectAvailableStaticIP_Boundaries(t *testing.T) {
-	tests := []struct {
-		name         string
-		reservedIP   string
-		shouldSelect string
-	}{
-		{
-			name:         "skips_network_address",
-			reservedIP:   "10.41.1.1",
-			shouldSelect: "10.41.1.2", // Should skip to next available in 10.41.1.x
-		},
-		{
-			name:         "handles_subnet_boundary",
-			reservedIP:   "10.41.1.254",
-			shouldSelect: "10.41.1.1", // First IP if not reserved (or 10.41.2.1 if 10.41.1.1 is taken)
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			records := []alfred.Record{
-				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						StaticIp: tt.reservedIP,
-					}),
-				},
-			}
-
-			got, err := SelectAvailableStaticIP(records, false)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			// Verify it's a valid IP in the range
-			if ip := net.ParseIP(got); ip == nil {
-				t.Errorf("SelectAvailableStaticIP() = %v, not a valid IP", got)
-			}
-
-			// Verify it's not the reserved IP
-			if got == tt.reservedIP {
-				t.Errorf("SelectAvailableStaticIP() = %v, should not return reserved IP", got)
-			}
-
-			// Verify it's in the correct range
-			if len(got) < 6 || got[:6] != "10.41." {
-				t.Errorf("SelectAvailableStaticIP() = %v, should be in 10.41.0.0/16", got)
-			}
-		})
-	}
-}
-
-func TestSelectAvailableStaticIP_GatewayMode(t *testing.T) {
-	tests := []struct {
-		name        string
-		records     []alfred.Record
+		nodes       []models.MeshNode
 		gatewayMode bool
-		wantPrefix  string
+		wantIP      string
 		wantErr     bool
 	}{
 		{
-			name:        "gateway_mode_no_reservations",
-			records:     []alfred.Record{},
+			name:        "gateway mode - no nodes",
+			nodes:       []models.MeshNode{},
 			gatewayMode: true,
-			wantPrefix:  "10.41.0.",
+			wantIP:      "10.41.0.1",
 			wantErr:     false,
 		},
 		{
-			name: "gateway_mode_with_reservations",
-			records: []alfred.Record{
-				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						StaticIp: "10.41.0.1",
-					}),
-				},
-				{
-					Data: mustMarshalAddressReservation(&proto.AddressReservation{
-						StaticIp: "10.41.0.2",
-					}),
-				},
+			name: "gateway mode - first IP reserved",
+			nodes: []models.MeshNode{
+				{IpAddr: "10.41.0.1"},
 			},
 			gatewayMode: true,
-			wantPrefix:  "10.41.0.",
+			wantIP:      "10.41.0.2",
 			wantErr:     false,
 		},
 		{
-			name:        "normal_mode_selects_from_full_range",
-			records:     []alfred.Record{},
-			gatewayMode: false,
-			wantPrefix:  "10.41.",
+			name: "gateway mode - multiple IPs reserved",
+			nodes: []models.MeshNode{
+				{IpAddr: "10.41.0.1"},
+				{IpAddr: "10.41.0.2"},
+				{IpAddr: "10.41.0.3"},
+			},
+			gatewayMode: true,
+			wantIP:      "10.41.0.4",
+			wantErr:     false,
+		},
+		{
+			name: "gateway mode - IPs from other subnets don't affect selection",
+			nodes: []models.MeshNode{
+				{IpAddr: "10.41.1.1"},
+				{IpAddr: "10.41.2.1"},
+				{IpAddr: "10.41.100.1"},
+			},
+			gatewayMode: true,
+			wantIP:      "10.41.0.1",
 			wantErr:     false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := SelectAvailableStaticIP(tt.records, tt.gatewayMode)
-
+			got, err := SelectAvailableStaticIPFromNodeData(tt.nodes, tt.gatewayMode)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("SelectAvailableStaticIP() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("SelectAvailableStaticIPFromNodeData() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-
-			if tt.wantErr {
-				return
-			}
-
-			// Verify the returned IP starts with the expected prefix
-			if len(got) < len(tt.wantPrefix) || got[:len(tt.wantPrefix)] != tt.wantPrefix {
-				t.Errorf("SelectAvailableStaticIP() = %v, want prefix %v", got, tt.wantPrefix)
-			}
-
-			// For gateway mode, verify it's specifically in 10.41.0.0/24
-			if tt.gatewayMode {
-				if len(got) < 8 || got[:8] != "10.41.0." {
-					t.Errorf("SelectAvailableStaticIP() with gatewayMode = %v, should be in 10.41.0.0/24", got)
-				}
-			}
-
-			// Verify it's a valid IP
-			if ip := net.ParseIP(got); ip == nil {
-				t.Errorf("SelectAvailableStaticIP() = %v, not a valid IP address", got)
+			if !tt.wantErr && got != tt.wantIP {
+				t.Errorf("SelectAvailableStaticIPFromNodeData() = %v, want %v", got, tt.wantIP)
 			}
 		})
 	}
 }
 
-func TestSelectAvailableStaticIP_GatewayMode_FirstSelection(t *testing.T) {
-	// With no reservations in gateway mode, should select 10.41.0.1
-	records := []alfred.Record{}
-
-	got, err := SelectAvailableStaticIP(records, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestSelectAvailableStaticIPFromNodeData_GatewayMode_AllReserved(t *testing.T) {
+	// Reserve all IPs in 10.41.0.0/24 range (1-254)
+	nodes := make([]models.MeshNode, 254)
+	for i := 0; i < 254; i++ {
+		nodes[i] = models.MeshNode{
+			IpAddr: fmt.Sprintf("10.41.0.%d", i+1),
+		}
 	}
 
-	if got != "10.41.0.1" {
-		t.Errorf("SelectAvailableStaticIP() with gatewayMode = %v, want 10.41.0.1 as first selection", got)
-	}
-}
-
-func TestSelectAvailableStaticIP_GatewayMode_ExhaustRange(t *testing.T) {
-	// Reserve all IPs in 10.41.0.0/24 range except 10.41.0.254
-	records := []alfred.Record{}
-
-	for i := 1; i < 254; i++ {
-		records = append(records, alfred.Record{
-			Data: mustMarshalAddressReservation(&proto.AddressReservation{
-				StaticIp: fmt.Sprintf("10.41.0.%d", i),
-			}),
-		})
-	}
-
-	// Should select the last available IP
-	got, err := SelectAvailableStaticIP(records, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if got != "10.41.0.254" {
-		t.Errorf("SelectAvailableStaticIP() with gatewayMode = %v, want 10.41.0.254", got)
-	}
-}
-
-func TestSelectAvailableStaticIP_GatewayMode_NoAvailableIPs(t *testing.T) {
-	// Reserve all IPs in 10.41.0.0/24 range
-	records := []alfred.Record{}
-
-	for i := 1; i < 255; i++ {
-		records = append(records, alfred.Record{
-			Data: mustMarshalAddressReservation(&proto.AddressReservation{
-				StaticIp: fmt.Sprintf("10.41.0.%d", i),
-			}),
-		})
-	}
-
-	// Should return an error
-	_, err := SelectAvailableStaticIP(records, true)
+	_, err := SelectAvailableStaticIPFromNodeData(nodes, true)
 	if err == nil {
-		t.Fatal("expected error when all IPs are reserved, got nil")
-	}
-
-	if !contains(err.Error(), "no available IP addresses in 10.41.0.0/24") {
-		t.Errorf("expected error about 10.41.0.0/24 range, got: %v", err)
+		t.Error("SelectAvailableStaticIPFromNodeData() expected error when all gateway IPs reserved, got nil")
 	}
 }
 
-func TestSelectAvailableStaticIP_GatewayMode_IgnoresOtherSubnets(t *testing.T) {
-	// Reserve IPs in other subnets - these should be ignored in gateway mode
-	records := []alfred.Record{
-		{
-			Data: mustMarshalAddressReservation(&proto.AddressReservation{
-				StaticIp: "10.41.1.1",
-			}),
-		},
-		{
-			Data: mustMarshalAddressReservation(&proto.AddressReservation{
-				StaticIp: "10.41.2.1",
-			}),
-		},
-		{
-			Data: mustMarshalAddressReservation(&proto.AddressReservation{
-				StaticIp: "10.41.100.1",
-			}),
-		},
-	}
+func TestSelectAvailableStaticIPFromNodeData_NormalMode_EmptyNodes(t *testing.T) {
+	// With 0 nodes, should select a random IP
+	nodes := []models.MeshNode{}
 
-	got, err := SelectAvailableStaticIP(records, true)
+	got, err := SelectAvailableStaticIPFromNodeData(nodes, false)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("SelectAvailableStaticIPFromNodeData() unexpected error: %v", err)
 	}
 
-	// Should select 10.41.0.1 since nothing is reserved in that subnet
-	if got != "10.41.0.1" {
-		t.Errorf("SelectAvailableStaticIP() with gatewayMode = %v, want 10.41.0.1", got)
+	// Validate IP format and range
+	ip := net.ParseIP(got)
+	if ip == nil {
+		t.Fatalf("SelectAvailableStaticIPFromNodeData() returned invalid IP: %v", got)
+	}
+
+	// Should be in 10.41.0.0/16 range
+	if !ip.IsPrivate() || ip[12] != 10 || ip[13] != 41 {
+		t.Errorf("SelectAvailableStaticIPFromNodeData() = %v, not in 10.41.0.0/16 range", got)
+	}
+
+	// Should not be in restricted ranges
+	thirdOctet := int(ip[14])
+	if thirdOctet == 0 || thirdOctet == 253 || thirdOctet == 254 || thirdOctet == 255 {
+		t.Errorf("SelectAvailableStaticIPFromNodeData() = %v, in restricted range", got)
+	}
+}
+
+func TestSelectAvailableStaticIPFromNodeData_NormalMode_OneNode(t *testing.T) {
+	// With 1 node, should still select a random IP
+	nodes := []models.MeshNode{
+		{IpAddr: "10.41.50.100"},
+	}
+
+	got, err := SelectAvailableStaticIPFromNodeData(nodes, false)
+	if err != nil {
+		t.Fatalf("SelectAvailableStaticIPFromNodeData() unexpected error: %v", err)
+	}
+
+	// Should not return the same IP as the reserved one
+	if got == "10.41.50.100" {
+		t.Errorf("SelectAvailableStaticIPFromNodeData() returned reserved IP: %v", got)
+	}
+
+	// Validate IP is in correct range
+	ip := net.ParseIP(got)
+	if ip == nil {
+		t.Fatalf("SelectAvailableStaticIPFromNodeData() returned invalid IP: %v", got)
+	}
+
+	thirdOctet := int(ip[14])
+	if thirdOctet == 0 || thirdOctet == 253 || thirdOctet == 254 || thirdOctet == 255 {
+		t.Errorf("SelectAvailableStaticIPFromNodeData() = %v, in restricted range", got)
+	}
+}
+
+func TestSelectAvailableStaticIPFromNodeData_NormalMode_MultipleNodes(t *testing.T) {
+	tests := []struct {
+		name    string
+		nodes   []models.MeshNode
+		wantIP  string
+		wantErr bool
+	}{
+		{
+			name: "sequential selection starts at 10.41.1.1",
+			nodes: []models.MeshNode{
+				{IpAddr: "10.41.5.5"},
+				{IpAddr: "10.41.10.10"},
+			},
+			wantIP:  "10.41.1.1",
+			wantErr: false,
+		},
+		{
+			name: "skip reserved IPs in sequential search",
+			nodes: []models.MeshNode{
+				{IpAddr: "10.41.1.1"},
+				{IpAddr: "10.41.1.2"},
+			},
+			wantIP:  "10.41.1.3",
+			wantErr: false,
+		},
+		{
+			name: "skip entire third octet if all reserved",
+			nodes: []models.MeshNode{
+				{IpAddr: "10.41.1.1"},
+				{IpAddr: "10.41.1.2"},
+				{IpAddr: "10.41.1.3"},
+				{IpAddr: "10.41.1.4"},
+				{IpAddr: "10.41.1.5"},
+			},
+			wantIP:  "10.41.1.6",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := SelectAvailableStaticIPFromNodeData(tt.nodes, false)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SelectAvailableStaticIPFromNodeData() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.wantIP {
+				t.Errorf("SelectAvailableStaticIPFromNodeData() = %v, want %v", got, tt.wantIP)
+			}
+		})
+	}
+}
+
+func TestSelectAvailableStaticIPFromNodeData_RestrictedRangesExcluded(t *testing.T) {
+	// Test that 10.41.253.0/24 and 10.41.254.0/24 are excluded
+	// Reserve a few IPs in different ranges to prove 253 and 254 are skipped
+	nodes := []models.MeshNode{
+		{IpAddr: "10.41.1.1"},
+		{IpAddr: "10.41.2.1"},
+		{IpAddr: "10.41.252.254"}, // Last non-restricted IP in high range
+	}
+
+	// Get available IP - should be sequential search with 3 nodes
+	got, err := SelectAvailableStaticIPFromNodeData(nodes, false)
+	if err != nil {
+		t.Fatalf("SelectAvailableStaticIPFromNodeData() unexpected error: %v", err)
+	}
+
+	// Should not select from restricted ranges
+	ip := net.ParseIP(got)
+	if ip == nil {
+		t.Fatalf("SelectAvailableStaticIPFromNodeData() returned invalid IP: %v", got)
+	}
+
+	thirdOctet := int(ip.To4()[2])
+	if thirdOctet == 253 || thirdOctet == 254 {
+		t.Errorf("SelectAvailableStaticIPFromNodeData() = %v, in restricted range (253 or 254)", got)
+	}
+
+	// Should select 10.41.1.2 (first available after 10.41.1.1)
+	if got != "10.41.1.2" {
+		t.Errorf("SelectAvailableStaticIPFromNodeData() = %v, want 10.41.1.2", got)
+	}
+}
+
+func TestSelectAvailableStaticIPFromNodeData_ExcludesReservedIPs(t *testing.T) {
+	// Test that reserved IPs are properly excluded
+	reservedIPs := []string{
+		"10.41.1.1",
+		"10.41.1.2",
+		"10.41.1.3",
+		"10.41.2.1",
+		"10.41.50.100",
+	}
+
+	nodes := make([]models.MeshNode, len(reservedIPs))
+	for i, ip := range reservedIPs {
+		nodes[i] = models.MeshNode{IpAddr: ip}
+	}
+
+	got, err := SelectAvailableStaticIPFromNodeData(nodes, false)
+	if err != nil {
+		t.Fatalf("SelectAvailableStaticIPFromNodeData() unexpected error: %v", err)
+	}
+
+	// Verify the returned IP is not in the reserved list
+	for _, reserved := range reservedIPs {
+		if got == reserved {
+			t.Errorf("SelectAvailableStaticIPFromNodeData() returned reserved IP: %v", got)
+		}
+	}
+}
+
+func TestSelectAvailableStaticIPFromNodeData_EmptyIpAddrIgnored(t *testing.T) {
+	// Nodes with empty IpAddr should not affect selection
+	nodes := []models.MeshNode{
+		{IpAddr: ""},
+		{IpAddr: "10.41.1.1"},
+		{IpAddr: ""},
+	}
+
+	got, err := SelectAvailableStaticIPFromNodeData(nodes, false)
+	if err != nil {
+		t.Fatalf("SelectAvailableStaticIPFromNodeData() unexpected error: %v", err)
+	}
+
+	// Should skip 10.41.1.1 but not be affected by empty IpAddr entries
+	if got == "10.41.1.1" {
+		t.Errorf("SelectAvailableStaticIPFromNodeData() returned reserved IP: %v", got)
+	}
+
+	// With 3 nodes (even if 2 are empty), should use sequential search
+	if got != "10.41.1.2" {
+		t.Errorf("SelectAvailableStaticIPFromNodeData() = %v, want 10.41.1.2 (sequential search)", got)
+	}
+}
+
+func TestSelectAvailableStaticIPFromNodeData_RandomSelection_NoCollision(t *testing.T) {
+	// Test random selection with 0 or 1 nodes doesn't collide
+	for i := 0; i < 10; i++ {
+		nodes := []models.MeshNode{}
+		if i%2 == 0 {
+			// Alternate between 0 and 1 node
+			nodes = []models.MeshNode{{IpAddr: "10.41.100.100"}}
+		}
+
+		got, err := SelectAvailableStaticIPFromNodeData(nodes, false)
+		if err != nil {
+			t.Fatalf("SelectAvailableStaticIPFromNodeData() iteration %d unexpected error: %v", i, err)
+		}
+
+		// Should not return the reserved IP when there's 1 node
+		if len(nodes) == 1 && got == "10.41.100.100" {
+			t.Errorf("SelectAvailableStaticIPFromNodeData() iteration %d returned reserved IP", i)
+		}
+
+		// Validate format
+		ip := net.ParseIP(got)
+		if ip == nil {
+			t.Errorf("SelectAvailableStaticIPFromNodeData() iteration %d returned invalid IP: %v", i, got)
+		}
+	}
+}
+
+func TestSelectAvailableStaticIPFromNodeData_BroadcastAddressExcluded(t *testing.T) {
+	// Reserve all IPs in a /24 except the broadcast (.255)
+	nodes := make([]models.MeshNode, 254)
+	for i := 0; i < 254; i++ {
+		nodes[i] = models.MeshNode{
+			IpAddr: fmt.Sprintf("10.41.1.%d", i+1),
+		}
+	}
+
+	// Add 2 more nodes to trigger sequential search
+	nodes = append(nodes, models.MeshNode{IpAddr: "10.41.10.1"})
+
+	// Next available should be 10.41.2.1, not 10.41.1.255
+	got, err := SelectAvailableStaticIPFromNodeData(nodes, false)
+	if err != nil {
+		t.Fatalf("SelectAvailableStaticIPFromNodeData() unexpected error: %v", err)
+	}
+
+	if got == "10.41.1.255" {
+		t.Errorf("SelectAvailableStaticIPFromNodeData() returned broadcast address: %v", got)
+	}
+
+	// Should skip to next subnet
+	if got != "10.41.2.1" {
+		t.Errorf("SelectAvailableStaticIPFromNodeData() = %v, want 10.41.2.1", got)
+	}
+}
+
+func TestSelectAvailableStaticIPFromNodeData_ZeroThirdOctetExcluded(t *testing.T) {
+	// In normal mode, 10.41.0.0/24 should be excluded
+	// Only test with 2+ nodes to ensure sequential search
+	nodes := []models.MeshNode{
+		{IpAddr: "10.41.50.1"},
+		{IpAddr: "10.41.100.1"},
+	}
+
+	got, err := SelectAvailableStaticIPFromNodeData(nodes, false)
+	if err != nil {
+		t.Fatalf("SelectAvailableStaticIPFromNodeData() unexpected error: %v", err)
+	}
+
+	// Should start at 10.41.1.1, not 10.41.0.1
+	if got == "10.41.0.1" || got[:7] == "10.41.0" {
+		t.Errorf("SelectAvailableStaticIPFromNodeData() = %v, should not be in 10.41.0.0/24", got)
+	}
+
+	if got != "10.41.1.1" {
+		t.Errorf("SelectAvailableStaticIPFromNodeData() = %v, want 10.41.1.1", got)
 	}
 }

@@ -18,8 +18,7 @@ const (
 	gatewayDataWorkerSendInterval time.Duration = 60 * time.Second
 	gatewayDataWorkerRecvInterval time.Duration = 10 * time.Second
 
-	addressReservationWorkerSendInterval time.Duration = 30 * time.Second
-	addressReservationWorkerRecvInterval time.Duration = 5 * time.Second
+	addressReservationWorkerReserveInterval time.Duration = 125 * time.Second
 )
 
 type ManagementConfig struct {
@@ -42,8 +41,7 @@ type ManagementConfig struct {
 	gatewayWorkerSendInterval time.Duration
 	gatewayWorkerRecvInterval time.Duration
 
-	addressReservationWorkerSendInterval time.Duration
-	addressReservationWorkerRecvInterval time.Duration
+	addressReservationWorkerReserveInterval time.Duration
 
 	GatewayMode                bool
 	GatewayDataType            bool
@@ -74,10 +72,9 @@ func NewManager(cfg ManagementConfig) *ManagementConfig {
 		DB:                         cfg.DB,
 		GPS:                        cfg.GPS,
 
-		gatewayWorkerSendInterval:            gatewayDataWorkerSendInterval,
-		gatewayWorkerRecvInterval:            gatewayDataWorkerRecvInterval,
-		addressReservationWorkerSendInterval: addressReservationWorkerSendInterval,
-		addressReservationWorkerRecvInterval: addressReservationWorkerRecvInterval,
+		gatewayWorkerSendInterval:               gatewayDataWorkerSendInterval,
+		gatewayWorkerRecvInterval:               gatewayDataWorkerRecvInterval,
+		addressReservationWorkerReserveInterval: addressReservationWorkerReserveInterval,
 
 		uciOpenMANETConfig: network.NewUCIOpenMANETConfigReader(),
 		uciDHCPConfig:      network.NewUCIDHCPConfigReader(),
@@ -97,8 +94,7 @@ func (m *ManagementConfig) Start() {
 
 	if m.AddressReservationDataType {
 		addressReservationWorker := NewAddressReservationWorker(m, client, m.InteruptChan)
-		go addressReservationWorker.StartSend()
-		go addressReservationWorker.StartReceive()
+		go addressReservationWorker.ReserveAddressIfNeeded()
 	}
 
 	if m.NodeDataType {
