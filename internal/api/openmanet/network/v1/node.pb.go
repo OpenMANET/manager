@@ -21,6 +21,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Deprecated: Marked as deprecated in openmanet/network/v1/node.proto.
 type AddressReservation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// MAC address of the node
@@ -268,14 +269,14 @@ var File_openmanet_network_v1_node_proto protoreflect.FileDescriptor
 
 const file_openmanet_network_v1_node_proto_rawDesc = "" +
 	"\n" +
-	"\x1fopenmanet/network/v1/node.proto\x12\x14openmanet.network.v1\"\xf1\x01\n" +
+	"\x1fopenmanet/network/v1/node.proto\x12\x14openmanet.network.v1\"\xf5\x01\n" +
 	"\x12AddressReservation\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12\x1b\n" +
 	"\tstatic_ip\x18\x02 \x01(\tR\bstaticIp\x12)\n" +
 	"\x10reservation_cidr\x18\x03 \x01(\tR\x0freservationCidr\x12$\n" +
 	"\x0euci_dhcp_start\x18\x04 \x01(\tR\fuciDhcpStart\x12$\n" +
 	"\x0euci_dhcp_limit\x18\x05 \x01(\tR\fuciDhcpLimit\x125\n" +
-	"\x16requesting_reservation\x18\x06 \x01(\bR\x15requestingReservation\"\xd4\x01\n" +
+	"\x16requesting_reservation\x18\x06 \x01(\bR\x15requestingReservation:\x02\x18\x01\"\xd4\x01\n" +
 	"\x04Node\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x16\n" +

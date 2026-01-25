@@ -32,6 +32,8 @@ const (
 	// Gateway data type
 	DataType_DATA_TYPE_GATEWAY DataType = 100
 	// Address Reservation data type
+	//
+	// Deprecated: Marked as deprecated in openmanet/network/v1/datatype.proto.
 	DataType_DATA_TYPE_ADDRESS_RESERVATION DataType = 101
 	// Node data type
 	DataType_DATA_TYPE_NODE DataType = 102
@@ -84,11 +86,11 @@ var File_openmanet_network_v1_datatype_proto protoreflect.FileDescriptor
 
 const file_openmanet_network_v1_datatype_proto_rawDesc = "" +
 	"\n" +
-	"#openmanet/network/v1/datatype.proto\x12\x14openmanet.network.v1*s\n" +
+	"#openmanet/network/v1/datatype.proto\x12\x14openmanet.network.v1*w\n" +
 	"\bDataType\x12\x19\n" +
 	"\x15DATA_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
-	"\x11DATA_TYPE_GATEWAY\x10d\x12!\n" +
-	"\x1dDATA_TYPE_ADDRESS_RESERVATION\x10e\x12\x12\n" +
+	"\x11DATA_TYPE_GATEWAY\x10d\x12%\n" +
+	"\x1dDATA_TYPE_ADDRESS_RESERVATION\x10e\x1a\x02\b\x01\x12\x12\n" +
 	"\x0eDATA_TYPE_NODE\x10fB\xe8\x01\n" +
 	"\x18com.openmanet.network.v1B\rDatatypeProtoP\x01ZKgithub.com/openmanet/openmanetd/internal/api/openmanet/network/v1;networkv1\xa2\x02\x03ONX\xaa\x02\x14Openmanet.Network.V1\xca\x02\x14Openmanet\\Network\\V1\xe2\x02 Openmanet\\Network\\V1\\GPBMetadata\xea\x02\x16Openmanet::Network::V1b\x06proto3"
 
