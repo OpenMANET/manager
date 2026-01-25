@@ -12,13 +12,16 @@ ORDER BY hostname;
 
 -- name: CreateMeshNode :one
 INSERT INTO mesh_nodes (
-  mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at
+  mac_addr, hostname, ip_addr, latitude, longitude, altitude, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at
 ) VALUES (
-  ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+  ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 )
 ON CONFLICT(mac_addr) DO UPDATE SET
   hostname = excluded.hostname,
   ip_addr = excluded.ip_addr,
+  latitude = excluded.latitude,
+  longitude = excluded.longitude,
+  altitude = excluded.altitude,
   uci_dhcp_start = excluded.uci_dhcp_start,
   uci_dhcp_limit = excluded.uci_dhcp_limit,
   updated_at = CURRENT_TIMESTAMP
@@ -28,6 +31,9 @@ RETURNING *;
 UPDATE mesh_nodes
 set hostname = ?,
 ip_addr = ?,
+latitude = ?,
+longitude = ?,
+altitude = ?,
 uci_dhcp_start = ?,
 uci_dhcp_limit = ?,
 updated_at = CURRENT_TIMESTAMP

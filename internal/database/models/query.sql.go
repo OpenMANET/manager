@@ -12,23 +12,29 @@ import (
 
 const createMeshNode = `-- name: CreateMeshNode :one
 INSERT INTO mesh_nodes (
-  mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at
+  mac_addr, hostname, ip_addr, latitude, longitude, altitude, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at
 ) VALUES (
-  ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+  ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 )
 ON CONFLICT(mac_addr) DO UPDATE SET
   hostname = excluded.hostname,
   ip_addr = excluded.ip_addr,
+  latitude = excluded.latitude,
+  longitude = excluded.longitude,
+  altitude = excluded.altitude,
   uci_dhcp_start = excluded.uci_dhcp_start,
   uci_dhcp_limit = excluded.uci_dhcp_limit,
   updated_at = CURRENT_TIMESTAMP
-RETURNING mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at
+RETURNING mac_addr, hostname, ip_addr, latitude, longitude, altitude, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at
 `
 
 type CreateMeshNodeParams struct {
 	MacAddr      string
 	Hostname     string
 	IpAddr       string
+	Latitude     sql.NullFloat64
+	Longitude    sql.NullFloat64
+	Altitude     sql.NullFloat64
 	UciDhcpStart sql.NullInt64
 	UciDhcpLimit sql.NullInt64
 }
@@ -38,6 +44,9 @@ func (q *Queries) CreateMeshNode(ctx context.Context, arg CreateMeshNodeParams) 
 		arg.MacAddr,
 		arg.Hostname,
 		arg.IpAddr,
+		arg.Latitude,
+		arg.Longitude,
+		arg.Altitude,
 		arg.UciDhcpStart,
 		arg.UciDhcpLimit,
 	)
@@ -46,6 +55,9 @@ func (q *Queries) CreateMeshNode(ctx context.Context, arg CreateMeshNodeParams) 
 		&i.MacAddr,
 		&i.Hostname,
 		&i.IpAddr,
+		&i.Latitude,
+		&i.Longitude,
+		&i.Altitude,
 		&i.UciDhcpStart,
 		&i.UciDhcpLimit,
 		&i.CreatedAt,
@@ -92,7 +104,7 @@ func (q *Queries) DeleteMeshNode(ctx context.Context, macAddr string) error {
 }
 
 const getMeshNode = `-- name: GetMeshNode :one
-SELECT mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at FROM mesh_nodes
+SELECT mac_addr, hostname, ip_addr, latitude, longitude, altitude, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at FROM mesh_nodes
 WHERE mac_addr = ? LIMIT 1
 `
 
@@ -103,6 +115,9 @@ func (q *Queries) GetMeshNode(ctx context.Context, macAddr string) (MeshNode, er
 		&i.MacAddr,
 		&i.Hostname,
 		&i.IpAddr,
+		&i.Latitude,
+		&i.Longitude,
+		&i.Altitude,
 		&i.UciDhcpStart,
 		&i.UciDhcpLimit,
 		&i.CreatedAt,
@@ -112,7 +127,7 @@ func (q *Queries) GetMeshNode(ctx context.Context, macAddr string) (MeshNode, er
 }
 
 const getMeshNodeByHostname = `-- name: GetMeshNodeByHostname :one
-SELECT mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at FROM mesh_nodes
+SELECT mac_addr, hostname, ip_addr, latitude, longitude, altitude, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at FROM mesh_nodes
 WHERE hostname = ? LIMIT 1
 `
 
@@ -123,6 +138,9 @@ func (q *Queries) GetMeshNodeByHostname(ctx context.Context, hostname string) (M
 		&i.MacAddr,
 		&i.Hostname,
 		&i.IpAddr,
+		&i.Latitude,
+		&i.Longitude,
+		&i.Altitude,
 		&i.UciDhcpStart,
 		&i.UciDhcpLimit,
 		&i.CreatedAt,
@@ -132,7 +150,7 @@ func (q *Queries) GetMeshNodeByHostname(ctx context.Context, hostname string) (M
 }
 
 const listMeshNodes = `-- name: ListMeshNodes :many
-SELECT mac_addr, hostname, ip_addr, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at FROM mesh_nodes
+SELECT mac_addr, hostname, ip_addr, latitude, longitude, altitude, uci_dhcp_start, uci_dhcp_limit, created_at, updated_at FROM mesh_nodes
 ORDER BY hostname
 `
 
@@ -149,6 +167,9 @@ func (q *Queries) ListMeshNodes(ctx context.Context) ([]MeshNode, error) {
 			&i.MacAddr,
 			&i.Hostname,
 			&i.IpAddr,
+			&i.Latitude,
+			&i.Longitude,
+			&i.Altitude,
 			&i.UciDhcpStart,
 			&i.UciDhcpLimit,
 			&i.CreatedAt,
@@ -171,6 +192,9 @@ const updateMeshNode = `-- name: UpdateMeshNode :exec
 UPDATE mesh_nodes
 set hostname = ?,
 ip_addr = ?,
+latitude = ?,
+longitude = ?,
+altitude = ?,
 uci_dhcp_start = ?,
 uci_dhcp_limit = ?,
 updated_at = CURRENT_TIMESTAMP
@@ -180,15 +204,21 @@ WHERE mac_addr = ?
 type UpdateMeshNodeParams struct {
 	Hostname     string
 	IpAddr       string
-	MacAddr      string
+	Latitude     sql.NullFloat64
+	Longitude    sql.NullFloat64
+	Altitude     sql.NullFloat64
 	UciDhcpStart sql.NullInt64
 	UciDhcpLimit sql.NullInt64
+	MacAddr      string
 }
 
 func (q *Queries) UpdateMeshNode(ctx context.Context, arg UpdateMeshNodeParams) error {
 	_, err := q.db.ExecContext(ctx, updateMeshNode,
 		arg.Hostname,
 		arg.IpAddr,
+		arg.Latitude,
+		arg.Longitude,
+		arg.Altitude,
 		arg.UciDhcpStart,
 		arg.UciDhcpLimit,
 		arg.MacAddr,
