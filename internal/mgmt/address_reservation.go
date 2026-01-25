@@ -8,16 +8,10 @@ import (
 	"time"
 
 	"github.com/openmanet/go-alfred"
-	proto "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/system"
 	"github.com/openmanet/openmanetd/internal/util"
-)
-
-const (
-	AddressReservationDataType        uint8 = uint8(proto.DataType_DATA_TYPE_ADDRESS_RESERVATION)
-	AddressReservationDataTypeVersion uint8 = 1
 )
 
 type AddressReservationWorker struct {
@@ -41,7 +35,10 @@ func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client
 }
 
 func (arw *AddressReservationWorker) ReserveAddressIfNeeded() {
-	ticker := time.NewTicker(arw.reserveInterval)
+	var (
+		ticker                  = time.NewTicker(arw.reserveInterval)
+		ipConflictDetected bool = false
+	)
 	defer ticker.Stop()
 
 	for {
@@ -55,19 +52,33 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded() {
 				continue
 			}
 
-			if !configured {
-				arw.Config.Log.Debug().Msg("DHCP not configured, reserving address")
+			nodes, err := arw.Config.DB.ListMeshNodes(context.Background())
+			if err != nil {
+				arw.Config.Log.Error().Err(err).Msg("Error listing mesh nodes from database")
+				continue
+			}
+
+			// Get interface information
+			iface := network.GetInterfaceByName(arw.Config.IFace)
+
+			// Check for IP conflicts
+			for _, node := range nodes {
+				for _, ipAddr := range iface.IP {
+					if ipAddr.IP.String() == node.IpAddr {
+						ipConflictDetected = true
+						arw.Config.Log.Warn().Msgf("IP conflict detected with node %s (%s)", node.Hostname, node.IpAddr)
+						break
+					}
+				}
+			}
+
+			if !configured || ipConflictDetected {
+				arw.Config.Log.Debug().Msg("DHCP not configured or IP conflict detected, reserving address")
 
 				// Get mesh config to determine if we are a gateway
 				meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
 				if err != nil {
 					arw.Config.Log.Error().Err(err).Msg("Error getting mesh config")
-					continue
-				}
-
-				nodes, err := arw.Config.DB.ListMeshNodes(context.Background())
-				if err != nil {
-					arw.Config.Log.Error().Err(err).Msg("Error listing mesh nodes from database")
 					continue
 				}
 
