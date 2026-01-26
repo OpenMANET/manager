@@ -679,10 +679,17 @@ func (g *GPSService) sendCoTToMulticast() error {
 	// Create CoT Message
 	cotMsg := cot.BasicMsg(radioUnitType, hostname, defaultStaleDuration)
 
+	// Calculate Height Above Ellipsoid (HAE)
+	// HAE = MSL altitude + Geoid Separation
+	hae := pos.Altitude
+	if pos.GeoidSeparation != 0 {
+		hae = pos.Altitude + pos.GeoidSeparation
+	}
+
 	cotMsg.CotEvent = &cotproto.CotEvent{
 		Lat: pos.Latitude,
 		Lon: pos.Longitude,
-		Hae: pos.Altitude,
+		Hae: hae,
 		Detail: &cotproto.Detail{
 			Contact: &cotproto.Contact{
 				Callsign: fmt.Sprintf("%s-manet", hostname),

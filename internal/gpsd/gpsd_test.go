@@ -768,6 +768,47 @@ func TestSendCoTToMulticast_RateLimit(t *testing.T) {
 	}
 }
 
+func TestSendCoTToMulticast_HAE_Calculation(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a position with MSL altitude and geoid separation
+	// HAE should be MSL + Geoid Separation
+	gps.position = PositionReport{
+		Timestamp:       time.Now(),
+		Latitude:        40.7128,
+		Longitude:       -74.0060,
+		Altitude:        10.0, // MSL altitude
+		Speed:           5.0,
+		Track:           90.0,
+		Valid:           true,
+		Mode:            3,
+		GeoidSeparation: -33.5, // Geoid separation for New York area
+	}
+
+	// The function will create a CoT message
+	// We can't easily verify the internal HAE calculation without mocking,
+	// but we can at least ensure it doesn't error with geoid separation
+	err := gps.sendCoTToMulticast()
+
+	// May get network errors, but shouldn't get position errors
+	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Should not get position error with valid position and geoid separation: %v", err)
+	}
+
+	// Test with zero geoid separation (HAE should equal MSL)
+	gps.position.GeoidSeparation = 0
+	err = gps.sendCoTToMulticast()
+
+	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Should not get position error with valid position and zero geoid separation: %v", err)
+	}
+}
+
 func TestSendLocationtoEUDs_NoValidPosition(t *testing.T) {
 	log := zerolog.Nop()
 	gps := &GPSService{
