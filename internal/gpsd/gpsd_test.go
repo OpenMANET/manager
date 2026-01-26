@@ -93,6 +93,21 @@ func (m *mockGPSDServer) AddTPVMessage(lat, lon, alt, speed, track float64, mode
 	m.messages = append(m.messages, string(data))
 }
 
+func (m *mockGPSDServer) AddSKYMessage(hdop float64, uSat int) {
+	sky := SKYReport{
+		Class: "SKY",
+		Time:  time.Now().UTC().Format(time.RFC3339),
+		HDOP:  hdop,
+		VDOP:  hdop * 1.5,
+		PDOP:  hdop * 2.0,
+		NSat:  uSat + 4,
+		USat:  uSat,
+	}
+
+	data, _ := json.Marshal(sky)
+	m.messages = append(m.messages, string(data))
+}
+
 func TestNewGPSService(t *testing.T) {
 	log := zerolog.Nop()
 
@@ -846,5 +861,420 @@ func TestUpdatePosition_TriggersLocationSend(t *testing.T) {
 	}
 	if pos.Longitude != -122.4194 {
 		t.Errorf("Expected longitude -122.4194, got %f", pos.Longitude)
+	}
+}
+
+func TestUpdateSatelliteInfo(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set an initial position
+	gps.position = PositionReport{
+		Valid: true,
+		Mode:  3,
+	}
+
+	// Create a SKY report
+	skyReport := SKYReport{
+		Class: "SKY",
+		HDOP:  1.2,
+		VDOP:  2.1,
+		PDOP:  2.5,
+		NSat:  12,
+		USat:  8,
+	}
+
+	// Update satellite info
+	gps.updateSatelliteInfo(skyReport)
+
+	// Verify the data was updated
+	pos := gps.GetPosition()
+	if pos.SatellitesUsed != 8 {
+		t.Errorf("Expected 8 satellites used, got %d", pos.SatellitesUsed)
+	}
+	if pos.HDOP != 1.2 {
+		t.Errorf("Expected HDOP 1.2, got %f", pos.HDOP)
+	}
+}
+
+func TestUpdateSatelliteInfo_ZeroValues(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set initial values
+	gps.position = PositionReport{
+		Valid:          true,
+		SatellitesUsed: 5,
+		HDOP:           2.0,
+	}
+
+	// Create a SKY report with zero/invalid values
+	skyReport := SKYReport{
+		Class: "SKY",
+		HDOP:  0,
+		USat:  0,
+	}
+
+	// Update satellite info - should not overwrite with zeros
+	gps.updateSatelliteInfo(skyReport)
+
+	// Verify the data was NOT updated (zero values should be ignored)
+	pos := gps.GetPosition()
+	if pos.SatellitesUsed != 5 {
+		t.Errorf("Expected satellites to remain 5, got %d", pos.SatellitesUsed)
+	}
+	if pos.HDOP != 2.0 {
+		t.Errorf("Expected HDOP to remain 2.0, got %f", pos.HDOP)
+	}
+}
+
+func TestProcessGPSDMessage_SKYReport(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set initial position
+	gps.position = PositionReport{
+		Valid: true,
+		Mode:  3,
+	}
+
+	// Create a SKY message
+	skyReport := SKYReport{
+		Class: "SKY",
+		Time:  time.Now().UTC().Format(time.RFC3339),
+		HDOP:  1.5,
+		VDOP:  2.0,
+		PDOP:  2.5,
+		NSat:  10,
+		USat:  7,
+	}
+
+	skyJSON, _ := json.Marshal(skyReport)
+
+	// Process the message
+	gps.processGPSDMessage(string(skyJSON))
+
+	// Verify satellite info was updated
+	pos := gps.GetPosition()
+	if pos.SatellitesUsed != 7 {
+		t.Errorf("Expected 7 satellites, got %d", pos.SatellitesUsed)
+	}
+	if pos.HDOP != 1.5 {
+		t.Errorf("Expected HDOP 1.5, got %f", pos.HDOP)
+	}
+}
+
+func TestProcessGPSDMessage_TPVWithGeoidSep(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Create a TPV message with geoid separation
+	tpv := TPVReport{
+		Class:    "TPV",
+		Mode:     3,
+		Time:     time.Now().UTC().Format(time.RFC3339),
+		Lat:      40.7128,
+		Lon:      -74.0060,
+		Alt:      10.0,
+		Speed:    2.5,
+		Track:    180.0,
+		GeoidSep: -33.5, // Geoid separation for New York area
+	}
+
+	tpvJSON, _ := json.Marshal(tpv)
+
+	// Process the message
+	gps.processGPSDMessage(string(tpvJSON))
+
+	// Give time for async operations
+	time.Sleep(10 * time.Millisecond)
+
+	// Verify geoid separation was captured
+	pos := gps.GetPosition()
+	if pos.GeoidSeparation != -33.5 {
+		t.Errorf("Expected geoid separation -33.5, got %f", pos.GeoidSeparation)
+	}
+	if !pos.Valid {
+		t.Error("Expected valid position")
+	}
+}
+
+func TestFormatGGA_WithRealSatelliteData(t *testing.T) {
+	now := time.Date(2024, 1, 15, 12, 30, 45, 0, time.UTC)
+
+	pos := PositionReport{
+		Timestamp:       now,
+		Latitude:        37.7749,
+		Longitude:       -122.4194,
+		Altitude:        50.5,
+		Speed:           5.0,
+		Track:           90.0,
+		Valid:           true,
+		Mode:            3,
+		SatellitesUsed:  10,
+		HDOP:            1.3,
+		GeoidSeparation: -32.5,
+	}
+
+	nmea := formatGGA(pos)
+
+	// Verify NMEA format
+	if !strings.HasPrefix(nmea, "$GPGGA,") {
+		t.Errorf("Expected NMEA to start with $GPGGA, got: %s", nmea)
+	}
+
+	// Check that it contains the real satellite count (10)
+	if !strings.Contains(nmea, ",10,") {
+		t.Errorf("Expected satellite count 10 in NMEA, got: %s", nmea)
+	}
+
+	// Check that it contains the real HDOP (1.3)
+	if !strings.Contains(nmea, ",1.3,") {
+		t.Errorf("Expected HDOP 1.3 in NMEA, got: %s", nmea)
+	}
+
+	// Check that it contains the real geoid separation (-32.5)
+	if !strings.Contains(nmea, ",-32.5,M,") {
+		t.Errorf("Expected geoid separation -32.5 in NMEA, got: %s", nmea)
+	}
+}
+
+func TestFormatGGA_WithDefaultValues(t *testing.T) {
+	now := time.Date(2024, 1, 15, 12, 30, 45, 0, time.UTC)
+
+	pos := PositionReport{
+		Timestamp: now,
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.5,
+		Speed:     5.0,
+		Track:     90.0,
+		Valid:     true,
+		Mode:      3,
+		// No satellite data - should have empty fields (no false data)
+		SatellitesUsed:  0,
+		HDOP:            0,
+		GeoidSeparation: 0,
+	}
+
+	nmea := formatGGA(pos)
+
+	// Verify NMEA format is valid
+	if !strings.HasPrefix(nmea, "$GPGGA,") {
+		t.Errorf("Expected NMEA to start with $GPGGA, got: %s", nmea)
+	}
+
+	// Should have empty satellite count when no data available (field between commas)
+	// The pattern should be ,1,, (quality, empty numSat, empty hdop)
+	if !strings.Contains(nmea, ",1,,") {
+		t.Errorf("Expected empty satellite count field in NMEA when no data, got: %s", nmea)
+	}
+
+	// Should have empty geoid separation when no data available
+	// The pattern should be ,M,, (altitude unit, empty geoid, geoid unit)
+	if !strings.Contains(nmea, ",M,,M,") {
+		t.Errorf("Expected empty geoid separation field in NMEA when no data, got: %s", nmea)
+	}
+}
+
+func TestProcessGPSDMessage_UnknownMessageType(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Create an unknown message type (VERSION, DEVICES, etc.)
+	unknownMsg := `{"class":"VERSION","release":"3.23","rev":"3.23","proto_major":3,"proto_minor":14}`
+
+	// Should not panic or error
+	gps.processGPSDMessage(unknownMsg)
+
+	// Position should remain invalid/unchanged
+	pos := gps.GetPosition()
+	if pos.Valid {
+		t.Error("Position should remain invalid after unknown message")
+	}
+}
+
+func TestProcessGPSDMessage_InvalidJSON(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Invalid JSON should not cause panic
+	gps.processGPSDMessage("not valid json {{{")
+
+	// Should handle gracefully
+	pos := gps.GetPosition()
+	if pos.Valid {
+		t.Error("Position should remain invalid after invalid JSON")
+	}
+}
+
+func TestSKYReport_WithSatelliteDetails(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	gps.position = PositionReport{
+		Valid: true,
+		Mode:  3,
+	}
+
+	// Create a SKY report with satellite details
+	skyJSON := `{
+		"class":"SKY",
+		"time":"2024-01-15T12:30:45.000Z",
+		"hdop":1.2,
+		"vdop":2.0,
+		"pdop":2.3,
+		"nSat":12,
+		"uSat":8,
+		"satellites":[
+			{"PRN":1,"el":45.0,"az":180.0,"ss":42.0,"used":true},
+			{"PRN":2,"el":30.0,"az":90.0,"ss":38.0,"used":true},
+			{"PRN":3,"el":60.0,"az":270.0,"ss":45.0,"used":true}
+		]
+	}`
+
+	gps.processGPSDMessage(skyJSON)
+
+	pos := gps.GetPosition()
+	if pos.SatellitesUsed != 8 {
+		t.Errorf("Expected 8 satellites used, got %d", pos.SatellitesUsed)
+	}
+	if pos.HDOP != 1.2 {
+		t.Errorf("Expected HDOP 1.2, got %f", pos.HDOP)
+	}
+}
+
+func TestConcurrentTPVandSKYUpdates(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set initial position so TPV updates preserve satellite data
+	gps.position = PositionReport{
+		Valid:          true,
+		Mode:           3,
+		SatellitesUsed: 5,
+		HDOP:           1.5,
+	}
+
+	// Simulate concurrent TPV and SKY updates
+	done := make(chan bool, 2)
+
+	go func() {
+		for i := 0; i < 50; i++ {
+			// Read current satellite data
+			gps.mu.RLock()
+			currentSats := gps.position.SatellitesUsed
+			currentHDOP := gps.position.HDOP
+			gps.mu.RUnlock()
+
+			// Update position, preserving satellite data
+			gps.mu.Lock()
+			gps.position.Latitude = 37.7749
+			gps.position.Longitude = -122.4194
+			gps.position.Altitude = 50.0 + float64(i)
+			gps.position.GeoidSeparation = -32.5
+			gps.position.Valid = true
+			gps.position.Mode = 3
+			// Preserve satellite data
+			gps.position.SatellitesUsed = currentSats
+			gps.position.HDOP = currentHDOP
+			gps.mu.Unlock()
+
+			time.Sleep(1 * time.Millisecond)
+		}
+		done <- true
+	}()
+
+	go func() {
+		for i := 0; i < 50; i++ {
+			sky := SKYReport{
+				Class: "SKY",
+				HDOP:  1.2 + float64(i)*0.01,
+				USat:  8 + i%3,
+			}
+			gps.updateSatelliteInfo(sky)
+			time.Sleep(1 * time.Millisecond)
+		}
+		done <- true
+	}()
+
+	// Wait for both goroutines
+	<-done
+	<-done
+
+	// Verify we can still get position without race conditions
+	pos := gps.GetPosition()
+	if !pos.Valid {
+		t.Error("Expected valid position after concurrent updates")
+	}
+	// Satellite data should be preserved from SKY updates
+	if pos.SatellitesUsed < 8 || pos.SatellitesUsed > 10 {
+		t.Errorf("Expected satellite count between 8-10, got %d", pos.SatellitesUsed)
+	}
+	if pos.HDOP < 1.2 {
+		t.Errorf("Expected HDOP >= 1.2, got %f", pos.HDOP)
+	}
+}
+
+func TestFormatGGA_QualityIndicator(t *testing.T) {
+	now := time.Date(2024, 1, 15, 12, 30, 45, 0, time.UTC)
+
+	tests := []struct {
+		name            string
+		mode            int
+		expectedQuality string
+	}{
+		{"No fix - mode 0", 0, "0"},
+		{"No fix - mode 1", 1, "0"},
+		{"2D fix - mode 2", 2, "1"},
+		{"3D fix - mode 3", 3, "1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pos := PositionReport{
+				Timestamp:      now,
+				Latitude:       37.7749,
+				Longitude:      -122.4194,
+				Altitude:       50.5,
+				Valid:          true,
+				Mode:           tt.mode,
+				SatellitesUsed: 8,
+				HDOP:           1.2,
+			}
+
+			nmea := formatGGA(pos)
+
+			// Quality appears after longitude hemisphere and before satellite count
+			// Format: ...W,Q,SS,... where Q is quality, SS is satellites
+			expectedPattern := fmt.Sprintf(",W,%s,08,", tt.expectedQuality)
+			if !strings.Contains(nmea, expectedPattern) {
+				t.Errorf("Expected quality indicator %s in NMEA, got: %s", tt.expectedQuality, nmea)
+			}
+		})
 	}
 }

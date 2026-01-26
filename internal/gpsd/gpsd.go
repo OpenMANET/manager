@@ -45,7 +45,7 @@ import (
 )
 
 const (
-	DefaultTAKGPSPort string = "2947"
+	DefaultTAKGPSPort string = "4349"
 	DefaultAddress    string = "localhost:2947"
 	ATAKSAAddress     string = "239.2.3.1:6969" // ATAK Situational Awareness multicast address
 	// atakMulticastTTL is the Time-To-Live value for CoT multicast packets sent to ATAK SA address
@@ -61,29 +61,52 @@ const (
 
 // PositionReport holds the current GPS position data
 type PositionReport struct {
-	Timestamp time.Time // Time of position fix
-	Latitude  float64   // Latitude in degrees
-	Longitude float64   // Longitude in degrees
-	Altitude  float64   // Altitude in meters above sea level
-	Speed     float64   // Speed over ground in m/s
-	Track     float64   // Course over ground in degrees
-	Climb     float64   // Climb/sink rate in m/s
-	Valid     bool      // Whether the position data is valid
-	Mode      int       // GPS fix mode (0=no fix, 1=no fix, 2=2D, 3=3D)
+	Timestamp       time.Time // Time of position fix
+	Latitude        float64   // Latitude in degrees
+	Longitude       float64   // Longitude in degrees
+	Altitude        float64   // Altitude in meters above sea level
+	Speed           float64   // Speed over ground in m/s
+	Track           float64   // Course over ground in degrees
+	Climb           float64   // Climb/sink rate in m/s
+	Valid           bool      // Whether the position data is valid
+	Mode            int       // GPS fix mode (0=no fix, 1=no fix, 2=2D, 3=3D)
+	SatellitesUsed  int       // Number of satellites used in navigation solution
+	HDOP            float64   // Horizontal dilution of precision
+	GeoidSeparation float64   // Height of geoid above WGS84 ellipsoid in meters
 }
 
 // TPVReport represents a Time-Position-Velocity report from GPSD
 type TPVReport struct {
-	Class  string  `json:"class"`
-	Device string  `json:"device,omitempty"`
-	Mode   int     `json:"mode"`
-	Time   string  `json:"time,omitempty"`
-	Lat    float64 `json:"lat,omitempty"`
-	Lon    float64 `json:"lon,omitempty"`
-	Alt    float64 `json:"alt,omitempty"`
-	Track  float64 `json:"track,omitempty"`
-	Speed  float64 `json:"speed,omitempty"`
-	Climb  float64 `json:"climb,omitempty"`
+	Class    string  `json:"class"`
+	Device   string  `json:"device,omitempty"`
+	Mode     int     `json:"mode"`
+	Time     string  `json:"time,omitempty"`
+	Lat      float64 `json:"lat,omitempty"`
+	Lon      float64 `json:"lon,omitempty"`
+	Alt      float64 `json:"alt,omitempty"`
+	Track    float64 `json:"track,omitempty"`
+	Speed    float64 `json:"speed,omitempty"`
+	Climb    float64 `json:"climb,omitempty"`
+	GeoidSep float64 `json:"geoidSep,omitempty"` // Geoid separation in meters
+}
+
+// SKYReport represents a satellite information report from GPSD
+type SKYReport struct {
+	Class      string  `json:"class"`
+	Device     string  `json:"device,omitempty"`
+	Time       string  `json:"time,omitempty"`
+	HDOP       float64 `json:"hdop,omitempty"` // Horizontal dilution of precision
+	VDOP       float64 `json:"vdop,omitempty"` // Vertical dilution of precision
+	PDOP       float64 `json:"pdop,omitempty"` // Position dilution of precision
+	NSat       int     `json:"nSat,omitempty"` // Number of satellites visible
+	USat       int     `json:"uSat,omitempty"` // Number of satellites used in solution
+	Satellites []struct {
+		PRN  int     `json:"PRN"`
+		El   float64 `json:"el"`
+		Az   float64 `json:"az"`
+		Ss   float64 `json:"ss"`
+		Used bool    `json:"used"`
+	} `json:"satellites,omitempty"`
 }
 
 type GPSService struct {
@@ -231,19 +254,32 @@ func (g *GPSService) readGPSD() {
 
 // processGPSDMessage parses and processes a JSON message from GPSD
 func (g *GPSService) processGPSDMessage(message string) {
-	var report TPVReport
-	err := json.Unmarshal([]byte(message), &report)
+	// Try to determine message type by checking class field
+	var baseMsg struct {
+		Class string `json:"class"`
+	}
+	err := json.Unmarshal([]byte(message), &baseMsg)
 	if err != nil {
-		// Not all messages are TPV reports, so we can ignore parse errors
 		return
 	}
 
-	// Only process TPV reports with valid data
-	if report.Class != "TPV" {
-		return
-	}
+	switch baseMsg.Class {
+	case "TPV":
+		var report TPVReport
+		err := json.Unmarshal([]byte(message), &report)
+		if err != nil {
+			return
+		}
+		g.updatePosition(report)
 
-	g.updatePosition(report)
+	case "SKY":
+		var skyReport SKYReport
+		err := json.Unmarshal([]byte(message), &skyReport)
+		if err != nil {
+			return
+		}
+		g.updateSatelliteInfo(skyReport)
+	}
 }
 
 // updatePosition updates the internal position report from a TPV message
@@ -263,15 +299,17 @@ func (g *GPSService) updatePosition(tpv TPVReport) {
 		}
 
 		g.position = PositionReport{
-			Timestamp: timestamp,
-			Latitude:  tpv.Lat,
-			Longitude: tpv.Lon,
-			Altitude:  tpv.Alt,
-			Speed:     tpv.Speed,
-			Track:     tpv.Track,
-			Climb:     tpv.Climb,
-			Valid:     true,
-			Mode:      tpv.Mode,
+			Timestamp:       timestamp,
+			Latitude:        tpv.Lat,
+			Longitude:       tpv.Lon,
+			Altitude:        tpv.Alt,
+			Speed:           tpv.Speed,
+			Track:           tpv.Track,
+			Climb:           tpv.Climb,
+			Valid:           true,
+			Mode:            tpv.Mode,
+			GeoidSeparation: tpv.GeoidSep,
+			// SatellitesUsed and HDOP are updated by SKY reports
 		}
 
 		g.Log.Debug().
@@ -283,6 +321,27 @@ func (g *GPSService) updatePosition(tpv TPVReport) {
 		// Send location to EUDs in a goroutine to avoid blocking
 		go g.SendLocationtoEUDs()
 	}
+}
+
+// updateSatelliteInfo updates the satellite and precision information from a SKY report
+func (g *GPSService) updateSatelliteInfo(sky SKYReport) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// Only update if we have valid satellite data
+	if sky.USat > 0 {
+		g.position.SatellitesUsed = sky.USat
+	}
+
+	// Update HDOP if available
+	if sky.HDOP > 0 {
+		g.position.HDOP = sky.HDOP
+	}
+
+	g.Log.Debug().
+		Int("satellites", sky.USat).
+		Float64("hdop", sky.HDOP).
+		Msg("Satellite info updated")
 }
 
 // GetPosition returns a copy of the current position report
@@ -379,21 +438,35 @@ func formatGGA(pos PositionReport) string {
 		lonHem = "W"
 	}
 
-	// Quality indicator (1 = GPS fix)
-	quality := "1"
+	// Quality indicator based on GPS fix mode
+	// 0 = Invalid, 1 = GPS fix (SPS), 2 = DGPS fix, 3 = PPS fix, etc.
+	// GPSD Mode: 0/1 = no fix, 2 = 2D fix, 3 = 3D fix
+	quality := "0"
+	if pos.Mode >= 2 {
+		quality = "1" // GPS fix (SPS)
+	}
 
-	// Number of satellites (we don't have this, use a default)
-	numSat := "08"
+	// Number of satellites - only include if we have real data
+	numSat := ""
+	if pos.SatellitesUsed > 0 {
+		numSat = fmt.Sprintf("%02d", pos.SatellitesUsed)
+	}
 
-	// Horizontal dilution of precision (we don't have this, use a default)
-	hdop := "1.0"
+	// Horizontal dilution of precision - only include if we have real data
+	hdop := ""
+	if pos.HDOP > 0 {
+		hdop = fmt.Sprintf("%.1f", pos.HDOP)
+	}
 
 	// Altitude in meters
 	altStr := fmt.Sprintf("%.1f", pos.Altitude)
 	altUnit := "M"
 
-	// Height of geoid (WGS84) above WGS84 ellipsoid (we don't have this, use 0)
-	geoidHeight := "0.0"
+	// Height of geoid (WGS84) above WGS84 ellipsoid - only include if we have real data
+	geoidHeight := ""
+	if pos.GeoidSeparation != 0 {
+		geoidHeight = fmt.Sprintf("%.1f", pos.GeoidSeparation)
+	}
 	geoidUnit := "M"
 
 	// Time since last DGPS update (empty if not using DGPS)
