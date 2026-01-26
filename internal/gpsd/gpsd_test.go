@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -607,7 +608,7 @@ func TestSendCoTToMulticast(t *testing.T) {
 	gps := &GPSService{
 		Log: log,
 	}
-	
+
 	// Set a valid position
 	gps.position = PositionReport{
 		Timestamp: time.Now(),
@@ -636,7 +637,7 @@ func TestSendCoTToMulticast_InvalidPosition(t *testing.T) {
 	gps := &GPSService{
 		Log: log,
 	}
-	
+
 	gps.position = PositionReport{
 		Valid: false,
 	}
@@ -648,5 +649,202 @@ func TestSendCoTToMulticast_InvalidPosition(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "no valid GPS position") {
 		t.Errorf("Expected 'no valid GPS position' error, got: %v", err)
+	}
+}
+
+func TestCheckDeviceActive_InvalidIP(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+	}
+
+	// Test with invalid IP address
+	result := gps.checkDeviceActive("invalid-ip")
+	if result {
+		t.Error("Expected false for invalid IP address")
+	}
+
+	// Test with empty IP
+	result = gps.checkDeviceActive("")
+	if result {
+		t.Error("Expected false for empty IP address")
+	}
+
+	// Test with malformed IP
+	result = gps.checkDeviceActive("999.999.999.999")
+	if result {
+		t.Error("Expected false for malformed IP address")
+	}
+}
+
+func TestCheckDeviceActive_NoMatchingInterface(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+	}
+
+	// Test with an IP that's unlikely to be on any local subnet
+	// Should return true (conservative approach when no interface is found)
+	result := gps.checkDeviceActive("192.0.2.1") // TEST-NET-1 address
+	if !result {
+		t.Error("Expected true (conservative approach) when no matching interface is found")
+	}
+}
+
+func TestCheckDeviceActive_Localhost(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+	}
+
+	// Test with localhost - should find loopback interface but skip it
+	// Should return true (conservative fallback)
+	result := gps.checkDeviceActive("127.0.0.1")
+	if !result {
+		t.Error("Expected true for localhost (conservative fallback)")
+	}
+}
+
+func TestSendCoTToMulticast_RateLimit(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a valid position
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Speed:     5.0,
+		Track:     90.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	// First call should attempt to send (may fail due to network, but should try)
+	_ = gps.sendCoTToMulticast()
+
+	// Verify lastCoTMulticastTime was set
+	gps.mu.RLock()
+	lastTime := gps.lastCoTMulticastTime
+	gps.mu.RUnlock()
+
+	if lastTime.IsZero() {
+		t.Error("Expected lastCoTMulticastTime to be set after first call")
+	}
+
+	// Second call immediately should be rate limited (returns nil without error)
+	err := gps.sendCoTToMulticast()
+	if err != nil {
+		t.Errorf("Rate limited call should return nil, got: %v", err)
+	}
+
+	// Verify the timestamp hasn't changed
+	gps.mu.RLock()
+	newTime := gps.lastCoTMulticastTime
+	gps.mu.RUnlock()
+
+	if !newTime.Equal(lastTime) {
+		t.Error("Expected lastCoTMulticastTime to remain unchanged when rate limited")
+	}
+}
+
+func TestSendLocationtoEUDs_NoValidPosition(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+	}
+
+	// Set invalid position
+	gps.position = PositionReport{
+		Valid: false,
+	}
+
+	// Should return early without error
+	gps.SendLocationtoEUDs()
+	// Test passes if no panic occurs
+}
+
+func TestReconnectionLimit(t *testing.T) {
+	log := zerolog.Nop()
+
+	// Create a GPS service with an invalid address to trigger reconnection failures
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	gps := &GPSService{
+		Log:            log,
+		address:        "127.0.0.1:1", // Invalid port that should fail to connect
+		ctx:            ctx,
+		cancel:         cancel,
+		reconnectDelay: 10 * time.Millisecond, // Short delay for testing
+	}
+
+	// Start the connection handler in a goroutine
+	done := make(chan struct{})
+	go func() {
+		gps.connectionHandler()
+		close(done)
+	}()
+
+	// Wait for the handler to complete (should stop after 3 failed attempts)
+	select {
+	case <-done:
+		// Good - the handler stopped
+	case <-time.After(2 * time.Second):
+		t.Error("Connection handler did not stop after max reconnection attempts")
+		cancel()
+	}
+
+	// Verify reconnectAttempts reached the limit
+	gps.mu.RLock()
+	attempts := gps.reconnectAttempts
+	gps.mu.RUnlock()
+
+	if attempts < maxReconnectAttempts {
+		t.Errorf("Expected at least %d reconnection attempts, got %d", maxReconnectAttempts, attempts)
+	}
+}
+
+func TestUpdatePosition_TriggersLocationSend(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Create a TPV report with valid position
+	tpv := TPVReport{
+		Class: "TPV",
+		Mode:  3,
+		Time:  time.Now().UTC().Format(time.RFC3339),
+		Lat:   37.7749,
+		Lon:   -122.4194,
+		Alt:   50.0,
+		Speed: 5.0,
+		Track: 90.0,
+	}
+
+	// Update position (this should trigger SendLocationtoEUDs in a goroutine)
+	gps.updatePosition(tpv)
+
+	// Give the goroutine time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify position was updated
+	pos := gps.GetPosition()
+	if !pos.Valid {
+		t.Error("Expected valid position after update")
+	}
+	if pos.Latitude != 37.7749 {
+		t.Errorf("Expected latitude 37.7749, got %f", pos.Latitude)
+	}
+	if pos.Longitude != -122.4194 {
+		t.Errorf("Expected longitude -122.4194, got %f", pos.Longitude)
 	}
 }

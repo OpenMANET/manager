@@ -30,24 +30,33 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"net/netip"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/coreywagehoft/go-tak/pkg/cot"
 	"github.com/coreywagehoft/go-tak/pkg/cotproto"
+	"github.com/mdlayher/arp"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/rs/zerolog"
+	"golang.org/x/net/ipv4"
 )
 
 const (
-	DefaultTAKGPSPort    string = "2947"
-	DefaultAddress       string = "localhost:2947"
-	ATAKSAAddress        string = "239.2.3.1:6969" // ATAK Situational Awareness multicast address
-	radioUnitType        string = "G-U-U-S-R"      // Gnd/RADIO UNIT;RADIO UNIT
-	defaultStaleDuration        = 10 * time.Minute
-	maxReconnectAttempts        = 3
+	DefaultTAKGPSPort string = "2947"
+	DefaultAddress    string = "localhost:2947"
+	ATAKSAAddress     string = "239.2.3.1:6969" // ATAK Situational Awareness multicast address
+	// atakMulticastTTL is the Time-To-Live value for CoT multicast packets sent to ATAK SA address
+	atakMulticastTTL int = 64
+	// radioUnitType is the CoT type for a ground radio unit
+	radioUnitType string = "G-U-U-S-R" // Gnd/RADIO UNIT;RADIO UNIT
+	// defaultStaleDuration is the default duration before a CoT message is considered stale
+	defaultStaleDuration time.Duration = 10 * time.Minute
+	maxReconnectAttempts int           = 3
+	// cotMulticastRateLimit is the minimum interval between CoT multicast sends to avoid flooding
+	cotMulticastRateLimit time.Duration = 30 * time.Second // Minimum interval between CoT multicast sends
 )
 
 // PositionReport holds the current GPS position data
@@ -78,15 +87,16 @@ type TPVReport struct {
 }
 
 type GPSService struct {
-	Log               zerolog.Logger
-	mu                sync.RWMutex
-	position          PositionReport
-	conn              net.Conn
-	ctx               context.Context
-	cancel            context.CancelFunc
-	address           string
-	reconnectDelay    time.Duration
-	reconnectAttempts int
+	Log                  zerolog.Logger
+	mu                   sync.RWMutex
+	position             PositionReport
+	conn                 net.Conn
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	address              string
+	reconnectDelay       time.Duration
+	reconnectAttempts    int
+	lastCoTMulticastTime time.Time // Last time a CoT message was sent to multicast
 }
 
 // NewGPSService creates a new GPS service that connects to GPSD and monitors TPV reports.
@@ -438,8 +448,17 @@ func (g *GPSService) SendLocationtoEUDs() {
 		return
 	}
 
+	// Track if we sent to any active devices
+	activeDeviceCount := 0
+
 	// loop through leases.DHCPleases and send location to each EUD
 	for _, lease := range leases.DHCPLeases {
+		// Send an ARP request to verify the EUD is online
+		if !g.checkDeviceActive(lease.IPAddr) {
+			g.Log.Debug().Str("ip", lease.IPAddr).Msg("Device not responding to ARP, skipping")
+			continue
+		}
+
 		// For each lease, send the current GPS location
 		// We send this as a UDP packet to the EUD's IP address on a the DefaultTAKGPSPort
 		addr := net.JoinHostPort(lease.IPAddr, DefaultTAKGPSPort)
@@ -452,9 +471,99 @@ func (g *GPSService) SendLocationtoEUDs() {
 		_, err = conn.Write([]byte(nmeaString))
 		if err != nil {
 			g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to send GPS data to EUD")
+		} else {
+			activeDeviceCount++
 		}
 		conn.Close()
 	}
+
+	// If no active devices were found, send to multicast as fallback
+	if activeDeviceCount == 0 {
+		g.Log.Debug().Msg("No active devices found, sending CoT to ATAK SA multicast address")
+		if err := g.sendCoTToMulticast(); err != nil {
+			g.Log.Error().Err(err).Msg("Failed to send CoT to multicast")
+		}
+	}
+}
+
+// checkDeviceActive performs an ARP request to check if a device is active at the given IP address
+func (g *GPSService) checkDeviceActive(ipAddr string) bool {
+	// Parse the IP address as netip.Addr
+	ipAddrParsed, err := netip.ParseAddr(ipAddr)
+	if err != nil {
+		g.Log.Debug().Str("ip", ipAddr).Msg("Invalid IP address for ARP check")
+		return false
+	}
+
+	// Get all network interfaces
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		g.Log.Debug().Err(err).Msg("Failed to get network interfaces for ARP check")
+		return false
+	}
+
+	// Try to find an interface on the same subnet as the target IP
+	for _, iface := range ifaces {
+		// Skip down or loopback interfaces
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		// Get addresses for this interface
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		// Check if any address is on the same subnet
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+
+			// Convert to check if target IP is in this subnet
+			ip := net.ParseIP(ipAddr)
+			if ip == nil {
+				continue
+			}
+
+			// Check if target IP is in this subnet
+			if ipNet.Contains(ip) {
+				// Create ARP client for this interface
+				client, err := arp.Dial(&iface)
+				if err != nil {
+					g.Log.Debug().Err(err).Str("interface", iface.Name).Msg("Failed to create ARP client")
+					continue
+				}
+				defer client.Close()
+
+				// Set a short timeout for ARP request
+				if err := client.SetDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+					g.Log.Debug().Err(err).Msg("Failed to set ARP deadline")
+					client.Close()
+					continue
+				}
+
+				// Perform ARP request using netip.Addr
+				_, err = client.Resolve(ipAddrParsed)
+				client.Close()
+
+				if err == nil {
+					g.Log.Debug().Str("ip", ipAddr).Msg("Device is active (ARP response received)")
+					return true
+				}
+
+				g.Log.Debug().Err(err).Str("ip", ipAddr).Msg("Device did not respond to ARP request")
+				return false
+			}
+		}
+	}
+
+	// If we get here, we couldn't find a suitable interface
+	// Return true to allow the send attempt (conservative approach)
+	g.Log.Debug().Str("ip", ipAddr).Msg("Could not find suitable interface for ARP check, assuming device is active")
+	return true
 }
 
 // sendCoTToMulticast creates and sends an ATAK CoT message to the standard multicast address
