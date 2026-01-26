@@ -459,6 +459,16 @@ func (g *GPSService) SendLocationtoEUDs() {
 
 // sendCoTToMulticast creates and sends an ATAK CoT message to the standard multicast address
 func (g *GPSService) sendCoTToMulticast() error {
+	// Rate limit: only send once every 30 seconds to avoid flooding the network
+	g.mu.Lock()
+	if time.Since(g.lastCoTMulticastTime) < cotMulticastRateLimit {
+		g.mu.Unlock()
+		g.Log.Debug().Msg("Skipping CoT multicast send due to rate limit")
+		return nil
+	}
+	g.lastCoTMulticastTime = time.Now()
+	g.mu.Unlock()
+
 	pos := g.GetPosition()
 	if !pos.Valid {
 		return fmt.Errorf("no valid GPS position")
@@ -528,6 +538,12 @@ func (g *GPSService) sendCoTToMulticast() error {
 		return fmt.Errorf("failed to dial multicast: %w", err)
 	}
 	defer conn.Close()
+
+	// Set multicast TTL to 64
+	pconn := ipv4.NewPacketConn(conn)
+	if err := pconn.SetMulticastTTL(atakMulticastTTL); err != nil {
+		g.Log.Warn().Err(err).Msg("Failed to set multicast TTL")
+	}
 
 	_, err = conn.Write(protoData)
 	if err != nil {
