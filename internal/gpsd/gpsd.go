@@ -27,6 +27,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"math"
 	"net"
@@ -311,12 +312,6 @@ func (g *GPSService) updatePosition(tpv TPVReport) {
 			GeoidSeparation: tpv.GeoidSep,
 			// SatellitesUsed and HDOP are updated by SKY reports
 		}
-
-		g.Log.Debug().
-			Float64("lat", tpv.Lat).
-			Float64("lon", tpv.Lon).
-			Float64("alt", tpv.Alt).
-			Msg("Position updated")
 
 		// Send location to EUDs in a goroutine to avoid blocking
 		go g.SendLocationtoEUDs()
@@ -700,13 +695,19 @@ func (g *GPSService) sendCoTToMulticast() error {
 				Speed:  pos.Speed,
 				Course: pos.Track,
 			},
+			PrecisionLocation: &cotproto.PrecisionLocation{
+				Geopointsrc: "GPS",
+				Altsrc:      "GPS",
+			},
 		},
 	}
 
-	// Convert to protobuf packet
-	protoData, err := cot.MakeProtoPacket(cotMsg)
+	cotEvent := cot.ProtoToEvent(cotMsg)
+
+	// Marshal to XML
+	xmlData, err := xml.Marshal(cotEvent)
 	if err != nil {
-		return fmt.Errorf("failed to create CoT protobuf packet: %w", err)
+		return fmt.Errorf("failed to marshal CoT XML: %w", err)
 	}
 
 	// Send to multicast address
@@ -727,7 +728,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 		g.Log.Warn().Err(err).Msg("Failed to set multicast TTL")
 	}
 
-	_, err = conn.Write(protoData)
+	_, err = conn.Write(xmlData)
 	if err != nil {
 		return fmt.Errorf("failed to send CoT message: %w", err)
 	}
