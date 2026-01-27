@@ -39,28 +39,32 @@ type PTTRuntime struct {
 	decoder         *opus.Decoder
 	udpSendConn     *net.UDPConn
 	udpRecvConn     *net.UDPConn
-	localIP         string
 	playbackBuffer  chan []float32
-	beepBufferStart []float32
-	beepBufferStop  []float32
 	broadcastStream *portaudio.Stream
-	broadcasting    bool
-	recordMutex     sync.Mutex
+	localIP         string
 
 	// config from UCI (with fallbacks)
-	ifaceName     string
-	mcastAddr     string
-	mcastPort     int
-	pttKey        string
+	ifaceName       string
+	mcastAddr       string
+	pttKey          string
+	pttDeviceName   string
+	pttDevice       string
+	beepBufferStart []float32
+	beepBufferStop  []float32
+	mcastPort       int
+	recordMutex     sync.Mutex
+
+	broadcasting  bool
 	debugEnabled  bool
 	loopbackAudio bool
-	pttDeviceName string
-	pttDevice     string
 }
 
 type PTTConfig struct {
-	Log           zerolog.Logger
-	Interupt      chan os.Signal
+	Log      zerolog.Logger
+	Interupt chan os.Signal
+
+	// Runtime state - only allocated when PTT is enabled
+	runtime       *PTTRuntime
 	Iface         string
 	McastAddr     string
 	PttKey        string
@@ -70,9 +74,6 @@ type PTTConfig struct {
 	Enable        bool
 	Debug         bool
 	Loopback      bool
-
-	// Runtime state - only allocated when PTT is enabled
-	runtime *PTTRuntime
 }
 
 func NewPTT(cfg PTTConfig) *PTTConfig {
