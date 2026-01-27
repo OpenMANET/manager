@@ -337,11 +337,6 @@ func (g *GPSService) updateSatelliteInfo(sky SKYReport) {
 	if sky.HDOP > 0 {
 		g.position.HDOP = sky.HDOP
 	}
-
-	g.Log.Debug().
-		Int("satellites", sky.USat).
-		Float64("hdop", sky.HDOP).
-		Msg("Satellite info updated")
 }
 
 // GetPosition returns a copy of the current position report
@@ -644,7 +639,6 @@ func (g *GPSService) checkDeviceActive(ipAddr string) bool {
 
 	// If we get here, we couldn't find a suitable interface
 	// Return true to allow the send attempt (conservative approach)
-	g.Log.Debug().Str("ip", ipAddr).Msg("Could not find suitable interface for ARP check, assuming device is active")
 	return true
 }
 
