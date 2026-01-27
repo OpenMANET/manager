@@ -720,7 +720,7 @@ func TestCheckDeviceActive_Localhost(t *testing.T) {
 	}
 }
 
-func TestSendCoTToMulticast_RateLimit(t *testing.T) {
+func TestSendLocationtoEUDs_RateLimit(t *testing.T) {
 	log := zerolog.Nop()
 
 	gps := &GPSService{
@@ -740,31 +740,28 @@ func TestSendCoTToMulticast_RateLimit(t *testing.T) {
 		Mode:      3,
 	}
 
-	// First call should attempt to send (may fail due to network, but should try)
-	_ = gps.sendCoTToMulticast()
+	// First call should attempt to send (may fail due to network/no dhcp leases, but should try)
+	gps.SendLocationtoEUDs()
 
-	// Verify lastCoTMulticastTime was set
+	// Verify lastMulticastTime was set
 	gps.mu.RLock()
-	lastTime := gps.lastCoTMulticastTime
+	lastTime := gps.lastMulticastTime
 	gps.mu.RUnlock()
 
 	if lastTime.IsZero() {
-		t.Error("Expected lastCoTMulticastTime to be set after first call")
+		t.Error("Expected lastMulticastTime to be set after first call")
 	}
 
-	// Second call immediately should be rate limited (returns nil without error)
-	err := gps.sendCoTToMulticast()
-	if err != nil {
-		t.Errorf("Rate limited call should return nil, got: %v", err)
-	}
+	// Second call immediately should be rate limited
+	gps.SendLocationtoEUDs()
 
-	// Verify the timestamp hasn't changed
+	// Verify the timestamp hasn't changed (rate limited)
 	gps.mu.RLock()
-	newTime := gps.lastCoTMulticastTime
+	newTime := gps.lastMulticastTime
 	gps.mu.RUnlock()
 
 	if !newTime.Equal(lastTime) {
-		t.Error("Expected lastCoTMulticastTime to remain unchanged when rate limited")
+		t.Error("Expected lastMulticastTime to remain unchanged when rate limited")
 	}
 }
 

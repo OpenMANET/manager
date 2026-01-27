@@ -79,8 +79,8 @@ type PositionReport struct {
 type TPVReport struct {
 	Class    string  `json:"class"`
 	Device   string  `json:"device,omitempty"`
-	Mode     int     `json:"mode"`
 	Time     string  `json:"time,omitempty"`
+	Mode     int     `json:"mode"`
 	Lat      float64 `json:"lat,omitempty"`
 	Lon      float64 `json:"lon,omitempty"`
 	Alt      float64 `json:"alt,omitempty"`
@@ -92,14 +92,9 @@ type TPVReport struct {
 
 // SKYReport represents a satellite information report from GPSD
 type SKYReport struct {
-	Class      string  `json:"class"`
-	Device     string  `json:"device,omitempty"`
-	Time       string  `json:"time,omitempty"`
-	HDOP       float64 `json:"hdop,omitempty"` // Horizontal dilution of precision
-	VDOP       float64 `json:"vdop,omitempty"` // Vertical dilution of precision
-	PDOP       float64 `json:"pdop,omitempty"` // Position dilution of precision
-	NSat       int     `json:"nSat,omitempty"` // Number of satellites visible
-	USat       int     `json:"uSat,omitempty"` // Number of satellites used in solution
+	Class      string `json:"class"`
+	Device     string `json:"device,omitempty"`
+	Time       string `json:"time,omitempty"`
 	Satellites []struct {
 		PRN  int     `json:"PRN"`
 		El   float64 `json:"el"`
@@ -107,19 +102,24 @@ type SKYReport struct {
 		Ss   float64 `json:"ss"`
 		Used bool    `json:"used"`
 	} `json:"satellites,omitempty"`
+	HDOP float64 `json:"hdop,omitempty"` // Horizontal dilution of precision
+	VDOP float64 `json:"vdop,omitempty"` // Vertical dilution of precision
+	PDOP float64 `json:"pdop,omitempty"` // Position dilution of precision
+	NSat int     `json:"nSat,omitempty"` // Number of satellites visible
+	USat int     `json:"uSat,omitempty"` // Number of satellites used in solution
 }
 
 type GPSService struct {
-	Log                  zerolog.Logger
-	mu                   sync.RWMutex
-	position             PositionReport
-	conn                 net.Conn
-	ctx                  context.Context
-	cancel               context.CancelFunc
-	address              string
-	reconnectDelay       time.Duration
-	reconnectAttempts    int
-	lastCoTMulticastTime time.Time // Last time a CoT message was sent to multicast
+	Log               zerolog.Logger
+	lastMulticastTime time.Time // Last time a gps message was sent to multicast
+	conn              net.Conn
+	ctx               context.Context
+	cancel            context.CancelFunc
+	address           string
+	position          PositionReport
+	reconnectDelay    time.Duration
+	reconnectAttempts int
+	mu                sync.RWMutex
 }
 
 // NewGPSService creates a new GPS service that connects to GPSD and monitors TPV reports.
@@ -500,6 +500,15 @@ func calculateNMEAChecksum(sentence string) byte {
 // The eud devices are determined by the current dhcp leases.
 // If no DHCP leases are found, it sends a CoT message to the ATAK SA multicast address.
 func (g *GPSService) SendLocationtoEUDs() {
+	// Rate limit: only send once every 30 seconds to avoid flooding the network
+	g.mu.Lock()
+	if time.Since(g.lastMulticastTime) < cotMulticastRateLimit {
+		g.mu.Unlock()
+		return // Rate limited, exit early
+	}
+	g.lastMulticastTime = time.Now()
+	g.mu.Unlock()
+
 	nmeaString := g.ToNMEA()
 	if nmeaString == "" {
 		g.Log.Warn().Msg("No valid GPS position to send to EUDs")
@@ -641,16 +650,6 @@ func (g *GPSService) checkDeviceActive(ipAddr string) bool {
 
 // sendCoTToMulticast creates and sends an ATAK CoT message to the standard multicast address
 func (g *GPSService) sendCoTToMulticast() error {
-	// Rate limit: only send once every 30 seconds to avoid flooding the network
-	g.mu.Lock()
-	if time.Since(g.lastCoTMulticastTime) < cotMulticastRateLimit {
-		g.mu.Unlock()
-		g.Log.Debug().Msg("Skipping CoT multicast send due to rate limit")
-		return nil
-	}
-	g.lastCoTMulticastTime = time.Now()
-	g.mu.Unlock()
-
 	pos := g.GetPosition()
 	if !pos.Valid {
 		return fmt.Errorf("no valid GPS position")
