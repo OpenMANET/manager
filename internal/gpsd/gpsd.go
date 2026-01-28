@@ -52,7 +52,7 @@ const (
 	// atakMulticastTTL is the Time-To-Live value for CoT multicast packets sent to ATAK SA address
 	atakMulticastTTL int = 64
 	// defaultSelfMarkerType is the CoT type for self markers
-	defaultSelfMarkerType string = "a-f-G-U-C" // SELF MARKER
+	// defaultSelfMarkerType string = "a-f-G-U-C" // SELF MARKER
 	// radioUnitType is the CoT type for a ground radio unit
 	radioUnitType string = "G-U-U-S-R" // Gnd/RADIO UNIT;RADIO UNIT
 	// defaultStaleDuration is the default duration before a CoT message is considered stale
@@ -744,29 +744,6 @@ func (g *GPSService) sendCoTTAsExternalGPS(iPAddr string) error {
 		return fmt.Errorf("no valid GPS position")
 	}
 
-	deviceInfo, err := board.NewBoardConfigInfo()
-	if err != nil {
-		g.Log.Warn().Err(err).Msg("Failed to get board config info for CoT message")
-	}
-
-	// Get hostname for callsign
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "openmanet-node"
-	}
-
-	// Get platform name, handle nil deviceInfo
-	platformName := "OpenMANET"
-	if deviceInfo != nil {
-		modelName := deviceInfo.Model.GetName()
-		if modelName != "" {
-			platformName = modelName
-		}
-	}
-
-	// Create CoT Message
-	cotMsg := cot.BasicMsg(defaultSelfMarkerType, hostname, defaultStaleDuration)
-
 	// Calculate Height Above Ellipsoid (HAE)
 	// HAE = MSL altitude + Geoid Separation
 	hae := pos.Altitude
@@ -774,20 +751,19 @@ func (g *GPSService) sendCoTTAsExternalGPS(iPAddr string) error {
 		hae = pos.Altitude + pos.GeoidSeparation
 	}
 
-	cotMsg.CotEvent = &cotproto.CotEvent{
-		Lat: pos.Latitude,
-		Lon: pos.Longitude,
-		Hae: hae,
-		Ce:  pos.HDOP,
+	event := &cotproto.CotEvent{
+		Uid:       "External-GPS",
+		Type:      "a-f-G-E-S",
+		SendTime:  cot.TimeToMillis(time.Now()),
+		StartTime: cot.TimeToMillis(time.Now()),
+		StaleTime: cot.TimeToMillis(time.Now().Add(defaultStaleDuration)),
+		How:       cot.HowDefault,
+		Lat:       pos.Latitude,
+		Lon:       pos.Longitude,
+		Hae:       hae,
+		Le:        0,
+		Ce:        pos.HDOP,
 		Detail: &cotproto.Detail{
-			Contact: &cotproto.Contact{
-				Callsign: "External-GPS",
-			},
-			Takv: &cotproto.Takv{
-				Os:       "OpenMANET",
-				Device:   hostname,
-				Platform: platformName,
-			},
 			Track: &cotproto.Track{
 				Speed:  pos.Speed,
 				Course: pos.Track,
@@ -799,7 +775,7 @@ func (g *GPSService) sendCoTTAsExternalGPS(iPAddr string) error {
 		},
 	}
 
-	cotEvent := cot.ProtoToEvent(cotMsg)
+	cotEvent := cot.CotToEvent(event)
 
 	// Marshal to XML
 	xmlData, err := xml.Marshal(cotEvent)
@@ -825,7 +801,6 @@ func (g *GPSService) sendCoTTAsExternalGPS(iPAddr string) error {
 	}
 
 	g.Log.Debug().
-		Str("callsign", hostname).
 		Float64("lat", pos.Latitude).
 		Float64("lon", pos.Longitude).
 		Float64("alt", pos.Altitude).
