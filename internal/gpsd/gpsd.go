@@ -51,6 +51,8 @@ const (
 	ATAKSAAddress     string = "239.2.3.1:6969" // ATAK Situational Awareness multicast address
 	// atakMulticastTTL is the Time-To-Live value for CoT multicast packets sent to ATAK SA address
 	atakMulticastTTL int = 64
+	// defaultSelfMarkerType is the CoT type for self markers
+	defaultSelfMarkerType string = "a-f-G-U-C" // SELF MARKER
 	// radioUnitType is the CoT type for a ground radio unit
 	radioUnitType string = "G-U-U-S-R" // Gnd/RADIO UNIT;RADIO UNIT
 	// defaultStaleDuration is the default duration before a CoT message is considered stale
@@ -499,8 +501,8 @@ func (g *GPSService) SendLocationtoEUDs() {
 	g.lastMulticastTime = time.Now()
 	g.mu.Unlock()
 
-	nmeaString := g.ToNMEA()
-	if nmeaString == "" {
+	// Check if we have a valid GPS position
+	if !g.IsValid() {
 		g.Log.Warn().Msg("No valid GPS position to send to EUDs")
 		return
 	}
@@ -531,22 +533,12 @@ func (g *GPSService) SendLocationtoEUDs() {
 			continue
 		}
 
-		// For each lease, send the current GPS location
-		// We send this as a UDP packet to the EUD's IP address on a the DefaultTAKGPSPort
-		addr := net.JoinHostPort(lease.IPAddr, DefaultTAKGPSPort)
-		conn, err := net.Dial("udp", addr)
-		if err != nil {
-			g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to connect to EUD")
+		// Send CoT message as External GPS to the EUD
+		if err := g.sendCoTTAsExternalGPS(lease.IPAddr); err != nil {
+			g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to send CoT to EUD")
 			continue
 		}
-
-		_, err = conn.Write([]byte(nmeaString))
-		if err != nil {
-			g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to send GPS data to EUD")
-		} else {
-			activeDeviceCount++
-		}
-		conn.Close()
+		activeDeviceCount++
 	}
 
 	// If no active devices were found, send to multicast as fallback
@@ -741,6 +733,104 @@ func (g *GPSService) sendCoTToMulticast() error {
 		Float64("alt", pos.Altitude).
 		Str("address", ATAKSAAddress).
 		Msg("Sent CoT message to ATAK SA multicast")
+
+	return nil
+}
+
+// sendCoTAsExternalGPS creates and sends an ATAK CoT message to the EUD.
+func (g *GPSService) sendCoTTAsExternalGPS(iPAddr string) error {
+	pos := g.GetPosition()
+	if !pos.Valid {
+		return fmt.Errorf("no valid GPS position")
+	}
+
+	deviceInfo, err := board.NewBoardConfigInfo()
+	if err != nil {
+		g.Log.Warn().Err(err).Msg("Failed to get board config info for CoT message")
+	}
+
+	// Get hostname for callsign
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "openmanet-node"
+	}
+
+	// Get platform name, handle nil deviceInfo
+	platformName := "OpenMANET"
+	if deviceInfo != nil {
+		modelName := deviceInfo.Model.GetName()
+		if modelName != "" {
+			platformName = modelName
+		}
+	}
+
+	// Create CoT Message
+	cotMsg := cot.BasicMsg(defaultSelfMarkerType, hostname, defaultStaleDuration)
+
+	// Calculate Height Above Ellipsoid (HAE)
+	// HAE = MSL altitude + Geoid Separation
+	hae := pos.Altitude
+	if pos.GeoidSeparation != 0 {
+		hae = pos.Altitude + pos.GeoidSeparation
+	}
+
+	cotMsg.CotEvent = &cotproto.CotEvent{
+		Lat: pos.Latitude,
+		Lon: pos.Longitude,
+		Hae: hae,
+		Ce:  pos.HDOP,
+		Detail: &cotproto.Detail{
+			Contact: &cotproto.Contact{
+				Callsign: "External-GPS",
+			},
+			Takv: &cotproto.Takv{
+				Os:       "OpenMANET",
+				Device:   hostname,
+				Platform: platformName,
+			},
+			Track: &cotproto.Track{
+				Speed:  pos.Speed,
+				Course: pos.Track,
+			},
+			PrecisionLocation: &cotproto.PrecisionLocation{
+				Geopointsrc: "GPS",
+				Altsrc:      "GPS",
+			},
+		},
+	}
+
+	cotEvent := cot.ProtoToEvent(cotMsg)
+
+	// Marshal to XML
+	xmlData, err := xml.Marshal(cotEvent)
+	if err != nil {
+		return fmt.Errorf("failed to marshal CoT XML: %w", err)
+	}
+
+	// Send to device address
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", iPAddr, DefaultTAKGPSPort))
+	if err != nil {
+		return fmt.Errorf("failed to resolve device address: %w", err)
+	}
+
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		return fmt.Errorf("failed to dial device address: %w", err)
+	}
+	defer conn.Close()
+
+	_, err = conn.Write(xmlData)
+	if err != nil {
+		return fmt.Errorf("failed to send CoT message: %w", err)
+	}
+
+	g.Log.Debug().
+		Str("callsign", hostname).
+		Float64("lat", pos.Latitude).
+		Float64("lon", pos.Longitude).
+		Float64("alt", pos.Altitude).
+		Str("address", iPAddr).
+		Msg("Sent CoT message to ATAK device")
 
 	return nil
 }

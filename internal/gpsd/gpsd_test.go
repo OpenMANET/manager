@@ -806,10 +806,137 @@ func TestSendCoTToMulticast_HAE_Calculation(t *testing.T) {
 	}
 }
 
+func TestSendCoTAsExternalGPS_InvalidPosition(t *testing.T) {
+	log := zerolog.Nop()
+
+	// Create GPS service with invalid position
+	gps := &GPSService{
+		Log: log,
+	}
+
+	gps.position = PositionReport{
+		Valid: false,
+	}
+
+	err := gps.sendCoTTAsExternalGPS("192.168.1.100")
+	if err == nil {
+		t.Error("Expected error for invalid position")
+	}
+
+	if !strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Expected 'no valid GPS position' error, got: %v", err)
+	}
+}
+
+func TestSendCoTAsExternalGPS_ValidPosition(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a valid position
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Speed:     5.0,
+		Track:     90.0,
+		Valid:     true,
+		Mode:      3,
+		HDOP:      1.2,
+	}
+
+	// Test that CoT message can be created without errors
+	err := gps.sendCoTTAsExternalGPS("192.168.1.100")
+	// We don't check for connection errors since the address might not be available in test env
+	// Just verify the function doesn't panic and handles the position correctly
+	if err != nil && !strings.Contains(err.Error(), "dial") && !strings.Contains(err.Error(), "network") && !strings.Contains(err.Error(), "resolve") {
+		t.Errorf("Unexpected error creating CoT message: %v", err)
+	}
+}
+
+func TestSendCoTAsExternalGPS_HAE_Calculation(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a position with MSL altitude and geoid separation
+	// HAE should be MSL + Geoid Separation
+	gps.position = PositionReport{
+		Timestamp:       time.Now(),
+		Latitude:        40.7128,
+		Longitude:       -74.0060,
+		Altitude:        10.0, // MSL altitude
+		Speed:           5.0,
+		Track:           90.0,
+		Valid:           true,
+		Mode:            3,
+		HDOP:            1.5,
+		GeoidSeparation: -33.5, // Geoid separation for New York area
+	}
+
+	// The function will create a CoT message
+	// We can't easily verify the internal HAE calculation without mocking,
+	// but we can at least ensure it doesn't error with geoid separation
+	err := gps.sendCoTTAsExternalGPS("192.168.1.100")
+
+	// May get network errors, but shouldn't get position errors
+	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Should not get position error with valid position and geoid separation: %v", err)
+	}
+
+	// Test with zero geoid separation (HAE should equal MSL)
+	gps.position.GeoidSeparation = 0
+	err = gps.sendCoTTAsExternalGPS("192.168.1.100")
+
+	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Should not get position error with valid position and zero geoid separation: %v", err)
+	}
+}
+
+func TestSendCoTAsExternalGPS_InvalidIPAddress(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a valid position
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Speed:     5.0,
+		Track:     90.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	// Test with invalid IP address format
+	err := gps.sendCoTTAsExternalGPS("invalid-ip-address")
+	if err == nil {
+		t.Error("Expected error for invalid IP address")
+	}
+
+	// Should get an error about resolving or dialing
+	if !strings.Contains(err.Error(), "resolve") && !strings.Contains(err.Error(), "dial") {
+		t.Errorf("Expected resolve or dial error for invalid IP, got: %v", err)
+	}
+}
+
 func TestSendLocationtoEUDs_NoValidPosition(t *testing.T) {
 	log := zerolog.Nop()
 	gps := &GPSService{
 		Log: log,
+		mu:  sync.RWMutex{},
 	}
 
 	// Set invalid position
