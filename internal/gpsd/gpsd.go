@@ -678,6 +678,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 		Lat: pos.Latitude,
 		Lon: pos.Longitude,
 		Hae: hae,
+		Ce:  pos.HDOP,
 		Detail: &cotproto.Detail{
 			Contact: &cotproto.Contact{
 				Callsign: fmt.Sprintf("%s-manet", hostname),
