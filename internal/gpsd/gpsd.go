@@ -1,6 +1,6 @@
 // Package gpsd provides a client for connecting to and reading GPS data from a GPSD server.
 // It automatically maintains a connection to GPSD, reads TPV (Time-Position-Velocity) reports,
-// and provides thread-safe access to the current GPS position data.
+// SKY (satellite) reports, and raw NMEA sentences, providing thread-safe access to GPS data.
 //
 // Example usage:
 //
@@ -10,14 +10,29 @@
 //	}
 //	defer gps.Close()
 //
-//	// Get current position
+//	// Get current position from TPV reports
 //	pos := gps.GetPosition()
 //	if pos.Valid {
 //	    fmt.Printf("Lat: %f, Lon: %f\n", pos.Latitude, pos.Longitude)
 //	}
 //
-//	// Get NMEA formatted output
+//	// Get self-generated NMEA formatted output
 //	nmea := gps.ToNMEA()
+//	if nmea != "" {
+//	    fmt.Println(nmea)
+//	}
+//
+//	// Get raw NMEA sentences directly from GPSD
+//	gpggaSentence := gps.GetNMEASentence("GPGGA")
+//	if gpggaSentence != "" {
+//	    fmt.Println("Raw GPGGA:", gpggaSentence)
+//	}
+//
+//	// Get all NMEA sentence types
+//	allSentences := gps.GetAllNMEASentences()
+//	for sentenceType, sentence := range allSentences {
+//	    fmt.Printf("%s: %s\n", sentenceType, sentence)
+//	}
 //	if nmea != "" {
 //	    fmt.Println(nmea)
 //	}
@@ -39,6 +54,7 @@ import (
 	"github.com/coreywagehoft/go-tak/pkg/cot"
 	"github.com/coreywagehoft/go-tak/pkg/cotproto"
 	"github.com/mdlayher/arp"
+	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/rs/zerolog"
@@ -126,12 +142,15 @@ type SKYReport struct {
 
 type GPSService struct {
 	Log               zerolog.Logger
+	Config            *config.Config
 	lastMulticastTime time.Time // Last time a gps message was sent to multicast
 	conn              net.Conn
 	ctx               context.Context
 	cancel            context.CancelFunc
 	address           string
 	position          PositionReport
+	lastNMEA          string          // Last raw NMEA sentence received from GPSD
+	nmeaSentences     map[string]string // Map of NMEA sentence types to their latest values
 	reconnectDelay    time.Duration
 	reconnectAttempts int
 	mu                sync.RWMutex
@@ -140,20 +159,22 @@ type GPSService struct {
 // NewGPSService creates a new GPS service that connects to GPSD and monitors TPV reports.
 // It connects to GPSD at the default address (localhost:2947) and watches for NMEA messages.
 // The PositionReport is automatically updated when new TPV data is received.
-func NewGPSService(log zerolog.Logger) (*GPSService, error) {
-	return NewGPSServiceWithAddress(log, DefaultAddress)
+func NewGPSService(log zerolog.Logger, cfg *config.Config) (*GPSService, error) {
+	return NewGPSServiceWithAddress(log, cfg, DefaultAddress)
 }
 
 // NewGPSServiceWithAddress creates a new GPS service with a custom GPSD address.
 // It creates two separate sessions: one for JSON/TPV reports and one for NMEA sentences.
-func NewGPSServiceWithAddress(log zerolog.Logger, address string) (*GPSService, error) {
+func NewGPSServiceWithAddress(log zerolog.Logger, cfg *config.Config, address string) (*GPSService, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	g := &GPSService{
 		Log:            log,
+		Config:         cfg,
 		address:        address,
 		ctx:            ctx,
 		cancel:         cancel,
+		nmeaSentences:  make(map[string]string),
 		reconnectDelay: 5 * time.Second,
 	}
 
@@ -229,8 +250,8 @@ func (g *GPSService) connect() error {
 	g.conn = conn
 	g.mu.Unlock()
 
-	// Enable watching for updates with JSON output
-	watchCmd := "?WATCH={\"enable\":true,\"json\":true}\n"
+	// Enable watching for updates with JSON output and raw NMEA sentences
+	watchCmd := "?WATCH={\"enable\":true,\"json\":true,\"nmea\":true}\n"
 	_, err = conn.Write([]byte(watchCmd))
 	if err != nil {
 		conn.Close()
@@ -267,8 +288,14 @@ func (g *GPSService) readGPSD() {
 	}
 }
 
-// processGPSDMessage parses and processes a JSON message from GPSD
+// processGPSDMessage parses and processes a message from GPSD (JSON or NMEA)
 func (g *GPSService) processGPSDMessage(message string) {
+	// Check if this is an NMEA sentence (starts with $)
+	if len(message) > 0 && message[0] == '$' {
+		g.processNMEASentence(message)
+		return
+	}
+
 	// Try to determine message type by checking class field
 	var baseMsg struct {
 		Class string `json:"class"`
@@ -294,6 +321,36 @@ func (g *GPSService) processGPSDMessage(message string) {
 			return
 		}
 		g.updateSatelliteInfo(skyReport)
+	}
+}
+
+// processNMEASentence stores a raw NMEA sentence from GPSD
+func (g *GPSService) processNMEASentence(sentence string) {
+	g.mu.Lock()
+	// Store the last NMEA sentence
+	g.lastNMEA = sentence
+
+	// Extract sentence type (e.g., "GPGGA", "GPRMC", etc.)
+	// NMEA format: $GPGGA,data*checksum
+	if len(sentence) > 6 {
+		// Find the comma after the sentence type
+		commaIdx := 0
+		for i := 1; i < len(sentence); i++ {
+			if sentence[i] == ',' {
+				commaIdx = i
+				break
+			}
+		}
+		if commaIdx > 1 {
+			sentenceType := sentence[1:commaIdx] // Skip the $ and get type
+			g.nmeaSentences[sentenceType] = sentence
+		}
+	}
+	g.mu.Unlock()
+
+	// Send NMEA to active devices if configured
+	if g.Config != nil && g.Config.GetGNSSSendAsNMEA() {
+		go g.sendRawNMEAToActiveDevices(sentence)
 	}
 }
 
@@ -462,6 +519,35 @@ func (g *GPSService) GetDGPSStation() int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.position.DGPSStation
+}
+
+// GetLastNMEA returns the last raw NMEA sentence received from GPSD.
+// Returns an empty string if no NMEA sentence has been received.
+func (g *GPSService) GetLastNMEA() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.lastNMEA
+}
+
+// GetNMEASentence returns the latest NMEA sentence of a specific type (e.g., "GPGGA", "GPRMC").
+// Returns an empty string if no sentence of that type has been received.
+func (g *GPSService) GetNMEASentence(sentenceType string) string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.nmeaSentences[sentenceType]
+}
+
+// GetAllNMEASentences returns a copy of all stored NMEA sentences, keyed by sentence type.
+func (g *GPSService) GetAllNMEASentences() map[string]string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	
+	// Return a copy to prevent external modification
+	sentences := make(map[string]string, len(g.nmeaSentences))
+	for k, v := range g.nmeaSentences {
+		sentences[k] = v
+	}
+	return sentences
 }
 
 // ToNMEA converts the current position to NMEA GGA format
@@ -930,4 +1016,56 @@ func (g *GPSService) sendNMEAasExternalGPS(iPAddr string) error {
 		Msg("Sent NMEA message to ATAK device")
 
 	return nil
+}
+
+// sendRawNMEAToActiveDevices sends a raw NMEA sentence to all active DHCP lease devices.
+func (g *GPSService) sendRawNMEAToActiveDevices(sentence string) {
+	// Get current DHCP leases
+	leases, err := network.GetCurrentDHCPLeases()
+	if err != nil {
+		g.Log.Debug().Err(err).Msg("Failed to get DHCP leases for NMEA distribution")
+		return
+	}
+
+	if len(leases.DHCPLeases) == 0 {
+		g.Log.Debug().Msg("No DHCP leases found for NMEA distribution")
+		return
+	}
+
+	// Send to each active device
+	for _, lease := range leases.DHCPLeases {
+		ipAddr := lease.IPAddr
+		
+		// Check if device is active via ARP
+		isActive := g.checkDeviceActive(ipAddr)
+		if !isActive {
+			g.Log.Debug().Str("ip", ipAddr).Msg("Device not active, skipping NMEA send")
+			continue
+		}
+
+		// Send raw NMEA sentence via UDP
+		addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", ipAddr, DefaultTAKGPSPort))
+		if err != nil {
+			g.Log.Debug().Err(err).Str("ip", ipAddr).Msg("Failed to resolve address for NMEA")
+			continue
+		}
+
+		conn, err := net.DialUDP("udp", nil, addr)
+		if err != nil {
+			g.Log.Debug().Err(err).Str("ip", ipAddr).Msg("Failed to dial UDP for NMEA")
+			continue
+		}
+
+		// Add newline to NMEA sentence
+		nmeaWithNewline := sentence + "\r\n"
+
+		_, err = conn.Write([]byte(nmeaWithNewline))
+		conn.Close()
+		
+		if err != nil {
+			g.Log.Debug().Err(err).Str("ip", ipAddr).Msg("Failed to send raw NMEA")
+		} else {
+			g.Log.Debug().Str("ip", ipAddr).Str("sentence", sentence).Msg("Sent raw NMEA sentence")
+		}
+	}
 }

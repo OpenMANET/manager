@@ -791,7 +791,7 @@ func TestConfigOnChangeCallback(t *testing.T) {
 	}
 }
 
-func TestGetEnableGPS(t *testing.T) {
+func TestGetEnableGNSS(t *testing.T) {
 	tests := []struct {
 		name     string
 		setValue *bool
@@ -810,7 +810,7 @@ func TestGetEnableGPS(t *testing.T) {
 		{
 			name:     "returns default when not set",
 			setValue: nil,
-			want:     DefaultEnableGPS,
+			want:     DefaultEnableGNSS,
 		},
 	}
 
@@ -818,13 +818,91 @@ func TestGetEnableGPS(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("enableGPS", *tt.setValue)
+				v.Set("GNSS.enable", *tt.setValue)
 			}
 
 			cfg := New(v)
-			got := cfg.GetEnableGPS()
+			got := cfg.GetEnableGNSS()
 			if got != tt.want {
-				t.Errorf("GetEnableGPS() = %v, want %v", got, tt.want)
+				t.Errorf("GetEnableGNSS() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetGNSSSendAsNMEA(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultGNSSSendAsNMEA,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("GNSS.sendAsExternalGNSSSource.sendAsNMEA", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetGNSSSendAsNMEA()
+			if got != tt.want {
+				t.Errorf("GetGNSSSendAsNMEA() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetGNSSSendAsCoT(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultGNSSSendAsCoT,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("GNSS.sendAsExternalGNSSSource.sendAsCoT", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetGNSSSendAsCoT()
+			if got != tt.want {
+				t.Errorf("GetGNSSSendAsCoT() = %v, want %v", got, tt.want)
 			}
 		})
 	}
