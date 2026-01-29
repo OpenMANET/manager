@@ -224,6 +224,91 @@ func TestGPSService_GetterMethods(t *testing.T) {
 	}
 }
 
+func TestGPSService_AccuracyGetterMethods(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		position: PositionReport{
+			Timestamp:   time.Now(),
+			Latitude:    40.7128,
+			Longitude:   -74.0060,
+			Altitude:    100.0,
+			Valid:       true,
+			Mode:        3,
+			EPH:         5.2,
+			EPX:         3.1,
+			EPY:         4.3,
+			EPV:         8.7,
+			DGPSAge:     2.5,
+			DGPSStation: 120,
+		},
+	}
+
+	if eph := gps.GetHorizontalAccuracy(); eph != 5.2 {
+		t.Errorf("Expected horizontal accuracy 5.2, got %f", eph)
+	}
+
+	if epv := gps.GetVerticalAccuracy(); epv != 8.7 {
+		t.Errorf("Expected vertical accuracy 8.7, got %f", epv)
+	}
+
+	if epx := gps.GetLongitudeError(); epx != 3.1 {
+		t.Errorf("Expected longitude error 3.1, got %f", epx)
+	}
+
+	if epy := gps.GetLatitudeError(); epy != 4.3 {
+		t.Errorf("Expected latitude error 4.3, got %f", epy)
+	}
+
+	if age := gps.GetDGPSAge(); age != 2.5 {
+		t.Errorf("Expected DGPS age 2.5, got %f", age)
+	}
+
+	if station := gps.GetDGPSStation(); station != 120 {
+		t.Errorf("Expected DGPS station 120, got %d", station)
+	}
+}
+
+func TestGPSService_AccuracyGetterMethods_ZeroValues(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		position: PositionReport{
+			Timestamp: time.Now(),
+			Latitude:  40.7128,
+			Longitude: -74.0060,
+			Altitude:  100.0,
+			Valid:     true,
+			Mode:      3,
+			// All accuracy fields default to 0
+		},
+	}
+
+	if eph := gps.GetHorizontalAccuracy(); eph != 0 {
+		t.Errorf("Expected horizontal accuracy 0, got %f", eph)
+	}
+
+	if epv := gps.GetVerticalAccuracy(); epv != 0 {
+		t.Errorf("Expected vertical accuracy 0, got %f", epv)
+	}
+
+	if epx := gps.GetLongitudeError(); epx != 0 {
+		t.Errorf("Expected longitude error 0, got %f", epx)
+	}
+
+	if epy := gps.GetLatitudeError(); epy != 0 {
+		t.Errorf("Expected latitude error 0, got %f", epy)
+	}
+
+	if age := gps.GetDGPSAge(); age != 0 {
+		t.Errorf("Expected DGPS age 0, got %f", age)
+	}
+
+	if station := gps.GetDGPSStation(); station != 0 {
+		t.Errorf("Expected DGPS station 0, got %d", station)
+	}
+}
+
 func TestGPSService_InvalidPosition(t *testing.T) {
 	log := zerolog.Nop()
 
@@ -1182,6 +1267,98 @@ func TestProcessGPSDMessage_TPVWithGeoidSep(t *testing.T) {
 	}
 }
 
+func TestProcessGPSDMessage_TPVWithAccuracyEstimates(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Create a TPV message with error estimates
+	tpv := TPVReport{
+		Class: "TPV",
+		Mode:  3,
+		Time:  time.Now().UTC().Format(time.RFC3339),
+		Lat:   40.7128,
+		Lon:   -74.0060,
+		Alt:   10.0,
+		Speed: 2.5,
+		Track: 180.0,
+		EPH:   5.2, // Horizontal position error
+		EPX:   3.1, // Longitude error
+		EPY:   4.3, // Latitude error
+		EPV:   8.7, // Vertical error
+	}
+
+	tpvJSON, _ := json.Marshal(tpv)
+
+	// Process the message
+	gps.processGPSDMessage(string(tpvJSON))
+
+	// Give time for async operations
+	time.Sleep(10 * time.Millisecond)
+
+	// Verify error estimates were captured
+	pos := gps.GetPosition()
+	if pos.EPH != 5.2 {
+		t.Errorf("Expected EPH 5.2, got %f", pos.EPH)
+	}
+	if pos.EPX != 3.1 {
+		t.Errorf("Expected EPX 3.1, got %f", pos.EPX)
+	}
+	if pos.EPY != 4.3 {
+		t.Errorf("Expected EPY 4.3, got %f", pos.EPY)
+	}
+	if pos.EPV != 8.7 {
+		t.Errorf("Expected EPV 8.7, got %f", pos.EPV)
+	}
+	if !pos.Valid {
+		t.Error("Expected valid position")
+	}
+}
+
+func TestProcessGPSDMessage_TPVWithDGPS(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Create a TPV message with DGPS information
+	tpv := TPVReport{
+		Class:   "TPV",
+		Mode:    3,
+		Time:    time.Now().UTC().Format(time.RFC3339),
+		Lat:     40.7128,
+		Lon:     -74.0060,
+		Alt:     10.0,
+		Speed:   2.5,
+		Track:   180.0,
+		DGPSAge: 2.5,  // Age of DGPS correction
+		DGPSSta: 120,  // DGPS station ID
+	}
+
+	tpvJSON, _ := json.Marshal(tpv)
+
+	// Process the message
+	gps.processGPSDMessage(string(tpvJSON))
+
+	// Give time for async operations
+	time.Sleep(10 * time.Millisecond)
+
+	// Verify DGPS data was captured
+	pos := gps.GetPosition()
+	if pos.DGPSAge != 2.5 {
+		t.Errorf("Expected DGPS age 2.5, got %f", pos.DGPSAge)
+	}
+	if pos.DGPSStation != 120 {
+		t.Errorf("Expected DGPS station 120, got %d", pos.DGPSStation)
+	}
+	if !pos.Valid {
+		t.Error("Expected valid position")
+	}
+}
+
 func TestFormatGGA_WithRealSatelliteData(t *testing.T) {
 	now := time.Date(2024, 1, 15, 12, 30, 45, 0, time.UTC)
 
@@ -1257,6 +1434,81 @@ func TestFormatGGA_WithDefaultValues(t *testing.T) {
 	// The pattern should be ,M,, (altitude unit, empty geoid, geoid unit)
 	if !strings.Contains(nmea, ",M,,M,") {
 		t.Errorf("Expected empty geoid separation field in NMEA when no data, got: %s", nmea)
+	}
+}
+
+func TestFormatGGA_WithDGPSData(t *testing.T) {
+	now := time.Date(2024, 1, 15, 12, 30, 45, 0, time.UTC)
+
+	tests := []struct {
+		name        string
+		dgpsAge     float64
+		dgpsStation int
+		expectAge   string
+		expectSta   string
+	}{
+		{
+			name:        "DGPS with age and station",
+			dgpsAge:     2.5,
+			dgpsStation: 120,
+			expectAge:   "2.5",
+			expectSta:   "0120",
+		},
+		{
+			name:        "DGPS with different station",
+			dgpsAge:     1.2,
+			dgpsStation: 999,
+			expectAge:   "1.2",
+			expectSta:   "0999",
+		},
+		{
+			name:        "No DGPS - zero values",
+			dgpsAge:     0,
+			dgpsStation: 0,
+			expectAge:   "",
+			expectSta:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pos := PositionReport{
+				Timestamp:   now,
+				Latitude:    37.7749,
+				Longitude:   -122.4194,
+				Altitude:    50.5,
+				Valid:       true,
+				Mode:        3,
+				DGPSAge:     tt.dgpsAge,
+				DGPSStation: tt.dgpsStation,
+			}
+
+			nmea := formatGGA(pos)
+
+			// NMEA format: $GPGGA,...,dgpsAge,dgpsStation*checksum
+			// Split by * to get sentence without checksum
+			parts := strings.Split(nmea, "*")
+			if len(parts) != 2 {
+				t.Fatalf("Expected NMEA to have checksum, got: %s", nmea)
+			}
+
+			sentence := parts[0]
+			fields := strings.Split(sentence, ",")
+
+			// DGPS age is field 13 (0-indexed)
+			if len(fields) > 13 {
+				if fields[13] != tt.expectAge {
+					t.Errorf("Expected DGPS age '%s', got '%s'", tt.expectAge, fields[13])
+				}
+			}
+
+			// DGPS station is field 14 (0-indexed)
+			if len(fields) > 14 {
+				if fields[14] != tt.expectSta {
+					t.Errorf("Expected DGPS station '%s', got '%s'", tt.expectSta, fields[14])
+				}
+			}
+		})
 	}
 }
 

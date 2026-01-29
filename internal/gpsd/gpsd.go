@@ -76,6 +76,12 @@ type PositionReport struct {
 	SatellitesUsed  int       // Number of satellites used in navigation solution
 	HDOP            float64   // Horizontal dilution of precision
 	GeoidSeparation float64   // Height of geoid above WGS84 ellipsoid in meters
+	EPH             float64   // Estimated horizontal position error (1-sigma, meters)
+	EPX             float64   // Estimated longitude error (1-sigma, meters)
+	EPY             float64   // Estimated latitude error (1-sigma, meters)
+	EPV             float64   // Estimated altitude error (1-sigma, meters)
+	DGPSAge         float64   // Age of DGPS data in seconds (0 if not using DGPS)
+	DGPSStation     int       // DGPS reference station ID (0 if not using DGPS)
 }
 
 // TPVReport represents a Time-Position-Velocity report from GPSD
@@ -91,6 +97,12 @@ type TPVReport struct {
 	Speed    float64 `json:"speed,omitempty"`
 	Climb    float64 `json:"climb,omitempty"`
 	GeoidSep float64 `json:"geoidSep,omitempty"` // Geoid separation in meters
+	EPH      float64 `json:"eph,omitempty"`      // Estimated horizontal position error (1-sigma, meters)
+	EPX      float64 `json:"epx,omitempty"`      // Estimated longitude error (1-sigma, meters)
+	EPY      float64 `json:"epy,omitempty"`      // Estimated latitude error (1-sigma, meters)
+	EPV      float64 `json:"epv,omitempty"`      // Estimated altitude error (1-sigma, meters)
+	DGPSAge  float64 `json:"dgpsAge,omitempty"`  // Age of DGPS data in seconds
+	DGPSSta  int     `json:"dgpsSta,omitempty"`  // DGPS reference station ID
 }
 
 // SKYReport represents a satellite information report from GPSD
@@ -312,6 +324,12 @@ func (g *GPSService) updatePosition(tpv TPVReport) {
 			Valid:           true,
 			Mode:            tpv.Mode,
 			GeoidSeparation: tpv.GeoidSep,
+			EPH:             tpv.EPH,
+			EPX:             tpv.EPX,
+			EPY:             tpv.EPY,
+			EPV:             tpv.EPV,
+			DGPSAge:         tpv.DGPSAge,
+			DGPSStation:     tpv.DGPSSta,
 			// SatellitesUsed and HDOP are updated by SKY reports
 		}
 
@@ -392,6 +410,55 @@ func (g *GPSService) GetMode() int {
 	return g.position.Mode
 }
 
+// GetHorizontalAccuracy returns the estimated horizontal position error (1-sigma) in meters.
+// This represents the circular uncertainty about the position (CEP).
+// Returns 0 if no error estimate is available from GPSD.
+func (g *GPSService) GetHorizontalAccuracy() float64 {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.position.EPH
+}
+
+// GetVerticalAccuracy returns the estimated altitude error (1-sigma) in meters.
+// Returns 0 if no error estimate is available from GPSD.
+func (g *GPSService) GetVerticalAccuracy() float64 {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.position.EPV
+}
+
+// GetLongitudeError returns the estimated longitude error (1-sigma) in meters.
+// Returns 0 if no error estimate is available from GPSD.
+func (g *GPSService) GetLongitudeError() float64 {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.position.EPX
+}
+
+// GetLatitudeError returns the estimated latitude error (1-sigma) in meters.
+// Returns 0 if no error estimate is available from GPSD.
+func (g *GPSService) GetLatitudeError() float64 {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.position.EPY
+}
+
+// GetDGPSAge returns the age of DGPS data in seconds.
+// Returns 0 if DGPS is not being used.
+func (g *GPSService) GetDGPSAge() float64 {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.position.DGPSAge
+}
+
+// GetDGPSStation returns the DGPS reference station ID.
+// Returns 0 if DGPS is not being used.
+func (g *GPSService) GetDGPSStation() int {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.position.DGPSStation
+}
+
 // ToNMEA converts the current position to NMEA GGA format
 // GGA - Global Positioning System Fix Data
 func (g *GPSService) ToNMEA() string {
@@ -463,9 +530,15 @@ func formatGGA(pos PositionReport) string {
 
 	// Time since last DGPS update (empty if not using DGPS)
 	dgpsAge := ""
+	if pos.DGPSAge > 0 {
+		dgpsAge = fmt.Sprintf("%.1f", pos.DGPSAge)
+	}
 
 	// DGPS station ID (empty if not using DGPS)
 	dgpsID := ""
+	if pos.DGPSStation > 0 {
+		dgpsID = fmt.Sprintf("%04d", pos.DGPSStation)
+	}
 
 	// Construct the NMEA sentence (without checksum initially)
 	sentence := fmt.Sprintf("GPGGA,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s",
@@ -677,7 +750,8 @@ func (g *GPSService) sendCoTToMulticast() error {
 		Lat: pos.Latitude,
 		Lon: pos.Longitude,
 		Hae: hae,
-		Ce:  pos.HDOP,
+		Ce:  pos.EPH,
+		Le:  pos.EPV,
 		Detail: &cotproto.Detail{
 			Contact: &cotproto.Contact{
 				Callsign: fmt.Sprintf("%s-manet", hostname),
@@ -768,8 +842,8 @@ func (g *GPSService) sendCoTTAsExternalGPS(iPAddr string) error {
 		Lat:       pos.Latitude,
 		Lon:       pos.Longitude,
 		Hae:       hae,
-		Le:        0,
-		Ce:        pos.HDOP,
+		Le:        pos.EPV,
+		Ce:        pos.EPH,
 		Detail: &cotproto.Detail{
 			Track: &cotproto.Track{
 				Speed:  pos.Speed,
