@@ -490,17 +490,8 @@ func calculateNMEAChecksum(sentence string) byte {
 
 // SendLocationtoEUDs sends the current GPS location to any connected EUD clients.
 // The eud devices are determined by the current dhcp leases.
-// If no DHCP leases are found, it sends a CoT message to the ATAK SA multicast address.
+// If no DHCP leases are found or no devices are reachable, it sends a CoT message to the ATAK SA multicast address.
 func (g *GPSService) SendLocationtoEUDs() {
-	// Rate limit: only send once every 30 seconds to avoid flooding the network
-	g.mu.Lock()
-	if time.Since(g.lastMulticastTime) < cotMulticastRateLimit {
-		g.mu.Unlock()
-		return // Rate limited, exit early
-	}
-	g.lastMulticastTime = time.Now()
-	g.mu.Unlock()
-
 	// Check if we have a valid GPS position
 	if !g.IsValid() {
 		g.Log.Warn().Msg("No valid GPS position to send to EUDs")
@@ -513,42 +504,53 @@ func (g *GPSService) SendLocationtoEUDs() {
 		return
 	}
 
-	// If no leases, create a CoT message and send to the ATAK SA multicast address
-	if len(leases.DHCPLeases) == 0 {
-		g.Log.Debug().Msg("No DHCP leases found, sending CoT to ATAK SA multicast address")
-		if err := g.sendCoTToMulticast(); err != nil {
-			g.Log.Error().Err(err).Msg("Failed to send CoT to multicast")
+	// Track if we sent ANY message to ANY active device
+	anyMessageSent := false
+
+	if len(leases.DHCPLeases) > 0 {
+		// loop through leases.DHCPleases and send location to each EUD
+		for _, lease := range leases.DHCPLeases {
+			// Send an ARP request to verify the EUD is online
+			if !g.checkDeviceActive(lease.IPAddr) {
+				g.Log.Debug().Str("ip", lease.IPAddr).Msg("Device not responding to ARP, skipping")
+				continue
+			}
+
+			// Track success for this device
+			deviceSuccess := false
+
+			if err := g.sendNMEAasExternalGPS(lease.IPAddr); err != nil {
+				g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to send NMEA to EUD")
+			} else {
+				deviceSuccess = true
+			}
+
+			// Send CoT message as External GPS to the EUD
+			if err := g.sendCoTTAsExternalGPS(lease.IPAddr); err != nil {
+				g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to send CoT to EUD")
+			} else {
+				deviceSuccess = true
+			}
+
+			// Count device as reached if either message succeeded
+			if deviceSuccess {
+				anyMessageSent = true
+			}
 		}
-		return
 	}
 
-	// Track if we sent to any active devices
-	activeDeviceCount := 0
-
-	// loop through leases.DHCPleases and send location to each EUD
-	for _, lease := range leases.DHCPLeases {
-		// Send an ARP request to verify the EUD is online
-		if !g.checkDeviceActive(lease.IPAddr) {
-			g.Log.Debug().Str("ip", lease.IPAddr).Msg("Device not responding to ARP, skipping")
-			continue
+	// Only send to multicast if no devices received any messages
+	if !anyMessageSent {
+		// Rate limit: send multicast messages once every 30 seconds to avoid flooding the network
+		g.mu.Lock()
+		if time.Since(g.lastMulticastTime) < cotMulticastRateLimit {
+			g.mu.Unlock()
+			return // Rate limited, exit early
 		}
+		g.lastMulticastTime = time.Now()
+		g.mu.Unlock()
 
-		if err := g.sendNMEAasExternalGPS(lease.IPAddr); err != nil {
-			g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to send NMEA to EUD")
-			continue
-		}
-
-		// Send CoT message as External GPS to the EUD
-		if err := g.sendCoTTAsExternalGPS(lease.IPAddr); err != nil {
-			g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to send CoT to EUD")
-			continue
-		}
-		activeDeviceCount++
-	}
-
-	// If no active devices were found, send to multicast as fallback
-	if activeDeviceCount == 0 {
-		g.Log.Debug().Msg("No active devices found, sending CoT to ATAK SA multicast address")
+		g.Log.Debug().Msg("No reachable devices found, sending CoT to ATAK SA multicast address")
 		if err := g.sendCoTToMulticast(); err != nil {
 			g.Log.Error().Err(err).Msg("Failed to send CoT to multicast")
 		}

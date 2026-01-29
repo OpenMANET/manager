@@ -126,7 +126,9 @@ func Start() {
 
 	api.Stop(ctx)
 	database.CloseConnection()
-	gps.Close()
+	if cfg.GetEnableGPS() {
+		gps.Close()
+	}
 
 	log.Info().Msg("Exiting OpenMANETd")
 	os.Exit(0)
