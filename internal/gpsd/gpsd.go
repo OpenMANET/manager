@@ -916,9 +916,7 @@ func (g *GPSService) sendNMEAasExternalGPS(iPAddr string) error {
 	}
 
 	g.Log.Debug().
-		Float64("lat", pos.Latitude).
-		Float64("lon", pos.Longitude).
-		Float64("alt", pos.Altitude).
+		Str("nmea", g.ToNMEA()).
 		Str("address", iPAddr).
 		Msg("Sent NMEA message to ATAK device")
 
