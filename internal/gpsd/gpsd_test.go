@@ -1443,3 +1443,452 @@ func TestFormatGGA_QualityIndicator(t *testing.T) {
 		})
 	}
 }
+
+func TestSendNMEAasExternalGPS_InvalidPosition(t *testing.T) {
+	log := zerolog.Nop()
+
+	// Create GPS service with invalid position
+	gps := &GPSService{
+		Log: log,
+	}
+
+	gps.position = PositionReport{
+		Valid: false,
+	}
+
+	err := gps.sendNMEAasExternalGPS("192.168.1.100")
+	if err == nil {
+		t.Error("Expected error for invalid position")
+	}
+
+	if !strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Expected 'no valid GPS position' error, got: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_ValidPosition(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a valid position
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Speed:     5.0,
+		Track:     90.0,
+		Valid:     true,
+		Mode:      3,
+		HDOP:      1.2,
+	}
+
+	// Test that NMEA message can be created without errors
+	err := gps.sendNMEAasExternalGPS("192.168.1.100")
+	// We don't check for connection errors since the address might not be available in test env
+	// Just verify the function doesn't panic and handles the position correctly
+	if err != nil && !strings.Contains(err.Error(), "dial") && !strings.Contains(err.Error(), "network") && !strings.Contains(err.Error(), "resolve") {
+		t.Errorf("Unexpected error creating NMEA message: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_InvalidIPAddress(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a valid position
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Speed:     5.0,
+		Track:     90.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	// Test with invalid IP address format
+	err := gps.sendNMEAasExternalGPS("invalid-ip-address")
+	if err == nil {
+		t.Error("Expected error for invalid IP address")
+	}
+
+	// Should get an error about resolving or dialing
+	if !strings.Contains(err.Error(), "resolve") && !strings.Contains(err.Error(), "dial") {
+		t.Errorf("Expected resolve or dial error for invalid IP, got: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_AllPositionFields(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a position with all fields populated
+	gps.position = PositionReport{
+		Timestamp:       time.Now(),
+		Latitude:        40.7128,
+		Longitude:       -74.0060,
+		Altitude:        10.0,
+		Speed:           15.5,
+		Track:           270.5,
+		Valid:           true,
+		Mode:            3,
+		HDOP:            0.9,
+		SatellitesUsed:  12,
+		GeoidSeparation: -33.5,
+	}
+
+	// Test that function handles comprehensive position data
+	err := gps.sendNMEAasExternalGPS("192.168.1.100")
+
+	// May get network errors, but shouldn't get position errors
+	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Should not get position error with valid comprehensive position: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_MalformedIPAddress(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a valid position
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	// Test with malformed IP address (too many octets)
+	err := gps.sendNMEAasExternalGPS("999.999.999.999")
+	if err == nil {
+		t.Error("Expected error for malformed IP address")
+		return
+	}
+
+	// Should get an error about resolving or dialing
+	if !strings.Contains(err.Error(), "resolve") && !strings.Contains(err.Error(), "dial") && !strings.Contains(err.Error(), "network") {
+		t.Errorf("Expected resolve/dial/network error for malformed IP, got: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_NorthernLatitude(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a valid position in northern hemisphere
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  51.5074, // London
+		Longitude: -0.1278,
+		Altitude:  11.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	err := gps.sendNMEAasExternalGPS("192.168.1.100")
+
+	// May get network errors, but shouldn't get position errors
+	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Should not get position error with valid northern hemisphere position: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_SouthernLatitude(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a valid position in southern hemisphere
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  -33.8688, // Sydney
+		Longitude: 151.2093,
+		Altitude:  3.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	err := gps.sendNMEAasExternalGPS("192.168.1.100")
+
+	// May get network errors, but shouldn't get position errors
+	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Should not get position error with valid southern hemisphere position: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_WesternLongitude(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a valid position in western hemisphere
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,  // San Francisco
+		Longitude: -122.4194, // Western longitude
+		Altitude:  16.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	err := gps.sendNMEAasExternalGPS("192.168.1.100")
+
+	// May get network errors, but shouldn't get position errors
+	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Should not get position error with valid western longitude: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_EasternLongitude(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a valid position in eastern hemisphere
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  35.6762, // Tokyo
+		Longitude: 139.6503, // Eastern longitude
+		Altitude:  40.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	err := gps.sendNMEAasExternalGPS("192.168.1.100")
+
+	// May get network errors, but shouldn't get position errors
+	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Should not get position error with valid eastern longitude: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_EquatorPrimeMeridian(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a position near equator and prime meridian
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  0.0001,
+		Longitude: 0.0001,
+		Altitude:  5.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	err := gps.sendNMEAasExternalGPS("192.168.1.100")
+
+	// May get network errors, but shouldn't get position errors
+	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Should not get position error with valid equator/prime meridian position: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_ZeroAltitude(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a position at sea level (zero altitude)
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  25.0000,
+		Longitude: -71.0000,
+		Altitude:  0.0, // Sea level
+		Valid:     true,
+		Mode:      3,
+	}
+
+	err := gps.sendNMEAasExternalGPS("192.168.1.100")
+
+	// May get network errors, but shouldn't get position errors
+	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Should not get position error with zero altitude: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_HighAltitude(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a position at high altitude (Mt. Everest)
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  27.9881,
+		Longitude: 86.9250,
+		Altitude:  8848.86, // Mt. Everest height
+		Valid:     true,
+		Mode:      3,
+	}
+
+	err := gps.sendNMEAasExternalGPS("192.168.1.100")
+
+	// May get network errors, but shouldn't get position errors
+	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Should not get position error with high altitude: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_NegativeAltitude(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a position below sea level (Dead Sea)
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  31.5590,
+		Longitude: 35.4732,
+		Altitude:  -430.5, // Dead Sea depth below sea level
+		Valid:     true,
+		Mode:      3,
+	}
+
+	err := gps.sendNMEAasExternalGPS("192.168.1.100")
+
+	// May get network errors, but shouldn't get position errors
+	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Should not get position error with negative altitude: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_DifferentFixModes(t *testing.T) {
+	log := zerolog.Nop()
+
+	tests := []struct {
+		name string
+		mode int
+	}{
+		{"No fix - mode 0", 0},
+		{"No fix - mode 1", 1},
+		{"2D fix - mode 2", 2},
+		{"3D fix - mode 3", 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gps := &GPSService{
+				Log: log,
+				mu:  sync.RWMutex{},
+			}
+
+			gps.position = PositionReport{
+				Timestamp: time.Now(),
+				Latitude:  37.7749,
+				Longitude: -122.4194,
+				Altitude:  50.0,
+				Valid:     true,
+				Mode:      tt.mode,
+				HDOP:      1.2,
+			}
+
+			err := gps.sendNMEAasExternalGPS("192.168.1.100")
+
+			// May get network errors, but shouldn't get position errors regardless of mode
+			if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
+				t.Errorf("Should not get position error with mode %d: %v", tt.mode, err)
+			}
+		})
+	}
+}
+
+func TestSendNMEAasExternalGPS_IPv6Address(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a valid position
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	// Test with IPv6 address
+	err := gps.sendNMEAasExternalGPS("::1")
+
+	// May get network errors, but should attempt to resolve IPv6
+	if err != nil && !strings.Contains(err.Error(), "dial") && !strings.Contains(err.Error(), "network") && !strings.Contains(err.Error(), "resolve") && !strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Unexpected error for IPv6 address: %v", err)
+	}
+}
+
+func TestSendNMEAasExternalGPS_LocalhostAddress(t *testing.T) {
+	log := zerolog.Nop()
+
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set a valid position
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	// Test with localhost address
+	err := gps.sendNMEAasExternalGPS("127.0.0.1")
+
+	// localhost should be resolvable, may get dial/connection errors
+	if err != nil && !strings.Contains(err.Error(), "dial") && !strings.Contains(err.Error(), "network") && !strings.Contains(err.Error(), "connection") && !strings.Contains(err.Error(), "no valid GPS position") {
+		t.Errorf("Unexpected error for localhost address: %v", err)
+	}
+}

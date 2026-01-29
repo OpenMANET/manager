@@ -533,6 +533,11 @@ func (g *GPSService) SendLocationtoEUDs() {
 			continue
 		}
 
+		if err := g.sendNMEAasExternalGPS(lease.IPAddr); err != nil {
+			g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to send NMEA to EUD")
+			continue
+		}
+
 		// Send CoT message as External GPS to the EUD
 		if err := g.sendCoTTAsExternalGPS(lease.IPAddr); err != nil {
 			g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to send CoT to EUD")
@@ -806,6 +811,40 @@ func (g *GPSService) sendCoTTAsExternalGPS(iPAddr string) error {
 		Float64("alt", pos.Altitude).
 		Str("address", iPAddr).
 		Msg("Sent CoT message to ATAK device")
+
+	return nil
+}
+
+// sendNMEAasExternalGPS creates and sends a udp NMEA message to the EUD.
+func (g *GPSService) sendNMEAasExternalGPS(iPAddr string) error {
+	pos := g.GetPosition()
+	if !pos.Valid {
+		return fmt.Errorf("no valid GPS position")
+	}
+
+	// Send to device address
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", iPAddr, DefaultTAKGPSPort))
+	if err != nil {
+		return fmt.Errorf("failed to resolve device address: %w", err)
+	}
+
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		return fmt.Errorf("failed to dial device address: %w", err)
+	}
+	defer conn.Close()
+
+	_, err = conn.Write([]byte(g.ToNMEA()))
+	if err != nil {
+		return fmt.Errorf("failed to send CoT message: %w", err)
+	}
+
+	g.Log.Debug().
+		Float64("lat", pos.Latitude).
+		Float64("lon", pos.Longitude).
+		Float64("alt", pos.Altitude).
+		Str("address", iPAddr).
+		Msg("Sent NMEA message to ATAK device")
 
 	return nil
 }
