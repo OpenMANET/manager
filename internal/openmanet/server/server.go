@@ -50,6 +50,7 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Cfg:  cfg.Cfg,
 		Log:  cfg.Log,
 		Wifi: cfg.Wifi,
+		GPS:  cfg.GPS,
 	}))
 
 	p := new(http.Protocols)
