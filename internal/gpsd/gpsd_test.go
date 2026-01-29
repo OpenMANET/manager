@@ -1654,7 +1654,7 @@ func TestSendNMEAasExternalGPS_WesternLongitude(t *testing.T) {
 	// Set a valid position in western hemisphere
 	gps.position = PositionReport{
 		Timestamp: time.Now(),
-		Latitude:  37.7749,  // San Francisco
+		Latitude:  37.7749,   // San Francisco
 		Longitude: -122.4194, // Western longitude
 		Altitude:  16.0,
 		Valid:     true,
@@ -1680,7 +1680,7 @@ func TestSendNMEAasExternalGPS_EasternLongitude(t *testing.T) {
 	// Set a valid position in eastern hemisphere
 	gps.position = PositionReport{
 		Timestamp: time.Now(),
-		Latitude:  35.6762, // Tokyo
+		Latitude:  35.6762,  // Tokyo
 		Longitude: 139.6503, // Eastern longitude
 		Altitude:  40.0,
 		Valid:     true,
