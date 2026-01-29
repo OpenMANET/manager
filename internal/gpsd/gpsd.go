@@ -313,6 +313,10 @@ func (g *GPSService) updatePosition(tpv TPVReport) {
 			timestamp = time.Now()
 		}
 
+		// Preserve satellite and HDOP data from previous SKY reports
+		prevSatellitesUsed := g.position.SatellitesUsed
+		prevHDOP := g.position.HDOP
+
 		g.position = PositionReport{
 			Timestamp:       timestamp,
 			Latitude:        tpv.Lat,
@@ -330,7 +334,8 @@ func (g *GPSService) updatePosition(tpv TPVReport) {
 			EPV:             tpv.EPV,
 			DGPSAge:         tpv.DGPSAge,
 			DGPSStation:     tpv.DGPSSta,
-			// SatellitesUsed and HDOP are updated by SKY reports
+			SatellitesUsed:  prevSatellitesUsed, // Preserve from SKY reports
+			HDOP:            prevHDOP,           // Preserve from SKY reports
 		}
 
 		// Send location to EUDs in a goroutine to avoid blocking
@@ -497,16 +502,20 @@ func formatGGA(pos PositionReport) string {
 		lonHem = "W"
 	}
 
-	// Quality indicator based on GPS fix mode
+	// Quality indicator based on GPS fix mode and DGPS status
 	// 0 = Invalid, 1 = GPS fix (SPS), 2 = DGPS fix, 3 = PPS fix, etc.
 	// GPSD Mode: 0/1 = no fix, 2 = 2D fix, 3 = 3D fix
 	quality := "0"
 	if pos.Mode >= 2 {
-		quality = "1" // GPS fix (SPS)
+		if pos.DGPSStation > 0 {
+			quality = "2" // DGPS fix
+		} else {
+			quality = "1" // GPS fix (SPS)
+		}
 	}
 
-	// Number of satellites - only include if we have real data
-	numSat := ""
+	// Number of satellites - use actual count or 00 if unknown
+	numSat := "00"
 	if pos.SatellitesUsed > 0 {
 		numSat = fmt.Sprintf("%02d", pos.SatellitesUsed)
 	}

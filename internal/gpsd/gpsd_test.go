@@ -1190,6 +1190,63 @@ func TestUpdateSatelliteInfo_ZeroValues(t *testing.T) {
 	}
 }
 
+func TestUpdatePosition_PreservesSatelliteData(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// First, set satellite data from a SKY report
+	skyReport := SKYReport{
+		Class: "SKY",
+		HDOP:  1.5,
+		USat:  10,
+	}
+	gps.updateSatelliteInfo(skyReport)
+
+	// Verify satellite data was set
+	if gps.position.SatellitesUsed != 10 {
+		t.Errorf("Expected satellites 10, got %d", gps.position.SatellitesUsed)
+	}
+	if gps.position.HDOP != 1.5 {
+		t.Errorf("Expected HDOP 1.5, got %f", gps.position.HDOP)
+	}
+
+	// Now update position from a TPV report
+	tpv := TPVReport{
+		Class: "TPV",
+		Mode:  3,
+		Time:  time.Now().UTC().Format(time.RFC3339),
+		Lat:   40.7128,
+		Lon:   -74.0060,
+		Alt:   10.0,
+		Speed: 2.5,
+		Track: 180.0,
+	}
+	gps.updatePosition(tpv)
+
+	// Wait for async operations
+	time.Sleep(10 * time.Millisecond)
+
+	// Verify satellite data was PRESERVED after TPV update
+	pos := gps.GetPosition()
+	if pos.SatellitesUsed != 10 {
+		t.Errorf("Expected satellites to be preserved at 10, got %d", pos.SatellitesUsed)
+	}
+	if pos.HDOP != 1.5 {
+		t.Errorf("Expected HDOP to be preserved at 1.5, got %f", pos.HDOP)
+	}
+
+	// Verify TPV data was updated
+	if pos.Latitude != 40.7128 {
+		t.Errorf("Expected latitude 40.7128, got %f", pos.Latitude)
+	}
+	if !pos.Valid {
+		t.Error("Expected position to be valid")
+	}
+}
+
 func TestProcessGPSDMessage_SKYReport(t *testing.T) {
 	log := zerolog.Nop()
 	gps := &GPSService{
@@ -1334,8 +1391,8 @@ func TestProcessGPSDMessage_TPVWithDGPS(t *testing.T) {
 		Alt:     10.0,
 		Speed:   2.5,
 		Track:   180.0,
-		DGPSAge: 2.5,  // Age of DGPS correction
-		DGPSSta: 120,  // DGPS station ID
+		DGPSAge: 2.5, // Age of DGPS correction
+		DGPSSta: 120, // DGPS station ID
 	}
 
 	tpvJSON, _ := json.Marshal(tpv)
@@ -1424,10 +1481,10 @@ func TestFormatGGA_WithDefaultValues(t *testing.T) {
 		t.Errorf("Expected NMEA to start with $GPGGA, got: %s", nmea)
 	}
 
-	// Should have empty satellite count when no data available (field between commas)
-	// The pattern should be ,1,, (quality, empty numSat, empty hdop)
-	if !strings.Contains(nmea, ",1,,") {
-		t.Errorf("Expected empty satellite count field in NMEA when no data, got: %s", nmea)
+	// Should have "00" for satellite count when no data available (instead of empty)
+	// The pattern should be ,1,00, (quality, numSat=00, empty hdop)
+	if !strings.Contains(nmea, ",1,00,") {
+		t.Errorf("Expected satellite count 00 in NMEA when no data, got: %s", nmea)
 	}
 
 	// Should have empty geoid separation when no data available
@@ -1546,6 +1603,53 @@ func TestProcessGPSDMessage_InvalidJSON(t *testing.T) {
 	pos := gps.GetPosition()
 	if pos.Valid {
 		t.Error("Position should remain invalid after invalid JSON")
+	}
+}
+
+func TestFormatGGA_QualityIndicator_DGPS(t *testing.T) {
+	now := time.Date(2024, 1, 15, 12, 30, 45, 0, time.UTC)
+
+	tests := []struct {
+		name            string
+		mode            int
+		dgpsStation     int
+		expectedQuality string
+	}{
+		{"No fix - mode 0", 0, 0, "0"},
+		{"No fix - mode 1", 1, 0, "0"},
+		{"2D fix - no DGPS", 2, 0, "1"},
+		{"3D fix - no DGPS", 3, 0, "1"},
+		{"2D fix - with DGPS", 2, 120, "2"},
+		{"3D fix - with DGPS", 3, 120, "2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pos := PositionReport{
+				Timestamp:      now,
+				Latitude:       37.7749,
+				Longitude:      -122.4194,
+				Altitude:       50.5,
+				Valid:          true,
+				Mode:           tt.mode,
+				SatellitesUsed: 8,
+				HDOP:           1.2,
+				DGPSStation:    tt.dgpsStation,
+			}
+
+			nmea := formatGGA(pos)
+
+			// Extract quality field (field 6, 0-indexed)
+			parts := strings.Split(strings.Split(nmea, "*")[0], ",")
+			if len(parts) > 6 {
+				quality := parts[6]
+				if quality != tt.expectedQuality {
+					t.Errorf("Expected quality %s, got %s for %s", tt.expectedQuality, quality, tt.name)
+				}
+			} else {
+				t.Errorf("NMEA sentence doesn't have enough fields: %s", nmea)
+			}
+		})
 	}
 }
 
