@@ -145,11 +145,9 @@ func (g *GPSService) checkDeviceActive(ipAddr string) bool {
 				client.Close()
 
 				if err == nil {
-					g.Log.Debug().Str("ip", ipAddr).Msg("Device is active (ARP response received)")
 					return true
 				}
 
-				g.Log.Debug().Err(err).Str("ip", ipAddr).Msg("Device did not respond to ARP request")
 				return false
 			}
 		}
