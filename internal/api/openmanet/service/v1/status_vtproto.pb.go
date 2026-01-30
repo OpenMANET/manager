@@ -55,6 +55,7 @@ func (m *Position) CloneVT() *Position {
 	r.Latitude = m.Latitude
 	r.Longitude = m.Longitude
 	r.Altitude = m.Altitude
+	r.SatellitesInView = m.SatellitesInView
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -127,6 +128,9 @@ func (this *Position) EqualVT(that *Position) bool {
 		return false
 	}
 	if this.Altitude != that.Altitude {
+		return false
+	}
+	if this.SatellitesInView != that.SatellitesInView {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -355,6 +359,11 @@ func (m *Position) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.SatellitesInView != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.SatellitesInView))
+		i--
+		dAtA[i] = 0x20
+	}
 	if m.Altitude != 0 {
 		i -= 4
 		binary.LittleEndian.PutUint32(dAtA[i:], uint32(math.Float32bits(float32(m.Altitude))))
@@ -522,6 +531,11 @@ func (m *Position) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.SatellitesInView != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.SatellitesInView))
+		i--
+		dAtA[i] = 0x20
+	}
 	if m.Altitude != 0 {
 		i -= 4
 		binary.LittleEndian.PutUint32(dAtA[i:], uint32(math.Float32bits(float32(m.Altitude))))
@@ -626,6 +640,9 @@ func (m *Position) SizeVT() (n int) {
 	}
 	if m.Altitude != 0 {
 		n += 5
+	}
+	if m.SatellitesInView != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.SatellitesInView))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -872,6 +889,25 @@ func (m *Position) UnmarshalVT(dAtA []byte) error {
 			v = uint32(binary.LittleEndian.Uint32(dAtA[iNdEx:]))
 			iNdEx += 4
 			m.Altitude = float32(math.Float32frombits(v))
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SatellitesInView", wireType)
+			}
+			m.SatellitesInView = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.SatellitesInView |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -1208,6 +1244,25 @@ func (m *Position) UnmarshalVTUnsafe(dAtA []byte) error {
 			v = uint32(binary.LittleEndian.Uint32(dAtA[iNdEx:]))
 			iNdEx += 4
 			m.Altitude = float32(math.Float32frombits(v))
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SatellitesInView", wireType)
+			}
+			m.SatellitesInView = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.SatellitesInView |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

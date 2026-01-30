@@ -112,9 +112,11 @@ type Position struct {
 	// Longitude of the node
 	Longitude float64 `protobuf:"fixed64,2,opt,name=longitude,proto3" json:"longitude,omitempty"`
 	// Altitude of the node
-	Altitude      float32 `protobuf:"fixed32,3,opt,name=altitude,proto3" json:"altitude,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Altitude float32 `protobuf:"fixed32,3,opt,name=altitude,proto3" json:"altitude,omitempty"`
+	// Number of satellites in view
+	SatellitesInView int32 `protobuf:"varint,4,opt,name=satellites_in_view,json=satellitesInView,proto3" json:"satellites_in_view,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Position) Reset() {
@@ -164,6 +166,13 @@ func (x *Position) GetLongitude() float64 {
 func (x *Position) GetAltitude() float32 {
 	if x != nil {
 		return x.Altitude
+	}
+	return 0
+}
+
+func (x *Position) GetSatellitesInView() int32 {
+	if x != nil {
+		return x.SatellitesInView
 	}
 	return 0
 }
@@ -223,11 +232,12 @@ const file_openmanet_service_v1_status_proto_rawDesc = "" +
 	"\x13connected_neighbors\x18\x02 \x01(\x05R\x12connectedNeighbors\x124\n" +
 	"\x16active_mesh_interfaces\x18\x03 \x01(\x05R\x14activeMeshInterfaces\x12&\n" +
 	"\x0fis_mesh_gateway\x18\x04 \x01(\bR\risMeshGateway\x12:\n" +
-	"\bposition\x18\x05 \x01(\v2\x1e.openmanet.service.v1.PositionR\bposition\"`\n" +
+	"\bposition\x18\x05 \x01(\v2\x1e.openmanet.service.v1.PositionR\bposition\"\x8e\x01\n" +
 	"\bPosition\x12\x1a\n" +
 	"\blatitude\x18\x01 \x01(\x01R\blatitude\x12\x1c\n" +
 	"\tlongitude\x18\x02 \x01(\x01R\tlongitude\x12\x1a\n" +
-	"\baltitude\x18\x03 \x01(\x02R\baltitude\"T\n" +
+	"\baltitude\x18\x03 \x01(\x02R\baltitude\x12,\n" +
+	"\x12satellites_in_view\x18\x04 \x01(\x05R\x10satellitesInView\"T\n" +
 	"\x15ServiceStatusResponse\x12;\n" +
 	"\x06status\x18\x01 \x01(\v2#.openmanet.service.v1.ServiceStatusR\x06status2h\n" +
 	"\rStatusService\x12W\n" +

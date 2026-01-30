@@ -60,6 +60,8 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 
 	isMeshGateway = meshCfg.IsGatewayMode()
 
+	position := s.GPS.GetPosition()
+
 	// For now, just return a static status
 	return &serviceproto.ServiceStatusResponse{
 		Status: &serviceproto.ServiceStatus{
@@ -68,9 +70,10 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 			ActiveMeshInterfaces: numMeshInterfaces,
 			IsMeshGateway:        isMeshGateway,
 			Position: &serviceproto.Position{
-				Latitude:  s.GPS.GetLatitude(),
-				Longitude: s.GPS.GetLongitude(),
-				Altitude:  float32(s.GPS.GetAltitude()),
+				Latitude:         position.Latitude,
+				Longitude:        position.Longitude,
+				Altitude:         float32(position.Altitude),
+				SatellitesInView: int32(position.SatellitesUsed),
 			},
 		},
 	}, nil
