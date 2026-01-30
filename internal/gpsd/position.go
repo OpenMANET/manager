@@ -191,7 +191,7 @@ func (g *GPSService) GetNMEASentence(sentenceType string) string {
 func (g *GPSService) GetAllNMEASentences() map[string]string {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	
+
 	// Return a copy to prevent external modification
 	sentences := make(map[string]string, len(g.nmeaSentences))
 	for k, v := range g.nmeaSentences {

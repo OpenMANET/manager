@@ -163,7 +163,7 @@ func (g *GPSService) sendRawNMEAToActiveDevices(sentence string) {
 	// Send to each active device
 	for _, lease := range leases.DHCPLeases {
 		ipAddr := lease.IPAddr
-		
+
 		// Check if device is active via ARP
 		isActive := g.checkDeviceActive(ipAddr)
 		if !isActive {
@@ -189,7 +189,7 @@ func (g *GPSService) sendRawNMEAToActiveDevices(sentence string) {
 
 		_, err = conn.Write([]byte(nmeaWithNewline))
 		conn.Close()
-		
+
 		if err != nil {
 			g.Log.Debug().Err(err).Str("ip", ipAddr).Msg("Failed to send raw NMEA")
 		} else {
