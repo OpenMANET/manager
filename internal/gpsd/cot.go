@@ -35,7 +35,9 @@ func (g *GPSService) SendLocationtoEUDs() {
 	// Track if we sent ANY message to ANY active device
 	anyMessageSent := false
 
-	if len(leases.DHCPLeases) > 0 {
+	// Send CoT messages to each active EUD device if configured
+	// Send as CoT only if configured and NMEA sending is disabled
+	if len(leases.DHCPLeases) > 0 && !g.Config.GetGNSSSendAsNMEA() {
 		// loop through leases.DHCPleases and send location to each EUD
 		for _, lease := range leases.DHCPLeases {
 			// Send an ARP request to verify the EUD is online
@@ -46,12 +48,6 @@ func (g *GPSService) SendLocationtoEUDs() {
 
 			// Track success for this device
 			deviceSuccess := false
-
-			if err := g.sendNMEAasExternalGPS(lease.IPAddr); err != nil {
-				g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to send NMEA to EUD")
-			} else {
-				deviceSuccess = true
-			}
 
 			// Send CoT message as External GPS to the EUD
 			if err := g.sendCoTTAsExternalGPS(lease.IPAddr); err != nil {

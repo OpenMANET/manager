@@ -114,38 +114,6 @@ func calculateNMEAChecksum(sentence string) byte {
 	return checksum
 }
 
-// sendNMEAasExternalGPS sends an NMEA sentence to a specific device as external GPS
-func (g *GPSService) sendNMEAasExternalGPS(iPAddr string) error {
-	pos := g.GetPosition()
-	if !pos.Valid {
-		return fmt.Errorf("no valid GPS position")
-	}
-
-	// Send to device address
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", iPAddr, DefaultTAKGPSPort))
-	if err != nil {
-		return fmt.Errorf("failed to resolve device address: %w", err)
-	}
-
-	conn, err := net.DialUDP("udp", nil, addr)
-	if err != nil {
-		return fmt.Errorf("failed to dial device address: %w", err)
-	}
-	defer conn.Close()
-
-	_, err = conn.Write([]byte(g.ToNMEA()))
-	if err != nil {
-		return fmt.Errorf("failed to send CoT message: %w", err)
-	}
-
-	g.Log.Debug().
-		Str("nmea", g.ToNMEA()).
-		Str("address", iPAddr).
-		Msg("Sent NMEA message to ATAK device")
-
-	return nil
-}
-
 // sendRawNMEAToActiveDevices sends a raw NMEA sentence to all active DHCP lease devices.
 func (g *GPSService) sendRawNMEAToActiveDevices(sentence string) {
 	// Get current DHCP leases
@@ -156,7 +124,6 @@ func (g *GPSService) sendRawNMEAToActiveDevices(sentence string) {
 	}
 
 	if len(leases.DHCPLeases) == 0 {
-		g.Log.Debug().Msg("No DHCP leases found for NMEA distribution")
 		return
 	}
 
@@ -192,8 +159,6 @@ func (g *GPSService) sendRawNMEAToActiveDevices(sentence string) {
 
 		if err != nil {
 			g.Log.Debug().Err(err).Str("ip", ipAddr).Msg("Failed to send raw NMEA")
-		} else {
-			g.Log.Debug().Str("ip", ipAddr).Str("sentence", sentence).Msg("Sent raw NMEA sentence")
 		}
 	}
 }
