@@ -21,16 +21,4 @@
 //	if nmea != "" {
 //	    fmt.Println(nmea)
 //	}
-//
-//	// Get raw NMEA sentences directly from GPSD
-//	gpggaSentence := gps.GetNMEASentence("GPGGA")
-//	if gpggaSentence != "" {
-//	    fmt.Println("Raw GPGGA:", gpggaSentence)
-//	}
-//
-//	// Get all NMEA sentence types
-//	allSentences := gps.GetAllNMEASentences()
-//	for sentenceType, sentence := range allSentences {
-//	    fmt.Printf("%s: %s\n", sentenceType, sentence)
-//	}
 package gpsd

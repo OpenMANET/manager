@@ -28,7 +28,6 @@ func NewGPSServiceWithAddress(log zerolog.Logger, cfg *config.Config, address st
 		address:        address,
 		ctx:            ctx,
 		cancel:         cancel,
-		nmeaSentences:  make(map[string]string),
 		reconnectDelay: 5 * time.Second,
 	}
 
@@ -178,30 +177,8 @@ func (g *GPSService) processGPSDMessage(message string) {
 	}
 }
 
-// processNMEASentence stores a raw NMEA sentence from GPSD
+// processNMEASentence handles raw NMEA sentences from GPSD
 func (g *GPSService) processNMEASentence(sentence string) {
-	g.mu.Lock()
-	// Store the last NMEA sentence
-	g.lastNMEA = sentence
-
-	// Extract sentence type (e.g., "GPGGA", "GPRMC", etc.)
-	// NMEA format: $GPGGA,data*checksum
-	if len(sentence) > 6 {
-		// Find the comma after the sentence type
-		commaIdx := 0
-		for i := 1; i < len(sentence); i++ {
-			if sentence[i] == ',' {
-				commaIdx = i
-				break
-			}
-		}
-		if commaIdx > 1 {
-			sentenceType := sentence[1:commaIdx] // Skip the $ and get type
-			g.nmeaSentences[sentenceType] = sentence
-		}
-	}
-	g.mu.Unlock()
-
 	// Send NMEA to active devices if configured
 	if g.Config != nil && g.Config.GetGNSSSendAsNMEA() {
 		go g.sendRawNMEAToActiveDevices(sentence)

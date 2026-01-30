@@ -172,31 +172,4 @@ func (g *GPSService) GetDGPSStation() int {
 	return g.position.DGPSStation
 }
 
-// GetLastNMEA returns the last raw NMEA sentence received from GPSD.
-// Returns an empty string if no NMEA sentence has been received.
-func (g *GPSService) GetLastNMEA() string {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	return g.lastNMEA
-}
 
-// GetNMEASentence returns the latest NMEA sentence of a specific type (e.g., "GPGGA", "GPRMC").
-// Returns an empty string if no sentence of that type has been received.
-func (g *GPSService) GetNMEASentence(sentenceType string) string {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	return g.nmeaSentences[sentenceType]
-}
-
-// GetAllNMEASentences returns a copy of all stored NMEA sentences, keyed by sentence type.
-func (g *GPSService) GetAllNMEASentences() map[string]string {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-
-	// Return a copy to prevent external modification
-	sentences := make(map[string]string, len(g.nmeaSentences))
-	for k, v := range g.nmeaSentences {
-		sentences[k] = v
-	}
-	return sentences
-}

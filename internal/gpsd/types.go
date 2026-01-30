@@ -80,9 +80,7 @@ type GPSService struct {
 	ctx               context.Context
 	Config            *config.Config
 	cancel            context.CancelFunc
-	nmeaSentences     map[string]string // Map of NMEA sentence types to their latest values
 	address           string
-	lastNMEA          string // Last raw NMEA sentence received from GPSD
 	position          PositionReport
 	reconnectDelay    time.Duration
 	reconnectAttempts int
