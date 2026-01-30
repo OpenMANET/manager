@@ -118,20 +118,20 @@ func (c *Config) reload() {
 		c.ResetDBOnStart = DefaultResetDBOnStart
 	}
 
-	if c.v.IsSet("GNSS.enable") {
-		c.EnableGNSS = c.v.GetBool("GNSS.enable")
+	if c.v.IsSet("gnss.enable") {
+		c.EnableGNSS = c.v.GetBool("gnss.enable")
 	} else {
 		c.EnableGNSS = DefaultEnableGNSS
 	}
 
-	if c.v.IsSet("GNSS.sendAsExternalGNSSSource.sendAsNMEA") {
-		c.GNSSSendAsNMEA = c.v.GetBool("GNSS.sendAsExternalGNSSSource.sendAsNMEA")
+	if c.v.IsSet("gnss.sendAsExternalGNSSSource.sendAsNMEA") {
+		c.GNSSSendAsNMEA = c.v.GetBool("gnss.sendAsExternalGNSSSource.sendAsNMEA")
 	} else {
 		c.GNSSSendAsNMEA = DefaultGNSSSendAsNMEA
 	}
 
-	if c.v.IsSet("GNSS.sendAsExternalGNSSSource.sendAsCoT") {
-		c.GNSSSendAsCoT = c.v.GetBool("GNSS.sendAsExternalGNSSSource.sendAsCoT")
+	if c.v.IsSet("gnss.sendAsExternalGNSSSource.sendAsCoT") {
+		c.GNSSSendAsCoT = c.v.GetBool("gnss.sendAsExternalGNSSSource.sendAsCoT")
 	} else {
 		c.GNSSSendAsCoT = DefaultGNSSSendAsCoT
 	}

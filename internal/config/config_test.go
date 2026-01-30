@@ -818,7 +818,7 @@ func TestGetEnableGNSS(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("GNSS.enable", *tt.setValue)
+				v.Set("gnss.enable", *tt.setValue)
 			}
 
 			cfg := New(v)
@@ -857,7 +857,7 @@ func TestGetGNSSSendAsNMEA(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("GNSS.sendAsExternalGNSSSource.sendAsNMEA", *tt.setValue)
+				v.Set("gnss.sendAsExternalGNSSSource.sendAsNMEA", *tt.setValue)
 			}
 
 			cfg := New(v)
@@ -896,7 +896,7 @@ func TestGetGNSSSendAsCoT(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("GNSS.sendAsExternalGNSSSource.sendAsCoT", *tt.setValue)
+				v.Set("gnss.sendAsExternalGNSSSource.sendAsCoT", *tt.setValue)
 			}
 
 			cfg := New(v)
