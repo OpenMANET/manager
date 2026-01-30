@@ -3,7 +3,7 @@ meshNetInterface: br-ahwlan
 gatewayMode: false
 dbFile: /etc/openmanetd/openmanetd.db
 enableGPS: true
-GNSS:
+gnss:
   enable: true
   sendAsExternalGNSSSource:
     sendAsNMEA: true
