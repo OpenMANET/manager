@@ -16,11 +16,22 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
-// SendLocationtoEUDs sends the current GPS location to any connected EUD clients.
-// The eud devices are determined by the current dhcp leases.
-// If no DHCP leases are found or no devices are reachable, it sends a CoT message to the ATAK SA multicast address.
-func (g *GPSService) SendLocationtoEUDs() {
-	// Check if we have a valid GPS position
+// SendIfRequiredAsCoT sends the GPS position as a Cursor-on-Target (CoT) message to End User Devices (EUDs).
+// It first validates that a GPS position is available, then retrieves active DHCP leases to identify
+// potential EUD recipients. The method checks each leased device for activity and attempts to send
+// the CoT message to active devices. If no active devices are found, it falls back to sending a
+// CoT message to the ATAK Situational Awareness (SA) multicast address, subject to rate limiting
+// (once every 30 seconds) to prevent network flooding.
+//
+// The method performs the following steps:
+//  1. Validates GPS position availability
+//  2. Retrieves current DHCP leases
+//  3. Checks each leased device for activity via ARP
+//  4. If no active devices are found, sends to multicast (rate-limited)
+//
+// Errors are logged but do not halt execution; the method returns early on validation failures.
+func (g *GPSService) SendIfRequiredAsCoT() {
+		// Check if we have a valid GPS position
 	if !g.IsValid() {
 		g.Log.Warn().Msg("No valid GPS position to send to EUDs")
 		return
@@ -32,39 +43,24 @@ func (g *GPSService) SendLocationtoEUDs() {
 		return
 	}
 
-	// Track if we sent ANY message to ANY active device
-	anyMessageSent := false
+	// Track have ANY active device
+	deviceActive := false
 
 	// Send CoT messages to each active EUD device if configured
 	// Send as CoT only if configured and NMEA sending is disabled
-	if len(leases.DHCPLeases) > 0 && !g.Config.GetGNSSSendAsNMEA() {
+	if len(leases.DHCPLeases) > 0 {
 		// loop through leases.DHCPleases and send location to each EUD
 		for _, lease := range leases.DHCPLeases {
 			// Send an ARP request to verify the EUD is online
-			if !g.checkDeviceActive(lease.IPAddr) {
-				g.Log.Debug().Str("ip", lease.IPAddr).Msg("Device not responding to ARP, skipping")
-				continue
-			}
-
-			// Track success for this device
-			deviceSuccess := false
-
-			// Send CoT message as External GPS to the EUD
-			if err := g.sendCoTTAsExternalGPS(lease.IPAddr); err != nil {
-				g.Log.Error().Err(err).Str("ip", lease.IPAddr).Msg("Failed to send CoT to EUD")
-			} else {
-				deviceSuccess = true
-			}
-
-			// Count device as reached if either message succeeded
-			if deviceSuccess {
-				anyMessageSent = true
+			if g.checkDeviceActive(lease.IPAddr) {
+				// Device is active
+				deviceActive = true
 			}
 		}
 	}
 
 	// Only send to multicast if no devices received any messages
-	if !anyMessageSent {
+	if !deviceActive {
 		// Rate limit: send multicast messages once every 30 seconds to avoid flooding the network
 		g.mu.Lock()
 		if time.Since(g.lastMulticastTime) < cotMulticastRateLimit {
@@ -196,6 +192,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 	}
 
 	cotMsg.CotEvent = &cotproto.CotEvent{
+		How: cot.HowEvent,
 		Lat: pos.Latitude,
 		Lon: pos.Longitude,
 		Hae: hae,

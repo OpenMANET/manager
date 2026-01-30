@@ -10,7 +10,7 @@ import (
 )
 
 // Tests for cot.go functions:
-// - SendLocationtoEUDs
+// - SendIfRequiredAsCoT
 // - checkDeviceActive
 // - sendCoTToMulticast
 // - sendCoTTAsExternalGPS
@@ -121,7 +121,7 @@ func TestCheckDeviceActive_Localhost(t *testing.T) {
 
 func TestSendLocationtoEUDs_RateLimit(t *testing.T) {
 	// NOTE: This test is skipped because it requires a working OpenWRT environment with ubus.
-	// In a test environment, GetCurrentDHCPLeases() will fail, causing SendLocationtoEUDs()
+	// In a test environment, GetCurrentDHCPLeases() will fail, causing SendIfRequiredAsCoT()
 	// to return early before attempting multicast. Rate limiting is tested implicitly through
 	// the sendCoTToMulticast function which is only called when no devices are reachable.
 	t.Skip("Skipping rate limit test - requires OpenWRT environment with ubus")
@@ -146,7 +146,7 @@ func TestSendLocationtoEUDs_RateLimit(t *testing.T) {
 	}
 
 	// First call should attempt to send (may fail due to network/no dhcp leases, but should try)
-	gps.SendLocationtoEUDs()
+	gps.SendIfRequiredAsCoT()
 
 	// Verify lastMulticastTime was set
 	gps.mu.RLock()
@@ -158,7 +158,7 @@ func TestSendLocationtoEUDs_RateLimit(t *testing.T) {
 	}
 
 	// Second call immediately should be rate limited
-	gps.SendLocationtoEUDs()
+	gps.SendIfRequiredAsCoT()
 
 	// Verify the timestamp hasn't changed (rate limited)
 	gps.mu.RLock()
@@ -350,6 +350,247 @@ func TestSendLocationtoEUDs_NoValidPosition(t *testing.T) {
 	}
 
 	// Should return early without error
-	gps.SendLocationtoEUDs()
+	gps.SendIfRequiredAsCoT()
 	// Test passes if no panic occurs
+}
+
+// TestSendIfRequiredAsCoT_InvalidPosition tests that the function returns early
+// when there is no valid GPS position available
+func TestSendIfRequiredAsCoT_InvalidPosition(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set invalid position
+	gps.position = PositionReport{
+		Valid: false,
+	}
+
+	// Should return early without error or attempting to send
+	gps.SendIfRequiredAsCoT()
+
+	// Verify multicast time was not updated (no send attempted)
+	gps.mu.RLock()
+	lastTime := gps.lastMulticastTime
+	gps.mu.RUnlock()
+
+	if !lastTime.IsZero() {
+		t.Error("Expected lastMulticastTime to remain zero when position is invalid")
+	}
+}
+
+// TestSendIfRequiredAsCoT_DHCPLeaseError tests that the function returns early
+// when DHCP leases cannot be retrieved
+func TestSendIfRequiredAsCoT_DHCPLeaseError(t *testing.T) {
+	// NOTE: This test is skipped because in a test environment without OpenWRT/ubus,
+	// GetCurrentDHCPLeases() will always fail. The function handles this by returning early.
+	// This behavior is tested implicitly - the function won't panic and won't attempt multicast.
+	t.Skip("Skipping DHCP lease error test - requires OpenWRT environment with ubus")
+
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set valid position
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	// Call the function - should return early due to DHCP lease error
+	gps.SendIfRequiredAsCoT()
+
+	// Verify multicast was not sent (time should be zero)
+	gps.mu.RLock()
+	lastTime := gps.lastMulticastTime
+	gps.mu.RUnlock()
+
+	if !lastTime.IsZero() {
+		t.Error("Expected lastMulticastTime to remain zero when DHCP leases cannot be retrieved")
+	}
+}
+
+// TestSendIfRequiredAsCoT_NoDevicesFound tests the multicast fallback
+// when no DHCP leases are found
+func TestSendIfRequiredAsCoT_NoDevicesFound(t *testing.T) {
+	// NOTE: This test is skipped because it requires a working OpenWRT environment with ubus.
+	// In a test environment, GetCurrentDHCPLeases() will fail, causing the function to return early.
+	t.Skip("Skipping no devices test - requires OpenWRT environment with ubus")
+
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set valid position
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	// Call the function - should attempt multicast send
+	gps.SendIfRequiredAsCoT()
+
+	// Verify multicast time was updated (send was attempted)
+	gps.mu.RLock()
+	lastTime := gps.lastMulticastTime
+	gps.mu.RUnlock()
+
+	if lastTime.IsZero() {
+		t.Error("Expected lastMulticastTime to be set after multicast send attempt")
+	}
+}
+
+// TestSendIfRequiredAsCoT_RateLimiting tests that multicast messages
+// are rate-limited to prevent network flooding
+func TestSendIfRequiredAsCoT_RateLimiting(t *testing.T) {
+	// NOTE: This test is skipped because it requires a working OpenWRT environment with ubus.
+	// The rate limiting logic can only be tested when no active devices are found and
+	// the multicast fallback is triggered.
+	t.Skip("Skipping rate limiting test - requires OpenWRT environment with ubus")
+
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set valid position
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	// First call should attempt to send
+	gps.SendIfRequiredAsCoT()
+
+	gps.mu.RLock()
+	firstTime := gps.lastMulticastTime
+	gps.mu.RUnlock()
+
+	if firstTime.IsZero() {
+		t.Error("Expected lastMulticastTime to be set after first call")
+	}
+
+	// Immediate second call should be rate-limited
+	gps.SendIfRequiredAsCoT()
+
+	gps.mu.RLock()
+	secondTime := gps.lastMulticastTime
+	gps.mu.RUnlock()
+
+	if !secondTime.Equal(firstTime) {
+		t.Error("Expected lastMulticastTime to remain unchanged due to rate limiting")
+	}
+
+	// Wait for rate limit period to expire
+	time.Sleep(cotMulticastRateLimit + 100*time.Millisecond)
+
+	// Third call should succeed
+	gps.SendIfRequiredAsCoT()
+
+	gps.mu.RLock()
+	thirdTime := gps.lastMulticastTime
+	gps.mu.RUnlock()
+
+	if thirdTime.Equal(firstTime) {
+		t.Error("Expected lastMulticastTime to be updated after rate limit period expired")
+	}
+}
+
+// TestSendIfRequiredAsCoT_ActiveDevicePresent tests that multicast is NOT sent
+// when at least one active device is detected
+func TestSendIfRequiredAsCoT_ActiveDevicePresent(t *testing.T) {
+	// NOTE: This test is skipped because it requires:
+	// 1. A working OpenWRT environment with ubus to get DHCP leases
+	// 2. An actual device on the network responding to ARP
+	// The logic is straightforward: if checkDeviceActive returns true for any lease,
+	// deviceActive becomes true and multicast is skipped.
+	t.Skip("Skipping active device test - requires OpenWRT environment and network devices")
+
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set valid position
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	// Call the function - assuming at least one device is active
+	gps.SendIfRequiredAsCoT()
+
+	// Verify multicast was NOT sent (time should remain zero)
+	gps.mu.RLock()
+	lastTime := gps.lastMulticastTime
+	gps.mu.RUnlock()
+
+	if !lastTime.IsZero() {
+		t.Error("Expected lastMulticastTime to remain zero when active devices are present")
+	}
+}
+
+// TestSendIfRequiredAsCoT_MultipleCallsNoDevices tests behavior with repeated calls
+// when no devices are present, verifying both rate limiting and eventual multicast sends
+func TestSendIfRequiredAsCoT_MultipleCallsNoDevices(t *testing.T) {
+	// NOTE: This test is skipped because it requires a working OpenWRT environment with ubus.
+	t.Skip("Skipping multiple calls test - requires OpenWRT environment with ubus")
+
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set valid position
+	gps.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Valid:     true,
+		Mode:      3,
+	}
+
+	// Call multiple times rapidly - should be rate limited
+	for i := 0; i < 5; i++ {
+		gps.SendIfRequiredAsCoT()
+		time.Sleep(1 * time.Second)
+	}
+
+	gps.mu.RLock()
+	lastTime := gps.lastMulticastTime
+	gps.mu.RUnlock()
+
+	if lastTime.IsZero() {
+		t.Error("Expected at least one multicast send attempt")
+	}
+
+	// Verify we didn't send 5 times (due to rate limiting)
+	// The actual verification would require tracking send count
+	// This is a basic sanity check that the function executed
 }

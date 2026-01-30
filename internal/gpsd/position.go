@@ -45,8 +45,9 @@ func (g *GPSService) updatePosition(tpv TPVReport) {
 			HDOP:            prevHDOP,           // Preserve from SKY reports
 		}
 
-		// Send location to EUDs in a goroutine to avoid blocking
-		go g.SendLocationtoEUDs()
+		// Send location to ATAK SA if no
+		// devices are active in a goroutine to avoid blocking
+		go g.SendIfRequiredAsCoT()
 	}
 }
 
