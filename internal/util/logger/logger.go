@@ -26,6 +26,14 @@ const (
 	LogComponentFieldName string = "component"
 )
 
+// Shared console writer instance to reduce memory allocations
+var sharedConsoleWriter = zerolog.ConsoleWriter{
+	Out:           os.Stdout,
+	TimeFormat:    time.RFC3339,
+	PartsOrder:    []string{zerolog.LevelFieldName, LogComponentFieldName, MessageFieldName},
+	FieldsExclude: []string{zerolog.TimestampFieldName, LogComponentFieldName},
+}
+
 // InitLogging initializes the logging configuration
 func InitLogging(ctx context.Context) zerolog.Logger {
 	zerolog.TimestampFieldName = timestampFieldName
@@ -37,14 +45,7 @@ func InitLogging(ctx context.Context) zerolog.Logger {
 
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 
-	output := zerolog.ConsoleWriter{
-		Out:           os.Stdout,
-		TimeFormat:    time.RFC3339,
-		PartsOrder:    []string{zerolog.LevelFieldName, LogComponentFieldName, MessageFieldName},
-		FieldsExclude: []string{zerolog.TimestampFieldName, LogComponentFieldName},
-	}
-
-	zlog := zerolog.New(output)
+	zlog := zerolog.New(sharedConsoleWriter)
 
 	zlog = zlog.With().
 		Ctx(ctx).
@@ -73,14 +74,7 @@ func getLogger(component string) zerolog.Logger {
 
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 
-	output := zerolog.ConsoleWriter{
-		Out:           os.Stdout,
-		TimeFormat:    time.RFC3339,
-		PartsOrder:    []string{zerolog.LevelFieldName, LogComponentFieldName, MessageFieldName},
-		FieldsExclude: []string{zerolog.TimestampFieldName, LogComponentFieldName},
-	}
-
-	zlog := zerolog.New(output)
+	zlog := zerolog.New(sharedConsoleWriter)
 
 	zlog = zlog.With().
 		Str(LogComponentFieldName, component).

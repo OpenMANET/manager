@@ -1,122 +1,15 @@
 package gpsd
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
 	"math"
-	"net"
-	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
 )
 
-// mockGPSDServer simulates a GPSD server for testing
-type mockGPSDServer struct {
-	listener net.Listener
-	address  string
-	messages []string
-	started  chan struct{}
-}
-
-func newMockGPSDServer(t *testing.T) *mockGPSDServer {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Failed to create mock GPSD server: %v", err)
-	}
-
-	return &mockGPSDServer{
-		listener: listener,
-		address:  listener.Addr().String(),
-		started:  make(chan struct{}),
-	}
-}
-
-func (m *mockGPSDServer) Start() {
-	close(m.started)
-	go func() {
-		for {
-			conn, err := m.listener.Accept()
-			if err != nil {
-				return
-			}
-			go m.handleConnection(conn)
-		}
-	}()
-}
-
-func (m *mockGPSDServer) handleConnection(conn net.Conn) {
-	defer conn.Close()
-
-	// Read the watch command
-	buf := make([]byte, 1024)
-	_, err := conn.Read(buf)
-	if err != nil {
-		return
-	}
-
-	// Send messages to client
-	for _, msg := range m.messages {
-		_, err := conn.Write([]byte(msg + "\n"))
-		if err != nil {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	// Keep connection open
-	time.Sleep(100 * time.Millisecond)
-}
-
-func (m *mockGPSDServer) Stop() {
-	m.listener.Close()
-}
-
-func (m *mockGPSDServer) AddTPVMessage(lat, lon, alt, speed, track float64, mode int) {
-	tpv := TPVReport{
-		Class:  "TPV",
-		Mode:   mode,
-		Time:   time.Now().UTC().Format(time.RFC3339),
-		Lat:    lat,
-		Lon:    lon,
-		Alt:    alt,
-		Speed:  speed,
-		Track:  track,
-		Climb:  0,
-		Device: "/dev/ttyUSB0",
-	}
-
-	data, _ := json.Marshal(tpv)
-	m.messages = append(m.messages, string(data))
-}
-
-func TestNewGPSService(t *testing.T) {
-	log := zerolog.Nop()
-
-	// Create a mock server
-	mock := newMockGPSDServer(t)
-	mock.Start()
-	defer mock.Stop()
-
-	<-mock.started
-
-	// Create GPS service
-	gps, err := NewGPSServiceWithAddress(log, mock.address)
-	if err != nil {
-		t.Fatalf("Failed to create GPS service: %v", err)
-	}
-	defer gps.Close()
-
-	if gps == nil {
-		t.Fatal("Expected non-nil GPS service")
-	}
-
-	if gps.address != mock.address {
-		t.Errorf("Expected address %s, got %s", mock.address, gps.address)
-	}
-}
+// Integration tests that use multiple components together
 
 func TestGPSService_UpdatePosition(t *testing.T) {
 	log := zerolog.Nop()
@@ -130,7 +23,7 @@ func TestGPSService_UpdatePosition(t *testing.T) {
 	<-mock.started
 
 	// Create GPS service
-	gps, err := NewGPSServiceWithAddress(log, mock.address)
+	gps, err := NewGPSServiceWithAddress(log, nil, mock.address)
 	if err != nil {
 		t.Fatalf("Failed to create GPS service: %v", err)
 	}
@@ -162,52 +55,6 @@ func TestGPSService_UpdatePosition(t *testing.T) {
 	}
 }
 
-func TestGPSService_GetterMethods(t *testing.T) {
-	log := zerolog.Nop()
-	gps := &GPSService{
-		Log: log,
-		position: PositionReport{
-			Timestamp: time.Now(),
-			Latitude:  40.7128,
-			Longitude: -74.0060,
-			Altitude:  100.0,
-			Speed:     10.5,
-			Track:     90.0,
-			Climb:     2.0,
-			Valid:     true,
-			Mode:      3,
-		},
-	}
-
-	if lat := gps.GetLatitude(); lat != 40.7128 {
-		t.Errorf("Expected latitude 40.7128, got %f", lat)
-	}
-
-	if lon := gps.GetLongitude(); lon != -74.0060 {
-		t.Errorf("Expected longitude -74.0060, got %f", lon)
-	}
-
-	if alt := gps.GetAltitude(); alt != 100.0 {
-		t.Errorf("Expected altitude 100.0, got %f", alt)
-	}
-
-	if speed := gps.GetSpeed(); speed != 10.5 {
-		t.Errorf("Expected speed 10.5, got %f", speed)
-	}
-
-	if track := gps.GetTrack(); track != 90.0 {
-		t.Errorf("Expected track 90.0, got %f", track)
-	}
-
-	if !gps.IsValid() {
-		t.Error("Expected valid position")
-	}
-
-	if mode := gps.GetMode(); mode != 3 {
-		t.Errorf("Expected mode 3, got %d", mode)
-	}
-}
-
 func TestGPSService_InvalidPosition(t *testing.T) {
 	log := zerolog.Nop()
 
@@ -220,7 +67,7 @@ func TestGPSService_InvalidPosition(t *testing.T) {
 	<-mock.started
 
 	// Create GPS service
-	gps, err := NewGPSServiceWithAddress(log, mock.address)
+	gps, err := NewGPSServiceWithAddress(log, nil, mock.address)
 	if err != nil {
 		t.Fatalf("Failed to create GPS service: %v", err)
 	}
@@ -233,231 +80,6 @@ func TestGPSService_InvalidPosition(t *testing.T) {
 	if gps.IsValid() {
 		t.Error("Expected invalid position for mode 1")
 	}
-}
-
-func TestFormatGGA(t *testing.T) {
-	testCases := []struct {
-		name     string
-		position PositionReport
-		validate func(t *testing.T, nmea string)
-	}{
-		{
-			name: "Northern Hemisphere, Eastern Longitude",
-			position: PositionReport{
-				Timestamp: time.Date(2024, 1, 1, 12, 30, 45, 0, time.UTC),
-				Latitude:  37.7749,
-				Longitude: 122.4194,
-				Altitude:  50.0,
-				Valid:     true,
-				Mode:      3,
-			},
-			validate: func(t *testing.T, nmea string) {
-				if !strings.HasPrefix(nmea, "$GPGGA") {
-					t.Errorf("Expected GPGGA prefix, got %s", nmea)
-				}
-				if !strings.Contains(nmea, ",N,") {
-					t.Error("Expected N (North) hemisphere")
-				}
-				if !strings.Contains(nmea, ",E,") {
-					t.Error("Expected E (East) hemisphere")
-				}
-				if !strings.Contains(nmea, "*") {
-					t.Error("Expected checksum marker")
-				}
-			},
-		},
-		{
-			name: "Southern Hemisphere, Western Longitude",
-			position: PositionReport{
-				Timestamp: time.Date(2024, 1, 1, 12, 30, 45, 0, time.UTC),
-				Latitude:  -33.8688,
-				Longitude: -151.2093,
-				Altitude:  10.0,
-				Valid:     true,
-				Mode:      3,
-			},
-			validate: func(t *testing.T, nmea string) {
-				if !strings.Contains(nmea, ",S,") {
-					t.Error("Expected S (South) hemisphere")
-				}
-				if !strings.Contains(nmea, ",W,") {
-					t.Error("Expected W (West) hemisphere")
-				}
-			},
-		},
-		{
-			name: "Zero coordinates",
-			position: PositionReport{
-				Timestamp: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-				Latitude:  0.0,
-				Longitude: 0.0,
-				Altitude:  0.0,
-				Valid:     true,
-				Mode:      2,
-			},
-			validate: func(t *testing.T, nmea string) {
-				if !strings.HasPrefix(nmea, "$GPGGA") {
-					t.Errorf("Expected GPGGA prefix")
-				}
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			nmea := formatGGA(tc.position)
-			tc.validate(t, nmea)
-
-			// Verify checksum
-			if !verifyNMEAChecksum(nmea) {
-				t.Errorf("Invalid NMEA checksum for: %s", nmea)
-			}
-		})
-	}
-}
-
-func TestToNMEA(t *testing.T) {
-	log := zerolog.Nop()
-
-	t.Run("Valid position", func(t *testing.T) {
-		gps := &GPSService{
-			Log: log,
-			position: PositionReport{
-				Timestamp: time.Now(),
-				Latitude:  37.7749,
-				Longitude: -122.4194,
-				Altitude:  50.0,
-				Valid:     true,
-				Mode:      3,
-			},
-		}
-
-		nmea := gps.ToNMEA()
-		if nmea == "" {
-			t.Error("Expected non-empty NMEA string")
-		}
-
-		if !strings.HasPrefix(nmea, "$GPGGA") {
-			t.Errorf("Expected GPGGA prefix, got %s", nmea)
-		}
-
-		if !verifyNMEAChecksum(nmea) {
-			t.Errorf("Invalid NMEA checksum: %s", nmea)
-		}
-	})
-
-	t.Run("Invalid position", func(t *testing.T) {
-		gps := &GPSService{
-			Log: log,
-			position: PositionReport{
-				Valid: false,
-			},
-		}
-
-		nmea := gps.ToNMEA()
-		if nmea != "" {
-			t.Errorf("Expected empty NMEA string for invalid position, got %s", nmea)
-		}
-	})
-}
-
-func TestCalculateNMEAChecksum(t *testing.T) {
-	testCases := []struct {
-		sentence string
-		expected byte
-	}{
-		{"GPGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,", 0x47},
-		{"GPRMC,123519,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W", 0x6A},
-	}
-
-	for _, tc := range testCases {
-		result := calculateNMEAChecksum(tc.sentence)
-		if result != tc.expected {
-			t.Errorf("For sentence %s, expected checksum %02X, got %02X",
-				tc.sentence, tc.expected, result)
-		}
-	}
-}
-
-func TestGPSService_Reconnection(t *testing.T) {
-	log := zerolog.Nop()
-
-	// Create GPS service with invalid address
-	gps := &GPSService{
-		Log:            log,
-		address:        "localhost:99999",
-		reconnectDelay: 100 * time.Millisecond,
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	gps.ctx = ctx
-	gps.cancel = cancel
-
-	// Start connection handler in background
-	go gps.connectionHandler()
-
-	// Wait a bit to allow connection attempts
-	time.Sleep(300 * time.Millisecond)
-
-	// Close should work without error even if never connected
-	err := gps.Close()
-	if err != nil {
-		t.Errorf("Expected no error on close, got %v", err)
-	}
-}
-
-func TestProcessGPSDMessage(t *testing.T) {
-	log := zerolog.Nop()
-	gps := &GPSService{
-		Log: log,
-	}
-
-	t.Run("Valid TPV message", func(t *testing.T) {
-		tpv := TPVReport{
-			Class: "TPV",
-			Mode:  3,
-			Time:  time.Now().UTC().Format(time.RFC3339),
-			Lat:   40.7128,
-			Lon:   -74.0060,
-			Alt:   100.0,
-		}
-
-		data, _ := json.Marshal(tpv)
-		gps.processGPSDMessage(string(data))
-
-		if !gps.IsValid() {
-			t.Error("Expected valid position after processing TPV")
-		}
-
-		if gps.GetLatitude() != 40.7128 {
-			t.Errorf("Expected latitude 40.7128, got %f", gps.GetLatitude())
-		}
-	})
-
-	t.Run("Invalid JSON", func(t *testing.T) {
-		// Should not panic or error
-		gps.processGPSDMessage("invalid json{{{")
-		// Position should remain from previous test
-		if !gps.IsValid() {
-			t.Error("Position should still be valid from previous message")
-		}
-	})
-
-	t.Run("Non-TPV message", func(t *testing.T) {
-		msg := map[string]interface{}{
-			"class": "SKY",
-			"tag":   "MID2",
-		}
-		data, _ := json.Marshal(msg)
-
-		// Should not update position
-		oldLat := gps.GetLatitude()
-		gps.processGPSDMessage(string(data))
-
-		if gps.GetLatitude() != oldLat {
-			t.Error("Non-TPV message should not update position")
-		}
-	})
 }
 
 func TestGPSService_ConcurrentAccess(t *testing.T) {
@@ -515,138 +137,77 @@ func TestGPSService_ConcurrentAccess(t *testing.T) {
 	}
 }
 
-// Helper function to verify NMEA checksum
-func verifyNMEAChecksum(nmea string) bool {
-	if !strings.HasPrefix(nmea, "$") || !strings.Contains(nmea, "*") {
-		return false
-	}
-
-	parts := strings.Split(nmea[1:], "*")
-	if len(parts) != 2 {
-		return false
-	}
-
-	sentence := parts[0]
-	expectedChecksum := calculateNMEAChecksum(sentence)
-
-	var actualChecksum byte
-	fmt.Sscanf(parts[1], "%02X", &actualChecksum)
-
-	return expectedChecksum == actualChecksum
-}
-
-func TestUpdatePosition_WithoutTimestamp(t *testing.T) {
+func TestConcurrentTPVandSKYUpdates(t *testing.T) {
 	log := zerolog.Nop()
 	gps := &GPSService{
 		Log: log,
+		mu:  sync.RWMutex{},
 	}
 
-	tpv := TPVReport{
-		Class: "TPV",
-		Mode:  3,
-		Time:  "", // Empty time
-		Lat:   37.7749,
-		Lon:   -122.4194,
-		Alt:   50.0,
-	}
-
-	gps.updatePosition(tpv)
-
-	if !gps.IsValid() {
-		t.Error("Expected valid position even without timestamp")
-	}
-
-	// Timestamp should be set to approximately now
-	if time.Since(gps.position.Timestamp) > time.Second {
-		t.Error("Expected timestamp to be set to current time")
-	}
-}
-
-func TestGPSService_Close(t *testing.T) {
-	log := zerolog.Nop()
-
-	t.Run("Close without connection", func(t *testing.T) {
-		gps := &GPSService{
-			Log: log,
-		}
-		ctx, cancel := context.WithCancel(context.Background())
-		gps.ctx = ctx
-		gps.cancel = cancel
-
-		err := gps.Close()
-		if err != nil {
-			t.Errorf("Expected no error, got %v", err)
-		}
-	})
-
-	t.Run("Close with connection", func(t *testing.T) {
-		mock := newMockGPSDServer(t)
-		mock.Start()
-		defer mock.Stop()
-
-		<-mock.started
-
-		gps, err := NewGPSServiceWithAddress(log, mock.address)
-		if err != nil {
-			t.Fatalf("Failed to create GPS service: %v", err)
-		}
-
-		time.Sleep(100 * time.Millisecond)
-
-		err = gps.Close()
-		if err != nil {
-			t.Errorf("Expected no error on close, got %v", err)
-		}
-	})
-}
-
-func TestSendCoTToMulticast(t *testing.T) {
-	log := zerolog.Nop()
-
-	// Create GPS service with valid position and proper initialization
-	gps := &GPSService{
-		Log: log,
-	}
-	
-	// Set a valid position
+	// Set initial position so TPV updates preserve satellite data
 	gps.position = PositionReport{
-		Timestamp: time.Now(),
-		Latitude:  37.7749,
-		Longitude: -122.4194,
-		Altitude:  50.0,
-		Speed:     5.0,
-		Track:     90.0,
-		Valid:     true,
-		Mode:      3,
+		Valid:          true,
+		Mode:           3,
+		SatellitesUsed: 5,
+		HDOP:           1.5,
 	}
 
-	// Test that CoT message can be created without errors
-	err := gps.sendCoTToMulticast()
-	// We don't check for connection errors since multicast might not be available in test env
-	// Just verify the function doesn't panic and handles the position correctly
-	if err != nil && !strings.Contains(err.Error(), "multicast") && !strings.Contains(err.Error(), "network") && !strings.Contains(err.Error(), "dial") {
-		t.Errorf("Unexpected error creating CoT message: %v", err)
-	}
-}
+	// Simulate concurrent TPV and SKY updates
+	done := make(chan bool, 2)
 
-func TestSendCoTToMulticast_InvalidPosition(t *testing.T) {
-	log := zerolog.Nop()
+	go func() {
+		for i := 0; i < 50; i++ {
+			// Read current satellite data
+			gps.mu.RLock()
+			currentSats := gps.position.SatellitesUsed
+			currentHDOP := gps.position.HDOP
+			gps.mu.RUnlock()
 
-	// Create GPS service with invalid position
-	gps := &GPSService{
-		Log: log,
-	}
-	
-	gps.position = PositionReport{
-		Valid: false,
-	}
+			// Update position, preserving satellite data
+			gps.mu.Lock()
+			gps.position.Latitude = 37.7749
+			gps.position.Longitude = -122.4194
+			gps.position.Altitude = 50.0 + float64(i)
+			gps.position.GeoidSeparation = -32.5
+			gps.position.Valid = true
+			gps.position.Mode = 3
+			// Preserve satellite data
+			gps.position.SatellitesUsed = currentSats
+			gps.position.HDOP = currentHDOP
+			gps.mu.Unlock()
 
-	err := gps.sendCoTToMulticast()
-	if err == nil {
-		t.Error("Expected error for invalid position")
-	}
+			time.Sleep(1 * time.Millisecond)
+		}
+		done <- true
+	}()
 
-	if !strings.Contains(err.Error(), "no valid GPS position") {
-		t.Errorf("Expected 'no valid GPS position' error, got: %v", err)
+	go func() {
+		for i := 0; i < 50; i++ {
+			sky := SKYReport{
+				Class: "SKY",
+				HDOP:  1.2 + float64(i)*0.01,
+				USat:  8 + i%3,
+			}
+			gps.updateSatelliteInfo(sky)
+			time.Sleep(1 * time.Millisecond)
+		}
+		done <- true
+	}()
+
+	// Wait for both goroutines
+	<-done
+	<-done
+
+	// Verify we can still get position without race conditions
+	pos := gps.GetPosition()
+	if !pos.Valid {
+		t.Error("Expected valid position after concurrent updates")
+	}
+	// Satellite data should be preserved from SKY updates
+	if pos.SatellitesUsed < 8 || pos.SatellitesUsed > 10 {
+		t.Errorf("Expected satellite count between 8-10, got %d", pos.SatellitesUsed)
+	}
+	if pos.HDOP < 1.2 {
+		t.Errorf("Expected HDOP >= 1.2, got %f", pos.HDOP)
 	}
 }

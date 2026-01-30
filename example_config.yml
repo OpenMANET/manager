@@ -2,7 +2,11 @@ logLevel: info
 meshNetInterface: br-ahwlan
 gatewayMode: false
 dbFile: /etc/openmanetd/openmanetd.db
-enableGPS: true
+gnss:
+  enable: true
+  sendAsExternalGNSSSource:
+    sendAsNMEA: true
+    sendAsCoT: true
 alfred:
   mode: primary
   batInterface: bat0

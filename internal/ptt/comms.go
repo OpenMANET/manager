@@ -19,7 +19,7 @@ func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 		}
 
 		ptt.Log.Debug().Msgf("Received %d bytes from %s", n, src.IP.String())
-		if !loopbackAudio && (src.IP.IsLoopback() || src.IP.String() == localIP) {
+		if !ptt.runtime.loopbackAudio && (src.IP.IsLoopback() || src.IP.String() == ptt.runtime.localIP) {
 			continue
 		}
 
@@ -27,7 +27,7 @@ func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 		copy(frame, buf[:n])
 
 		pcm := make([]int16, frameSize)
-		n, err = decoder.Decode(frame, pcm)
+		n, err = ptt.runtime.decoder.Decode(frame, pcm)
 		if err != nil {
 			continue
 		}
@@ -37,8 +37,8 @@ func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 		}
 
 		select {
-		case playbackBuffer <- out:
-			ptt.Log.Debug().Msgf("Queued playback buffer with %d samples (depth=%d)", len(out), len(playbackBuffer))
+		case ptt.runtime.playbackBuffer <- out:
+			ptt.Log.Debug().Msgf("Queued playback buffer with %d samples (depth=%d)", len(out), len(ptt.runtime.playbackBuffer))
 		default:
 			ptt.Log.Warn().Msg("⚠️ Playback buffer full! Dropping packet.")
 		}
@@ -67,7 +67,7 @@ func (ptt *PTTConfig) monitorPTT(dev *evdev.InputDevice, bcastStream *portaudio.
 		switch ev.Value {
 		case 1:
 			ptt.Log.Debug().Msgf("PTT down (code=%d)", ev.Code)
-			if isBroadcasting() {
+			if ptt.isBroadcasting() {
 				ptt.Log.Debug().Msgf("PTT toggle: stopping transmission")
 				ptt.endTransmission(bcastStream)
 			} else {
@@ -80,16 +80,16 @@ func (ptt *PTTConfig) monitorPTT(dev *evdev.InputDevice, bcastStream *portaudio.
 	}
 }
 
-func isBroadcasting() bool {
-	recordMutex.Lock()
-	defer recordMutex.Unlock()
-	return broadcasting
+func (ptt *PTTConfig) isBroadcasting() bool {
+	ptt.runtime.recordMutex.Lock()
+	defer ptt.runtime.recordMutex.Unlock()
+	return ptt.runtime.broadcasting
 }
 
-func drainPlaybackBuffer() {
+func (ptt *PTTConfig) drainPlaybackBuffer() {
 	for {
 		select {
-		case <-playbackBuffer:
+		case <-ptt.runtime.playbackBuffer:
 		default:
 			return
 		}
@@ -97,25 +97,25 @@ func drainPlaybackBuffer() {
 }
 
 func (ptt *PTTConfig) beginTransmission(bcastStream *portaudio.Stream) {
-	recordMutex.Lock()
-	if broadcasting {
+	ptt.runtime.recordMutex.Lock()
+	if ptt.runtime.broadcasting {
 		ptt.Log.Debug().Msgf("PTT down ignored; already broadcasting")
-		recordMutex.Unlock()
+		ptt.runtime.recordMutex.Unlock()
 		return
 	}
-	broadcasting = true
-	recordMutex.Unlock()
+	ptt.runtime.broadcasting = true
+	ptt.runtime.recordMutex.Unlock()
 
 	ptt.Log.Debug().Msgf("Begin transmission: playing start tone and starting mic stream")
-	drainPlaybackBuffer()
-	playbackBuffer <- beepBufferStart
+	ptt.drainPlaybackBuffer()
+	ptt.runtime.playbackBuffer <- ptt.runtime.beepBufferStart
 	time.Sleep(200 * time.Millisecond)
 
 	if err := bcastStream.Start(); err != nil {
 		ptt.Log.Error().Err(err).Msg("Failed to start mic stream")
-		recordMutex.Lock()
-		broadcasting = false
-		recordMutex.Unlock()
+		ptt.runtime.recordMutex.Lock()
+		ptt.runtime.broadcasting = false
+		ptt.runtime.recordMutex.Unlock()
 		return
 	}
 
@@ -123,15 +123,15 @@ func (ptt *PTTConfig) beginTransmission(bcastStream *portaudio.Stream) {
 }
 
 func (ptt *PTTConfig) endTransmission(bcastStream *portaudio.Stream) {
-	recordMutex.Lock()
+	ptt.runtime.recordMutex.Lock()
 
-	if !broadcasting {
+	if !ptt.runtime.broadcasting {
 		ptt.Log.Debug().Msgf("PTT up ignored; mic already idle")
-		recordMutex.Unlock()
+		ptt.runtime.recordMutex.Unlock()
 		return
 	}
 
-	recordMutex.Unlock()
+	ptt.runtime.recordMutex.Unlock()
 
 	ptt.Log.Debug().Msg("End transmission: stopping mic stream and playing stop tone")
 	if err := bcastStream.Stop(); err != nil {
@@ -140,10 +140,10 @@ func (ptt *PTTConfig) endTransmission(bcastStream *portaudio.Stream) {
 		ptt.Log.Debug().Msg("Mic stream stopped")
 	}
 
-	drainPlaybackBuffer()
-	playbackBuffer <- beepBufferStop
+	ptt.drainPlaybackBuffer()
+	ptt.runtime.playbackBuffer <- ptt.runtime.beepBufferStop
 
-	recordMutex.Lock()
-	broadcasting = false
-	recordMutex.Unlock()
+	ptt.runtime.recordMutex.Lock()
+	ptt.runtime.broadcasting = false
+	ptt.runtime.recordMutex.Unlock()
 }

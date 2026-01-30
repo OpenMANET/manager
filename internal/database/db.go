@@ -37,6 +37,14 @@ func NewConnection(ctx context.Context, log zerolog.Logger, dbFilePath string) (
 		return nil, err
 	}
 
+	// Configure connection pool settings for SQLite
+	// SQLite only supports 1 writer at a time, so limit max open connections
+	db.SetMaxOpenConns(1)
+	// Keep idle connections for reuse
+	db.SetMaxIdleConns(1)
+	// Don't keep connections open indefinitely
+	db.SetConnMaxLifetime(0)
+
 	if _, err := db.ExecContext(ctx, ddl); err != nil {
 		log.Error().Err(err).Msg("Failed to execute DDL schema")
 		return nil, err

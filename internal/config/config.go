@@ -9,26 +9,28 @@ import (
 
 // Default configuration values
 const (
-	DefaultMeshNetInterface            = "br-ahwlan"
-	DefaultGatewayMode                 = false
-	DefaultDBFile                      = "/etc/openmanetd/openmanetd.db"
-	DefaultAlfredMode                  = "primary"
-	DefaultAlfredBatInterface          = "bat0"
-	DefaultAlfredSocketPath            = "/var/run/alfred.sock"
-	DefaultAlfredDataTypeGateway       = true
-	DefaultAlfredDataTypeNode          = true
-	DefaultAlfredDataTypePosition      = true
-	DefaultAlfredDataTypeAddressReserv = true
-	DefaultPTTEnable                   = false
-	DefaultPTTMcastAddr                = "224.0.0.1"
-	DefaultPTTMcastPort                = 5007
-	DefaultPTTPttKey                   = "any"
-	DefaultPTTDebug                    = false
-	DefaultPTTLoopback                 = false
-	DefaultPTTPttDevice                = "/dev/hidraw0/*"
-	DefaultPTTPttDeviceName            = ""
-	DefaultResetDBOnStart              = false
-	DefaultEnableGPS                   = false
+	DefaultMeshNetInterface            string = "br-ahwlan"
+	DefaultGatewayMode                 bool   = false
+	DefaultDBFile                      string = "/etc/openmanetd/openmanetd.db"
+	DefaultAlfredMode                  string = "primary"
+	DefaultAlfredBatInterface          string = "bat0"
+	DefaultAlfredSocketPath            string = "/var/run/alfred.sock"
+	DefaultAlfredDataTypeGateway       bool   = true
+	DefaultAlfredDataTypeNode          bool   = true
+	DefaultAlfredDataTypePosition      bool   = true
+	DefaultAlfredDataTypeAddressReserv bool   = true
+	DefaultPTTEnable                   bool   = false
+	DefaultPTTMcastAddr                string = "224.0.0.1"
+	DefaultPTTMcastPort                int    = 5007
+	DefaultPTTPttKey                   string = "any"
+	DefaultPTTDebug                    bool   = false
+	DefaultPTTLoopback                 bool   = false
+	DefaultPTTPttDevice                string = "/dev/hidraw0/*"
+	DefaultPTTPttDeviceName            string = ""
+	DefaultResetDBOnStart              bool   = false
+	DefaultEnableGNSS                  bool   = false
+	DefaultGNSSSendAsNMEA              bool   = false
+	DefaultGNSSSendAsCoT               bool   = false
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -55,7 +57,9 @@ type Config struct {
 	PTTDebug                    bool
 	PTTLoopback                 bool
 	ResetDBOnStart              bool
-	EnableGPS                   bool
+	EnableGNSS                  bool
+	GNSSSendAsNMEA              bool
+	GNSSSendAsCoT               bool
 }
 
 // New creates a new Config instance with the given viper instance.
@@ -114,10 +118,22 @@ func (c *Config) reload() {
 		c.ResetDBOnStart = DefaultResetDBOnStart
 	}
 
-	if c.v.IsSet("enableGPS") {
-		c.EnableGPS = c.v.GetBool("enableGPS")
+	if c.v.IsSet("gnss.enable") {
+		c.EnableGNSS = c.v.GetBool("gnss.enable")
 	} else {
-		c.EnableGPS = DefaultEnableGPS
+		c.EnableGNSS = DefaultEnableGNSS
+	}
+
+	if c.v.IsSet("gnss.sendAsExternalGNSSSource.sendAsNMEA") {
+		c.GNSSSendAsNMEA = c.v.GetBool("gnss.sendAsExternalGNSSSource.sendAsNMEA")
+	} else {
+		c.GNSSSendAsNMEA = DefaultGNSSSendAsNMEA
+	}
+
+	if c.v.IsSet("gnss.sendAsExternalGNSSSource.sendAsCoT") {
+		c.GNSSSendAsCoT = c.v.GetBool("gnss.sendAsExternalGNSSSource.sendAsCoT")
+	} else {
+		c.GNSSSendAsCoT = DefaultGNSSSendAsCoT
 	}
 
 	// Load Alfred configuration
@@ -366,9 +382,23 @@ func (c *Config) GetPTTPttDeviceName() string {
 	return c.PTTPttDeviceName
 }
 
-// GetEnableGPS returns whether GPS is enabled.
-func (c *Config) GetEnableGPS() bool {
+// GetEnableGNSS returns whether GNSS is enabled.
+func (c *Config) GetEnableGNSS() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.EnableGPS
+	return c.EnableGNSS
+}
+
+// GetGNSSSendAsNMEA returns whether to send GNSS data as NMEA.
+func (c *Config) GetGNSSSendAsNMEA() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.GNSSSendAsNMEA
+}
+
+// GetGNSSSendAsCoT returns whether to send GNSS data as CoT.
+func (c *Config) GetGNSSSendAsCoT() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.GNSSSendAsCoT
 }

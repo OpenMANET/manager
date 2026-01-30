@@ -6,6 +6,7 @@ import (
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/config"
+	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -15,6 +16,7 @@ type StatusService struct {
 	Cfg  *config.Config
 	Log  zerolog.Logger
 	Wifi *mgmt.WirelessConfig
+	GPS  *gpsd.GPSService
 }
 
 func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*serviceproto.ServiceStatusResponse, error) {
@@ -58,6 +60,8 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 
 	isMeshGateway = meshCfg.IsGatewayMode()
 
+	position := s.GPS.GetPosition()
+
 	// For now, just return a static status
 	return &serviceproto.ServiceStatusResponse{
 		Status: &serviceproto.ServiceStatus{
@@ -65,6 +69,12 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 			ConnectedNeighbors:   connectedNeighbors,
 			ActiveMeshInterfaces: numMeshInterfaces,
 			IsMeshGateway:        isMeshGateway,
+			Position: &serviceproto.Position{
+				Latitude:         position.Latitude,
+				Longitude:        position.Longitude,
+				Altitude:         float32(position.Altitude),
+				SatellitesInView: int32(position.SatellitesUsed),
+			},
 		},
 	}, nil
 }

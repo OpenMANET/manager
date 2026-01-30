@@ -67,9 +67,9 @@ func Start() {
 		}
 	}
 
-	if cfg.GetEnableGPS() {
-		// Initialize and start GPS module
-		gps, err = gpsd.NewGPSService(logger.GetLogger("gps"))
+	if cfg.GetEnableGNSS() {
+		// Initialize and start GNSS module
+		gps, err = gpsd.NewGPSService(logger.GetLogger("gps"), cfg)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to initialize GPS service")
 		}
@@ -126,7 +126,9 @@ func Start() {
 
 	api.Stop(ctx)
 	database.CloseConnection()
-	gps.Close()
+	if cfg.GetEnableGNSS() {
+		gps.Close()
+	}
 
 	log.Info().Msg("Exiting OpenMANETd")
 	os.Exit(0)

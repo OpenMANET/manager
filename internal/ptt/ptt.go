@@ -31,34 +31,40 @@ const (
 	defaultPTTDeviceName string = "AllInOneCable"
 )
 
-var (
+// PTTRuntime holds runtime state for an active PTT instance
+// Only allocated when PTT is enabled to save memory
+type PTTRuntime struct {
 	// codec/network
 	encoder         *opus.Encoder
 	decoder         *opus.Decoder
 	udpSendConn     *net.UDPConn
 	udpRecvConn     *net.UDPConn
-	localIP         string
-	playbackBuffer  = make(chan []float32, 2)
-	beepBufferStart = make([]float32, frameSize)
-	beepBufferStop  = make([]float32, frameSize)
+	playbackBuffer  chan []float32
 	broadcastStream *portaudio.Stream
-	broadcasting    bool
-	recordMutex     sync.Mutex
+	localIP         string
 
 	// config from UCI (with fallbacks)
-	ifaceName     = defaultIface
-	mcastAddr     = defaultG
-	mcastPort     = defaultPort
-	pttKey        = defaultKey
-	debugEnabled  = defaultDebug
-	loopbackAudio = defaultLoopback
-	pttDeviceName = defaultPTTDeviceName
-	pttDevice     = defaultPTTDevice
-)
+	ifaceName       string
+	mcastAddr       string
+	pttKey          string
+	pttDeviceName   string
+	pttDevice       string
+	beepBufferStart []float32
+	beepBufferStop  []float32
+	mcastPort       int
+	recordMutex     sync.Mutex
+
+	broadcasting  bool
+	debugEnabled  bool
+	loopbackAudio bool
+}
 
 type PTTConfig struct {
-	Log           zerolog.Logger
-	Interupt      chan os.Signal
+	Log      zerolog.Logger
+	Interupt chan os.Signal
+
+	// Runtime state - only allocated when PTT is enabled
+	runtime       *PTTRuntime
 	Iface         string
 	McastAddr     string
 	PttKey        string
@@ -92,66 +98,81 @@ func (ptt *PTTConfig) Start() {
 		return
 	}
 
-	// apply config
-	if ptt.Iface != "" {
-		ifaceName = ptt.Iface
-	}
-	if ptt.McastAddr != "" {
-		mcastAddr = ptt.McastAddr
-	}
-	if ptt.McastPort != 0 {
-		mcastPort = ptt.McastPort
-	}
-	if ptt.PttKey != "" {
-		pttKey = ptt.PttKey
-	} else {
-		pttKey = defaultKey
+	// Initialize runtime state only when PTT is enabled
+	ptt.runtime = &PTTRuntime{
+		playbackBuffer:  make(chan []float32, 2),
+		beepBufferStart: make([]float32, frameSize),
+		beepBufferStop:  make([]float32, frameSize),
+		ifaceName:       defaultIface,
+		mcastAddr:       defaultG,
+		mcastPort:       defaultPort,
+		pttKey:          defaultKey,
+		debugEnabled:    defaultDebug,
+		loopbackAudio:   defaultLoopback,
+		pttDeviceName:   defaultPTTDeviceName,
+		pttDevice:       defaultPTTDevice,
 	}
 
-	debugEnabled = ptt.Debug
-	if debugEnabled {
+	// apply config
+	if ptt.Iface != "" {
+		ptt.runtime.ifaceName = ptt.Iface
+	}
+	if ptt.McastAddr != "" {
+		ptt.runtime.mcastAddr = ptt.McastAddr
+	}
+	if ptt.McastPort != 0 {
+		ptt.runtime.mcastPort = ptt.McastPort
+	}
+	if ptt.PttKey != "" {
+		ptt.runtime.pttKey = ptt.PttKey
+	} else {
+		ptt.runtime.pttKey = defaultKey
+	}
+
+	ptt.runtime.debugEnabled = ptt.Debug
+	if ptt.runtime.debugEnabled {
 		ptt.logInputDeviceList()
 	}
 
-	loopbackAudio = ptt.Loopback
+	ptt.runtime.loopbackAudio = ptt.Loopback
 
 	if ptt.PttDevice != "" {
-		pttDevice = ptt.PttDevice
+		ptt.runtime.pttDevice = ptt.PttDevice
 	}
 
 	if ptt.PttDeviceName != "" {
-		pttDeviceName = ptt.PttDeviceName
+		ptt.runtime.pttDeviceName = ptt.PttDeviceName
 	}
 
-	ptt.Log.Info().Msgf("Starting PTT on iface=%s mcast=%s:%d key=%s debug=%t loopback=%t ptt_device=%s", ifaceName, mcastAddr, mcastPort, pttKey, debugEnabled, loopbackAudio, pttDeviceName)
+	ptt.Log.Info().Msgf("Starting PTT on iface=%s mcast=%s:%d key=%s debug=%t loopback=%t ptt_device=%s", ptt.runtime.ifaceName, ptt.runtime.mcastAddr, ptt.runtime.mcastPort, ptt.runtime.pttKey, ptt.runtime.debugEnabled, ptt.runtime.loopbackAudio, ptt.runtime.pttDeviceName)
 
 	var err error
-	encoder, err = opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
+	ptt.runtime.encoder, err = opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
 	if err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to create Opus encoder")
 	}
 
-	if err := encoder.SetBitrate(targetBitrate); err != nil {
+	if err := ptt.runtime.encoder.SetBitrate(targetBitrate); err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder bitrate")
 	}
 
-	if err := encoder.SetComplexity(encoderComplexity); err != nil {
+	if err := ptt.runtime.encoder.SetComplexity(encoderComplexity); err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder complexity")
 	}
 
-	if err := encoder.SetInBandFEC(true); err != nil {
+	if err := ptt.runtime.encoder.SetInBandFEC(true); err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder in-band FEC")
 	}
 
-	if err := encoder.SetPacketLossPerc(packetLossPerc); err != nil {
+	if err := ptt.runtime.encoder.SetPacketLossPerc(packetLossPerc); err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder packet loss percentage")
 	}
 
-	if err := encoder.SetDTX(false); err != nil {
+	if err := ptt.runtime.encoder.SetDTX(false); err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder DTX")
 	}
 
-	decoder, err = opus.NewDecoder(sampleRate, channels)
+	ptt.runtime.decoder, err = opus.NewDecoder(sampleRate, channels)
 	if err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to create Opus decoder")
 	}
@@ -181,7 +202,7 @@ func (ptt *PTTConfig) Start() {
 
 	playbackStream, err := portaudio.OpenStream(params, func(_, out []float32) {
 		select {
-		case data := <-playbackBuffer:
+		case data := <-ptt.runtime.playbackBuffer:
 			copy(out, data)
 			ptt.Log.Debug().Msgf("Playback callback filled %d samples", len(data))
 		default:
@@ -201,7 +222,7 @@ func (ptt *PTTConfig) Start() {
 	defer playbackStream.Close()
 
 	// mic stream (opened, not started)
-	broadcastStream, err = portaudio.OpenDefaultStream(channels, 0, float64(sampleRate), frameSize, func(in []float32) {
+	ptt.runtime.broadcastStream, err = portaudio.OpenDefaultStream(channels, 0, float64(sampleRate), frameSize, func(in []float32) {
 		ptt.Log.Debug().Msgf("Mic callback received %d samples", len(in))
 		pcm := make([]int16, len(in))
 
@@ -210,8 +231,8 @@ func (ptt *PTTConfig) Start() {
 		}
 
 		buf := make([]byte, 4000)
-		if n, err := encoder.Encode(pcm, buf); err == nil {
-			_, _ = udpSendConn.Write(buf[:n])
+		if n, err := ptt.runtime.encoder.Encode(pcm, buf); err == nil {
+			_, _ = ptt.runtime.udpSendConn.Write(buf[:n])
 			ptt.Log.Debug().Msgf("Encoded %d bytes from mic callback", n)
 		}
 	})
@@ -219,55 +240,55 @@ func (ptt *PTTConfig) Start() {
 		ptt.Log.Fatal().Err(err).Msg("Failed to open PortAudio stream")
 	}
 
-	defer broadcastStream.Close()
+	defer ptt.runtime.broadcastStream.Close()
 
 	// beeps
-	for i := range beepBufferStart {
-		beepBufferStart[i] = float32(math.Sin(2*math.Pi*1000*float64(i)/float64(sampleRate))) * 0.2
-		beepBufferStop[i] = float32(math.Sin(2*math.Pi*600*float64(i)/float64(sampleRate))) * 0.2
+	for i := range ptt.runtime.beepBufferStart {
+		ptt.runtime.beepBufferStart[i] = float32(math.Sin(2*math.Pi*1000*float64(i)/float64(sampleRate))) * 0.2
+		ptt.runtime.beepBufferStop[i] = float32(math.Sin(2*math.Pi*600*float64(i)/float64(sampleRate))) * 0.2
 	}
 
 	// networking: bind send to iface IP; listen on :port and join group on iface
-	ifIP, ifi, err := ptt.getIfaceIPv4(ifaceName)
+	ifIP, ifi, err := ptt.getIfaceIPv4(ptt.runtime.ifaceName)
 	if err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to get interface IPv4")
 	}
 
-	localIP = ifIP
-	ptt.Log.Debug().Msgf("Using interface %s with IP %s", ifaceName, ifIP)
+	ptt.runtime.localIP = ifIP
+	ptt.Log.Debug().Msgf("Using interface %s with IP %s", ptt.runtime.ifaceName, ifIP)
 
 	// sender bound to iface IP so traffic egresses that iface
-	dst := &net.UDPAddr{IP: net.ParseIP(mcastAddr), Port: mcastPort}
+	dst := &net.UDPAddr{IP: net.ParseIP(ptt.runtime.mcastAddr), Port: ptt.runtime.mcastPort}
 	src := &net.UDPAddr{IP: net.ParseIP(ifIP), Port: 0}
 
-	udpSendConn, err = net.DialUDP("udp4", src, dst)
+	ptt.runtime.udpSendConn, err = net.DialUDP("udp4", src, dst)
 	if err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to dial UDP")
 	}
-	ptt.Log.Debug().Msgf("Sender bound to %s -> %s:%d", src.IP.String(), mcastAddr, mcastPort)
+	ptt.Log.Debug().Msgf("Sender bound to %s -> %s:%d", src.IP.String(), ptt.runtime.mcastAddr, ptt.runtime.mcastPort)
 
 	// receiver on all, then join group on iface
-	udpRecvConn, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: mcastPort})
+	ptt.runtime.udpRecvConn, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: ptt.runtime.mcastPort})
 	if err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to listen on UDP")
 	}
 
-	if err := udpRecvConn.SetReadBuffer(65535); err != nil {
+	if err := ptt.runtime.udpRecvConn.SetReadBuffer(65535); err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to set UDP read buffer")
 	}
 
-	if err := ptt.joinMulticastGroup(ifi, udpRecvConn, net.ParseIP(mcastAddr)); err != nil {
+	if err := ptt.joinMulticastGroup(ifi, ptt.runtime.udpRecvConn, net.ParseIP(ptt.runtime.mcastAddr)); err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to join multicast group")
 	}
-	ptt.Log.Debug().Msgf("Joined multicast group %s:%d", mcastAddr, mcastPort)
+	ptt.Log.Debug().Msgf("Joined multicast group %s:%d", ptt.runtime.mcastAddr, ptt.runtime.mcastPort)
 
-	go ptt.receiveLoop(udpRecvConn)
+	go ptt.receiveLoop(ptt.runtime.udpRecvConn)
 
 	// PTT input (kept as-is for now)
 	pttDevice := ptt.findPTTDevice()
 	ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", pttDevice.Name)
 	ptt.Log.Debug().Msgf("Monitoring PTT device %s", pttDevice.Name)
-	go ptt.monitorPTT(pttDevice, broadcastStream)
+	go ptt.monitorPTT(pttDevice, ptt.runtime.broadcastStream)
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
