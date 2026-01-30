@@ -218,17 +218,11 @@ func (g *GPSService) sendCoTToMulticast() error {
 				Speed:  pos.Speed,
 				Course: pos.Track,
 			},
-			PrecisionLocation: &cotproto.PrecisionLocation{
-				Geopointsrc: "GPS",
-				Altsrc:      "GPS",
-			},
 		},
 	}
 
-	cotEvent := cot.ProtoToEvent(cotMsg)
-
 	// Marshal to XML
-	xmlData, err := xml.Marshal(cotEvent)
+	xmlData, err := xml.Marshal(cot.ProtoToEvent(cotMsg))
 	if err != nil {
 		return fmt.Errorf("failed to marshal CoT XML: %w", err)
 	}
@@ -251,7 +245,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 		g.Log.Warn().Err(err).Msg("Failed to set multicast TTL")
 	}
 
-	_, err = conn.Write(xmlData)
+	_, err = pconn.WriteTo(xmlData, nil, addr)
 	if err != nil {
 		return fmt.Errorf("failed to send CoT message: %w", err)
 	}
