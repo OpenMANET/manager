@@ -12,9 +12,9 @@ import (
 // mockGPSDServer simulates a GPSD server for testing
 type mockGPSDServer struct {
 	listener net.Listener
+	started  chan struct{}
 	address  string
 	messages []string
-	started  chan struct{}
 }
 
 func newMockGPSDServer(t *testing.T) *mockGPSDServer {

@@ -75,15 +75,15 @@ type SKYReport struct {
 // GPSService represents a GPS service client that connects to GPSD
 type GPSService struct {
 	Log               zerolog.Logger
-	Config            *config.Config
 	lastMulticastTime time.Time // Last time a gps message was sent to multicast
 	conn              net.Conn
 	ctx               context.Context
+	Config            *config.Config
 	cancel            context.CancelFunc
-	address           string
-	position          PositionReport
-	lastNMEA          string            // Last raw NMEA sentence received from GPSD
 	nmeaSentences     map[string]string // Map of NMEA sentence types to their latest values
+	address           string
+	lastNMEA          string // Last raw NMEA sentence received from GPSD
+	position          PositionReport
 	reconnectDelay    time.Duration
 	reconnectAttempts int
 	mu                sync.RWMutex
