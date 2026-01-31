@@ -14,6 +14,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"golang.org/x/net/ipv4"
+	"google.golang.org/protobuf/proto"
 )
 
 // SendIfRequiredAsCoT sends the GPS position as a Cursor-on-Target (CoT) message to End User Devices (EUDs).
@@ -31,7 +32,7 @@ import (
 //
 // Errors are logged but do not halt execution; the method returns early on validation failures.
 func (g *GPSService) SendIfRequiredAsCoT() {
-		// Check if we have a valid GPS position
+	// Check if we have a valid GPS position
 	if !g.IsValid() {
 		g.Log.Warn().Msg("No valid GPS position to send to EUDs")
 		return
@@ -192,7 +193,6 @@ func (g *GPSService) sendCoTToMulticast() error {
 	}
 
 	cotMsg.CotEvent = &cotproto.CotEvent{
-		How: cot.HowEvent,
 		Lat: pos.Latitude,
 		Lon: pos.Longitude,
 		Hae: hae,
@@ -218,10 +218,10 @@ func (g *GPSService) sendCoTToMulticast() error {
 		},
 	}
 
-	// Marshal to XML
-	xmlData, err := xml.Marshal(cot.ProtoToEvent(cotMsg))
+	// Marshal to bytes to send as protobuf
+	data, err := proto.Marshal(cotMsg)
 	if err != nil {
-		return fmt.Errorf("failed to marshal CoT XML: %w", err)
+		return fmt.Errorf("failed to marshal CoT protobuf: %w", err)
 	}
 
 	// Send to multicast address
@@ -242,7 +242,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 		g.Log.Warn().Err(err).Msg("Failed to set multicast TTL")
 	}
 
-	_, err = pconn.WriteTo(xmlData, nil, addr)
+	_, err = pconn.WriteTo(data, nil, addr)
 	if err != nil {
 		return fmt.Errorf("failed to send CoT message: %w", err)
 	}
