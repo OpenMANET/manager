@@ -183,7 +183,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 	}
 
 	// Create CoT Message
-	cotMsg := cot.BasicMsg(radioUnitType, hostname, defaultStaleDuration)
+	cotMsg := cot.BasicMsg(cot.TypeTeam, hostname, defaultStaleDuration)
 
 	// Calculate Height Above Ellipsoid (HAE)
 	// HAE = MSL altitude + Geoid Separation
