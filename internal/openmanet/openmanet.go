@@ -40,6 +40,8 @@ func Start() {
 		Iface:         cfg.GetMeshNetInterface(),
 		McastAddr:     cfg.GetPTTMcastAddr(),
 		McastPort:     cfg.GetPTTMcastPort(),
+		Protocol:      cfg.GetPTTProtocol(),
+		RtpID:         cfg.GetPTTRtpID(),
 		PttKey:        cfg.GetPTTPttKey(),
 		Debug:         cfg.GetPTTDebug(),
 		Loopback:      cfg.GetPTTLoopback(),
