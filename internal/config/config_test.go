@@ -170,6 +170,74 @@ func TestGetPTTMcastPort(t *testing.T) {
 	}
 }
 
+func TestGetPTTProtocol(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured protocol",
+			setValue: strPtr("rtp"),
+			want:     "rtp",
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultPTTProtocol,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("ptt.protocol", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetPTTProtocol()
+			if got != tt.want {
+				t.Errorf("GetPTTProtocol() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPTTRtpID(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured rtpId",
+			setValue: strPtr("atak-device-id"),
+			want:     "atak-device-id",
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultPTTRtpID,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("ptt.rtpId", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetPTTRtpID()
+			if got != tt.want {
+				t.Errorf("GetPTTRtpID() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetPTTEnable(t *testing.T) {
 	tests := []struct {
 		name     string

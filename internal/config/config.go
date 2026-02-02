@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
@@ -22,6 +23,8 @@ const (
 	DefaultPTTEnable                   bool   = false
 	DefaultPTTMcastAddr                string = "224.0.0.1"
 	DefaultPTTMcastPort                int    = 5007
+	DefaultPTTProtocol                 string = "udp"
+	DefaultPTTRtpID                    string = ""
 	DefaultPTTPttKey                   string = "any"
 	DefaultPTTDebug                    bool   = false
 	DefaultPTTLoopback                 bool   = false
@@ -42,6 +45,8 @@ type Config struct {
 	AlfredBatInterface          string
 	AlfredSocketPath            string
 	PTTMcastAddr                string
+	PTTProtocol                 string
+	PTTRtpID                    string
 	PTTPttKey                   string
 	PTTPttDevice                string
 	PTTPttDeviceName            string
@@ -199,6 +204,18 @@ func (c *Config) reload() {
 		c.PTTMcastPort = DefaultPTTMcastPort
 	}
 
+	if val := strings.ToLower(c.v.GetString("ptt.protocol")); val != "" {
+		c.PTTProtocol = val
+	} else {
+		c.PTTProtocol = DefaultPTTProtocol
+	}
+
+	if val := c.v.GetString("ptt.rtpId"); val != "" {
+		c.PTTRtpID = val
+	} else {
+		c.PTTRtpID = DefaultPTTRtpID
+	}
+
 	if val := c.v.GetString("ptt.pttKey"); val != "" {
 		c.PTTPttKey = val
 	} else {
@@ -345,6 +362,20 @@ func (c *Config) GetPTTMcastPort() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.PTTMcastPort
+}
+
+// GetPTTProtocol returns the PTT protocol (udp or rtp).
+func (c *Config) GetPTTProtocol() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PTTProtocol
+}
+
+// GetPTTRtpID returns the RTP identifier used to derive SSRC.
+func (c *Config) GetPTTRtpID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PTTRtpID
 }
 
 // GetPTTPttKey returns the PTT key configuration.

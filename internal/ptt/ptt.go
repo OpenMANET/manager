@@ -18,13 +18,14 @@ const (
 	sampleRate           int    = 48000
 	channels             int    = 1
 	frameSize            int    = 960
-	targetBitrate        int    = 12000
-	encoderComplexity    int    = 3
-	packetLossPerc       int    = 10
+	targetBitrate        int    = 32000
+	encoderComplexity    int    = 10
+	packetLossPerc       int    = 30
 	defaultKey           string = "any"
 	defaultIface         string = "br-ahwlan" // ← use bridge by default; override in UCI if needed
 	defaultG             string = "224.0.0.1"
 	defaultPort          int    = 5007
+	defaultProtocol      string = protocolUDP
 	defaultDebug         bool   = true
 	defaultLoopback      bool   = true
 	defaultPTTDevice     string = "/dev/hidraw0/*"
@@ -42,6 +43,10 @@ type PTTRuntime struct {
 	playbackBuffer  chan []float32
 	broadcastStream *portaudio.Stream
 	localIP         string
+	protocol        string
+	rtpSeq          uint16
+	rtpSSRC         uint32
+	rtpID           string
 
 	// config from UCI (with fallbacks)
 	ifaceName       string
@@ -70,6 +75,8 @@ type PTTConfig struct {
 	PttKey        string
 	PttDevice     string
 	PttDeviceName string
+	Protocol      string
+	RtpID         string
 	McastPort     int
 	Enable        bool
 	Debug         bool
@@ -85,6 +92,8 @@ func NewPTT(cfg PTTConfig) *PTTConfig {
 		McastAddr:     cfg.McastAddr,
 		McastPort:     cfg.McastPort,
 		PttKey:        cfg.PttKey,
+		Protocol:      cfg.Protocol,
+		RtpID:         cfg.RtpID,
 		Debug:         cfg.Debug,
 		Loopback:      cfg.Loopback,
 		PttDevice:     cfg.PttDevice,
@@ -106,6 +115,8 @@ func (ptt *PTTConfig) Start() {
 		ifaceName:       defaultIface,
 		mcastAddr:       defaultG,
 		mcastPort:       defaultPort,
+		protocol:        defaultProtocol,
+		rtpID:           "",
 		pttKey:          defaultKey,
 		debugEnabled:    defaultDebug,
 		loopbackAudio:   defaultLoopback,
@@ -129,6 +140,19 @@ func (ptt *PTTConfig) Start() {
 		ptt.runtime.pttKey = defaultKey
 	}
 
+	if ptt.Protocol != "" {
+		ptt.runtime.protocol = normalizeProtocol(ptt.Protocol)
+	} else {
+		ptt.runtime.protocol = defaultProtocol
+	}
+
+	if ptt.RtpID != "" {
+		ptt.runtime.rtpID = ptt.RtpID
+	} else if hostname, err := os.Hostname(); err == nil && hostname != "" {
+		ptt.runtime.rtpID = hostname
+		ptt.Log.Debug().Msgf("RTP ID not set; using hostname %q", hostname)
+	}
+
 	ptt.runtime.debugEnabled = ptt.Debug
 	if ptt.runtime.debugEnabled {
 		ptt.logInputDeviceList()
@@ -144,7 +168,7 @@ func (ptt *PTTConfig) Start() {
 		ptt.runtime.pttDeviceName = ptt.PttDeviceName
 	}
 
-	ptt.Log.Info().Msgf("Starting PTT on iface=%s mcast=%s:%d key=%s debug=%t loopback=%t ptt_device=%s", ptt.runtime.ifaceName, ptt.runtime.mcastAddr, ptt.runtime.mcastPort, ptt.runtime.pttKey, ptt.runtime.debugEnabled, ptt.runtime.loopbackAudio, ptt.runtime.pttDeviceName)
+	ptt.Log.Info().Msgf("Starting PTT on iface=%s mcast=%s:%d protocol=%s key=%s debug=%t loopback=%t ptt_device=%s", ptt.runtime.ifaceName, ptt.runtime.mcastAddr, ptt.runtime.mcastPort, ptt.runtime.protocol, ptt.runtime.pttKey, ptt.runtime.debugEnabled, ptt.runtime.loopbackAudio, ptt.runtime.pttDeviceName)
 
 	var err error
 	ptt.runtime.encoder, err = opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
@@ -160,7 +184,7 @@ func (ptt *PTTConfig) Start() {
 		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder complexity")
 	}
 
-	if err := ptt.runtime.encoder.SetInBandFEC(true); err != nil {
+	if err := ptt.runtime.encoder.SetInBandFEC(false); err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder in-band FEC")
 	}
 
@@ -232,7 +256,11 @@ func (ptt *PTTConfig) Start() {
 
 		buf := make([]byte, 4000)
 		if n, err := ptt.runtime.encoder.Encode(pcm, buf); err == nil {
-			_, _ = ptt.runtime.udpSendConn.Write(buf[:n])
+			packet := buf[:n]
+			if ptt.runtime.protocol == protocolRTP {
+				packet = ptt.wrapRTP(packet)
+			}
+			_, _ = ptt.runtime.udpSendConn.Write(packet)
 			ptt.Log.Debug().Msgf("Encoded %d bytes from mic callback", n)
 		}
 	})
@@ -255,6 +283,15 @@ func (ptt *PTTConfig) Start() {
 	}
 
 	ptt.runtime.localIP = ifIP
+	if ptt.runtime.protocol == protocolRTP {
+		rtpID := ptt.runtime.rtpID
+		if rtpID == "" {
+			rtpID = ifIP
+			ptt.Log.Warn().Msg("RTP enabled but ptt.rtpId/hostname not set; using local IP to derive SSRC")
+		}
+		ptt.runtime.rtpSSRC = rtpSSRCFromID(rtpID)
+		ptt.runtime.rtpSeq = randomRTPSeq()
+	}
 	ptt.Log.Debug().Msgf("Using interface %s with IP %s", ptt.runtime.ifaceName, ifIP)
 
 	// sender bound to iface IP so traffic egresses that iface

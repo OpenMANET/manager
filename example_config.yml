@@ -20,6 +20,8 @@ ptt:
   enable: false
   mcastAddr: 224.0.0.1
   mcastPort: 5007
+  protocol: udp
+  rtpId: ""
   pttKey: any
   debug: true
   loopback: true

@@ -26,6 +26,13 @@ func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 		frame := make([]byte, n)
 		copy(frame, buf[:n])
 
+		if payload, ok := unwrapRTP(frame); ok {
+			frame = payload
+		} else if ptt.runtime.protocol == protocolRTP {
+			ptt.Log.Debug().Msg("Dropping packet: invalid RTP header")
+			continue
+		}
+
 		pcm := make([]int16, frameSize)
 		n, err = ptt.runtime.decoder.Decode(frame, pcm)
 		if err != nil {
