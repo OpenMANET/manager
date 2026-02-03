@@ -11,7 +11,7 @@ import (
 type UCIVXLANConfig struct {
 	Proto          string `uci:"option proto"`          // Protocol must be "vxlan"
 	Tunlink        string `uci:"option tunlink"`        // Tunnel link device (optional)
-	IPAddr         string `uci:"option ipaddr"`         // Local tunnel endpoint IP address (optional)
+	IPAddr         string `uci:"option ipaddr"`         // WARNING: Does NOT set VXLAN interface IP. See network interface config for IP assignment.
 	PeerAddr       string `uci:"option peeraddr"`       // Peer IP address for point-to-point VXLAN
 	VID            string `uci:"option vid"`            // VXLAN Network Identifier (VNI) - 24-bit number
 	Port           string `uci:"option port"`           // UDP destination port (default: 4789)
@@ -37,11 +37,16 @@ type UCIVXLANConfig struct {
 	GBP            string `uci:"option gbp"`            // Enable Group Based Policy extension (0/1)
 }
 
-// UCIVXLANPeer represents a VXLAN peer configuration.
+// UCIVXLANPeer represents a VXLAN peer configuration (config vxlan_peer).
+// Multiple peers can be configured to establish point-to-point or multicast VXLAN tunnels.
 type UCIVXLANPeer struct {
-	VNI     string `uci:"option vni"`     // VXLAN Network Identifier
-	Remote  string `uci:"option remote"`  // Remote peer IP address
-	MacAddr string `uci:"option macaddr"` // MAC address of the peer (optional)
+	VXLAN  string `uci:"option vxlan"`   // Which VXLAN interface to add peer to (required)
+	LLAddr string `uci:"option lladdr"`  // L2 (MAC) address of peer (default: 00:00:00:00:00:00 for source-address learning)
+	Dst    string `uci:"option dst"`     // IP address of remote VXLAN tunnel endpoint or multicast address (required)
+	Port   string `uci:"option port"`    // UDP destination port number (optional)
+	Via    string `uci:"option via"`     // Outgoing interface name to reach remote endpoint (optional, required for multicast)
+	VNI    string `uci:"option vni"`     // VXLAN VNI Network Identifier to use for this peer (optional)
+	SrcVNI string `uci:"option src_vni"` // Source VNI this entry belongs to (optional, for external/metadata mode)
 }
 
 const (
@@ -1159,4 +1164,299 @@ func SetVXLANGBPWithReader(section string, gbp string, reader ConfigReader) erro
 	}
 
 	return nil
+}
+
+// AddVXLANPeer adds a new VXLAN peer configuration as an anonymous section.
+// VXLAN peers are typically configured as anonymous sections in UCI.
+//
+// Parameters:
+//   - peer: The VXLAN peer configuration to add
+//
+// Returns an error if the configuration cannot be saved.
+//
+// Example:
+//
+//	peerConfig := &UCIVXLANPeer{
+//	    VXLAN: "vxlan0",
+//	    Dst:   "239.2.3.1",
+//	    Via:   "tailscale0",
+//	}
+//	err := AddVXLANPeer(peerConfig)
+//
+// Note: This operation requires appropriate privileges and commits the configuration.
+// Anonymous sections are created without a name, as per OpenWRT UCI conventions for vxlan_peer.
+func AddVXLANPeer(peer *UCIVXLANPeer) error {
+	reader := NewUCINetworkConfigReader()
+	return AddVXLANPeerWithReader(peer, reader)
+}
+
+// AddVXLANPeerWithReader adds a new VXLAN peer configuration as an anonymous section using the provided reader.
+func AddVXLANPeerWithReader(peer *UCIVXLANPeer, reader ConfigReader) error {
+	// Create anonymous section (empty string for section name)
+	if err := reader.AddSection(networkConfigName, "", "vxlan_peer"); err != nil {
+		return fmt.Errorf("failed to add VXLAN peer section: %w", err)
+	}
+
+	// Anonymous sections need to be referenced by index, but since we just added it,
+	// we need to set the options on the newly created section.
+	// For anonymous sections, UCI typically uses @type[index] notation.
+	// However, the go-uci library handles this differently.
+	// We'll need to use a different approach - set immediately after creation.
+
+	// Note: The section name for an anonymous section that was just added is typically
+	// the last one of that type. We need to retrieve it or work with the library's
+	// conventions for setting values on anonymous sections.
+
+	// Set vxlan interface (required)
+	if peer.VXLAN != "" {
+		// For anonymous sections just created, we use empty string and the library
+		// should apply to the last created section of that type
+		if err := reader.SetType(networkConfigName, "", "vxlan", uci.TypeOption, peer.VXLAN); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer vxlan: %w", err)
+		}
+	}
+
+	// Set lladdr (optional)
+	if peer.LLAddr != "" {
+		if err := reader.SetType(networkConfigName, "", "lladdr", uci.TypeOption, peer.LLAddr); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer lladdr: %w", err)
+		}
+	}
+
+	// Set dst (required)
+	if peer.Dst != "" {
+		if err := reader.SetType(networkConfigName, "", "dst", uci.TypeOption, peer.Dst); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer dst: %w", err)
+		}
+	}
+
+	// Set port (optional)
+	if peer.Port != "" {
+		if err := reader.SetType(networkConfigName, "", "port", uci.TypeOption, peer.Port); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer port: %w", err)
+		}
+	}
+
+	// Set via (optional)
+	if peer.Via != "" {
+		if err := reader.SetType(networkConfigName, "", "via", uci.TypeOption, peer.Via); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer via: %w", err)
+		}
+	}
+
+	// Set vni (optional)
+	if peer.VNI != "" {
+		if err := reader.SetType(networkConfigName, "", "vni", uci.TypeOption, peer.VNI); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer vni: %w", err)
+		}
+	}
+
+	// Set src_vni (optional)
+	if peer.SrcVNI != "" {
+		if err := reader.SetType(networkConfigName, "", "src_vni", uci.TypeOption, peer.SrcVNI); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer src_vni: %w", err)
+		}
+	}
+
+	// Commit changes
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit VXLAN peer config: %w", err)
+	}
+
+	return nil
+}
+
+// GetVXLANPeerByName loads and returns a VXLAN peer configuration by section name.
+// Note: VXLAN peers are typically anonymous sections. This function is provided for
+// compatibility but may not work as expected for anonymous sections.
+// Use with caution or prefer working with the UCI tree directly for anonymous sections.
+//
+// Parameters:
+//   - name: The UCI section name or @vxlan_peer[index] notation
+//
+// Returns the VXLAN peer configuration or an error if it cannot be read.
+func GetVXLANPeerByName(name string) (*UCIVXLANPeer, error) {
+	reader := NewUCINetworkConfigReader()
+	return GetVXLANPeerByNameWithReader(name, reader)
+}
+
+// GetVXLANPeerByNameWithReader loads and returns a VXLAN peer configuration using the provided reader.
+func GetVXLANPeerByNameWithReader(name string, reader ConfigReader) (*UCIVXLANPeer, error) {
+	peer := &UCIVXLANPeer{}
+
+	if values, ok := reader.Get(networkConfigName, name, "vxlan"); ok && len(values) > 0 {
+		peer.VXLAN = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "lladdr"); ok && len(values) > 0 {
+		peer.LLAddr = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "dst"); ok && len(values) > 0 {
+		peer.Dst = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "port"); ok && len(values) > 0 {
+		peer.Port = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "via"); ok && len(values) > 0 {
+		peer.Via = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "vni"); ok && len(values) > 0 {
+		peer.VNI = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "src_vni"); ok && len(values) > 0 {
+		peer.SrcVNI = values[0]
+	}
+
+	return peer, nil
+}
+
+// UpdateVXLANPeer updates an existing VXLAN peer configuration by section name.
+// Note: This is primarily for named sections. For anonymous vxlan_peer sections,
+// it's recommended to delete and re-add rather than update.
+//
+// Parameters:
+//   - section: The UCI section name or @vxlan_peer[index] notation
+//   - peer: The VXLAN peer configuration to set
+//
+// Returns an error if the configuration cannot be saved.
+//
+// Example:
+//
+//	peerConfig := &UCIVXLANPeer{
+//	    VXLAN: "vxlan0",
+//	    Dst:   "10.0.0.2",
+//	    Port:  "4789",
+//	}
+//	err := UpdateVXLANPeer("@vxlan_peer[0]", peerConfig)
+func UpdateVXLANPeer(section string, peer *UCIVXLANPeer) error {
+	reader := NewUCINetworkConfigReader()
+	return UpdateVXLANPeerWithReader(section, peer, reader)
+}
+
+// UpdateVXLANPeerWithReader updates an existing VXLAN peer configuration using the provided reader.
+func UpdateVXLANPeerWithReader(section string, peer *UCIVXLANPeer, reader ConfigReader) error {
+	// Set vxlan interface (required)
+	if peer.VXLAN != "" {
+		if err := reader.SetType(networkConfigName, section, "vxlan", uci.TypeOption, peer.VXLAN); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer vxlan: %w", err)
+		}
+	}
+
+	// Set lladdr (optional)
+	if peer.LLAddr != "" {
+		if err := reader.SetType(networkConfigName, section, "lladdr", uci.TypeOption, peer.LLAddr); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer lladdr: %w", err)
+		}
+	}
+
+	// Set dst (required)
+	if peer.Dst != "" {
+		if err := reader.SetType(networkConfigName, section, "dst", uci.TypeOption, peer.Dst); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer dst: %w", err)
+		}
+	}
+
+	// Set port (optional)
+	if peer.Port != "" {
+		if err := reader.SetType(networkConfigName, section, "port", uci.TypeOption, peer.Port); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer port: %w", err)
+		}
+	}
+
+	// Set via (optional)
+	if peer.Via != "" {
+		if err := reader.SetType(networkConfigName, section, "via", uci.TypeOption, peer.Via); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer via: %w", err)
+		}
+	}
+
+	// Set vni (optional)
+	if peer.VNI != "" {
+		if err := reader.SetType(networkConfigName, section, "vni", uci.TypeOption, peer.VNI); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer vni: %w", err)
+		}
+	}
+
+	// Set src_vni (optional)
+	if peer.SrcVNI != "" {
+		if err := reader.SetType(networkConfigName, section, "src_vni", uci.TypeOption, peer.SrcVNI); err != nil {
+			return fmt.Errorf("failed to set VXLAN peer src_vni: %w", err)
+		}
+	}
+
+	// Commit changes
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit VXLAN peer config: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteVXLANPeerByName removes a VXLAN peer configuration section by name.
+// For anonymous sections, use @vxlan_peer[index] notation.
+//
+// Parameters:
+//   - section: The UCI section name or @vxlan_peer[index] to delete
+//
+// Returns an error if the section cannot be deleted.
+//
+// Example:
+//
+//	// Delete first vxlan_peer
+//	err := DeleteVXLANPeerByName("@vxlan_peer[0]")
+//	if err != nil {
+//	    log.Fatalf("Failed to delete VXLAN peer: %v", err)
+//	}
+//
+// Note: This operation requires appropriate privileges and commits the configuration.
+func DeleteVXLANPeerByName(section string) error {
+	reader := NewUCINetworkConfigReader()
+	return DeleteVXLANPeerByNameWithReader(section, reader)
+}
+
+// DeleteVXLANPeerByNameWithReader removes a VXLAN peer configuration section using the provided reader.
+func DeleteVXLANPeerByNameWithReader(section string, reader ConfigReader) error {
+	if err := reader.DelSection(networkConfigName, section); err != nil {
+		return fmt.Errorf("failed to delete VXLAN peer section %s: %w", section, err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit VXLAN peer deletion: %w", err)
+	}
+
+	return nil
+}
+
+// VXLANPeerSectionExists checks if a VXLAN peer section exists in the configuration.
+//
+// Parameters:
+//   - section: The UCI section name to check (e.g., "peer0", "peer1")
+//
+// Returns true if the section exists, false otherwise.
+//
+// Example:
+//
+//	exists := VXLANPeerSectionExists("peer0")
+//	if exists {
+//	    fmt.Println("VXLAN peer section exists")
+//	}
+func VXLANPeerSectionExists(section string) bool {
+	reader := NewUCINetworkConfigReader()
+	return VXLANPeerSectionExistsWithReader(section, reader)
+}
+
+// VXLANPeerSectionExistsWithReader checks if a VXLAN peer section exists using the provided reader.
+func VXLANPeerSectionExistsWithReader(section string, reader ConfigReader) bool {
+	// Check for 'vxlan' or 'dst' field to verify peer section exists
+	_, vxlanExists := reader.Get(networkConfigName, section, "vxlan")
+	if vxlanExists {
+		return true
+	}
+	_, dstExists := reader.Get(networkConfigName, section, "dst")
+	return dstExists
 }

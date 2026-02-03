@@ -31,6 +31,7 @@ type UCINetwork struct {
 	Gateway        string `uci:"option gateway"`
 	DNS            string `uci:"option dns"`
 	Device         string `uci:"option device"`
+	Master         string `uci:"option master"`
 	IPV6Assignment string `uci:"option ip6assign"`
 	IPV6IfaceID    string `uci:"option ip6ifaceid"`
 	IPV6Class      string `uci:"list ip6class"`
@@ -127,6 +128,9 @@ func GetUCINetworkByNameWithReader(name string, reader ConfigReader) (*UCINetwor
 	if values, ok := reader.Get(networkConfigName, name, "device"); ok && len(values) > 0 {
 		config.Device = values[0]
 	}
+	if values, ok := reader.Get(networkConfigName, name, "master"); ok && len(values) > 0 {
+		config.Master = values[0]
+	}
 	if values, ok := reader.Get(networkConfigName, name, "ip6assign"); ok && len(values) > 0 {
 		config.IPV6Assignment = values[0]
 	}
@@ -199,6 +203,11 @@ func SetNetworkConfigWithReader(section string, config *UCINetwork, reader Confi
 	if config.Device != "" {
 		if err := reader.SetType(networkConfigName, section, "device", uci.TypeOption, config.Device); err != nil {
 			return fmt.Errorf("failed to set device: %w", err)
+		}
+	}
+	if config.Master != "" {
+		if err := reader.SetType(networkConfigName, section, "master", uci.TypeOption, config.Master); err != nil {
+			return fmt.Errorf("failed to set master: %w", err)
 		}
 	}
 	if config.IPV6Assignment != "" {
@@ -464,6 +473,32 @@ func SetNetworkDeviceWithReader(section, device string, reader ConfigReader) err
 
 	if err := reader.Commit(); err != nil {
 		return fmt.Errorf("failed to commit network config: %w", err)
+	}
+
+	return nil
+}
+
+// SetNetworkMaster sets the master interface for a network interface.
+//
+// Parameters:
+//   - section: The UCI section name (e.g., "lan", "wan")
+//   - master: The master interface name (e.g., "br-lan")
+//
+// Example:
+//
+//	err := SetNetworkMaster("eth0", "br-lan")
+func SetNetworkMaster(section, master string) error {
+	return SetNetworkMasterWithReader(section, master, NewUCINetworkConfigReader())
+}
+
+// SetNetworkMasterWithReader sets the master interface using the provided reader.
+func SetNetworkMasterWithReader(section, master string, reader ConfigReader) error {
+	if err := reader.SetType(networkConfigName, section, "master", uci.TypeOption, master); err != nil {
+		return fmt.Errorf("failed to set network master: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit network master: %w", err)
 	}
 
 	return nil
