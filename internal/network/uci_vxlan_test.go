@@ -11,17 +11,32 @@ func newMockVXLANReader() *mockConfigReader {
 		data: map[string]map[string]map[string][]string{
 			"network": {
 				"vxlan0": {
-					"proto":    {"vxlan"},
-					"tunlink":  {"eth0"},
-					"peeraddr": {"192.168.1.100"},
-					"vid":      {"100"},
-					"port":     {"4789"},
-					"macaddr":  {"00:11:22:33:44:55"},
-					"rxcsum":   {"1"},
-					"txcsum":   {"1"},
-					"mtu":      {"1450"},
-					"ttl":      {"64"},
-					"tos":      {"inherit"},
+					"proto":            {"vxlan"},
+					"tunlink":          {"eth0"},
+					"ipaddr":           {"10.0.1.1"},
+					"peeraddr":         {"192.168.1.100"},
+					"vid":              {"100"},
+					"port":             {"4789"},
+					"srcport":          {"10000-20000"},
+					"macaddr":          {"00:11:22:33:44:55"},
+					"rxcsum":           {"1"},
+					"txcsum":           {"1"},
+					"mtu":              {"1450"},
+					"ttl":              {"64"},
+					"tos":              {"inherit"},
+					"df":               {"1"},
+					"flowlabel":        {"0x12345"},
+					"ageing":           {"300"},
+					"maxaddress":       {"1024"},
+					"learning":         {"1"},
+					"rsc":              {"0"},
+					"proxy":            {"1"},
+					"l2miss":           {"1"},
+					"l3miss":           {"1"},
+					"udpcsum":          {"1"},
+					"udp6zerocsumtx":   {"0"},
+					"udp6zerocsumrx":   {"0"},
+					"gbp":              {"1"},
 				},
 				"vxlan1": {
 					"proto":    {"vxlan"},
@@ -41,17 +56,32 @@ func TestGetVXLANByNameWithReader_FullConfig(t *testing.T) {
 	reader := newMockVXLANReader()
 
 	want := &UCIVXLANConfig{
-		Proto:    "vxlan",
-		Tunlink:  "eth0",
-		PeerAddr: "192.168.1.100",
-		VID:      "100",
-		Port:     "4789",
-		MacAddr:  "00:11:22:33:44:55",
-		RxCsum:   "1",
-		TxCsum:   "1",
-		MTU:      "1450",
-		TTL:      "64",
-		TOS:      "inherit",
+		Proto:           "vxlan",
+		Tunlink:         "eth0",
+		IPAddr:          "10.0.1.1",
+		PeerAddr:        "192.168.1.100",
+		VID:             "100",
+		Port:            "4789",
+		SrcPort:         "10000-20000",
+		MacAddr:         "00:11:22:33:44:55",
+		RxCsum:          "1",
+		TxCsum:          "1",
+		MTU:             "1450",
+		TTL:             "64",
+		TOS:             "inherit",
+		DF:              "1",
+		FlowLabel:       "0x12345",
+		Ageing:          "300",
+		MaxAddress:      "1024",
+		Learning:        "1",
+		RSC:             "0",
+		Proxy:           "1",
+		L2Miss:          "1",
+		L3Miss:          "1",
+		UDPCsum:         "1",
+		UDP6ZeroCsumTx:  "0",
+		UDP6ZeroCsumRx:  "0",
+		GBP:             "1",
 	}
 
 	got, err := GetVXLANByNameWithReader("vxlan0", reader)
@@ -1051,3 +1081,448 @@ func TestSetVXLANConfigWithReader_SelectiveUpdate(t *testing.T) {
 		t.Error("Expected mtu to be set to '1300'")
 	}
 }
+
+func TestSetVXLANIPAddrWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANIPAddrWithReader("vxlan0", "10.1.1.1", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANIPAddrWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "ipaddr" && len(call.values) > 0 && call.values[0] == "10.1.1.1" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected ipaddr to be set to '10.1.1.1'")
+	}
+}
+
+func TestSetVXLANSrcPortWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANSrcPortWithReader("vxlan0", "5000-6000", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANSrcPortWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "srcport" && len(call.values) > 0 && call.values[0] == "5000-6000" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected srcport to be set to '5000-6000'")
+	}
+}
+
+func TestSetVXLANDFWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANDFWithReader("vxlan0", "0", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANDFWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "df" && len(call.values) > 0 && call.values[0] == "0" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected df to be set to '0'")
+	}
+}
+
+func TestSetVXLANFlowLabelWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANFlowLabelWithReader("vxlan0", "0xabcde", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANFlowLabelWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "flowlabel" && len(call.values) > 0 && call.values[0] == "0xabcde" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected flowlabel to be set to '0xabcde'")
+	}
+}
+
+func TestSetVXLANAgeingWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANAgeingWithReader("vxlan0", "600", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANAgeingWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "ageing" && len(call.values) > 0 && call.values[0] == "600" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected ageing to be set to '600'")
+	}
+}
+
+func TestSetVXLANMaxAddressWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANMaxAddressWithReader("vxlan0", "2048", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANMaxAddressWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "maxaddress" && len(call.values) > 0 && call.values[0] == "2048" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected maxaddress to be set to '2048'")
+	}
+}
+
+func TestSetVXLANLearningWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANLearningWithReader("vxlan0", "0", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANLearningWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "learning" && len(call.values) > 0 && call.values[0] == "0" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected learning to be set to '0'")
+	}
+}
+
+func TestSetVXLANRSCWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANRSCWithReader("vxlan0", "1", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANRSCWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "rsc" && len(call.values) > 0 && call.values[0] == "1" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected rsc to be set to '1'")
+	}
+}
+
+func TestSetVXLANProxyWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANProxyWithReader("vxlan0", "0", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANProxyWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "proxy" && len(call.values) > 0 && call.values[0] == "0" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected proxy to be set to '0'")
+	}
+}
+
+func TestSetVXLANL2MissWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANL2MissWithReader("vxlan0", "0", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANL2MissWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "l2miss" && len(call.values) > 0 && call.values[0] == "0" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected l2miss to be set to '0'")
+	}
+}
+
+func TestSetVXLANL3MissWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANL3MissWithReader("vxlan0", "0", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANL3MissWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "l3miss" && len(call.values) > 0 && call.values[0] == "0" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected l3miss to be set to '0'")
+	}
+}
+
+func TestSetVXLANUDPCsumWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANUDPCsumWithReader("vxlan0", "0", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANUDPCsumWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "udpcsum" && len(call.values) > 0 && call.values[0] == "0" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected udpcsum to be set to '0'")
+	}
+}
+
+func TestSetVXLANUDP6ZeroCsumTxWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANUDP6ZeroCsumTxWithReader("vxlan0", "1", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANUDP6ZeroCsumTxWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "udp6zerocsumtx" && len(call.values) > 0 && call.values[0] == "1" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected udp6zerocsumtx to be set to '1'")
+	}
+}
+
+func TestSetVXLANUDP6ZeroCsumRxWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANUDP6ZeroCsumRxWithReader("vxlan0", "1", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANUDP6ZeroCsumRxWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "udp6zerocsumrx" && len(call.values) > 0 && call.values[0] == "1" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected udp6zerocsumrx to be set to '1'")
+	}
+}
+
+func TestSetVXLANGBPWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := SetVXLANGBPWithReader("vxlan0", "0", reader)
+	if err != nil {
+		t.Fatalf("SetVXLANGBPWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	found := false
+	for _, call := range reader.setTypeCalls {
+		if call.option == "gbp" && len(call.values) > 0 && call.values[0] == "0" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected gbp to be set to '0'")
+	}
+}
+
+func TestSetVXLANConfigWithReader_AllNewFields(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"network": {},
+		},
+	}
+
+	config := &UCIVXLANConfig{
+		Proto:           "vxlan",
+		IPAddr:          "10.2.2.2",
+		VID:             "999",
+		SrcPort:         "8000-9000",
+		DF:              "0",
+		FlowLabel:       "0xfffff",
+		Ageing:          "450",
+		MaxAddress:      "512",
+		Learning:        "0",
+		RSC:             "1",
+		Proxy:           "1",
+		L2Miss:          "1",
+		L3Miss:          "1",
+		UDPCsum:         "0",
+		UDP6ZeroCsumTx:  "1",
+		UDP6ZeroCsumRx:  "1",
+		GBP:             "1",
+	}
+
+	err := SetVXLANConfigWithReader("vxlan_new", config, reader)
+	if err != nil {
+		t.Fatalf("SetVXLANConfigWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	// Verify all new fields were set
+	expectedCalls := map[string]string{
+		"ipaddr":           "10.2.2.2",
+		"srcport":          "8000-9000",
+		"df":               "0",
+		"flowlabel":        "0xfffff",
+		"ageing":           "450",
+		"maxaddress":       "512",
+		"learning":         "0",
+		"rsc":              "1",
+		"proxy":            "1",
+		"l2miss":           "1",
+		"l3miss":           "1",
+		"udpcsum":          "0",
+		"udp6zerocsumtx":   "1",
+		"udp6zerocsumrx":   "1",
+		"gbp":              "1",
+	}
+
+	for option, expectedValue := range expectedCalls {
+		found := false
+		for _, call := range reader.setTypeCalls {
+			if call.option == option && len(call.values) > 0 && call.values[0] == expectedValue {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected SetType call for option %q with value %q", option, expectedValue)
+		}
+	}
+}
+
