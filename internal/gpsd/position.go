@@ -171,5 +171,3 @@ func (g *GPSService) GetDGPSStation() int {
 	defer g.mu.RUnlock()
 	return g.position.DGPSStation
 }
-
-
