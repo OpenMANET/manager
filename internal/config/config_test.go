@@ -907,3 +907,46 @@ func TestGetGNSSSendAsCoT(t *testing.T) {
 		})
 	}
 }
+
+// TestGetROIPStatusWorkerInterval tests the GetROIPStatusWorkerInterval method.
+func TestGetROIPStatusWorkerInterval(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue int
+		setKey   bool
+		expected int
+	}{
+		{
+			name:     "returns configured interval",
+			setValue: 60,
+			setKey:   true,
+			expected: 60,
+		},
+		{
+			name:     "returns default when zero",
+			setValue: 0,
+			setKey:   true,
+			expected: DefaultROIPStatusWorkerInterval,
+		},
+		{
+			name:     "returns default when not set",
+			setKey:   false,
+			expected: DefaultROIPStatusWorkerInterval,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setKey {
+				v.Set("roip.statusWorkerInterval", tt.setValue)
+			}
+			c := New(v)
+
+			result := c.GetROIPStatusWorkerInterval()
+			if result != tt.expected {
+				t.Errorf("GetROIPStatusWorkerInterval() = %d, want %d", result, tt.expected)
+			}
+		})
+	}
+}

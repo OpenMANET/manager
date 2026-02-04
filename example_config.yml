@@ -16,6 +16,10 @@ alfred:
     node: true
     position: true
     addressReservation: true
+roip:
+  # Status worker interval in seconds (default: 30)
+  # Controls how frequently Tailscale peer status is polled
+  statusWorkerInterval: 30
 ptt:
   enable: false
   mcastAddr: 224.0.0.1

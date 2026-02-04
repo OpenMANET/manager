@@ -31,6 +31,7 @@ const (
 	DefaultEnableGNSS                  bool   = false
 	DefaultGNSSSendAsNMEA              bool   = false
 	DefaultGNSSSendAsCoT               bool   = false
+	DefaultROIPStatusWorkerInterval    int    = 30 // seconds
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -47,6 +48,7 @@ type Config struct {
 	PTTPttDeviceName            string
 	onChangeCallbacks           []func(*Config)
 	PTTMcastPort                int
+	ROIPStatusWorkerInterval    int
 	mu                          sync.RWMutex
 	GatewayMode                 bool
 	AlfredDataTypeGateway       bool
@@ -228,6 +230,13 @@ func (c *Config) reload() {
 	} else {
 		c.PTTPttDeviceName = DefaultPTTPttDeviceName
 	}
+
+	// Load ROIP configuration
+	if val := c.v.GetInt("roip.statusWorkerInterval"); val != 0 {
+		c.ROIPStatusWorkerInterval = val
+	} else {
+		c.ROIPStatusWorkerInterval = DefaultROIPStatusWorkerInterval
+	}
 }
 
 // OnConfigChange registers a callback function to be called when the configuration changes.
@@ -401,4 +410,11 @@ func (c *Config) GetGNSSSendAsCoT() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.GNSSSendAsCoT
+}
+
+// GetROIPStatusWorkerInterval returns the ROIP status worker interval in seconds.
+func (c *Config) GetROIPStatusWorkerInterval() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ROIPStatusWorkerInterval
 }

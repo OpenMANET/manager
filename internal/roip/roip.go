@@ -3,11 +3,14 @@ package roip
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/rs/zerolog"
 	"tailscale.com/client/local"
+	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/types/key"
 )
 
 type ROIP struct {
@@ -16,6 +19,7 @@ type ROIP struct {
 
 	ctx              context.Context
 	uciNetworkConfig *network.UCINetworkConfigReader
+	statusWorker     *StatusWorker
 }
 
 func NewROIP(cfg *config.Config, logger zerolog.Logger) (*ROIP, error) {
@@ -26,13 +30,25 @@ func NewROIP(cfg *config.Config, logger zerolog.Logger) (*ROIP, error) {
 		uciNetworkConfig: network.NewUCINetworkConfigReader(),
 	}
 
+	// Initialize the status worker
+	interval := time.Duration(cfg.GetROIPStatusWorkerInterval()) * time.Second
+	r.statusWorker = NewStatusWorker(&LocalStatusClient{}, interval, logger)
+
 	if err := r.configureInterfaces(r.ctx); err != nil {
 		return nil, err
 	}
 
+	// Start the status worker
+	r.statusWorker.Start()
+
 	return r, nil
 }
 
+// configureInterfaces sets up the network interfaces required for ROIP operation.
+// It first checks the Tailscale tunnel status and validates that it is in a valid state
+// (Running or Starting). If the tunnel requires authentication, it returns an error.
+// Then it sequentially configures the tunnel interface, VxLAN interface, and Batman
+// interface, and creates VxLAN multicast peers. Returns an error if any step fails.
 func (r *ROIP) configureInterfaces(ctx context.Context) error {
 	// Implementation of interface configuration would go here
 	tunnelStatus, err := local.Status(ctx)
@@ -56,21 +72,62 @@ func (r *ROIP) configureInterfaces(ctx context.Context) error {
 
 	r.Logger.Info().Msgf("Tunnel status: %v", tunnelStatus)
 
-	if err := r.createOrConfigureTunnelInterface(); err != nil {
-		return err
-	}
+	// Only configure ROIP interfaces if the mesh network interface exists
+	if network.NetworkSectionExistsWithReader(r.Config.GetAlfredBatInterface(), r.uciNetworkConfig) {
 
-	if err := r.createOrConfigureVxLanInterface(); err != nil {
-		return err
-	}
+		// Configure wireguard (tailscale) tunnel interface
+		if err := r.createOrConfigureTunnelInterface(); err != nil {
+			return err
+		}
 
-	if err := r.createOrConfigureBatmanInterface(); err != nil {
-		return err
-	}
+		// Configure VxLAN interface
+		if err := r.createOrConfigureVxLanInterface(); err != nil {
+			return err
+		}
 
-	if err := r.createVXMulticastPeers(); err != nil {
-		return err
+		// Configure Batman interface for tunnel
+		if err := r.createOrConfigureBatmanInterface(); err != nil {
+			return err
+		}
+
+		// Create VxLAN multicast peers
+		if err := r.createVXMulticastPeers(); err != nil {
+			return err
+		}
+
+		r.Logger.Debug().Msg("ROIP interfaces configured successfully")
 	}
 
 	return nil
+}
+
+// GetPeers returns the current Tailscale peer information.
+func (r *ROIP) GetPeers() map[key.NodePublic]*ipnstate.PeerStatus {
+	if r.statusWorker == nil {
+		return nil
+	}
+	return r.statusWorker.GetPeers()
+}
+
+// GetPeer returns a specific Tailscale peer by node key.
+func (r *ROIP) GetPeer(nodeKey key.NodePublic) (*ipnstate.PeerStatus, bool) {
+	if r.statusWorker == nil {
+		return nil, false
+	}
+	return r.statusWorker.GetPeer(nodeKey)
+}
+
+// GetStatus returns the last fetched Tailscale status.
+func (r *ROIP) GetStatus() *ipnstate.Status {
+	if r.statusWorker == nil {
+		return nil
+	}
+	return r.statusWorker.GetStatus()
+}
+
+// Stop stops the ROIP worker processes.
+func (r *ROIP) Stop() {
+	if r.statusWorker != nil {
+		r.statusWorker.Stop()
+	}
 }
