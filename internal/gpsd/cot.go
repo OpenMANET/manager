@@ -14,7 +14,6 @@ import (
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"golang.org/x/net/ipv4"
-	"google.golang.org/protobuf/proto"
 )
 
 // SendIfRequiredAsCoT sends the GPS position as a Cursor-on-Target (CoT) message to End User Devices (EUDs).
@@ -182,9 +181,6 @@ func (g *GPSService) sendCoTToMulticast() error {
 		}
 	}
 
-	// Create CoT Message
-	cotMsg := cot.BasicMsg(cot.TypeTeam, hostname, defaultStaleDuration)
-
 	// Calculate Height Above Ellipsoid (HAE)
 	// HAE = MSL altitude + Geoid Separation
 	hae := pos.Altitude
@@ -192,34 +188,43 @@ func (g *GPSService) sendCoTToMulticast() error {
 		hae = pos.Altitude + pos.GeoidSeparation
 	}
 
-	cotMsg.CotEvent = &cotproto.CotEvent{
-		Lat: pos.Latitude,
-		Lon: pos.Longitude,
-		Hae: hae,
-		Ce:  pos.EPH,
-		Le:  pos.EPV,
-		Detail: &cotproto.Detail{
-			Contact: &cotproto.Contact{
-				Callsign: fmt.Sprintf("%s-manet", hostname),
-			},
-			Group: &cotproto.Group{
-				Name: "MANET",
-				Role: "Radio Unit",
-			},
-			Takv: &cotproto.Takv{
-				Os:       "OpenMANET",
-				Device:   hostname,
-				Platform: platformName,
-			},
-			Track: &cotproto.Track{
-				Speed:  pos.Speed,
-				Course: pos.Track,
+	// Create CoT Message
+	takMsg := &cotproto.TakMessage{
+		CotEvent: &cotproto.CotEvent{
+			Type:      cot.TypeTeam,
+			Uid:       hostname,
+			SendTime:  cot.TimeToMillis(time.Now()),
+			StartTime: cot.TimeToMillis(time.Now()),
+			StaleTime: cot.TimeToMillis(time.Now().Add(defaultStaleDuration)),
+			How:       cot.HowDefault,
+			Lat:       pos.Latitude,
+			Lon:       pos.Longitude,
+			Hae:       hae,
+			Ce:        pos.EPH,
+			Le:        pos.EPV,
+			Detail: &cotproto.Detail{
+				Contact: &cotproto.Contact{
+					Callsign: fmt.Sprintf("%s-manet", hostname),
+				},
+				Group: &cotproto.Group{
+					Name: "MANET",
+					Role: "Radio Unit",
+				},
+				Takv: &cotproto.Takv{
+					Os:       "OpenMANET",
+					Device:   hostname,
+					Platform: platformName,
+				},
+				Track: &cotproto.Track{
+					Speed:  pos.Speed,
+					Course: pos.Track,
+				},
 			},
 		},
 	}
 
 	// Marshal to bytes to send as protobuf
-	data, err := proto.Marshal(cotMsg)
+	data, err := cot.MakeProtoPacket(takMsg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal CoT protobuf: %w", err)
 	}
