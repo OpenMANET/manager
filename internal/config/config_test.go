@@ -950,3 +950,43 @@ func TestGetROIPStatusWorkerInterval(t *testing.T) {
 		})
 	}
 }
+// TestROIPEnabled tests the ROIPEnabled method.
+func TestROIPEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultEnableROIP,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("roip.enable", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.ROIPEnabled()
+			if got != tt.want {
+				t.Errorf("ROIPEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+

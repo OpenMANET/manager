@@ -17,8 +17,7 @@ alfred:
     position: true
     addressReservation: true
 roip:
-  # Status worker interval in seconds (default: 30)
-  # Controls how frequently Tailscale peer status is polled
+  enable: true
   statusWorkerInterval: 30
 ptt:
   enable: false

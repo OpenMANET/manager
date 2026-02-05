@@ -16,6 +16,9 @@ alfred:
     node: true
     position: true
     addressReservation: true
+roip:
+  enable: true
+  statusWorkerInterval: 30
 ptt:
   enable: false
   mcastAddr: 224.0.0.1

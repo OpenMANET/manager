@@ -16,6 +16,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/openmanet/server"
 	"github.com/openmanet/openmanetd/internal/ptt"
+	"github.com/openmanet/openmanetd/internal/roip"
 	"github.com/openmanet/openmanetd/internal/util/logger"
 	"github.com/rs/zerolog"
 )
@@ -101,6 +102,14 @@ func Start() {
 	err = batmanadv.ClearBatHosts()
 	if err != nil {
 		log.Error().Err(err).Msg("Error clearing batman-adv hosts file on startup")
+	}
+
+	if cfg.ROIPEnabled() {
+		// Initialize ROIP module
+		_, err := roip.NewROIP(cfg, logger.GetLogger("roip"))
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to initialize ROIP module")
+		}
 	}
 
 	// Start API Server

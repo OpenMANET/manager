@@ -31,6 +31,7 @@ const (
 	DefaultEnableGNSS                  bool   = false
 	DefaultGNSSSendAsNMEA              bool   = false
 	DefaultGNSSSendAsCoT               bool   = false
+	DefaultEnableROIP                  bool   = false
 	DefaultROIPStatusWorkerInterval    int    = 30 // seconds
 )
 
@@ -48,6 +49,7 @@ type Config struct {
 	PTTPttDeviceName            string
 	onChangeCallbacks           []func(*Config)
 	PTTMcastPort                int
+	ROIPEnable                  bool
 	ROIPStatusWorkerInterval    int
 	mu                          sync.RWMutex
 	GatewayMode                 bool
@@ -232,6 +234,12 @@ func (c *Config) reload() {
 	}
 
 	// Load ROIP configuration
+	if c.v.IsSet("roip.enable") {
+		c.ROIPEnable = c.v.GetBool("roip.enable")
+	} else {
+		c.ROIPEnable = DefaultEnableROIP
+	}
+
 	if val := c.v.GetInt("roip.statusWorkerInterval"); val != 0 {
 		c.ROIPStatusWorkerInterval = val
 	} else {
@@ -410,6 +418,13 @@ func (c *Config) GetGNSSSendAsCoT() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.GNSSSendAsCoT
+}
+
+// ROIPEnabled returns whether ROIP (Radio over IP) is enabled.
+func (c *Config) ROIPEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ROIPEnable
 }
 
 // GetROIPStatusWorkerInterval returns the ROIP status worker interval in seconds.
