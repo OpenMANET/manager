@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/rs/zerolog"
@@ -23,6 +24,19 @@ type ROIP struct {
 }
 
 func NewROIP(cfg *config.Config, logger zerolog.Logger) (*ROIP, error) {
+	// Get mesh config to determine if we are a gateway
+	meshCfg, err := batmanadv.GetMeshConfig(cfg.GetAlfredBatInterface())
+	if err != nil {
+		logger.Error().Err(err).Msg("Error getting mesh config")
+		return nil, err
+	}
+
+	// Only initialize ROIP if we are in gateway mode
+	if !meshCfg.IsGatewayMode() {
+		logger.Info().Msg("Not in gateway mode, skipping ROIP initialization")
+		return nil, nil
+	}
+
 	r := &ROIP{
 		Config:           cfg,
 		Logger:           logger,

@@ -1959,3 +1959,298 @@ func TestAddVXLANPeerWithReader_AddSectionError(t *testing.T) {
 		t.Errorf("Expected error message to contain 'failed to add VXLAN peer section', got: %v", err)
 	}
 }
+
+func TestGetVXLANPeerByDstWithReader_Found(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	peer, section, err := GetVXLANPeerByDstWithReader("10.0.0.2", reader)
+	if err != nil {
+		t.Fatalf("GetVXLANPeerByDstWithReader failed: %v", err)
+	}
+
+	if section != "peer0" {
+		t.Errorf("Expected section 'peer0', got %q", section)
+	}
+
+	want := &UCIVXLANPeer{
+		VXLAN:  "vxlan0",
+		LLAddr: "00:11:22:33:44:55",
+		Dst:    "10.0.0.2",
+		Port:   "4789",
+		Via:    "eth0",
+		VNI:    "100",
+		SrcVNI: "200",
+	}
+
+	if !reflect.DeepEqual(peer, want) {
+		t.Errorf("GetVXLANPeerByDstWithReader = %+v, want %+v", peer, want)
+	}
+}
+
+func TestGetVXLANPeerByDstWithReader_MulticastAddress(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	peer, section, err := GetVXLANPeerByDstWithReader("239.1.1.1", reader)
+	if err != nil {
+		t.Fatalf("GetVXLANPeerByDstWithReader failed: %v", err)
+	}
+
+	if section != "peer_multicast" {
+		t.Errorf("Expected section 'peer_multicast', got %q", section)
+	}
+
+	want := &UCIVXLANPeer{
+		VXLAN: "vxlan0",
+		Dst:   "239.1.1.1",
+		Via:   "br-lan",
+	}
+
+	if !reflect.DeepEqual(peer, want) {
+		t.Errorf("GetVXLANPeerByDstWithReader = %+v, want %+v", peer, want)
+	}
+}
+
+func TestGetVXLANPeerByDstWithReader_NotFound(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	peer, section, err := GetVXLANPeerByDstWithReader("10.99.99.99", reader)
+	if err == nil {
+		t.Fatal("Expected GetVXLANPeerByDstWithReader to return error for non-existent peer")
+	}
+
+	if peer != nil {
+		t.Errorf("Expected nil peer, got %+v", peer)
+	}
+
+	if section != "" {
+		t.Errorf("Expected empty section, got %q", section)
+	}
+
+	if !contains(err.Error(), "not found") {
+		t.Errorf("Expected error message to contain 'not found', got: %v", err)
+	}
+}
+
+func TestGetVXLANPeerByDstWithReader_MultiplePeers(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	// Test finding peer1 which has minimal config
+	peer, section, err := GetVXLANPeerByDstWithReader("10.0.0.3", reader)
+	if err != nil {
+		t.Fatalf("GetVXLANPeerByDstWithReader failed: %v", err)
+	}
+
+	if section != "peer1" {
+		t.Errorf("Expected section 'peer1', got %q", section)
+	}
+
+	want := &UCIVXLANPeer{
+		VXLAN: "vxlan0",
+		Dst:   "10.0.0.3",
+	}
+
+	if !reflect.DeepEqual(peer, want) {
+		t.Errorf("GetVXLANPeerByDstWithReader = %+v, want %+v", peer, want)
+	}
+}
+
+func TestVXLANPeerExistsByDstWithReader(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	tests := []struct {
+		name     string
+		dst      string
+		expected bool
+	}{
+		{
+			name:     "existing peer with full config",
+			dst:      "10.0.0.2",
+			expected: true,
+		},
+		{
+			name:     "existing peer with minimal config",
+			dst:      "10.0.0.3",
+			expected: true,
+		},
+		{
+			name:     "existing multicast peer",
+			dst:      "239.1.1.1",
+			expected: true,
+		},
+		{
+			name:     "non-existent peer",
+			dst:      "192.168.99.99",
+			expected: false,
+		},
+		{
+			name:     "empty destination",
+			dst:      "",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := VXLANPeerExistsByDstWithReader(tt.dst, reader)
+			if got != tt.expected {
+				t.Errorf("VXLANPeerExistsByDstWithReader(%q) = %v, want %v", tt.dst, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestVXLANPeerExistsByDst_Integration(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	// Test that it finds peer0
+	if !VXLANPeerExistsByDstWithReader("10.0.0.2", reader) {
+		t.Error("Expected to find peer with dst 10.0.0.2")
+	}
+
+	// Test that it doesn't find non-existent peer
+	if VXLANPeerExistsByDstWithReader("1.2.3.4", reader) {
+		t.Error("Expected to not find peer with dst 1.2.3.4")
+	}
+}
+
+func TestGetVXLANPeerByDstWithReader_EmptyDst(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	peer, section, err := GetVXLANPeerByDstWithReader("", reader)
+	if err == nil {
+		t.Fatal("Expected GetVXLANPeerByDstWithReader to return error for empty dst")
+	}
+
+	if peer != nil {
+		t.Errorf("Expected nil peer, got %+v", peer)
+	}
+
+	if section != "" {
+		t.Errorf("Expected empty section, got %q", section)
+	}
+}
+
+func TestDeleteVXLANPeerByDstWithReader_Success(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	// Verify peer exists before deletion
+	if !VXLANPeerExistsByDstWithReader("10.0.0.2", reader) {
+		t.Fatal("Expected peer to exist before deletion")
+	}
+
+	err := DeleteVXLANPeerByDstWithReader("10.0.0.2", reader)
+	if err != nil {
+		t.Fatalf("DeleteVXLANPeerByDstWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	expectedDelSection := "network.peer0"
+	if reader.delSectionCall != expectedDelSection {
+		t.Errorf("Expected DelSection to be called with %q, got %q", expectedDelSection, reader.delSectionCall)
+	}
+}
+
+func TestDeleteVXLANPeerByDstWithReader_MulticastPeer(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	// Verify multicast peer exists before deletion
+	if !VXLANPeerExistsByDstWithReader("239.1.1.1", reader) {
+		t.Fatal("Expected multicast peer to exist before deletion")
+	}
+
+	err := DeleteVXLANPeerByDstWithReader("239.1.1.1", reader)
+	if err != nil {
+		t.Fatalf("DeleteVXLANPeerByDstWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	expectedDelSection := "network.peer_multicast"
+	if reader.delSectionCall != expectedDelSection {
+		t.Errorf("Expected DelSection to be called with %q, got %q", expectedDelSection, reader.delSectionCall)
+	}
+}
+
+func TestDeleteVXLANPeerByDstWithReader_NotFound(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := DeleteVXLANPeerByDstWithReader("10.99.99.99", reader)
+	if err == nil {
+		t.Fatal("Expected DeleteVXLANPeerByDstWithReader to return error for non-existent peer")
+	}
+
+	if !contains(err.Error(), "failed to find VXLAN peer") {
+		t.Errorf("Expected error message to contain 'failed to find VXLAN peer', got: %v", err)
+	}
+
+	// Should not have called DelSection or Commit
+	if reader.delSectionCall != "" {
+		t.Error("Expected DelSection to NOT be called for non-existent peer")
+	}
+}
+
+func TestDeleteVXLANPeerByDstWithReader_EmptyDst(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	err := DeleteVXLANPeerByDstWithReader("", reader)
+	if err == nil {
+		t.Fatal("Expected DeleteVXLANPeerByDstWithReader to return error for empty dst")
+	}
+
+	if !contains(err.Error(), "failed to find VXLAN peer") {
+		t.Errorf("Expected error message to contain 'failed to find VXLAN peer', got: %v", err)
+	}
+}
+
+func TestDeleteVXLANPeerByDstWithReader_DelSectionError(t *testing.T) {
+	reader := newMockVXLANReader()
+	reader.delSectionErr = fmt.Errorf("delete section error")
+
+	err := DeleteVXLANPeerByDstWithReader("10.0.0.2", reader)
+	if err == nil {
+		t.Fatal("Expected DeleteVXLANPeerByDstWithReader to return error")
+	}
+
+	if !contains(err.Error(), "failed to delete VXLAN peer section") {
+		t.Errorf("Expected error message to contain 'failed to delete VXLAN peer section', got: %v", err)
+	}
+}
+
+func TestDeleteVXLANPeerByDstWithReader_CommitError(t *testing.T) {
+	reader := newMockVXLANReader()
+	reader.commitError = fmt.Errorf("commit error")
+
+	err := DeleteVXLANPeerByDstWithReader("10.0.0.2", reader)
+	if err == nil {
+		t.Fatal("Expected DeleteVXLANPeerByDstWithReader to return error")
+	}
+
+	if !contains(err.Error(), "failed to commit VXLAN peer deletion") {
+		t.Errorf("Expected error message to contain 'failed to commit VXLAN peer deletion', got: %v", err)
+	}
+}
+
+func TestDeleteVXLANPeerByDst_Integration(t *testing.T) {
+	reader := newMockVXLANReader()
+
+	// Test deleting multiple peers
+	peers := []string{"10.0.0.2", "10.0.0.3", "239.1.1.1"}
+
+	for _, dst := range peers {
+		// Verify peer exists
+		if !VXLANPeerExistsByDstWithReader(dst, reader) {
+			t.Errorf("Expected peer with dst %s to exist", dst)
+		}
+
+		// Delete the peer
+		err := DeleteVXLANPeerByDstWithReader(dst, reader)
+		if err != nil {
+			t.Errorf("Failed to delete peer with dst %s: %v", dst, err)
+		}
+	}
+}

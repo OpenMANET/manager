@@ -1460,3 +1460,134 @@ func VXLANPeerSectionExistsWithReader(section string, reader ConfigReader) bool 
 	_, dstExists := reader.Get(networkConfigName, section, "dst")
 	return dstExists
 }
+
+// GetVXLANPeerByDst searches for and returns a VXLAN peer configuration by destination address.
+// This function searches through VXLAN peer sections to find one with a matching dst field.
+//
+// Parameters:
+//   - dst: The destination address to search for (e.g., "10.0.0.2", "239.2.3.1")
+//
+// Returns the VXLAN peer configuration and section name if found, or an error if not found.
+//
+// Example:
+//
+//	peer, section, err := GetVXLANPeerByDst("239.2.3.1")
+//	if err != nil {
+//	    log.Fatalf("Failed to find VXLAN peer: %v", err)
+//	}
+//	fmt.Printf("Found peer in section %s with VNI %s\n", section, peer.VNI)
+func GetVXLANPeerByDst(dst string) (*UCIVXLANPeer, string, error) {
+	reader := NewUCINetworkConfigReader()
+	return GetVXLANPeerByDstWithReader(dst, reader)
+}
+
+// GetVXLANPeerByDstWithReader searches for and returns a VXLAN peer configuration by destination address using the provided reader.
+func GetVXLANPeerByDstWithReader(dst string, reader ConfigReader) (*UCIVXLANPeer, string, error) {
+	// For the real UCI tree, we need to use the tree's sections list
+	// For now, we'll try common section patterns
+	// In practice, this would need to iterate through all vxlan_peer sections
+
+	// List of common peer section name patterns to search
+	peerSections := []string{
+		"peer_multicast",
+		"peer_unicast",
+	}
+
+	// Try common named peer sections with numeric suffixes
+	for i := 0; i < 100; i++ {
+		peerSections = append(peerSections, fmt.Sprintf("peer%d", i))
+	}
+
+	// Search through all common peer section names
+	for _, section := range peerSections {
+		if values, ok := reader.Get(networkConfigName, section, "dst"); ok && len(values) > 0 {
+			if values[0] == dst {
+				peer, err := GetVXLANPeerByNameWithReader(section, reader)
+				if err != nil {
+					return nil, "", err
+				}
+				return peer, section, nil
+			}
+		}
+	}
+
+	// Try anonymous section notation
+	for i := 0; i < 100; i++ {
+		section := fmt.Sprintf("@vxlan_peer[%d]", i)
+		if values, ok := reader.Get(networkConfigName, section, "dst"); ok && len(values) > 0 {
+			if values[0] == dst {
+				peer, err := GetVXLANPeerByNameWithReader(section, reader)
+				if err != nil {
+					return nil, "", err
+				}
+				return peer, section, nil
+			}
+		}
+	}
+
+	return nil, "", fmt.Errorf("VXLAN peer with dst %s not found", dst)
+}
+
+// VXLANPeerExistsByDst checks if a VXLAN peer with the specified destination address exists.
+//
+// Parameters:
+//   - dst: The destination address to search for (e.g., "10.0.0.2", "239.2.3.1")
+//
+// Returns true if a peer with the specified destination exists, false otherwise.
+//
+// Example:
+//
+//	if VXLANPeerExistsByDst("239.2.3.1") {
+//	    fmt.Println("Multicast peer already exists")
+//	}
+func VXLANPeerExistsByDst(dst string) bool {
+	reader := NewUCINetworkConfigReader()
+	return VXLANPeerExistsByDstWithReader(dst, reader)
+}
+
+// VXLANPeerExistsByDstWithReader checks if a VXLAN peer with the specified destination address exists using the provided reader.
+func VXLANPeerExistsByDstWithReader(dst string, reader ConfigReader) bool {
+	_, _, err := GetVXLANPeerByDstWithReader(dst, reader)
+	return err == nil
+}
+
+// DeleteVXLANPeerByDst removes a VXLAN peer configuration by destination address.
+// This function searches for a peer with the specified destination address and deletes it.
+//
+// Parameters:
+//   - dst: The destination address of the peer to delete (e.g., "10.0.0.2", "239.2.3.1")
+//
+// Returns an error if the peer cannot be found or deleted.
+//
+// Example:
+//
+//	err := DeleteVXLANPeerByDst("239.2.3.1")
+//	if err != nil {
+//	    log.Fatalf("Failed to delete VXLAN peer: %v", err)
+//	}
+//
+// Note: This operation requires appropriate privileges and commits the configuration.
+func DeleteVXLANPeerByDst(dst string) error {
+	reader := NewUCINetworkConfigReader()
+	return DeleteVXLANPeerByDstWithReader(dst, reader)
+}
+
+// DeleteVXLANPeerByDstWithReader removes a VXLAN peer configuration by destination address using the provided reader.
+func DeleteVXLANPeerByDstWithReader(dst string, reader ConfigReader) error {
+	// First, find the peer by destination address
+	_, section, err := GetVXLANPeerByDstWithReader(dst, reader)
+	if err != nil {
+		return fmt.Errorf("failed to find VXLAN peer with dst %s: %w", dst, err)
+	}
+
+	// Delete the peer using the section name
+	if err := reader.DelSection(networkConfigName, section); err != nil {
+		return fmt.Errorf("failed to delete VXLAN peer section %s: %w", section, err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit VXLAN peer deletion: %w", err)
+	}
+
+	return nil
+}
