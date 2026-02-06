@@ -1,24 +1,16 @@
 logLevel: info
-meshNetInterface: br-ahwlan
-gatewayMode: false
-dbFile: /etc/openmanetd/openmanetd.db
 gnss:
   enable: true
   sendAsExternalGNSSSource:
     sendAsNMEA: true
     sendAsCoT: true
 alfred:
-  mode: primary
-  batInterface: bat0
-  socketPath: /var/run/alfred.sock
   dataTypes:
     gateway: true
     node: true
-    position: true
     addressReservation: true
 roip:
-  enable: true
-  statusWorkerInterval: 30
+  enable: false
 ptt:
   enable: false
   mcastAddr: 224.0.0.1

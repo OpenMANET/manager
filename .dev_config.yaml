@@ -1,6 +1,5 @@
 logLevel: debug
 meshNetInterface: eth0
-gatewayMode: false
 dbFile: bin/openmanetd.db
 gnss:
   enable: false
@@ -14,11 +13,9 @@ alfred:
   dataTypes:
     gateway: true
     node: true
-    position: true
     addressReservation: true
 roip:
-  enable: true
-  statusWorkerInterval: 30
+  enable: false
 ptt:
   enable: false
   mcastAddr: 224.0.0.1
