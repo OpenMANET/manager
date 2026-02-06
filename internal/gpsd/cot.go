@@ -70,10 +70,6 @@ func (g *GPSService) SendIfRequiredAsCoT() {
 		g.lastMulticastTime = time.Now()
 		g.mu.Unlock()
 
-		if err := g.SendCoTPing(); err != nil {
-			g.Log.Error().Err(err).Msg("Failed to send CoT ping to multicast")
-		}
-
 		g.Log.Debug().Msg("No reachable devices found, sending CoT to ATAK SA multicast address")
 		if err := g.sendCoTToMulticast(); err != nil {
 			g.Log.Error().Err(err).Msg("Failed to send CoT to multicast")
@@ -195,7 +191,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 	// Create CoT Message
 	takMsg := &cotproto.TakMessage{
 		CotEvent: &cotproto.CotEvent{
-			Type:      "a-f-G-E-V-A",
+			Type:      cot.TypeTeam,
 			Uid:       hostname,
 			SendTime:  cot.TimeToMillis(time.Now()),
 			StartTime: cot.TimeToMillis(time.Now()),
@@ -227,8 +223,33 @@ func (g *GPSService) sendCoTToMulticast() error {
 		},
 	}
 
-	if err := g.sendMulicastCoT(takMsg); err != nil {
-		return fmt.Errorf("failed to send CoT multicast message: %w", err)
+	// Marshal to bytes to send as protobuf
+	data, err := cot.MakeProtoMeshPacketV1(takMsg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal CoT protobuf: %w", err)
+	}
+
+	// Send to multicast address
+	addr, err := net.ResolveUDPAddr("udp", ATAKSAAddress)
+	if err != nil {
+		return fmt.Errorf("failed to resolve multicast address: %w", err)
+	}
+
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		return fmt.Errorf("failed to dial multicast: %w", err)
+	}
+	defer conn.Close()
+
+	// Set multicast TTL to 64
+	pconn := ipv4.NewPacketConn(conn)
+	if err := pconn.SetMulticastTTL(atakMulticastTTL); err != nil {
+		g.Log.Warn().Err(err).Msg("Failed to set multicast TTL")
+	}
+
+	_, err = pconn.WriteTo(data, nil, addr)
+	if err != nil {
+		return fmt.Errorf("failed to send CoT message: %w", err)
 	}
 
 	g.Log.Debug().
@@ -238,72 +259,6 @@ func (g *GPSService) sendCoTToMulticast() error {
 		Float64("alt", pos.Altitude).
 		Str("address", ATAKSAAddress).
 		Msg("Sent CoT message to ATAK SA multicast")
-
-	return nil
-}
-
-func (g *GPSService) sendMulicastCoT(takMsg *cotproto.TakMessage) error {
-	// Marshal to bytes to send as protobuf
-	data, err := cot.MakeProtoPacket(takMsg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal CoT protobuf: %w", err)
-	}
-
-	// Send to multicast address
-	addr, err := net.ResolveUDPAddr("udp", ATAKSAAddress)
-	if err != nil {
-		return fmt.Errorf("failed to resolve multicast address: %w", err)
-	}
-
-	conn, err := net.DialUDP("udp", nil, addr)
-	if err != nil {
-		return fmt.Errorf("failed to dial multicast: %w", err)
-	}
-	defer conn.Close()
-
-	// Set multicast TTL to 64
-	pconn := ipv4.NewPacketConn(conn)
-	if err := pconn.SetMulticastTTL(atakMulticastTTL); err != nil {
-		g.Log.Warn().Err(err).Msg("Failed to set multicast TTL")
-	}
-
-	_, err = pconn.WriteTo(data, nil, addr)
-	if err != nil {
-		return fmt.Errorf("failed to send CoT message: %w", err)
-	}
-
-	return nil
-}
-
-func (g *GPSService) SendCoTPing() error {
-	// Marshal to bytes to send as protobuf
-	data, err := cot.MakeProtoPacket(cot.MakePing("openmanet-ping"))
-	if err != nil {
-		return fmt.Errorf("failed to marshal CoT protobuf: %w", err)
-	}
-
-	// Send to multicast address
-	addr, err := net.ResolveUDPAddr("udp", ATAKSAAddress)
-	if err != nil {
-		return fmt.Errorf("failed to resolve multicast address: %w", err)
-	}
-
-	conn, err := net.DialUDP("udp", nil, addr)
-	if err != nil {
-		return fmt.Errorf("failed to dial multicast: %w", err)
-	}
-	defer conn.Close()
-
-	// Set multicast TTL to 64
-	pconn := ipv4.NewPacketConn(conn)
-	if err := pconn.SetMulticastTTL(atakMulticastTTL); err != nil {
-		g.Log.Warn().Err(err).Msg("Failed to set multicast TTL")
-	}
-
-	_, err = pconn.WriteTo(data, nil, addr)
-	if err != nil {
-		return fmt.Errorf("failed to send CoT message: %w", err)
-	}
 
 	return nil
 }
