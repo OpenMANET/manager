@@ -65,6 +65,7 @@ type PTTRuntime struct {
 	broadcasting  bool
 	debugEnabled  bool
 	loopbackAudio bool
+	traceEnabled  bool
 }
 
 type PTTConfig struct {
@@ -78,12 +79,16 @@ type PTTConfig struct {
 	PttKey        string
 	PttDevice     string
 	PttDeviceName string
+	InputDevice   string
+	OutputDevice  string
+	PlaybackDepth int
 	Protocol      string
 	RtpID         string
 	McastPort     int
 	Enable        bool
 	Debug         bool
 	Loopback      bool
+	Trace         bool
 }
 
 func NewPTT(cfg PTTConfig) *PTTConfig {
@@ -99,9 +104,12 @@ func NewPTT(cfg PTTConfig) *PTTConfig {
 		RtpID:         cfg.RtpID,
 		Debug:         cfg.Debug,
 		Loopback:      cfg.Loopback,
+		Trace:         cfg.Trace,
 		PttDevice:     cfg.PttDevice,
 		PttDeviceName: cfg.PttDeviceName,
-		ControlSource: cfg.ControlSource,
+		InputDevice:   cfg.InputDevice,
+		OutputDevice:  cfg.OutputDevice,
+		PlaybackDepth: cfg.PlaybackDepth,
 	}
 }
 
@@ -140,6 +148,10 @@ func (ptt *PTTConfig) startOnce() error {
 		pttDevice:       defaultPTTDevice,
 	}
 
+	if ptt.PlaybackDepth > 0 {
+		ptt.runtime.playbackBuffer = make(chan []float32, ptt.PlaybackDepth)
+	}
+
 	// apply config
 	if ptt.Iface != "" {
 		ptt.runtime.ifaceName = ptt.Iface
@@ -175,6 +187,7 @@ func (ptt *PTTConfig) startOnce() error {
 	}
 
 	ptt.runtime.loopbackAudio = ptt.Loopback
+	ptt.runtime.traceEnabled = ptt.Trace
 
 	if ptt.PttDevice != "" {
 		ptt.runtime.pttDevice = ptt.PttDevice
@@ -184,7 +197,7 @@ func (ptt *PTTConfig) startOnce() error {
 		ptt.runtime.pttDeviceName = ptt.PttDeviceName
 	}
 
-	ptt.Log.Info().Msgf("Starting PTT on iface=%s mcast=%s:%d protocol=%s key=%s debug=%t loopback=%t ptt_device=%s", ptt.runtime.ifaceName, ptt.runtime.mcastAddr, ptt.runtime.mcastPort, ptt.runtime.protocol, ptt.runtime.pttKey, ptt.runtime.debugEnabled, ptt.runtime.loopbackAudio, ptt.runtime.pttDeviceName)
+	ptt.Log.Info().Msgf("Starting PTT on iface=%s mcast=%s:%d protocol=%s key=%s debug=%t trace=%t loopback=%t ptt_device=%s", ptt.runtime.ifaceName, ptt.runtime.mcastAddr, ptt.runtime.mcastPort, ptt.runtime.protocol, ptt.runtime.pttKey, ptt.runtime.debugEnabled, ptt.runtime.traceEnabled, ptt.runtime.loopbackAudio, ptt.runtime.pttDeviceName)
 
 	var (
 		err                  error
@@ -255,16 +268,31 @@ func (ptt *PTTConfig) startOnce() error {
 	if err := portaudio.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize PortAudio: %w", err)
 	}
-	portAudioInitialized = true
+
+	outDev, err := ptt.resolveAudioDevice(ptt.OutputDevice, false)
+	if err != nil {
+		ptt.Log.Fatal().Err(err).Msg("Failed to resolve output audio device")
+	}
+
+	inDev, err := ptt.resolveAudioDevice(ptt.InputDevice, true)
+	if err != nil {
+		ptt.Log.Fatal().Err(err).Msg("Failed to resolve input audio device")
+	}
+
+	ptt.Log.Info().Msgf("Using audio devices: input=%s output=%s", inDev.Name, outDev.Name)
+
+	// handle shutdown
+	go func() {
+		<-ptt.Interupt
+		ptt.Log.Info().Msg("Received shutdown signal, cleaning up PortAudio")
+		portaudio.Terminate()
+		os.Exit(0)
+	}()
 
 	// playback stream
-	device, err := ptt.getDefaultOutputDevice()
-	if err != nil {
-		return fmt.Errorf("failed to get default output device: %w", err)
-	}
 	params := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
-			Device:   device,
+			Device:   outDev,
 			Channels: channels,
 		},
 		SampleRate:      float64(sampleRate),
@@ -293,11 +321,15 @@ func (ptt *PTTConfig) startOnce() error {
 	defer playbackStream.Close()
 
 	// mic stream (opened, not started)
-	if _, err := portaudio.DefaultInputDevice(); err != nil {
-		return fmt.Errorf("failed to get default input device: %w", err)
+	inParams := portaudio.StreamParameters{
+		Input: portaudio.StreamDeviceParameters{
+			Device:   inDev,
+			Channels: channels,
+		},
+		SampleRate:      float64(sampleRate),
+		FramesPerBuffer: frameSize,
 	}
-
-	ptt.runtime.broadcastStream, err = portaudio.OpenDefaultStream(channels, 0, float64(sampleRate), frameSize, func(in []float32) {
+	ptt.runtime.broadcastStream, err = portaudio.OpenStream(inParams, func(in []float32) {
 		ptt.Log.Debug().Msgf("Mic callback received %d samples", len(in))
 		pcm := make([]int16, len(in))
 

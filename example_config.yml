@@ -14,12 +14,16 @@ blos:
 ptt:
   enable: false
   mcastAddr: 224.0.0.1
-  mcastPort: 5007
+  mcastPort: 5010
   protocol: udp
   rtpId: ""
   pttKey: any
   controlSource: evdev
   debug: true
+  trace: false
   loopback: true
   pttDevice: /dev/hidraw0/*
   pttDeviceName: Generic AB13X USB Audio
+  inputDevice: ""
+  outputDevice: ""
+  playbackBuffer: 2

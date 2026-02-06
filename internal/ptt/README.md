@@ -59,6 +59,10 @@ Loopback suppression:
 
 - If `ptt.loopback` is false, packets from loopback or the local interface IP are dropped.
 
+Trace logging:
+
+- When `ptt.trace` is true, each UDP packet on the multicast port is logged with source, size, and RTP header fields when present.
+
 ## Protocol: UDP vs RTP
 
 The protocol is controlled by `ptt.protocol` (`udp` or `rtp`), and normalized at startup.
@@ -143,9 +147,13 @@ ptt:
   rtpId: ""  # optional; defaults to hostname. set to ATAK device identifier for strict VX RTP compatibility
   pttKey: any
   debug: true
+  trace: false
   loopback: true
   pttDevice: /dev/hidraw0/*
   pttDeviceName: Generic AB13X USB Audio
+  inputDevice: ""   # optional; device name substring or index for capture
+  outputDevice: ""  # optional; device name substring or index for playback
+  playbackBuffer: 2 # optional; playback buffer depth
 ```
 
 ## Files of interest

@@ -59,3 +59,16 @@ func unwrapRTP(packet []byte) ([]byte, bool) {
 	}
 	return packet[rtpHeaderSize:], true
 }
+
+func parseRTPHeader(packet []byte) (uint16, uint32, uint32, bool) {
+	if len(packet) < rtpHeaderSize {
+		return 0, 0, 0, false
+	}
+	if packet[0] != 0x80 && packet[0] != 0x81 {
+		return 0, 0, 0, false
+	}
+	seq := binary.BigEndian.Uint16(packet[2:4])
+	ts := binary.BigEndian.Uint32(packet[4:8])
+	ssrc := binary.BigEndian.Uint32(packet[8:12])
+	return seq, ts, ssrc, true
+}

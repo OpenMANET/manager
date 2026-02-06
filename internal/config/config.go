@@ -16,6 +16,7 @@ const (
 	DefaultAlfredMode                  string = "primary"
 	DefaultAlfredBatInterface          string = "bat0"
 	DefaultAlfredSocketPath            string = "/var/run/alfred.sock"
+	DefaultAlfredEnable                bool   = true
 	DefaultAlfredDataTypeGateway       bool   = true
 	DefaultAlfredDataTypeNode          bool   = true
 	DefaultAlfredDataTypePosition      bool   = true
@@ -28,9 +29,12 @@ const (
 	DefaultPTTPttKey                   string = "any"
 	DefaultPTTDebug                    bool   = false
 	DefaultPTTLoopback                 bool   = false
+	DefaultPTTTrace                    bool   = false
 	DefaultPTTPttDevice                string = "/dev/hidraw0/*"
 	DefaultPTTPttDeviceName            string = ""
-	DefaultPTTControlSource            string = "evdev"
+	DefaultPTTInputDevice              string = ""
+	DefaultPTTOutputDevice             string = ""
+	DefaultPTTPlaybackBuffer           int    = 2
 	DefaultResetDBOnStart              bool   = false
 	DefaultEnableGNSS                  bool   = false
 	DefaultGNSSSendAsNMEA              bool   = false
@@ -47,13 +51,16 @@ type Config struct {
 	AlfredMode                  string
 	AlfredBatInterface          string
 	AlfredSocketPath            string
+	AlfredEnable                bool
 	PTTMcastAddr                string
 	PTTProtocol                 string
 	PTTRtpID                    string
 	PTTPttKey                   string
 	PTTPttDevice                string
 	PTTPttDeviceName            string
-	PTTControlSource            string
+	PTTInputDevice              string
+	PTTOutputDevice             string
+	PTTPlaybackBuffer           int
 	onChangeCallbacks           []func(*Config)
 	PTTMcastPort                int
 	BLOSEnable                  bool
@@ -67,6 +74,7 @@ type Config struct {
 	PTTEnable                   bool
 	PTTDebug                    bool
 	PTTLoopback                 bool
+	PTTTrace                    bool
 	ResetDBOnStart              bool
 	EnableGNSS                  bool
 	GNSSSendAsNMEA              bool
@@ -166,6 +174,12 @@ func (c *Config) reload() {
 		c.AlfredSocketPath = DefaultAlfredSocketPath
 	}
 
+	if c.v.IsSet("alfred.enable") {
+		c.AlfredEnable = c.v.GetBool("alfred.enable")
+	} else {
+		c.AlfredEnable = DefaultAlfredEnable
+	}
+
 	// Load Alfred data type configuration
 	if c.v.IsSet("alfred.dataTypes.gateway") {
 		c.AlfredDataTypeGateway = c.v.GetBool("alfred.dataTypes.gateway")
@@ -240,6 +254,12 @@ func (c *Config) reload() {
 		c.PTTLoopback = DefaultPTTLoopback
 	}
 
+	if c.v.IsSet("ptt.trace") {
+		c.PTTTrace = c.v.GetBool("ptt.trace")
+	} else {
+		c.PTTTrace = DefaultPTTTrace
+	}
+
 	if val := c.v.GetString("ptt.pttDevice"); val != "" {
 		c.PTTPttDevice = val
 	} else {
@@ -252,23 +272,22 @@ func (c *Config) reload() {
 		c.PTTPttDeviceName = DefaultPTTPttDeviceName
 	}
 
-	if val := strings.ToLower(c.v.GetString("ptt.controlSource")); val != "" {
-		c.PTTControlSource = val
+	if val := c.v.GetString("ptt.inputDevice"); val != "" {
+		c.PTTInputDevice = val
 	} else {
-		c.PTTControlSource = DefaultPTTControlSource
+		c.PTTInputDevice = DefaultPTTInputDevice
 	}
 
-	// Load BLOS configuration
-	if c.v.IsSet("blos.enable") {
-		c.BLOSEnable = c.v.GetBool("blos.enable")
+	if val := c.v.GetString("ptt.outputDevice"); val != "" {
+		c.PTTOutputDevice = val
 	} else {
-		c.BLOSEnable = DefaultEnableBLOS
+		c.PTTOutputDevice = DefaultPTTOutputDevice
 	}
 
-	if val := c.v.GetInt("blos.statusWorkerInterval"); val != 0 {
-		c.BLOSStatusWorkerInterval = val
+	if val := c.v.GetInt("ptt.playbackBuffer"); val > 0 {
+		c.PTTPlaybackBuffer = val
 	} else {
-		c.BLOSStatusWorkerInterval = DefaultBLOSStatusWorkerInterval
+		c.PTTPlaybackBuffer = DefaultPTTPlaybackBuffer
 	}
 }
 
@@ -338,6 +357,13 @@ func (c *Config) GetAlfredSocketPath() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.AlfredSocketPath
+}
+
+// GetAlfredEnable returns whether Alfred integration is enabled.
+func (c *Config) GetAlfredEnable() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.AlfredEnable
 }
 
 // GetAlfredDataTypeGateway returns whether gateway data type is enabled.
@@ -424,6 +450,13 @@ func (c *Config) GetPTTLoopback() bool {
 	return c.PTTLoopback
 }
 
+// GetPTTTrace returns whether PTT trace mode is enabled.
+func (c *Config) GetPTTTrace() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PTTTrace
+}
+
 // GetPTTPttDevice returns the PTT device path.
 func (c *Config) GetPTTPttDevice() string {
 	c.mu.RLock()
@@ -438,11 +471,25 @@ func (c *Config) GetPTTPttDeviceName() string {
 	return c.PTTPttDeviceName
 }
 
-// GetPTTControlSource returns the PTT control source (evdev, bluealsa_xevent, or bluetooth).
-func (c *Config) GetPTTControlSource() string {
+// GetPTTInputDevice returns the audio input device name or index.
+func (c *Config) GetPTTInputDevice() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.PTTControlSource
+	return c.PTTInputDevice
+}
+
+// GetPTTOutputDevice returns the audio output device name or index.
+func (c *Config) GetPTTOutputDevice() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PTTOutputDevice
+}
+
+// GetPTTPlaybackBuffer returns the playback buffer depth for PTT audio.
+func (c *Config) GetPTTPlaybackBuffer() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PTTPlaybackBuffer
 }
 
 // GetEnableGNSS returns whether GNSS is enabled.

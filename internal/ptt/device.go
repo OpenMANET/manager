@@ -3,6 +3,7 @@ package ptt
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/gordonklaus/portaudio"
@@ -10,7 +11,7 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
-func (ptt *PTTConfig) getDefaultOutputDevice() (*portaudio.DeviceInfo, error) {
+func (ptt *PTTConfig) resolveAudioDevice(spec string, wantInput bool) (*portaudio.DeviceInfo, error) {
 	devs, err := portaudio.Devices()
 	if err != nil {
 		return nil, err
@@ -19,16 +20,50 @@ func (ptt *PTTConfig) getDefaultOutputDevice() (*portaudio.DeviceInfo, error) {
 	if ptt.Debug {
 		ptt.Log.Debug().Msgf("Discovered %d audio devices:", len(devs))
 		for i, d := range devs {
-			ptt.Log.Debug().Msgf(" [%d] %s", i, d.Name)
+			ptt.Log.Debug().Msgf(" [%d] %s (in=%d out=%d)", i, d.Name, d.MaxInputChannels, d.MaxOutputChannels)
 		}
 	}
 
-	device, err := portaudio.DefaultOutputDevice()
-	if err != nil {
-		return nil, err
+	if spec == "" {
+		if wantInput {
+			return portaudio.DefaultInputDevice()
+		}
+		return portaudio.DefaultOutputDevice()
 	}
 
-	return device, nil
+	if idx, err := strconv.Atoi(spec); err == nil {
+		if idx < 0 || idx >= len(devs) {
+			return nil, fmt.Errorf("audio device index %d out of range (0-%d)", idx, len(devs)-1)
+		}
+		return devs[idx], nil
+	}
+
+	for _, d := range devs {
+		if wantInput && d.MaxInputChannels == 0 {
+			continue
+		}
+		if !wantInput && d.MaxOutputChannels == 0 {
+			continue
+		}
+		if d.Name == spec {
+			return d, nil
+		}
+	}
+
+	specLower := strings.ToLower(spec)
+	for _, d := range devs {
+		if wantInput && d.MaxInputChannels == 0 {
+			continue
+		}
+		if !wantInput && d.MaxOutputChannels == 0 {
+			continue
+		}
+		if strings.Contains(strings.ToLower(d.Name), specLower) {
+			return d, nil
+		}
+	}
+
+	return nil, fmt.Errorf("audio device %q not found", spec)
 }
 
 func (ptt *PTTConfig) findPTTDevice() (*evdev.InputDevice, error) {

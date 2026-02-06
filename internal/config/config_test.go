@@ -754,6 +754,45 @@ func TestGetPTTLoopback(t *testing.T) {
 	}
 }
 
+func TestGetPTTTrace(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultPTTTrace,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("ptt.trace", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetPTTTrace()
+			if got != tt.want {
+				t.Errorf("GetPTTTrace() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetPTTPttDevice(t *testing.T) {
 	tests := []struct {
 		name     string

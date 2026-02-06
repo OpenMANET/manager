@@ -18,8 +18,30 @@ func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 			continue
 		}
 
+		loopbackDrop := !ptt.runtime.loopbackAudio && (src.IP.IsLoopback() || src.IP.String() == ptt.runtime.localIP)
+		if ptt.runtime.traceEnabled {
+			if seq, ts, ssrc, ok := parseRTPHeader(buf[:n]); ok {
+				ptt.Log.Trace().
+					Str("src", src.String()).
+					Int("bytes", n).
+					Str("protocol", "rtp").
+					Uint16("rtp_seq", seq).
+					Uint32("rtp_ts", ts).
+					Uint32("rtp_ssrc", ssrc).
+					Bool("loopback_dropped", loopbackDrop).
+					Msg("PTT multicast packet received")
+			} else {
+				ptt.Log.Trace().
+					Str("src", src.String()).
+					Int("bytes", n).
+					Str("protocol", "udp").
+					Bool("loopback_dropped", loopbackDrop).
+					Msg("PTT multicast packet received")
+			}
+		}
+
 		ptt.Log.Debug().Msgf("Received %d bytes from %s", n, src.IP.String())
-		if !ptt.runtime.loopbackAudio && (src.IP.IsLoopback() || src.IP.String() == ptt.runtime.localIP) {
+		if loopbackDrop {
 			continue
 		}
 
