@@ -111,6 +111,8 @@ func GetLoggerFromContext(ctx context.Context, component string) zerolog.Logger 
 // setLogLevel sets the global log level based on the environment configuration
 func setLogLevel(env string) {
 	switch env {
+	case "trace":
+		zerolog.SetGlobalLevel(zerolog.TraceLevel)
 	case "debug":
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	case "info":

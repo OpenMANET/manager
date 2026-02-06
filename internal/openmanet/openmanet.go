@@ -44,8 +44,12 @@ func Start() {
 		PttKey:        cfg.GetPTTPttKey(),
 		Debug:         cfg.GetPTTDebug(),
 		Loopback:      cfg.GetPTTLoopback(),
+		Trace:         cfg.GetPTTTrace(),
 		PttDevice:     cfg.GetPTTPttDevice(),
 		PttDeviceName: cfg.GetPTTPttDeviceName(),
+		InputDevice:   cfg.GetPTTInputDevice(),
+		OutputDevice:  cfg.GetPTTOutputDevice(),
+		PlaybackDepth: cfg.GetPTTPlaybackBuffer(),
 	})
 
 	ptt.Start()
@@ -78,23 +82,26 @@ func Start() {
 	}
 
 	// Initialize and start management module
-	mgmt := mgmt.NewManager(mgmt.ManagementConfig{
-		InteruptChan:               c,
-		Log:                        logger.GetLogger("mgmt"),
-		GPS:                        gps,
-		GatewayMode:                cfg.GetGatewayMode(),
-		AlfredMode:                 cfg.GetAlfredMode(),
-		IFace:                      cfg.GetMeshNetInterface(),
-		BatInterface:               cfg.GetAlfredBatInterface(),
-		SocketPath:                 cfg.GetAlfredSocketPath(),
-		GatewayDataType:            cfg.GetAlfredDataTypeGateway(),
-		NodeDataType:               cfg.GetAlfredDataTypeNode(),
-		PositionDataType:           cfg.GetAlfredDataTypePosition(),
-		AddressReservationDataType: cfg.GetAlfredDataTypeAddressReservation(),
-		DB:                         db,
-	})
-
-	mgmt.Start()
+	if cfg.GetAlfredEnable() {
+		mgmt := mgmt.NewManager(mgmt.ManagementConfig{
+			InteruptChan:               c,
+			Log:                        logger.GetLogger("mgmt"),
+			GPS:                        gps,
+			GatewayMode:                cfg.GetGatewayMode(),
+			AlfredMode:                 cfg.GetAlfredMode(),
+			IFace:                      cfg.GetMeshNetInterface(),
+			BatInterface:               cfg.GetAlfredBatInterface(),
+			SocketPath:                 cfg.GetAlfredSocketPath(),
+			GatewayDataType:            cfg.GetAlfredDataTypeGateway(),
+			NodeDataType:               cfg.GetAlfredDataTypeNode(),
+			PositionDataType:           cfg.GetAlfredDataTypePosition(),
+			AddressReservationDataType: cfg.GetAlfredDataTypeAddressReservation(),
+			DB:                         db,
+		})
+		mgmt.Start()
+	} else {
+		log.Info().Msg("Alfred integration disabled; skipping management workers")
+	}
 
 	// Clear the batman-adv hosts file on startup
 	// to remove any stale entries

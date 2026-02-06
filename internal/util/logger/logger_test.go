@@ -146,6 +146,11 @@ func TestSetLogLevel(t *testing.T) {
 		want     zerolog.Level
 	}{
 		{
+			name:     "sets trace level",
+			logLevel: "trace",
+			want:     zerolog.TraceLevel,
+		},
+		{
 			name:     "sets debug level",
 			logLevel: "debug",
 			want:     zerolog.DebugLevel,

@@ -62,6 +62,7 @@ type PTTRuntime struct {
 	broadcasting  bool
 	debugEnabled  bool
 	loopbackAudio bool
+	traceEnabled  bool
 }
 
 type PTTConfig struct {
@@ -75,12 +76,16 @@ type PTTConfig struct {
 	PttKey        string
 	PttDevice     string
 	PttDeviceName string
+	InputDevice   string
+	OutputDevice  string
+	PlaybackDepth int
 	Protocol      string
 	RtpID         string
 	McastPort     int
 	Enable        bool
 	Debug         bool
 	Loopback      bool
+	Trace         bool
 }
 
 func NewPTT(cfg PTTConfig) *PTTConfig {
@@ -96,8 +101,12 @@ func NewPTT(cfg PTTConfig) *PTTConfig {
 		RtpID:         cfg.RtpID,
 		Debug:         cfg.Debug,
 		Loopback:      cfg.Loopback,
+		Trace:         cfg.Trace,
 		PttDevice:     cfg.PttDevice,
 		PttDeviceName: cfg.PttDeviceName,
+		InputDevice:   cfg.InputDevice,
+		OutputDevice:  cfg.OutputDevice,
+		PlaybackDepth: cfg.PlaybackDepth,
 	}
 }
 
@@ -122,6 +131,10 @@ func (ptt *PTTConfig) Start() {
 		loopbackAudio:   defaultLoopback,
 		pttDeviceName:   defaultPTTDeviceName,
 		pttDevice:       defaultPTTDevice,
+	}
+
+	if ptt.PlaybackDepth > 0 {
+		ptt.runtime.playbackBuffer = make(chan []float32, ptt.PlaybackDepth)
 	}
 
 	// apply config
@@ -159,6 +172,7 @@ func (ptt *PTTConfig) Start() {
 	}
 
 	ptt.runtime.loopbackAudio = ptt.Loopback
+	ptt.runtime.traceEnabled = ptt.Trace
 
 	if ptt.PttDevice != "" {
 		ptt.runtime.pttDevice = ptt.PttDevice
@@ -168,7 +182,7 @@ func (ptt *PTTConfig) Start() {
 		ptt.runtime.pttDeviceName = ptt.PttDeviceName
 	}
 
-	ptt.Log.Info().Msgf("Starting PTT on iface=%s mcast=%s:%d protocol=%s key=%s debug=%t loopback=%t ptt_device=%s", ptt.runtime.ifaceName, ptt.runtime.mcastAddr, ptt.runtime.mcastPort, ptt.runtime.protocol, ptt.runtime.pttKey, ptt.runtime.debugEnabled, ptt.runtime.loopbackAudio, ptt.runtime.pttDeviceName)
+	ptt.Log.Info().Msgf("Starting PTT on iface=%s mcast=%s:%d protocol=%s key=%s debug=%t trace=%t loopback=%t ptt_device=%s", ptt.runtime.ifaceName, ptt.runtime.mcastAddr, ptt.runtime.mcastPort, ptt.runtime.protocol, ptt.runtime.pttKey, ptt.runtime.debugEnabled, ptt.runtime.traceEnabled, ptt.runtime.loopbackAudio, ptt.runtime.pttDeviceName)
 
 	var err error
 	ptt.runtime.encoder, err = opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
@@ -205,6 +219,18 @@ func (ptt *PTTConfig) Start() {
 		ptt.Log.Fatal().Err(err).Msg("Failed to initialize PortAudio")
 	}
 
+	outDev, err := ptt.resolveAudioDevice(ptt.OutputDevice, false)
+	if err != nil {
+		ptt.Log.Fatal().Err(err).Msg("Failed to resolve output audio device")
+	}
+
+	inDev, err := ptt.resolveAudioDevice(ptt.InputDevice, true)
+	if err != nil {
+		ptt.Log.Fatal().Err(err).Msg("Failed to resolve input audio device")
+	}
+
+	ptt.Log.Info().Msgf("Using audio devices: input=%s output=%s", inDev.Name, outDev.Name)
+
 	// handle shutdown
 	go func() {
 		<-ptt.Interupt
@@ -214,10 +240,9 @@ func (ptt *PTTConfig) Start() {
 	}()
 
 	// playback stream
-	device := ptt.getDeviceByIndex(1)
 	params := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
-			Device:   device,
+			Device:   outDev,
 			Channels: channels,
 		},
 		SampleRate:      float64(sampleRate),
@@ -246,7 +271,15 @@ func (ptt *PTTConfig) Start() {
 	defer playbackStream.Close()
 
 	// mic stream (opened, not started)
-	ptt.runtime.broadcastStream, err = portaudio.OpenDefaultStream(channels, 0, float64(sampleRate), frameSize, func(in []float32) {
+	inParams := portaudio.StreamParameters{
+		Input: portaudio.StreamDeviceParameters{
+			Device:   inDev,
+			Channels: channels,
+		},
+		SampleRate:      float64(sampleRate),
+		FramesPerBuffer: frameSize,
+	}
+	ptt.runtime.broadcastStream, err = portaudio.OpenStream(inParams, func(in []float32) {
 		ptt.Log.Debug().Msgf("Mic callback received %d samples", len(in))
 		pcm := make([]int16, len(in))
 
