@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/coreywagehoft/go-tak/pkg/cot"
@@ -172,6 +173,12 @@ func (g *GPSService) sendCoTToMulticast() error {
 		hostname = "openmanet-node"
 	}
 
+	// If hostname does not contain the string manet
+	// append -MANET to the callsign to makeit clear these are MANET nodes in ATAK
+	if !strings.Contains(hostname, "manet") {
+		hostname = fmt.Sprintf("%s-MANET", hostname)
+	}
+
 	// Get platform name, handle nil deviceInfo
 	platformName := "OpenMANET"
 	if deviceInfo != nil {
@@ -204,20 +211,23 @@ func (g *GPSService) sendCoTToMulticast() error {
 			Le:        pos.EPV,
 			Detail: &cotproto.Detail{
 				Contact: &cotproto.Contact{
-					Callsign: fmt.Sprintf("%s-MANET", hostname),
+					Callsign: hostname,
 				},
 				Group: &cotproto.Group{
-					Name: "Orange",
+					Name: "Magenta",
 					Role: "MANET Radio",
 				},
 				Takv: &cotproto.Takv{
-					Os:       "OpenMANET",
 					Device:   hostname,
-					Platform: platformName,
+					Platform: fmt.Sprintf("%s (%s)", platformName, "OpenMANET"),
 				},
 				Track: &cotproto.Track{
 					Speed:  pos.Speed,
 					Course: pos.Track,
+				},
+				PrecisionLocation: &cotproto.PrecisionLocation{
+					Geopointsrc: "GPS",
+					Altsrc:      "GPS",
 				},
 			},
 		},
