@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/coreywagehoft/go-tak/pkg/cot"
@@ -69,6 +70,10 @@ func (g *GPSService) SendIfRequiredAsCoT() {
 		}
 		g.lastMulticastTime = time.Now()
 		g.mu.Unlock()
+
+		if err := g.sendCoTPing(); err != nil {
+			g.Log.Error().Err(err).Msg("Failed to send CoT ping to multicast")
+		}
 
 		g.Log.Debug().Msg("No reachable devices found, sending CoT to ATAK SA multicast address")
 		if err := g.sendCoTToMulticast(); err != nil {
@@ -172,6 +177,12 @@ func (g *GPSService) sendCoTToMulticast() error {
 		hostname = "openmanet-node"
 	}
 
+	// If hostname does not contain the string manet
+	// append -MANET to the callsign to makeit clear these are MANET nodes in ATAK
+	if !strings.Contains(hostname, "manet") {
+		hostname = fmt.Sprintf("%s-MANET", hostname)
+	}
+
 	// Get platform name, handle nil deviceInfo
 	platformName := "OpenMANET"
 	if deviceInfo != nil {
@@ -191,7 +202,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 	// Create CoT Message
 	takMsg := &cotproto.TakMessage{
 		CotEvent: &cotproto.CotEvent{
-			Type:      cot.TypeTeam,
+			Type:      "a-f-G-U-U-S-R",
 			Uid:       hostname,
 			SendTime:  cot.TimeToMillis(time.Now()),
 			StartTime: cot.TimeToMillis(time.Now()),
@@ -204,27 +215,30 @@ func (g *GPSService) sendCoTToMulticast() error {
 			Le:        pos.EPV,
 			Detail: &cotproto.Detail{
 				Contact: &cotproto.Contact{
-					Callsign: fmt.Sprintf("%s-manet", hostname),
+					Callsign: hostname,
 				},
 				Group: &cotproto.Group{
-					Name: "MANET",
-					Role: "Radio Unit",
+					Name: "Magenta",
+					Role: "MANET Radio",
 				},
 				Takv: &cotproto.Takv{
-					Os:       "OpenMANET",
 					Device:   hostname,
-					Platform: platformName,
+					Platform: fmt.Sprintf("%s (%s)", platformName, "OpenMANET"),
 				},
 				Track: &cotproto.Track{
 					Speed:  pos.Speed,
 					Course: pos.Track,
+				},
+				PrecisionLocation: &cotproto.PrecisionLocation{
+					Geopointsrc: "GPS",
+					Altsrc:      "GPS",
 				},
 			},
 		},
 	}
 
 	// Marshal to bytes to send as protobuf
-	data, err := cot.MakeProtoPacket(takMsg)
+	data, err := cot.MakeProtoMeshPacketV1(takMsg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal CoT protobuf: %w", err)
 	}
@@ -332,6 +346,39 @@ func (g *GPSService) sendCoTTAsExternalGPS(iPAddr string) error {
 		Float64("alt", pos.Altitude).
 		Str("address", iPAddr).
 		Msg("Sent CoT message to ATAK device")
+
+	return nil
+}
+
+func (g *GPSService) sendCoTPing() error {
+	// Marshal to bytes to send as protobuf
+	data, err := cot.MakeProtoMeshPacketV1(cot.MakePing("openmanet-ping"))
+	if err != nil {
+		return fmt.Errorf("failed to marshal CoT protobuf: %w", err)
+	}
+
+	// Send to multicast address
+	addr, err := net.ResolveUDPAddr("udp", ATAKSAAddress)
+	if err != nil {
+		return fmt.Errorf("failed to resolve multicast address: %w", err)
+	}
+
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		return fmt.Errorf("failed to dial multicast: %w", err)
+	}
+	defer conn.Close()
+
+	// Set multicast TTL to 64
+	pconn := ipv4.NewPacketConn(conn)
+	if err := pconn.SetMulticastTTL(atakMulticastTTL); err != nil {
+		g.Log.Warn().Err(err).Msg("Failed to set multicast TTL")
+	}
+
+	_, err = pconn.WriteTo(data, nil, addr)
+	if err != nil {
+		return fmt.Errorf("failed to send CoT message: %w", err)
+	}
 
 	return nil
 }

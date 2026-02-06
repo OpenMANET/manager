@@ -15,8 +15,8 @@ github.com/coder/websocket v1.8.12/go.mod h1:LNVeNrXQZfe5qhS9ALED3uA+l5pPqvwXg3C
 github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be h1:J5BL2kskAlV9ckgEsNQXscjIaLiOYiZ75d4e94E6dcQ=
 github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be/go.mod h1:mk5IQ+Y0ZeO87b858TlA645sVcEcbiX6YqP98kt+7+w=
 github.com/coreos/go-systemd/v22 v22.5.0/go.mod h1:Y58oyj3AT4RCenI/lSvhwexgC+NSVTIJ3seZv2GcEnc=
-github.com/coreywagehoft/go-tak v1.1.1 h1:fGaCIp/T92Uz3SYYPbHGqnHZYFCWV59aGEuzjZUdXbM=
-github.com/coreywagehoft/go-tak v1.1.1/go.mod h1:3bdYiJSyNh7r9WbYM1sigZTIsR6W4NReQ9VJK5WVdGs=
+github.com/coreywagehoft/go-tak v1.2.0 h1:cMHDhCkHJaAvdJHqUII/m1+wccLiY7pgGgAtsUUx7Os=
+github.com/coreywagehoft/go-tak v1.2.0/go.mod h1:3bdYiJSyNh7r9WbYM1sigZTIsR6W4NReQ9VJK5WVdGs=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/creachadair/taskgroup v0.13.2 h1:3KyqakBuFsm3KkXi/9XIb0QcA8tEzLHLgaoidf0MdVc=
 github.com/creachadair/taskgroup v0.13.2/go.mod h1:i3V1Zx7H8RjwljUEeUWYT30Lmb9poewSb2XI1yTwD0g=
