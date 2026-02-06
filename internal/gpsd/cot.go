@@ -191,7 +191,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 	// Create CoT Message
 	takMsg := &cotproto.TakMessage{
 		CotEvent: &cotproto.CotEvent{
-			Type:      cot.TypeTeam,
+			Type:      "a-f-G-U-U-S-R",
 			Uid:       hostname,
 			SendTime:  cot.TimeToMillis(time.Now()),
 			StartTime: cot.TimeToMillis(time.Now()),
@@ -204,11 +204,11 @@ func (g *GPSService) sendCoTToMulticast() error {
 			Le:        pos.EPV,
 			Detail: &cotproto.Detail{
 				Contact: &cotproto.Contact{
-					Callsign: fmt.Sprintf("%s-manet", hostname),
+					Callsign: fmt.Sprintf("%s-MANET", hostname),
 				},
 				Group: &cotproto.Group{
-					Name: "MANET",
-					Role: "Radio Unit",
+					Name: "Orange",
+					Role: "MANET Radio",
 				},
 				Takv: &cotproto.Takv{
 					Os:       "OpenMANET",
