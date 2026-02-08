@@ -19,7 +19,7 @@ type ROIP struct {
 	Logger zerolog.Logger
 
 	ctx              context.Context
-	uciNetworkConfig *network.UCINetworkConfigReader
+	uciNetworkConfig network.ConfigReader
 	statusWorker     *StatusWorker
 }
 
@@ -47,6 +47,11 @@ func NewROIP(cfg *config.Config, logger zerolog.Logger) (*ROIP, error) {
 	// Initialize the status worker
 	interval := time.Duration(cfg.GetROIPStatusWorkerInterval()) * time.Second
 	r.statusWorker = NewStatusWorker(&LocalStatusClient{}, interval, logger)
+
+	// Set the callback to sync VXLAN peers when Tailscale status updates
+	r.statusWorker.SetOnStatusUpdate(func() error {
+		return r.syncVXLANPeersWithTailscale()
+	})
 
 	if err := r.configureInterfaces(r.ctx); err != nil {
 		return nil, err

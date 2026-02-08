@@ -427,3 +427,147 @@ func TestStatusWorkerGetPeersReturnsACopy(t *testing.T) {
 		t.Error("Deleting from returned map should not affect subsequent calls")
 	}
 }
+
+// TestStatusWorker_SetOnStatusUpdate tests that the callback is set and called
+func TestStatusWorker_SetOnStatusUpdate(t *testing.T) {
+	mockStatus := createMockStatus()
+	client := &MockStatusClient{}
+	client.SetStatus(mockStatus)
+
+	logger := zerolog.Nop()
+	interval := 10 * time.Second
+
+	worker := NewStatusWorker(client, interval, logger)
+
+	callCount := 0
+	var mu sync.Mutex
+
+	callback := func() error {
+		mu.Lock()
+		defer mu.Unlock()
+		callCount++
+		return nil
+	}
+
+	worker.SetOnStatusUpdate(callback)
+
+	// Manually trigger status fetch
+	worker.fetchAndStoreStatus()
+
+	mu.Lock()
+	count := callCount
+	mu.Unlock()
+
+	if count != 1 {
+		t.Errorf("Expected callback to be called once, got %d", count)
+	}
+
+	// Trigger again
+	worker.fetchAndStoreStatus()
+
+	mu.Lock()
+	count = callCount
+	mu.Unlock()
+
+	if count != 2 {
+		t.Errorf("Expected callback to be called twice, got %d", count)
+	}
+}
+
+// TestStatusWorker_CallbackError tests that callback errors are handled gracefully
+func TestStatusWorker_CallbackError(t *testing.T) {
+	mockStatus := createMockStatus()
+	client := &MockStatusClient{}
+	client.SetStatus(mockStatus)
+
+	logger := zerolog.Nop()
+	interval := 10 * time.Second
+
+	worker := NewStatusWorker(client, interval, logger)
+
+	expectedError := errors.New("callback error")
+	callback := func() error {
+		return expectedError
+	}
+
+	worker.SetOnStatusUpdate(callback)
+
+	// Should not panic even if callback returns error
+	worker.fetchAndStoreStatus()
+
+	// Status should still be updated despite callback error
+	status := worker.GetStatus()
+	if status == nil {
+		t.Error("Expected status to be updated despite callback error")
+	}
+
+	peers := worker.GetPeers()
+	if len(peers) == 0 {
+		t.Error("Expected peers to be updated despite callback error")
+	}
+}
+
+// TestStatusWorker_CallbackNotCalledOnError tests that callback is not called when status fetch fails
+func TestStatusWorker_CallbackNotCalledOnError(t *testing.T) {
+	client := &MockStatusClient{
+		shouldError: true,
+	}
+
+	logger := zerolog.Nop()
+	interval := 10 * time.Second
+
+	worker := NewStatusWorker(client, interval, logger)
+
+	callCount := 0
+	callback := func() error {
+		callCount++
+		return nil
+	}
+
+	worker.SetOnStatusUpdate(callback)
+
+	// Trigger status fetch which should fail
+	worker.fetchAndStoreStatus()
+
+	if callCount != 0 {
+		t.Errorf("Expected callback to not be called on error, but it was called %d times", callCount)
+	}
+}
+
+// TestStatusWorker_CallbackWithRunningWorker tests that callback is called during normal operation
+func TestStatusWorker_CallbackWithRunningWorker(t *testing.T) {
+	mockStatus := createMockStatus()
+	client := &MockStatusClient{}
+	client.SetStatus(mockStatus)
+
+	logger := zerolog.Nop()
+	interval := 50 * time.Millisecond
+
+	worker := NewStatusWorker(client, interval, logger)
+
+	callCount := 0
+	var mu sync.Mutex
+
+	callback := func() error {
+		mu.Lock()
+		defer mu.Unlock()
+		callCount++
+		return nil
+	}
+
+	worker.SetOnStatusUpdate(callback)
+	worker.Start()
+	defer worker.Stop()
+
+	// Wait for a few ticks
+	time.Sleep(150 * time.Millisecond)
+
+	mu.Lock()
+	count := callCount
+	mu.Unlock()
+
+	// Should have been called at least twice (initial + ticks)
+	if count < 2 {
+		t.Errorf("Expected callback to be called at least 2 times, got %d", count)
+	}
+}

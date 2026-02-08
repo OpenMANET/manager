@@ -29,13 +29,14 @@ func (c *LocalStatusClient) Status(ctx context.Context) (*ipnstate.Status, error
 type StatusWorker struct {
 	logger zerolog.Logger
 
-	client   StatusClient
-	ctx      context.Context
-	peers    map[key.NodePublic]*ipnstate.PeerStatus
-	status   *ipnstate.Status
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	interval time.Duration
+	client         StatusClient
+	ctx            context.Context
+	peers          map[key.NodePublic]*ipnstate.PeerStatus
+	status         *ipnstate.Status
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	interval       time.Duration
+	onStatusUpdate func() error
 
 	mu      sync.RWMutex
 	running bool
@@ -52,6 +53,13 @@ func NewStatusWorker(client StatusClient, interval time.Duration, logger zerolog
 		ctx:      ctx,
 		cancel:   cancel,
 	}
+}
+
+// SetOnStatusUpdate sets a callback function to be called after status is updated.
+func (w *StatusWorker) SetOnStatusUpdate(callback func() error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.onStatusUpdate = callback
 }
 
 // Start begins the periodic status polling.
@@ -112,12 +120,19 @@ func (w *StatusWorker) fetchAndStoreStatus() {
 	}
 
 	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	w.status = status
 	w.peers = status.Peer
+	callback := w.onStatusUpdate
+	w.mu.Unlock()
 
 	w.logger.Debug().Msg("Successfully updated Tailscale status and peers")
+
+	// Call the callback if set
+	if callback != nil {
+		if err := callback(); err != nil {
+			w.logger.Error().Err(err).Msg("Error in status update callback")
+		}
+	}
 }
 
 // GetPeers returns a copy of the current peer map.
