@@ -26,7 +26,7 @@ import (
 )
 
 var (
-	Version = "DEV"
+	version string
 )
 
 var cfgFile string
@@ -40,7 +40,7 @@ It provides a way to configure and monitor OpenMANET networks.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("OpenMANET Manager\nVersion: %s\n", Version)
+		fmt.Printf("OpenMANET Manager\nVersion: %s\n", version)
 		openmanet.Start()
 	},
 }
