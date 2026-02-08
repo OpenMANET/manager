@@ -135,17 +135,13 @@ func (w *StatusWorker) fetchAndStoreStatus() {
 	}
 }
 
-// GetPeers returns a copy of the current peer map.
+// GetPeers returns the current peer map.
+// Note: Do not modify the returned map.
 func (w *StatusWorker) GetPeers() map[key.NodePublic]*ipnstate.PeerStatus {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
-	// Return a shallow copy of the map
-	peers := make(map[key.NodePublic]*ipnstate.PeerStatus, len(w.peers))
-	for k, v := range w.peers {
-		peers[k] = v
-	}
-	return peers
+	return w.peers
 }
 
 // GetPeer returns a specific peer by node key.

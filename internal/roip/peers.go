@@ -12,6 +12,13 @@ var (
 		"224.10.10.1",
 		"224.0.0.251",
 	}
+
+	// multicastSet is a pre-built set for fast lookups
+	multicastSet = map[string]bool{
+		"239.2.3.1":   true,
+		"224.10.10.1": true,
+		"224.0.0.251": true,
+	}
 )
 
 // createVXMulticastPeers creates VXLan peers for each multicast group address.
@@ -74,8 +81,8 @@ func (r *ROIP) syncVXLANPeersWithTailscale() error {
 		return nil
 	}
 
-	// Collect active Tailscale peer IPs
-	activePeerIPs := make(map[string]bool)
+	// Collect active Tailscale peer IPs (pre-allocate with peer count)
+	activePeerIPs := make(map[string]bool, len(tailscalePeers))
 
 	// Create/update VXLAN peers for each active Tailscale peer
 	for _, peer := range tailscalePeers {
@@ -120,19 +127,11 @@ func (r *ROIP) syncVXLANPeersWithTailscale() error {
 // removeInactiveVXLANPeers removes VXLAN peers that are not in the active peer list
 // and are not multicast addresses.
 func (r *ROIP) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
-	// Build a set of multicast addresses to preserve
-	multicastSet := make(map[string]bool)
-	for _, addr := range multicastGroupAddresses {
-		multicastSet[addr] = true
-	}
-
 	// We need to search for all VXLAN peers and check if they should be removed
 	// Since we can't enumerate all sections easily with the current interface,
-	// we'll try common patterns
-	peerSections := []string{
-		"peer_multicast",
-		"peer_unicast",
-	}
+	// we'll try common patterns. Pre-allocate slice capacity: 2 base + 100 + 100
+	peerSections := make([]string, 0, 202)
+	peerSections = append(peerSections, "peer_multicast", "peer_unicast")
 
 	// Try common named peer sections with numeric suffixes
 	for i := 0; i < 100; i++ {
@@ -144,9 +143,14 @@ func (r *ROIP) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
 		peerSections = append(peerSections, fmt.Sprintf("@vxlan_peer[%d]", i))
 	}
 
+	// Track consecutive misses for early termination optimization
+	consecutiveMisses := 0
+	maxConsecutiveMisses := 10
+
 	for _, section := range peerSections {
 		// Try to get the dst for this section
 		if values, ok := r.uciNetworkConfig.Get("network", section, "dst"); ok && len(values) > 0 {
+			consecutiveMisses = 0 // Reset on successful find
 			dst := values[0]
 
 			// Skip if this is a multicast address
@@ -171,6 +175,17 @@ func (r *ROIP) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
 					Str("dst", dst).
 					Msg("Failed to remove inactive VXLAN peer")
 				return err
+			}
+		} else {
+			// Track misses for early termination in numeric peer sections
+			if len(section) >= 4 && section[:4] == "peer" {
+				consecutiveMisses++
+				if consecutiveMisses >= maxConsecutiveMisses {
+					r.Logger.Debug().
+						Int("consecutive_misses", consecutiveMisses).
+						Msg("Early termination: no more peers found")
+					break
+				}
 			}
 		}
 	}
