@@ -117,6 +117,11 @@ func (r *ROIP) configureInterfaces(ctx context.Context) error {
 			return err
 		}
 
+		// Cycle the Tailscale daemon to ensure it picks up the new interfaces and preferences
+		if err := r.cycleTailscale(r.ctx); err != nil {
+			return err
+		}
+
 		r.Logger.Debug().Msg("ROIP interfaces configured successfully")
 	}
 

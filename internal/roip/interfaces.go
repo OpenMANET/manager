@@ -1,8 +1,12 @@
 package roip
 
 import (
+	"context"
+
 	"github.com/openmanet/openmanetd/internal/firewall"
 	"github.com/openmanet/openmanetd/internal/network"
+	"tailscale.com/client/local"
+	"tailscale.com/ipn"
 )
 
 const (
@@ -29,6 +33,10 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 		}
 
 		if err := firewall.AddNetworkToZoneWithReader(defaultMeshNetZoneName, defaultTunnelDeviceName, r.uciFirewallConfig); err != nil {
+			return err
+		}
+
+		if err := r.configureTailscalePreferences(r.ctx); err != nil {
 			return err
 		}
 
@@ -85,6 +93,107 @@ func (r *ROIP) createOrConfigureBatmanInterface() error {
 		}
 
 		r.Logger.Debug().Msgf("Created ROIP Batman interface %s", defaultBatmanInterfaceName)
+	}
+
+	return nil
+}
+
+// configureTailscalePreferences retrieves current Tailscale preferences, updates them to enable
+// RouteAll and disable NoSNAT, and applies the changes back to the Tailscale daemon.
+func (r *ROIP) configureTailscalePreferences(ctx context.Context) error {
+	lc := &local.Client{}
+
+	// Get current preferences from Tailscale daemon
+	prefs, err := lc.GetPrefs(ctx)
+	if err != nil {
+		r.Logger.Error().Err(err).Msg("Failed to get Tailscale preferences")
+		return err
+	}
+
+	// Update preferences using helper function
+	updateTailscalePreferences(prefs)
+
+	// Apply the updated preferences back to Tailscale
+	_, err = lc.EditPrefs(ctx, &ipn.MaskedPrefs{
+		Prefs:       *prefs,
+		RouteAllSet: true,
+		NoSNATSet:   true,
+	})
+	if err != nil {
+		r.Logger.Error().Err(err).Msg("Failed to update Tailscale preferences")
+		return err
+	}
+
+	r.Logger.Info().Msg("Successfully configured Tailscale preferences (RouteAll: true, NoSNAT: false)")
+	return nil
+}
+
+// updateTailscalePreferences updates the provided Prefs to enable RouteAll and disable NoSNAT.
+// It uses the ApplyEdits method from the Prefs struct to safely apply the changes.
+func updateTailscalePreferences(prefs *ipn.Prefs) {
+	// Create a MaskedPrefs with the desired preference changes
+	edits := ipn.MaskedPrefs{
+		Prefs: ipn.Prefs{
+			RouteAll: true,
+			NoSNAT:   false,
+		},
+		RouteAllSet: true,
+		NoSNATSet:   true,
+	}
+
+	// Apply the edits to the provided Prefs
+	prefs.ApplyEdits(&edits)
+}
+
+// tailscaleUp starts Tailscale by setting WantRunning to true.
+// This is equivalent to running `tailscale up` on the command line.
+func (r *ROIP) tailscaleUp(ctx context.Context) error {
+	lc := &local.Client{}
+
+	_, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{
+		Prefs: ipn.Prefs{
+			WantRunning: true,
+		},
+		WantRunningSet: true,
+	})
+	if err != nil {
+		r.Logger.Error().Err(err).Msg("Failed to bring Tailscale up")
+		return err
+	}
+
+	r.Logger.Info().Msg("Tailscale brought up")
+	return nil
+}
+
+// tailscaleDown stops Tailscale by setting WantRunning to false.
+// This is equivalent to running `tailscale down` on the command line.
+func (r *ROIP) tailscaleDown(ctx context.Context) error {
+	lc := &local.Client{}
+
+	_, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{
+		Prefs: ipn.Prefs{
+			WantRunning: false,
+		},
+		WantRunningSet: true,
+	})
+	if err != nil {
+		r.Logger.Error().Err(err).Msg("Failed to bring Tailscale down")
+		return err
+	}
+
+	r.Logger.Info().Msg("Tailscale brought down")
+	return nil
+}
+
+// cycleTailscale restarts the Tailscale service by bringing it down and back up.
+// It returns the first error encountered from either operation.
+func (r *ROIP) cycleTailscale(ctx context.Context) error {
+	if err := r.tailscaleDown(ctx); err != nil {
+		return err
+	}
+
+	if err := r.tailscaleUp(ctx); err != nil {
+		return err
 	}
 
 	return nil
