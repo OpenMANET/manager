@@ -37,6 +37,34 @@ type UCINetwork struct {
 	IPV6Class      string `uci:"list ip6class"`
 }
 
+// UCIDevice represents a UCI network device configuration (config device).
+// Devices can be physical interfaces, bridges, VLANs, or other virtual devices.
+type UCIDevice struct {
+	Name         string   `uci:"option name"`         // Device name (required)
+	Type         string   `uci:"option type"`         // Device type (e.g., bridge, vlan, macvlan, veth)
+	MacAddr      string   `uci:"option macaddr"`      // MAC address override
+	MTU          string   `uci:"option mtu"`          // Maximum transmission unit
+	TxQueueLen   string   `uci:"option txqueuelen"`   // Transmit queue length
+	Ports        []string `uci:"list ports"`          // Bridge member ports (for bridge type)
+	Enabled      string   `uci:"option enabled"`      // Enable/disable device (0/1)
+	Promisc      string   `uci:"option promisc"`      // Promiscuous mode (0/1)
+	AcceptLocal  string   `uci:"option acceptlocal"`  // Accept packets with local source addresses (0/1)
+	IGMPVersion  string   `uci:"option igmpversion"`  // IGMP version (2/3)
+	MLDVersion   string   `uci:"option mldversion"`   // MLD version (1/2)
+	Multicast    string   `uci:"option multicast"`    // Multicast support (0/1)
+	IPV6         string   `uci:"option ipv6"`         // IPv6 support (0/1)
+	RPS          string   `uci:"option rps"`          // Receive packet steering (0/1)
+	XPS          string   `uci:"option xps"`          // Transmit packet steering (0/1)
+	Dadtransmits string   `uci:"option dadtransmits"` // DAD transmits count
+	Multicast_to_unicast string `uci:"option multicast_to_unicast"` // Convert multicast to unicast (0/1)
+	SendRedirects string `uci:"option sendredirects"` // Send ICMP redirects (0/1)
+	Drop_v4_unicast_in_l2_multicast string `uci:"option drop_v4_unicast_in_l2_multicast"` // Drop IPv4 unicast in L2 multicast (0/1)
+	Drop_v6_unicast_in_l2_multicast string `uci:"option drop_v6_unicast_in_l2_multicast"` // Drop IPv6 unicast in L2 multicast (0/1)
+	Drop_gratuitous_arp string `uci:"option drop_gratuitous_arp"` // Drop gratuitous ARP (0/1)
+	Drop_unsolicited_na string `uci:"option drop_unsolicited_na"` // Drop unsolicited neighbor advertisements (0/1)
+	ARP_accept   string   `uci:"option arp_accept"`   // Accept gratuitous ARP (0/1)
+}
+
 // ConfigReader defines an interface for reading UCI configuration values.
 type ConfigReader interface {
 	Get(config, section, option string) ([]string, bool)
@@ -704,6 +732,389 @@ func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bo
 	}
 
 	return "", fmt.Errorf("no available IP addresses in %s/16 range", DefaultNetworkAddress)
+}
+
+// GetDeviceByName loads and returns the UCI device configuration by name.
+//
+// Parameters:
+//   - name: The device name (e.g., "br-ahwlan", "vxlan0", "tailscale0")
+//
+// Returns the device configuration or an error if it cannot be read.
+//
+// Example:
+//
+//	device, err := GetDeviceByName("br-ahwlan")
+//	if err != nil {
+//	    log.Fatalf("Failed to get device config: %v", err)
+//	}
+//	fmt.Printf("Device type: %s\n", device.Type)
+func GetDeviceByName(name string) (*UCIDevice, error) {
+	reader := NewUCINetworkConfigReader()
+	return GetDeviceByNameWithReader(name, reader)
+}
+
+// GetDeviceByNameWithReader loads and returns the UCI device configuration by name using the provided reader.
+func GetDeviceByNameWithReader(name string, reader ConfigReader) (*UCIDevice, error) {
+	device := &UCIDevice{}
+
+	if values, ok := reader.Get(networkConfigName, name, "name"); ok && len(values) > 0 {
+		device.Name = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "type"); ok && len(values) > 0 {
+		device.Type = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "macaddr"); ok && len(values) > 0 {
+		device.MacAddr = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "mtu"); ok && len(values) > 0 {
+		device.MTU = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "txqueuelen"); ok && len(values) > 0 {
+		device.TxQueueLen = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "ports"); ok && len(values) > 0 {
+		device.Ports = values
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "enabled"); ok && len(values) > 0 {
+		device.Enabled = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "promisc"); ok && len(values) > 0 {
+		device.Promisc = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "acceptlocal"); ok && len(values) > 0 {
+		device.AcceptLocal = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "igmpversion"); ok && len(values) > 0 {
+		device.IGMPVersion = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "mldversion"); ok && len(values) > 0 {
+		device.MLDVersion = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "multicast"); ok && len(values) > 0 {
+		device.Multicast = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "ipv6"); ok && len(values) > 0 {
+		device.IPV6 = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "rps"); ok && len(values) > 0 {
+		device.RPS = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "xps"); ok && len(values) > 0 {
+		device.XPS = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "dadtransmits"); ok && len(values) > 0 {
+		device.Dadtransmits = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "multicast_to_unicast"); ok && len(values) > 0 {
+		device.Multicast_to_unicast = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "sendredirects"); ok && len(values) > 0 {
+		device.SendRedirects = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "drop_v4_unicast_in_l2_multicast"); ok && len(values) > 0 {
+		device.Drop_v4_unicast_in_l2_multicast = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "drop_v6_unicast_in_l2_multicast"); ok && len(values) > 0 {
+		device.Drop_v6_unicast_in_l2_multicast = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "drop_gratuitous_arp"); ok && len(values) > 0 {
+		device.Drop_gratuitous_arp = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "drop_unsolicited_na"); ok && len(values) > 0 {
+		device.Drop_unsolicited_na = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, name, "arp_accept"); ok && len(values) > 0 {
+		device.ARP_accept = values[0]
+	}
+
+	return device, nil
+}
+
+// SetDeviceConfig creates or updates a device configuration.
+//
+// Parameters:
+//   - section: The UCI section name (e.g., "br-ahwlan", "vxlan0")
+//   - device: The device configuration to set
+//
+// Returns an error if the configuration cannot be saved.
+//
+// Example:
+//
+//	device := &UCIDevice{
+//	    Name: "br-ahwlan",
+//	    Type: "bridge",
+//	    Ports: []string{"bat0"},
+//	}
+//	err := SetDeviceConfig("br-ahwlan", device)
+//
+// Note: This operation requires appropriate privileges and commits the configuration.
+func SetDeviceConfig(section string, device *UCIDevice) error {
+	reader := NewUCINetworkConfigReader()
+	return SetDeviceConfigWithReader(section, device, reader)
+}
+
+// SetDeviceConfigWithReader creates or updates a device configuration using the provided reader.
+func SetDeviceConfigWithReader(section string, device *UCIDevice, reader ConfigReader) error {
+	// Add the section if it doesn't exist
+	if err := reader.AddSection(networkConfigName, section, "device"); err != nil {
+		// Section might already exist, which is fine
+	}
+
+	if device.Name != "" {
+		if err := reader.SetType(networkConfigName, section, "name", uci.TypeOption, device.Name); err != nil {
+			return fmt.Errorf("failed to set device name: %w", err)
+		}
+	}
+
+	if device.Type != "" {
+		if err := reader.SetType(networkConfigName, section, "type", uci.TypeOption, device.Type); err != nil {
+			return fmt.Errorf("failed to set device type: %w", err)
+		}
+	}
+
+	if device.MacAddr != "" {
+		if err := reader.SetType(networkConfigName, section, "macaddr", uci.TypeOption, device.MacAddr); err != nil {
+			return fmt.Errorf("failed to set device macaddr: %w", err)
+		}
+	}
+
+	if device.MTU != "" {
+		if err := reader.SetType(networkConfigName, section, "mtu", uci.TypeOption, device.MTU); err != nil {
+			return fmt.Errorf("failed to set device mtu: %w", err)
+		}
+	}
+
+	if device.TxQueueLen != "" {
+		if err := reader.SetType(networkConfigName, section, "txqueuelen", uci.TypeOption, device.TxQueueLen); err != nil {
+			return fmt.Errorf("failed to set device txqueuelen: %w", err)
+		}
+	}
+
+	if len(device.Ports) > 0 {
+		if err := reader.SetType(networkConfigName, section, "ports", uci.TypeList, device.Ports...); err != nil {
+			return fmt.Errorf("failed to set device ports: %w", err)
+		}
+	}
+
+	if device.Enabled != "" {
+		if err := reader.SetType(networkConfigName, section, "enabled", uci.TypeOption, device.Enabled); err != nil {
+			return fmt.Errorf("failed to set device enabled: %w", err)
+		}
+	}
+
+	if device.Promisc != "" {
+		if err := reader.SetType(networkConfigName, section, "promisc", uci.TypeOption, device.Promisc); err != nil {
+			return fmt.Errorf("failed to set device promisc: %w", err)
+		}
+	}
+
+	if device.AcceptLocal != "" {
+		if err := reader.SetType(networkConfigName, section, "acceptlocal", uci.TypeOption, device.AcceptLocal); err != nil {
+			return fmt.Errorf("failed to set device acceptlocal: %w", err)
+		}
+	}
+
+	if device.IGMPVersion != "" {
+		if err := reader.SetType(networkConfigName, section, "igmpversion", uci.TypeOption, device.IGMPVersion); err != nil {
+			return fmt.Errorf("failed to set device igmpversion: %w", err)
+		}
+	}
+
+	if device.MLDVersion != "" {
+		if err := reader.SetType(networkConfigName, section, "mldversion", uci.TypeOption, device.MLDVersion); err != nil {
+			return fmt.Errorf("failed to set device mldversion: %w", err)
+		}
+	}
+
+	if device.Multicast != "" {
+		if err := reader.SetType(networkConfigName, section, "multicast", uci.TypeOption, device.Multicast); err != nil {
+			return fmt.Errorf("failed to set device multicast: %w", err)
+		}
+	}
+
+	if device.IPV6 != "" {
+		if err := reader.SetType(networkConfigName, section, "ipv6", uci.TypeOption, device.IPV6); err != nil {
+			return fmt.Errorf("failed to set device ipv6: %w", err)
+		}
+	}
+
+	if device.RPS != "" {
+		if err := reader.SetType(networkConfigName, section, "rps", uci.TypeOption, device.RPS); err != nil {
+			return fmt.Errorf("failed to set device rps: %w", err)
+		}
+	}
+
+	if device.XPS != "" {
+		if err := reader.SetType(networkConfigName, section, "xps", uci.TypeOption, device.XPS); err != nil {
+			return fmt.Errorf("failed to set device xps: %w", err)
+		}
+	}
+
+	if device.Dadtransmits != "" {
+		if err := reader.SetType(networkConfigName, section, "dadtransmits", uci.TypeOption, device.Dadtransmits); err != nil {
+			return fmt.Errorf("failed to set device dadtransmits: %w", err)
+		}
+	}
+
+	if device.Multicast_to_unicast != "" {
+		if err := reader.SetType(networkConfigName, section, "multicast_to_unicast", uci.TypeOption, device.Multicast_to_unicast); err != nil {
+			return fmt.Errorf("failed to set device multicast_to_unicast: %w", err)
+		}
+	}
+
+	if device.SendRedirects != "" {
+		if err := reader.SetType(networkConfigName, section, "sendredirects", uci.TypeOption, device.SendRedirects); err != nil {
+			return fmt.Errorf("failed to set device sendredirects: %w", err)
+		}
+	}
+
+	if device.Drop_v4_unicast_in_l2_multicast != "" {
+		if err := reader.SetType(networkConfigName, section, "drop_v4_unicast_in_l2_multicast", uci.TypeOption, device.Drop_v4_unicast_in_l2_multicast); err != nil {
+			return fmt.Errorf("failed to set device drop_v4_unicast_in_l2_multicast: %w", err)
+		}
+	}
+
+	if device.Drop_v6_unicast_in_l2_multicast != "" {
+		if err := reader.SetType(networkConfigName, section, "drop_v6_unicast_in_l2_multicast", uci.TypeOption, device.Drop_v6_unicast_in_l2_multicast); err != nil {
+			return fmt.Errorf("failed to set device drop_v6_unicast_in_l2_multicast: %w", err)
+		}
+	}
+
+	if device.Drop_gratuitous_arp != "" {
+		if err := reader.SetType(networkConfigName, section, "drop_gratuitous_arp", uci.TypeOption, device.Drop_gratuitous_arp); err != nil {
+			return fmt.Errorf("failed to set device drop_gratuitous_arp: %w", err)
+		}
+	}
+
+	if device.Drop_unsolicited_na != "" {
+		if err := reader.SetType(networkConfigName, section, "drop_unsolicited_na", uci.TypeOption, device.Drop_unsolicited_na); err != nil {
+			return fmt.Errorf("failed to set device drop_unsolicited_na: %w", err)
+		}
+	}
+
+	if device.ARP_accept != "" {
+		if err := reader.SetType(networkConfigName, section, "arp_accept", uci.TypeOption, device.ARP_accept); err != nil {
+			return fmt.Errorf("failed to set device arp_accept: %w", err)
+		}
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit device configuration: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteDeviceConfig removes a device configuration section.
+//
+// Parameters:
+//   - section: The UCI section name to delete (e.g., "br-ahwlan", "vxlan0")
+//
+// Returns an error if the section cannot be deleted.
+//
+// Example:
+//
+//	err := DeleteDeviceConfig("br-guest")
+//	if err != nil {
+//	    log.Fatalf("Failed to delete device config: %v", err)
+//	}
+//
+// Note: This operation requires appropriate privileges and commits the configuration.
+func DeleteDeviceConfig(section string) error {
+	reader := NewUCINetworkConfigReader()
+	return DeleteDeviceConfigWithReader(section, reader)
+}
+
+// DeleteDeviceConfigWithReader removes a device configuration section using the provided reader.
+func DeleteDeviceConfigWithReader(section string, reader ConfigReader) error {
+	if err := reader.DelSection(networkConfigName, section); err != nil {
+		return fmt.Errorf("failed to delete device section: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit device deletion: %w", err)
+	}
+
+	return nil
+}
+
+// DeviceSectionExists checks if a device section exists in the configuration.
+//
+// Parameters:
+//   - section: The UCI section name to check (e.g., "br-ahwlan", "vxlan0")
+//
+// Returns true if the section exists, false otherwise.
+//
+// Example:
+//
+//	exists := DeviceSectionExists("br-ahwlan")
+//	if exists {
+//	    fmt.Println("Device section exists")
+//	}
+func DeviceSectionExists(section string) bool {
+	reader := NewUCINetworkConfigReader()
+	return DeviceSectionExistsWithReader(section, reader)
+}
+
+// DeviceSectionExistsWithReader checks if a device section exists using the provided reader.
+func DeviceSectionExistsWithReader(section string, reader ConfigReader) bool {
+	// Try to get the name option as a check for existence
+	_, exists := reader.Get(networkConfigName, section, "name")
+	return exists
+}
+
+// GetAllDevices retrieves all device configurations from the network config.
+// It returns a map of section names to UCIDevice configurations.
+func GetAllDevices() (map[string]*UCIDevice, error) {
+	reader := NewUCINetworkConfigReader()
+	return GetAllDevicesWithReader(reader)
+}
+
+// GetAllDevicesWithReader retrieves all device configurations using the provided reader.
+// It returns a map of section names to UCIDevice configurations.
+func GetAllDevicesWithReader(reader ConfigReader) (map[string]*UCIDevice, error) {
+	// Get all sections of type "device"
+	sections, err := reader.GetSections(networkConfigName, "device")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device sections: %w", err)
+	}
+
+	// Create map to hold devices
+	devices := make(map[string]*UCIDevice, len(sections))
+
+	// Load each device
+	for _, section := range sections {
+		device, err := GetDeviceByNameWithReader(section, reader)
+		if err != nil {
+			// Log but continue on error for individual device
+			continue
+		}
+		devices[section] = device
+	}
+
+	return devices, nil
 }
 
 // ReloadNetwork reloads the network configuration by executing the OpenWrt network init script.
