@@ -1347,3 +1347,190 @@ func TestFirewallRuleExistsWithReader(t *testing.T) {
 		})
 	}
 }
+
+// Tests for AddNetworkToZoneWithReader
+func TestAddNetworkToZoneWithReader(t *testing.T) {
+	tests := []struct {
+		name        string
+		zone        string
+		network     string
+		initialData map[string]map[string]map[string][]string
+		wantErr     bool
+		errContains string
+		wantNetwork []string
+	}{
+		{
+			name:    "add_network_to_existing_zone",
+			zone:    "ahwlan",
+			network: "tailscale0",
+			initialData: map[string]map[string]map[string][]string{
+				"firewall": {
+					"ahwlan": {
+						"name":    []string{"ahwlan"},
+						"input":   []string{"ACCEPT"},
+						"output":  []string{"ACCEPT"},
+						"forward": []string{"ACCEPT"},
+						"network": []string{"ahwlan"},
+					},
+				},
+			},
+			wantErr:     false,
+			wantNetwork: []string{"ahwlan", "tailscale0"},
+		},
+		{
+			name:    "add_network_already_present",
+			zone:    "ahwlan",
+			network: "ahwlan",
+			initialData: map[string]map[string]map[string][]string{
+				"firewall": {
+					"ahwlan": {
+						"name":    []string{"ahwlan"},
+						"input":   []string{"ACCEPT"},
+						"network": []string{"ahwlan"},
+					},
+				},
+			},
+			wantErr:     false,
+			wantNetwork: []string{"ahwlan"},
+		},
+		{
+			name:    "add_network_to_zone_with_empty_network_list",
+			zone:    "guest",
+			network: "guest",
+			initialData: map[string]map[string]map[string][]string{
+				"firewall": {
+					"guest": {
+						"name":  []string{"guest"},
+						"input": []string{"ACCEPT"},
+					},
+				},
+			},
+			wantErr:     false,
+			wantNetwork: []string{"guest"},
+		},
+		{
+			name:    "add_network_to_zone_with_multiple_existing_networks",
+			zone:    "wan",
+			network: "wan7",
+			initialData: map[string]map[string]map[string][]string{
+				"firewall": {
+					"wan": {
+						"name":    []string{"wan"},
+						"network": []string{"wan", "wan6"},
+					},
+				},
+			},
+			wantErr:     false,
+			wantNetwork: []string{"wan", "wan6", "wan7"},
+		},
+		{
+			name:    "zone_does_not_exist",
+			zone:    "nonexistent",
+			network: "test",
+			initialData: map[string]map[string]map[string][]string{
+				"firewall": {
+					"lan": {
+						"name": []string{"lan"},
+					},
+				},
+			},
+			wantErr:     true,
+			errContains: "does not exist",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := &mockConfigReader{
+				data: tt.initialData,
+			}
+
+			err := AddNetworkToZoneWithReader(tt.zone, tt.network, reader)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error containing %q, got nil", tt.errContains)
+				} else if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
+					t.Errorf("expected error containing %q, got %q", tt.errContains, err.Error())
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// For successful operations, verify the network list was updated correctly
+			if tt.wantNetwork != nil {
+				gotNetwork, ok := reader.Get(firewallConfigName, tt.zone, "network")
+				if !ok {
+					t.Error("expected network list to be set")
+				}
+				if !reflect.DeepEqual(gotNetwork, tt.wantNetwork) {
+					t.Errorf("got network list %v, want %v", gotNetwork, tt.wantNetwork)
+				}
+			}
+
+			// Verify commit was called for successful operations
+			if !reader.commitCalled {
+				// Only check commit if network was actually added (not already present)
+				networkAlreadyPresent := false
+				if initialNet, ok := tt.initialData["firewall"][tt.zone]["network"]; ok {
+					for _, net := range initialNet {
+						if net == tt.network {
+							networkAlreadyPresent = true
+							break
+						}
+					}
+				}
+				if !networkAlreadyPresent {
+					t.Error("expected Commit to be called")
+				}
+			}
+		})
+	}
+}
+
+func TestAddNetworkToZoneWithReader_SetTypeError(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"firewall": {
+				"lan": {
+					"name":    []string{"lan"},
+					"network": []string{"lan"},
+				},
+			},
+		},
+		setTypeError: fmt.Errorf("mock settype error"),
+	}
+
+	err := AddNetworkToZoneWithReader("lan", "guest", reader)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !contains(err.Error(), "failed to add network to zone") {
+		t.Errorf("expected error about adding network to zone, got: %v", err)
+	}
+}
+
+func TestAddNetworkToZoneWithReader_CommitError(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"firewall": {
+				"lan": {
+					"name":    []string{"lan"},
+					"network": []string{"lan"},
+				},
+			},
+		},
+		commitError: fmt.Errorf("mock commit error"),
+	}
+
+	err := AddNetworkToZoneWithReader("lan", "guest", reader)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !contains(err.Error(), "failed to commit firewall config") {
+		t.Errorf("expected error about commit, got: %v", err)
+	}
+}

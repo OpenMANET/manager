@@ -748,6 +748,63 @@ func FirewallRuleExistsWithReader(section string, reader ConfigReader) bool {
 	return exists
 }
 
+// AddNetworkToZone appends a network to a firewall zone's network list if it's not already present.
+//
+// Parameters:
+//   - zone: The UCI zone section name (e.g., "lan", "wan", "ahwlan")
+//   - network: The network interface name to add (e.g., "tailscale0", "wg0")
+//
+// Returns an error if the zone doesn't exist or if the configuration cannot be saved.
+//
+// Example:
+//
+//	err := AddNetworkToZone("ahwlan", "tailscale0")
+//	if err != nil {
+//	    log.Fatalf("Failed to add network to zone: %v", err)
+//	}
+//
+// Note: This operation requires appropriate privileges and commits the configuration.
+// If the network is already present in the zone, no action is taken.
+func AddNetworkToZone(zone, network string) error {
+	return AddNetworkToZoneWithReader(zone, network, NewUCIFirewallConfigReader())
+}
+
+// AddNetworkToZoneWithReader appends a network to a firewall zone using the provided reader.
+func AddNetworkToZoneWithReader(zone, network string, reader ConfigReader) error {
+	// Check if zone exists
+	if !FirewallZoneExistsWithReader(zone, reader) {
+		return fmt.Errorf("zone %q does not exist", zone)
+	}
+
+	// Get current zone configuration
+	zoneConfig, err := GetFirewallZoneWithReader(zone, reader)
+	if err != nil {
+		return fmt.Errorf("failed to get zone config: %w", err)
+	}
+
+	// Check if network is already in the list
+	for _, net := range zoneConfig.Network {
+		if net == network {
+			// Network already exists, no action needed
+			return nil
+		}
+	}
+
+	// Append the network to the list
+	zoneConfig.Network = append(zoneConfig.Network, network)
+
+	// Update the zone configuration
+	if err := reader.SetType(firewallConfigName, zone, "network", uci.TypeList, zoneConfig.Network...); err != nil {
+		return fmt.Errorf("failed to add network to zone: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit firewall config: %w", err)
+	}
+
+	return nil
+}
+
 // ReloadFirewall reloads the firewall configuration by executing the OpenWrt firewall init script.
 // It calls the '/etc/init.d/firewall reload' command to apply firewall configuration changes
 // without restarting the entire firewall subsystem.

@@ -7,6 +7,7 @@ import (
 
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/config"
+	"github.com/openmanet/openmanetd/internal/firewall"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/rs/zerolog"
 	"tailscale.com/client/local"
@@ -18,9 +19,10 @@ type ROIP struct {
 	Config *config.Config
 	Logger zerolog.Logger
 
-	ctx              context.Context
-	uciNetworkConfig network.ConfigReader
-	statusWorker     *StatusWorker
+	ctx               context.Context
+	uciNetworkConfig  network.ConfigReader
+	uciFirewallConfig firewall.ConfigReader
+	statusWorker      *StatusWorker
 }
 
 func NewROIP(cfg *config.Config, logger zerolog.Logger) (*ROIP, error) {
@@ -38,10 +40,11 @@ func NewROIP(cfg *config.Config, logger zerolog.Logger) (*ROIP, error) {
 	}
 
 	r := &ROIP{
-		Config:           cfg,
-		Logger:           logger,
-		ctx:              context.Background(),
-		uciNetworkConfig: network.NewUCINetworkConfigReader(),
+		Config:            cfg,
+		Logger:            logger,
+		ctx:               context.Background(),
+		uciNetworkConfig:  network.NewUCINetworkConfigReader(),
+		uciFirewallConfig: firewall.NewUCIFirewallConfigReader(),
 	}
 
 	// Initialize the status worker

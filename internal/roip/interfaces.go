@@ -1,6 +1,7 @@
 package roip
 
 import (
+	"github.com/openmanet/openmanetd/internal/firewall"
 	"github.com/openmanet/openmanetd/internal/network"
 )
 
@@ -8,6 +9,7 @@ const (
 	defaultTunnelDeviceName    string = "tailscale0"
 	defaultVxLanDeviceName     string = "vxlan0"
 	defaultBatmanInterfaceName string = "battunnel0"
+	defaultMeshNetZoneName     string = "ahwlan"
 )
 
 // createOrConfigureTunnelInterface creates or configures a tunnel interface in the UCI network configuration.
@@ -23,6 +25,10 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 			Proto:  "none",
 			Device: defaultTunnelDeviceName,
 		}, r.uciNetworkConfig); err != nil {
+			return err
+		}
+
+		if err := firewall.AddNetworkToZoneWithReader(defaultMeshNetZoneName, defaultTunnelDeviceName, r.uciFirewallConfig); err != nil {
 			return err
 		}
 
