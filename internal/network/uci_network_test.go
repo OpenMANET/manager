@@ -1493,29 +1493,29 @@ func TestGetDeviceByNameWithReader_AllOptions(t *testing.T) {
 		data: map[string]map[string]map[string][]string{
 			"network": {
 				"test-device": {
-					"name":                             {"test-device"},
-					"type":                             {"bridge"},
-					"macaddr":                          {"00:11:22:33:44:55"},
-					"mtu":                              {"1500"},
-					"txqueuelen":                       {"1000"},
-					"ports":                            {"eth0", "eth1"},
-					"enabled":                          {"1"},
-					"promisc":                          {"1"},
-					"acceptlocal":                      {"0"},
-					"igmpversion":                      {"3"},
-					"mldversion":                       {"2"},
-					"multicast":                        {"1"},
-					"ipv6":                             {"1"},
-					"rps":                              {"1"},
-					"xps":                              {"1"},
-					"dadtransmits":                     {"3"},
-					"multicast_to_unicast":             {"1"},
-					"sendredirects":                    {"0"},
-					"drop_v4_unicast_in_l2_multicast":  {"0"},
-					"drop_v6_unicast_in_l2_multicast":  {"0"},
-					"drop_gratuitous_arp":              {"0"},
-					"drop_unsolicited_na":              {"0"},
-					"arp_accept":                       {"1"},
+					"name":                            {"test-device"},
+					"type":                            {"bridge"},
+					"macaddr":                         {"00:11:22:33:44:55"},
+					"mtu":                             {"1500"},
+					"txqueuelen":                      {"1000"},
+					"ports":                           {"eth0", "eth1"},
+					"enabled":                         {"1"},
+					"promisc":                         {"1"},
+					"acceptlocal":                     {"0"},
+					"igmpversion":                     {"3"},
+					"mldversion":                      {"2"},
+					"multicast":                       {"1"},
+					"ipv6":                            {"1"},
+					"rps":                             {"1"},
+					"xps":                             {"1"},
+					"dadtransmits":                    {"3"},
+					"multicast_to_unicast":            {"1"},
+					"sendredirects":                   {"0"},
+					"drop_v4_unicast_in_l2_multicast": {"0"},
+					"drop_v6_unicast_in_l2_multicast": {"0"},
+					"drop_gratuitous_arp":             {"0"},
+					"drop_unsolicited_na":             {"0"},
+					"arp_accept":                      {"1"},
 				},
 			},
 		},
@@ -1996,7 +1996,7 @@ func TestGetAllDevicesWithReader_GetSectionsError(t *testing.T) {
 	type mockWithGetSectionsError struct {
 		*mockConfigReader
 	}
-	
+
 	customMock := &mockWithGetSectionsError{
 		mockConfigReader: &mockConfigReader{
 			data: map[string]map[string]map[string][]string{
@@ -2004,12 +2004,12 @@ func TestGetAllDevicesWithReader_GetSectionsError(t *testing.T) {
 			},
 		},
 	}
-	
+
 	// Override GetSections to return an error
 	customGetSections := func(config, secType string) ([]string, error) {
 		return nil, fmt.Errorf("mock error")
 	}
-	
+
 	// We can't easily override methods, so let's just test with a different approach
 	// by testing the error path with a mock that has no sections
 	mock := &mockConfigReader{
@@ -2017,18 +2017,18 @@ func TestGetAllDevicesWithReader_GetSectionsError(t *testing.T) {
 			"network": {},
 		},
 	}
-	
+
 	// Since we can't easily mock GetSections to return an error,
 	// we'll skip this test. The actual implementation will handle errors properly.
 	_ = customMock
 	_ = customGetSections
-	
+
 	// Test with empty sections instead
 	devices, err := GetAllDevicesWithReader(mock)
 	if err != nil {
 		t.Fatalf("GetAllDevicesWithReader failed: %v", err)
 	}
-	
+
 	if len(devices) != 0 {
 		t.Errorf("Expected 0 devices for empty config, got %d", len(devices))
 	}
@@ -2128,4 +2128,3 @@ func TestDeviceConfiguration_RealWorldExample(t *testing.T) {
 		t.Error("vxlan0 should not exist after deletion")
 	}
 }
-

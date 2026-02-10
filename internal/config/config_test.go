@@ -950,6 +950,7 @@ func TestGetROIPStatusWorkerInterval(t *testing.T) {
 		})
 	}
 }
+
 // TestROIPEnabled tests the ROIPEnabled method.
 func TestROIPEnabled(t *testing.T) {
 	tests := []struct {
@@ -989,4 +990,3 @@ func TestROIPEnabled(t *testing.T) {
 		})
 	}
 }
-

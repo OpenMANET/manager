@@ -40,29 +40,29 @@ type UCINetwork struct {
 // UCIDevice represents a UCI network device configuration (config device).
 // Devices can be physical interfaces, bridges, VLANs, or other virtual devices.
 type UCIDevice struct {
-	Name         string   `uci:"option name"`         // Device name (required)
-	Type         string   `uci:"option type"`         // Device type (e.g., bridge, vlan, macvlan, veth)
-	MacAddr      string   `uci:"option macaddr"`      // MAC address override
-	MTU          string   `uci:"option mtu"`          // Maximum transmission unit
-	TxQueueLen   string   `uci:"option txqueuelen"`   // Transmit queue length
-	Ports        []string `uci:"list ports"`          // Bridge member ports (for bridge type)
-	Enabled      string   `uci:"option enabled"`      // Enable/disable device (0/1)
-	Promisc      string   `uci:"option promisc"`      // Promiscuous mode (0/1)
-	AcceptLocal  string   `uci:"option acceptlocal"`  // Accept packets with local source addresses (0/1)
-	IGMPVersion  string   `uci:"option igmpversion"`  // IGMP version (2/3)
-	MLDVersion   string   `uci:"option mldversion"`   // MLD version (1/2)
-	Multicast    string   `uci:"option multicast"`    // Multicast support (0/1)
-	IPV6         string   `uci:"option ipv6"`         // IPv6 support (0/1)
-	RPS          string   `uci:"option rps"`          // Receive packet steering (0/1)
-	XPS          string   `uci:"option xps"`          // Transmit packet steering (0/1)
-	Dadtransmits string   `uci:"option dadtransmits"` // DAD transmits count
-	Multicast_to_unicast string `uci:"option multicast_to_unicast"` // Convert multicast to unicast (0/1)
-	SendRedirects string `uci:"option sendredirects"` // Send ICMP redirects (0/1)
-	Drop_v4_unicast_in_l2_multicast string `uci:"option drop_v4_unicast_in_l2_multicast"` // Drop IPv4 unicast in L2 multicast (0/1)
-	Drop_v6_unicast_in_l2_multicast string `uci:"option drop_v6_unicast_in_l2_multicast"` // Drop IPv6 unicast in L2 multicast (0/1)
-	Drop_gratuitous_arp string `uci:"option drop_gratuitous_arp"` // Drop gratuitous ARP (0/1)
-	Drop_unsolicited_na string `uci:"option drop_unsolicited_na"` // Drop unsolicited neighbor advertisements (0/1)
-	ARP_accept   string   `uci:"option arp_accept"`   // Accept gratuitous ARP (0/1)
+	Name                            string   `uci:"option name"`                            // Device name (required)
+	Type                            string   `uci:"option type"`                            // Device type (e.g., bridge, vlan, macvlan, veth)
+	MacAddr                         string   `uci:"option macaddr"`                         // MAC address override
+	MTU                             string   `uci:"option mtu"`                             // Maximum transmission unit
+	TxQueueLen                      string   `uci:"option txqueuelen"`                      // Transmit queue length
+	Ports                           []string `uci:"list ports"`                             // Bridge member ports (for bridge type)
+	Enabled                         string   `uci:"option enabled"`                         // Enable/disable device (0/1)
+	Promisc                         string   `uci:"option promisc"`                         // Promiscuous mode (0/1)
+	AcceptLocal                     string   `uci:"option acceptlocal"`                     // Accept packets with local source addresses (0/1)
+	IGMPVersion                     string   `uci:"option igmpversion"`                     // IGMP version (2/3)
+	MLDVersion                      string   `uci:"option mldversion"`                      // MLD version (1/2)
+	Multicast                       string   `uci:"option multicast"`                       // Multicast support (0/1)
+	IPV6                            string   `uci:"option ipv6"`                            // IPv6 support (0/1)
+	RPS                             string   `uci:"option rps"`                             // Receive packet steering (0/1)
+	XPS                             string   `uci:"option xps"`                             // Transmit packet steering (0/1)
+	Dadtransmits                    string   `uci:"option dadtransmits"`                    // DAD transmits count
+	Multicast_to_unicast            string   `uci:"option multicast_to_unicast"`            // Convert multicast to unicast (0/1)
+	SendRedirects                   string   `uci:"option sendredirects"`                   // Send ICMP redirects (0/1)
+	Drop_v4_unicast_in_l2_multicast string   `uci:"option drop_v4_unicast_in_l2_multicast"` // Drop IPv4 unicast in L2 multicast (0/1)
+	Drop_v6_unicast_in_l2_multicast string   `uci:"option drop_v6_unicast_in_l2_multicast"` // Drop IPv6 unicast in L2 multicast (0/1)
+	Drop_gratuitous_arp             string   `uci:"option drop_gratuitous_arp"`             // Drop gratuitous ARP (0/1)
+	Drop_unsolicited_na             string   `uci:"option drop_unsolicited_na"`             // Drop unsolicited neighbor advertisements (0/1)
+	ARP_accept                      string   `uci:"option arp_accept"`                      // Accept gratuitous ARP (0/1)
 }
 
 // ConfigReader defines an interface for reading UCI configuration values.
