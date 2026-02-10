@@ -40,6 +40,7 @@ type UCINetwork struct {
 // ConfigReader defines an interface for reading UCI configuration values.
 type ConfigReader interface {
 	Get(config, section, option string) ([]string, bool)
+	GetSections(config, secType string) ([]string, error)
 	SetType(config, section, option string, typ uci.OptionType, values ...string) error
 	Del(config, section, option string) error
 	AddSection(config, section, typ string) error
@@ -62,6 +63,10 @@ func NewUCINetworkConfigReader() *UCINetworkConfigReader {
 
 func (r *UCINetworkConfigReader) Get(config, section, option string) ([]string, bool) {
 	return r.tree.Get(config, section, option)
+}
+
+func (r *UCINetworkConfigReader) GetSections(config, secType string) ([]string, error) {
+	return r.tree.GetSections(config, secType)
 }
 
 func (r *UCINetworkConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {

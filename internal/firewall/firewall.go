@@ -57,6 +57,7 @@ type UCIFirewallRule struct {
 // ConfigReader defines an interface for reading UCI configuration values.
 type ConfigReader interface {
 	Get(config, section, option string) ([]string, bool)
+	GetSections(config, secType string) ([]string, error)
 	SetType(config, section, option string, typ uci.OptionType, values ...string) error
 	Del(config, section, option string) error
 	AddSection(config, section, typ string) error
@@ -79,6 +80,10 @@ func NewUCIFirewallConfigReader() *UCIFirewallConfigReader {
 
 func (r *UCIFirewallConfigReader) Get(config, section, option string) ([]string, bool) {
 	return r.tree.Get(config, section, option)
+}
+
+func (r *UCIFirewallConfigReader) GetSections(config, secType string) ([]string, error) {
+	return r.tree.GetSections(config, secType)
 }
 
 func (r *UCIFirewallConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {

@@ -1591,3 +1591,35 @@ func DeleteVXLANPeerByDstWithReader(dst string, reader ConfigReader) error {
 
 	return nil
 }
+
+// GetAllVXLANPeers retrieves all VXLAN peer configurations from the network config.
+// It returns a map of section names to UCIVXLANPeer configurations.
+func GetAllVXLANPeers() (map[string]*UCIVXLANPeer, error) {
+	reader := NewUCINetworkConfigReader()
+	return GetAllVXLANPeersWithReader(reader)
+}
+
+// GetAllVXLANPeersWithReader retrieves all VXLAN peer configurations using the provided reader.
+// It returns a map of section names to UCIVXLANPeer configurations.
+func GetAllVXLANPeersWithReader(reader ConfigReader) (map[string]*UCIVXLANPeer, error) {
+	// Get all sections of type "vxlan_peer"
+	sections, err := reader.GetSections(networkConfigName, "vxlan_peer")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get vxlan_peer sections: %w", err)
+	}
+
+	// Create map to hold peers
+	peers := make(map[string]*UCIVXLANPeer, len(sections))
+
+	// Load each peer
+	for _, section := range sections {
+		peer, err := GetVXLANPeerByNameWithReader(section, reader)
+		if err != nil {
+			// Log but continue on error for individual peer
+			continue
+		}
+		peers[section] = peer
+	}
+
+	return peers, nil
+}

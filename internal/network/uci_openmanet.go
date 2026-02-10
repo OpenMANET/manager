@@ -26,6 +26,7 @@ type UCIOpenMANET struct {
 // OpenMANETConfigReader defines an interface for reading OpenMANET UCI configuration values.
 type OpenMANETConfigReader interface {
 	Get(config, section, option string) ([]string, bool)
+	GetSections(config, secType string) ([]string, error)
 	SetType(config, section, option string, typ uci.OptionType, values ...string) error
 	Del(config, section, option string) error
 	AddSection(config, section, typ string) error
@@ -48,6 +49,10 @@ func NewUCIOpenMANETConfigReader() *UCIOpenMANETConfigReader {
 
 func (r *UCIOpenMANETConfigReader) Get(config, section, option string) ([]string, bool) {
 	return r.tree.Get(config, section, option)
+}
+
+func (r *UCIOpenMANETConfigReader) GetSections(config, secType string) ([]string, error) {
+	return r.tree.GetSections(config, secType)
 }
 
 func (r *UCIOpenMANETConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {

@@ -45,6 +45,17 @@ func (m *mockConfigReader) Get(config, section, option string) ([]string, bool) 
 	return nil, false
 }
 
+func (m *mockConfigReader) GetSections(config, secType string) ([]string, error) {
+	// For testing, return all sections in the config
+	var sections []string
+	if configData, ok := m.data[config]; ok {
+		for section := range configData {
+			sections = append(sections, section)
+		}
+	}
+	return sections, nil
+}
+
 func (m *mockConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
 	if m.setTypeError != nil {
 		return m.setTypeError

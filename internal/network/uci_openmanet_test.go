@@ -41,6 +41,18 @@ func (m *mockOpenMANETConfigReader) Get(config, section, option string) ([]strin
 	return values, ok
 }
 
+func (m *mockOpenMANETConfigReader) GetSections(config, secType string) ([]string, error) {
+	var sections []string
+	if m.sections[config] != nil {
+		for section, typ := range m.sections[config] {
+			if typ == secType {
+				sections = append(sections, section)
+			}
+		}
+	}
+	return sections, nil
+}
+
 func (m *mockOpenMANETConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
@@ -380,6 +392,10 @@ func (m *mockOpenMANETConfigReaderWithErrors) ReloadConfig() error {
 
 func (m *mockOpenMANETConfigReaderWithErrors) Get(config, section, option string) ([]string, bool) {
 	return nil, false
+}
+
+func (m *mockOpenMANETConfigReaderWithErrors) GetSections(config, secType string) ([]string, error) {
+	return nil, errors.New("mock error")
 }
 
 func (m *mockOpenMANETConfigReaderWithErrors) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
