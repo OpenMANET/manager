@@ -50,6 +50,24 @@ func (m *MockVXLANConfigReader) Get(config, section, option string) ([]string, b
 	return nil, false
 }
 
+func (m *MockVXLANConfigReader) GetSections(config, secType string) ([]string, error) {
+	// Return all sections in the given config
+	// In a real implementation, this would filter by section type
+	// For our mock, we'll return all section names that look like vxlan_peer sections
+	var sections []string
+	if configData, ok := m.data[config]; ok {
+		for section := range configData {
+			// Filter by checking if the section has typical VXLAN peer fields
+			if sectionData, ok := configData[section]; ok {
+				if _, hasDst := sectionData["dst"]; hasDst {
+					sections = append(sections, section)
+				}
+			}
+		}
+	}
+	return sections, nil
+}
+
 func (m *MockVXLANConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)

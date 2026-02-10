@@ -10,6 +10,10 @@ import (
 )
 
 const (
+	defaultLearningValue       string = "1"
+	defaultProxyValue          string = "1"
+	vxLanProtocol              string = "vxlan"
+	vxLanDefaultMTUValue       string = "1450"
 	defaultTunnelDeviceName    string = "tailscale0"
 	defaultVxLanDeviceName     string = "vxlan0"
 	defaultBatmanInterfaceName string = "battunnel0"
@@ -60,10 +64,11 @@ func (r *ROIP) createOrConfigureVxLanInterface() error {
 	if !network.NetworkSectionExistsWithReader(defaultVxLanDeviceName, r.uciNetworkConfig) {
 		// Create a new network section for the VXLAN interface
 		if err := network.SetVXLANConfigWithReader(defaultVxLanDeviceName, &network.UCIVXLANConfig{
-			Proto:    "vxlan",
-			Learning: "1",
+			Proto:    vxLanProtocol,
+			Learning: defaultLearningValue,
 			Tunlink:  defaultTunnelDeviceName,
-			Proxy:    "1",
+			Proxy:    defaultProxyValue,
+			MTU:      vxLanDefaultMTUValue,
 		}, r.uciNetworkConfig); err != nil {
 			return err
 		}

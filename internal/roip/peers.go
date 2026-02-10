@@ -1,8 +1,6 @@
 package roip
 
 import (
-	"fmt"
-
 	"github.com/openmanet/openmanetd/internal/network"
 )
 
@@ -150,66 +148,39 @@ func (r *ROIP) syncVXLANPeersWithTailscale() error {
 // removeInactiveVXLANPeers removes VXLAN peers that are not in the active peer list
 // and are not multicast addresses.
 func (r *ROIP) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
-	// We need to search for all VXLAN peers and check if they should be removed
-	// Since we can't enumerate all sections easily with the current interface,
-	// we'll try common patterns. Pre-allocate slice capacity: 2 base + 100 + 100
-	peerSections := make([]string, 0, 202)
-	peerSections = append(peerSections, "peer_multicast", "peer_unicast")
-
-	// Try common named peer sections with numeric suffixes
-	for i := 0; i < 100; i++ {
-		peerSections = append(peerSections, fmt.Sprintf("peer%d", i))
+	// Get all VXLAN peers from UCI configuration
+	allPeers, err := network.GetAllVXLANPeersWithReader(r.uciNetworkConfig)
+	if err != nil {
+		r.Logger.Error().
+			Err(err).
+			Msg("Failed to get all VXLAN peers")
+		return err
 	}
 
-	// Try anonymous section notation
-	for i := 0; i < 100; i++ {
-		peerSections = append(peerSections, fmt.Sprintf("@vxlan_peer[%d]", i))
-	}
+	// Check each peer and remove if it's not active and not multicast
+	for section, peer := range allPeers {
+		// Skip if this is a multicast address
+		if multicastSet[peer.Dst] {
+			continue
+		}
 
-	// Track consecutive misses for early termination optimization
-	consecutiveMisses := 0
-	maxConsecutiveMisses := 10
+		// Skip if this peer is still active in Tailscale
+		if activePeerIPs[peer.Dst] {
+			continue
+		}
 
-	for _, section := range peerSections {
-		// Try to get the dst for this section
-		if values, ok := r.uciNetworkConfig.Get("network", section, "dst"); ok && len(values) > 0 {
-			consecutiveMisses = 0 // Reset on successful find
-			dst := values[0]
+		// This peer should be removed
+		r.Logger.Debug().
+			Str("dst", peer.Dst).
+			Str("section", section).
+			Msg("Removing inactive VXLAN peer")
 
-			// Skip if this is a multicast address
-			if multicastSet[dst] {
-				continue
-			}
-
-			// Skip if this peer is still active in Tailscale
-			if activePeerIPs[dst] {
-				continue
-			}
-
-			// This peer should be removed
-			r.Logger.Debug().
-				Str("dst", dst).
-				Str("section", section).
-				Msg("Removing inactive VXLAN peer")
-
-			if err := network.DeleteVXLANPeerByDstWithReader(dst, r.uciNetworkConfig); err != nil {
-				r.Logger.Error().
-					Err(err).
-					Str("dst", dst).
-					Msg("Failed to remove inactive VXLAN peer")
-				return err
-			}
-		} else {
-			// Track misses for early termination in numeric peer sections
-			if len(section) >= 4 && section[:4] == "peer" {
-				consecutiveMisses++
-				if consecutiveMisses >= maxConsecutiveMisses {
-					r.Logger.Debug().
-						Int("consecutive_misses", consecutiveMisses).
-						Msg("Early termination: no more peers found")
-					break
-				}
-			}
+		if err := network.DeleteVXLANPeerByDstWithReader(peer.Dst, r.uciNetworkConfig); err != nil {
+			r.Logger.Error().
+				Err(err).
+				Str("dst", peer.Dst).
+				Msg("Failed to remove inactive VXLAN peer")
+			return err
 		}
 	}
 
