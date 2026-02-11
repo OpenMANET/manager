@@ -3,6 +3,8 @@ package network
 import (
 	"fmt"
 	"net"
+
+	"github.com/vishvananda/netlink"
 )
 
 const (
@@ -137,4 +139,102 @@ func (ni *NetworkInterface) GetCIDR() []string {
 	}
 
 	return cidrs
+}
+
+// SetMTU sets the MTU (Maximum Transmission Unit) for a network interface.
+// It uses the netlink library to configure the interface MTU.
+//
+// Parameters:
+//   - name: The name of the network interface to modify.
+//   - mtu: The desired MTU value in bytes.
+//
+// Returns:
+//   - error: An error if the interface doesn't exist or if setting the MTU fails, nil otherwise.
+//
+// Example:
+//
+//	err := SetMTU("eth0", 1500)
+//	if err != nil {
+//	    log.Printf("Failed to set MTU: %v", err)
+//	}
+//
+// Note: This function requires appropriate permissions to modify network interfaces.
+// If you unit test this, you will most likely want to mock the netlink interactions to avoid modifying actual network settings during tests.
+func SetMTU(name string, mtu int) error {
+	// Get the network interface by name
+	link, err := netlink.LinkByName(name)
+	if err != nil {
+		return fmt.Errorf("interface %s not found: %w", name, err)
+	}
+
+	// Set the MTU using netlink
+	if err := netlink.LinkSetMTU(link, mtu); err != nil {
+		return fmt.Errorf("failed to set MTU for %s: %w", name, err)
+	}
+
+	return nil
+}
+
+// GetNetworkCIDR returns the network CIDR address for a network interface.
+// It calculates the network address by ANDing the IP address with its netmask,
+// then returns it in CIDR notation (e.g., "10.41.0.0/16" for IP 10.41.1.1 with /16 mask).
+//
+// Parameters:
+//   - name: The name of the network interface to query.
+//
+// Returns:
+//   - string: The network CIDR address (e.g., "10.41.0.0/16"), empty string if no IPv4 address found.
+//   - error: An error if the interface doesn't exist or if fetching addresses fails, nil otherwise.
+//
+// Example:
+//
+//	networkCIDR, err := GetNetworkCIDR("eth0")
+//	if err != nil {
+//	    log.Printf("Failed to get network CIDR: %v", err)
+//	}
+//	fmt.Println(networkCIDR)  // Output: "10.41.0.0/16"
+//
+// Note: This function returns only the first IPv4 network address found. IPv6 addresses are skipped.
+func GetNetworkCIDR(name string) (string, error) {
+	// Get the network interface by name using netlink
+	link, err := netlink.LinkByName(name)
+	if err != nil {
+		return "", fmt.Errorf("interface %s not found: %w", name, err)
+	}
+
+	// Get all addresses associated with the interface
+	addrs, err := netlink.AddrList(link, netlink.FAMILY_V4)
+	if err != nil {
+		return "", fmt.Errorf("failed to get addresses for interface %s: %w", name, err)
+	}
+
+	if len(addrs) == 0 {
+		return "", fmt.Errorf("no IPv4 addresses found on interface %s", name)
+	}
+
+	// Use the first IPv4 address
+	addr := addrs[0]
+	if addr.IPNet == nil {
+		return "", fmt.Errorf("invalid IP address on interface %s", name)
+	}
+
+	// Calculate the network address by ANDing IP with netmask
+	ip := addr.IPNet.IP.To4()
+	if ip == nil {
+		return "", fmt.Errorf("not an IPv4 address on interface %s", name)
+	}
+
+	mask := addr.IPNet.Mask
+	networkIP := make(net.IP, len(ip))
+	for i := 0; i < len(ip); i++ {
+		networkIP[i] = ip[i] & mask[i]
+	}
+
+	// Create the network CIDR
+	networkCIDR := &net.IPNet{
+		IP:   networkIP,
+		Mask: mask,
+	}
+
+	return networkCIDR.String(), nil
 }

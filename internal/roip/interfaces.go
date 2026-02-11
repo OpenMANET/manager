@@ -3,6 +3,7 @@ package roip
 import (
 	"context"
 	"net/netip"
+	"time"
 
 	"github.com/openmanet/openmanetd/internal/firewall"
 	"github.com/openmanet/openmanetd/internal/network"
@@ -11,14 +12,15 @@ import (
 )
 
 const (
-	defaultLearningValue       string = "1"
-	defaultProxyValue          string = "1"
-	vxLanProtocol              string = "vxlan"
-	vxLanDefaultMTUValue       string = "1450"
-	defaultTunnelDeviceName    string = "tailscale0"
-	defaultVxLanDeviceName     string = "vxlan0"
-	defaultBatmanInterfaceName string = "battunnel0"
-	defaultMeshNetZoneName     string = "ahwlan"
+	defaultLearningValue        string = "1"
+	defaultProxyValue           string = "1"
+	vxLanProtocol               string = "vxlan"
+	vxLanDefaultMTUValue        int    = 1450
+	defaultTunnelDeviceName     string = "tailscale0"
+	defaultTunnelDeviceMTUValue int    = 1500
+	defaultVxLanDeviceName      string = "vxlan0"
+	defaultBatmanInterfaceName  string = "battunnel0"
+	defaultMeshNetZoneName      string = "ahwlan"
 )
 
 // createOrConfigureTunnelInterface creates or configures a tunnel interface in the UCI network configuration.
@@ -28,15 +30,6 @@ const (
 func (r *ROIP) createOrConfigureTunnelInterface() error {
 	// Check if the tunnel interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultTunnelDeviceName, r.uciNetworkConfig) {
-
-		// Create a new network device for the tunnel interface (anonymous section)
-		/* 		if err := network.SetDeviceConfigWithReader("", &network.UCIDevice{
-		   			Name: defaultTunnelDeviceName,
-		   			MTU:  defaultTunnelDeviceMTUValue,
-		   		}, r.uciNetworkConfig); err != nil {
-		   			return err
-		   		} */
-
 		// Create a new network section for the tunnel interface
 		if err := network.SetNetworkConfigWithReader(defaultTunnelDeviceName, &network.UCINetwork{
 			Proto:  "none",
@@ -46,6 +39,10 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 		}
 
 		if err := firewall.AddNetworkToZoneWithReader(defaultMeshNetZoneName, defaultTunnelDeviceName, r.uciFirewallConfig); err != nil {
+			return err
+		}
+
+		if err := network.SetMTU(defaultTunnelDeviceName, defaultTunnelDeviceMTUValue); err != nil {
 			return err
 		}
 
@@ -71,23 +68,18 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 func (r *ROIP) createOrConfigureVxLanInterface() error {
 	// Check if the VXLAN interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultVxLanDeviceName, r.uciNetworkConfig) {
-		// Create a new network device for the VXLAN interface (anonymous section)
-		/* 		if err := network.SetDeviceConfigWithReader("", &network.UCIDevice{
-		   			Name: defaultVxLanDeviceName,
-		   			MTU:  vxLanDefaultMTUValue,
-		   		}, r.uciNetworkConfig); err != nil {
-		   			return err
-		   		} */
-
 		// Create a new network section for the VXLAN interface
 		if err := network.SetVXLANConfigWithReader(defaultVxLanDeviceName, &network.UCIVXLANConfig{
 			Proto:    vxLanProtocol,
 			Learning: defaultLearningValue,
 			Tunlink:  defaultTunnelDeviceName,
 			Proxy:    defaultProxyValue,
-			MTU:      vxLanDefaultMTUValue,
 			VID:      "1",
 		}, r.uciNetworkConfig); err != nil {
+			return err
+		}
+
+		if err := network.SetMTU(defaultVxLanDeviceName, vxLanDefaultMTUValue); err != nil {
 			return err
 		}
 
@@ -134,7 +126,7 @@ func (r *ROIP) configureTailscalePreferences(ctx context.Context) error {
 	}
 
 	// Update preferences using helper function
-	updateTailscalePreferences(prefs)
+	r.updateTailscalePreferences(prefs)
 
 	// Apply the updated preferences back to Tailscale
 	_, err = lc.EditPrefs(ctx, &ipn.MaskedPrefs{
@@ -154,14 +146,21 @@ func (r *ROIP) configureTailscalePreferences(ctx context.Context) error {
 
 // updateTailscalePreferences updates the provided Prefs to enable RouteAll and disable NoSNAT.
 // It uses the ApplyEdits method from the Prefs struct to safely apply the changes.
-func updateTailscalePreferences(prefs *ipn.Prefs) {
+func (r *ROIP) updateTailscalePreferences(prefs *ipn.Prefs) {
+	// Get the network CIDR address
+	networkCIDR, err := network.GetNetworkCIDR(r.Config.MeshNetInterface)
+	if err != nil {
+		r.Logger.Error().Err(err).Msg("Failed to get network CIDR")
+		return
+	}
+
 	// Create a MaskedPrefs with the desired preference changes
 	edits := ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			RouteAll: true,
 			NoSNAT:   false,
 			AdvertiseRoutes: []netip.Prefix{
-				netip.MustParsePrefix("10.41.0.0/16"), // TODO: Get this dynamically
+				netip.MustParsePrefix(networkCIDR),
 				netip.MustParsePrefix("0.0.0.0/0"),
 				netip.MustParsePrefix("::/0"),
 			},
@@ -204,7 +203,7 @@ func (r *ROIP) tailscaleDown(ctx context.Context) error {
 		Prefs: ipn.Prefs{
 			WantRunning: false,
 		},
-		WantRunningSet: true,
+		WantRunningSet: false,
 	})
 	if err != nil {
 		r.Logger.Error().Err(err).Msg("Failed to bring Tailscale down")
@@ -221,6 +220,9 @@ func (r *ROIP) cycleTailscale(ctx context.Context) error {
 	if err := r.tailscaleDown(ctx); err != nil {
 		return err
 	}
+
+	// Wait a moment to ensure Tailscale has fully stopped before starting it again
+	time.Sleep(10 * time.Second)
 
 	if err := r.tailscaleUp(ctx); err != nil {
 		return err
