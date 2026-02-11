@@ -29,8 +29,8 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 	// Check if the tunnel interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultTunnelDeviceName, r.uciNetworkConfig) {
 
-		// Create a new network device for the tunnel interface
-		if err := network.SetDeviceConfigWithReader(defaultTunnelDeviceName, &network.UCIDevice{
+		// Create a new network device for the tunnel interface (anonymous section)
+		if err := network.SetDeviceConfigWithReader("", &network.UCIDevice{
 			Name: defaultTunnelDeviceName,
 			MTU:  defaultTunnelDeviceMTUValue,
 		}, r.uciNetworkConfig); err != nil {
@@ -71,8 +71,8 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 func (r *ROIP) createOrConfigureVxLanInterface() error {
 	// Check if the VXLAN interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultVxLanDeviceName, r.uciNetworkConfig) {
-		// Create a new network device for the VXLAN interface
-		if err := network.SetDeviceConfigWithReader(defaultVxLanDeviceName, &network.UCIDevice{
+		// Create a new network device for the VXLAN interface (anonymous section)
+		if err := network.SetDeviceConfigWithReader("", &network.UCIDevice{
 			Name: defaultVxLanDeviceName,
 			MTU:  vxLanDefaultMTUValue,
 		}, r.uciNetworkConfig); err != nil {
