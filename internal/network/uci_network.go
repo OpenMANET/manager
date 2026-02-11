@@ -65,6 +65,27 @@ type UCIDevice struct {
 	ARP_accept                      string   `uci:"option arp_accept"`                      // Accept gratuitous ARP (0/1)
 }
 
+// RemovePort removes a port from the Ports list if it exists.
+// Returns true if the port was found and removed, false otherwise.
+//
+// Example:
+//
+//	device := &UCIDevice{
+//	    Ports: []string{"eth0", "eth1", "bat0"},
+//	}
+//	removed := device.RemovePort("eth1")  // true
+//	// device.Ports is now []string{"eth0", "bat0"}
+func (d *UCIDevice) RemovePort(port string) bool {
+	for i, p := range d.Ports {
+		if p == port {
+			// Remove the port by creating a new slice
+			d.Ports = append(d.Ports[:i], d.Ports[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 // ConfigReader defines an interface for reading UCI configuration values.
 type ConfigReader interface {
 	Get(config, section, option string) ([]string, bool)

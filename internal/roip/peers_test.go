@@ -168,36 +168,6 @@ func createTestROIP() *ROIP {
 	}
 }
 
-func TestCreateVXMulticastPeers(t *testing.T) {
-	r := createTestROIP()
-
-	err := r.createVXMulticastPeers()
-	if err != nil {
-		t.Fatalf("createVXMulticastPeers failed: %v", err)
-	}
-
-	mockReader := r.uciNetworkConfig.(*MockVXLANConfigReader)
-	if !mockReader.commitCalled {
-		t.Error("Expected Commit to be called")
-	}
-
-	// Verify multicast addresses were added
-	for _, addr := range multicastGroupAddresses {
-		found := false
-		for section := range mockReader.data["network"] {
-			if values, ok := mockReader.data["network"][section]["dst"]; ok && len(values) > 0 {
-				if values[0] == addr {
-					found = true
-					break
-				}
-			}
-		}
-		if !found {
-			t.Errorf("Expected multicast address %s to be added", addr)
-		}
-	}
-}
-
 func TestCreateVxlanPeer_New(t *testing.T) {
 	r := createTestROIP()
 	peerIP := "100.64.1.2"

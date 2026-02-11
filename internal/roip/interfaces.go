@@ -50,6 +50,11 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 			return err
 		}
 
+		// Remove tailscale0 from the br-ahwlan bridge if it's there, to avoid conflicts with the VXLAN interface
+		if device, err := network.GetDeviceByNameWithReader(r.Config.MeshNetInterface, r.uciNetworkConfig); err == nil {
+			device.RemovePort(defaultTunnelDeviceName)
+		}
+
 		r.Logger.Debug().Msgf("Created ROIP tunnel interface %s", defaultTunnelDeviceName)
 	}
 
@@ -147,20 +152,13 @@ func (r *ROIP) configureTailscalePreferences(ctx context.Context) error {
 // updateTailscalePreferences updates the provided Prefs to enable RouteAll and disable NoSNAT.
 // It uses the ApplyEdits method from the Prefs struct to safely apply the changes.
 func (r *ROIP) updateTailscalePreferences(prefs *ipn.Prefs) {
-	// Get the network CIDR address
-	networkCIDR, err := network.GetNetworkCIDR(r.Config.MeshNetInterface)
-	if err != nil {
-		r.Logger.Error().Err(err).Msg("Failed to get network CIDR")
-		return
-	}
-
 	// Create a MaskedPrefs with the desired preference changes
 	edits := ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			RouteAll: true,
 			NoSNAT:   false,
 			AdvertiseRoutes: []netip.Prefix{
-				netip.MustParsePrefix(networkCIDR),
+				netip.MustParsePrefix("10.41.0.0/16"), // TODO: Figure out how to make this dynamic based on the actual network configuration instead of hardcoding it
 				netip.MustParsePrefix("0.0.0.0/0"),
 				netip.MustParsePrefix("::/0"),
 			},

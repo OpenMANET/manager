@@ -28,16 +28,8 @@ var (
 func (r *ROIP) createVXMulticastPeers() error {
 	// Create a VXLan peer for each multicast group address
 	for _, addr := range multicastGroupAddresses {
-		// Reload configuration to ensure clean state after previous interface creations
-		// This prevents UCI state conflicts when creating anonymous vxlan_peer sections
-		if err := r.uciNetworkConfig.ReloadConfig(); err != nil {
-			r.Logger.Warn().
-				Err(err).
-				Msg("Failed to reload UCI config before creating VXLAN peers, continuing anyway")
-		}
-
 		// Check if the peer already exists before creating it
-		if !network.VXLANPeerExistsByDstWithReader(addr, r.uciNetworkConfig) {
+		if !network.VXLANPeerExistsByDst(addr) {
 			peer := network.UCIVXLANPeer{
 				Dst:   addr,
 				Via:   defaultTunnelDeviceName,
@@ -45,7 +37,8 @@ func (r *ROIP) createVXMulticastPeers() error {
 			}
 
 			// Create the VXLAN peer in UCI
-			if err := network.AddVXLANPeerWithReader(&peer, r.uciNetworkConfig); err != nil {
+			// We use the non-reader version here because multicast peers are anonymous and don't have a stable section name to reference for updates, so we just attempt to add them and rely on UCI to handle duplicates gracefully.
+			if err := network.AddVXLANPeer(&peer); err != nil {
 				r.Logger.Error().
 					Err(err).
 					Str("address", addr).
