@@ -1192,68 +1192,68 @@ func AddVXLANPeer(peer *UCIVXLANPeer) error {
 
 // AddVXLANPeerWithReader adds a new VXLAN peer configuration as an anonymous section using the provided reader.
 func AddVXLANPeerWithReader(peer *UCIVXLANPeer, reader ConfigReader) error {
+	// Get count of existing vxlan_peer sections to determine the index of the new section
+	existingSections, err := reader.GetSections(networkConfigName, "vxlan_peer")
+	if err != nil {
+		// If error getting sections, assume none exist (count = 0)
+		existingSections = []string{}
+	}
+	newIndex := len(existingSections)
+
 	// Create anonymous section (empty string for section name)
 	if err := reader.AddSection(networkConfigName, "", "vxlan_peer"); err != nil {
 		return fmt.Errorf("failed to add VXLAN peer section: %w", err)
 	}
 
-	// Anonymous sections need to be referenced by index, but since we just added it,
-	// we need to set the options on the newly created section.
-	// For anonymous sections, UCI typically uses @type[index] notation.
-	// However, the go-uci library handles this differently.
-	// We'll need to use a different approach - set immediately after creation.
-
-	// Note: The section name for an anonymous section that was just added is typically
-	// the last one of that type. We need to retrieve it or work with the library's
-	// conventions for setting values on anonymous sections.
+	// Reference the newly created anonymous section using @vxlan_peer[index] notation
+	// This is the proper way to reference anonymous sections in UCI
+	sectionRef := fmt.Sprintf("@vxlan_peer[%d]", newIndex)
 
 	// Set vxlan interface (required)
 	if peer.VXLAN != "" {
-		// For anonymous sections just created, we use empty string and the library
-		// should apply to the last created section of that type
-		if err := reader.SetType(networkConfigName, "", "vxlan", uci.TypeOption, peer.VXLAN); err != nil {
+		if err := reader.SetType(networkConfigName, sectionRef, "vxlan", uci.TypeOption, peer.VXLAN); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer vxlan: %w", err)
 		}
 	}
 
 	// Set lladdr (optional)
 	if peer.LLAddr != "" {
-		if err := reader.SetType(networkConfigName, "", "lladdr", uci.TypeOption, peer.LLAddr); err != nil {
+		if err := reader.SetType(networkConfigName, sectionRef, "lladdr", uci.TypeOption, peer.LLAddr); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer lladdr: %w", err)
 		}
 	}
 
 	// Set dst (required)
 	if peer.Dst != "" {
-		if err := reader.SetType(networkConfigName, "", "dst", uci.TypeOption, peer.Dst); err != nil {
+		if err := reader.SetType(networkConfigName, sectionRef, "dst", uci.TypeOption, peer.Dst); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer dst: %w", err)
 		}
 	}
 
 	// Set port (optional)
 	if peer.Port != "" {
-		if err := reader.SetType(networkConfigName, "", "port", uci.TypeOption, peer.Port); err != nil {
+		if err := reader.SetType(networkConfigName, sectionRef, "port", uci.TypeOption, peer.Port); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer port: %w", err)
 		}
 	}
 
 	// Set via (optional)
 	if peer.Via != "" {
-		if err := reader.SetType(networkConfigName, "", "via", uci.TypeOption, peer.Via); err != nil {
+		if err := reader.SetType(networkConfigName, sectionRef, "via", uci.TypeOption, peer.Via); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer via: %w", err)
 		}
 	}
 
 	// Set vni (optional)
 	if peer.VNI != "" {
-		if err := reader.SetType(networkConfigName, "", "vni", uci.TypeOption, peer.VNI); err != nil {
+		if err := reader.SetType(networkConfigName, sectionRef, "vni", uci.TypeOption, peer.VNI); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer vni: %w", err)
 		}
 	}
 
 	// Set src_vni (optional)
 	if peer.SrcVNI != "" {
-		if err := reader.SetType(networkConfigName, "", "src_vni", uci.TypeOption, peer.SrcVNI); err != nil {
+		if err := reader.SetType(networkConfigName, sectionRef, "src_vni", uci.TypeOption, peer.SrcVNI); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer src_vni: %w", err)
 		}
 	}

@@ -1649,30 +1649,31 @@ func TestAddVXLANPeerWithReader(t *testing.T) {
 		t.Errorf("Expected AddSection to be called with %q, got %q", expectedAddSection, reader.addSectionCall)
 	}
 
-	// Verify all fields were set
+	// Verify all fields were set with the correct section reference @vxlan_peer[0]
 	expectedCalls := []struct {
-		option string
-		value  string
+		section string
+		option  string
+		value   string
 	}{
-		{"vxlan", "vxlan1"},
-		{"lladdr", "aa:bb:cc:dd:ee:ff"},
-		{"dst", "192.168.1.100"},
-		{"port", "8472"},
-		{"via", "wan"},
-		{"vni", "999"},
-		{"src_vni", "888"},
+		{"@vxlan_peer[0]", "vxlan", "vxlan1"},
+		{"@vxlan_peer[0]", "lladdr", "aa:bb:cc:dd:ee:ff"},
+		{"@vxlan_peer[0]", "dst", "192.168.1.100"},
+		{"@vxlan_peer[0]", "port", "8472"},
+		{"@vxlan_peer[0]", "via", "wan"},
+		{"@vxlan_peer[0]", "vni", "999"},
+		{"@vxlan_peer[0]", "src_vni", "888"},
 	}
 
 	for _, expected := range expectedCalls {
 		found := false
 		for _, call := range reader.setTypeCalls {
-			if call.option == expected.option && len(call.values) > 0 && call.values[0] == expected.value {
+			if call.section == expected.section && call.option == expected.option && len(call.values) > 0 && call.values[0] == expected.value {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("Expected SetType call for option %q with value %q", expected.option, expected.value)
+			t.Errorf("Expected SetType call for section %q option %q with value %q", expected.section, expected.option, expected.value)
 		}
 	}
 }
@@ -1745,23 +1746,23 @@ func TestAddVXLANPeerWithReader_MinimalConfig(t *testing.T) {
 		t.Error("Expected Commit to be called")
 	}
 
-	// Verify only required fields were set
+	// Verify only required fields were set with the correct section reference
 	vxlanSet := false
 	dstSet := false
 	for _, call := range reader.setTypeCalls {
-		if call.option == "vxlan" && len(call.values) > 0 && call.values[0] == "vxlan0" {
+		if call.section == "@vxlan_peer[0]" && call.option == "vxlan" && len(call.values) > 0 && call.values[0] == "vxlan0" {
 			vxlanSet = true
 		}
-		if call.option == "dst" && len(call.values) > 0 && call.values[0] == "10.0.0.5" {
+		if call.section == "@vxlan_peer[0]" && call.option == "dst" && len(call.values) > 0 && call.values[0] == "10.0.0.5" {
 			dstSet = true
 		}
 	}
 
 	if !vxlanSet {
-		t.Error("Expected vxlan to be set")
+		t.Error("Expected vxlan to be set on section @vxlan_peer[0]")
 	}
 	if !dstSet {
-		t.Error("Expected dst to be set")
+		t.Error("Expected dst to be set on section @vxlan_peer[0]")
 	}
 }
 
@@ -1957,6 +1958,56 @@ func TestAddVXLANPeerWithReader_AddSectionError(t *testing.T) {
 
 	if !contains(err.Error(), "failed to add VXLAN peer section") {
 		t.Errorf("Expected error message to contain 'failed to add VXLAN peer section', got: %v", err)
+	}
+}
+
+func TestAddVXLANPeerWithReader_WithExistingPeers(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"network": {
+				"peer0": {
+					"vxlan": {"vxlan0"},
+					"dst":   {"10.0.0.1"},
+				},
+				"peer1": {
+					"vxlan": {"vxlan0"},
+					"dst":   {"10.0.0.2"},
+				},
+			},
+		},
+	}
+
+	peer := &UCIVXLANPeer{
+		VXLAN: "vxlan0",
+		Dst:   "10.0.0.3",
+	}
+
+	err := AddVXLANPeerWithReader(peer, reader)
+	if err != nil {
+		t.Fatalf("AddVXLANPeerWithReader failed: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("Expected Commit to be called")
+	}
+
+	// With 2 existing sections, the new peer should be at index 2
+	vxlanSet := false
+	dstSet := false
+	for _, call := range reader.setTypeCalls {
+		if call.section == "@vxlan_peer[2]" && call.option == "vxlan" && len(call.values) > 0 && call.values[0] == "vxlan0" {
+			vxlanSet = true
+		}
+		if call.section == "@vxlan_peer[2]" && call.option == "dst" && len(call.values) > 0 && call.values[0] == "10.0.0.3" {
+			dstSet = true
+		}
+	}
+
+	if !vxlanSet {
+		t.Error("Expected vxlan to be set on section @vxlan_peer[2]")
+	}
+	if !dstSet {
+		t.Error("Expected dst to be set on section @vxlan_peer[2]")
 	}
 }
 
