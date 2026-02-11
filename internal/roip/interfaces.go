@@ -155,15 +155,13 @@ func (r *ROIP) configureTailscalePreferences(ctx context.Context) error {
 // updateTailscalePreferences updates the provided Prefs to enable RouteAll and disable NoSNAT.
 // It uses the ApplyEdits method from the Prefs struct to safely apply the changes.
 func updateTailscalePreferences(prefs *ipn.Prefs) {
-	iface := network.GetInterfaceByName(network.DefaultInterfaceName)
-
 	// Create a MaskedPrefs with the desired preference changes
 	edits := ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			RouteAll: true,
 			NoSNAT:   false,
 			AdvertiseRoutes: []netip.Prefix{
-				netip.MustParsePrefix(iface.GetCIDR()[0]),
+				netip.MustParsePrefix("10.41.0.0/16"), // TODO: Get this dynamically
 				netip.MustParsePrefix("0.0.0.0/0"),
 				netip.MustParsePrefix("::/0"),
 			},
