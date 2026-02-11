@@ -10,14 +10,15 @@ import (
 )
 
 const (
-	defaultLearningValue       string = "1"
-	defaultProxyValue          string = "1"
-	vxLanProtocol              string = "vxlan"
-	vxLanDefaultMTUValue       string = "1450"
-	defaultTunnelDeviceName    string = "tailscale0"
-	defaultVxLanDeviceName     string = "vxlan0"
-	defaultBatmanInterfaceName string = "battunnel0"
-	defaultMeshNetZoneName     string = "ahwlan"
+	defaultLearningValue        string = "1"
+	defaultProxyValue           string = "1"
+	vxLanProtocol               string = "vxlan"
+	vxLanDefaultMTUValue        string = "1450"
+	defaultTunnelDeviceName     string = "tailscale0"
+	defaultTunnelDeviceMTUValue string = "1500"
+	defaultVxLanDeviceName      string = "vxlan0"
+	defaultBatmanInterfaceName  string = "battunnel0"
+	defaultMeshNetZoneName      string = "ahwlan"
 )
 
 // createOrConfigureTunnelInterface creates or configures a tunnel interface in the UCI network configuration.
@@ -27,6 +28,14 @@ const (
 func (r *ROIP) createOrConfigureTunnelInterface() error {
 	// Check if the tunnel interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultTunnelDeviceName, r.uciNetworkConfig) {
+
+		// Create a new network device for the tunnel interface
+		if err := network.SetDeviceConfigWithReader(defaultTunnelDeviceName, &network.UCIDevice{
+			Name: defaultTunnelDeviceName,
+			MTU:  defaultTunnelDeviceMTUValue,
+		}, r.uciNetworkConfig); err != nil {
+			return err
+		}
 
 		// Create a new network section for the tunnel interface
 		if err := network.SetNetworkConfigWithReader(defaultTunnelDeviceName, &network.UCINetwork{
@@ -62,6 +71,14 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 func (r *ROIP) createOrConfigureVxLanInterface() error {
 	// Check if the VXLAN interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultVxLanDeviceName, r.uciNetworkConfig) {
+		// Create a new network device for the VXLAN interface
+		if err := network.SetDeviceConfigWithReader(defaultVxLanDeviceName, &network.UCIDevice{
+			Name: defaultVxLanDeviceName,
+			MTU:  vxLanDefaultMTUValue,
+		}, r.uciNetworkConfig); err != nil {
+			return err
+		}
+
 		// Create a new network section for the VXLAN interface
 		if err := network.SetVXLANConfigWithReader(defaultVxLanDeviceName, &network.UCIVXLANConfig{
 			Proto:    vxLanProtocol,
