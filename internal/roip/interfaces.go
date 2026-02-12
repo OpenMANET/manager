@@ -140,7 +140,6 @@ func (r *ROIP) configureTailscalePreferences(ctx context.Context) error {
 	// Apply the updated preferences back to Tailscale
 	_, err = lc.EditPrefs(ctx, &ipn.MaskedPrefs{
 		Prefs:              *prefs,
-		RouteAllSet:        true,
 		NoSNATSet:          true,
 		AdvertiseRoutesSet: true,
 	})
@@ -159,15 +158,13 @@ func (r *ROIP) updateTailscalePreferences(prefs *ipn.Prefs) {
 	// Create a MaskedPrefs with the desired preference changes
 	edits := ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
-			RouteAll: true,
-			NoSNAT:   false,
+			NoSNAT: false,
 			AdvertiseRoutes: []netip.Prefix{
 				netip.MustParsePrefix("10.41.0.0/16"), // TODO: Figure out how to make this dynamic based on the actual network configuration instead of hardcoding it
 				netip.MustParsePrefix("0.0.0.0/0"),
 				netip.MustParsePrefix("::/0"),
 			},
 		},
-		RouteAllSet:        true,
 		NoSNATSet:          true,
 		AdvertiseRoutesSet: true,
 	}
@@ -205,7 +202,7 @@ func (r *ROIP) tailscaleDown(ctx context.Context) error {
 		Prefs: ipn.Prefs{
 			WantRunning: false,
 		},
-		WantRunningSet: false,
+		WantRunningSet: true,
 	})
 	if err != nil {
 		r.Logger.Error().Err(err).Msg("Failed to bring Tailscale down")
