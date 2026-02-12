@@ -42,10 +42,6 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 			return err
 		}
 
-		if err := network.SetMTU(defaultTunnelDeviceName, defaultTunnelDeviceMTUValue); err != nil {
-			return err
-		}
-
 		if err := r.configureTailscalePreferences(r.ctx); err != nil {
 			return err
 		}
@@ -56,6 +52,12 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 		}
 
 		r.Logger.Debug().Msgf("Created ROIP tunnel interface %s", defaultTunnelDeviceName)
+	}
+
+	// Ensure the MTU is set correctly on the tunnel interface to avoid fragmentation issues with VXLAN encapsulated packets.
+	// Note: Tailscale sets the MTU of the tailscale0 interface to 1280 by default, which can cause fragmentation issues when used as the underlying device for a VXLAN interface. Setting it to 1500 allows for better performance while still avoiding fragmentation in most cases, but this may need to be adjusted based on the specific network environment and requirements.
+	if err := network.SetMTU(defaultTunnelDeviceName, defaultTunnelDeviceMTUValue); err != nil {
+		return err
 	}
 
 	return nil
@@ -84,11 +86,13 @@ func (r *ROIP) createOrConfigureVxLanInterface() error {
 			return err
 		}
 
-		if err := network.SetMTU(defaultVxLanDeviceName, vxLanDefaultMTUValue); err != nil {
-			return err
-		}
-
 		r.Logger.Debug().Msgf("Created ROIP VXLAN interface %s", defaultVxLanDeviceName)
+	}
+
+	// Ensure the MTU is set correctly on the VXLAN interface to avoid fragmentation issues with encapsulated packets.
+	// Note: The MTU for the VXLAN interface should be set to a value that accounts for the overhead of VXLAN encapsulation (typically around 50 bytes) to avoid fragmentation issues. Setting it to 1450 allows for better performance while still avoiding fragmentation in most cases, but this may need to be adjusted based on the specific network environment and requirements.
+	if err := network.SetMTU(defaultVxLanDeviceName, vxLanDefaultMTUValue); err != nil {
+		return err
 	}
 
 	return nil
