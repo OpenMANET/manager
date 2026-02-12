@@ -1644,7 +1644,7 @@ func TestAddVXLANPeerWithReader(t *testing.T) {
 	}
 
 	// Verify add section was called with empty name for anonymous section
-	expectedAddSection := "network..vxlan_peer"
+	expectedAddSection := "network.vxlan_peer."
 	if reader.addSectionCall != expectedAddSection {
 		t.Errorf("Expected AddSection to be called with %q, got %q", expectedAddSection, reader.addSectionCall)
 	}
@@ -1927,7 +1927,7 @@ func TestAddVXLANPeerWithReader_AllFieldsEmpty(t *testing.T) {
 	}
 
 	// Should have created anonymous section but set no fields
-	expectedAddSection := "network..vxlan_peer"
+	expectedAddSection := "network.vxlan_peer."
 	if reader.addSectionCall != expectedAddSection {
 		t.Errorf("Expected AddSection to be called with %q, got %q", expectedAddSection, reader.addSectionCall)
 	}

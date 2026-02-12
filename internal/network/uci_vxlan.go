@@ -1201,7 +1201,7 @@ func AddVXLANPeerWithReader(peer *UCIVXLANPeer, reader ConfigReader) error {
 	newIndex := len(existingSections)
 
 	// Create anonymous section (empty string for section name)
-	if err := reader.AddSection(networkConfigName, "", "vxlan_peer"); err != nil {
+	if err := reader.AddSection(networkConfigName, "vxlan_peer", ""); err != nil {
 		return fmt.Errorf("failed to add VXLAN peer section: %w", err)
 	}
 
