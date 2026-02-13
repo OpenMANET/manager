@@ -73,16 +73,6 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 //
 // Returns an error if the VXLAN configuration creation fails, otherwise returns nil.
 func (r *ROIP) createOrConfigureVxLanInterface() error {
-	// Check if the vxlan device already exists in UCI
-	if !network.DeviceSectionExistsWithReader(defaultVxLanDeviceName, r.uciNetworkConfig) {
-		// Create new device for the vxlan interface
-		if err := network.SetDeviceConfigWithReader(defaultVxLanDeviceName, &network.UCIDevice{
-			Name: defaultVxLanDeviceName,
-		}, r.uciNetworkConfig); err != nil {
-			return err
-		}
-	}
-
 	// Check if the VXLAN interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultVxLanDeviceName, r.uciNetworkConfig) {
 		// Create a new network section for the VXLAN interface
