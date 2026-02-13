@@ -1866,12 +1866,12 @@ func TestBatchAddVXLANPeersWithReader(t *testing.T) {
 	// Verify all three peers had their options set
 	for i, peer := range peers {
 		sectionRef := fmt.Sprintf("vxlan_peer_%d", i)
-		
+
 		// Check vxlan option
 		foundVxlan := false
 		foundDst := false
 		foundVia := false
-		
+
 		for _, call := range reader.setTypeCalls {
 			if call.section == sectionRef && call.option == "vxlan" && len(call.values) > 0 && call.values[0] == peer.VXLAN {
 				foundVxlan = true
@@ -1883,7 +1883,7 @@ func TestBatchAddVXLANPeersWithReader(t *testing.T) {
 				foundVia = true
 			}
 		}
-		
+
 		if !foundVxlan {
 			t.Errorf("Expected SetType call for peer %d section %q option 'vxlan' with value %q", i, sectionRef, peer.VXLAN)
 		}

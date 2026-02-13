@@ -573,313 +573,313 @@ func TestCompleteWorkflow(t *testing.T) {
 // ========== ROIP Configuration Tests ==========
 
 func TestIsROIPConfiguredWithReader(t *testing.T) {
-tests := []struct {
-name           string
-roipConfigured string
-expected       bool
-expectError    bool
-}{
-{
-name:           "configured",
-roipConfigured: "1",
-expected:       true,
-expectError:    false,
-},
-{
-name:           "not configured",
-roipConfigured: "0",
-expected:       false,
-expectError:    false,
-},
-{
-name:           "empty",
-roipConfigured: "",
-expected:       false,
-expectError:    false,
-},
-{
-name:           "invalid value",
-roipConfigured: "invalid",
-expected:       false,
-expectError:    true,
-},
-}
+	tests := []struct {
+		name           string
+		roipConfigured string
+		expected       bool
+		expectError    bool
+	}{
+		{
+			name:           "configured",
+			roipConfigured: "1",
+			expected:       true,
+			expectError:    false,
+		},
+		{
+			name:           "not configured",
+			roipConfigured: "0",
+			expected:       false,
+			expectError:    false,
+		},
+		{
+			name:           "empty",
+			roipConfigured: "",
+			expected:       false,
+			expectError:    false,
+		},
+		{
+			name:           "invalid value",
+			roipConfigured: "invalid",
+			expected:       false,
+			expectError:    true,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-mock := newMockOpenMANETConfigReader()
-if tt.roipConfigured != "" {
-_ = mock.AddSection("openmanetd", "config", "openmanet")
-_ = mock.SetType("openmanetd", "config", "roipconfigured", uci.TypeOption, tt.roipConfigured)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newMockOpenMANETConfigReader()
+			if tt.roipConfigured != "" {
+				_ = mock.AddSection("openmanetd", "config", "openmanet")
+				_ = mock.SetType("openmanetd", "config", "roipconfigured", uci.TypeOption, tt.roipConfigured)
+			}
 
-configured, err := IsROIPConfiguredWithReader(mock)
+			configured, err := IsROIPConfiguredWithReader(mock)
 
-if tt.expectError {
-if err == nil {
-t.Error("Expected error, got nil")
-}
-return
-}
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error, got nil")
+				}
+				return
+			}
 
-if err != nil {
-t.Fatalf("IsROIPConfiguredWithReader failed: %v", err)
-}
+			if err != nil {
+				t.Fatalf("IsROIPConfiguredWithReader failed: %v", err)
+			}
 
-if configured != tt.expected {
-t.Errorf("Expected %v, got %v", tt.expected, configured)
-}
-})
-}
+			if configured != tt.expected {
+				t.Errorf("Expected %v, got %v", tt.expected, configured)
+			}
+		})
+	}
 }
 
 func TestSetROIPConfiguredWithReader(t *testing.T) {
-mock := newMockOpenMANETConfigReader()
+	mock := newMockOpenMANETConfigReader()
 
-err := SetROIPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("SetROIPConfiguredWithReader failed: %v", err)
-}
+	err := SetROIPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("SetROIPConfiguredWithReader failed: %v", err)
+	}
 
-values, ok := mock.Get("openmanetd", "config", "roipconfigured")
-if !ok || len(values) == 0 || values[0] != "1" {
-t.Errorf("Expected roipconfigured=1, got %v", values)
-}
+	values, ok := mock.Get("openmanetd", "config", "roipconfigured")
+	if !ok || len(values) == 0 || values[0] != "1" {
+		t.Errorf("Expected roipconfigured=1, got %v", values)
+	}
 
-// Verify using IsROIPConfigured
-configured, err := IsROIPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("IsROIPConfiguredWithReader failed: %v", err)
-}
-if !configured {
-t.Error("Expected ROIP to be configured")
-}
+	// Verify using IsROIPConfigured
+	configured, err := IsROIPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("IsROIPConfiguredWithReader failed: %v", err)
+	}
+	if !configured {
+		t.Error("Expected ROIP to be configured")
+	}
 }
 
 func TestClearROIPConfiguredWithReader(t *testing.T) {
-mock := newMockOpenMANETConfigReader()
-_ = mock.AddSection("openmanetd", "config", "openmanet")
-_ = mock.SetType("openmanetd", "config", "roipconfigured", uci.TypeOption, "1")
+	mock := newMockOpenMANETConfigReader()
+	_ = mock.AddSection("openmanetd", "config", "openmanet")
+	_ = mock.SetType("openmanetd", "config", "roipconfigured", uci.TypeOption, "1")
 
-err := ClearROIPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("ClearROIPConfiguredWithReader failed: %v", err)
-}
+	err := ClearROIPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("ClearROIPConfiguredWithReader failed: %v", err)
+	}
 
-values, ok := mock.Get("openmanetd", "config", "roipconfigured")
-if !ok || len(values) == 0 || values[0] != "0" {
-t.Errorf("Expected roipconfigured=0, got %v", values)
-}
+	values, ok := mock.Get("openmanetd", "config", "roipconfigured")
+	if !ok || len(values) == 0 || values[0] != "0" {
+		t.Errorf("Expected roipconfigured=0, got %v", values)
+	}
 
-// Verify using IsROIPConfigured
-configured, err := IsROIPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("IsROIPConfiguredWithReader failed: %v", err)
-}
-if configured {
-t.Error("Expected ROIP to not be configured")
-}
+	// Verify using IsROIPConfigured
+	configured, err := IsROIPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("IsROIPConfiguredWithReader failed: %v", err)
+	}
+	if configured {
+		t.Error("Expected ROIP to not be configured")
+	}
 }
 
 func TestSetROIPConfiguredWithReader_ErrorHandling(t *testing.T) {
-mock := &mockOpenMANETConfigReaderWithErrors{}
+	mock := &mockOpenMANETConfigReaderWithErrors{}
 
-err := SetROIPConfiguredWithReader(mock)
-if err == nil {
-t.Error("Expected error from SetROIPConfiguredWithReader")
-}
+	err := SetROIPConfiguredWithReader(mock)
+	if err == nil {
+		t.Error("Expected error from SetROIPConfiguredWithReader")
+	}
 }
 
 func TestClearROIPConfiguredWithReader_ErrorHandling(t *testing.T) {
-mock := &mockOpenMANETConfigReaderWithErrors{}
+	mock := &mockOpenMANETConfigReaderWithErrors{}
 
-err := ClearROIPConfiguredWithReader(mock)
-if err == nil {
-t.Error("Expected error from ClearROIPConfiguredWithReader")
-}
+	err := ClearROIPConfiguredWithReader(mock)
+	if err == nil {
+		t.Error("Expected error from ClearROIPConfiguredWithReader")
+	}
 }
 
 func TestSetROIPConfigured_UpdatesExistingValue(t *testing.T) {
-mock := newMockOpenMANETConfigReader()
+	mock := newMockOpenMANETConfigReader()
 
-// Start with value set to 0
-_ = mock.AddSection("openmanetd", "config", "openmanet")
-_ = mock.SetType("openmanetd", "config", "roipconfigured", uci.TypeOption, "0")
+	// Start with value set to 0
+	_ = mock.AddSection("openmanetd", "config", "openmanet")
+	_ = mock.SetType("openmanetd", "config", "roipconfigured", uci.TypeOption, "0")
 
-configured, _ := IsROIPConfiguredWithReader(mock)
-if configured {
-t.Error("Expected initial state to be not configured")
-}
+	configured, _ := IsROIPConfiguredWithReader(mock)
+	if configured {
+		t.Error("Expected initial state to be not configured")
+	}
 
-// Set to configured
-err := SetROIPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("SetROIPConfiguredWithReader failed: %v", err)
-}
+	// Set to configured
+	err := SetROIPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("SetROIPConfiguredWithReader failed: %v", err)
+	}
 
-configured, _ = IsROIPConfiguredWithReader(mock)
-if !configured {
-t.Error("Expected state to be configured after SetROIPConfigured")
-}
+	configured, _ = IsROIPConfiguredWithReader(mock)
+	if !configured {
+		t.Error("Expected state to be configured after SetROIPConfigured")
+	}
 
-// Clear configured state
-err = ClearROIPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("ClearROIPConfiguredWithReader failed: %v", err)
-}
+	// Clear configured state
+	err = ClearROIPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("ClearROIPConfiguredWithReader failed: %v", err)
+	}
 
-configured, _ = IsROIPConfiguredWithReader(mock)
-if configured {
-t.Error("Expected state to be not configured after ClearROIPConfigured")
-}
+	configured, _ = IsROIPConfiguredWithReader(mock)
+	if configured {
+		t.Error("Expected state to be not configured after ClearROIPConfigured")
+	}
 }
 
 func TestGetOpenMANETConfigWithReader_IncludesROIP(t *testing.T) {
-mock := newMockOpenMANETConfigReader()
-_ = mock.AddSection("openmanetd", "config", "openmanet")
-_ = mock.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "1")
-_ = mock.SetType("openmanetd", "config", "roipconfigured", uci.TypeOption, "1")
-_ = mock.SetType("openmanetd", "config", "config", uci.TypeOption, "/etc/openmanet/config.yml")
+	mock := newMockOpenMANETConfigReader()
+	_ = mock.AddSection("openmanetd", "config", "openmanet")
+	_ = mock.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "1")
+	_ = mock.SetType("openmanetd", "config", "roipconfigured", uci.TypeOption, "1")
+	_ = mock.SetType("openmanetd", "config", "config", uci.TypeOption, "/etc/openmanet/config.yml")
 
-config, err := GetOpenMANETConfigWithReader(mock)
-if err != nil {
-t.Fatalf("GetOpenMANETConfigWithReader failed: %v", err)
-}
+	config, err := GetOpenMANETConfigWithReader(mock)
+	if err != nil {
+		t.Fatalf("GetOpenMANETConfigWithReader failed: %v", err)
+	}
 
-if config.DHCPConfigured != "1" {
-t.Errorf("Expected DHCPConfigured=1, got %s", config.DHCPConfigured)
-}
-if config.ROIPConfigured != "1" {
-t.Errorf("Expected ROIPConfigured=1, got %s", config.ROIPConfigured)
-}
-if config.Config != "/etc/openmanet/config.yml" {
-t.Errorf("Expected Config=/etc/openmanet/config.yml, got %s", config.Config)
-}
+	if config.DHCPConfigured != "1" {
+		t.Errorf("Expected DHCPConfigured=1, got %s", config.DHCPConfigured)
+	}
+	if config.ROIPConfigured != "1" {
+		t.Errorf("Expected ROIPConfigured=1, got %s", config.ROIPConfigured)
+	}
+	if config.Config != "/etc/openmanet/config.yml" {
+		t.Errorf("Expected Config=/etc/openmanet/config.yml, got %s", config.Config)
+	}
 }
 
 func TestSetOpenMANETConfigWithReader_IncludesROIP(t *testing.T) {
-mock := newMockOpenMANETConfigReader()
+	mock := newMockOpenMANETConfigReader()
 
-config := &UCIOpenMANET{
-DHCPConfigured: "1",
-ROIPConfigured: "1",
-Config:         "/custom/path/config.yml",
-}
+	config := &UCIOpenMANET{
+		DHCPConfigured: "1",
+		ROIPConfigured: "1",
+		Config:         "/custom/path/config.yml",
+	}
 
-err := SetOpenMANETConfigWithReader(config, mock)
-if err != nil {
-t.Fatalf("SetOpenMANETConfigWithReader failed: %v", err)
-}
+	err := SetOpenMANETConfigWithReader(config, mock)
+	if err != nil {
+		t.Fatalf("SetOpenMANETConfigWithReader failed: %v", err)
+	}
 
-// Verify the values were set
-readConfig, err := GetOpenMANETConfigWithReader(mock)
-if err != nil {
-t.Fatalf("GetOpenMANETConfigWithReader failed: %v", err)
-}
+	// Verify the values were set
+	readConfig, err := GetOpenMANETConfigWithReader(mock)
+	if err != nil {
+		t.Fatalf("GetOpenMANETConfigWithReader failed: %v", err)
+	}
 
-if readConfig.DHCPConfigured != "1" {
-t.Errorf("Expected DHCPConfigured=1, got %s", readConfig.DHCPConfigured)
-}
-if readConfig.ROIPConfigured != "1" {
-t.Errorf("Expected ROIPConfigured=1, got %s", readConfig.ROIPConfigured)
-}
-if readConfig.Config != "/custom/path/config.yml" {
-t.Errorf("Expected Config=/custom/path/config.yml, got %s", readConfig.Config)
-}
+	if readConfig.DHCPConfigured != "1" {
+		t.Errorf("Expected DHCPConfigured=1, got %s", readConfig.DHCPConfigured)
+	}
+	if readConfig.ROIPConfigured != "1" {
+		t.Errorf("Expected ROIPConfigured=1, got %s", readConfig.ROIPConfigured)
+	}
+	if readConfig.Config != "/custom/path/config.yml" {
+		t.Errorf("Expected Config=/custom/path/config.yml, got %s", readConfig.Config)
+	}
 }
 
 func TestCompleteWorkflowWithROIP(t *testing.T) {
-mock := newMockOpenMANETConfigReader()
+	mock := newMockOpenMANETConfigReader()
 
-// Step 1: Initial configuration
-config := &UCIOpenMANET{
-DHCPConfigured: "0",
-ROIPConfigured: "0",
-Config:         "/etc/openmanet/config.yml",
-}
+	// Step 1: Initial configuration
+	config := &UCIOpenMANET{
+		DHCPConfigured: "0",
+		ROIPConfigured: "0",
+		Config:         "/etc/openmanet/config.yml",
+	}
 
-err := SetOpenMANETConfigWithReader(config, mock)
-if err != nil {
-t.Fatalf("Failed to set initial config: %v", err)
-}
+	err := SetOpenMANETConfigWithReader(config, mock)
+	if err != nil {
+		t.Fatalf("Failed to set initial config: %v", err)
+	}
 
-// Step 2: Verify initial state
-dhcpConfigured, err := IsDHCPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("Failed to check DHCP configured: %v", err)
-}
-if dhcpConfigured {
-t.Error("Expected DHCP to not be configured initially")
-}
+	// Step 2: Verify initial state
+	dhcpConfigured, err := IsDHCPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("Failed to check DHCP configured: %v", err)
+	}
+	if dhcpConfigured {
+		t.Error("Expected DHCP to not be configured initially")
+	}
 
-roipConfigured, err := IsROIPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("Failed to check ROIP configured: %v", err)
-}
-if roipConfigured {
-t.Error("Expected ROIP to not be configured initially")
-}
+	roipConfigured, err := IsROIPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("Failed to check ROIP configured: %v", err)
+	}
+	if roipConfigured {
+		t.Error("Expected ROIP to not be configured initially")
+	}
 
-// Step 3: Mark DHCP and ROIP as configured
-err = SetDHCPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("Failed to set DHCP configured: %v", err)
-}
+	// Step 3: Mark DHCP and ROIP as configured
+	err = SetDHCPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("Failed to set DHCP configured: %v", err)
+	}
 
-err = SetROIPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("Failed to set ROIP configured: %v", err)
-}
+	err = SetROIPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("Failed to set ROIP configured: %v", err)
+	}
 
-// Step 4: Verify both are configured
-dhcpConfigured, err = IsDHCPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("Failed to check DHCP configured: %v", err)
-}
-if !dhcpConfigured {
-t.Error("Expected DHCP to be configured")
-}
+	// Step 4: Verify both are configured
+	dhcpConfigured, err = IsDHCPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("Failed to check DHCP configured: %v", err)
+	}
+	if !dhcpConfigured {
+		t.Error("Expected DHCP to be configured")
+	}
 
-roipConfigured, err = IsROIPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("Failed to check ROIP configured: %v", err)
-}
-if !roipConfigured {
-t.Error("Expected ROIP to be configured")
-}
+	roipConfigured, err = IsROIPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("Failed to check ROIP configured: %v", err)
+	}
+	if !roipConfigured {
+		t.Error("Expected ROIP to be configured")
+	}
 
-// Step 5: Get full config
-finalConfig, err := GetOpenMANETConfigWithReader(mock)
-if err != nil {
-t.Fatalf("Failed to get final config: %v", err)
-}
-if finalConfig.DHCPConfigured != "1" {
-t.Errorf("Expected DHCPConfigured=1, got %s", finalConfig.DHCPConfigured)
-}
-if finalConfig.ROIPConfigured != "1" {
-t.Errorf("Expected ROIPConfigured=1, got %s", finalConfig.ROIPConfigured)
-}
+	// Step 5: Get full config
+	finalConfig, err := GetOpenMANETConfigWithReader(mock)
+	if err != nil {
+		t.Fatalf("Failed to get final config: %v", err)
+	}
+	if finalConfig.DHCPConfigured != "1" {
+		t.Errorf("Expected DHCPConfigured=1, got %s", finalConfig.DHCPConfigured)
+	}
+	if finalConfig.ROIPConfigured != "1" {
+		t.Errorf("Expected ROIPConfigured=1, got %s", finalConfig.ROIPConfigured)
+	}
 
-// Step 6: Clear ROIP configured
-err = ClearROIPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("Failed to clear ROIP configured: %v", err)
-}
+	// Step 6: Clear ROIP configured
+	err = ClearROIPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("Failed to clear ROIP configured: %v", err)
+	}
 
-// Step 7: Verify ROIP is not configured but DHCP still is
-roipConfigured, err = IsROIPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("Failed to check ROIP configured: %v", err)
-}
-if roipConfigured {
-t.Error("Expected ROIP to not be configured after clearing")
-}
+	// Step 7: Verify ROIP is not configured but DHCP still is
+	roipConfigured, err = IsROIPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("Failed to check ROIP configured: %v", err)
+	}
+	if roipConfigured {
+		t.Error("Expected ROIP to not be configured after clearing")
+	}
 
-dhcpConfigured, err = IsDHCPConfiguredWithReader(mock)
-if err != nil {
-t.Fatalf("Failed to check DHCP configured: %v", err)
-}
-if !dhcpConfigured {
-t.Error("Expected DHCP to still be configured")
-}
+	dhcpConfigured, err = IsDHCPConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("Failed to check DHCP configured: %v", err)
+	}
+	if !dhcpConfigured {
+		t.Error("Expected DHCP to still be configured")
+	}
 }

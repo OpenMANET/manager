@@ -9,6 +9,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/firewall"
 	"github.com/openmanet/openmanetd/internal/network"
+	"github.com/openmanet/openmanetd/internal/system"
 	"github.com/rs/zerolog"
 	"tailscale.com/client/local"
 	"tailscale.com/ipn/ipnstate"
@@ -19,10 +20,11 @@ type ROIP struct {
 	Config *config.Config
 	Logger zerolog.Logger
 
-	ctx               context.Context
-	uciNetworkConfig  network.ConfigReader
-	uciFirewallConfig firewall.ConfigReader
-	statusWorker      *StatusWorker
+	ctx                context.Context
+	uciOpenManetConfig network.OpenMANETConfigReader
+	uciNetworkConfig   network.ConfigReader
+	uciFirewallConfig  firewall.ConfigReader
+	statusWorker       *StatusWorker
 }
 
 func NewROIP(cfg *config.Config, logger zerolog.Logger) (*ROIP, error) {
@@ -40,11 +42,12 @@ func NewROIP(cfg *config.Config, logger zerolog.Logger) (*ROIP, error) {
 	}
 
 	r := &ROIP{
-		Config:            cfg,
-		Logger:            logger,
-		ctx:               context.Background(),
-		uciNetworkConfig:  network.NewUCINetworkConfigReader(),
-		uciFirewallConfig: firewall.NewUCIFirewallConfigReader(),
+		Config:             cfg,
+		Logger:             logger,
+		ctx:                context.Background(),
+		uciOpenManetConfig: network.NewUCIOpenMANETConfigReader(),
+		uciNetworkConfig:   network.NewUCINetworkConfigReader(),
+		uciFirewallConfig:  firewall.NewUCIFirewallConfigReader(),
 	}
 
 	// Initialize the status worker
@@ -81,9 +84,11 @@ func (r *ROIP) configureInterfaces(ctx context.Context) error {
 
 	switch tunnelStatus.BackendState {
 	case "Running", "Starting":
-		r.Logger.Info().Msg("Tunnel is starting or running")
+		r.Logger.Info().Msgf("Tunnel status: %s", tunnelStatus.BackendState)
 	case "Stopped":
 		r.Logger.Info().Msg("Tunnel is stopped")
+
+		return errors.New("Tunnel is stopped. Ensure Tailscale is running and authenticated, then restart openmanetd.")
 	case "NeedsLogin", "NeedsMachineAuth":
 		r.Logger.Error().Msgf("Tunnel requires login or machine authentication: %s", tunnelStatus.BackendState)
 
@@ -92,33 +97,57 @@ func (r *ROIP) configureInterfaces(ctx context.Context) error {
 		r.Logger.Info().Msgf("Tunnel is in state: %s", tunnelStatus.BackendState)
 	}
 
-	r.Logger.Info().Msgf("Tunnel status: %v", tunnelStatus)
-
 	// Only configure ROIP interfaces if the mesh network interface exists
 	if network.NetworkSectionExistsWithReader(r.Config.GetAlfredBatInterface(), r.uciNetworkConfig) {
 
-		// Configure wireguard (tailscale) tunnel interface
-		if err := r.createOrConfigureTunnelInterface(); err != nil {
+		roipConfigured, err := network.IsROIPConfiguredWithReader(r.uciOpenManetConfig)
+		if err != nil {
 			return err
 		}
 
-		// Configure VxLAN interface
-		if err := r.createOrConfigureVxLanInterface(); err != nil {
+		if !roipConfigured {
+			// Configure wireguard (tailscale) tunnel interface
+			if err := r.createOrConfigureTunnelInterface(); err != nil {
+				return err
+			}
+
+			// Configure VxLAN interface
+			if err := r.createOrConfigureVxLanInterface(); err != nil {
+				return err
+			}
+
+			// Configure Batman interface for tunnel
+			if err := r.createOrConfigureBatmanInterface(); err != nil {
+				return err
+			}
+
+			// Create VxLAN multicast peers
+			if err := r.createVXMulticastPeers(); err != nil {
+				return err
+			}
+
+			// Mark ROIP as configured in the OpenMANET config to avoid reconfiguring on every startup
+			if err := network.SetROIPConfiguredWithReader(r.uciOpenManetConfig); err != nil {
+				return err
+			}
+
+			// Reboot the system to clean up things and apply new network settings.  This is required to properly set up the tunnel and interfaces in the correct order, and to ensure a clean state.  We will likely need to reboot at least once anyway after installation to get Tailscale set up, so doing it here ensures we don't end up in a broken state if we try to configure interfaces before Tailscale is fully set up and authenticated.
+			r.Logger.Info().Msg("ROIP configured successfully, rebooting system to apply changes")
+			if err = system.Reboot(); err != nil {
+				r.Logger.Error().Err(err).Msg("Failed to reboot system after ROIP configuration")
+				return err
+			}
+		}
+
+		// Ensure the MTU is set correctly on the tunnel interface to avoid fragmentation issues with VXLAN encapsulated packets.
+		// Note: Tailscale sets the MTU of the tailscale0 interface to 1280 by default, which can cause fragmentation issues when used as the underlying device for a VXLAN interface. Setting it to 1500 allows for better performance while still avoiding fragmentation in most cases, but this may need to be adjusted based on the specific network environment and requirements.
+		if err := network.SetMTU(defaultTunnelDeviceName, defaultTunnelDeviceMTUValue); err != nil {
 			return err
 		}
 
-		// Configure Batman interface for tunnel
-		if err := r.createOrConfigureBatmanInterface(); err != nil {
-			return err
-		}
-
-		// Create VxLAN multicast peers
-		if err := r.createVXMulticastPeers(); err != nil {
-			return err
-		}
-
-		// Cycle the Tailscale daemon to ensure it picks up the new interfaces and preferences
-		if err := r.cycleTailscale(r.ctx); err != nil {
+		// Ensure the MTU is set correctly on the VXLAN interface to avoid fragmentation issues with encapsulated packets.
+		// Note: The MTU for the VXLAN interface should be set to a value that accounts for the overhead of VXLAN encapsulation (typically around 50 bytes) to avoid fragmentation issues. Setting it to 1450 allows for better performance while still avoiding fragmentation in most cases, but this may need to be adjusted based on the specific network environment and requirements.
+		if err := network.SetMTU(defaultVxLanDeviceName, vxLanDefaultMTUValue); err != nil {
 			return err
 		}
 

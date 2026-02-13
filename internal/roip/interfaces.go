@@ -54,12 +54,6 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 		r.Logger.Debug().Msgf("Created ROIP tunnel interface %s", defaultTunnelDeviceName)
 	}
 
-	// Ensure the MTU is set correctly on the tunnel interface to avoid fragmentation issues with VXLAN encapsulated packets.
-	// Note: Tailscale sets the MTU of the tailscale0 interface to 1280 by default, which can cause fragmentation issues when used as the underlying device for a VXLAN interface. Setting it to 1500 allows for better performance while still avoiding fragmentation in most cases, but this may need to be adjusted based on the specific network environment and requirements.
-	if err := network.SetMTU(defaultTunnelDeviceName, defaultTunnelDeviceMTUValue); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -86,13 +80,11 @@ func (r *ROIP) createOrConfigureVxLanInterface() error {
 			return err
 		}
 
-		r.Logger.Debug().Msgf("Created ROIP VXLAN interface %s", defaultVxLanDeviceName)
-	}
+		if err := network.ForceReloadConfig(); err != nil {
+			return err
+		}
 
-	// Ensure the MTU is set correctly on the VXLAN interface to avoid fragmentation issues with encapsulated packets.
-	// Note: The MTU for the VXLAN interface should be set to a value that accounts for the overhead of VXLAN encapsulation (typically around 50 bytes) to avoid fragmentation issues. Setting it to 1450 allows for better performance while still avoiding fragmentation in most cases, but this may need to be adjusted based on the specific network environment and requirements.
-	if err := network.SetMTU(defaultVxLanDeviceName, vxLanDefaultMTUValue); err != nil {
-		return err
+		r.Logger.Debug().Msgf("Created ROIP VXLAN interface %s", defaultVxLanDeviceName)
 	}
 
 	return nil
@@ -161,8 +153,6 @@ func (r *ROIP) updateTailscalePreferences(prefs *ipn.Prefs) {
 			NoSNAT: false,
 			AdvertiseRoutes: []netip.Prefix{
 				netip.MustParsePrefix("10.41.0.0/16"), // TODO: Figure out how to make this dynamic based on the actual network configuration instead of hardcoding it
-				netip.MustParsePrefix("0.0.0.0/0"),
-				netip.MustParsePrefix("::/0"),
 			},
 		},
 		NoSNATSet:          true,

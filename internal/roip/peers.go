@@ -61,7 +61,7 @@ func (r *ROIP) createVXMulticastPeers() error {
 		return err
 	}
 
-	r.Logger.Info().
+	r.Logger.Debug().
 		Int("count", len(peersToCreate)).
 		Msg("Successfully created VXLAN multicast peers")
 
@@ -146,7 +146,7 @@ func (r *ROIP) syncVXLANPeersWithTailscale() error {
 		return err
 	}
 
-	r.Logger.Info().
+	r.Logger.Debug().
 		Int("active_peers", len(activePeerIPs)).
 		Msg("VXLAN peers synchronized with Tailscale")
 

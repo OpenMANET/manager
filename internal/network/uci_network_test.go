@@ -13,23 +13,23 @@ import (
 
 // mockConfigReader is a test double that returns predefined configuration values.
 type mockConfigReader struct {
-	data            map[string]map[string]map[string][]string
-	sectionTypes    map[string]map[string]string // config -> section -> type
-	anonSections    map[string][]string          // config -> list of anonymous section internal keys
-	anonSectionSeq  int                          // sequence number for generating unique anonymous section keys
-	commitError     error
-	setTypeError    error
-	delSectionErr   error
-	addSectionErr   error
-	reloadError     error
-	delError        error
-	commitCalled    bool
-	reloadCalled    bool
-	commitCount     int
-	reloadCount     int
-	setTypeCalls    []setTypeCall
-	delSectionCall  string
-	addSectionCall  string
+	data           map[string]map[string]map[string][]string
+	sectionTypes   map[string]map[string]string // config -> section -> type
+	anonSections   map[string][]string          // config -> list of anonymous section internal keys
+	anonSectionSeq int                          // sequence number for generating unique anonymous section keys
+	commitError    error
+	setTypeError   error
+	delSectionErr  error
+	addSectionErr  error
+	reloadError    error
+	delError       error
+	commitCalled   bool
+	reloadCalled   bool
+	commitCount    int
+	reloadCount    int
+	setTypeCalls   []setTypeCall
+	delSectionCall string
+	addSectionCall string
 }
 
 type setTypeCall struct {
@@ -60,7 +60,7 @@ func (m *mockConfigReader) GetSections(config, secType string) ([]string, error)
 	if m.anonSections == nil {
 		m.anonSections = make(map[string][]string)
 	}
-	
+
 	if typeMap, ok := m.sectionTypes[config]; ok {
 		// First collect named sections (skip anonymous internal keys)
 		for section, stype := range typeMap {
@@ -68,7 +68,7 @@ func (m *mockConfigReader) GetSections(config, secType string) ([]string, error)
 				sections = append(sections, section)
 			}
 		}
-		
+
 		// Then collect anonymous sections in order
 		anonCount := 0
 		for _, anonKey := range m.anonSections[config] {
@@ -88,11 +88,11 @@ func (m *mockConfigReader) resolveSectionRef(config, section string) string {
 		// Parse @type[index] using string operations
 		closeBracket := strings.LastIndex(section, "]")
 		openBracket := strings.LastIndex(section, "[")
-		
+
 		if openBracket > 0 && closeBracket > openBracket {
 			secType := section[1:openBracket]
 			indexStr := section[openBracket+1 : closeBracket]
-			
+
 			var index int
 			if _, err := fmt.Sscanf(indexStr, "%d", &index); err == nil {
 				// Find the Nth anonymous section of this type
@@ -125,10 +125,10 @@ func (m *mockConfigReader) SetType(config, section, option string, typ uci.Optio
 		typ:     typ,
 		values:  values,
 	})
-	
+
 	// Resolve section reference to internal key
 	actualSection := m.resolveSectionRef(config, section)
-	
+
 	// Update data for subsequent reads
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
@@ -158,7 +158,7 @@ func (m *mockConfigReader) AddSection(config, section, typ string) error {
 		return m.addSectionErr
 	}
 	m.addSectionCall = fmt.Sprintf("%s.%s.%s", config, section, typ)
-	
+
 	// Track section types for GetSections
 	if m.sectionTypes == nil {
 		m.sectionTypes = make(map[string]map[string]string)
@@ -169,7 +169,7 @@ func (m *mockConfigReader) AddSection(config, section, typ string) error {
 	if m.anonSections == nil {
 		m.anonSections = make(map[string][]string)
 	}
-	
+
 	// For anonymous sections (empty name), generate an internal key
 	actualSection := section
 	if section == "" {
@@ -177,9 +177,9 @@ func (m *mockConfigReader) AddSection(config, section, typ string) error {
 		actualSection = fmt.Sprintf("__anon__%d", m.anonSectionSeq)
 		m.anonSections[config] = append(m.anonSections[config], actualSection)
 	}
-	
+
 	m.sectionTypes[config][actualSection] = typ
-	
+
 	// Initialize data structure for this section
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
@@ -187,7 +187,7 @@ func (m *mockConfigReader) AddSection(config, section, typ string) error {
 	if m.data[config][actualSection] == nil {
 		m.data[config][actualSection] = make(map[string][]string)
 	}
-	
+
 	return nil
 }
 

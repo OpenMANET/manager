@@ -1138,6 +1138,12 @@ func GetAllDevicesWithReader(reader ConfigReader) (map[string]*UCIDevice, error)
 	return devices, nil
 }
 
+// ForceReloadConfig forces a reload of the network configuration by executing the OpenWrt network init script.
+func ForceReloadConfig() error {
+	cmd := exec.Command("reload_config")
+	return cmd.Run()
+}
+
 // ReloadNetwork reloads the network configuration by executing the OpenWrt network init script.
 // It calls the '/etc/init.d/network reload' command to apply network configuration changes
 // without restarting the entire network subsystem.
