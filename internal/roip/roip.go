@@ -25,6 +25,7 @@ type ROIP struct {
 	uciNetworkConfig   network.ConfigReader
 	uciFirewallConfig  firewall.ConfigReader
 	statusWorker       *StatusWorker
+	lastSyncedPeerIPs  map[string]bool // Track peer IPs from last sync to detect changes
 }
 
 func NewROIP(cfg *config.Config, logger zerolog.Logger) (*ROIP, error) {

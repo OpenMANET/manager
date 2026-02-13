@@ -102,6 +102,7 @@ func (r *ROIP) createVxlanPeer(peerIP string) error {
 // syncVXLANPeersWithTailscale synchronizes VXLAN peers with current Tailscale peers.
 // It adds/updates VXLAN peers for active Tailscale peers and removes VXLAN peers
 // for Tailscale peers that are no longer present.
+// This function only makes changes if the peer map has actually changed since the last sync.
 func (r *ROIP) syncVXLANPeersWithTailscale() error {
 	// Get current Tailscale peers
 	tailscalePeers := r.GetPeers()
@@ -113,7 +114,6 @@ func (r *ROIP) syncVXLANPeersWithTailscale() error {
 	// Collect active Tailscale peer IPs (pre-allocate with peer count)
 	activePeerIPs := make(map[string]bool, len(tailscalePeers))
 
-	// Create/update VXLAN peers for each active Tailscale peer
 	for _, peer := range tailscalePeers {
 		if len(peer.TailscaleIPs) == 0 {
 			r.Logger.Debug().Str("peer", peer.HostName).Msg("Peer has no Tailscale IPs")
@@ -123,16 +123,25 @@ func (r *ROIP) syncVXLANPeersWithTailscale() error {
 		// Use the first Tailscale IP
 		peerIP := peer.TailscaleIPs[0].String()
 		activePeerIPs[peerIP] = true
+	}
 
+	// Check if the peer set has changed since last sync
+	hasChanges := r.hasPeerChanges(activePeerIPs)
+
+	if !hasChanges {
+		r.Logger.Debug().Msg("No changes in Tailscale peers, skipping VXLAN sync")
+		return nil
+	}
+
+	// Create/update VXLAN peers for each active Tailscale peer
+	for peerIP := range activePeerIPs {
 		r.Logger.Debug().
-			Str("peer", peer.HostName).
 			Str("ip", peerIP).
 			Msg("Syncing VXLAN peer")
 
 		if err := r.createVxlanPeer(peerIP); err != nil {
 			r.Logger.Error().
 				Err(err).
-				Str("peer", peer.HostName).
 				Str("ip", peerIP).
 				Msg("Failed to create/update VXLAN peer")
 			return err
@@ -146,11 +155,45 @@ func (r *ROIP) syncVXLANPeersWithTailscale() error {
 		return err
 	}
 
+	// Update the last synced peer IPs
+	r.lastSyncedPeerIPs = activePeerIPs
+
 	r.Logger.Debug().
 		Int("active_peers", len(activePeerIPs)).
 		Msg("VXLAN peers synchronized with Tailscale")
 
 	return nil
+}
+
+// hasPeerChanges compares the current active peer IPs with the last synced peer IPs
+// to determine if there are any changes (additions or removals).
+func (r *ROIP) hasPeerChanges(activePeerIPs map[string]bool) bool {
+	// If this is the first sync, there are changes
+	if r.lastSyncedPeerIPs == nil {
+		return true
+	}
+
+	// If the number of peers changed, there are changes
+	if len(activePeerIPs) != len(r.lastSyncedPeerIPs) {
+		return true
+	}
+
+	// Check if any peer in activePeerIPs is not in lastSyncedPeerIPs
+	for peerIP := range activePeerIPs {
+		if !r.lastSyncedPeerIPs[peerIP] {
+			return true
+		}
+	}
+
+	// Check if any peer in lastSyncedPeerIPs is not in activePeerIPs
+	for peerIP := range r.lastSyncedPeerIPs {
+		if !activePeerIPs[peerIP] {
+			return true
+		}
+	}
+
+	// No changes detected
+	return false
 }
 
 // removeInactiveVXLANPeers removes VXLAN peers that are not in the active peer list
