@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/digineo/go-uci/v2"
@@ -12,18 +13,23 @@ import (
 
 // mockConfigReader is a test double that returns predefined configuration values.
 type mockConfigReader struct {
-	data           map[string]map[string]map[string][]string
-	commitError    error
-	setTypeError   error
-	delSectionErr  error
-	addSectionErr  error
-	reloadError    error
-	delError       error
-	commitCalled   bool
-	reloadCalled   bool
-	setTypeCalls   []setTypeCall
-	delSectionCall string
-	addSectionCall string
+	data            map[string]map[string]map[string][]string
+	sectionTypes    map[string]map[string]string // config -> section -> type
+	anonSections    map[string][]string          // config -> list of anonymous section internal keys
+	anonSectionSeq  int                          // sequence number for generating unique anonymous section keys
+	commitError     error
+	setTypeError    error
+	delSectionErr   error
+	addSectionErr   error
+	reloadError     error
+	delError        error
+	commitCalled    bool
+	reloadCalled    bool
+	commitCount     int
+	reloadCount     int
+	setTypeCalls    []setTypeCall
+	delSectionCall  string
+	addSectionCall  string
 }
 
 type setTypeCall struct {
@@ -46,14 +52,66 @@ func (m *mockConfigReader) Get(config, section, option string) ([]string, bool) 
 }
 
 func (m *mockConfigReader) GetSections(config, secType string) ([]string, error) {
-	// For testing, return all sections in the config
+	// Return sections filtered by type, using proper UCI section references
 	var sections []string
-	if configData, ok := m.data[config]; ok {
-		for section := range configData {
-			sections = append(sections, section)
+	if m.sectionTypes == nil {
+		m.sectionTypes = make(map[string]map[string]string)
+	}
+	if m.anonSections == nil {
+		m.anonSections = make(map[string][]string)
+	}
+	
+	if typeMap, ok := m.sectionTypes[config]; ok {
+		// First collect named sections (skip anonymous internal keys)
+		for section, stype := range typeMap {
+			if stype == secType && section != "" && !strings.Contains(section, "__anon__") {
+				sections = append(sections, section)
+			}
+		}
+		
+		// Then collect anonymous sections in order
+		anonCount := 0
+		for _, anonKey := range m.anonSections[config] {
+			if stype, ok := typeMap[anonKey]; ok && stype == secType {
+				sections = append(sections, fmt.Sprintf("@%s[%d]", secType, anonCount))
+				anonCount++
+			}
 		}
 	}
 	return sections, nil
+}
+
+// resolveSectionRef resolves a section reference (like "@vxlan_peer[0]") to its internal key
+func (m *mockConfigReader) resolveSectionRef(config, section string) string {
+	// Check if it's an anonymous section reference (@type[index])
+	if len(section) > 0 && section[0] == '@' {
+		// Parse @type[index] using string operations
+		closeBracket := strings.LastIndex(section, "]")
+		openBracket := strings.LastIndex(section, "[")
+		
+		if openBracket > 0 && closeBracket > openBracket {
+			secType := section[1:openBracket]
+			indexStr := section[openBracket+1 : closeBracket]
+			
+			var index int
+			if _, err := fmt.Sscanf(indexStr, "%d", &index); err == nil {
+				// Find the Nth anonymous section of this type
+				count := 0
+				if anonList, ok := m.anonSections[config]; ok {
+					for _, anonKey := range anonList {
+						if stype, ok := m.sectionTypes[config][anonKey]; ok && stype == secType {
+							if count == index {
+								return anonKey
+							}
+							count++
+						}
+					}
+				}
+			}
+		}
+	}
+	// Not an anonymous reference, return as-is
+	return section
 }
 
 func (m *mockConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
@@ -67,14 +125,18 @@ func (m *mockConfigReader) SetType(config, section, option string, typ uci.Optio
 		typ:     typ,
 		values:  values,
 	})
+	
+	// Resolve section reference to internal key
+	actualSection := m.resolveSectionRef(config, section)
+	
 	// Update data for subsequent reads
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
 	}
-	if m.data[config][section] == nil {
-		m.data[config][section] = make(map[string][]string)
+	if m.data[config][actualSection] == nil {
+		m.data[config][actualSection] = make(map[string][]string)
 	}
-	m.data[config][section][option] = values
+	m.data[config][actualSection][option] = values
 	return nil
 }
 
@@ -96,6 +158,36 @@ func (m *mockConfigReader) AddSection(config, section, typ string) error {
 		return m.addSectionErr
 	}
 	m.addSectionCall = fmt.Sprintf("%s.%s.%s", config, section, typ)
+	
+	// Track section types for GetSections
+	if m.sectionTypes == nil {
+		m.sectionTypes = make(map[string]map[string]string)
+	}
+	if m.sectionTypes[config] == nil {
+		m.sectionTypes[config] = make(map[string]string)
+	}
+	if m.anonSections == nil {
+		m.anonSections = make(map[string][]string)
+	}
+	
+	// For anonymous sections (empty name), generate an internal key
+	actualSection := section
+	if section == "" {
+		m.anonSectionSeq++
+		actualSection = fmt.Sprintf("__anon__%d", m.anonSectionSeq)
+		m.anonSections[config] = append(m.anonSections[config], actualSection)
+	}
+	
+	m.sectionTypes[config][actualSection] = typ
+	
+	// Initialize data structure for this section
+	if m.data[config] == nil {
+		m.data[config] = make(map[string]map[string][]string)
+	}
+	if m.data[config][actualSection] == nil {
+		m.data[config][actualSection] = make(map[string][]string)
+	}
+	
 	return nil
 }
 
@@ -113,11 +205,13 @@ func (m *mockConfigReader) DelSection(config, section string) error {
 
 func (m *mockConfigReader) Commit() error {
 	m.commitCalled = true
+	m.commitCount++
 	return m.commitError
 }
 
 func (m *mockConfigReader) ReloadConfig() error {
 	m.reloadCalled = true
+	m.reloadCount++
 	return m.reloadError
 }
 
@@ -1924,6 +2018,13 @@ func TestGetAllDevicesWithReader(t *testing.T) {
 				"tailscale0": {
 					"name": {"tailscale0"},
 				},
+			},
+		},
+		sectionTypes: map[string]map[string]string{
+			"network": {
+				"br-ahwlan":  "device",
+				"vxlan0":     "device",
+				"tailscale0": "device",
 			},
 		},
 	}

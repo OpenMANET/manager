@@ -23,34 +23,47 @@ var (
 // It checks if a peer already exists before creating it to avoid duplicates.
 // Each peer is configured with the default tunnel device and VXLan device names.
 // Returns an error if the peer creation fails, otherwise returns nil.
-
-// TODO: Only create 1 multicast peer per execution of this function, and rotate through the list of multicast addresses to avoid UCI conflicts when creating multiple anonymous sections in quick succession.
+//
+// This function batches the creation of all multicast peers for efficiency,
+// reducing the number of UCI commits and reloads from 2N to 2 (where N is the number of peers).
 func (r *ROIP) createVXMulticastPeers() error {
-	// Create a VXLan peer for each multicast group address
+	// Reload configuration to ensure clean state before creating peers
+	if err := r.uciNetworkConfig.ReloadConfig(); err != nil {
+		r.Logger.Debug().
+			Err(err).
+			Msg("Failed to reload UCI config before creating multicast peers, continuing anyway")
+	}
+
+	// Collect peers that need to be created
+	peersToCreate := []network.UCIVXLANPeer{}
 	for _, addr := range multicastGroupAddresses {
-		// Check if the peer already exists before creating it
 		if !network.VXLANPeerExistsByDst(addr) {
-			peer := network.UCIVXLANPeer{
+			peersToCreate = append(peersToCreate, network.UCIVXLANPeer{
 				Dst:   addr,
 				Via:   defaultTunnelDeviceName,
 				VXLAN: defaultVxLanDeviceName,
-			}
-
-			// Create the VXLAN peer in UCI
-			// We use the non-reader version here because multicast peers are anonymous and don't have a stable section name to reference for updates, so we just attempt to add them and rely on UCI to handle duplicates gracefully.
-			if err := network.AddVXLANPeer(&peer); err != nil {
-				r.Logger.Error().
-					Err(err).
-					Str("address", addr).
-					Msg("Failed to create VXLAN multicast peer")
-				return err
-			}
-
-			r.Logger.Debug().
-				Str("address", addr).
-				Msg("Created VXLAN multicast peer")
+			})
 		}
 	}
+
+	// If no peers need to be created, return early
+	if len(peersToCreate) == 0 {
+		r.Logger.Debug().Msg("All multicast peers already exist")
+		return nil
+	}
+
+	// Batch create all missing multicast peers
+	if err := network.BatchAddVXLANPeersWithReader(peersToCreate, r.uciNetworkConfig); err != nil {
+		r.Logger.Error().
+			Err(err).
+			Int("count", len(peersToCreate)).
+			Msg("Failed to batch create VXLAN multicast peers")
+		return err
+	}
+
+	r.Logger.Info().
+		Int("count", len(peersToCreate)).
+		Msg("Successfully created VXLAN multicast peers")
 
 	return nil
 }

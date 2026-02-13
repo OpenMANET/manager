@@ -1622,6 +1622,9 @@ func TestAddVXLANPeerWithReader(t *testing.T) {
 		data: map[string]map[string]map[string][]string{
 			"network": {},
 		},
+		sectionTypes: map[string]map[string]string{
+			"network": {},
+		},
 	}
 
 	peer := &UCIVXLANPeer{
@@ -1639,12 +1642,18 @@ func TestAddVXLANPeerWithReader(t *testing.T) {
 		t.Fatalf("AddVXLANPeerWithReader failed: %v", err)
 	}
 
-	if !reader.commitCalled {
-		t.Error("Expected Commit to be called")
+	// Verify commit was called twice (after section creation and after setting options)
+	if reader.commitCount != 2 {
+		t.Errorf("Expected Commit to be called 2 times, got %d", reader.commitCount)
+	}
+
+	// Verify reload was called once (after first commit)
+	if reader.reloadCount != 1 {
+		t.Errorf("Expected ReloadConfig to be called 1 time, got %d", reader.reloadCount)
 	}
 
 	// Verify add section was called with empty name for anonymous section
-	expectedAddSection := "network.vxlan_peer."
+	expectedAddSection := "network..vxlan_peer"
 	if reader.addSectionCall != expectedAddSection {
 		t.Errorf("Expected AddSection to be called with %q, got %q", expectedAddSection, reader.addSectionCall)
 	}
@@ -1730,6 +1739,9 @@ func TestAddVXLANPeerWithReader_MinimalConfig(t *testing.T) {
 		data: map[string]map[string]map[string][]string{
 			"network": {},
 		},
+		sectionTypes: map[string]map[string]string{
+			"network": {},
+		},
 	}
 
 	peer := &UCIVXLANPeer{
@@ -1771,6 +1783,9 @@ func TestAddVXLANPeerWithReader_SetTypeError(t *testing.T) {
 		data: map[string]map[string]map[string][]string{
 			"network": {},
 		},
+		sectionTypes: map[string]map[string]string{
+			"network": {},
+		},
 		setTypeError: fmt.Errorf("settype error"),
 	}
 
@@ -1794,6 +1809,9 @@ func TestAddVXLANPeerWithReader_CommitError(t *testing.T) {
 		data: map[string]map[string]map[string][]string{
 			"network": {},
 		},
+		sectionTypes: map[string]map[string]string{
+			"network": {},
+		},
 		commitError: fmt.Errorf("commit error"),
 	}
 
@@ -1807,8 +1825,284 @@ func TestAddVXLANPeerWithReader_CommitError(t *testing.T) {
 		t.Fatal("Expected AddVXLANPeerWithReader to return error")
 	}
 
-	if !contains(err.Error(), "failed to commit VXLAN peer config") {
-		t.Errorf("Expected error message to contain 'failed to commit VXLAN peer config', got: %v", err)
+	if !contains(err.Error(), "failed to commit VXLAN peer") {
+		t.Errorf("Expected error message to contain 'failed to commit VXLAN peer', got: %v", err)
+	}
+}
+
+func TestBatchAddVXLANPeersWithReader(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"network": {},
+		},
+		sectionTypes: map[string]map[string]string{
+			"network": {},
+		},
+	}
+
+	peers := []UCIVXLANPeer{
+		{
+			VXLAN: "vxlan0",
+			Dst:   "239.2.3.1",
+			Via:   "tailscale0",
+		},
+		{
+			VXLAN: "vxlan0",
+			Dst:   "224.10.10.1",
+			Via:   "tailscale0",
+		},
+		{
+			VXLAN: "vxlan0",
+			Dst:   "224.0.0.251",
+			Via:   "tailscale0",
+		},
+	}
+
+	err := BatchAddVXLANPeersWithReader(peers, reader)
+	if err != nil {
+		t.Fatalf("BatchAddVXLANPeersWithReader failed: %v", err)
+	}
+
+	// Verify commit was called exactly 2 times (after adding sections and after setting options)
+	if reader.commitCount != 2 {
+		t.Errorf("Expected Commit to be called 2 times, got %d", reader.commitCount)
+	}
+
+	// Verify reload was called exactly once (after first commit)
+	if reader.reloadCount != 1 {
+		t.Errorf("Expected ReloadConfig to be called 1 time, got %d", reader.reloadCount)
+	}
+
+	// Verify all three peers had their options set
+	for i, peer := range peers {
+		sectionRef := fmt.Sprintf("@vxlan_peer[%d]", i)
+		
+		// Check vxlan option
+		foundVxlan := false
+		foundDst := false
+		foundVia := false
+		
+		for _, call := range reader.setTypeCalls {
+			if call.section == sectionRef && call.option == "vxlan" && len(call.values) > 0 && call.values[0] == peer.VXLAN {
+				foundVxlan = true
+			}
+			if call.section == sectionRef && call.option == "dst" && len(call.values) > 0 && call.values[0] == peer.Dst {
+				foundDst = true
+			}
+			if call.section == sectionRef && call.option == "via" && len(call.values) > 0 && call.values[0] == peer.Via {
+				foundVia = true
+			}
+		}
+		
+		if !foundVxlan {
+			t.Errorf("Expected SetType call for peer %d section %q option 'vxlan' with value %q", i, sectionRef, peer.VXLAN)
+		}
+		if !foundDst {
+			t.Errorf("Expected SetType call for peer %d section %q option 'dst' with value %q", i, sectionRef, peer.Dst)
+		}
+		if !foundVia {
+			t.Errorf("Expected SetType call for peer %d section %q option 'via' with value %q", i, sectionRef, peer.Via)
+		}
+	}
+}
+
+func TestBatchAddVXLANPeersWithReader_EmptySlice(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"network": {},
+		},
+	}
+
+	err := BatchAddVXLANPeersWithReader([]UCIVXLANPeer{}, reader)
+	if err != nil {
+		t.Fatalf("BatchAddVXLANPeersWithReader with empty slice should not error: %v", err)
+	}
+
+	// Verify no operations were performed
+	if reader.commitCount != 0 {
+		t.Errorf("Expected Commit to not be called for empty slice, got %d calls", reader.commitCount)
+	}
+}
+
+func TestBatchAddVXLANPeersWithReader_AllFields(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"network": {},
+		},
+		sectionTypes: map[string]map[string]string{
+			"network": {},
+		},
+	}
+
+	peers := []UCIVXLANPeer{
+		{
+			VXLAN:  "vxlan0",
+			LLAddr: "aa:bb:cc:dd:ee:ff",
+			Dst:    "192.168.1.100",
+			Port:   "8472",
+			Via:    "wan",
+			VNI:    "999",
+			SrcVNI: "888",
+		},
+		{
+			VXLAN: "vxlan0",
+			Dst:   "192.168.1.101",
+			Via:   "lan",
+		},
+	}
+
+	err := BatchAddVXLANPeersWithReader(peers, reader)
+	if err != nil {
+		t.Fatalf("BatchAddVXLANPeersWithReader failed: %v", err)
+	}
+
+	// Verify first peer has all fields set
+	firstPeerSection := "@vxlan_peer[0]"
+	expectedFirstPeerCalls := []struct {
+		option string
+		value  string
+	}{
+		{"vxlan", "vxlan0"},
+		{"lladdr", "aa:bb:cc:dd:ee:ff"},
+		{"dst", "192.168.1.100"},
+		{"port", "8472"},
+		{"via", "wan"},
+		{"vni", "999"},
+		{"src_vni", "888"},
+	}
+
+	for _, expected := range expectedFirstPeerCalls {
+		found := false
+		for _, call := range reader.setTypeCalls {
+			if call.section == firstPeerSection && call.option == expected.option && len(call.values) > 0 && call.values[0] == expected.value {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected SetType call for section %q option %q with value %q", firstPeerSection, expected.option, expected.value)
+		}
+	}
+
+	// Verify second peer has only required fields
+	secondPeerSection := "@vxlan_peer[1]"
+	expectedSecondPeerCalls := []struct {
+		option string
+		value  string
+	}{
+		{"vxlan", "vxlan0"},
+		{"dst", "192.168.1.101"},
+		{"via", "lan"},
+	}
+
+	for _, expected := range expectedSecondPeerCalls {
+		found := false
+		for _, call := range reader.setTypeCalls {
+			if call.section == secondPeerSection && call.option == expected.option && len(call.values) > 0 && call.values[0] == expected.value {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected SetType call for section %q option %q with value %q", secondPeerSection, expected.option, expected.value)
+		}
+	}
+}
+
+func TestBatchAddVXLANPeersWithReader_AddSectionError(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"network": {},
+		},
+		addSectionErr: fmt.Errorf("add section error"),
+	}
+
+	peers := []UCIVXLANPeer{
+		{VXLAN: "vxlan0", Dst: "10.0.0.1"},
+	}
+
+	err := BatchAddVXLANPeersWithReader(peers, reader)
+	if err == nil {
+		t.Fatal("Expected BatchAddVXLANPeersWithReader to return error")
+	}
+
+	if !contains(err.Error(), "failed to add VXLAN peer section") {
+		t.Errorf("Expected error message to contain 'failed to add VXLAN peer section', got: %v", err)
+	}
+}
+
+func TestBatchAddVXLANPeersWithReader_CommitError(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"network": {},
+		},
+		sectionTypes: map[string]map[string]string{
+			"network": {},
+		},
+		commitError: fmt.Errorf("commit error"),
+	}
+
+	peers := []UCIVXLANPeer{
+		{VXLAN: "vxlan0", Dst: "10.0.0.1"},
+	}
+
+	err := BatchAddVXLANPeersWithReader(peers, reader)
+	if err == nil {
+		t.Fatal("Expected BatchAddVXLANPeersWithReader to return error")
+	}
+
+	if !contains(err.Error(), "failed to commit VXLAN peer") {
+		t.Errorf("Expected error message to contain 'failed to commit VXLAN peer', got: %v", err)
+	}
+}
+
+func TestBatchAddVXLANPeersWithReader_ReloadError(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"network": {},
+		},
+		sectionTypes: map[string]map[string]string{
+			"network": {},
+		},
+		reloadError: fmt.Errorf("reload error"),
+	}
+
+	peers := []UCIVXLANPeer{
+		{VXLAN: "vxlan0", Dst: "10.0.0.1"},
+	}
+
+	err := BatchAddVXLANPeersWithReader(peers, reader)
+	if err == nil {
+		t.Fatal("Expected BatchAddVXLANPeersWithReader to return error")
+	}
+
+	if !contains(err.Error(), "failed to reload config after adding sections") {
+		t.Errorf("Expected error message to contain 'failed to reload config after adding sections', got: %v", err)
+	}
+}
+
+func TestBatchAddVXLANPeersWithReader_SetTypeError(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"network": {},
+		},
+		sectionTypes: map[string]map[string]string{
+			"network": {},
+		},
+		setTypeError: fmt.Errorf("settype error"),
+	}
+
+	peers := []UCIVXLANPeer{
+		{VXLAN: "vxlan0", Dst: "10.0.0.1"},
+	}
+
+	err := BatchAddVXLANPeersWithReader(peers, reader)
+	if err == nil {
+		t.Fatal("Expected BatchAddVXLANPeersWithReader to return error")
+	}
+
+	if !contains(err.Error(), "failed to set VXLAN peer") {
+		t.Errorf("Expected error message to contain 'failed to set VXLAN peer', got: %v", err)
 	}
 }
 
@@ -1927,7 +2221,7 @@ func TestAddVXLANPeerWithReader_AllFieldsEmpty(t *testing.T) {
 	}
 
 	// Should have created anonymous section but set no fields
-	expectedAddSection := "network.vxlan_peer."
+	expectedAddSection := "network..vxlan_peer"
 	if reader.addSectionCall != expectedAddSection {
 		t.Errorf("Expected AddSection to be called with %q, got %q", expectedAddSection, reader.addSectionCall)
 	}
@@ -1975,6 +2269,12 @@ func TestAddVXLANPeerWithReader_WithExistingPeers(t *testing.T) {
 				},
 			},
 		},
+		sectionTypes: map[string]map[string]string{
+			"network": {
+				"peer0": "vxlan_peer",
+				"peer1": "vxlan_peer",
+			},
+		},
 	}
 
 	peer := &UCIVXLANPeer{
@@ -1991,23 +2291,23 @@ func TestAddVXLANPeerWithReader_WithExistingPeers(t *testing.T) {
 		t.Error("Expected Commit to be called")
 	}
 
-	// With 2 existing sections, the new peer should be at index 2
+	// With 2 existing named sections, the new anonymous peer should be at index 0 (first anonymous section)
 	vxlanSet := false
 	dstSet := false
 	for _, call := range reader.setTypeCalls {
-		if call.section == "@vxlan_peer[2]" && call.option == "vxlan" && len(call.values) > 0 && call.values[0] == "vxlan0" {
+		if call.section == "@vxlan_peer[0]" && call.option == "vxlan" && len(call.values) > 0 && call.values[0] == "vxlan0" {
 			vxlanSet = true
 		}
-		if call.section == "@vxlan_peer[2]" && call.option == "dst" && len(call.values) > 0 && call.values[0] == "10.0.0.3" {
+		if call.section == "@vxlan_peer[0]" && call.option == "dst" && len(call.values) > 0 && call.values[0] == "10.0.0.3" {
 			dstSet = true
 		}
 	}
 
 	if !vxlanSet {
-		t.Error("Expected vxlan to be set on section @vxlan_peer[2]")
+		t.Error("Expected vxlan to be set on section @vxlan_peer[0]")
 	}
 	if !dstSet {
-		t.Error("Expected dst to be set on section @vxlan_peer[2]")
+		t.Error("Expected dst to be set on section @vxlan_peer[0]")
 	}
 }
 
