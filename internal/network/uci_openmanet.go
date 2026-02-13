@@ -10,6 +10,7 @@ import (
 /*
 config openmanet 'config'
 	option dhcpconfigured '0'
+	option roipconfigured '0'
 	option config '/etc/openmanet/config.yml'
 */
 
@@ -20,6 +21,7 @@ const (
 // UCIOpenMANET represents the OpenMANET UCI configuration.
 type UCIOpenMANET struct {
 	DHCPConfigured string `uci:"option dhcpconfigured"`
+	ROIPConfigured string `uci:"option roipconfigured"`
 	Config         string `uci:"option config"`
 }
 
@@ -101,6 +103,9 @@ func GetOpenMANETConfigWithReader(reader OpenMANETConfigReader) (*UCIOpenMANET, 
 	if values, ok := reader.Get(openmanetdConfigName, "config", "dhcpconfigured"); ok && len(values) > 0 {
 		config.DHCPConfigured = values[0]
 	}
+	if values, ok := reader.Get(openmanetdConfigName, "config", "roipconfigured"); ok && len(values) > 0 {
+		config.ROIPConfigured = values[0]
+	}
 	if values, ok := reader.Get(openmanetdConfigName, "config", "config"); ok && len(values) > 0 {
 		config.Config = values[0]
 	}
@@ -140,6 +145,11 @@ func SetOpenMANETConfigWithReader(config *UCIOpenMANET, reader OpenMANETConfigRe
 	if config.DHCPConfigured != "" {
 		if err := reader.SetType(openmanetdConfigName, "config", "dhcpconfigured", uci.TypeOption, config.DHCPConfigured); err != nil {
 			return fmt.Errorf("failed to set dhcpconfigured: %w", err)
+		}
+	}
+	if config.ROIPConfigured != "" {
+		if err := reader.SetType(openmanetdConfigName, "config", "roipconfigured", uci.TypeOption, config.ROIPConfigured); err != nil {
+			return fmt.Errorf("failed to set roipconfigured: %w", err)
 		}
 	}
 	if config.Config != "" {
@@ -245,6 +255,105 @@ func ClearDHCPConfiguredWithReader(reader OpenMANETConfigReader) error {
 
 	if err := reader.SetType(openmanetdConfigName, "config", "dhcpconfigured", uci.TypeOption, "0"); err != nil {
 		return fmt.Errorf("failed to clear dhcpconfigured: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
+	}
+
+	return nil
+}
+
+// IsROIPConfigured checks if ROIP has been configured.
+//
+// Returns:
+//   - true if ROIP is configured (roipconfigured == '1'), false otherwise
+//   - An error if the configuration cannot be read
+//
+// Example:
+//
+//	configured, err := IsROIPConfigured()
+//	if err != nil {
+//	    log.Fatalf("Failed to check ROIP status: %v", err)
+//	}
+//	if !configured {
+//	    // Run ROIP configuration
+//	}
+func IsROIPConfigured() (bool, error) {
+	return IsROIPConfiguredWithReader(NewUCIOpenMANETConfigReader())
+}
+
+// IsROIPConfiguredWithReader checks if ROIP has been configured using the provided reader.
+func IsROIPConfiguredWithReader(reader OpenMANETConfigReader) (bool, error) {
+	config, err := GetOpenMANETConfigWithReader(reader)
+	if err != nil {
+		return false, err
+	}
+
+	// Parse the roipconfigured value
+	if config.ROIPConfigured == "0" || config.ROIPConfigured == "" {
+		return false, nil
+	}
+
+	configured, err := strconv.Atoi(config.ROIPConfigured)
+	if err != nil {
+		return false, fmt.Errorf("invalid roipconfigured value: %w", err)
+	}
+
+	return configured == 1, nil
+}
+
+// SetROIPConfigured marks ROIP as configured.
+//
+// This sets the 'roipconfigured' option to '1'.
+//
+// Example:
+//
+//	err := SetROIPConfigured()
+//	if err != nil {
+//	    log.Fatalf("Failed to mark ROIP as configured: %v", err)
+//	}
+func SetROIPConfigured() error {
+	return SetROIPConfiguredWithReader(NewUCIOpenMANETConfigReader())
+}
+
+// SetROIPConfiguredWithReader marks ROIP as configured using the provided reader.
+func SetROIPConfiguredWithReader(reader OpenMANETConfigReader) error {
+	// Ensure the section exists
+	_ = reader.AddSection(openmanetdConfigName, "config", "openmanet")
+
+	if err := reader.SetType(openmanetdConfigName, "config", "roipconfigured", uci.TypeOption, "1"); err != nil {
+		return fmt.Errorf("failed to set roipconfigured: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
+	}
+
+	return nil
+}
+
+// ClearROIPConfigured marks ROIP as not configured.
+//
+// This sets the 'roipconfigured' option to '0'.
+//
+// Example:
+//
+//	err := ClearROIPConfigured()
+//	if err != nil {
+//	    log.Fatalf("Failed to clear ROIP configured flag: %v", err)
+//	}
+func ClearROIPConfigured() error {
+	return ClearROIPConfiguredWithReader(NewUCIOpenMANETConfigReader())
+}
+
+// ClearROIPConfiguredWithReader marks ROIP as not configured using the provided reader.
+func ClearROIPConfiguredWithReader(reader OpenMANETConfigReader) error {
+	// Ensure the section exists
+	_ = reader.AddSection(openmanetdConfigName, "config", "openmanet")
+
+	if err := reader.SetType(openmanetdConfigName, "config", "roipconfigured", uci.TypeOption, "0"); err != nil {
+		return fmt.Errorf("failed to clear roipconfigured: %w", err)
 	}
 
 	if err := reader.Commit(); err != nil {
