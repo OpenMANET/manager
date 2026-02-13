@@ -5,6 +5,7 @@ go 1.25.5
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20251209175733-2a1774d88802.1
 	connectrpc.com/connect v1.19.1
+	connectrpc.com/cors v0.1.0
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
 	github.com/coreywagehoft/go-tak v1.2.0
 	github.com/digineo/go-uci/v2 v2.0.0-20231120164223-60c14814b8fe
@@ -16,6 +17,7 @@ require (
 	github.com/mdlayher/wifi v0.7.2
 	github.com/openmanet/go-alfred v0.0.0-202404291200151-8f3f3f4e2f4e
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10
+	github.com/rs/cors v1.11.1
 	github.com/rs/zerolog v1.34.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
