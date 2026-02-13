@@ -1642,35 +1642,30 @@ func TestAddVXLANPeerWithReader(t *testing.T) {
 		t.Fatalf("AddVXLANPeerWithReader failed: %v", err)
 	}
 
-	// Verify commit was called twice (after section creation and after setting options)
-	if reader.commitCount != 2 {
-		t.Errorf("Expected Commit to be called 2 times, got %d", reader.commitCount)
+	// Verify commit was called once (at the end)
+	if reader.commitCount != 1 {
+		t.Errorf("Expected Commit to be called 1 time, got %d", reader.commitCount)
 	}
 
-	// Verify reload was called once (after first commit)
-	if reader.reloadCount != 1 {
-		t.Errorf("Expected ReloadConfig to be called 1 time, got %d", reader.reloadCount)
-	}
-
-	// Verify add section was called with empty name for anonymous section
-	expectedAddSection := "network..vxlan_peer"
+	// Verify add section was called with named section
+	expectedAddSection := "network.vxlan_peer_0.vxlan_peer"
 	if reader.addSectionCall != expectedAddSection {
 		t.Errorf("Expected AddSection to be called with %q, got %q", expectedAddSection, reader.addSectionCall)
 	}
 
-	// Verify all fields were set with the correct section reference @vxlan_peer[0]
+	// Verify all fields were set with the correct section reference vxlan_peer_0
 	expectedCalls := []struct {
 		section string
 		option  string
 		value   string
 	}{
-		{"@vxlan_peer[0]", "vxlan", "vxlan1"},
-		{"@vxlan_peer[0]", "lladdr", "aa:bb:cc:dd:ee:ff"},
-		{"@vxlan_peer[0]", "dst", "192.168.1.100"},
-		{"@vxlan_peer[0]", "port", "8472"},
-		{"@vxlan_peer[0]", "via", "wan"},
-		{"@vxlan_peer[0]", "vni", "999"},
-		{"@vxlan_peer[0]", "src_vni", "888"},
+		{"vxlan_peer_0", "vxlan", "vxlan1"},
+		{"vxlan_peer_0", "lladdr", "aa:bb:cc:dd:ee:ff"},
+		{"vxlan_peer_0", "dst", "192.168.1.100"},
+		{"vxlan_peer_0", "port", "8472"},
+		{"vxlan_peer_0", "via", "wan"},
+		{"vxlan_peer_0", "vni", "999"},
+		{"vxlan_peer_0", "src_vni", "888"},
 	}
 
 	for _, expected := range expectedCalls {
@@ -1762,19 +1757,19 @@ func TestAddVXLANPeerWithReader_MinimalConfig(t *testing.T) {
 	vxlanSet := false
 	dstSet := false
 	for _, call := range reader.setTypeCalls {
-		if call.section == "@vxlan_peer[0]" && call.option == "vxlan" && len(call.values) > 0 && call.values[0] == "vxlan0" {
+		if call.section == "vxlan_peer_0" && call.option == "vxlan" && len(call.values) > 0 && call.values[0] == "vxlan0" {
 			vxlanSet = true
 		}
-		if call.section == "@vxlan_peer[0]" && call.option == "dst" && len(call.values) > 0 && call.values[0] == "10.0.0.5" {
+		if call.section == "vxlan_peer_0" && call.option == "dst" && len(call.values) > 0 && call.values[0] == "10.0.0.5" {
 			dstSet = true
 		}
 	}
 
 	if !vxlanSet {
-		t.Error("Expected vxlan to be set on section @vxlan_peer[0]")
+		t.Error("Expected vxlan to be set on section vxlan_peer_0")
 	}
 	if !dstSet {
-		t.Error("Expected dst to be set on section @vxlan_peer[0]")
+		t.Error("Expected dst to be set on section vxlan_peer_0")
 	}
 }
 
@@ -1863,19 +1858,14 @@ func TestBatchAddVXLANPeersWithReader(t *testing.T) {
 		t.Fatalf("BatchAddVXLANPeersWithReader failed: %v", err)
 	}
 
-	// Verify commit was called exactly 2 times (after adding sections and after setting options)
-	if reader.commitCount != 2 {
-		t.Errorf("Expected Commit to be called 2 times, got %d", reader.commitCount)
-	}
-
-	// Verify reload was called exactly once (after first commit)
-	if reader.reloadCount != 1 {
-		t.Errorf("Expected ReloadConfig to be called 1 time, got %d", reader.reloadCount)
+	// Verify commit was called exactly once (at the end)
+	if reader.commitCount != 1 {
+		t.Errorf("Expected Commit to be called 1 time, got %d", reader.commitCount)
 	}
 
 	// Verify all three peers had their options set
 	for i, peer := range peers {
-		sectionRef := fmt.Sprintf("@vxlan_peer[%d]", i)
+		sectionRef := fmt.Sprintf("vxlan_peer_%d", i)
 		
 		// Check vxlan option
 		foundVxlan := false
@@ -1957,7 +1947,7 @@ func TestBatchAddVXLANPeersWithReader_AllFields(t *testing.T) {
 	}
 
 	// Verify first peer has all fields set
-	firstPeerSection := "@vxlan_peer[0]"
+	firstPeerSection := "vxlan_peer_0"
 	expectedFirstPeerCalls := []struct {
 		option string
 		value  string
@@ -1985,7 +1975,7 @@ func TestBatchAddVXLANPeersWithReader_AllFields(t *testing.T) {
 	}
 
 	// Verify second peer has only required fields
-	secondPeerSection := "@vxlan_peer[1]"
+	secondPeerSection := "vxlan_peer_1"
 	expectedSecondPeerCalls := []struct {
 		option string
 		value  string
@@ -2053,31 +2043,6 @@ func TestBatchAddVXLANPeersWithReader_CommitError(t *testing.T) {
 
 	if !contains(err.Error(), "failed to commit VXLAN peer") {
 		t.Errorf("Expected error message to contain 'failed to commit VXLAN peer', got: %v", err)
-	}
-}
-
-func TestBatchAddVXLANPeersWithReader_ReloadError(t *testing.T) {
-	reader := &mockConfigReader{
-		data: map[string]map[string]map[string][]string{
-			"network": {},
-		},
-		sectionTypes: map[string]map[string]string{
-			"network": {},
-		},
-		reloadError: fmt.Errorf("reload error"),
-	}
-
-	peers := []UCIVXLANPeer{
-		{VXLAN: "vxlan0", Dst: "10.0.0.1"},
-	}
-
-	err := BatchAddVXLANPeersWithReader(peers, reader)
-	if err == nil {
-		t.Fatal("Expected BatchAddVXLANPeersWithReader to return error")
-	}
-
-	if !contains(err.Error(), "failed to reload config after adding sections") {
-		t.Errorf("Expected error message to contain 'failed to reload config after adding sections', got: %v", err)
 	}
 }
 
@@ -2220,8 +2185,8 @@ func TestAddVXLANPeerWithReader_AllFieldsEmpty(t *testing.T) {
 		t.Error("Expected Commit to be called")
 	}
 
-	// Should have created anonymous section but set no fields
-	expectedAddSection := "network..vxlan_peer"
+	// Should have created named section but set no fields
+	expectedAddSection := "network.vxlan_peer_0.vxlan_peer"
 	if reader.addSectionCall != expectedAddSection {
 		t.Errorf("Expected AddSection to be called with %q, got %q", expectedAddSection, reader.addSectionCall)
 	}
@@ -2291,23 +2256,23 @@ func TestAddVXLANPeerWithReader_WithExistingPeers(t *testing.T) {
 		t.Error("Expected Commit to be called")
 	}
 
-	// With 2 existing named sections, the new anonymous peer should be at index 0 (first anonymous section)
+	// With 2 existing named sections, the new peer should be named vxlan_peer_2
 	vxlanSet := false
 	dstSet := false
 	for _, call := range reader.setTypeCalls {
-		if call.section == "@vxlan_peer[0]" && call.option == "vxlan" && len(call.values) > 0 && call.values[0] == "vxlan0" {
+		if call.section == "vxlan_peer_2" && call.option == "vxlan" && len(call.values) > 0 && call.values[0] == "vxlan0" {
 			vxlanSet = true
 		}
-		if call.section == "@vxlan_peer[0]" && call.option == "dst" && len(call.values) > 0 && call.values[0] == "10.0.0.3" {
+		if call.section == "vxlan_peer_2" && call.option == "dst" && len(call.values) > 0 && call.values[0] == "10.0.0.3" {
 			dstSet = true
 		}
 	}
 
 	if !vxlanSet {
-		t.Error("Expected vxlan to be set on section @vxlan_peer[0]")
+		t.Error("Expected vxlan to be set on section vxlan_peer_2")
 	}
 	if !dstSet {
-		t.Error("Expected dst to be set on section @vxlan_peer[0]")
+		t.Error("Expected dst to be set on section vxlan_peer_2")
 	}
 }
 

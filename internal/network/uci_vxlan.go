@@ -1210,81 +1210,69 @@ func BatchAddVXLANPeers(peers []UCIVXLANPeer) error {
 	return BatchAddVXLANPeersWithReader(peers, reader)
 }
 
-// AddVXLANPeerWithReader adds a new VXLAN peer configuration as an anonymous section using the provided reader.
+// AddVXLANPeerWithReader adds a new VXLAN peer configuration using the provided reader.
+// Creates a named section to avoid conflicts with existing anonymous sections of other types.
 func AddVXLANPeerWithReader(peer *UCIVXLANPeer, reader ConfigReader) error {
-	// Create anonymous section (empty string for section name)
-	if err := reader.AddSection(networkConfigName, "", "vxlan_peer"); err != nil {
+	// Get current vxlan_peer sections to generate a unique name
+	existingSections, err := reader.GetSections(networkConfigName, "vxlan_peer")
+	if err != nil {
+		// If error, assume no sections exist
+		existingSections = []string{}
+	}
+
+	// Generate unique section name
+	sectionName := fmt.Sprintf("vxlan_peer_%d", len(existingSections))
+
+	// Create the section
+	if err := reader.AddSection(networkConfigName, sectionName, "vxlan_peer"); err != nil {
 		return fmt.Errorf("failed to add VXLAN peer section: %w", err)
 	}
 
-	// Commit the section creation immediately so it gets written to the config
-	// This is necessary because we need a stable reference to the section
-	if err := reader.Commit(); err != nil {
-		return fmt.Errorf("failed to commit VXLAN peer section: %w", err)
-	}
-
-	// Reload the config to get the actual state with the new section
-	if err := reader.ReloadConfig(); err != nil {
-		return fmt.Errorf("failed to reload config after adding section: %w", err)
-	}
-
-	// Now get the sections again to find the index of the section we just added
-	existingSections, err := reader.GetSections(networkConfigName, "vxlan_peer")
-	if err != nil {
-		return fmt.Errorf("failed to get sections after reload: %w", err)
-	}
-
-	// The new section should be the last one in the list
-	if len(existingSections) == 0 {
-		return fmt.Errorf("no vxlan_peer sections found after adding one")
-	}
-	sectionRef := existingSections[len(existingSections)-1]
-
 	// Set vxlan interface (required)
 	if peer.VXLAN != "" {
-		if err := reader.SetType(networkConfigName, sectionRef, "vxlan", uci.TypeOption, peer.VXLAN); err != nil {
+		if err := reader.SetType(networkConfigName, sectionName, "vxlan", uci.TypeOption, peer.VXLAN); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer vxlan: %w", err)
 		}
 	}
 
 	// Set lladdr (optional)
 	if peer.LLAddr != "" {
-		if err := reader.SetType(networkConfigName, sectionRef, "lladdr", uci.TypeOption, peer.LLAddr); err != nil {
+		if err := reader.SetType(networkConfigName, sectionName, "lladdr", uci.TypeOption, peer.LLAddr); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer lladdr: %w", err)
 		}
 	}
 
 	// Set dst (required)
 	if peer.Dst != "" {
-		if err := reader.SetType(networkConfigName, sectionRef, "dst", uci.TypeOption, peer.Dst); err != nil {
+		if err := reader.SetType(networkConfigName, sectionName, "dst", uci.TypeOption, peer.Dst); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer dst: %w", err)
 		}
 	}
 
 	// Set port (optional)
 	if peer.Port != "" {
-		if err := reader.SetType(networkConfigName, sectionRef, "port", uci.TypeOption, peer.Port); err != nil {
+		if err := reader.SetType(networkConfigName, sectionName, "port", uci.TypeOption, peer.Port); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer port: %w", err)
 		}
 	}
 
 	// Set via (optional)
 	if peer.Via != "" {
-		if err := reader.SetType(networkConfigName, sectionRef, "via", uci.TypeOption, peer.Via); err != nil {
+		if err := reader.SetType(networkConfigName, sectionName, "via", uci.TypeOption, peer.Via); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer via: %w", err)
 		}
 	}
 
 	// Set vni (optional)
 	if peer.VNI != "" {
-		if err := reader.SetType(networkConfigName, sectionRef, "vni", uci.TypeOption, peer.VNI); err != nil {
+		if err := reader.SetType(networkConfigName, sectionName, "vni", uci.TypeOption, peer.VNI); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer vni: %w", err)
 		}
 	}
 
 	// Set src_vni (optional)
 	if peer.SrcVNI != "" {
-		if err := reader.SetType(networkConfigName, sectionRef, "src_vni", uci.TypeOption, peer.SrcVNI); err != nil {
+		if err := reader.SetType(networkConfigName, sectionName, "src_vni", uci.TypeOption, peer.SrcVNI); err != nil {
 			return fmt.Errorf("failed to set VXLAN peer src_vni: %w", err)
 		}
 	}
@@ -1297,9 +1285,9 @@ func AddVXLANPeerWithReader(peer *UCIVXLANPeer, reader ConfigReader) error {
 	return nil
 }
 
-// BatchAddVXLANPeersWithReader efficiently adds multiple VXLAN peer configurations as anonymous sections.
+// BatchAddVXLANPeersWithReader efficiently adds multiple VXLAN peer configurations.
 // This function minimizes UCI commits and reloads by batching all peer creations together.
-// It performs: 1 reload, N section adds, 1 commit, 1 reload, N option sets, 1 final commit.
+// It creates named sections to avoid conflicts with existing anonymous sections of other types.
 //
 // This is significantly more efficient than calling AddVXLANPeerWithReader N times,
 // which would result in 2N commits and N reloads.
@@ -1314,41 +1302,30 @@ func BatchAddVXLANPeersWithReader(peers []UCIVXLANPeer, reader ConfigReader) err
 		return nil
 	}
 
-	// Step 1: Add all anonymous sections
+	// Step 1: Get current count of vxlan_peer sections to generate unique names
+	existingSections, err := reader.GetSections(networkConfigName, "vxlan_peer")
+	if err != nil {
+		// If error, assume no sections exist
+		existingSections = []string{}
+	}
+
+	baseIndex := len(existingSections)
+	sectionNames := make([]string, len(peers))
+
+	// Step 2: Add all sections with unique names
 	for i := range peers {
-		if err := reader.AddSection(networkConfigName, "", "vxlan_peer"); err != nil {
+		// Generate unique section name
+		sectionName := fmt.Sprintf("vxlan_peer_%d", baseIndex+i)
+		sectionNames[i] = sectionName
+
+		if err := reader.AddSection(networkConfigName, sectionName, "vxlan_peer"); err != nil {
 			return fmt.Errorf("failed to add VXLAN peer section %d: %w", i, err)
 		}
 	}
 
-	// Step 2: Commit all sections at once
-	if err := reader.Commit(); err != nil {
-		return fmt.Errorf("failed to commit VXLAN peer sections: %w", err)
-	}
-
-	// Step 3: Reload to get the actual state with new sections
-	if err := reader.ReloadConfig(); err != nil {
-		return fmt.Errorf("failed to reload config after adding sections: %w", err)
-	}
-
-	// Step 4: Get all vxlan_peer sections
-	allSections, err := reader.GetSections(networkConfigName, "vxlan_peer")
-	if err != nil {
-		return fmt.Errorf("failed to get sections after reload: %w", err)
-	}
-
-	// The newly created sections will be the last N sections in the list
-	if len(allSections) < len(peers) {
-		return fmt.Errorf("expected at least %d sections, found %d", len(peers), len(allSections))
-	}
-
-	// Calculate the starting index for our newly created sections
-	startIdx := len(allSections) - len(peers)
-	newSections := allSections[startIdx:]
-
-	// Step 5: Set options for all peers
+	// Step 3: Set options for all peers (no commit/reload needed between add and set)
 	for i, peer := range peers {
-		sectionRef := newSections[i]
+		sectionRef := sectionNames[i]
 
 		// Set vxlan interface (required)
 		if peer.VXLAN != "" {
@@ -1400,7 +1377,7 @@ func BatchAddVXLANPeersWithReader(peers []UCIVXLANPeer, reader ConfigReader) err
 		}
 	}
 
-	// Step 6: Commit all option changes at once
+	// Step 4: Commit all changes at once
 	if err := reader.Commit(); err != nil {
 		return fmt.Errorf("failed to commit VXLAN peer options: %w", err)
 	}
