@@ -744,6 +744,8 @@ func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bo
 }
 
 // GetDeviceByName loads and returns the UCI device configuration by name.
+// Device sections in UCI are anonymous, so this searches all device sections
+// for one with a matching 'name' option.
 //
 // Parameters:
 //   - name: The device name (e.g., "br-ahwlan", "vxlan0", "tailscale0")
@@ -763,50 +765,73 @@ func GetDeviceByName(name string) (*UCIDevice, error) {
 }
 
 // GetDeviceByNameWithReader loads and returns the UCI device configuration by name using the provided reader.
+// It searches through all anonymous device sections to find one with the matching name option.
 func GetDeviceByNameWithReader(name string, reader ConfigReader) (*UCIDevice, error) {
+	// Get all device sections (they are anonymous)
+	sections, err := reader.GetSections(networkConfigName, "device")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device sections: %w", err)
+	}
+
+	// Search for the device with the matching name
+	for _, section := range sections {
+		if values, ok := reader.Get(networkConfigName, section, "name"); ok && len(values) > 0 {
+			if values[0] == name {
+				// Found the device, load all its options
+				return loadDeviceFromSection(section, reader)
+			}
+		}
+	}
+
+	// Device not found
+	return nil, fmt.Errorf("device %s not found", name)
+}
+
+// loadDeviceFromSection loads a device configuration from a specific UCI section.
+func loadDeviceFromSection(section string, reader ConfigReader) (*UCIDevice, error) {
 	device := &UCIDevice{}
 
-	if values, ok := reader.Get(networkConfigName, name, "name"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, section, "name"); ok && len(values) > 0 {
 		device.Name = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "type"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, section, "type"); ok && len(values) > 0 {
 		device.Type = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "macaddr"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, section, "macaddr"); ok && len(values) > 0 {
 		device.MacAddr = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "ifname"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, section, "ifname"); ok && len(values) > 0 {
 		device.Ifname = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "ports"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, section, "ports"); ok && len(values) > 0 {
 		device.Ports = values
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "rxpause"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, section, "rxpause"); ok && len(values) > 0 {
 		device.RxPause = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "txpause"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, section, "txpause"); ok && len(values) > 0 {
 		device.TxPause = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "autoneg"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, section, "autoneg"); ok && len(values) > 0 {
 		device.AutoNeg = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "speed"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, section, "speed"); ok && len(values) > 0 {
 		device.Speed = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "duplex"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, section, "duplex"); ok && len(values) > 0 {
 		device.Duplex = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "table"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, section, "table"); ok && len(values) > 0 {
 		device.Table = values[0]
 	}
 
@@ -814,9 +839,11 @@ func GetDeviceByNameWithReader(name string, reader ConfigReader) (*UCIDevice, er
 }
 
 // SetDeviceConfig creates or updates a device configuration.
+// Device sections in UCI are anonymous. If a device with the given name exists,
+// it will be updated. Otherwise, a new anonymous device section is created.
 //
 // Parameters:
-//   - section: The UCI section name (e.g., "br-ahwlan", "vxlan0")
+//   - name: The device name (e.g., "br-ahwlan", "vxlan0")
 //   - device: The device configuration to set
 //
 // Returns an error if the configuration cannot be saved.
@@ -831,18 +858,50 @@ func GetDeviceByNameWithReader(name string, reader ConfigReader) (*UCIDevice, er
 //	err := SetDeviceConfig("br-ahwlan", device)
 //
 // Note: This operation requires appropriate privileges and commits the configuration.
-func SetDeviceConfig(section string, device *UCIDevice) error {
+func SetDeviceConfig(name string, device *UCIDevice) error {
 	reader := NewUCINetworkConfigReader()
-	return SetDeviceConfigWithReader(section, device, reader)
+	return SetDeviceConfigWithReader(name, device, reader)
 }
 
 // SetDeviceConfigWithReader creates or updates a device configuration using the provided reader.
-func SetDeviceConfigWithReader(section string, device *UCIDevice, reader ConfigReader) error {
-	// Add the section if it doesn't exist
-	if err := reader.AddSection(networkConfigName, section, "device"); err != nil {
-		// Section might already exist, which is fine
+func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigReader) error {
+	// Find existing device section by name
+	var section string
+	sections, err := reader.GetSections(networkConfigName, "device")
+	if err != nil {
+		return fmt.Errorf("failed to get device sections: %w", err)
 	}
 
+	// Search for existing device
+	for _, sec := range sections {
+		if values, ok := reader.Get(networkConfigName, sec, "name"); ok && len(values) > 0 {
+			if values[0] == name {
+				section = sec
+				break
+			}
+		}
+	}
+
+	// If device doesn't exist, create a new anonymous section
+	if section == "" {
+		if err := reader.AddSection(networkConfigName, "", "device"); err != nil {
+			return fmt.Errorf("failed to add device section: %w", err)
+		}
+		// Get the newly created section reference
+		sections, err := reader.GetSections(networkConfigName, "device")
+		if err != nil {
+			return fmt.Errorf("failed to get device sections: %w", err)
+		}
+		if len(sections) > 0 {
+			section = sections[len(sections)-1] // Use the last one (newly created)
+		}
+	}
+
+	if section == "" {
+		return fmt.Errorf("failed to determine device section")
+	}
+
+	// Set device options
 	if device.Name != "" {
 		if err := reader.SetType(networkConfigName, section, "name", uci.TypeOption, device.Name); err != nil {
 			return fmt.Errorf("failed to set device name: %w", err)
@@ -916,10 +975,12 @@ func SetDeviceConfigWithReader(section string, device *UCIDevice, reader ConfigR
 	return nil
 }
 
-// DeleteDeviceConfig removes a device configuration section.
+// DeleteDeviceConfig removes a device configuration section by device name.
+// Device sections in UCI are anonymous, so this searches for the device
+// by its 'name' option.
 //
 // Parameters:
-//   - section: The UCI section name to delete (e.g., "br-ahwlan", "vxlan0")
+//   - name: The device name to delete (e.g., "br-ahwlan", "vxlan0")
 //
 // Returns an error if the section cannot be deleted.
 //
@@ -931,14 +992,34 @@ func SetDeviceConfigWithReader(section string, device *UCIDevice, reader ConfigR
 //	}
 //
 // Note: This operation requires appropriate privileges and commits the configuration.
-func DeleteDeviceConfig(section string) error {
+func DeleteDeviceConfig(name string) error {
 	reader := NewUCINetworkConfigReader()
-	return DeleteDeviceConfigWithReader(section, reader)
+	return DeleteDeviceConfigWithReader(name, reader)
 }
 
 // DeleteDeviceConfigWithReader removes a device configuration section using the provided reader.
-func DeleteDeviceConfigWithReader(section string, reader ConfigReader) error {
-	if err := reader.DelSection(networkConfigName, section); err != nil {
+func DeleteDeviceConfigWithReader(name string, reader ConfigReader) error {
+	// Find the device section by name
+	sections, err := reader.GetSections(networkConfigName, "device")
+	if err != nil {
+		return fmt.Errorf("failed to get device sections: %w", err)
+	}
+
+	var sectionToDelete string
+	for _, section := range sections {
+		if values, ok := reader.Get(networkConfigName, section, "name"); ok && len(values) > 0 {
+			if values[0] == name {
+				sectionToDelete = section
+				break
+			}
+		}
+	}
+
+	if sectionToDelete == "" {
+		return fmt.Errorf("device %s not found", name)
+	}
+
+	if err := reader.DelSection(networkConfigName, sectionToDelete); err != nil {
 		return fmt.Errorf("failed to delete device section: %w", err)
 	}
 
@@ -949,12 +1030,13 @@ func DeleteDeviceConfigWithReader(section string, reader ConfigReader) error {
 	return nil
 }
 
-// DeviceSectionExists checks if a device section exists in the configuration.
+// DeviceSectionExists checks if a device section exists in the configuration by device name.
+// Device sections in UCI are anonymous, so this searches for a device with the given name.
 //
 // Parameters:
-//   - section: The UCI section name to check (e.g., "br-ahwlan", "vxlan0")
+//   - name: The device name to check (e.g., "br-ahwlan", "vxlan0")
 //
-// Returns true if the section exists, false otherwise.
+// Returns true if the device exists, false otherwise.
 //
 // Example:
 //
@@ -962,45 +1044,60 @@ func DeleteDeviceConfigWithReader(section string, reader ConfigReader) error {
 //	if exists {
 //	    fmt.Println("Device section exists")
 //	}
-func DeviceSectionExists(section string) bool {
+func DeviceSectionExists(name string) bool {
 	reader := NewUCINetworkConfigReader()
-	return DeviceSectionExistsWithReader(section, reader)
+	return DeviceSectionExistsWithReader(name, reader)
 }
 
 // DeviceSectionExistsWithReader checks if a device section exists using the provided reader.
-func DeviceSectionExistsWithReader(section string, reader ConfigReader) bool {
-	// Try to get the name option as a check for existence
-	_, exists := reader.Get(networkConfigName, section, "name")
-	return exists
+func DeviceSectionExistsWithReader(name string, reader ConfigReader) bool {
+	// Get all device sections and search for the device by name
+	sections, err := reader.GetSections(networkConfigName, "device")
+	if err != nil {
+		return false
+	}
+
+	for _, section := range sections {
+		if values, ok := reader.Get(networkConfigName, section, "name"); ok && len(values) > 0 {
+			if values[0] == name {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // GetAllDevices retrieves all device configurations from the network config.
-// It returns a map of section names to UCIDevice configurations.
+// It returns a map of device names to UCIDevice configurations.
 func GetAllDevices() (map[string]*UCIDevice, error) {
 	reader := NewUCINetworkConfigReader()
 	return GetAllDevicesWithReader(reader)
 }
 
 // GetAllDevicesWithReader retrieves all device configurations using the provided reader.
-// It returns a map of section names to UCIDevice configurations.
+// It returns a map of device names to UCIDevice configurations.
 func GetAllDevicesWithReader(reader ConfigReader) (map[string]*UCIDevice, error) {
-	// Get all sections of type "device"
+	// Get all sections of type "device" (they are anonymous)
 	sections, err := reader.GetSections(networkConfigName, "device")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device sections: %w", err)
 	}
 
-	// Create map to hold devices
-	devices := make(map[string]*UCIDevice, len(sections))
+	// Create map to hold devices (keyed by device name, not section)
+	devices := make(map[string]*UCIDevice)
 
 	// Load each device
 	for _, section := range sections {
-		device, err := GetDeviceByNameWithReader(section, reader)
+		device, err := loadDeviceFromSection(section, reader)
 		if err != nil {
 			// Log but continue on error for individual device
 			continue
 		}
-		devices[section] = device
+		// Use device name as key
+		if device.Name != "" {
+			devices[device.Name] = device
+		}
 	}
 
 	return devices, nil

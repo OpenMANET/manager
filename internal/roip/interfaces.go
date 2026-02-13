@@ -3,6 +3,7 @@ package roip
 import (
 	"context"
 	"net/netip"
+	"strconv"
 	"time"
 
 	"github.com/openmanet/openmanetd/internal/firewall"
@@ -47,7 +48,12 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 		}
 
 		// Remove tailscale0 from the br-ahwlan bridge if it's there, to avoid conflicts with the VXLAN interface
-		if device, err := network.GetDeviceByNameWithReader(r.Config.MeshNetInterface, r.uciNetworkConfig); err == nil {
+		device, err := network.GetDeviceByNameWithReader(r.Config.MeshNetInterface, r.uciNetworkConfig)
+		if err != nil {
+			return err
+		}
+
+		if device != nil && containsString(device.Ports, defaultTunnelDeviceName) {
 			device.RemovePort(defaultTunnelDeviceName)
 		}
 
@@ -67,6 +73,16 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 //
 // Returns an error if the VXLAN configuration creation fails, otherwise returns nil.
 func (r *ROIP) createOrConfigureVxLanInterface() error {
+	// Check if the vxlan device already exists in UCI
+	if !network.DeviceSectionExistsWithReader(defaultVxLanDeviceName, r.uciNetworkConfig) {
+		// Create new device for the vxlan interface
+		if err := network.SetDeviceConfigWithReader(defaultVxLanDeviceName, &network.UCIDevice{
+			Name: defaultVxLanDeviceName,
+		}, r.uciNetworkConfig); err != nil {
+			return err
+		}
+	}
+
 	// Check if the VXLAN interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultVxLanDeviceName, r.uciNetworkConfig) {
 		// Create a new network section for the VXLAN interface
@@ -75,6 +91,7 @@ func (r *ROIP) createOrConfigureVxLanInterface() error {
 			Learning: defaultLearningValue,
 			Tunlink:  defaultTunnelDeviceName,
 			Proxy:    defaultProxyValue,
+			MTU:      strconv.Itoa(vxLanDefaultMTUValue),
 			VID:      "1",
 		}, r.uciNetworkConfig); err != nil {
 			return err
@@ -218,4 +235,14 @@ func (r *ROIP) cycleTailscale(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func containsString(items []string, target string) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+
+	return false
 }

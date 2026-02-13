@@ -41,8 +41,11 @@ type setTypeCall struct {
 }
 
 func (m *mockConfigReader) Get(config, section, option string) ([]string, bool) {
+	// Resolve section reference to internal key
+	actualSection := m.resolveSectionRef(config, section)
+	
 	if configData, ok := m.data[config]; ok {
-		if sectionData, ok := configData[section]; ok {
+		if sectionData, ok := configData[actualSection]; ok {
 			if values, ok := sectionData[option]; ok {
 				return values, true
 			}
@@ -144,9 +147,13 @@ func (m *mockConfigReader) Del(config, section, option string) error {
 	if m.delError != nil {
 		return m.delError
 	}
+	
+	// Resolve section reference to internal key
+	actualSection := m.resolveSectionRef(config, section)
+	
 	// Delete the option from data
 	if configData, ok := m.data[config]; ok {
-		if sectionData, ok := configData[section]; ok {
+		if sectionData, ok := configData[actualSection]; ok {
 			delete(sectionData, option)
 		}
 	}
@@ -195,11 +202,36 @@ func (m *mockConfigReader) DelSection(config, section string) error {
 	if m.delSectionErr != nil {
 		return m.delSectionErr
 	}
+	
+	// Resolve section reference to internal key
+	actualSection := m.resolveSectionRef(config, section)
+	
 	m.delSectionCall = fmt.Sprintf("%s.%s", config, section)
+	
 	// Actually delete the section from the mock data
 	if configData, ok := m.data[config]; ok {
-		delete(configData, section)
+		delete(configData, actualSection)
 	}
+	
+	// Remove from section types
+	if m.sectionTypes != nil {
+		if typeMap, ok := m.sectionTypes[config]; ok {
+			delete(typeMap, actualSection)
+		}
+	}
+	
+	// Remove from anonymous sections list if it's an anonymous section
+	if m.anonSections != nil {
+		if anonList, ok := m.anonSections[config]; ok {
+			for i, anonKey := range anonList {
+				if anonKey == actualSection {
+					m.anonSections[config] = append(anonList[:i], anonList[i+1:]...)
+					break
+				}
+			}
+		}
+	}
+	
 	return nil
 }
 
@@ -1550,13 +1582,21 @@ func TestGetDeviceByNameWithReader(t *testing.T) {
 	mock := &mockConfigReader{
 		data: map[string]map[string]map[string][]string{
 			"network": {
-				"br-ahwlan": {
+				"__anon__1": {
 					"name":    {"br-ahwlan"},
 					"type":    {"bridge"},
 					"macaddr": {"F2:2f:98:58:d4:98"},
 					"ports":   {"bat0", "eth1"},
 				},
 			},
+		},
+		sectionTypes: map[string]map[string]string{
+			"network": {
+				"__anon__1": "device",
+			},
+		},
+		anonSections: map[string][]string{
+			"network": {"__anon__1"},
 		},
 	}
 
@@ -1586,7 +1626,7 @@ func TestGetDeviceByNameWithReader_AllOptions(t *testing.T) {
 	mock := &mockConfigReader{
 		data: map[string]map[string]map[string][]string{
 			"network": {
-				"test-device": {
+				"__anon__1": {
 					"name":    {"test-device"},
 					"type":    {"bridge"},
 					"macaddr": {"00:11:22:33:44:55"},
@@ -1600,6 +1640,14 @@ func TestGetDeviceByNameWithReader_AllOptions(t *testing.T) {
 					"table":   {"10"},
 				},
 			},
+		},
+		sectionTypes: map[string]map[string]string{
+			"network": {
+				"__anon__1": "device",
+			},
+		},
+		anonSections: map[string][]string{
+			"network": {"__anon__1"},
 		},
 	}
 
@@ -1642,8 +1690,18 @@ func TestGetDeviceByNameWithReader_EmptyDevice(t *testing.T) {
 	mock := &mockConfigReader{
 		data: map[string]map[string]map[string][]string{
 			"network": {
-				"empty-device": {},
+				"__anon__1": {
+					"name": {"empty-device"},
+				},
 			},
+		},
+		sectionTypes: map[string]map[string]string{
+			"network": {
+				"__anon__1": "device",
+			},
+		},
+		anonSections: map[string][]string{
+			"network": {"__anon__1"},
 		},
 	}
 
@@ -1652,15 +1710,21 @@ func TestGetDeviceByNameWithReader_EmptyDevice(t *testing.T) {
 		t.Fatalf("GetDeviceByNameWithReader failed: %v", err)
 	}
 
-	// All fields should be empty
-	if device.Name != "" || device.Type != "" || device.MacAddr != "" {
-		t.Errorf("Expected empty device, got %+v", device)
+	// Name should be set, but other fields should be empty
+	if device.Name != "empty-device" {
+		t.Errorf("Expected name=empty-device, got %v", device.Name)
+	}
+
+	if device.Type != "" || device.MacAddr != "" {
+		t.Errorf("Expected other fields to be empty, got %+v", device)
 	}
 }
 
 func TestSetDeviceConfigWithReader(t *testing.T) {
 	mock := &mockConfigReader{
-		data: make(map[string]map[string]map[string][]string),
+		data:         make(map[string]map[string]map[string][]string),
+		sectionTypes: make(map[string]map[string]string),
+		anonSections: make(map[string][]string),
 	}
 
 	device := &UCIDevice{
@@ -1677,6 +1741,11 @@ func TestSetDeviceConfigWithReader(t *testing.T) {
 
 	if !mock.commitCalled {
 		t.Error("Expected commit to be called")
+	}
+
+	// Verify the device was created
+	if !DeviceSectionExistsWithReader("br-test", mock) {
+		t.Error("Expected device br-test to exist")
 	}
 
 	// Verify the data was set
@@ -1704,7 +1773,9 @@ func TestSetDeviceConfigWithReader(t *testing.T) {
 
 func TestSetDeviceConfigWithReader_MinimalDevice(t *testing.T) {
 	mock := &mockConfigReader{
-		data: make(map[string]map[string]map[string][]string),
+		data:         make(map[string]map[string]map[string][]string),
+		sectionTypes: make(map[string]map[string]string),
+		anonSections: make(map[string][]string),
 	}
 
 	device := &UCIDevice{
@@ -1733,7 +1804,9 @@ func TestSetDeviceConfigWithReader_MinimalDevice(t *testing.T) {
 
 func TestSetDeviceConfigWithReader_AllFields(t *testing.T) {
 	mock := &mockConfigReader{
-		data: make(map[string]map[string]map[string][]string),
+		data:         make(map[string]map[string]map[string][]string),
+		sectionTypes: make(map[string]map[string]string),
+		anonSections: make(map[string][]string),
 	}
 
 	device := &UCIDevice{
@@ -1798,8 +1871,10 @@ func TestSetDeviceConfigWithReader_AllFields(t *testing.T) {
 
 func TestSetDeviceConfigWithReader_CommitError(t *testing.T) {
 	mock := &mockConfigReader{
-		data:        make(map[string]map[string]map[string][]string),
-		commitError: fmt.Errorf("commit failed"),
+		data:         make(map[string]map[string]map[string][]string),
+		sectionTypes: make(map[string]map[string]string),
+		anonSections: make(map[string][]string),
+		commitError:  fmt.Errorf("commit failed"),
 	}
 
 	device := &UCIDevice{
@@ -1816,6 +1891,8 @@ func TestSetDeviceConfigWithReader_CommitError(t *testing.T) {
 func TestSetDeviceConfigWithReader_SetTypeError(t *testing.T) {
 	mock := &mockConfigReader{
 		data:         make(map[string]map[string]map[string][]string),
+		sectionTypes: make(map[string]map[string]string),
+		anonSections: make(map[string][]string),
 		setTypeError: fmt.Errorf("settype failed"),
 	}
 
@@ -1834,11 +1911,19 @@ func TestDeleteDeviceConfigWithReader(t *testing.T) {
 	mock := &mockConfigReader{
 		data: map[string]map[string]map[string][]string{
 			"network": {
-				"test-device": {
+				"__anon__1": {
 					"name": {"test-device"},
 					"type": {"bridge"},
 				},
 			},
+		},
+		sectionTypes: map[string]map[string]string{
+			"network": {
+				"__anon__1": "device",
+			},
+		},
+		anonSections: map[string][]string{
+			"network": {"__anon__1"},
 		},
 	}
 
@@ -1851,8 +1936,9 @@ func TestDeleteDeviceConfigWithReader(t *testing.T) {
 		t.Error("Expected commit to be called")
 	}
 
-	if mock.delSectionCall != "network.test-device" {
-		t.Errorf("Expected delSectionCall=network.test-device, got %v", mock.delSectionCall)
+	// Verify the device was deleted
+	if DeviceSectionExistsWithReader("test-device", mock) {
+		t.Error("Device should have been deleted")
 	}
 }
 
@@ -1883,35 +1969,53 @@ func TestDeleteDeviceConfigWithReader_CommitError(t *testing.T) {
 func TestDeviceSectionExistsWithReader(t *testing.T) {
 	tests := []struct {
 		name     string
-		section  string
+		devName  string
 		data     map[string]map[string]map[string][]string
+		secTypes map[string]map[string]string
+		anonSecs map[string][]string
 		expected bool
 	}{
 		{
 			name:    "device exists",
-			section: "br-ahwlan",
+			devName: "br-ahwlan",
 			data: map[string]map[string]map[string][]string{
 				"network": {
-					"br-ahwlan": {
+					"__anon__1": {
 						"name": {"br-ahwlan"},
 						"type": {"bridge"},
 					},
 				},
 			},
+			secTypes: map[string]map[string]string{
+				"network": {
+					"__anon__1": "device",
+				},
+			},
+			anonSecs: map[string][]string{
+				"network": {"__anon__1"},
+			},
 			expected: true,
 		},
 		{
 			name:    "device does not exist",
-			section: "nonexistent",
+			devName: "nonexistent",
 			data: map[string]map[string]map[string][]string{
+				"network": {},
+			},
+			secTypes: map[string]map[string]string{
+				"network": {},
+			},
+			anonSecs: map[string][]string{
 				"network": {},
 			},
 			expected: false,
 		},
 		{
 			name:     "empty config",
-			section:  "test",
+			devName:  "test",
 			data:     make(map[string]map[string]map[string][]string),
+			secTypes: make(map[string]map[string]string),
+			anonSecs: make(map[string][]string),
 			expected: false,
 		},
 	}
@@ -1919,10 +2023,12 @@ func TestDeviceSectionExistsWithReader(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &mockConfigReader{
-				data: tt.data,
+				data:         tt.data,
+				sectionTypes: tt.secTypes,
+				anonSections: tt.anonSecs,
 			}
 
-			got := DeviceSectionExistsWithReader(tt.section, mock)
+			got := DeviceSectionExistsWithReader(tt.devName, mock)
 			if got != tt.expected {
 				t.Errorf("DeviceSectionExistsWithReader() = %v, expected %v", got, tt.expected)
 			}
@@ -1934,26 +2040,29 @@ func TestGetAllDevicesWithReader(t *testing.T) {
 	mock := &mockConfigReader{
 		data: map[string]map[string]map[string][]string{
 			"network": {
-				"br-ahwlan": {
+				"__anon__1": {
 					"name":    {"br-ahwlan"},
 					"type":    {"bridge"},
 					"macaddr": {"AA:BB:CC:DD:EE:FF"},
 					"ports":   {"bat0"},
 				},
-				"vxlan0": {
+				"__anon__2": {
 					"name": {"vxlan0"},
 				},
-				"tailscale0": {
+				"__anon__3": {
 					"name": {"tailscale0"},
 				},
 			},
 		},
 		sectionTypes: map[string]map[string]string{
 			"network": {
-				"br-ahwlan":  "device",
-				"vxlan0":     "device",
-				"tailscale0": "device",
+				"__anon__1": "device",
+				"__anon__2": "device",
+				"__anon__3": "device",
 			},
+		},
+		anonSections: map[string][]string{
+			"network": {"__anon__1", "__anon__2", "__anon__3"},
 		},
 	}
 
@@ -1966,7 +2075,7 @@ func TestGetAllDevicesWithReader(t *testing.T) {
 		t.Errorf("Expected 3 devices, got %d", len(devices))
 	}
 
-	// Check br-ahwlan
+	// Check br-ahwlan (keyed by device name now)
 	if device, ok := devices["br-ahwlan"]; ok {
 		if device.Name != "br-ahwlan" {
 			t.Errorf("br-ahwlan: expected name=br-ahwlan, got %v", device.Name)
@@ -2006,6 +2115,12 @@ func TestGetAllDevicesWithReader(t *testing.T) {
 func TestGetAllDevicesWithReader_Empty(t *testing.T) {
 	mock := &mockConfigReader{
 		data: map[string]map[string]map[string][]string{
+			"network": {},
+		},
+		sectionTypes: map[string]map[string]string{
+			"network": {},
+		},
+		anonSections: map[string][]string{
 			"network": {},
 		},
 	}
@@ -2066,7 +2181,9 @@ func TestGetAllDevicesWithReader_GetSectionsError(t *testing.T) {
 func TestDeviceConfiguration_RealWorldExample(t *testing.T) {
 	// This test simulates the real-world configuration from the provided example
 	mock := &mockConfigReader{
-		data: make(map[string]map[string]map[string][]string),
+		data:         make(map[string]map[string]map[string][]string),
+		sectionTypes: make(map[string]map[string]string),
+		anonSections: make(map[string][]string),
 	}
 
 	// Create br-ahwlan bridge device
@@ -2155,5 +2272,15 @@ func TestDeviceConfiguration_RealWorldExample(t *testing.T) {
 
 	if DeviceSectionExistsWithReader("vxlan0", mock) {
 		t.Error("vxlan0 should not exist after deletion")
+	}
+
+	// Get all devices again - should be 2 now
+	allDevices, err = GetAllDevicesWithReader(mock)
+	if err != nil {
+		t.Fatalf("Failed to get all devices after deletion: %v", err)
+	}
+
+	if len(allDevices) != 2 {
+		t.Errorf("Expected 2 devices after deletion, got %d", len(allDevices))
 	}
 }
