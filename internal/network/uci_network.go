@@ -40,29 +40,17 @@ type UCINetwork struct {
 // UCIDevice represents a UCI network device configuration (config device).
 // Devices can be physical interfaces, bridges, VLANs, or other virtual devices.
 type UCIDevice struct {
-	Name                            string   `uci:"option name"`                            // Device name (required)
-	Type                            string   `uci:"option type"`                            // Device type (e.g., bridge, vlan, macvlan, veth)
-	MacAddr                         string   `uci:"option macaddr"`                         // MAC address override
-	MTU                             string   `uci:"option mtu"`                             // Maximum transmission unit
-	TxQueueLen                      string   `uci:"option txqueuelen"`                      // Transmit queue length
-	Ports                           []string `uci:"list ports"`                             // Bridge member ports (for bridge type)
-	Enabled                         string   `uci:"option enabled"`                         // Enable/disable device (0/1)
-	Promisc                         string   `uci:"option promisc"`                         // Promiscuous mode (0/1)
-	AcceptLocal                     string   `uci:"option acceptlocal"`                     // Accept packets with local source addresses (0/1)
-	IGMPVersion                     string   `uci:"option igmpversion"`                     // IGMP version (2/3)
-	MLDVersion                      string   `uci:"option mldversion"`                      // MLD version (1/2)
-	Multicast                       string   `uci:"option multicast"`                       // Multicast support (0/1)
-	IPV6                            string   `uci:"option ipv6"`                            // IPv6 support (0/1)
-	RPS                             string   `uci:"option rps"`                             // Receive packet steering (0/1)
-	XPS                             string   `uci:"option xps"`                             // Transmit packet steering (0/1)
-	Dadtransmits                    string   `uci:"option dadtransmits"`                    // DAD transmits count
-	Multicast_to_unicast            string   `uci:"option multicast_to_unicast"`            // Convert multicast to unicast (0/1)
-	SendRedirects                   string   `uci:"option sendredirects"`                   // Send ICMP redirects (0/1)
-	Drop_v4_unicast_in_l2_multicast string   `uci:"option drop_v4_unicast_in_l2_multicast"` // Drop IPv4 unicast in L2 multicast (0/1)
-	Drop_v6_unicast_in_l2_multicast string   `uci:"option drop_v6_unicast_in_l2_multicast"` // Drop IPv6 unicast in L2 multicast (0/1)
-	Drop_gratuitous_arp             string   `uci:"option drop_gratuitous_arp"`             // Drop gratuitous ARP (0/1)
-	Drop_unsolicited_na             string   `uci:"option drop_unsolicited_na"`             // Drop unsolicited neighbor advertisements (0/1)
-	ARP_accept                      string   `uci:"option arp_accept"`                      // Accept gratuitous ARP (0/1)
+	Name    string   `uci:"option name"`    // Device name (required)
+	Type    string   `uci:"option type"`    // Device type (e.g., bridge, vlan, macvlan, veth, vrf)
+	MacAddr string   `uci:"option macaddr"` // MAC address override
+	Ifname  string   `uci:"option ifname"`  // Base L2 device (required for macvlan type)
+	Ports   []string `uci:"list ports"`     // Bridge member ports (for bridge type)
+	RxPause string   `uci:"option rxpause"` // RX flow control (1 enables RX pause frames)
+	TxPause string   `uci:"option txpause"` // TX flow control (1 enables TX pause frames)
+	AutoNeg string   `uci:"option autoneg"` // Auto-negotiation (1 enables auto-negotiation)
+	Speed   string   `uci:"option speed"`   // Speed of the device
+	Duplex  string   `uci:"option duplex"`  // Duplex mode (1 = full duplex, 0 = half duplex)
+	Table   string   `uci:"option table"`   // Routing table name or number (for VRF type, default: 10)
 }
 
 // RemovePort removes a port from the Ports list if it exists.
@@ -790,84 +778,36 @@ func GetDeviceByNameWithReader(name string, reader ConfigReader) (*UCIDevice, er
 		device.MacAddr = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "mtu"); ok && len(values) > 0 {
-		device.MTU = values[0]
-	}
-
-	if values, ok := reader.Get(networkConfigName, name, "txqueuelen"); ok && len(values) > 0 {
-		device.TxQueueLen = values[0]
+	if values, ok := reader.Get(networkConfigName, name, "ifname"); ok && len(values) > 0 {
+		device.Ifname = values[0]
 	}
 
 	if values, ok := reader.Get(networkConfigName, name, "ports"); ok && len(values) > 0 {
 		device.Ports = values
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "enabled"); ok && len(values) > 0 {
-		device.Enabled = values[0]
+	if values, ok := reader.Get(networkConfigName, name, "rxpause"); ok && len(values) > 0 {
+		device.RxPause = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "promisc"); ok && len(values) > 0 {
-		device.Promisc = values[0]
+	if values, ok := reader.Get(networkConfigName, name, "txpause"); ok && len(values) > 0 {
+		device.TxPause = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "acceptlocal"); ok && len(values) > 0 {
-		device.AcceptLocal = values[0]
+	if values, ok := reader.Get(networkConfigName, name, "autoneg"); ok && len(values) > 0 {
+		device.AutoNeg = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "igmpversion"); ok && len(values) > 0 {
-		device.IGMPVersion = values[0]
+	if values, ok := reader.Get(networkConfigName, name, "speed"); ok && len(values) > 0 {
+		device.Speed = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "mldversion"); ok && len(values) > 0 {
-		device.MLDVersion = values[0]
+	if values, ok := reader.Get(networkConfigName, name, "duplex"); ok && len(values) > 0 {
+		device.Duplex = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "multicast"); ok && len(values) > 0 {
-		device.Multicast = values[0]
-	}
-
-	if values, ok := reader.Get(networkConfigName, name, "ipv6"); ok && len(values) > 0 {
-		device.IPV6 = values[0]
-	}
-
-	if values, ok := reader.Get(networkConfigName, name, "rps"); ok && len(values) > 0 {
-		device.RPS = values[0]
-	}
-
-	if values, ok := reader.Get(networkConfigName, name, "xps"); ok && len(values) > 0 {
-		device.XPS = values[0]
-	}
-
-	if values, ok := reader.Get(networkConfigName, name, "dadtransmits"); ok && len(values) > 0 {
-		device.Dadtransmits = values[0]
-	}
-
-	if values, ok := reader.Get(networkConfigName, name, "multicast_to_unicast"); ok && len(values) > 0 {
-		device.Multicast_to_unicast = values[0]
-	}
-
-	if values, ok := reader.Get(networkConfigName, name, "sendredirects"); ok && len(values) > 0 {
-		device.SendRedirects = values[0]
-	}
-
-	if values, ok := reader.Get(networkConfigName, name, "drop_v4_unicast_in_l2_multicast"); ok && len(values) > 0 {
-		device.Drop_v4_unicast_in_l2_multicast = values[0]
-	}
-
-	if values, ok := reader.Get(networkConfigName, name, "drop_v6_unicast_in_l2_multicast"); ok && len(values) > 0 {
-		device.Drop_v6_unicast_in_l2_multicast = values[0]
-	}
-
-	if values, ok := reader.Get(networkConfigName, name, "drop_gratuitous_arp"); ok && len(values) > 0 {
-		device.Drop_gratuitous_arp = values[0]
-	}
-
-	if values, ok := reader.Get(networkConfigName, name, "drop_unsolicited_na"); ok && len(values) > 0 {
-		device.Drop_unsolicited_na = values[0]
-	}
-
-	if values, ok := reader.Get(networkConfigName, name, "arp_accept"); ok && len(values) > 0 {
-		device.ARP_accept = values[0]
+	if values, ok := reader.Get(networkConfigName, name, "table"); ok && len(values) > 0 {
+		device.Table = values[0]
 	}
 
 	return device, nil
@@ -921,15 +861,9 @@ func SetDeviceConfigWithReader(section string, device *UCIDevice, reader ConfigR
 		}
 	}
 
-	if device.MTU != "" {
-		if err := reader.SetType(networkConfigName, section, "mtu", uci.TypeOption, device.MTU); err != nil {
-			return fmt.Errorf("failed to set device mtu: %w", err)
-		}
-	}
-
-	if device.TxQueueLen != "" {
-		if err := reader.SetType(networkConfigName, section, "txqueuelen", uci.TypeOption, device.TxQueueLen); err != nil {
-			return fmt.Errorf("failed to set device txqueuelen: %w", err)
+	if device.Ifname != "" {
+		if err := reader.SetType(networkConfigName, section, "ifname", uci.TypeOption, device.Ifname); err != nil {
+			return fmt.Errorf("failed to set device ifname: %w", err)
 		}
 	}
 
@@ -939,105 +873,39 @@ func SetDeviceConfigWithReader(section string, device *UCIDevice, reader ConfigR
 		}
 	}
 
-	if device.Enabled != "" {
-		if err := reader.SetType(networkConfigName, section, "enabled", uci.TypeOption, device.Enabled); err != nil {
-			return fmt.Errorf("failed to set device enabled: %w", err)
+	if device.RxPause != "" {
+		if err := reader.SetType(networkConfigName, section, "rxpause", uci.TypeOption, device.RxPause); err != nil {
+			return fmt.Errorf("failed to set device rxpause: %w", err)
 		}
 	}
 
-	if device.Promisc != "" {
-		if err := reader.SetType(networkConfigName, section, "promisc", uci.TypeOption, device.Promisc); err != nil {
-			return fmt.Errorf("failed to set device promisc: %w", err)
+	if device.TxPause != "" {
+		if err := reader.SetType(networkConfigName, section, "txpause", uci.TypeOption, device.TxPause); err != nil {
+			return fmt.Errorf("failed to set device txpause: %w", err)
 		}
 	}
 
-	if device.AcceptLocal != "" {
-		if err := reader.SetType(networkConfigName, section, "acceptlocal", uci.TypeOption, device.AcceptLocal); err != nil {
-			return fmt.Errorf("failed to set device acceptlocal: %w", err)
+	if device.AutoNeg != "" {
+		if err := reader.SetType(networkConfigName, section, "autoneg", uci.TypeOption, device.AutoNeg); err != nil {
+			return fmt.Errorf("failed to set device autoneg: %w", err)
 		}
 	}
 
-	if device.IGMPVersion != "" {
-		if err := reader.SetType(networkConfigName, section, "igmpversion", uci.TypeOption, device.IGMPVersion); err != nil {
-			return fmt.Errorf("failed to set device igmpversion: %w", err)
+	if device.Speed != "" {
+		if err := reader.SetType(networkConfigName, section, "speed", uci.TypeOption, device.Speed); err != nil {
+			return fmt.Errorf("failed to set device speed: %w", err)
 		}
 	}
 
-	if device.MLDVersion != "" {
-		if err := reader.SetType(networkConfigName, section, "mldversion", uci.TypeOption, device.MLDVersion); err != nil {
-			return fmt.Errorf("failed to set device mldversion: %w", err)
+	if device.Duplex != "" {
+		if err := reader.SetType(networkConfigName, section, "duplex", uci.TypeOption, device.Duplex); err != nil {
+			return fmt.Errorf("failed to set device duplex: %w", err)
 		}
 	}
 
-	if device.Multicast != "" {
-		if err := reader.SetType(networkConfigName, section, "multicast", uci.TypeOption, device.Multicast); err != nil {
-			return fmt.Errorf("failed to set device multicast: %w", err)
-		}
-	}
-
-	if device.IPV6 != "" {
-		if err := reader.SetType(networkConfigName, section, "ipv6", uci.TypeOption, device.IPV6); err != nil {
-			return fmt.Errorf("failed to set device ipv6: %w", err)
-		}
-	}
-
-	if device.RPS != "" {
-		if err := reader.SetType(networkConfigName, section, "rps", uci.TypeOption, device.RPS); err != nil {
-			return fmt.Errorf("failed to set device rps: %w", err)
-		}
-	}
-
-	if device.XPS != "" {
-		if err := reader.SetType(networkConfigName, section, "xps", uci.TypeOption, device.XPS); err != nil {
-			return fmt.Errorf("failed to set device xps: %w", err)
-		}
-	}
-
-	if device.Dadtransmits != "" {
-		if err := reader.SetType(networkConfigName, section, "dadtransmits", uci.TypeOption, device.Dadtransmits); err != nil {
-			return fmt.Errorf("failed to set device dadtransmits: %w", err)
-		}
-	}
-
-	if device.Multicast_to_unicast != "" {
-		if err := reader.SetType(networkConfigName, section, "multicast_to_unicast", uci.TypeOption, device.Multicast_to_unicast); err != nil {
-			return fmt.Errorf("failed to set device multicast_to_unicast: %w", err)
-		}
-	}
-
-	if device.SendRedirects != "" {
-		if err := reader.SetType(networkConfigName, section, "sendredirects", uci.TypeOption, device.SendRedirects); err != nil {
-			return fmt.Errorf("failed to set device sendredirects: %w", err)
-		}
-	}
-
-	if device.Drop_v4_unicast_in_l2_multicast != "" {
-		if err := reader.SetType(networkConfigName, section, "drop_v4_unicast_in_l2_multicast", uci.TypeOption, device.Drop_v4_unicast_in_l2_multicast); err != nil {
-			return fmt.Errorf("failed to set device drop_v4_unicast_in_l2_multicast: %w", err)
-		}
-	}
-
-	if device.Drop_v6_unicast_in_l2_multicast != "" {
-		if err := reader.SetType(networkConfigName, section, "drop_v6_unicast_in_l2_multicast", uci.TypeOption, device.Drop_v6_unicast_in_l2_multicast); err != nil {
-			return fmt.Errorf("failed to set device drop_v6_unicast_in_l2_multicast: %w", err)
-		}
-	}
-
-	if device.Drop_gratuitous_arp != "" {
-		if err := reader.SetType(networkConfigName, section, "drop_gratuitous_arp", uci.TypeOption, device.Drop_gratuitous_arp); err != nil {
-			return fmt.Errorf("failed to set device drop_gratuitous_arp: %w", err)
-		}
-	}
-
-	if device.Drop_unsolicited_na != "" {
-		if err := reader.SetType(networkConfigName, section, "drop_unsolicited_na", uci.TypeOption, device.Drop_unsolicited_na); err != nil {
-			return fmt.Errorf("failed to set device drop_unsolicited_na: %w", err)
-		}
-	}
-
-	if device.ARP_accept != "" {
-		if err := reader.SetType(networkConfigName, section, "arp_accept", uci.TypeOption, device.ARP_accept); err != nil {
-			return fmt.Errorf("failed to set device arp_accept: %w", err)
+	if device.Table != "" {
+		if err := reader.SetType(networkConfigName, section, "table", uci.TypeOption, device.Table); err != nil {
+			return fmt.Errorf("failed to set device table: %w", err)
 		}
 	}
 

@@ -1587,29 +1587,17 @@ func TestGetDeviceByNameWithReader_AllOptions(t *testing.T) {
 		data: map[string]map[string]map[string][]string{
 			"network": {
 				"test-device": {
-					"name":                            {"test-device"},
-					"type":                            {"bridge"},
-					"macaddr":                         {"00:11:22:33:44:55"},
-					"mtu":                             {"1500"},
-					"txqueuelen":                      {"1000"},
-					"ports":                           {"eth0", "eth1"},
-					"enabled":                         {"1"},
-					"promisc":                         {"1"},
-					"acceptlocal":                     {"0"},
-					"igmpversion":                     {"3"},
-					"mldversion":                      {"2"},
-					"multicast":                       {"1"},
-					"ipv6":                            {"1"},
-					"rps":                             {"1"},
-					"xps":                             {"1"},
-					"dadtransmits":                    {"3"},
-					"multicast_to_unicast":            {"1"},
-					"sendredirects":                   {"0"},
-					"drop_v4_unicast_in_l2_multicast": {"0"},
-					"drop_v6_unicast_in_l2_multicast": {"0"},
-					"drop_gratuitous_arp":             {"0"},
-					"drop_unsolicited_na":             {"0"},
-					"arp_accept":                      {"1"},
+					"name":    {"test-device"},
+					"type":    {"bridge"},
+					"macaddr": {"00:11:22:33:44:55"},
+					"ifname":  {"eth0"},
+					"ports":   {"eth0", "eth1"},
+					"rxpause": {"1"},
+					"txpause": {"1"},
+					"autoneg": {"1"},
+					"speed":   {"1000"},
+					"duplex":  {"1"},
+					"table":   {"10"},
 				},
 			},
 		},
@@ -1628,25 +1616,13 @@ func TestGetDeviceByNameWithReader_AllOptions(t *testing.T) {
 		{"Name", device.Name, "test-device"},
 		{"Type", device.Type, "bridge"},
 		{"MacAddr", device.MacAddr, "00:11:22:33:44:55"},
-		{"MTU", device.MTU, "1500"},
-		{"TxQueueLen", device.TxQueueLen, "1000"},
-		{"Enabled", device.Enabled, "1"},
-		{"Promisc", device.Promisc, "1"},
-		{"AcceptLocal", device.AcceptLocal, "0"},
-		{"IGMPVersion", device.IGMPVersion, "3"},
-		{"MLDVersion", device.MLDVersion, "2"},
-		{"Multicast", device.Multicast, "1"},
-		{"IPV6", device.IPV6, "1"},
-		{"RPS", device.RPS, "1"},
-		{"XPS", device.XPS, "1"},
-		{"Dadtransmits", device.Dadtransmits, "3"},
-		{"Multicast_to_unicast", device.Multicast_to_unicast, "1"},
-		{"SendRedirects", device.SendRedirects, "0"},
-		{"Drop_v4_unicast_in_l2_multicast", device.Drop_v4_unicast_in_l2_multicast, "0"},
-		{"Drop_v6_unicast_in_l2_multicast", device.Drop_v6_unicast_in_l2_multicast, "0"},
-		{"Drop_gratuitous_arp", device.Drop_gratuitous_arp, "0"},
-		{"Drop_unsolicited_na", device.Drop_unsolicited_na, "0"},
-		{"ARP_accept", device.ARP_accept, "1"},
+		{"Ifname", device.Ifname, "eth0"},
+		{"RxPause", device.RxPause, "1"},
+		{"TxPause", device.TxPause, "1"},
+		{"AutoNeg", device.AutoNeg, "1"},
+		{"Speed", device.Speed, "1000"},
+		{"Duplex", device.Duplex, "1"},
+		{"Table", device.Table, "10"},
 	}
 
 	for _, tt := range tests {
@@ -1761,29 +1737,17 @@ func TestSetDeviceConfigWithReader_AllFields(t *testing.T) {
 	}
 
 	device := &UCIDevice{
-		Name:                            "full-device",
-		Type:                            "bridge",
-		MacAddr:                         "11:22:33:44:55:66",
-		MTU:                             "1400",
-		TxQueueLen:                      "2000",
-		Ports:                           []string{"eth2", "eth3"},
-		Enabled:                         "1",
-		Promisc:                         "1",
-		AcceptLocal:                     "1",
-		IGMPVersion:                     "3",
-		MLDVersion:                      "2",
-		Multicast:                       "1",
-		IPV6:                            "1",
-		RPS:                             "1",
-		XPS:                             "1",
-		Dadtransmits:                    "5",
-		Multicast_to_unicast:            "1",
-		SendRedirects:                   "1",
-		Drop_v4_unicast_in_l2_multicast: "1",
-		Drop_v6_unicast_in_l2_multicast: "1",
-		Drop_gratuitous_arp:             "1",
-		Drop_unsolicited_na:             "1",
-		ARP_accept:                      "1",
+		Name:    "full-device",
+		Type:    "bridge",
+		MacAddr: "11:22:33:44:55:66",
+		Ifname:  "eth0",
+		Ports:   []string{"eth2", "eth3"},
+		RxPause: "1",
+		TxPause: "1",
+		AutoNeg: "1",
+		Speed:   "1000",
+		Duplex:  "1",
+		Table:   "20",
 	}
 
 	err := SetDeviceConfigWithReader("full-device", device, mock)
@@ -1806,65 +1770,29 @@ func TestSetDeviceConfigWithReader_AllFields(t *testing.T) {
 	if readDevice.MacAddr != device.MacAddr {
 		t.Errorf("MacAddr: got %v, expected %v", readDevice.MacAddr, device.MacAddr)
 	}
-	if readDevice.MTU != device.MTU {
-		t.Errorf("MTU: got %v, expected %v", readDevice.MTU, device.MTU)
-	}
-	if readDevice.TxQueueLen != device.TxQueueLen {
-		t.Errorf("TxQueueLen: got %v, expected %v", readDevice.TxQueueLen, device.TxQueueLen)
+	if readDevice.Ifname != device.Ifname {
+		t.Errorf("Ifname: got %v, expected %v", readDevice.Ifname, device.Ifname)
 	}
 	if !reflect.DeepEqual(readDevice.Ports, device.Ports) {
 		t.Errorf("Ports: got %v, expected %v", readDevice.Ports, device.Ports)
 	}
-	if readDevice.Enabled != device.Enabled {
-		t.Errorf("Enabled: got %v, expected %v", readDevice.Enabled, device.Enabled)
+	if readDevice.RxPause != device.RxPause {
+		t.Errorf("RxPause: got %v, expected %v", readDevice.RxPause, device.RxPause)
 	}
-	if readDevice.Promisc != device.Promisc {
-		t.Errorf("Promisc: got %v, expected %v", readDevice.Promisc, device.Promisc)
+	if readDevice.TxPause != device.TxPause {
+		t.Errorf("TxPause: got %v, expected %v", readDevice.TxPause, device.TxPause)
 	}
-	if readDevice.AcceptLocal != device.AcceptLocal {
-		t.Errorf("AcceptLocal: got %v, expected %v", readDevice.AcceptLocal, device.AcceptLocal)
+	if readDevice.AutoNeg != device.AutoNeg {
+		t.Errorf("AutoNeg: got %v, expected %v", readDevice.AutoNeg, device.AutoNeg)
 	}
-	if readDevice.IGMPVersion != device.IGMPVersion {
-		t.Errorf("IGMPVersion: got %v, expected %v", readDevice.IGMPVersion, device.IGMPVersion)
+	if readDevice.Speed != device.Speed {
+		t.Errorf("Speed: got %v, expected %v", readDevice.Speed, device.Speed)
 	}
-	if readDevice.MLDVersion != device.MLDVersion {
-		t.Errorf("MLDVersion: got %v, expected %v", readDevice.MLDVersion, device.MLDVersion)
+	if readDevice.Duplex != device.Duplex {
+		t.Errorf("Duplex: got %v, expected %v", readDevice.Duplex, device.Duplex)
 	}
-	if readDevice.Multicast != device.Multicast {
-		t.Errorf("Multicast: got %v, expected %v", readDevice.Multicast, device.Multicast)
-	}
-	if readDevice.IPV6 != device.IPV6 {
-		t.Errorf("IPV6: got %v, expected %v", readDevice.IPV6, device.IPV6)
-	}
-	if readDevice.RPS != device.RPS {
-		t.Errorf("RPS: got %v, expected %v", readDevice.RPS, device.RPS)
-	}
-	if readDevice.XPS != device.XPS {
-		t.Errorf("XPS: got %v, expected %v", readDevice.XPS, device.XPS)
-	}
-	if readDevice.Dadtransmits != device.Dadtransmits {
-		t.Errorf("Dadtransmits: got %v, expected %v", readDevice.Dadtransmits, device.Dadtransmits)
-	}
-	if readDevice.Multicast_to_unicast != device.Multicast_to_unicast {
-		t.Errorf("Multicast_to_unicast: got %v, expected %v", readDevice.Multicast_to_unicast, device.Multicast_to_unicast)
-	}
-	if readDevice.SendRedirects != device.SendRedirects {
-		t.Errorf("SendRedirects: got %v, expected %v", readDevice.SendRedirects, device.SendRedirects)
-	}
-	if readDevice.Drop_v4_unicast_in_l2_multicast != device.Drop_v4_unicast_in_l2_multicast {
-		t.Errorf("Drop_v4_unicast_in_l2_multicast: got %v, expected %v", readDevice.Drop_v4_unicast_in_l2_multicast, device.Drop_v4_unicast_in_l2_multicast)
-	}
-	if readDevice.Drop_v6_unicast_in_l2_multicast != device.Drop_v6_unicast_in_l2_multicast {
-		t.Errorf("Drop_v6_unicast_in_l2_multicast: got %v, expected %v", readDevice.Drop_v6_unicast_in_l2_multicast, device.Drop_v6_unicast_in_l2_multicast)
-	}
-	if readDevice.Drop_gratuitous_arp != device.Drop_gratuitous_arp {
-		t.Errorf("Drop_gratuitous_arp: got %v, expected %v", readDevice.Drop_gratuitous_arp, device.Drop_gratuitous_arp)
-	}
-	if readDevice.Drop_unsolicited_na != device.Drop_unsolicited_na {
-		t.Errorf("Drop_unsolicited_na: got %v, expected %v", readDevice.Drop_unsolicited_na, device.Drop_unsolicited_na)
-	}
-	if readDevice.ARP_accept != device.ARP_accept {
-		t.Errorf("ARP_accept: got %v, expected %v", readDevice.ARP_accept, device.ARP_accept)
+	if readDevice.Table != device.Table {
+		t.Errorf("Table: got %v, expected %v", readDevice.Table, device.Table)
 	}
 }
 
