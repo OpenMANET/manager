@@ -3,6 +3,7 @@ package roip
 import (
 	"context"
 	"net/netip"
+	"os/exec"
 	"strconv"
 	"time"
 
@@ -54,7 +55,11 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 		}
 
 		if device != nil && containsString(device.Ports, defaultTunnelDeviceName) {
-			device.RemovePort(defaultTunnelDeviceName)
+
+			removeDevice := exec.Command("uci", "del_list", "network."+r.Config.MeshNetInterface+".ports="+defaultTunnelDeviceName)
+			if err := removeDevice.Run(); err != nil {
+				return err
+			}
 		}
 
 		r.Logger.Debug().Msgf("Created ROIP tunnel interface %s", defaultTunnelDeviceName)
@@ -73,6 +78,13 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 //
 // Returns an error if the VXLAN configuration creation fails, otherwise returns nil.
 func (r *ROIP) createOrConfigureVxLanInterface() error {
+	// Check if the vxlan device exists, if not create it before trying to create the network section for it
+	if !network.DeviceSectionExists(defaultVxLanDeviceName) {
+		if err := r.createVxLanDevice(); err != nil {
+			return err
+		}
+	}
+
 	// Check if the VXLAN interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultVxLanDeviceName, r.uciNetworkConfig) {
 		// Create a new network section for the VXLAN interface
@@ -227,6 +239,39 @@ func (r *ROIP) cycleTailscale(ctx context.Context) error {
 	return nil
 }
 
+// createVxLanDevice creates a new VXLAN device in the system using UCI commands.
+// It sets the device type to "device" and assigns it the default VXLAN device name.
+// Returns an error if the UCI commands fail, otherwise returns nil.
+func (r *ROIP) createVxLanDevice() error {
+	setDevice := exec.Command("uci", "set", "network."+defaultVxLanDeviceName+"=device")
+	if err := setDevice.Run(); err != nil {
+		return err
+	}
+
+	setName := exec.Command("uci", "set", "network."+defaultVxLanDeviceName+".name="+defaultVxLanDeviceName)
+	if err := setName.Run(); err != nil {
+		return err
+	}
+
+	setipv4mtu := exec.Command("uci", "set", "network."+defaultVxLanDeviceName+".mtu="+strconv.Itoa(vxLanDefaultMTUValue))
+	if err := setipv4mtu.Run(); err != nil {
+		return err
+	}
+
+	setipv6mtu := exec.Command("uci", "set", "network."+defaultVxLanDeviceName+".mtu6="+strconv.Itoa(vxLanDefaultMTUValue))
+	if err := setipv6mtu.Run(); err != nil {
+		return err
+	}
+
+	if err := network.ForceReloadConfig(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// containsString checks if a slice of strings contains a specific target string.
+// It iterates through the slice and returns true if it finds a match, otherwise returns false.
 func containsString(items []string, target string) bool {
 	for _, item := range items {
 		if item == target {
