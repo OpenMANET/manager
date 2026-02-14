@@ -14,7 +14,7 @@ import (
 
 // NewGPSService creates a new GPS service that connects to GPSD and monitors TPV reports.
 func NewGPSService(log zerolog.Logger, cfg *config.Config) (*GPSService, error) {
-	return NewGPSServiceWithAddress(log, cfg, DefaultAddress)
+	return NewGPSServiceWithAddress(log, cfg, DefaultGPSDAddress)
 }
 
 // NewGPSServiceWithAddress creates a new GPS service with a custom GPSD address.
