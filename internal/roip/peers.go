@@ -96,6 +96,12 @@ func (r *ROIP) createVxlanPeer(peerIP string) error {
 		}
 	}
 
+	if err := network.ForceReloadConfig(); err != nil {
+		r.Logger.Error().
+			Err(err).
+			Msg("Failed to reload UCI config after creating/updating peer, continuing anyway")
+	}
+
 	return nil
 }
 
@@ -233,6 +239,12 @@ func (r *ROIP) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
 				Msg("Failed to remove inactive VXLAN peer")
 			return err
 		}
+	}
+
+	if err := network.ForceReloadConfig(); err != nil {
+		r.Logger.Error().
+			Err(err).
+			Msg("Failed to reload UCI config after removing inactive peers, continuing anyway")
 	}
 
 	return nil
