@@ -3,6 +3,7 @@ package network
 import (
 	"fmt"
 	"net"
+	"os/exec"
 
 	"github.com/vishvananda/netlink"
 )
@@ -237,4 +238,24 @@ func GetNetworkCIDR(name string) (string, error) {
 	}
 
 	return networkCIDR.String(), nil
+}
+
+// PerformIfUp brings up a network interface by name.
+// It executes the "ifup" command with the provided interface name.
+// Returns an error if the command fails to execute or if the interface
+// cannot be brought up.
+func PerformIfUp(name string) error {
+	cmd := exec.Command("ifup", name)
+
+	return cmd.Run()
+}
+
+// PerformIfDown brings down a network interface by name.
+// It executes the "ifdown" command with the provided interface name.
+// Returns an error if the command fails to execute or if the interface
+// cannot be brought down.
+func PerformIfDown(name string) error {
+	cmd := exec.Command("ifdown", name)
+
+	return cmd.Run()
 }

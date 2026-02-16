@@ -164,6 +164,14 @@ func (r *ROIP) syncVXLANPeersWithTailscale() error {
 	// Update the last synced peer IPs
 	r.lastSyncedPeerIPs = activePeerIPs
 
+	// Bring up or refresh the VXLAN interface after syncing peers
+	if err := network.PerformIfUp(defaultVxLanDeviceName); err != nil {
+		r.Logger.Error().
+			Err(err).
+			Msgf("Failed to bring up interface %s after syncing peers", defaultVxLanDeviceName)
+		return err
+	}
+
 	r.Logger.Debug().
 		Int("active_peers", len(activePeerIPs)).
 		Msg("VXLAN peers synchronized with Tailscale")

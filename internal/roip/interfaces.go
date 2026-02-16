@@ -5,7 +5,6 @@ import (
 	"net/netip"
 	"os/exec"
 	"strconv"
-	"time"
 
 	"github.com/openmanet/openmanetd/internal/firewall"
 	"github.com/openmanet/openmanetd/internal/network"
@@ -78,13 +77,6 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 //
 // Returns an error if the VXLAN configuration creation fails, otherwise returns nil.
 func (r *ROIP) createOrConfigureVxLanInterface() error {
-	// Check if the vxlan device exists, if not create it before trying to create the network section for it
-	if !network.DeviceSectionExists(defaultVxLanDeviceName) {
-		if err := r.createVxLanDevice(); err != nil {
-			return err
-		}
-	}
-
 	// Check if the VXLAN interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultVxLanDeviceName, r.uciNetworkConfig) {
 		// Create a new network section for the VXLAN interface
@@ -180,63 +172,6 @@ func (r *ROIP) updateTailscalePreferences(prefs *ipn.Prefs) {
 
 	// Apply the edits to the provided Prefs
 	prefs.ApplyEdits(&edits)
-}
-
-// tailscaleUp starts Tailscale by setting WantRunning to true.
-// This is equivalent to running `tailscale up` on the command line.
-func (r *ROIP) tailscaleUp(ctx context.Context) error {
-	lc := &local.Client{}
-
-	_, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{
-		Prefs: ipn.Prefs{
-			WantRunning: true,
-		},
-		WantRunningSet: true,
-	})
-	if err != nil {
-		r.Logger.Error().Err(err).Msg("Failed to bring Tailscale up")
-		return err
-	}
-
-	r.Logger.Info().Msg("Tailscale brought up")
-	return nil
-}
-
-// tailscaleDown stops Tailscale by setting WantRunning to false.
-// This is equivalent to running `tailscale down` on the command line.
-func (r *ROIP) tailscaleDown(ctx context.Context) error {
-	lc := &local.Client{}
-
-	_, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{
-		Prefs: ipn.Prefs{
-			WantRunning: false,
-		},
-		WantRunningSet: true,
-	})
-	if err != nil {
-		r.Logger.Error().Err(err).Msg("Failed to bring Tailscale down")
-		return err
-	}
-
-	r.Logger.Info().Msg("Tailscale brought down")
-	return nil
-}
-
-// cycleTailscale restarts the Tailscale service by bringing it down and back up.
-// It returns the first error encountered from either operation.
-func (r *ROIP) cycleTailscale(ctx context.Context) error {
-	if err := r.tailscaleDown(ctx); err != nil {
-		return err
-	}
-
-	// Wait a moment to ensure Tailscale has fully stopped before starting it again
-	time.Sleep(10 * time.Second)
-
-	if err := r.tailscaleUp(ctx); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // createVxLanDevice creates a new VXLAN device in the system using UCI commands.
