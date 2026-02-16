@@ -3,7 +3,7 @@ module github.com/openmanet/openmanetd
 go 1.25.5
 
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20251209175733-2a1774d88802.1
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260209202127-80ab13bee0bf.1
 	connectrpc.com/connect v1.19.1
 	connectrpc.com/cors v0.1.0
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
