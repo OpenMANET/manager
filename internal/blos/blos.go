@@ -1,4 +1,4 @@
-package roip
+package blos
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"tailscale.com/types/key"
 )
 
-type ROIP struct {
+type BLOS struct {
 	Config *config.Config
 	Logger zerolog.Logger
 
@@ -28,7 +28,7 @@ type ROIP struct {
 	lastSyncedPeerIPs  map[string]bool // Track peer IPs from last sync to detect changes
 }
 
-func NewROIP(cfg *config.Config, logger zerolog.Logger) (*ROIP, error) {
+func NewBLOS(cfg *config.Config, logger zerolog.Logger) (*BLOS, error) {
 	// Get mesh config to determine if we are a gateway
 	meshCfg, err := batmanadv.GetMeshConfig(cfg.GetAlfredBatInterface())
 	if err != nil {
@@ -36,13 +36,13 @@ func NewROIP(cfg *config.Config, logger zerolog.Logger) (*ROIP, error) {
 		return nil, err
 	}
 
-	// Only initialize ROIP if we are in gateway mode
+	// Only initialize BLOS if we are in gateway mode
 	if !meshCfg.IsGatewayMode() {
-		logger.Info().Msg("Not in gateway mode, skipping ROIP initialization")
+		logger.Info().Msg("Not in gateway mode, skipping BLOS initialization")
 		return nil, nil
 	}
 
-	r := &ROIP{
+	r := &BLOS{
 		Config:             cfg,
 		Logger:             logger,
 		ctx:                context.Background(),
@@ -52,7 +52,7 @@ func NewROIP(cfg *config.Config, logger zerolog.Logger) (*ROIP, error) {
 	}
 
 	// Initialize the status worker
-	interval := time.Duration(cfg.GetROIPStatusWorkerInterval()) * time.Second
+	interval := time.Duration(cfg.GetBLOSStatusWorkerInterval()) * time.Second
 	r.statusWorker = NewStatusWorker(&LocalStatusClient{}, interval, logger)
 
 	// Set the callback to sync VXLAN peers when Tailscale status updates
@@ -67,15 +67,17 @@ func NewROIP(cfg *config.Config, logger zerolog.Logger) (*ROIP, error) {
 	// Start the status worker
 	r.statusWorker.Start()
 
+	logger.Info().Msg("BLOS (Beyond Line-of-Sight) module initialized successfully")
+
 	return r, nil
 }
 
-// configureInterfaces sets up the network interfaces required for ROIP operation.
+// configureInterfaces sets up the network interfaces required for BLOS operation.
 // It first checks the Tailscale tunnel status and validates that it is in a valid state
 // (Running or Starting). If the tunnel requires authentication, it returns an error.
 // Then it sequentially configures the tunnel interface, VxLAN interface, and Batman
 // interface, and creates VxLAN multicast peers. Returns an error if any step fails.
-func (r *ROIP) configureInterfaces(ctx context.Context) error {
+func (r *BLOS) configureInterfaces(ctx context.Context) error {
 	// Implementation of interface configuration would go here
 	tunnelStatus, err := local.Status(ctx)
 	if err != nil {
@@ -98,15 +100,15 @@ func (r *ROIP) configureInterfaces(ctx context.Context) error {
 		r.Logger.Info().Msgf("Tunnel is in state: %s", tunnelStatus.BackendState)
 	}
 
-	// Only configure ROIP interfaces if the mesh network interface exists
+	// Only configure BLOS interfaces if the mesh network interface exists
 	if network.NetworkSectionExistsWithReader(r.Config.GetAlfredBatInterface(), r.uciNetworkConfig) {
 
-		roipConfigured, err := network.IsROIPConfiguredWithReader(r.uciOpenManetConfig)
+		blosConfigured, err := network.IsBLOSConfiguredWithReader(r.uciOpenManetConfig)
 		if err != nil {
 			return err
 		}
 
-		if !roipConfigured {
+		if !blosConfigured {
 			// Configure wireguard (tailscale) tunnel interface
 			if err := r.createOrConfigureTunnelInterface(); err != nil {
 				return err
@@ -127,13 +129,13 @@ func (r *ROIP) configureInterfaces(ctx context.Context) error {
 				return err
 			}
 
-			// Mark ROIP as configured in the OpenMANET config to avoid reconfiguring on every startup
-			if err := network.SetROIPConfiguredWithReader(r.uciOpenManetConfig); err != nil {
+			// Mark BLOS as configured in the OpenMANET config to avoid reconfiguring on every startup
+			if err := network.SetBLOSConfiguredWithReader(r.uciOpenManetConfig); err != nil {
 				return err
 			}
 
 			// Reboot the system to clean up things and apply new network settings.  This is required to properly set up the tunnel and interfaces in the correct order, and to ensure a clean state.  We will likely need to reboot at least once anyway after installation to get Tailscale set up, so doing it here ensures we don't end up in a broken state if we try to configure interfaces before Tailscale is fully set up and authenticated.
-			r.Logger.Info().Msg("ROIP configured successfully, rebooting system to apply changes")
+			r.Logger.Info().Msg("BLOS configured successfully, rebooting system to apply changes")
 			if err = system.Reboot(); err != nil {
 				r.Logger.Error().Err(err).Msg("Failed to reboot system after ROIP configuration")
 				return err
@@ -159,7 +161,7 @@ func (r *ROIP) configureInterfaces(ctx context.Context) error {
 }
 
 // GetPeers returns the current Tailscale peer information.
-func (r *ROIP) GetPeers() map[key.NodePublic]*ipnstate.PeerStatus {
+func (r *BLOS) GetPeers() map[key.NodePublic]*ipnstate.PeerStatus {
 	if r.statusWorker == nil {
 		return nil
 	}
@@ -167,7 +169,7 @@ func (r *ROIP) GetPeers() map[key.NodePublic]*ipnstate.PeerStatus {
 }
 
 // GetPeer returns a specific Tailscale peer by node key.
-func (r *ROIP) GetPeer(nodeKey key.NodePublic) (*ipnstate.PeerStatus, bool) {
+func (r *BLOS) GetPeer(nodeKey key.NodePublic) (*ipnstate.PeerStatus, bool) {
 	if r.statusWorker == nil {
 		return nil, false
 	}
@@ -175,7 +177,7 @@ func (r *ROIP) GetPeer(nodeKey key.NodePublic) (*ipnstate.PeerStatus, bool) {
 }
 
 // GetStatus returns the last fetched Tailscale status.
-func (r *ROIP) GetStatus() *ipnstate.Status {
+func (r *BLOS) GetStatus() *ipnstate.Status {
 	if r.statusWorker == nil {
 		return nil
 	}
@@ -183,7 +185,7 @@ func (r *ROIP) GetStatus() *ipnstate.Status {
 }
 
 // Stop stops the ROIP worker processes.
-func (r *ROIP) Stop() {
+func (r *BLOS) Stop() {
 	if r.statusWorker != nil {
 		r.statusWorker.Stop()
 	}

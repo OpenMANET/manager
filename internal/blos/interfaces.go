@@ -1,4 +1,4 @@
-package roip
+package blos
 
 import (
 	"context"
@@ -28,7 +28,7 @@ const (
 // It checks if a tunnel interface with the default device name already exists in the UCI configuration.
 // If the interface doesn't exist, it creates a new network section with protocol set to "none" and the
 // default tunnel device name. Returns an error if the network configuration operation fails.
-func (r *ROIP) createOrConfigureTunnelInterface() error {
+func (r *BLOS) createOrConfigureTunnelInterface() error {
 	// Check if the tunnel interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultTunnelDeviceName, r.uciNetworkConfig) {
 		// Create a new network section for the tunnel interface
@@ -76,7 +76,7 @@ func (r *ROIP) createOrConfigureTunnelInterface() error {
 //   - Proxy: "1" - enables ARP proxying
 //
 // Returns an error if the VXLAN configuration creation fails, otherwise returns nil.
-func (r *ROIP) createOrConfigureVxLanInterface() error {
+func (r *BLOS) createOrConfigureVxLanInterface() error {
 	// Check if the VXLAN interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultVxLanDeviceName, r.uciNetworkConfig) {
 		// Create a new network section for the VXLAN interface
@@ -107,7 +107,7 @@ func (r *ROIP) createOrConfigureVxLanInterface() error {
 // a new network section configured as a batadv_hardif (Batman-adv hard interface) that uses the default VXLAN
 // device and associates it with the configured mesh network interface. The function logs the creation of the
 // interface when successful. Returns an error if the network configuration operation fails.
-func (r *ROIP) createOrConfigureBatmanInterface() error {
+func (r *BLOS) createOrConfigureBatmanInterface() error {
 	// Check if the Batman interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultBatmanInterfaceName, r.uciNetworkConfig) {
 		// Create a new network section for the Batman interface
@@ -127,7 +127,7 @@ func (r *ROIP) createOrConfigureBatmanInterface() error {
 
 // configureTailscalePreferences retrieves current Tailscale preferences, updates them to enable
 // RouteAll and disable NoSNAT, and applies the changes back to the Tailscale daemon.
-func (r *ROIP) configureTailscalePreferences(ctx context.Context) error {
+func (r *BLOS) configureTailscalePreferences(ctx context.Context) error {
 	lc := &local.Client{}
 
 	// Get current preferences from Tailscale daemon
@@ -157,7 +157,7 @@ func (r *ROIP) configureTailscalePreferences(ctx context.Context) error {
 
 // updateTailscalePreferences updates the provided Prefs to enable RouteAll and disable NoSNAT.
 // It uses the ApplyEdits method from the Prefs struct to safely apply the changes.
-func (r *ROIP) updateTailscalePreferences(prefs *ipn.Prefs) {
+func (r *BLOS) updateTailscalePreferences(prefs *ipn.Prefs) {
 	// Create a MaskedPrefs with the desired preference changes
 	edits := ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
@@ -177,7 +177,7 @@ func (r *ROIP) updateTailscalePreferences(prefs *ipn.Prefs) {
 // createVxLanDevice creates a new VXLAN device in the system using UCI commands.
 // It sets the device type to "device" and assigns it the default VXLAN device name.
 // Returns an error if the UCI commands fail, otherwise returns nil.
-func (r *ROIP) createVxLanDevice() error {
+func (r *BLOS) createVxLanDevice() error {
 	setDevice := exec.Command("uci", "set", "network."+defaultVxLanDeviceName+"=device")
 	if err := setDevice.Run(); err != nil {
 		return err

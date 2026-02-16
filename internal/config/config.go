@@ -31,8 +31,8 @@ const (
 	DefaultEnableGNSS                  bool   = false
 	DefaultGNSSSendAsNMEA              bool   = false
 	DefaultGNSSSendAsCoT               bool   = false
-	DefaultEnableROIP                  bool   = false
-	DefaultROIPStatusWorkerInterval    int    = 30 // seconds
+	DefaultEnableBLOS                  bool   = false
+	DefaultBLOSStatusWorkerInterval    int    = 30 // seconds
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -49,8 +49,8 @@ type Config struct {
 	PTTPttDeviceName            string
 	onChangeCallbacks           []func(*Config)
 	PTTMcastPort                int
-	ROIPEnable                  bool
-	ROIPStatusWorkerInterval    int
+	BLOSEnable                  bool
+	BLOSStatusWorkerInterval    int
 	mu                          sync.RWMutex
 	GatewayMode                 bool
 	AlfredDataTypeGateway       bool
@@ -233,17 +233,17 @@ func (c *Config) reload() {
 		c.PTTPttDeviceName = DefaultPTTPttDeviceName
 	}
 
-	// Load ROIP configuration
-	if c.v.IsSet("roip.enable") {
-		c.ROIPEnable = c.v.GetBool("roip.enable")
+	// Load BLOS configuration
+	if c.v.IsSet("blos.enable") {
+		c.BLOSEnable = c.v.GetBool("blos.enable")
 	} else {
-		c.ROIPEnable = DefaultEnableROIP
+		c.BLOSEnable = DefaultEnableBLOS
 	}
 
-	if val := c.v.GetInt("roip.statusWorkerInterval"); val != 0 {
-		c.ROIPStatusWorkerInterval = val
+	if val := c.v.GetInt("blos.statusWorkerInterval"); val != 0 {
+		c.BLOSStatusWorkerInterval = val
 	} else {
-		c.ROIPStatusWorkerInterval = DefaultROIPStatusWorkerInterval
+		c.BLOSStatusWorkerInterval = DefaultBLOSStatusWorkerInterval
 	}
 }
 
@@ -420,16 +420,16 @@ func (c *Config) GetGNSSSendAsCoT() bool {
 	return c.GNSSSendAsCoT
 }
 
-// ROIPEnabled returns whether ROIP (Radio over IP) is enabled.
-func (c *Config) ROIPEnabled() bool {
+// BLOSEnabled returns whether BLOS (Beyond Line of Sight) is enabled.
+func (c *Config) BLOSEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.ROIPEnable
+	return c.BLOSEnable
 }
 
-// GetROIPStatusWorkerInterval returns the ROIP status worker interval in seconds.
-func (c *Config) GetROIPStatusWorkerInterval() int {
+// GetBLOSStatusWorkerInterval returns the BLOS status worker interval in seconds.
+func (c *Config) GetBLOSStatusWorkerInterval() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.ROIPStatusWorkerInterval
+	return c.BLOSStatusWorkerInterval
 }

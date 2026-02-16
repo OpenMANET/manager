@@ -908,8 +908,8 @@ func TestGetGNSSSendAsCoT(t *testing.T) {
 	}
 }
 
-// TestGetROIPStatusWorkerInterval tests the GetROIPStatusWorkerInterval method.
-func TestGetROIPStatusWorkerInterval(t *testing.T) {
+// TestGetBLOSStatusWorkerInterval tests the GetBLOSStatusWorkerInterval method.
+func TestGetBLOSStatusWorkerInterval(t *testing.T) {
 	tests := []struct {
 		name     string
 		setValue int
@@ -926,12 +926,12 @@ func TestGetROIPStatusWorkerInterval(t *testing.T) {
 			name:     "returns default when zero",
 			setValue: 0,
 			setKey:   true,
-			expected: DefaultROIPStatusWorkerInterval,
+			expected: DefaultBLOSStatusWorkerInterval,
 		},
 		{
 			name:     "returns default when not set",
 			setKey:   false,
-			expected: DefaultROIPStatusWorkerInterval,
+			expected: DefaultBLOSStatusWorkerInterval,
 		},
 	}
 
@@ -939,20 +939,20 @@ func TestGetROIPStatusWorkerInterval(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setKey {
-				v.Set("roip.statusWorkerInterval", tt.setValue)
+				v.Set("blos.statusWorkerInterval", tt.setValue)
 			}
 			c := New(v)
 
-			result := c.GetROIPStatusWorkerInterval()
+			result := c.GetBLOSStatusWorkerInterval()
 			if result != tt.expected {
-				t.Errorf("GetROIPStatusWorkerInterval() = %d, want %d", result, tt.expected)
+				t.Errorf("GetBLOSStatusWorkerInterval() = %d, want %d", result, tt.expected)
 			}
 		})
 	}
 }
 
-// TestROIPEnabled tests the ROIPEnabled method.
-func TestROIPEnabled(t *testing.T) {
+// TestBLOSEnabled tests the BLOSEnabled method.
+func TestBLOSEnabled(t *testing.T) {
 	tests := []struct {
 		name     string
 		setValue *bool
@@ -971,7 +971,7 @@ func TestROIPEnabled(t *testing.T) {
 		{
 			name:     "returns default when not set",
 			setValue: nil,
-			want:     DefaultEnableROIP,
+			want:     DefaultEnableBLOS,
 		},
 	}
 
@@ -979,13 +979,13 @@ func TestROIPEnabled(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("roip.enable", *tt.setValue)
+				v.Set("blos.enable", *tt.setValue)
 			}
 
 			cfg := New(v)
-			got := cfg.ROIPEnabled()
+			got := cfg.BLOSEnabled()
 			if got != tt.want {
-				t.Errorf("ROIPEnabled() = %v, want %v", got, tt.want)
+				t.Errorf("BLOSEnabled() = %v, want %v", got, tt.want)
 			}
 		})
 	}

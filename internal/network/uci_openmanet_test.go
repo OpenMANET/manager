@@ -570,36 +570,36 @@ func TestCompleteWorkflow(t *testing.T) {
 	}
 }
 
-// ========== ROIP Configuration Tests ==========
+// ========== BLOS Configuration Tests ==========
 
-func TestIsROIPConfiguredWithReader(t *testing.T) {
+func TestIsBLOSConfiguredWithReader(t *testing.T) {
 	tests := []struct {
 		name           string
-		roipConfigured string
+		BLOSConfigured string
 		expected       bool
 		expectError    bool
 	}{
 		{
 			name:           "configured",
-			roipConfigured: "1",
+			BLOSConfigured: "1",
 			expected:       true,
 			expectError:    false,
 		},
 		{
 			name:           "not configured",
-			roipConfigured: "0",
+			BLOSConfigured: "0",
 			expected:       false,
 			expectError:    false,
 		},
 		{
 			name:           "empty",
-			roipConfigured: "",
+			BLOSConfigured: "",
 			expected:       false,
 			expectError:    false,
 		},
 		{
 			name:           "invalid value",
-			roipConfigured: "invalid",
+			BLOSConfigured: "invalid",
 			expected:       false,
 			expectError:    true,
 		},
@@ -608,12 +608,12 @@ func TestIsROIPConfiguredWithReader(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := newMockOpenMANETConfigReader()
-			if tt.roipConfigured != "" {
+			if tt.BLOSConfigured != "" {
 				_ = mock.AddSection("openmanetd", "config", "openmanet")
-				_ = mock.SetType("openmanetd", "config", "roipconfigured", uci.TypeOption, tt.roipConfigured)
+				_ = mock.SetType("openmanetd", "config", "blosconfigured", uci.TypeOption, tt.BLOSConfigured)
 			}
 
-			configured, err := IsROIPConfiguredWithReader(mock)
+			configured, err := IsBLOSConfiguredWithReader(mock)
 
 			if tt.expectError {
 				if err == nil {
@@ -623,7 +623,7 @@ func TestIsROIPConfiguredWithReader(t *testing.T) {
 			}
 
 			if err != nil {
-				t.Fatalf("IsROIPConfiguredWithReader failed: %v", err)
+				t.Fatalf("IsBLOSConfiguredWithReader failed: %v", err)
 			}
 
 			if configured != tt.expected {
@@ -633,112 +633,112 @@ func TestIsROIPConfiguredWithReader(t *testing.T) {
 	}
 }
 
-func TestSetROIPConfiguredWithReader(t *testing.T) {
+func TestSetBLOSConfiguredWithReader(t *testing.T) {
 	mock := newMockOpenMANETConfigReader()
 
-	err := SetROIPConfiguredWithReader(mock)
+	err := SetBLOSConfiguredWithReader(mock)
 	if err != nil {
-		t.Fatalf("SetROIPConfiguredWithReader failed: %v", err)
+		t.Fatalf("SetBLOSConfiguredWithReader failed: %v", err)
 	}
 
-	values, ok := mock.Get("openmanetd", "config", "roipconfigured")
+	values, ok := mock.Get("openmanetd", "config", "BLOSconfigured")
 	if !ok || len(values) == 0 || values[0] != "1" {
-		t.Errorf("Expected roipconfigured=1, got %v", values)
+		t.Errorf("Expected BLOSconfigured=1, got %v", values)
 	}
 
-	// Verify using IsROIPConfigured
-	configured, err := IsROIPConfiguredWithReader(mock)
+	// Verify using IsBLOSConfigured
+	configured, err := IsBLOSConfiguredWithReader(mock)
 	if err != nil {
-		t.Fatalf("IsROIPConfiguredWithReader failed: %v", err)
+		t.Fatalf("IsBLOSConfiguredWithReader failed: %v", err)
 	}
 	if !configured {
-		t.Error("Expected ROIP to be configured")
+		t.Error("Expected BLOS to be configured")
 	}
 }
 
-func TestClearROIPConfiguredWithReader(t *testing.T) {
+func TestClearBLOSConfiguredWithReader(t *testing.T) {
 	mock := newMockOpenMANETConfigReader()
 	_ = mock.AddSection("openmanetd", "config", "openmanet")
-	_ = mock.SetType("openmanetd", "config", "roipconfigured", uci.TypeOption, "1")
+	_ = mock.SetType("openmanetd", "config", "BLOSconfigured", uci.TypeOption, "1")
 
-	err := ClearROIPConfiguredWithReader(mock)
+	err := ClearBLOSConfiguredWithReader(mock)
 	if err != nil {
-		t.Fatalf("ClearROIPConfiguredWithReader failed: %v", err)
+		t.Fatalf("ClearBLOSConfiguredWithReader failed: %v", err)
 	}
 
-	values, ok := mock.Get("openmanetd", "config", "roipconfigured")
+	values, ok := mock.Get("openmanetd", "config", "BLOSconfigured")
 	if !ok || len(values) == 0 || values[0] != "0" {
-		t.Errorf("Expected roipconfigured=0, got %v", values)
+		t.Errorf("Expected BLOSconfigured=0, got %v", values)
 	}
 
-	// Verify using IsROIPConfigured
-	configured, err := IsROIPConfiguredWithReader(mock)
+	// Verify using IsBLOSConfigured
+	configured, err := IsBLOSConfiguredWithReader(mock)
 	if err != nil {
-		t.Fatalf("IsROIPConfiguredWithReader failed: %v", err)
+		t.Fatalf("IsBLOSConfiguredWithReader failed: %v", err)
 	}
 	if configured {
-		t.Error("Expected ROIP to not be configured")
+		t.Error("Expected BLOS to not be configured")
 	}
 }
 
-func TestSetROIPConfiguredWithReader_ErrorHandling(t *testing.T) {
+func TestSetBLOSConfiguredWithReader_ErrorHandling(t *testing.T) {
 	mock := &mockOpenMANETConfigReaderWithErrors{}
 
-	err := SetROIPConfiguredWithReader(mock)
+	err := SetBLOSConfiguredWithReader(mock)
 	if err == nil {
-		t.Error("Expected error from SetROIPConfiguredWithReader")
+		t.Error("Expected error from SetBLOSConfiguredWithReader")
 	}
 }
 
-func TestClearROIPConfiguredWithReader_ErrorHandling(t *testing.T) {
+func TestClearBLOSConfiguredWithReader_ErrorHandling(t *testing.T) {
 	mock := &mockOpenMANETConfigReaderWithErrors{}
 
-	err := ClearROIPConfiguredWithReader(mock)
+	err := ClearBLOSConfiguredWithReader(mock)
 	if err == nil {
-		t.Error("Expected error from ClearROIPConfiguredWithReader")
+		t.Error("Expected error from ClearBLOSConfiguredWithReader")
 	}
 }
 
-func TestSetROIPConfigured_UpdatesExistingValue(t *testing.T) {
+func TestSetBLOSConfigured_UpdatesExistingValue(t *testing.T) {
 	mock := newMockOpenMANETConfigReader()
 
 	// Start with value set to 0
 	_ = mock.AddSection("openmanetd", "config", "openmanet")
-	_ = mock.SetType("openmanetd", "config", "roipconfigured", uci.TypeOption, "0")
+	_ = mock.SetType("openmanetd", "config", "BLOSconfigured", uci.TypeOption, "0")
 
-	configured, _ := IsROIPConfiguredWithReader(mock)
+	configured, _ := IsBLOSConfiguredWithReader(mock)
 	if configured {
 		t.Error("Expected initial state to be not configured")
 	}
 
 	// Set to configured
-	err := SetROIPConfiguredWithReader(mock)
+	err := SetBLOSConfiguredWithReader(mock)
 	if err != nil {
-		t.Fatalf("SetROIPConfiguredWithReader failed: %v", err)
+		t.Fatalf("SetBLOSConfiguredWithReader failed: %v", err)
 	}
 
-	configured, _ = IsROIPConfiguredWithReader(mock)
+	configured, _ = IsBLOSConfiguredWithReader(mock)
 	if !configured {
-		t.Error("Expected state to be configured after SetROIPConfigured")
+		t.Error("Expected state to be configured after SetBLOSConfigured")
 	}
 
 	// Clear configured state
-	err = ClearROIPConfiguredWithReader(mock)
+	err = ClearBLOSConfiguredWithReader(mock)
 	if err != nil {
-		t.Fatalf("ClearROIPConfiguredWithReader failed: %v", err)
+		t.Fatalf("ClearBLOSConfiguredWithReader failed: %v", err)
 	}
 
-	configured, _ = IsROIPConfiguredWithReader(mock)
+	configured, _ = IsBLOSConfiguredWithReader(mock)
 	if configured {
-		t.Error("Expected state to be not configured after ClearROIPConfigured")
+		t.Error("Expected state to be not configured after ClearBLOSConfigured")
 	}
 }
 
-func TestGetOpenMANETConfigWithReader_IncludesROIP(t *testing.T) {
+func TestGetOpenMANETConfigWithReader_IncludesBLOS(t *testing.T) {
 	mock := newMockOpenMANETConfigReader()
 	_ = mock.AddSection("openmanetd", "config", "openmanet")
 	_ = mock.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "1")
-	_ = mock.SetType("openmanetd", "config", "roipconfigured", uci.TypeOption, "1")
+	_ = mock.SetType("openmanetd", "config", "BLOSconfigured", uci.TypeOption, "1")
 	_ = mock.SetType("openmanetd", "config", "config", uci.TypeOption, "/etc/openmanet/config.yml")
 
 	config, err := GetOpenMANETConfigWithReader(mock)
@@ -749,20 +749,20 @@ func TestGetOpenMANETConfigWithReader_IncludesROIP(t *testing.T) {
 	if config.DHCPConfigured != "1" {
 		t.Errorf("Expected DHCPConfigured=1, got %s", config.DHCPConfigured)
 	}
-	if config.ROIPConfigured != "1" {
-		t.Errorf("Expected ROIPConfigured=1, got %s", config.ROIPConfigured)
+	if config.BLOSConfigured != "1" {
+		t.Errorf("Expected BLOSConfigured=1, got %s", config.BLOSConfigured)
 	}
 	if config.Config != "/etc/openmanet/config.yml" {
 		t.Errorf("Expected Config=/etc/openmanet/config.yml, got %s", config.Config)
 	}
 }
 
-func TestSetOpenMANETConfigWithReader_IncludesROIP(t *testing.T) {
+func TestSetOpenMANETConfigWithReader_IncludesBLOS(t *testing.T) {
 	mock := newMockOpenMANETConfigReader()
 
 	config := &UCIOpenMANET{
 		DHCPConfigured: "1",
-		ROIPConfigured: "1",
+		BLOSConfigured: "1",
 		Config:         "/custom/path/config.yml",
 	}
 
@@ -780,21 +780,21 @@ func TestSetOpenMANETConfigWithReader_IncludesROIP(t *testing.T) {
 	if readConfig.DHCPConfigured != "1" {
 		t.Errorf("Expected DHCPConfigured=1, got %s", readConfig.DHCPConfigured)
 	}
-	if readConfig.ROIPConfigured != "1" {
-		t.Errorf("Expected ROIPConfigured=1, got %s", readConfig.ROIPConfigured)
+	if readConfig.BLOSConfigured != "1" {
+		t.Errorf("Expected BLOSConfigured=1, got %s", readConfig.BLOSConfigured)
 	}
 	if readConfig.Config != "/custom/path/config.yml" {
 		t.Errorf("Expected Config=/custom/path/config.yml, got %s", readConfig.Config)
 	}
 }
 
-func TestCompleteWorkflowWithROIP(t *testing.T) {
+func TestCompleteWorkflowWithBLOS(t *testing.T) {
 	mock := newMockOpenMANETConfigReader()
 
 	// Step 1: Initial configuration
 	config := &UCIOpenMANET{
 		DHCPConfigured: "0",
-		ROIPConfigured: "0",
+		BLOSConfigured: "0",
 		Config:         "/etc/openmanet/config.yml",
 	}
 
@@ -812,23 +812,23 @@ func TestCompleteWorkflowWithROIP(t *testing.T) {
 		t.Error("Expected DHCP to not be configured initially")
 	}
 
-	roipConfigured, err := IsROIPConfiguredWithReader(mock)
+	BLOSConfigured, err := IsBLOSConfiguredWithReader(mock)
 	if err != nil {
-		t.Fatalf("Failed to check ROIP configured: %v", err)
+		t.Fatalf("Failed to check BLOS configured: %v", err)
 	}
-	if roipConfigured {
-		t.Error("Expected ROIP to not be configured initially")
+	if BLOSConfigured {
+		t.Error("Expected BLOS to not be configured initially")
 	}
 
-	// Step 3: Mark DHCP and ROIP as configured
+	// Step 3: Mark DHCP and BLOS as configured
 	err = SetDHCPConfiguredWithReader(mock)
 	if err != nil {
 		t.Fatalf("Failed to set DHCP configured: %v", err)
 	}
 
-	err = SetROIPConfiguredWithReader(mock)
+	err = SetBLOSConfiguredWithReader(mock)
 	if err != nil {
-		t.Fatalf("Failed to set ROIP configured: %v", err)
+		t.Fatalf("Failed to set BLOS configured: %v", err)
 	}
 
 	// Step 4: Verify both are configured
@@ -840,12 +840,12 @@ func TestCompleteWorkflowWithROIP(t *testing.T) {
 		t.Error("Expected DHCP to be configured")
 	}
 
-	roipConfigured, err = IsROIPConfiguredWithReader(mock)
+	BLOSConfigured, err = IsBLOSConfiguredWithReader(mock)
 	if err != nil {
-		t.Fatalf("Failed to check ROIP configured: %v", err)
+		t.Fatalf("Failed to check BLOS configured: %v", err)
 	}
-	if !roipConfigured {
-		t.Error("Expected ROIP to be configured")
+	if !BLOSConfigured {
+		t.Error("Expected BLOS to be configured")
 	}
 
 	// Step 5: Get full config
@@ -856,23 +856,23 @@ func TestCompleteWorkflowWithROIP(t *testing.T) {
 	if finalConfig.DHCPConfigured != "1" {
 		t.Errorf("Expected DHCPConfigured=1, got %s", finalConfig.DHCPConfigured)
 	}
-	if finalConfig.ROIPConfigured != "1" {
-		t.Errorf("Expected ROIPConfigured=1, got %s", finalConfig.ROIPConfigured)
+	if finalConfig.BLOSConfigured != "1" {
+		t.Errorf("Expected BLOSConfigured=1, got %s", finalConfig.BLOSConfigured)
 	}
 
-	// Step 6: Clear ROIP configured
-	err = ClearROIPConfiguredWithReader(mock)
+	// Step 6: Clear BLOS configured
+	err = ClearBLOSConfiguredWithReader(mock)
 	if err != nil {
-		t.Fatalf("Failed to clear ROIP configured: %v", err)
+		t.Fatalf("Failed to clear BLOS configured: %v", err)
 	}
 
-	// Step 7: Verify ROIP is not configured but DHCP still is
-	roipConfigured, err = IsROIPConfiguredWithReader(mock)
+	// Step 7: Verify BLOS is not configured but DHCP still is
+	BLOSConfigured, err = IsBLOSConfiguredWithReader(mock)
 	if err != nil {
-		t.Fatalf("Failed to check ROIP configured: %v", err)
+		t.Fatalf("Failed to check BLOS configured: %v", err)
 	}
-	if roipConfigured {
-		t.Error("Expected ROIP to not be configured after clearing")
+	if BLOSConfigured {
+		t.Error("Expected BLOS to not be configured after clearing")
 	}
 
 	dhcpConfigured, err = IsDHCPConfiguredWithReader(mock)

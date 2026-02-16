@@ -10,7 +10,7 @@ import (
 /*
 config openmanet 'config'
 	option dhcpconfigured '0'
-	option roipconfigured '0'
+	option BLOSconfigured '0'
 	option config '/etc/openmanet/config.yml'
 */
 
@@ -21,7 +21,7 @@ const (
 // UCIOpenMANET represents the OpenMANET UCI configuration.
 type UCIOpenMANET struct {
 	DHCPConfigured string `uci:"option dhcpconfigured"`
-	ROIPConfigured string `uci:"option roipconfigured"`
+	BLOSConfigured string `uci:"option BLOSconfigured"`
 	Config         string `uci:"option config"`
 }
 
@@ -103,8 +103,8 @@ func GetOpenMANETConfigWithReader(reader OpenMANETConfigReader) (*UCIOpenMANET, 
 	if values, ok := reader.Get(openmanetdConfigName, "config", "dhcpconfigured"); ok && len(values) > 0 {
 		config.DHCPConfigured = values[0]
 	}
-	if values, ok := reader.Get(openmanetdConfigName, "config", "roipconfigured"); ok && len(values) > 0 {
-		config.ROIPConfigured = values[0]
+	if values, ok := reader.Get(openmanetdConfigName, "config", "BLOSconfigured"); ok && len(values) > 0 {
+		config.BLOSConfigured = values[0]
 	}
 	if values, ok := reader.Get(openmanetdConfigName, "config", "config"); ok && len(values) > 0 {
 		config.Config = values[0]
@@ -147,9 +147,9 @@ func SetOpenMANETConfigWithReader(config *UCIOpenMANET, reader OpenMANETConfigRe
 			return fmt.Errorf("failed to set dhcpconfigured: %w", err)
 		}
 	}
-	if config.ROIPConfigured != "" {
-		if err := reader.SetType(openmanetdConfigName, "config", "roipconfigured", uci.TypeOption, config.ROIPConfigured); err != nil {
-			return fmt.Errorf("failed to set roipconfigured: %w", err)
+	if config.BLOSConfigured != "" {
+		if err := reader.SetType(openmanetdConfigName, "config", "BLOSconfigured", uci.TypeOption, config.BLOSConfigured); err != nil {
+			return fmt.Errorf("failed to set BLOSconfigured: %w", err)
 		}
 	}
 	if config.Config != "" {
@@ -264,66 +264,66 @@ func ClearDHCPConfiguredWithReader(reader OpenMANETConfigReader) error {
 	return nil
 }
 
-// IsROIPConfigured checks if ROIP has been configured.
+// IsBLOSConfigured checks if BLOS has been configured.
 //
 // Returns:
-//   - true if ROIP is configured (roipconfigured == '1'), false otherwise
+//   - true if BLOS is configured (BLOSconfigured == '1'), false otherwise
 //   - An error if the configuration cannot be read
 //
 // Example:
 //
-//	configured, err := IsROIPConfigured()
+//	configured, err := IsBLOSConfigured()
 //	if err != nil {
-//	    log.Fatalf("Failed to check ROIP status: %v", err)
+//	    log.Fatalf("Failed to check BLOS status: %v", err)
 //	}
 //	if !configured {
-//	    // Run ROIP configuration
+//	    // Run BLOS configuration
 //	}
-func IsROIPConfigured() (bool, error) {
-	return IsROIPConfiguredWithReader(NewUCIOpenMANETConfigReader())
+func IsBLOSConfigured() (bool, error) {
+	return IsBLOSConfiguredWithReader(NewUCIOpenMANETConfigReader())
 }
 
-// IsROIPConfiguredWithReader checks if ROIP has been configured using the provided reader.
-func IsROIPConfiguredWithReader(reader OpenMANETConfigReader) (bool, error) {
+// IsBLOSConfiguredWithReader checks if BLOS has been configured using the provided reader.
+func IsBLOSConfiguredWithReader(reader OpenMANETConfigReader) (bool, error) {
 	config, err := GetOpenMANETConfigWithReader(reader)
 	if err != nil {
 		return false, err
 	}
 
-	// Parse the roipconfigured value
-	if config.ROIPConfigured == "0" || config.ROIPConfigured == "" {
+	// Parse the BLOSconfigured value
+	if config.BLOSConfigured == "0" || config.BLOSConfigured == "" {
 		return false, nil
 	}
 
-	configured, err := strconv.Atoi(config.ROIPConfigured)
+	configured, err := strconv.Atoi(config.BLOSConfigured)
 	if err != nil {
-		return false, fmt.Errorf("invalid roipconfigured value: %w", err)
+		return false, fmt.Errorf("invalid BLOSconfigured value: %w", err)
 	}
 
 	return configured == 1, nil
 }
 
-// SetROIPConfigured marks ROIP as configured.
+// SetBLOSConfigured marks BLOS as configured.
 //
-// This sets the 'roipconfigured' option to '1'.
+// This sets the 'BLOSconfigured' option to '1'.
 //
 // Example:
 //
-//	err := SetROIPConfigured()
+//	err := SetBLOSConfigured()
 //	if err != nil {
-//	    log.Fatalf("Failed to mark ROIP as configured: %v", err)
+//	    log.Fatalf("Failed to mark BLOS as configured: %v", err)
 //	}
-func SetROIPConfigured() error {
-	return SetROIPConfiguredWithReader(NewUCIOpenMANETConfigReader())
+func SetBLOSConfigured() error {
+	return SetBLOSConfiguredWithReader(NewUCIOpenMANETConfigReader())
 }
 
-// SetROIPConfiguredWithReader marks ROIP as configured using the provided reader.
-func SetROIPConfiguredWithReader(reader OpenMANETConfigReader) error {
+// SetBLOSConfiguredWithReader marks BLOS as configured using the provided reader.
+func SetBLOSConfiguredWithReader(reader OpenMANETConfigReader) error {
 	// Ensure the section exists
 	_ = reader.AddSection(openmanetdConfigName, "config", "openmanet")
 
-	if err := reader.SetType(openmanetdConfigName, "config", "roipconfigured", uci.TypeOption, "1"); err != nil {
-		return fmt.Errorf("failed to set roipconfigured: %w", err)
+	if err := reader.SetType(openmanetdConfigName, "config", "BLOSconfigured", uci.TypeOption, "1"); err != nil {
+		return fmt.Errorf("failed to set BLOSconfigured: %w", err)
 	}
 
 	if err := reader.Commit(); err != nil {
@@ -333,27 +333,27 @@ func SetROIPConfiguredWithReader(reader OpenMANETConfigReader) error {
 	return nil
 }
 
-// ClearROIPConfigured marks ROIP as not configured.
+// ClearBLOSConfigured marks BLOS as not configured.
 //
-// This sets the 'roipconfigured' option to '0'.
+// This sets the 'BLOSconfigured' option to '0'.
 //
 // Example:
 //
-//	err := ClearROIPConfigured()
+//	err := ClearBLOSConfigured()
 //	if err != nil {
-//	    log.Fatalf("Failed to clear ROIP configured flag: %v", err)
+//	    log.Fatalf("Failed to clear BLOS configured flag: %v", err)
 //	}
-func ClearROIPConfigured() error {
-	return ClearROIPConfiguredWithReader(NewUCIOpenMANETConfigReader())
+func ClearBLOSConfigured() error {
+	return ClearBLOSConfiguredWithReader(NewUCIOpenMANETConfigReader())
 }
 
-// ClearROIPConfiguredWithReader marks ROIP as not configured using the provided reader.
-func ClearROIPConfiguredWithReader(reader OpenMANETConfigReader) error {
+// ClearBLOSConfiguredWithReader marks BLOS as not configured using the provided reader.
+func ClearBLOSConfiguredWithReader(reader OpenMANETConfigReader) error {
 	// Ensure the section exists
 	_ = reader.AddSection(openmanetdConfigName, "config", "openmanet")
 
-	if err := reader.SetType(openmanetdConfigName, "config", "roipconfigured", uci.TypeOption, "0"); err != nil {
-		return fmt.Errorf("failed to clear roipconfigured: %w", err)
+	if err := reader.SetType(openmanetdConfigName, "config", "BLOSconfigured", uci.TypeOption, "0"); err != nil {
+		return fmt.Errorf("failed to clear BLOSconfigured: %w", err)
 	}
 
 	if err := reader.Commit(); err != nil {

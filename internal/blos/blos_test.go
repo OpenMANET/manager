@@ -1,4 +1,4 @@
-package roip
+package blos
 
 import (
 	"context"
@@ -11,11 +11,11 @@ import (
 	"tailscale.com/types/key"
 )
 
-// TestROIPWithStatusWorker tests that ROIP properly initializes and manages the status worker.
-func TestROIPWithStatusWorker(t *testing.T) {
+// TestBLOSWithStatusWorker tests that BLOS properly initializes and manages the status worker.
+func TestBLOSWithStatusWorker(t *testing.T) {
 	// Create a mock config
 	v := viper.New()
-	v.Set("roip.statusWorkerInterval", 1) // 1 second for testing
+	v.Set("BLOS.statusWorkerInterval", 1) // 1 second for testing
 	v.Set("alfred.batInterface", "bat0")
 	cfg := config.New(v)
 
@@ -26,15 +26,15 @@ func TestROIPWithStatusWorker(t *testing.T) {
 	mockStatus := createMockStatus()
 	mockClient.SetStatus(mockStatus)
 
-	// Create ROIP with a custom status worker for testing
-	r := &ROIP{
+	// Create BLOS with a custom status worker for testing
+	r := &BLOS{
 		Config: cfg,
 		Logger: logger,
 		ctx:    context.Background(),
 	}
 
 	// Initialize the status worker with our mock client
-	interval := time.Duration(cfg.GetROIPStatusWorkerInterval()) * time.Second
+	interval := time.Duration(cfg.GetBLOSStatusWorkerInterval()) * time.Second
 	r.statusWorker = NewStatusWorker(mockClient, interval, logger)
 	r.statusWorker.Start()
 
@@ -85,13 +85,13 @@ func TestROIPWithStatusWorker(t *testing.T) {
 	}
 }
 
-// TestROIPGetPeersWhenWorkerIsNil tests that ROIP handles nil worker gracefully.
-func TestROIPGetPeersWhenWorkerIsNil(t *testing.T) {
+// TestBLOSGetPeersWhenWorkerIsNil tests that BLOS handles nil worker gracefully.
+func TestBLOSGetPeersWhenWorkerIsNil(t *testing.T) {
 	v := viper.New()
 	cfg := config.New(v)
 	logger := zerolog.Nop()
 
-	r := &ROIP{
+	r := &BLOS{
 		Config:       cfg,
 		Logger:       logger,
 		ctx:          context.Background(),
@@ -118,8 +118,8 @@ func TestROIPGetPeersWhenWorkerIsNil(t *testing.T) {
 	r.Stop()
 }
 
-// TestROIPStatusWorkerInterval tests that the interval is correctly configured.
-func TestROIPStatusWorkerInterval(t *testing.T) {
+// TestBLOSStatusWorkerInterval tests that the interval is correctly configured.
+func TestBLOSStatusWorkerInterval(t *testing.T) {
 	tests := []struct {
 		name             string
 		configInterval   int
@@ -146,13 +146,13 @@ func TestROIPStatusWorkerInterval(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.configInterval > 0 {
-				v.Set("roip.statusWorkerInterval", tt.configInterval)
+				v.Set("BLOS.statusWorkerInterval", tt.configInterval)
 			}
 			cfg := config.New(v)
 			logger := zerolog.Nop()
 
 			mockClient := &MockStatusClient{}
-			interval := time.Duration(cfg.GetROIPStatusWorkerInterval()) * time.Second
+			interval := time.Duration(cfg.GetBLOSStatusWorkerInterval()) * time.Second
 
 			if interval != tt.expectedInterval {
 				t.Errorf("Expected interval %v, got %v", tt.expectedInterval, interval)
@@ -166,23 +166,23 @@ func TestROIPStatusWorkerInterval(t *testing.T) {
 	}
 }
 
-// TestROIPConcurrentAccess tests concurrent access to ROIP peer data.
-func TestROIPConcurrentAccess(t *testing.T) {
+// TestBLOSConcurrentAccess tests concurrent access to BLOS peer data.
+func TestBLOSConcurrentAccess(t *testing.T) {
 	v := viper.New()
-	v.Set("roip.statusWorkerInterval", 1)
+	v.Set("BLOS.statusWorkerInterval", 1)
 	cfg := config.New(v)
 	logger := zerolog.Nop()
 
 	mockClient := &MockStatusClient{}
 	mockClient.SetStatus(createMockStatus())
 
-	r := &ROIP{
+	r := &BLOS{
 		Config: cfg,
 		Logger: logger,
 		ctx:    context.Background(),
 	}
 
-	interval := time.Duration(cfg.GetROIPStatusWorkerInterval()) * time.Second
+	interval := time.Duration(cfg.GetBLOSStatusWorkerInterval()) * time.Second
 	r.statusWorker = NewStatusWorker(mockClient, interval, logger)
 	r.statusWorker.Start()
 	defer r.Stop()

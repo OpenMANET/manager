@@ -1,4 +1,4 @@
-package roip
+package blos
 
 import (
 	"github.com/openmanet/openmanetd/internal/network"
@@ -26,7 +26,7 @@ var (
 //
 // This function batches the creation of all multicast peers for efficiency,
 // reducing the number of UCI commits and reloads from 2N to 2 (where N is the number of peers).
-func (r *ROIP) createVXMulticastPeers() error {
+func (r *BLOS) createVXMulticastPeers() error {
 	// Reload configuration to ensure clean state before creating peers
 	if err := r.uciNetworkConfig.ReloadConfig(); err != nil {
 		r.Logger.Debug().
@@ -68,7 +68,7 @@ func (r *ROIP) createVXMulticastPeers() error {
 	return nil
 }
 
-func (r *ROIP) createVxlanPeer(peerIP string) error {
+func (r *BLOS) createVxlanPeer(peerIP string) error {
 	// Reload configuration to ensure clean state before peer operations
 	if err := r.uciNetworkConfig.ReloadConfig(); err != nil {
 		r.Logger.Debug().
@@ -109,7 +109,7 @@ func (r *ROIP) createVxlanPeer(peerIP string) error {
 // It adds/updates VXLAN peers for active Tailscale peers and removes VXLAN peers
 // for Tailscale peers that are no longer present.
 // This function only makes changes if the peer map has actually changed since the last sync.
-func (r *ROIP) syncVXLANPeersWithTailscale() error {
+func (r *BLOS) syncVXLANPeersWithTailscale() error {
 	// Get current Tailscale peers
 	tailscalePeers := r.GetPeers()
 	if tailscalePeers == nil {
@@ -181,7 +181,7 @@ func (r *ROIP) syncVXLANPeersWithTailscale() error {
 
 // hasPeerChanges compares the current active peer IPs with the last synced peer IPs
 // to determine if there are any changes (additions or removals).
-func (r *ROIP) hasPeerChanges(activePeerIPs map[string]bool) bool {
+func (r *BLOS) hasPeerChanges(activePeerIPs map[string]bool) bool {
 	// If this is the first sync, there are changes
 	if r.lastSyncedPeerIPs == nil {
 		return true
@@ -212,7 +212,7 @@ func (r *ROIP) hasPeerChanges(activePeerIPs map[string]bool) bool {
 
 // removeInactiveVXLANPeers removes VXLAN peers that are not in the active peer list
 // and are not multicast addresses.
-func (r *ROIP) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
+func (r *BLOS) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
 	// Get all VXLAN peers from UCI configuration
 	allPeers, err := network.GetAllVXLANPeersWithReader(r.uciNetworkConfig)
 	if err != nil {

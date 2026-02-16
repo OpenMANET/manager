@@ -1,4 +1,4 @@
-package roip
+package blos
 
 import (
 	"fmt"
@@ -157,11 +157,11 @@ func (m *MockVXLANConfigReader) addPeer(dst, via, vxlan string) {
 	m.data["network"][section]["vxlan"] = []string{vxlan}
 }
 
-func createTestROIP() *ROIP {
+func createTestBLOS() *BLOS {
 	cfg := &config.Config{}
 	logger := zerolog.Nop()
 
-	return &ROIP{
+	return &BLOS{
 		Config:           cfg,
 		Logger:           logger,
 		uciNetworkConfig: newMockVXLANConfigReader(),
@@ -169,7 +169,7 @@ func createTestROIP() *ROIP {
 }
 
 func TestCreateVxlanPeer_New(t *testing.T) {
-	r := createTestROIP()
+	r := createTestBLOS()
 	peerIP := "100.64.1.2"
 
 	err := r.createVxlanPeer(peerIP)
@@ -205,7 +205,7 @@ func TestCreateVxlanPeer_New(t *testing.T) {
 }
 
 func TestCreateVxlanPeer_Update(t *testing.T) {
-	r := createTestROIP()
+	r := createTestBLOS()
 	mockReader := r.uciNetworkConfig.(*MockVXLANConfigReader)
 
 	peerIP := "100.64.1.2"
@@ -238,7 +238,7 @@ func TestCreateVxlanPeer_Update(t *testing.T) {
 }
 
 func TestSyncVXLANPeersWithTailscale_NoPeers(t *testing.T) {
-	r := createTestROIP()
+	r := createTestBLOS()
 
 	// No status worker or peers
 	err := r.syncVXLANPeersWithTailscale()
@@ -248,7 +248,7 @@ func TestSyncVXLANPeersWithTailscale_NoPeers(t *testing.T) {
 }
 
 func TestSyncVXLANPeersWithTailscale_AddPeers(t *testing.T) {
-	r := createTestROIP()
+	r := createTestBLOS()
 
 	// Create mock peers
 	nodeKey1 := key.NewNode()
@@ -303,7 +303,7 @@ func TestSyncVXLANPeersWithTailscale_AddPeers(t *testing.T) {
 }
 
 func TestSyncVXLANPeersWithTailscale_RemoveInactivePeers(t *testing.T) {
-	r := createTestROIP()
+	r := createTestBLOS()
 	mockReader := r.uciNetworkConfig.(*MockVXLANConfigReader)
 
 	// Add some existing peers
@@ -357,7 +357,7 @@ func TestSyncVXLANPeersWithTailscale_RemoveInactivePeers(t *testing.T) {
 }
 
 func TestSyncVXLANPeersWithTailscale_PreserveMulticast(t *testing.T) {
-	r := createTestROIP()
+	r := createTestBLOS()
 	mockReader := r.uciNetworkConfig.(*MockVXLANConfigReader)
 
 	// Add multicast peers
@@ -411,7 +411,7 @@ func TestSyncVXLANPeersWithTailscale_PreserveMulticast(t *testing.T) {
 }
 
 func TestSyncVXLANPeersWithTailscale_PeerWithoutIP(t *testing.T) {
-	r := createTestROIP()
+	r := createTestBLOS()
 
 	// Create a peer without IPs
 	nodeKey1 := key.NewNode()
@@ -454,7 +454,7 @@ func TestSyncVXLANPeersWithTailscale_PeerWithoutIP(t *testing.T) {
 }
 
 func TestRemoveInactiveVXLANPeers(t *testing.T) {
-	r := createTestROIP()
+	r := createTestBLOS()
 	mockReader := r.uciNetworkConfig.(*MockVXLANConfigReader)
 
 	// Add various peers
