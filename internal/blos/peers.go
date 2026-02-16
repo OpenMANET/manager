@@ -165,7 +165,7 @@ func (r *BLOS) syncVXLANPeersWithTailscale() error {
 	r.lastSyncedPeerIPs = activePeerIPs
 
 	// Bring up or refresh the VXLAN interface after syncing peers
-	if err := network.PerformIfUp(defaultVxLanDeviceName); err != nil {
+	if err := r.interfaceManager.BringUp(defaultVxLanDeviceName); err != nil {
 		r.Logger.Error().
 			Err(err).
 			Msgf("Failed to bring up interface %s after syncing peers", defaultVxLanDeviceName)

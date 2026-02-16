@@ -24,6 +24,7 @@ type BLOS struct {
 	uciOpenManetConfig network.OpenMANETConfigReader
 	uciNetworkConfig   network.ConfigReader
 	uciFirewallConfig  firewall.ConfigReader
+	interfaceManager   InterfaceManager
 	statusWorker       *StatusWorker
 	lastSyncedPeerIPs  map[string]bool // Track peer IPs from last sync to detect changes
 }
@@ -49,6 +50,7 @@ func NewBLOS(cfg *config.Config, logger zerolog.Logger) (*BLOS, error) {
 		uciOpenManetConfig: network.NewUCIOpenMANETConfigReader(),
 		uciNetworkConfig:   network.NewUCINetworkConfigReader(),
 		uciFirewallConfig:  firewall.NewUCIFirewallConfigReader(),
+		interfaceManager:   &RealInterfaceManager{},
 	}
 
 	// Initialize the status worker

@@ -9,7 +9,7 @@ alfred:
     gateway: true
     node: true
     addressReservation: true
-roip:
+blos:
   enable: false
 ptt:
   enable: false

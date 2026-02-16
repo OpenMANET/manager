@@ -610,7 +610,7 @@ func TestIsBLOSConfiguredWithReader(t *testing.T) {
 			mock := newMockOpenMANETConfigReader()
 			if tt.BLOSConfigured != "" {
 				_ = mock.AddSection("openmanetd", "config", "openmanet")
-				_ = mock.SetType("openmanetd", "config", "blosconfigured", uci.TypeOption, tt.BLOSConfigured)
+				_ = mock.SetType("openmanetd", "config", "BLOSconfigured", uci.TypeOption, tt.BLOSConfigured)
 			}
 
 			configured, err := IsBLOSConfiguredWithReader(mock)

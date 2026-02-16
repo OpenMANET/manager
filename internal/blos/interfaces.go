@@ -12,6 +12,27 @@ import (
 	"tailscale.com/ipn"
 )
 
+// InterfaceManager defines an interface for managing network interfaces.
+type InterfaceManager interface {
+	BringUp(name string) error
+}
+
+// RealInterfaceManager is the real implementation that calls actual network commands.
+type RealInterfaceManager struct{}
+
+// BringUp brings up a network interface by name using ifup command.
+func (r *RealInterfaceManager) BringUp(name string) error {
+	return network.PerformIfUp(name)
+}
+
+// NoOpInterfaceManager is a no-op implementation for testing.
+type NoOpInterfaceManager struct{}
+
+// BringUp does nothing and returns nil (for testing).
+func (n *NoOpInterfaceManager) BringUp(name string) error {
+	return nil
+}
+
 const (
 	defaultLearningValue        string = "1"
 	defaultProxyValue           string = "1"

@@ -165,6 +165,7 @@ func createTestBLOS() *BLOS {
 		Config:           cfg,
 		Logger:           logger,
 		uciNetworkConfig: newMockVXLANConfigReader(),
+		interfaceManager: &NoOpInterfaceManager{},
 	}
 }
 
