@@ -82,7 +82,7 @@ func (r *BLOS) createOrConfigureTunnelInterface() error {
 			}
 		}
 
-		r.Logger.Debug().Msgf("Created ROIP tunnel interface %s", defaultTunnelDeviceName)
+		r.Logger.Debug().Msgf("Created BLOS tunnel interface %s", defaultTunnelDeviceName)
 	}
 
 	return nil
@@ -116,14 +116,14 @@ func (r *BLOS) createOrConfigureVxLanInterface() error {
 			return err
 		}
 
-		r.Logger.Debug().Msgf("Created ROIP VXLAN interface %s", defaultVxLanDeviceName)
+		r.Logger.Debug().Msgf("Created BLOS VXLAN interface %s", defaultVxLanDeviceName)
 	}
 
 	return nil
 }
 
 // createOrConfigureBatmanInterface creates or configures a Batman (Better Approach To Mobile Ad-hoc Networking)
-// interface for ROIP (Radio Over IP). It checks if a Batman interface with the default name already exists
+// interface for BLOS (Beyond Line of Sight). It checks if a Batman interface with the default name already exists
 // in the UCI (Unified Configuration Interface) network configuration. If the interface does not exist, it creates
 // a new network section configured as a batadv_hardif (Batman-adv hard interface) that uses the default VXLAN
 // device and associates it with the configured mesh network interface. The function logs the creation of the
@@ -140,7 +140,7 @@ func (r *BLOS) createOrConfigureBatmanInterface() error {
 			return err
 		}
 
-		r.Logger.Debug().Msgf("Created ROIP Batman interface %s", defaultBatmanInterfaceName)
+		r.Logger.Debug().Msgf("Created BLOS Batman interface %s", defaultBatmanInterfaceName)
 	}
 
 	return nil

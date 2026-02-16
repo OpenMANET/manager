@@ -139,7 +139,7 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error {
 			// Reboot the system to clean up things and apply new network settings.  This is required to properly set up the tunnel and interfaces in the correct order, and to ensure a clean state.  We will likely need to reboot at least once anyway after installation to get Tailscale set up, so doing it here ensures we don't end up in a broken state if we try to configure interfaces before Tailscale is fully set up and authenticated.
 			r.Logger.Info().Msg("BLOS configured successfully, rebooting system to apply changes")
 			if err = system.Reboot(); err != nil {
-				r.Logger.Error().Err(err).Msg("Failed to reboot system after ROIP configuration")
+				r.Logger.Error().Err(err).Msg("Failed to reboot system after BLOS configuration")
 				return err
 			}
 		}
@@ -156,7 +156,7 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error {
 			return err
 		}
 
-		r.Logger.Debug().Msg("ROIP interfaces configured successfully")
+		r.Logger.Debug().Msg("BLOS interfaces configured successfully")
 	}
 
 	return nil
@@ -186,7 +186,7 @@ func (r *BLOS) GetStatus() *ipnstate.Status {
 	return r.statusWorker.GetStatus()
 }
 
-// Stop stops the ROIP worker processes.
+// Stop stops the BLOS worker processes.
 func (r *BLOS) Stop() {
 	if r.statusWorker != nil {
 		r.statusWorker.Stop()
