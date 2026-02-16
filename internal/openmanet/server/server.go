@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	connectcors "connectrpc.com/cors"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database/models"
@@ -12,6 +13,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/openmanet/openmanetd/internal/util/logger"
+	"github.com/rs/cors"
 	"github.com/rs/zerolog"
 )
 
@@ -59,7 +61,7 @@ func NewAPIServer(cfg APIServer) *APIServer {
 	p.SetUnencryptedHTTP2(true)
 	server := http.Server{
 		Addr:         serverAddress,
-		Handler:      api,
+		Handler:      withCORS(api),
 		Protocols:    p,
 		ReadTimeout:  time.Duration(30 * time.Second),
 		WriteTimeout: time.Duration(30 * time.Second),
@@ -75,4 +77,27 @@ func NewAPIServer(cfg APIServer) *APIServer {
 
 func (s *APIServer) Stop(ctx context.Context) error {
 	return s.ApiServer.Shutdown(ctx)
+}
+
+func withCORS(handler http.Handler) http.Handler {
+	c := cors.New(cors.Options{
+		AllowedOrigins: []string{"*"}, // Allow all origins for private network
+		AllowedMethods: connectcors.AllowedMethods(),
+		AllowedHeaders: append(connectcors.AllowedHeaders(), "Access-Control-Request-Private-Network"),
+		ExposedHeaders: connectcors.ExposedHeaders(),
+		// Crucial for PNA:
+		OptionsPassthrough: false,
+	})
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 1. Handle the Vary header for caching safety
+		w.Header().Add("Vary", "Access-Control-Request-Private-Network")
+
+		// 2. If it's a PNA preflight request, allow it
+		if r.Header.Get("Access-Control-Request-Private-Network") == "true" {
+			w.Header().Set("Access-Control-Allow-Private-Network", "true")
+		}
+
+		c.Handler(handler).ServeHTTP(w, r)
+	})
 }

@@ -134,7 +134,6 @@ func (g *GPSService) sendRawNMEAToActiveDevices(sentence string) {
 		// Check if device is active via ARP
 		isActive := g.checkDeviceActive(ipAddr)
 		if !isActive {
-			g.Log.Debug().Str("ip", ipAddr).Msg("Device not active, skipping NMEA send")
 			continue
 		}
 

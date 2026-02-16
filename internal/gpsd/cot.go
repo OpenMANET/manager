@@ -202,7 +202,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 	// Create CoT Message
 	takMsg := &cotproto.TakMessage{
 		CotEvent: &cotproto.CotEvent{
-			Type:      "a-f-G-U-U-S-R",
+			Type:      radioUnitType,
 			Uid:       hostname,
 			SendTime:  cot.TimeToMillis(time.Now()),
 			StartTime: cot.TimeToMillis(time.Now()),

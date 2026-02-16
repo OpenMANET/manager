@@ -31,6 +31,8 @@ const (
 	DefaultEnableGNSS                  bool   = false
 	DefaultGNSSSendAsNMEA              bool   = false
 	DefaultGNSSSendAsCoT               bool   = false
+	DefaultEnableBLOS                  bool   = false
+	DefaultBLOSStatusWorkerInterval    int    = 30 // seconds
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -47,6 +49,8 @@ type Config struct {
 	PTTPttDeviceName            string
 	onChangeCallbacks           []func(*Config)
 	PTTMcastPort                int
+	BLOSEnable                  bool
+	BLOSStatusWorkerInterval    int
 	mu                          sync.RWMutex
 	GatewayMode                 bool
 	AlfredDataTypeGateway       bool
@@ -228,6 +232,19 @@ func (c *Config) reload() {
 	} else {
 		c.PTTPttDeviceName = DefaultPTTPttDeviceName
 	}
+
+	// Load BLOS configuration
+	if c.v.IsSet("blos.enable") {
+		c.BLOSEnable = c.v.GetBool("blos.enable")
+	} else {
+		c.BLOSEnable = DefaultEnableBLOS
+	}
+
+	if val := c.v.GetInt("blos.statusWorkerInterval"); val != 0 {
+		c.BLOSStatusWorkerInterval = val
+	} else {
+		c.BLOSStatusWorkerInterval = DefaultBLOSStatusWorkerInterval
+	}
 }
 
 // OnConfigChange registers a callback function to be called when the configuration changes.
@@ -401,4 +418,18 @@ func (c *Config) GetGNSSSendAsCoT() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.GNSSSendAsCoT
+}
+
+// BLOSEnabled returns whether BLOS (Beyond Line of Sight) is enabled.
+func (c *Config) BLOSEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.BLOSEnable
+}
+
+// GetBLOSStatusWorkerInterval returns the BLOS status worker interval in seconds.
+func (c *Config) GetBLOSStatusWorkerInterval() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.BLOSStatusWorkerInterval
 }

@@ -31,14 +31,53 @@ type UCINetwork struct {
 	Gateway        string `uci:"option gateway"`
 	DNS            string `uci:"option dns"`
 	Device         string `uci:"option device"`
+	Master         string `uci:"option master"`
 	IPV6Assignment string `uci:"option ip6assign"`
 	IPV6IfaceID    string `uci:"option ip6ifaceid"`
 	IPV6Class      string `uci:"list ip6class"`
 }
 
+// UCIDevice represents a UCI network device configuration (config device).
+// Devices can be physical interfaces, bridges, VLANs, or other virtual devices.
+type UCIDevice struct {
+	Name    string   `uci:"option name"`    // Device name (required)
+	Type    string   `uci:"option type"`    // Device type (e.g., bridge, vlan, macvlan, veth, vrf)
+	MacAddr string   `uci:"option macaddr"` // MAC address override
+	Ifname  string   `uci:"option ifname"`  // Base L2 device (required for macvlan type)
+	Ports   []string `uci:"list ports"`     // Bridge member ports (for bridge type)
+	RxPause string   `uci:"option rxpause"` // RX flow control (1 enables RX pause frames)
+	TxPause string   `uci:"option txpause"` // TX flow control (1 enables TX pause frames)
+	AutoNeg string   `uci:"option autoneg"` // Auto-negotiation (1 enables auto-negotiation)
+	Speed   string   `uci:"option speed"`   // Speed of the device
+	Duplex  string   `uci:"option duplex"`  // Duplex mode (1 = full duplex, 0 = half duplex)
+	Table   string   `uci:"option table"`   // Routing table name or number (for VRF type, default: 10)
+}
+
+// RemovePort removes a port from the Ports list if it exists.
+// Returns true if the port was found and removed, false otherwise.
+//
+// Example:
+//
+//	device := &UCIDevice{
+//	    Ports: []string{"eth0", "eth1", "bat0"},
+//	}
+//	removed := device.RemovePort("eth1")  // true
+//	// device.Ports is now []string{"eth0", "bat0"}
+func (d *UCIDevice) RemovePort(port string) bool {
+	for i, p := range d.Ports {
+		if p == port {
+			// Remove the port by creating a new slice
+			d.Ports = append(d.Ports[:i], d.Ports[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 // ConfigReader defines an interface for reading UCI configuration values.
 type ConfigReader interface {
 	Get(config, section, option string) ([]string, bool)
+	GetSections(config, secType string) ([]string, error)
 	SetType(config, section, option string, typ uci.OptionType, values ...string) error
 	Del(config, section, option string) error
 	AddSection(config, section, typ string) error
@@ -61,6 +100,10 @@ func NewUCINetworkConfigReader() *UCINetworkConfigReader {
 
 func (r *UCINetworkConfigReader) Get(config, section, option string) ([]string, bool) {
 	return r.tree.Get(config, section, option)
+}
+
+func (r *UCINetworkConfigReader) GetSections(config, secType string) ([]string, error) {
+	return r.tree.GetSections(config, secType)
 }
 
 func (r *UCINetworkConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
@@ -126,6 +169,9 @@ func GetUCINetworkByNameWithReader(name string, reader ConfigReader) (*UCINetwor
 	}
 	if values, ok := reader.Get(networkConfigName, name, "device"); ok && len(values) > 0 {
 		config.Device = values[0]
+	}
+	if values, ok := reader.Get(networkConfigName, name, "master"); ok && len(values) > 0 {
+		config.Master = values[0]
 	}
 	if values, ok := reader.Get(networkConfigName, name, "ip6assign"); ok && len(values) > 0 {
 		config.IPV6Assignment = values[0]
@@ -199,6 +245,11 @@ func SetNetworkConfigWithReader(section string, config *UCINetwork, reader Confi
 	if config.Device != "" {
 		if err := reader.SetType(networkConfigName, section, "device", uci.TypeOption, config.Device); err != nil {
 			return fmt.Errorf("failed to set device: %w", err)
+		}
+	}
+	if config.Master != "" {
+		if err := reader.SetType(networkConfigName, section, "master", uci.TypeOption, config.Master); err != nil {
+			return fmt.Errorf("failed to set master: %w", err)
 		}
 	}
 	if config.IPV6Assignment != "" {
@@ -469,6 +520,32 @@ func SetNetworkDeviceWithReader(section, device string, reader ConfigReader) err
 	return nil
 }
 
+// SetNetworkMaster sets the master interface for a network interface.
+//
+// Parameters:
+//   - section: The UCI section name (e.g., "lan", "wan")
+//   - master: The master interface name (e.g., "br-lan")
+//
+// Example:
+//
+//	err := SetNetworkMaster("eth0", "br-lan")
+func SetNetworkMaster(section, master string) error {
+	return SetNetworkMasterWithReader(section, master, NewUCINetworkConfigReader())
+}
+
+// SetNetworkMasterWithReader sets the master interface using the provided reader.
+func SetNetworkMasterWithReader(section, master string, reader ConfigReader) error {
+	if err := reader.SetType(networkConfigName, section, "master", uci.TypeOption, master); err != nil {
+		return fmt.Errorf("failed to set network master: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit network master: %w", err)
+	}
+
+	return nil
+}
+
 // SetNetworkIPV6Assignment sets the IPv6 assignment (prefix length) for a network interface.
 //
 // Parameters:
@@ -664,6 +741,372 @@ func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bo
 	}
 
 	return "", fmt.Errorf("no available IP addresses in %s/16 range", DefaultNetworkAddress)
+}
+
+// GetDeviceByName loads and returns the UCI device configuration by name.
+// Device sections in UCI are anonymous, so this searches all device sections
+// for one with a matching 'name' option.
+//
+// Parameters:
+//   - name: The device name (e.g., "br-ahwlan", "vxlan0", "tailscale0")
+//
+// Returns the device configuration or an error if it cannot be read.
+//
+// Example:
+//
+//	device, err := GetDeviceByName("br-ahwlan")
+//	if err != nil {
+//	    log.Fatalf("Failed to get device config: %v", err)
+//	}
+//	fmt.Printf("Device type: %s\n", device.Type)
+func GetDeviceByName(name string) (*UCIDevice, error) {
+	reader := NewUCINetworkConfigReader()
+	return GetDeviceByNameWithReader(name, reader)
+}
+
+// GetDeviceByNameWithReader loads and returns the UCI device configuration by name using the provided reader.
+// It searches through all anonymous device sections to find one with the matching name option.
+func GetDeviceByNameWithReader(name string, reader ConfigReader) (*UCIDevice, error) {
+	// Get all device sections (they are anonymous)
+	sections, err := reader.GetSections(networkConfigName, "device")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device sections: %w", err)
+	}
+
+	// Search for the device with the matching name
+	for _, section := range sections {
+		if values, ok := reader.Get(networkConfigName, section, "name"); ok && len(values) > 0 {
+			if values[0] == name {
+				// Found the device, load all its options
+				return loadDeviceFromSection(section, reader)
+			}
+		}
+	}
+
+	// Device not found
+	return nil, fmt.Errorf("device %s not found", name)
+}
+
+// loadDeviceFromSection loads a device configuration from a specific UCI section.
+func loadDeviceFromSection(section string, reader ConfigReader) (*UCIDevice, error) {
+	device := &UCIDevice{}
+
+	if values, ok := reader.Get(networkConfigName, section, "name"); ok && len(values) > 0 {
+		device.Name = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, section, "type"); ok && len(values) > 0 {
+		device.Type = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, section, "macaddr"); ok && len(values) > 0 {
+		device.MacAddr = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, section, "ifname"); ok && len(values) > 0 {
+		device.Ifname = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, section, "ports"); ok && len(values) > 0 {
+		device.Ports = values
+	}
+
+	if values, ok := reader.Get(networkConfigName, section, "rxpause"); ok && len(values) > 0 {
+		device.RxPause = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, section, "txpause"); ok && len(values) > 0 {
+		device.TxPause = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, section, "autoneg"); ok && len(values) > 0 {
+		device.AutoNeg = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, section, "speed"); ok && len(values) > 0 {
+		device.Speed = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, section, "duplex"); ok && len(values) > 0 {
+		device.Duplex = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, section, "table"); ok && len(values) > 0 {
+		device.Table = values[0]
+	}
+
+	return device, nil
+}
+
+// SetDeviceConfig creates or updates a device configuration.
+// Device sections in UCI are anonymous. If a device with the given name exists,
+// it will be updated. Otherwise, a new anonymous device section is created.
+//
+// Parameters:
+//   - name: The device name (e.g., "br-ahwlan", "vxlan0")
+//   - device: The device configuration to set
+//
+// Returns an error if the configuration cannot be saved.
+//
+// Example:
+//
+//	device := &UCIDevice{
+//	    Name: "br-ahwlan",
+//	    Type: "bridge",
+//	    Ports: []string{"bat0"},
+//	}
+//	err := SetDeviceConfig("br-ahwlan", device)
+//
+// Note: This operation requires appropriate privileges and commits the configuration.
+func SetDeviceConfig(name string, device *UCIDevice) error {
+	reader := NewUCINetworkConfigReader()
+	return SetDeviceConfigWithReader(name, device, reader)
+}
+
+// SetDeviceConfigWithReader creates or updates a device configuration using the provided reader.
+func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigReader) error {
+	// Find existing device section by name
+	var section string
+	sections, err := reader.GetSections(networkConfigName, "device")
+	if err != nil {
+		return fmt.Errorf("failed to get device sections: %w", err)
+	}
+
+	// Search for existing device
+	for _, sec := range sections {
+		if values, ok := reader.Get(networkConfigName, sec, "name"); ok && len(values) > 0 {
+			if values[0] == name {
+				section = sec
+				break
+			}
+		}
+	}
+
+	// If device doesn't exist, create a new anonymous section
+	if section == "" {
+		if err := reader.AddSection(networkConfigName, "", "device"); err != nil {
+			return fmt.Errorf("failed to add device section: %w", err)
+		}
+		// Get the newly created section reference
+		sections, err := reader.GetSections(networkConfigName, "device")
+		if err != nil {
+			return fmt.Errorf("failed to get device sections: %w", err)
+		}
+		if len(sections) > 0 {
+			section = sections[len(sections)-1] // Use the last one (newly created)
+		}
+	}
+
+	if section == "" {
+		return fmt.Errorf("failed to determine device section")
+	}
+
+	// Set device options
+	if device.Name != "" {
+		if err := reader.SetType(networkConfigName, section, "name", uci.TypeOption, device.Name); err != nil {
+			return fmt.Errorf("failed to set device name: %w", err)
+		}
+	}
+
+	if device.Type != "" {
+		if err := reader.SetType(networkConfigName, section, "type", uci.TypeOption, device.Type); err != nil {
+			return fmt.Errorf("failed to set device type: %w", err)
+		}
+	}
+
+	if device.MacAddr != "" {
+		if err := reader.SetType(networkConfigName, section, "macaddr", uci.TypeOption, device.MacAddr); err != nil {
+			return fmt.Errorf("failed to set device macaddr: %w", err)
+		}
+	}
+
+	if device.Ifname != "" {
+		if err := reader.SetType(networkConfigName, section, "ifname", uci.TypeOption, device.Ifname); err != nil {
+			return fmt.Errorf("failed to set device ifname: %w", err)
+		}
+	}
+
+	if len(device.Ports) > 0 {
+		if err := reader.SetType(networkConfigName, section, "ports", uci.TypeList, device.Ports...); err != nil {
+			return fmt.Errorf("failed to set device ports: %w", err)
+		}
+	}
+
+	if device.RxPause != "" {
+		if err := reader.SetType(networkConfigName, section, "rxpause", uci.TypeOption, device.RxPause); err != nil {
+			return fmt.Errorf("failed to set device rxpause: %w", err)
+		}
+	}
+
+	if device.TxPause != "" {
+		if err := reader.SetType(networkConfigName, section, "txpause", uci.TypeOption, device.TxPause); err != nil {
+			return fmt.Errorf("failed to set device txpause: %w", err)
+		}
+	}
+
+	if device.AutoNeg != "" {
+		if err := reader.SetType(networkConfigName, section, "autoneg", uci.TypeOption, device.AutoNeg); err != nil {
+			return fmt.Errorf("failed to set device autoneg: %w", err)
+		}
+	}
+
+	if device.Speed != "" {
+		if err := reader.SetType(networkConfigName, section, "speed", uci.TypeOption, device.Speed); err != nil {
+			return fmt.Errorf("failed to set device speed: %w", err)
+		}
+	}
+
+	if device.Duplex != "" {
+		if err := reader.SetType(networkConfigName, section, "duplex", uci.TypeOption, device.Duplex); err != nil {
+			return fmt.Errorf("failed to set device duplex: %w", err)
+		}
+	}
+
+	if device.Table != "" {
+		if err := reader.SetType(networkConfigName, section, "table", uci.TypeOption, device.Table); err != nil {
+			return fmt.Errorf("failed to set device table: %w", err)
+		}
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit device configuration: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteDeviceConfig removes a device configuration section by device name.
+// Device sections in UCI are anonymous, so this searches for the device
+// by its 'name' option.
+//
+// Parameters:
+//   - name: The device name to delete (e.g., "br-ahwlan", "vxlan0")
+//
+// Returns an error if the section cannot be deleted.
+//
+// Example:
+//
+//	err := DeleteDeviceConfig("br-guest")
+//	if err != nil {
+//	    log.Fatalf("Failed to delete device config: %v", err)
+//	}
+//
+// Note: This operation requires appropriate privileges and commits the configuration.
+func DeleteDeviceConfig(name string) error {
+	reader := NewUCINetworkConfigReader()
+	return DeleteDeviceConfigWithReader(name, reader)
+}
+
+// DeleteDeviceConfigWithReader removes a device configuration section using the provided reader.
+func DeleteDeviceConfigWithReader(name string, reader ConfigReader) error {
+	// Find the device section by name
+	sections, err := reader.GetSections(networkConfigName, "device")
+	if err != nil {
+		return fmt.Errorf("failed to get device sections: %w", err)
+	}
+
+	var sectionToDelete string
+	for _, section := range sections {
+		if values, ok := reader.Get(networkConfigName, section, "name"); ok && len(values) > 0 {
+			if values[0] == name {
+				sectionToDelete = section
+				break
+			}
+		}
+	}
+
+	if sectionToDelete == "" {
+		return fmt.Errorf("device %s not found", name)
+	}
+
+	if err := reader.DelSection(networkConfigName, sectionToDelete); err != nil {
+		return fmt.Errorf("failed to delete device section: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit device deletion: %w", err)
+	}
+
+	return nil
+}
+
+// DeviceSectionExists checks if a device section exists in the configuration by device name.
+// Device sections in UCI are anonymous, so this searches for a device with the given name.
+//
+// Parameters:
+//   - name: The device name to check (e.g., "br-ahwlan", "vxlan0")
+//
+// Returns true if the device exists, false otherwise.
+//
+// Example:
+//
+//	exists := DeviceSectionExists("br-ahwlan")
+//	if exists {
+//	    fmt.Println("Device section exists")
+//	}
+func DeviceSectionExists(name string) bool {
+	reader := NewUCINetworkConfigReader()
+	return DeviceSectionExistsWithReader(name, reader)
+}
+
+// DeviceSectionExistsWithReader checks if a device section exists using the provided reader.
+func DeviceSectionExistsWithReader(name string, reader ConfigReader) bool {
+	// Get all device sections and search for the device by name
+	sections, err := reader.GetSections(networkConfigName, "device")
+	if err != nil {
+		return false
+	}
+
+	for _, section := range sections {
+		if values, ok := reader.Get(networkConfigName, section, "name"); ok && len(values) > 0 {
+			if values[0] == name {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// GetAllDevices retrieves all device configurations from the network config.
+// It returns a map of device names to UCIDevice configurations.
+func GetAllDevices() (map[string]*UCIDevice, error) {
+	reader := NewUCINetworkConfigReader()
+	return GetAllDevicesWithReader(reader)
+}
+
+// GetAllDevicesWithReader retrieves all device configurations using the provided reader.
+// It returns a map of device names to UCIDevice configurations.
+func GetAllDevicesWithReader(reader ConfigReader) (map[string]*UCIDevice, error) {
+	// Get all sections of type "device" (they are anonymous)
+	sections, err := reader.GetSections(networkConfigName, "device")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device sections: %w", err)
+	}
+
+	// Create map to hold devices (keyed by device name, not section)
+	devices := make(map[string]*UCIDevice)
+
+	// Load each device
+	for _, section := range sections {
+		device, err := loadDeviceFromSection(section, reader)
+		if err != nil {
+			// Log but continue on error for individual device
+			continue
+		}
+		// Use device name as key
+		if device.Name != "" {
+			devices[device.Name] = device
+		}
+	}
+
+	return devices, nil
+}
+
+// ForceReloadConfig forces a reload of the network configuration by executing the OpenWrt network init script.
+func ForceReloadConfig() error {
+	cmd := exec.Command("reload_config")
+	return cmd.Run()
 }
 
 // ReloadNetwork reloads the network configuration by executing the OpenWrt network init script.

@@ -10,6 +10,7 @@ import (
 /*
 config openmanet 'config'
 	option dhcpconfigured '0'
+	option BLOSconfigured '0'
 	option config '/etc/openmanet/config.yml'
 */
 
@@ -20,12 +21,14 @@ const (
 // UCIOpenMANET represents the OpenMANET UCI configuration.
 type UCIOpenMANET struct {
 	DHCPConfigured string `uci:"option dhcpconfigured"`
+	BLOSConfigured string `uci:"option BLOSconfigured"`
 	Config         string `uci:"option config"`
 }
 
 // OpenMANETConfigReader defines an interface for reading OpenMANET UCI configuration values.
 type OpenMANETConfigReader interface {
 	Get(config, section, option string) ([]string, bool)
+	GetSections(config, secType string) ([]string, error)
 	SetType(config, section, option string, typ uci.OptionType, values ...string) error
 	Del(config, section, option string) error
 	AddSection(config, section, typ string) error
@@ -48,6 +51,10 @@ func NewUCIOpenMANETConfigReader() *UCIOpenMANETConfigReader {
 
 func (r *UCIOpenMANETConfigReader) Get(config, section, option string) ([]string, bool) {
 	return r.tree.Get(config, section, option)
+}
+
+func (r *UCIOpenMANETConfigReader) GetSections(config, secType string) ([]string, error) {
+	return r.tree.GetSections(config, secType)
 }
 
 func (r *UCIOpenMANETConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
@@ -96,6 +103,9 @@ func GetOpenMANETConfigWithReader(reader OpenMANETConfigReader) (*UCIOpenMANET, 
 	if values, ok := reader.Get(openmanetdConfigName, "config", "dhcpconfigured"); ok && len(values) > 0 {
 		config.DHCPConfigured = values[0]
 	}
+	if values, ok := reader.Get(openmanetdConfigName, "config", "BLOSconfigured"); ok && len(values) > 0 {
+		config.BLOSConfigured = values[0]
+	}
 	if values, ok := reader.Get(openmanetdConfigName, "config", "config"); ok && len(values) > 0 {
 		config.Config = values[0]
 	}
@@ -135,6 +145,11 @@ func SetOpenMANETConfigWithReader(config *UCIOpenMANET, reader OpenMANETConfigRe
 	if config.DHCPConfigured != "" {
 		if err := reader.SetType(openmanetdConfigName, "config", "dhcpconfigured", uci.TypeOption, config.DHCPConfigured); err != nil {
 			return fmt.Errorf("failed to set dhcpconfigured: %w", err)
+		}
+	}
+	if config.BLOSConfigured != "" {
+		if err := reader.SetType(openmanetdConfigName, "config", "BLOSconfigured", uci.TypeOption, config.BLOSConfigured); err != nil {
+			return fmt.Errorf("failed to set BLOSconfigured: %w", err)
 		}
 	}
 	if config.Config != "" {
@@ -240,6 +255,105 @@ func ClearDHCPConfiguredWithReader(reader OpenMANETConfigReader) error {
 
 	if err := reader.SetType(openmanetdConfigName, "config", "dhcpconfigured", uci.TypeOption, "0"); err != nil {
 		return fmt.Errorf("failed to clear dhcpconfigured: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
+	}
+
+	return nil
+}
+
+// IsBLOSConfigured checks if BLOS has been configured.
+//
+// Returns:
+//   - true if BLOS is configured (BLOSconfigured == '1'), false otherwise
+//   - An error if the configuration cannot be read
+//
+// Example:
+//
+//	configured, err := IsBLOSConfigured()
+//	if err != nil {
+//	    log.Fatalf("Failed to check BLOS status: %v", err)
+//	}
+//	if !configured {
+//	    // Run BLOS configuration
+//	}
+func IsBLOSConfigured() (bool, error) {
+	return IsBLOSConfiguredWithReader(NewUCIOpenMANETConfigReader())
+}
+
+// IsBLOSConfiguredWithReader checks if BLOS has been configured using the provided reader.
+func IsBLOSConfiguredWithReader(reader OpenMANETConfigReader) (bool, error) {
+	config, err := GetOpenMANETConfigWithReader(reader)
+	if err != nil {
+		return false, err
+	}
+
+	// Parse the BLOSconfigured value
+	if config.BLOSConfigured == "0" || config.BLOSConfigured == "" {
+		return false, nil
+	}
+
+	configured, err := strconv.Atoi(config.BLOSConfigured)
+	if err != nil {
+		return false, fmt.Errorf("invalid BLOSconfigured value: %w", err)
+	}
+
+	return configured == 1, nil
+}
+
+// SetBLOSConfigured marks BLOS as configured.
+//
+// This sets the 'BLOSconfigured' option to '1'.
+//
+// Example:
+//
+//	err := SetBLOSConfigured()
+//	if err != nil {
+//	    log.Fatalf("Failed to mark BLOS as configured: %v", err)
+//	}
+func SetBLOSConfigured() error {
+	return SetBLOSConfiguredWithReader(NewUCIOpenMANETConfigReader())
+}
+
+// SetBLOSConfiguredWithReader marks BLOS as configured using the provided reader.
+func SetBLOSConfiguredWithReader(reader OpenMANETConfigReader) error {
+	// Ensure the section exists
+	_ = reader.AddSection(openmanetdConfigName, "config", "openmanet")
+
+	if err := reader.SetType(openmanetdConfigName, "config", "BLOSconfigured", uci.TypeOption, "1"); err != nil {
+		return fmt.Errorf("failed to set BLOSconfigured: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
+	}
+
+	return nil
+}
+
+// ClearBLOSConfigured marks BLOS as not configured.
+//
+// This sets the 'BLOSconfigured' option to '0'.
+//
+// Example:
+//
+//	err := ClearBLOSConfigured()
+//	if err != nil {
+//	    log.Fatalf("Failed to clear BLOS configured flag: %v", err)
+//	}
+func ClearBLOSConfigured() error {
+	return ClearBLOSConfiguredWithReader(NewUCIOpenMANETConfigReader())
+}
+
+// ClearBLOSConfiguredWithReader marks BLOS as not configured using the provided reader.
+func ClearBLOSConfiguredWithReader(reader OpenMANETConfigReader) error {
+	// Ensure the section exists
+	_ = reader.AddSection(openmanetdConfigName, "config", "openmanet")
+
+	if err := reader.SetType(openmanetdConfigName, "config", "BLOSconfigured", uci.TypeOption, "0"); err != nil {
+		return fmt.Errorf("failed to clear BLOSconfigured: %w", err)
 	}
 
 	if err := reader.Commit(); err != nil {
