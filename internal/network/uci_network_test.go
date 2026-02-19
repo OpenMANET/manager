@@ -43,7 +43,7 @@ type setTypeCall struct {
 func (m *mockConfigReader) Get(config, section, option string) ([]string, bool) {
 	// Resolve section reference to internal key
 	actualSection := m.resolveSectionRef(config, section)
-	
+
 	if configData, ok := m.data[config]; ok {
 		if sectionData, ok := configData[actualSection]; ok {
 			if values, ok := sectionData[option]; ok {
@@ -147,10 +147,10 @@ func (m *mockConfigReader) Del(config, section, option string) error {
 	if m.delError != nil {
 		return m.delError
 	}
-	
+
 	// Resolve section reference to internal key
 	actualSection := m.resolveSectionRef(config, section)
-	
+
 	// Delete the option from data
 	if configData, ok := m.data[config]; ok {
 		if sectionData, ok := configData[actualSection]; ok {
@@ -202,24 +202,24 @@ func (m *mockConfigReader) DelSection(config, section string) error {
 	if m.delSectionErr != nil {
 		return m.delSectionErr
 	}
-	
+
 	// Resolve section reference to internal key
 	actualSection := m.resolveSectionRef(config, section)
-	
+
 	m.delSectionCall = fmt.Sprintf("%s.%s", config, section)
-	
+
 	// Actually delete the section from the mock data
 	if configData, ok := m.data[config]; ok {
 		delete(configData, actualSection)
 	}
-	
+
 	// Remove from section types
 	if m.sectionTypes != nil {
 		if typeMap, ok := m.sectionTypes[config]; ok {
 			delete(typeMap, actualSection)
 		}
 	}
-	
+
 	// Remove from anonymous sections list if it's an anonymous section
 	if m.anonSections != nil {
 		if anonList, ok := m.anonSections[config]; ok {
@@ -231,7 +231,7 @@ func (m *mockConfigReader) DelSection(config, section string) error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
