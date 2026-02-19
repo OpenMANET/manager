@@ -29,6 +29,11 @@ func TestNewConnectionSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() error = %v, want nil", err)
 	}
+	t.Cleanup(func() {
+		if err := CloseConnection(); err != nil {
+			t.Errorf("Cleanup: CloseConnection() error = %v", err)
+		}
+	})
 
 	if queries == nil {
 		t.Fatal("NewConnection() returned nil queries")
@@ -48,11 +53,6 @@ func TestNewConnectionSuccess(t *testing.T) {
 	if tableName != "mesh_nodes" {
 		t.Errorf("Expected table 'mesh_nodes' to exist, got %s", tableName)
 	}
-
-	// Clean up
-	if err := CloseConnection(); err != nil {
-		t.Errorf("CloseConnection() error = %v", err)
-	}
 }
 
 // TestNewConnectionWithContext tests connection creation with custom context
@@ -65,14 +65,14 @@ func TestNewConnectionWithContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() error = %v, want nil", err)
 	}
+	t.Cleanup(func() {
+		if err := CloseConnection(); err != nil {
+			t.Errorf("Cleanup: CloseConnection() error = %v", err)
+		}
+	})
 
 	if queries == nil {
 		t.Fatal("NewConnection() returned nil queries")
-	}
-
-	// Clean up
-	if err := CloseConnection(); err != nil {
-		t.Errorf("CloseConnection() error = %v", err)
 	}
 }
 
@@ -117,13 +117,18 @@ func TestNewConnectionDatabaseConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() error = %v, want nil", err)
 	}
+	t.Cleanup(func() {
+		if err := CloseConnection(); err != nil {
+			t.Errorf("Cleanup: CloseConnection() error = %v", err)
+		}
+	})
 
 	// Verify connection pool settings
 	stats := sqlDB.Stats()
 
-	// Check that the connection is open
-	if stats.OpenConnections < 0 {
-		t.Errorf("Expected at least 0 open connections, got %d", stats.OpenConnections)
+	// Check that at least one connection is open
+	if stats.OpenConnections < 1 {
+		t.Errorf("Expected at least 1 open connection, got %d", stats.OpenConnections)
 	}
 
 	// Verify foreign keys are enabled
@@ -134,11 +139,6 @@ func TestNewConnectionDatabaseConfiguration(t *testing.T) {
 	}
 	if foreignKeys != 1 {
 		t.Errorf("Expected foreign_keys to be enabled (1), got %d", foreignKeys)
-	}
-
-	// Clean up
-	if err := CloseConnection(); err != nil {
-		t.Errorf("CloseConnection() error = %v", err)
 	}
 }
 
@@ -167,13 +167,14 @@ func TestNewConnectionMultipleTimes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Second NewConnection() error = %v, want nil", err)
 	}
+	t.Cleanup(func() {
+		if err := CloseConnection(); err != nil {
+			t.Errorf("Cleanup: CloseConnection() error = %v", err)
+		}
+	})
+
 	if queries2 == nil {
 		t.Fatal("Second NewConnection() returned nil queries")
-	}
-
-	// Clean up
-	if err := CloseConnection(); err != nil {
-		t.Errorf("Second CloseConnection() error = %v", err)
 	}
 }
 
@@ -187,6 +188,10 @@ func TestCloseConnectionSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() error = %v, want nil", err)
 	}
+	t.Cleanup(func() {
+		// Attempt cleanup in case the test fails before explicit close
+		CloseConnection()
+	})
 
 	// Close the connection
 	err = CloseConnection()
@@ -211,6 +216,10 @@ func TestCloseConnectionMultipleTimes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() error = %v, want nil", err)
 	}
+	t.Cleanup(func() {
+		// Attempt cleanup in case the test fails before reaching the close calls
+		CloseConnection()
+	})
 
 	// First close
 	err = CloseConnection()
@@ -239,6 +248,11 @@ func TestNewConnectionSchemaApplication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() error = %v, want nil", err)
 	}
+	t.Cleanup(func() {
+		if err := CloseConnection(); err != nil {
+			t.Errorf("Cleanup: CloseConnection() error = %v", err)
+		}
+	})
 
 	// Verify all expected columns exist in mesh_nodes table
 	expectedColumns := []string{
@@ -279,11 +293,6 @@ func TestNewConnectionSchemaApplication(t *testing.T) {
 			t.Errorf("Expected column %s not found in mesh_nodes table", expected)
 		}
 	}
-
-	// Clean up
-	if err := CloseConnection(); err != nil {
-		t.Errorf("CloseConnection() error = %v", err)
-	}
 }
 
 // TestNewConnectionWithTimeout tests connection with a timeout context
@@ -299,14 +308,14 @@ func TestNewConnectionWithTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() with timeout error = %v, want nil", err)
 	}
+	t.Cleanup(func() {
+		if err := CloseConnection(); err != nil {
+			t.Errorf("Cleanup: CloseConnection() error = %v", err)
+		}
+	})
 
 	if queries == nil {
 		t.Fatal("NewConnection() returned nil queries")
-	}
-
-	// Clean up
-	if err := CloseConnection(); err != nil {
-		t.Errorf("CloseConnection() error = %v", err)
 	}
 }
 
