@@ -121,7 +121,7 @@ func Start() {
 			log.Fatal().Err(err).Msg("Failed to initialize BLOS module")
 		}
 	}
-	
+
 	// Wait for interrupt signal to gracefully shutdown the application
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 

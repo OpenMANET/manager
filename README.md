@@ -6,14 +6,16 @@ Manages low level configurations and operations in OpenMANET
 - Publish information about mesh nodes
 - Handle static IP assignment and DHCP address assignments
 - Update gateway routes
+- Provides a gRPC/REST API to retrieve information about your mesh node
+- Provides an integration with `gpsd` to stream GPS data to devices
 
 `openmanetd` uses `alfred` which is part of `batman-adv` to send/receive messages protobuf messages across the mesh network for management operations.
 
 ## Developer Tools
 
-A DevContainer is included within this repo that will have all of the necessary tooling installed within it.
-
-The protobuf specs are a sub module from [OpenMANET/protobuf](https://github.com/OpenMANET/protobufs). You can generate the protobuf library for go by running `buf generate`.
+- A DevContainer is included within this repo that will have all of the necessary tooling installed within it.
+- The protobuf specs are a sub module from [OpenMANET/protobuf](https://github.com/OpenMANET/protobufs). You can generate the protobuf library for go by running `buf generate`.
+- Note: OpenMANETd requires CGO to build properly.
 
 ## Quickstart
 
