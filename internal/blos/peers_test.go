@@ -362,7 +362,7 @@ func TestSyncVXLANPeersWithTailscale_PreserveMulticast(t *testing.T) {
 	mockReader := r.uciNetworkConfig.(*MockVXLANConfigReader)
 
 	// Add multicast peers
-	for _, addr := range multicastGroupAddresses {
+	for _, addr := range config.GetMulticastGroupAddresses() {
 		mockReader.addPeer(addr, defaultTunnelDeviceName, defaultVxLanDeviceName)
 	}
 
@@ -386,7 +386,7 @@ func TestSyncVXLANPeersWithTailscale_PreserveMulticast(t *testing.T) {
 	}
 
 	// Verify multicast peers are preserved
-	for _, addr := range multicastGroupAddresses {
+	for _, addr := range config.GetMulticastGroupAddresses() {
 		found := false
 		for section := range mockReader.data["network"] {
 			if values, ok := mockReader.data["network"][section]["dst"]; ok && len(values) > 0 {

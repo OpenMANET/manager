@@ -1,22 +1,8 @@
 package blos
 
 import (
+	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/network"
-)
-
-var (
-	multicastGroupAddresses = []string{
-		"239.2.3.1",
-		"224.10.10.1",
-		"224.0.0.251",
-	}
-
-	// multicastSet is a pre-built set for fast lookups
-	multicastSet = map[string]bool{
-		"239.2.3.1":   true,
-		"224.10.10.1": true,
-		"224.0.0.251": true,
-	}
 )
 
 // createVXMulticastPeers creates VXLan peers for each multicast group address.
@@ -36,7 +22,7 @@ func (r *BLOS) createVXMulticastPeers() error {
 
 	// Collect peers that need to be created
 	peersToCreate := []network.UCIVXLANPeer{}
-	for _, addr := range multicastGroupAddresses {
+	for _, addr := range config.GetMulticastGroupAddresses() {
 		if !network.VXLANPeerExistsByDst(addr) {
 			peersToCreate = append(peersToCreate, network.UCIVXLANPeer{
 				Dst:   addr,
@@ -225,7 +211,7 @@ func (r *BLOS) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
 	// Check each peer and remove if it's not active and not multicast
 	for section, peer := range allPeers {
 		// Skip if this is a multicast address
-		if multicastSet[peer.Dst] {
+		if config.GetMulticastGroupSet()[peer.Dst] {
 			continue
 		}
 

@@ -3,9 +3,9 @@ package gpsd
 import "time"
 
 const (
-	DefaultTAKGPSPort  string = "4349"
-	DefaultGPSDAddress string = "localhost:2947"
-	ATAKSAAddress      string = "239.2.3.1:6969" // ATAK Situational Awareness multicast address
+	DefaultTAKGPSPort   string = "4349"
+	DefaultGPSDAddress  string = "localhost:2947"
+	atakSAMulticastPort string = "6969" // Port for ATAK SA multicast
 	// atakMulticastTTL is the Time-To-Live value for CoT multicast packets sent to ATAK SA address
 	atakMulticastTTL int = 64
 	// defaultSelfMarkerType is the CoT type for self markers

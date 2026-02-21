@@ -12,6 +12,7 @@ import (
 	"github.com/coreywagehoft/go-tak/pkg/cot"
 	"github.com/coreywagehoft/go-tak/pkg/cotproto"
 	"github.com/mdlayher/arp"
+	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"golang.org/x/net/ipv4"
@@ -244,7 +245,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 	}
 
 	// Send to multicast address
-	addr, err := net.ResolveUDPAddr("udp", ATAKSAAddress)
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", config.ATAKSAAddress, atakSAMulticastPort))
 	if err != nil {
 		return fmt.Errorf("failed to resolve multicast address: %w", err)
 	}
@@ -271,7 +272,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 		Float64("lat", pos.Latitude).
 		Float64("lon", pos.Longitude).
 		Float64("alt", pos.Altitude).
-		Str("address", ATAKSAAddress).
+		Str("address", fmt.Sprintf("%s:%s", config.ATAKSAAddress, atakSAMulticastPort)).
 		Msg("Sent CoT message to ATAK SA multicast")
 
 	return nil
@@ -358,7 +359,7 @@ func (g *GPSService) sendCoTPing() error {
 	}
 
 	// Send to multicast address
-	addr, err := net.ResolveUDPAddr("udp", ATAKSAAddress)
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", config.ATAKSAAddress, atakSAMulticastPort))
 	if err != nil {
 		return fmt.Errorf("failed to resolve multicast address: %w", err)
 	}
