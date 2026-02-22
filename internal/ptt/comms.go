@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gordonklaus/portaudio"
 	evdev "github.com/gvalkov/golang-evdev"
 )
 
@@ -74,7 +73,7 @@ func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 	}
 }
 
-func (ptt *PTTConfig) monitorPTT(dev *evdev.InputDevice, bcastStream *portaudio.Stream) {
+func (ptt *PTTConfig) monitorPTT(dev *evdev.InputDevice) {
 	for {
 		ev, err := dev.ReadOne()
 		if err != nil {
@@ -98,10 +97,10 @@ func (ptt *PTTConfig) monitorPTT(dev *evdev.InputDevice, bcastStream *portaudio.
 			ptt.Log.Debug().Msgf("PTT down (code=%d)", ev.Code)
 			if ptt.isBroadcasting() {
 				ptt.Log.Debug().Msgf("PTT toggle: stopping transmission")
-				ptt.endTransmission(bcastStream)
+				ptt.endTransmission()
 			} else {
 				ptt.Log.Debug().Msgf("PTT toggle: starting transmission")
-				ptt.beginTransmission(bcastStream)
+				ptt.beginTransmission()
 			}
 		case 0:
 			ptt.Log.Debug().Msgf("PTT up (code=%d)", ev.Code)
@@ -125,7 +124,7 @@ func (ptt *PTTConfig) drainPlaybackBuffer() {
 	}
 }
 
-func (ptt *PTTConfig) beginTransmission(bcastStream *portaudio.Stream) {
+func (ptt *PTTConfig) beginTransmission() {
 	ptt.runtime.recordMutex.Lock()
 	if ptt.runtime.broadcasting {
 		ptt.Log.Debug().Msgf("PTT down ignored; already broadcasting")
@@ -140,18 +139,39 @@ func (ptt *PTTConfig) beginTransmission(bcastStream *portaudio.Stream) {
 	ptt.runtime.playbackBuffer <- ptt.runtime.beepBufferStart
 	time.Sleep(200 * time.Millisecond)
 
-	if err := bcastStream.Start(); err != nil {
-		ptt.Log.Error().Err(err).Msg("Failed to start mic stream")
-		ptt.runtime.recordMutex.Lock()
-		ptt.runtime.broadcasting = false
-		ptt.runtime.recordMutex.Unlock()
-		return
+	if ptt.runtime.broadcastStream == nil {
+		ptt.Log.Warn().Msg("Mic stream is nil; attempting to reopen")
+		if err := ptt.reopenBroadcastStream(); err != nil {
+			ptt.Log.Error().Err(err).Msg("Failed to reopen mic stream")
+			ptt.runtime.recordMutex.Lock()
+			ptt.runtime.broadcasting = false
+			ptt.runtime.recordMutex.Unlock()
+			return
+		}
+	}
+
+	if err := ptt.runtime.broadcastStream.Start(); err != nil {
+		ptt.Log.Error().Err(err).Msg("Failed to start mic stream; attempting to reopen stream")
+		if reErr := ptt.reopenBroadcastStream(); reErr != nil {
+			ptt.Log.Error().Err(reErr).Msg("Failed to reopen mic stream")
+			ptt.runtime.recordMutex.Lock()
+			ptt.runtime.broadcasting = false
+			ptt.runtime.recordMutex.Unlock()
+			return
+		}
+		if err := ptt.runtime.broadcastStream.Start(); err != nil {
+			ptt.Log.Error().Err(err).Msg("Failed to start mic stream after reopen")
+			ptt.runtime.recordMutex.Lock()
+			ptt.runtime.broadcasting = false
+			ptt.runtime.recordMutex.Unlock()
+			return
+		}
 	}
 
 	ptt.Log.Debug().Msg("Mic stream started")
 }
 
-func (ptt *PTTConfig) endTransmission(bcastStream *portaudio.Stream) {
+func (ptt *PTTConfig) endTransmission() {
 	ptt.runtime.recordMutex.Lock()
 
 	if !ptt.runtime.broadcasting {
@@ -163,7 +183,9 @@ func (ptt *PTTConfig) endTransmission(bcastStream *portaudio.Stream) {
 	ptt.runtime.recordMutex.Unlock()
 
 	ptt.Log.Debug().Msg("End transmission: stopping mic stream and playing stop tone")
-	if err := bcastStream.Stop(); err != nil {
+	if ptt.runtime.broadcastStream == nil {
+		ptt.Log.Warn().Msg("Mic stream was nil during stop")
+	} else if err := ptt.runtime.broadcastStream.Stop(); err != nil {
 		ptt.Log.Error().Err(err).Msg("stop mic")
 	} else {
 		ptt.Log.Debug().Msg("Mic stream stopped")

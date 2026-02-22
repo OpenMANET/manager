@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	NodeDataType        uint8 = uint8(proto.DataType_DATA_TYPE_NODE)
-	NodeDataTypeVersion uint8 = 1
+	NodeDataType              uint8 = uint8(proto.DataType_DATA_TYPE_NODE)
+	NodeDataTypeVersion       uint8 = 2
+	legacyNodeDataTypeVersion uint8 = 1
 )
 
 type NodeDataWorker struct {
@@ -119,7 +120,13 @@ func (ndw *NodeDataWorker) StartSend() {
 				continue
 			}
 
-			err = ndw.Client.Set(NodeDataType, NodeDataTypeVersion, nodeDataBytes)
+			encryptedPayload, err := ndw.Config.payloadCodec.Encrypt(NodeDataType, nodeDataBytes)
+			if err != nil {
+				ndw.Config.Log.Error().Err(err).Msg("Error encrypting node data")
+				continue
+			}
+
+			err = ndw.Client.Set(NodeDataType, NodeDataTypeVersion, encryptedPayload)
 			if err != nil {
 				ndw.Config.Log.Error().Err(err).Msg("Error sending node data")
 			}
@@ -140,28 +147,54 @@ func (ndw *NodeDataWorker) StartReceive() {
 			record, err := ndw.Client.Request(NodeDataType)
 			if err != nil {
 				ndw.Config.Log.Error().Err(err).Msg("Error receiving node data")
-			} else {
-				for _, rec := range record {
-					var nodeData proto.Node
-					err = nodeData.UnmarshalVT(rec.Data)
+				continue
+			}
+
+			for _, rec := range record {
+				decodedPayload := rec.Data
+				switch rec.Version {
+				case NodeDataTypeVersion:
+					decodedPayload, err = ndw.Config.payloadCodec.Decrypt(NodeDataType, rec.Source, rec.Data)
 					if err != nil {
-						ndw.Config.Log.Error().Err(err).Msg("Error unmarshaling node data")
-					} else {
-						hostname, err := os.Hostname()
-						if err != nil {
-							ndw.Config.Log.Error().Err(err).Msg("Error getting hostname")
-						}
-						// ignore our own node data
-						if nodeData.Hostname == hostname {
-							continue
-						}
-
-						ndw.Config.Log.Debug().Msgf("Received node data: %+v", &nodeData)
-
-						if err := ndw.RecordNodeData(&nodeData); err != nil {
-							ndw.Config.Log.Error().Err(err).Msg("Error recording node data")
-						}
+						ndw.Config.Log.Warn().
+							Err(err).
+							Str("source", rec.Source.String()).
+							Msg("Dropping node data payload that failed authentication/decryption")
+						continue
 					}
+				case legacyNodeDataTypeVersion:
+					ndw.Config.Log.Debug().
+						Str("source", rec.Source.String()).
+						Msg("Received legacy plaintext node payload")
+				default:
+					ndw.Config.Log.Warn().
+						Uint8("version", rec.Version).
+						Str("source", rec.Source.String()).
+						Msg("Dropping node data payload with unsupported version")
+					continue
+				}
+
+				var nodeData proto.Node
+				err = nodeData.UnmarshalVT(decodedPayload)
+				if err != nil {
+					ndw.Config.Log.Error().Err(err).Msg("Error unmarshaling node data")
+					continue
+				}
+
+				hostname, err := os.Hostname()
+				if err != nil {
+					ndw.Config.Log.Error().Err(err).Msg("Error getting hostname")
+				}
+
+				// ignore our own node data
+				if nodeData.Hostname == hostname {
+					continue
+				}
+
+				ndw.Config.Log.Debug().Msgf("Received node data: %+v", &nodeData)
+
+				if err := ndw.RecordNodeData(&nodeData); err != nil {
+					ndw.Config.Log.Error().Err(err).Msg("Error recording node data")
 				}
 			}
 		}

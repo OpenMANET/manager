@@ -66,6 +66,33 @@ func (ptt *PTTConfig) resolveAudioDevice(spec string, wantInput bool) (*portaudi
 	return nil, fmt.Errorf("audio device %q not found", spec)
 }
 
+func (ptt *PTTConfig) resolveAudioSpecs() (inputSpec, outputSpec string) {
+	inputSpec = ptt.InputDevice
+	outputSpec = ptt.OutputDevice
+
+	if ptt.runtime == nil || ptt.runtime.audioDeviceHint == "" {
+		return inputSpec, outputSpec
+	}
+
+	// Allow a single hint to target both sides of the BT speaker-mic.
+	if inputSpec == "" {
+		inputSpec = ptt.runtime.audioDeviceHint
+	}
+	if outputSpec == "" {
+		outputSpec = ptt.runtime.audioDeviceHint
+	}
+	return inputSpec, outputSpec
+}
+
+func normalizeControlSource(src string) string {
+	switch strings.ToLower(strings.TrimSpace(src)) {
+	case "bluealsa_xevent":
+		return "bluealsa_xevent"
+	default:
+		return "evdev"
+	}
+}
+
 func (ptt *PTTConfig) findPTTDevice() *evdev.InputDevice {
 	devs, err := evdev.ListInputDevices(ptt.PttDevice)
 	if err != nil {

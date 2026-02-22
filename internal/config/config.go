@@ -32,6 +32,8 @@ const (
 	DefaultPTTTrace                    bool   = false
 	DefaultPTTPttDevice                string = "/dev/hidraw0/*"
 	DefaultPTTPttDeviceName            string = ""
+	DefaultPTTControlSource            string = "evdev"
+	DefaultPTTAudioDeviceHint          string = ""
 	DefaultPTTInputDevice              string = ""
 	DefaultPTTOutputDevice             string = ""
 	DefaultPTTPlaybackBuffer           int    = 2
@@ -56,6 +58,8 @@ type Config struct {
 	PTTPttKey                   string
 	PTTPttDevice                string
 	PTTPttDeviceName            string
+	PTTControlSource            string
+	PTTAudioDeviceHint          string
 	PTTInputDevice              string
 	PTTOutputDevice             string
 	PTTPlaybackBuffer           int
@@ -268,6 +272,18 @@ func (c *Config) reload() {
 		c.PTTPttDeviceName = DefaultPTTPttDeviceName
 	}
 
+	if val := strings.ToLower(c.v.GetString("ptt.controlSource")); val != "" {
+		c.PTTControlSource = val
+	} else {
+		c.PTTControlSource = DefaultPTTControlSource
+	}
+
+	if val := c.v.GetString("ptt.audioDeviceHint"); val != "" {
+		c.PTTAudioDeviceHint = val
+	} else {
+		c.PTTAudioDeviceHint = DefaultPTTAudioDeviceHint
+	}
+
 	if val := c.v.GetString("ptt.inputDevice"); val != "" {
 		c.PTTInputDevice = val
 	} else {
@@ -465,6 +481,20 @@ func (c *Config) GetPTTPttDeviceName() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.PTTPttDeviceName
+}
+
+// GetPTTControlSource returns the PTT control event source backend.
+func (c *Config) GetPTTControlSource() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PTTControlSource
+}
+
+// GetPTTAudioDeviceHint returns a shared matcher for selecting both mic and speaker devices.
+func (c *Config) GetPTTAudioDeviceHint() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PTTAudioDeviceHint
 }
 
 // GetPTTInputDevice returns the audio input device name or index.

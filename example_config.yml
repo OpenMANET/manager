@@ -28,6 +28,11 @@ ptt:
   loopback: true
   pttDevice: /dev/hidraw0/*
   pttDeviceName: Generic AB13X USB Audio
+  # evdev (existing behavior) or bluealsa_xevent (for BS-22 style AT+XEVENT controls)
+  controlSource: evdev
+  # Optional hint used to resolve BOTH input and output audio devices (e.g. "BS-22")
+  # Only applied when inputDevice/outputDevice are left empty.
+  audioDeviceHint: ""
   inputDevice: ""
   outputDevice: ""
   playbackBuffer: 2

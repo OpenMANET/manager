@@ -33,23 +33,25 @@ func Start() {
 	banner.Print()
 
 	ptt := ptt.NewPTT(ptt.PTTConfig{
-		Interupt:      c,
-		Log:           logger.GetLogger("ptt"),
-		Enable:        cfg.GetPTTEnable(),
-		Iface:         cfg.GetMeshNetInterface(),
-		McastAddr:     cfg.GetPTTMcastAddr(),
-		McastPort:     cfg.GetPTTMcastPort(),
-		Protocol:      cfg.GetPTTProtocol(),
-		RtpID:         cfg.GetPTTRtpID(),
-		PttKey:        cfg.GetPTTPttKey(),
-		Debug:         cfg.GetPTTDebug(),
-		Loopback:      cfg.GetPTTLoopback(),
-		Trace:         cfg.GetPTTTrace(),
-		PttDevice:     cfg.GetPTTPttDevice(),
-		PttDeviceName: cfg.GetPTTPttDeviceName(),
-		InputDevice:   cfg.GetPTTInputDevice(),
-		OutputDevice:  cfg.GetPTTOutputDevice(),
-		PlaybackDepth: cfg.GetPTTPlaybackBuffer(),
+		Interupt:        c,
+		Log:             logger.GetLogger("ptt"),
+		Enable:          cfg.GetPTTEnable(),
+		Iface:           cfg.GetMeshNetInterface(),
+		McastAddr:       cfg.GetPTTMcastAddr(),
+		McastPort:       cfg.GetPTTMcastPort(),
+		Protocol:        cfg.GetPTTProtocol(),
+		RtpID:           cfg.GetPTTRtpID(),
+		PttKey:          cfg.GetPTTPttKey(),
+		Debug:           cfg.GetPTTDebug(),
+		Loopback:        cfg.GetPTTLoopback(),
+		Trace:           cfg.GetPTTTrace(),
+		PttDevice:       cfg.GetPTTPttDevice(),
+		PttDeviceName:   cfg.GetPTTPttDeviceName(),
+		ControlSource:   cfg.GetPTTControlSource(),
+		AudioDeviceHint: cfg.GetPTTAudioDeviceHint(),
+		InputDevice:     cfg.GetPTTInputDevice(),
+		OutputDevice:    cfg.GetPTTOutputDevice(),
+		PlaybackDepth:   cfg.GetPTTPlaybackBuffer(),
 	})
 
 	ptt.Start()
@@ -83,7 +85,7 @@ func Start() {
 
 	// Initialize and start management module
 	if cfg.GetAlfredEnable() {
-		mgmt := mgmt.NewManager(mgmt.ManagementConfig{
+		manager, err := mgmt.NewManager(mgmt.ManagementConfig{
 			InteruptChan:               c,
 			Log:                        logger.GetLogger("mgmt"),
 			GPS:                        gps,
@@ -98,7 +100,11 @@ func Start() {
 			AddressReservationDataType: cfg.GetAlfredDataTypeAddressReservation(),
 			DB:                         db,
 		})
-		mgmt.Start()
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to initialize management workers")
+		}
+
+		manager.Start()
 	} else {
 		log.Info().Msg("Alfred integration disabled; skipping management workers")
 	}

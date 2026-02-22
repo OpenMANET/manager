@@ -1,6 +1,7 @@
 package ptt
 
 import (
+	"errors"
 	"math"
 	"net"
 	"os"
@@ -30,6 +31,7 @@ const (
 	defaultLoopback      bool   = true
 	defaultPTTDevice     string = "/dev/hidraw0/*"
 	defaultPTTDeviceName string = "AllInOneCable"
+	defaultControlSource string = "evdev"
 )
 
 // PTTRuntime holds runtime state for an active PTT instance
@@ -47,6 +49,7 @@ type PTTRuntime struct {
 	rtpSeq          uint16
 	rtpSSRC         uint32
 	rtpID           string
+	inputDevice     *portaudio.DeviceInfo
 
 	// config from UCI (with fallbacks)
 	ifaceName       string
@@ -54,6 +57,8 @@ type PTTRuntime struct {
 	pttKey          string
 	pttDeviceName   string
 	pttDevice       string
+	controlSource   string
+	audioDeviceHint string
 	beepBufferStart []float32
 	beepBufferStop  []float32
 	mcastPort       int
@@ -70,43 +75,47 @@ type PTTConfig struct {
 	Interupt chan os.Signal
 
 	// Runtime state - only allocated when PTT is enabled
-	runtime       *PTTRuntime
-	Iface         string
-	McastAddr     string
-	PttKey        string
-	PttDevice     string
-	PttDeviceName string
-	InputDevice   string
-	OutputDevice  string
-	PlaybackDepth int
-	Protocol      string
-	RtpID         string
-	McastPort     int
-	Enable        bool
-	Debug         bool
-	Loopback      bool
-	Trace         bool
+	runtime         *PTTRuntime
+	Iface           string
+	McastAddr       string
+	PttKey          string
+	PttDevice       string
+	PttDeviceName   string
+	ControlSource   string
+	AudioDeviceHint string
+	InputDevice     string
+	OutputDevice    string
+	PlaybackDepth   int
+	Protocol        string
+	RtpID           string
+	McastPort       int
+	Enable          bool
+	Debug           bool
+	Loopback        bool
+	Trace           bool
 }
 
 func NewPTT(cfg PTTConfig) *PTTConfig {
 	return &PTTConfig{
-		Log:           cfg.Log,
-		Interupt:      cfg.Interupt,
-		Enable:        cfg.Enable,
-		Iface:         cfg.Iface,
-		McastAddr:     cfg.McastAddr,
-		McastPort:     cfg.McastPort,
-		PttKey:        cfg.PttKey,
-		Protocol:      cfg.Protocol,
-		RtpID:         cfg.RtpID,
-		Debug:         cfg.Debug,
-		Loopback:      cfg.Loopback,
-		Trace:         cfg.Trace,
-		PttDevice:     cfg.PttDevice,
-		PttDeviceName: cfg.PttDeviceName,
-		InputDevice:   cfg.InputDevice,
-		OutputDevice:  cfg.OutputDevice,
-		PlaybackDepth: cfg.PlaybackDepth,
+		Log:             cfg.Log,
+		Interupt:        cfg.Interupt,
+		Enable:          cfg.Enable,
+		Iface:           cfg.Iface,
+		McastAddr:       cfg.McastAddr,
+		McastPort:       cfg.McastPort,
+		PttKey:          cfg.PttKey,
+		Protocol:        cfg.Protocol,
+		RtpID:           cfg.RtpID,
+		Debug:           cfg.Debug,
+		Loopback:        cfg.Loopback,
+		Trace:           cfg.Trace,
+		PttDevice:       cfg.PttDevice,
+		PttDeviceName:   cfg.PttDeviceName,
+		ControlSource:   cfg.ControlSource,
+		AudioDeviceHint: cfg.AudioDeviceHint,
+		InputDevice:     cfg.InputDevice,
+		OutputDevice:    cfg.OutputDevice,
+		PlaybackDepth:   cfg.PlaybackDepth,
 	}
 }
 
@@ -118,23 +127,17 @@ func (ptt *PTTConfig) Start() {
 
 	// Initialize runtime state only when PTT is enabled
 	ptt.runtime = &PTTRuntime{
-		playbackBuffer:  make(chan []float32, 2),
-		beepBufferStart: make([]float32, frameSize),
-		beepBufferStop:  make([]float32, frameSize),
-		ifaceName:       defaultIface,
-		mcastAddr:       defaultG,
-		mcastPort:       defaultPort,
-		protocol:        defaultProtocol,
-		rtpID:           "",
-		pttKey:          defaultKey,
-		debugEnabled:    defaultDebug,
-		loopbackAudio:   defaultLoopback,
-		pttDeviceName:   defaultPTTDeviceName,
-		pttDevice:       defaultPTTDevice,
-	}
-
-	if ptt.PlaybackDepth > 0 {
-		ptt.runtime.playbackBuffer = make(chan []float32, ptt.PlaybackDepth)
+		ifaceName:     defaultIface,
+		mcastAddr:     defaultG,
+		mcastPort:     defaultPort,
+		protocol:      defaultProtocol,
+		rtpID:         "",
+		pttKey:        defaultKey,
+		debugEnabled:  defaultDebug,
+		loopbackAudio: defaultLoopback,
+		pttDeviceName: defaultPTTDeviceName,
+		pttDevice:     defaultPTTDevice,
+		controlSource: defaultControlSource,
 	}
 
 	// apply config
@@ -182,7 +185,22 @@ func (ptt *PTTConfig) Start() {
 		ptt.runtime.pttDeviceName = ptt.PttDeviceName
 	}
 
-	ptt.Log.Info().Msgf("Starting PTT on iface=%s mcast=%s:%d protocol=%s key=%s debug=%t trace=%t loopback=%t ptt_device=%s", ptt.runtime.ifaceName, ptt.runtime.mcastAddr, ptt.runtime.mcastPort, ptt.runtime.protocol, ptt.runtime.pttKey, ptt.runtime.debugEnabled, ptt.runtime.traceEnabled, ptt.runtime.loopbackAudio, ptt.runtime.pttDeviceName)
+	if ptt.ControlSource != "" {
+		ptt.runtime.controlSource = ptt.ControlSource
+	}
+	if ptt.AudioDeviceHint != "" {
+		ptt.runtime.audioDeviceHint = ptt.AudioDeviceHint
+	}
+
+	playbackDepth := 2
+	if ptt.PlaybackDepth > 0 {
+		playbackDepth = ptt.PlaybackDepth
+	}
+	ptt.runtime.playbackBuffer = make(chan []float32, playbackDepth)
+	ptt.runtime.beepBufferStart = make([]float32, frameSize)
+	ptt.runtime.beepBufferStop = make([]float32, frameSize)
+
+	ptt.Log.Info().Msgf("Starting PTT on iface=%s mcast=%s:%d protocol=%s key=%s debug=%t trace=%t loopback=%t ptt_device=%s control_source=%s audio_hint=%s", ptt.runtime.ifaceName, ptt.runtime.mcastAddr, ptt.runtime.mcastPort, ptt.runtime.protocol, ptt.runtime.pttKey, ptt.runtime.debugEnabled, ptt.runtime.traceEnabled, ptt.runtime.loopbackAudio, ptt.runtime.pttDeviceName, ptt.runtime.controlSource, ptt.runtime.audioDeviceHint)
 
 	var err error
 	ptt.runtime.encoder, err = opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
@@ -219,12 +237,14 @@ func (ptt *PTTConfig) Start() {
 		ptt.Log.Fatal().Err(err).Msg("Failed to initialize PortAudio")
 	}
 
-	outDev, err := ptt.resolveAudioDevice(ptt.OutputDevice, false)
+	inputSpec, outputSpec := ptt.resolveAudioSpecs()
+
+	outDev, err := ptt.resolveAudioDevice(outputSpec, false)
 	if err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to resolve output audio device")
 	}
 
-	inDev, err := ptt.resolveAudioDevice(ptt.InputDevice, true)
+	inDev, err := ptt.resolveAudioDevice(inputSpec, true)
 	if err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to resolve input audio device")
 	}
@@ -270,34 +290,8 @@ func (ptt *PTTConfig) Start() {
 	defer playbackStream.Stop()
 	defer playbackStream.Close()
 
-	// mic stream (opened, not started)
-	inParams := portaudio.StreamParameters{
-		Input: portaudio.StreamDeviceParameters{
-			Device:   inDev,
-			Channels: channels,
-		},
-		SampleRate:      float64(sampleRate),
-		FramesPerBuffer: frameSize,
-	}
-	ptt.runtime.broadcastStream, err = portaudio.OpenStream(inParams, func(in []float32) {
-		ptt.Log.Debug().Msgf("Mic callback received %d samples", len(in))
-		pcm := make([]int16, len(in))
-
-		for i, v := range in {
-			pcm[i] = int16(v * 32767)
-		}
-
-		buf := make([]byte, 4000)
-		if n, err := ptt.runtime.encoder.Encode(pcm, buf); err == nil {
-			packet := buf[:n]
-			if ptt.runtime.protocol == protocolRTP {
-				packet = ptt.wrapRTP(packet)
-			}
-			_, _ = ptt.runtime.udpSendConn.Write(packet)
-			ptt.Log.Debug().Msgf("Encoded %d bytes from mic callback", n)
-		}
-	})
-	if err != nil {
+	ptt.runtime.inputDevice = inDev
+	if err := ptt.openBroadcastStream(inDev); err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to open PortAudio stream")
 	}
 
@@ -354,14 +348,67 @@ func (ptt *PTTConfig) Start() {
 
 	go ptt.receiveLoop(ptt.runtime.udpRecvConn)
 
-	// PTT input (kept as-is for now)
-	pttDevice := ptt.findPTTDevice()
-	ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", pttDevice.Name)
-	ptt.Log.Debug().Msgf("Monitoring PTT device %s", pttDevice.Name)
-	go ptt.monitorPTT(pttDevice, ptt.runtime.broadcastStream)
+	switch normalizeControlSource(ptt.runtime.controlSource) {
+	case "bluealsa_xevent":
+		ptt.Log.Info().Msg("Listening for PTT using BlueALSA XEVENT backend")
+		go ptt.monitorBluealsaXEvents()
+	default:
+		pttDevice := ptt.findPTTDevice()
+		ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", pttDevice.Name)
+		ptt.Log.Debug().Msgf("Monitoring PTT device %s", pttDevice.Name)
+		go ptt.monitorPTT(pttDevice)
+	}
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
 	ptt.Log.Info().Msg("Exiting PTT service")
+}
+
+func (ptt *PTTConfig) openBroadcastStream(inDev *portaudio.DeviceInfo) error {
+	inParams := portaudio.StreamParameters{
+		Input: portaudio.StreamDeviceParameters{
+			Device:   inDev,
+			Channels: channels,
+		},
+		SampleRate:      float64(sampleRate),
+		FramesPerBuffer: frameSize,
+	}
+
+	stream, err := portaudio.OpenStream(inParams, func(in []float32) {
+		ptt.Log.Debug().Msgf("Mic callback received %d samples", len(in))
+		pcm := make([]int16, len(in))
+
+		for i, v := range in {
+			pcm[i] = int16(v * 32767)
+		}
+
+		buf := make([]byte, 4000)
+		if n, err := ptt.runtime.encoder.Encode(pcm, buf); err == nil {
+			packet := buf[:n]
+			if ptt.runtime.protocol == protocolRTP {
+				packet = ptt.wrapRTP(packet)
+			}
+			_, _ = ptt.runtime.udpSendConn.Write(packet)
+			ptt.Log.Debug().Msgf("Encoded %d bytes from mic callback", n)
+		}
+	})
+	if err != nil {
+		return err
+	}
+	ptt.runtime.broadcastStream = stream
+	return nil
+}
+
+func (ptt *PTTConfig) reopenBroadcastStream() error {
+	if ptt.runtime.inputDevice == nil {
+		return errors.New("input device is not set")
+	}
+
+	if ptt.runtime.broadcastStream != nil {
+		_ = ptt.runtime.broadcastStream.Close()
+		ptt.runtime.broadcastStream = nil
+	}
+
+	return ptt.openBroadcastStream(ptt.runtime.inputDevice)
 }
