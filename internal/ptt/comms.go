@@ -3,6 +3,7 @@ package ptt
 import (
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	evdev "github.com/gvalkov/golang-evdev"
@@ -14,12 +15,14 @@ const (
 )
 
 type rtpJitterBuffer struct {
+	mu        sync.Mutex
 	frames    map[uint16][]byte
 	expected  uint16
 	init      bool
 	started   bool
 	prebuffer int
 	maxDepth  int
+	lastPush  time.Time
 }
 
 func newRTPJitterBuffer(prebuffer, maxDepth int) *rtpJitterBuffer {
@@ -35,6 +38,9 @@ func seqLess(a, b uint16) bool {
 }
 
 func (jb *rtpJitterBuffer) push(seq uint16, payload []byte) bool {
+	jb.mu.Lock()
+	defer jb.mu.Unlock()
+
 	if !jb.init {
 		jb.expected = seq
 		jb.init = true
@@ -56,10 +62,14 @@ func (jb *rtpJitterBuffer) push(seq uint16, payload []byte) bool {
 	copied := make([]byte, len(payload))
 	copy(copied, payload)
 	jb.frames[seq] = copied
+	jb.lastPush = time.Now()
 	return true
 }
 
 func (jb *rtpJitterBuffer) popReady() (payload []byte, ready bool, skippedMissing bool) {
+	jb.mu.Lock()
+	defer jb.mu.Unlock()
+
 	if !jb.init {
 		return nil, false, false
 	}
@@ -86,9 +96,48 @@ func (jb *rtpJitterBuffer) popReady() (payload []byte, ready bool, skippedMissin
 	return nil, false, false
 }
 
+func (jb *rtpJitterBuffer) shouldConceal(recentWindow time.Duration) bool {
+	jb.mu.Lock()
+	defer jb.mu.Unlock()
+
+	if !jb.started || jb.lastPush.IsZero() {
+		return false
+	}
+
+	return time.Since(jb.lastPush) <= recentWindow
+}
+
+func (ptt *PTTConfig) rtpPlayoutLoop(jitter *rtpJitterBuffer) {
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		payload, ready, skipped := jitter.popReady()
+		if skipped {
+			if ptt.runtime.traceEnabled {
+				ptt.Log.Trace().Msg("RTP jitter buffer skipped missing packet")
+			}
+			ptt.decodeAndQueuePLC()
+			continue
+		}
+
+		if ready {
+			ptt.decodeAndQueue(payload)
+			continue
+		}
+
+		if jitter.shouldConceal(100 * time.Millisecond) {
+			ptt.decodeAndQueuePLC()
+		}
+	}
+}
+
 func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 	buf := make([]byte, 1500)
 	jitter := newRTPJitterBuffer(rtpJitterPrebufferPackets, rtpJitterMaxDepth)
+	if ptt.runtime.protocol == protocolRTP {
+		go ptt.rtpPlayoutLoop(jitter)
+	}
 	for {
 		n, src, err := udpConn.ReadFromUDP(buf)
 		if err != nil {
@@ -134,20 +183,6 @@ func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 			payload, _ := unwrapRTP(frame)
 			if pushed := jitter.push(seq, payload); !pushed {
 				continue
-			}
-
-			for i := 0; i < rtpJitterMaxDepth; i++ {
-				readyPayload, ready, skipped := jitter.popReady()
-				if skipped {
-					if ptt.runtime.traceEnabled {
-						ptt.Log.Trace().Msg("RTP jitter buffer skipped missing packet")
-					}
-					ptt.decodeAndQueuePLC()
-				}
-				if !ready {
-					break
-				}
-				ptt.decodeAndQueue(readyPayload)
 			}
 			continue
 		}
