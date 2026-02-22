@@ -8,8 +8,87 @@ import (
 	evdev "github.com/gvalkov/golang-evdev"
 )
 
+const (
+	rtpJitterPrebufferPackets = 3
+	rtpJitterMaxDepth         = 24
+)
+
+type rtpJitterBuffer struct {
+	frames    map[uint16][]byte
+	expected  uint16
+	init      bool
+	started   bool
+	prebuffer int
+	maxDepth  int
+}
+
+func newRTPJitterBuffer(prebuffer, maxDepth int) *rtpJitterBuffer {
+	return &rtpJitterBuffer{
+		frames:    make(map[uint16][]byte),
+		prebuffer: prebuffer,
+		maxDepth:  maxDepth,
+	}
+}
+
+func seqLess(a, b uint16) bool {
+	return int16(a-b) < 0
+}
+
+func (jb *rtpJitterBuffer) push(seq uint16, payload []byte) bool {
+	if !jb.init {
+		jb.expected = seq
+		jb.init = true
+	}
+
+	// Drop packets that are older than the current playout cursor.
+	if seqLess(seq, jb.expected) {
+		return false
+	}
+
+	if _, exists := jb.frames[seq]; exists {
+		return false
+	}
+
+	if len(jb.frames) >= jb.maxDepth {
+		return false
+	}
+
+	copied := make([]byte, len(payload))
+	copy(copied, payload)
+	jb.frames[seq] = copied
+	return true
+}
+
+func (jb *rtpJitterBuffer) popReady() (payload []byte, ready bool, skippedMissing bool) {
+	if !jb.init {
+		return nil, false, false
+	}
+
+	if !jb.started {
+		if len(jb.frames) < jb.prebuffer {
+			return nil, false, false
+		}
+		jb.started = true
+	}
+
+	if payload, ok := jb.frames[jb.expected]; ok {
+		delete(jb.frames, jb.expected)
+		jb.expected++
+		return payload, true, false
+	}
+
+	// If we've buffered a lot and still don't have the expected packet, skip it.
+	if len(jb.frames) >= jb.maxDepth/2 {
+		jb.expected++
+		return nil, false, true
+	}
+
+	return nil, false, false
+}
+
 func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 	buf := make([]byte, 1500)
+	jitter := newRTPJitterBuffer(rtpJitterPrebufferPackets, rtpJitterMaxDepth)
 	for {
 		n, src, err := udpConn.ReadFromUDP(buf)
 		if err != nil {
@@ -39,7 +118,6 @@ func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 			}
 		}
 
-		ptt.Log.Debug().Msgf("Received %d bytes from %s", n, src.IP.String())
 		if loopbackDrop {
 			continue
 		}
@@ -47,29 +125,81 @@ func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 		frame := make([]byte, n)
 		copy(frame, buf[:n])
 
+		if ptt.runtime.protocol == protocolRTP {
+			seq, _, _, ok := parseRTPHeader(frame)
+			if !ok {
+				ptt.Log.Debug().Msg("Dropping packet: invalid RTP header")
+				continue
+			}
+			payload, _ := unwrapRTP(frame)
+			if pushed := jitter.push(seq, payload); !pushed {
+				continue
+			}
+
+			for i := 0; i < rtpJitterMaxDepth; i++ {
+				readyPayload, ready, skipped := jitter.popReady()
+				if skipped {
+					if ptt.runtime.traceEnabled {
+						ptt.Log.Trace().Msg("RTP jitter buffer skipped missing packet")
+					}
+					ptt.decodeAndQueuePLC()
+				}
+				if !ready {
+					break
+				}
+				ptt.decodeAndQueue(readyPayload)
+			}
+			continue
+		}
+
 		if payload, ok := unwrapRTP(frame); ok {
 			frame = payload
-		} else if ptt.runtime.protocol == protocolRTP {
-			ptt.Log.Debug().Msg("Dropping packet: invalid RTP header")
-			continue
 		}
+		ptt.decodeAndQueue(frame)
+	}
+}
 
-		pcm := make([]int16, frameSize)
-		n, err = ptt.runtime.decoder.Decode(frame, pcm)
-		if err != nil {
-			continue
-		}
-		out := make([]float32, n)
-		for i := 0; i < n; i++ {
-			out[i] = float32(pcm[i]) / 32768
-		}
+func (ptt *PTTConfig) decodeAndQueue(frame []byte) {
+	pcm := make([]int16, frameSize)
+	n, err := ptt.runtime.decoder.Decode(frame, pcm)
+	if err != nil {
+		return
+	}
 
-		select {
-		case ptt.runtime.playbackBuffer <- out:
-			ptt.Log.Debug().Msgf("Queued playback buffer with %d samples (depth=%d)", len(out), len(ptt.runtime.playbackBuffer))
-		default:
-			ptt.Log.Warn().Msg("⚠️ Playback buffer full! Dropping packet.")
+	out := make([]float32, n)
+	for i := 0; i < n; i++ {
+		out[i] = float32(pcm[i]) / 32768
+	}
+
+	select {
+	case ptt.runtime.playbackBuffer <- out:
+		if ptt.runtime.traceEnabled {
+			ptt.Log.Trace().Msgf("Queued playback buffer with %d samples (depth=%d)", len(out), len(ptt.runtime.playbackBuffer))
 		}
+	default:
+		ptt.Log.Warn().Msg("⚠️ Playback buffer full! Dropping packet.")
+	}
+}
+
+func (ptt *PTTConfig) decodeAndQueuePLC() {
+	pcm := make([]int16, frameSize)
+	n, err := ptt.runtime.decoder.Decode(nil, pcm)
+	if err != nil || n <= 0 {
+		return
+	}
+
+	out := make([]float32, n)
+	for i := 0; i < n; i++ {
+		out[i] = float32(pcm[i]) / 32768
+	}
+
+	select {
+	case ptt.runtime.playbackBuffer <- out:
+		if ptt.runtime.traceEnabled {
+			ptt.Log.Trace().Msgf("Queued PLC playback buffer with %d samples (depth=%d)", len(out), len(ptt.runtime.playbackBuffer))
+		}
+	default:
+		ptt.Log.Warn().Msg("⚠️ Playback buffer full! Dropping PLC frame.")
 	}
 }
 
