@@ -68,6 +68,34 @@ Trace logging:
 The protocol is controlled by `ptt.protocol` (`udp` or `rtp`), and normalized at startup.
 Receive path auto-detects RTP by header (0x80/0x81) even if protocol is set to UDP.
 
+### Why pick one over the other?
+
+- Use **UDP** when both endpoints are under your control and you want the simplest path with the fewest moving parts.
+- Use **RTP** when you need better interoperability with systems that expect RTP metadata (sequence/SSRC) or when integrating with tools that parse RTP streams.
+
+Practical tradeoffs:
+
+- **UDP advantages**
+  - Smallest packet overhead.
+  - Simplest send/receive behavior and easier debugging.
+  - Fewer assumptions about RTP header formatting across vendors.
+- **UDP downsides**
+  - No explicit sequence numbers or sender identity in the packet header.
+  - Harder to do robust packet-order analysis in external tooling.
+
+- **RTP advantages**
+  - Includes sequence numbers and SSRC, which helps receiver-side stream tracking.
+  - Better fit for ecosystems that expect RTP (some radio plugins/interop paths).
+  - Easier to inspect with RTP-aware capture tools.
+- **RTP downsides**
+  - Extra header overhead and slightly more parsing logic.
+  - Interop can still vary by implementation details (timestamp/SSRC behavior).
+
+Current recommendation in this codebase:
+
+- Start with **`protocol: udp`** if your setup sounds clean and both sides are working.
+- Switch to **`protocol: rtp`** when you need compatibility with an RTP-expecting peer or want RTP metadata for diagnostics/interop.
+
 ### UDP mode (default)
 
 Raw Opus payload is sent in the UDP datagram.
