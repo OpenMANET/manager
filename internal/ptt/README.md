@@ -14,9 +14,9 @@ It is intentionally low-level and aims for ATAK VX multicast compatibility when
 3. **Network**:
    - A UDP sender is bound to the selected interface IP.
    - A UDP receiver listens on `0.0.0.0:<port>` and joins the multicast group on the interface.
-4. **PTT device**:
-   - A matching input device is located via evdev.
-   - Button press toggles transmission (start/stop mic stream).
+4. **PTT control source**:
+   - `evdev` (default): existing input-device behavior.
+   - `bluealsa_xevent`: reads BlueALSA HFP vendor events (`AT+XEVENT=...`), e.g. `PTT_DOWN`/`PTT_UP`.
 
 ## Audio/codec parameters
 
@@ -117,7 +117,9 @@ Receive logic:
 - If protocol is set to `rtp`, packets missing a valid RTP header are dropped.
 - If protocol is set to `udp`, RTP packets are still accepted and unwrapped.
 
-## PTT device handling
+## PTT control handling
+
+### `evdev` backend (default)
 
 The input device is selected by name from the `pttDevice` glob and `pttDeviceName`.
 
@@ -129,10 +131,70 @@ On press:
 1. Plays start tone.
 2. Starts mic stream.
 
-On release:
+### `bluealsa_xevent` backend (optional)
 
-1. Stops mic stream.
-2. Plays stop tone.
+This backend tails BlueALSA journal output and parses vendor events:
+
+- `PTT_DOWN` -> start transmission
+- `PTT_UP` -> stop transmission
+- `PREV_CH`, `NEXT_CH`, `BLE` -> currently logged for future mapping
+
+This mode is useful for speaker-mics that do not surface usable evdev key events.
+
+## Bluetooth speaker-mic setup (BS-22 style)
+
+The Bluetooth mic/speaker path was created with **BlueALSA** and explicit ALSA PCM names,
+so `openmanetd` can target stable device names instead of changing card indexes.
+
+1. Pair/connect the device in `bluetoothctl`.
+2. Run BlueALSA with AG profiles (so HFP/HSP SCO audio + vendor AT events are available):
+
+```bash
+sudo systemctl edit bluealsa
+# set ExecStart to include:
+# /usr/bin/bluealsa -p hfp-ag -p hsp-ag
+sudo systemctl daemon-reload
+sudo systemctl restart bluealsa
+```
+
+3. Define named ALSA PCMs in `/etc/asound.conf` (replace `XX:XX:XX:XX:XX:XX` with your BT MAC):
+
+```conf
+pcm.bs22_out {
+  type plug
+  slave.pcm {
+    type bluealsa
+    interface "hci0"
+    profile "sco"
+    device "XX:XX:XX:XX:XX:XX"
+  }
+}
+
+pcm.bs22_in {
+  type plug
+  slave.pcm {
+    type bluealsa
+    interface "hci0"
+    profile "sco"
+    device "XX:XX:XX:XX:XX:XX"
+  }
+}
+```
+
+4. Point PTT config to those names:
+
+```yaml
+ptt:
+  controlSource: bluealsa_xevent
+  inputDevice: bs22_in
+  outputDevice: bs22_out
+```
+
+Notes:
+
+- `controlSource: bluealsa_xevent` handles PTT events from BlueALSA logs (`AT+XEVENT=PTT_DOWN/PTT_UP`).
+- `inputDevice` and `outputDevice` carry voice audio over SCO (mono/narrowband headset path).
+- If you use `audioDeviceHint`, leave `inputDevice`/`outputDevice` empty so hint matching is applied.
 
 ## Config keys
 
@@ -151,6 +213,8 @@ ptt:
   loopback: true
   pttDevice: /dev/hidraw0/*
   pttDeviceName: Generic AB13X USB Audio
+  controlSource: evdev # or bluealsa_xevent
+  audioDeviceHint: ""  # optional shared matcher for BOTH input/output devices (e.g. "BS-22")
   inputDevice: ""   # optional; device name substring or index for capture
   outputDevice: ""  # optional; device name substring or index for playback
   playbackBuffer: 2 # optional; playback buffer depth

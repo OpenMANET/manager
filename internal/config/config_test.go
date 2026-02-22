@@ -861,6 +861,74 @@ func TestGetPTTPttDeviceName(t *testing.T) {
 	}
 }
 
+func TestGetPTTControlSource(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured control source",
+			setValue: strPtr("bluealsa_xevent"),
+			want:     "bluealsa_xevent",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultPTTControlSource,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("ptt.controlSource", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetPTTControlSource()
+			if got != tt.want {
+				t.Errorf("GetPTTControlSource() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPTTAudioDeviceHint(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured audio hint",
+			setValue: strPtr("BS-22"),
+			want:     "BS-22",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultPTTAudioDeviceHint,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("ptt.audioDeviceHint", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetPTTAudioDeviceHint()
+			if got != tt.want {
+				t.Errorf("GetPTTAudioDeviceHint() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestConfigReload(t *testing.T) {
 	v := viper.New()
 	v.Set("meshNetInterface", "eth0")
