@@ -321,7 +321,6 @@ func (ptt *PTTConfig) startOnce() error {
 		select {
 		case data := <-ptt.runtime.playbackBuffer:
 			copy(out, data)
-			ptt.Log.Debug().Msgf("Playback callback filled %d samples", len(data))
 		default:
 			for i := range out {
 				out[i] = 0
@@ -428,7 +427,6 @@ func (ptt *PTTConfig) openBroadcastStream(inDev *portaudio.DeviceInfo) error {
 	}
 
 	stream, err := portaudio.OpenStream(inParams, func(in []float32) {
-		ptt.Log.Debug().Msgf("Mic callback received %d samples", len(in))
 		pcm := make([]int16, len(in))
 
 		for i, v := range in {
@@ -442,7 +440,6 @@ func (ptt *PTTConfig) openBroadcastStream(inDev *portaudio.DeviceInfo) error {
 				packet = ptt.wrapRTP(packet)
 			}
 			_, _ = ptt.runtime.udpSendConn.Write(packet)
-			ptt.Log.Debug().Msgf("Encoded %d bytes from mic callback", n)
 		}
 	})
 	if err != nil {
