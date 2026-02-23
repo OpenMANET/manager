@@ -27,7 +27,7 @@ require (
 	golang.org/x/sys v0.41.0
 	google.golang.org/grpc v1.79.1
 	google.golang.org/protobuf v1.36.11
-	tailscale.com v1.94.1
+	tailscale.com v1.94.2
 )
 
 require (
