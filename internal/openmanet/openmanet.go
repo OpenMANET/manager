@@ -34,7 +34,7 @@ func Start() {
 	banner.Print()
 
 	ptt := ptt.NewPTT(ptt.PTTConfig{
-		Interupt:        c,
+		Interrupt:       c,
 		Log:             logger.GetLogger("ptt"),
 		Enable:          cfg.GetPTTEnable(),
 		Iface:           cfg.GetMeshNetInterface(),
@@ -42,12 +42,12 @@ func Start() {
 		McastPort:       cfg.GetPTTMcastPort(),
 		Protocol:        cfg.GetPTTProtocol(),
 		RtpID:           cfg.GetPTTRtpID(),
-		PttKey:          cfg.GetPTTPttKey(),
+		PTTKey:          cfg.GetPTTPttKey(),
 		Debug:           cfg.GetPTTDebug(),
 		Loopback:        cfg.GetPTTLoopback(),
 		Trace:           cfg.GetPTTTrace(),
-		PttDevice:       cfg.GetPTTPttDevice(),
-		PttDeviceName:   cfg.GetPTTPttDeviceName(),
+		PTTDeviceGlob:   cfg.GetPTTPttDevice(),
+		PTTDeviceName:   cfg.GetPTTPttDeviceName(),
 		ControlSource:   cfg.GetPTTControlSource(),
 		AudioDeviceHint: cfg.GetPTTAudioDeviceHint(),
 		InputDevice:     cfg.GetPTTInputDevice(),

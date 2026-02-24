@@ -94,25 +94,25 @@ func normalizeControlSource(src string) string {
 }
 
 func (ptt *PTTConfig) findPTTDevice() *evdev.InputDevice {
-	devs, err := evdev.ListInputDevices(ptt.PttDevice)
+	devs, err := evdev.ListInputDevices(ptt.PTTDeviceGlob)
 	if err != nil {
 		ptt.Log.Fatal().Err(err).Msg("evdev.ListInputDevices")
 	}
 
 	for _, d := range devs {
-		if d.Name == ptt.PttDeviceName {
+		if d.Name == ptt.PTTDeviceName {
 			ptt.Log.Debug().Msgf("Matched PTT device %s (%s)", d.Name, d.Fn)
 
 			return d
 		}
 	}
-	ptt.Log.Fatal().Msgf("PTT device %q not found", ptt.PttDeviceName)
+	ptt.Log.Fatal().Msgf("PTT device %q not found", ptt.PTTDeviceName)
 
 	return nil
 }
 
 func (ptt *PTTConfig) logInputDeviceList() {
-	devs, err := evdev.ListInputDevices(ptt.PttDevice)
+	devs, err := evdev.ListInputDevices(ptt.PTTDeviceGlob)
 	if err != nil {
 		ptt.Log.Error().Err(err).Msg("Unable to list input devices")
 		return
