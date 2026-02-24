@@ -71,47 +71,125 @@ type PTTRuntime struct {
 	traceEnabled  bool
 }
 
+// PTTConfig holds the static configuration for the PTT subsystem.
+// Allocate one with NewPTT and call Start to begin operation.
+// All fields must be set before Start is called; none are mutated afterwards.
 type PTTConfig struct {
-	Log      zerolog.Logger
-	Interupt chan os.Signal
+	// Log is the zerolog logger used for all PTT subsystem messages.
+	Log zerolog.Logger
 
-	// Runtime state - only allocated when PTT is enabled
-	runtime         *PTTRuntime
-	Iface           string
-	McastAddr       string
-	PttKey          string
-	PttDevice       string
-	PttDeviceName   string
-	ControlSource   string
+	// Interrupt is the OS signal channel used to trigger a clean shutdown of
+	// the PTT service.  Typically populated from os/signal.Notify.
+	Interrupt chan os.Signal
+
+	// Enable controls whether the PTT subsystem starts at all.
+	// When false, Start returns immediately without allocating any resources.
+	Enable bool
+
+	// ---- Network ----
+
+	// Iface is the name of the network interface whose IPv4 address is used to
+	// bind the outbound UDP multicast sender and join the multicast group on
+	// the receiver side.
+	Iface string
+
+	// McastAddr is the IPv4 multicast group address (e.g. "224.0.0.1").
+	McastAddr string
+
+	// McastPort is the UDP port used for both sending and receiving multicast
+	// audio datagrams.
+	McastPort int
+
+	// Protocol selects the wire framing for audio datagrams.  "udp" sends raw
+	// Opus payloads; "rtp" prefixes each payload with a 12-byte RTP header.
+	// Receive path auto-detects RTP regardless of this setting.
+	Protocol string
+
+	// RtpID is the identifier used to derive the RTP SSRC via FNV-1a hashing.
+	// Defaults to the system hostname, falling back to the local interface IP.
+	// Set to the ATAK device identifier for strict VX multicast compatibility.
+	RtpID string
+
+	// ---- Audio ----
+
+	// InputDevice specifies the PortAudio capture device.  Accepts a device
+	// index (as a decimal string), an exact device name, or a name substring.
+	// Empty string selects the system default input device.
+	InputDevice string
+
+	// OutputDevice specifies the PortAudio playback device.  Accepts a device
+	// index (as a decimal string), an exact device name, or a name substring.
+	// Empty string selects the system default output device.
+	OutputDevice string
+
+	// AudioDeviceHint is a shared substring matcher applied to both
+	// InputDevice and OutputDevice when neither is explicitly set.  Useful
+	// when a single keyword (e.g. "BS-22") uniquely identifies both sides of
+	// a Bluetooth speaker-mic.
 	AudioDeviceHint string
-	InputDevice     string
-	OutputDevice    string
-	PlaybackDepth   int
-	Protocol        string
-	RtpID           string
-	McastPort       int
-	Enable          bool
-	Debug           bool
-	Loopback        bool
-	Trace           bool
+
+	// PlaybackDepth controls the depth of the decoded-audio playback channel.
+	// Larger values tolerate more network jitter at the cost of added latency.
+	// Defaults to 2 when unset or zero.
+	PlaybackDepth int
+
+	// ---- PTT control ----
+
+	// PTTKey is the evdev key code that activates the transmit path.
+	// Use "any" to treat every key event as a PTT trigger, or provide a
+	// decimal integer matching a Linux EV_KEY code.
+	PTTKey string
+
+	// PTTDeviceGlob is the file-system glob used to enumerate evdev input
+	// devices when searching for the PTT button hardware
+	// (e.g. "/dev/hidraw0/*").
+	PTTDeviceGlob string
+
+	// PTTDeviceName is the exact device name as reported by evdev that will
+	// be opened as the PTT button source.
+	PTTDeviceName string
+
+	// ControlSource selects the PTT event backend.
+	// "evdev" (default) reads Linux input events via the evdev API.
+	// "bluealsa_xevent" tails the BlueALSA journal for AT+XEVENT=PTT_DOWN /
+	// PTT_UP vendor events from paired Bluetooth headsets.
+	ControlSource string
+
+	// ---- Flags ----
+
+	// Debug enables device-enumeration and startup debug logging.
+	Debug bool
+
+	// Loopback controls whether audio transmitted by this node is also played
+	// back locally.  When false, datagrams sourced from the local interface
+	// IP are silently dropped on the receive path.
+	Loopback bool
+
+	// Trace enables per-packet trace logging on both the send and receive
+	// paths, including RTP header fields when present.
+	Trace bool
+
+	// runtime holds internally-allocated resources and is populated by Start.
+	// It is nil when Enable is false or before Start is called.
+	runtime *PTTRuntime
 }
 
 func NewPTT(cfg PTTConfig) *PTTConfig {
 	return &PTTConfig{
 		Log:             cfg.Log,
-		Interupt:        cfg.Interupt,
+		Interrupt:       cfg.Interrupt,
 		Enable:          cfg.Enable,
 		Iface:           cfg.Iface,
 		McastAddr:       cfg.McastAddr,
 		McastPort:       cfg.McastPort,
-		PttKey:          cfg.PttKey,
+		PTTKey:          cfg.PTTKey,
 		Protocol:        cfg.Protocol,
 		RtpID:           cfg.RtpID,
 		Debug:           cfg.Debug,
 		Loopback:        cfg.Loopback,
 		Trace:           cfg.Trace,
-		PttDevice:       cfg.PttDevice,
-		PttDeviceName:   cfg.PttDeviceName,
+		PTTDeviceGlob:   cfg.PTTDeviceGlob,
+		PTTDeviceName:   cfg.PTTDeviceName,
 		ControlSource:   cfg.ControlSource,
 		AudioDeviceHint: cfg.AudioDeviceHint,
 		InputDevice:     cfg.InputDevice,
@@ -163,8 +241,8 @@ func (ptt *PTTConfig) startOnce() error {
 	if ptt.McastPort != 0 {
 		ptt.runtime.mcastPort = ptt.McastPort
 	}
-	if ptt.PttKey != "" {
-		ptt.runtime.pttKey = ptt.PttKey
+	if ptt.PTTKey != "" {
+		ptt.runtime.pttKey = ptt.PTTKey
 	} else {
 		ptt.runtime.pttKey = defaultKey
 	}
@@ -190,12 +268,12 @@ func (ptt *PTTConfig) startOnce() error {
 	ptt.runtime.loopbackAudio = ptt.Loopback
 	ptt.runtime.traceEnabled = ptt.Trace
 
-	if ptt.PttDevice != "" {
-		ptt.runtime.pttDevice = ptt.PttDevice
+	if ptt.PTTDeviceGlob != "" {
+		ptt.runtime.pttDevice = ptt.PTTDeviceGlob
 	}
 
-	if ptt.PttDeviceName != "" {
-		ptt.runtime.pttDeviceName = ptt.PttDeviceName
+	if ptt.PTTDeviceName != "" {
+		ptt.runtime.pttDeviceName = ptt.PTTDeviceName
 	}
 
 	if ptt.ControlSource != "" {
@@ -301,7 +379,7 @@ func (ptt *PTTConfig) startOnce() error {
 
 	// handle shutdown
 	go func() {
-		<-ptt.Interupt
+		<-ptt.Interrupt
 		ptt.Log.Info().Msg("Received shutdown signal, cleaning up PortAudio")
 		portaudio.Terminate()
 		os.Exit(0)

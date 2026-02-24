@@ -248,9 +248,9 @@ func (ptt *PTTConfig) monitorPTT(dev *evdev.InputDevice) {
 			continue
 		}
 		match := false
-		if ptt.PttKey == "any" {
+		if ptt.PTTKey == "any" {
 			match = true
-		} else if kc, err := strconv.Atoi(ptt.PttKey); err == nil && kc >= 0 && kc <= 65535 && ev.Code == uint16(kc) {
+		} else if kc, err := strconv.Atoi(ptt.PTTKey); err == nil && kc >= 0 && kc <= 65535 && ev.Code == uint16(kc) {
 			match = true
 		}
 		if !match {
