@@ -305,6 +305,19 @@ func (c *Config) reload() {
 	} else {
 		c.PTTPlaybackBuffer = DefaultPTTPlaybackBuffer
 	}
+
+	// Load BLOS configuration
+	if c.v.IsSet("blos.enable") {
+		c.BLOSEnable = c.v.GetBool("blos.enable")
+	} else {
+		c.BLOSEnable = DefaultEnableBLOS
+	}
+
+	if val := c.v.GetInt("blos.statusWorkerInterval"); val != 0 {
+		c.BLOSStatusWorkerInterval = val
+	} else {
+		c.BLOSStatusWorkerInterval = DefaultBLOSStatusWorkerInterval
+	}
 }
 
 // OnConfigChange registers a callback function to be called when the configuration changes.
