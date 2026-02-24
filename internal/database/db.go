@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	_ "embed"
 
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/rs/zerolog"
-	_ "modernc.org/sqlite"
 )
 
 //go:embed schema.sql
@@ -27,7 +27,7 @@ var sqlDB *sql.DB
 //   - *models.Queries: A queries instance for database operations
 //   - error: An error if the connection fails, ping fails, or DDL execution fails
 func NewConnection(ctx context.Context, log zerolog.Logger, dbFilePath string) (*models.Queries, error) {
-	db, err := sql.Open("sqlite", "file:"+dbFilePath+"?_foreign_keys=on")
+	db, err := sql.Open("sqlite3", "file:"+dbFilePath+"?_foreign_keys=on")
 	if err != nil {
 		return nil, err
 	}

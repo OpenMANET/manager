@@ -9,6 +9,7 @@ import (
 
 	"github.com/common-nighthawk/go-figure"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
+	"github.com/openmanet/openmanetd/internal/blos"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database"
 	"github.com/openmanet/openmanetd/internal/database/models"
@@ -127,6 +128,14 @@ func Start() {
 		GPS:  gps,
 	})
 	log.Info().Msg("OpenMANETd API Server starting on port 8087")
+
+	if cfg.BLOSEnabled() {
+		// Initialize BLOS module
+		_, err := blos.NewBLOS(cfg, logger.GetLogger("blos"))
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to initialize BLOS module")
+		}
+	}
 
 	// Wait for interrupt signal to gracefully shutdown the application
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)

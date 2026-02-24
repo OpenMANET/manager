@@ -45,6 +45,18 @@ func (m *mockDHCPConfigReader) Get(config, section, option string) ([]string, bo
 	return values, ok
 }
 
+func (m *mockDHCPConfigReader) GetSections(config, secType string) ([]string, error) {
+	var sections []string
+	if m.sections[config] != nil {
+		for section, typ := range m.sections[config] {
+			if typ == secType {
+				sections = append(sections, section)
+			}
+		}
+	}
+	return sections, nil
+}
+
 func (m *mockDHCPConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
@@ -463,6 +475,10 @@ func (m *mockDHCPConfigReaderWithErrors) ReloadConfig() error {
 
 func (m *mockDHCPConfigReaderWithErrors) Get(config, section, option string) ([]string, bool) {
 	return nil, false
+}
+
+func (m *mockDHCPConfigReaderWithErrors) GetSections(config, secType string) ([]string, error) {
+	return nil, errors.New("mock error")
 }
 
 func (m *mockDHCPConfigReaderWithErrors) SetType(config, section, option string, typ uci.OptionType, values ...string) error {

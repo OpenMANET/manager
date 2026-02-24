@@ -1082,3 +1082,86 @@ func TestGetGNSSSendAsCoT(t *testing.T) {
 		})
 	}
 }
+
+// TestGetBLOSStatusWorkerInterval tests the GetBLOSStatusWorkerInterval method.
+func TestGetBLOSStatusWorkerInterval(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue int
+		setKey   bool
+		expected int
+	}{
+		{
+			name:     "returns configured interval",
+			setValue: 60,
+			setKey:   true,
+			expected: 60,
+		},
+		{
+			name:     "returns default when zero",
+			setValue: 0,
+			setKey:   true,
+			expected: DefaultBLOSStatusWorkerInterval,
+		},
+		{
+			name:     "returns default when not set",
+			setKey:   false,
+			expected: DefaultBLOSStatusWorkerInterval,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setKey {
+				v.Set("blos.statusWorkerInterval", tt.setValue)
+			}
+			c := New(v)
+
+			result := c.GetBLOSStatusWorkerInterval()
+			if result != tt.expected {
+				t.Errorf("GetBLOSStatusWorkerInterval() = %d, want %d", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestBLOSEnabled tests the BLOSEnabled method.
+func TestBLOSEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultEnableBLOS,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("blos.enable", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.BLOSEnabled()
+			if got != tt.want {
+				t.Errorf("BLOSEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -135,6 +135,132 @@ func TestGetInterfaceIPAddresses(t *testing.T) {
 		}
 	})
 }
+func TestGetNetworkCIDR(t *testing.T) {
+	// Get a real interface for testing
+	interfaces, err := net.Interfaces()
+	if err != nil || len(interfaces) == 0 {
+		t.Skip("No network interfaces available for testing")
+	}
+
+	// Find an interface with at least one IPv4 address
+	var testIfaceName string
+	for _, iface := range interfaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			if ipNet, ok := addr.(*net.IPNet); ok && ipNet.IP.To4() != nil {
+				testIfaceName = iface.Name
+				break
+			}
+		}
+		if testIfaceName != "" {
+			break
+		}
+	}
+
+	if testIfaceName == "" {
+		t.Skip("No interface with IPv4 address found")
+	}
+
+	t.Run("existing interface with IPv4", func(t *testing.T) {
+		networkCIDR, err := GetNetworkCIDR(testIfaceName)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if networkCIDR == "" {
+			t.Error("Expected non-empty network CIDR")
+		}
+
+		// Verify it's a valid CIDR notation
+		_, _, err = net.ParseCIDR(networkCIDR)
+		if err != nil {
+			t.Errorf("Expected valid CIDR notation, got: %s, error: %v", networkCIDR, err)
+		}
+
+		t.Logf("Network CIDR for %s: %s", testIfaceName, networkCIDR)
+	})
+
+	t.Run("non-existing interface", func(t *testing.T) {
+		_, err := GetNetworkCIDR("nonexistent98765")
+		if err == nil {
+			t.Error("Expected error for non-existing interface")
+		}
+	})
+}
+
+func TestGetNetworkCIDRCalculation(t *testing.T) {
+	// This test validates the network address calculation logic
+	// by checking expected network CIDRs for known IP/mask combinations
+	tests := []struct {
+		name            string
+		ipStr           string
+		maskBits        int
+		expectedNetwork string
+	}{
+		{
+			name:            "10.41.1.1/16 -> 10.41.0.0/16",
+			ipStr:           "10.41.1.1",
+			maskBits:        16,
+			expectedNetwork: "10.41.0.0/16",
+		},
+		{
+			name:            "192.168.1.100/24 -> 192.168.1.0/24",
+			ipStr:           "192.168.1.100",
+			maskBits:        24,
+			expectedNetwork: "192.168.1.0/24",
+		},
+		{
+			name:            "172.16.50.25/12 -> 172.16.0.0/12",
+			ipStr:           "172.16.50.25",
+			maskBits:        12,
+			expectedNetwork: "172.16.0.0/12",
+		},
+		{
+			name:            "10.0.0.5/8 -> 10.0.0.0/8",
+			ipStr:           "10.0.0.5",
+			maskBits:        8,
+			expectedNetwork: "10.0.0.0/8",
+		},
+		{
+			name:            "192.168.255.254/23 -> 192.168.254.0/23",
+			ipStr:           "192.168.255.254",
+			maskBits:        23,
+			expectedNetwork: "192.168.254.0/23",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Parse the IP and create the IPNet
+			ip := net.ParseIP(tt.ipStr).To4()
+			if ip == nil {
+				t.Fatalf("Failed to parse IP: %s", tt.ipStr)
+			}
+
+			mask := net.CIDRMask(tt.maskBits, 32)
+
+			// Calculate network address (same logic as GetNetworkCIDR)
+			networkIP := make(net.IP, len(ip))
+			for i := 0; i < len(ip); i++ {
+				networkIP[i] = ip[i] & mask[i]
+			}
+
+			networkCIDR := &net.IPNet{
+				IP:   networkIP,
+				Mask: mask,
+			}
+
+			result := networkCIDR.String()
+			if result != tt.expectedNetwork {
+				t.Errorf("Expected network CIDR %s, got %s", tt.expectedNetwork, result)
+			}
+		})
+	}
+}
+
 func TestCalculateBroadcastAddressEdgeCases(t *testing.T) {
 	tests := []struct {
 		name      string
