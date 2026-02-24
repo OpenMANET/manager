@@ -13,10 +13,11 @@ func TestGetMulticastGroupAddresses(t *testing.T) {
 		ATAKSAAddress,
 		ATAKChatAddress,
 		MDNSAddress,
-		"224.41.1.1",
-		"224.41.1.2",
-		"224.41.1.3",
-		"224.41.1.4",
+		"225.41.1.1",
+		"225.41.1.2",
+		"225.41.1.3",
+		"225.41.1.4",
+		"225.41.1.5",
 	}
 
 	if len(result) != len(expectedAddresses) {
@@ -53,10 +54,11 @@ func TestGetMulticastGroupSet(t *testing.T) {
 		ATAKSAAddress,
 		ATAKChatAddress,
 		MDNSAddress,
-		"224.41.1.1",
-		"224.41.1.2",
-		"224.41.1.3",
-		"224.41.1.4",
+		"225.41.1.1",
+		"225.41.1.2",
+		"225.41.1.3",
+		"225.41.1.4",
+		"225.41.1.5",
 	}
 
 	if len(result) != len(expectedAddresses) {
