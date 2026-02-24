@@ -35,40 +35,155 @@ const (
 	defaultControlSource string = "evdev"
 )
 
-// PTTRuntime holds runtime state for an active PTT instance
-// Only allocated when PTT is enabled to save memory
+// PTTRuntime holds all resources and derived state for a running PTT instance.
+// It is allocated by Start once Enable is confirmed and is nil otherwise.
+// No field is safe to access concurrently unless documented below.
 type PTTRuntime struct {
-	// codec/network
-	encoder         *opus.Encoder
-	decoder         *opus.Decoder
-	udpSendConn     *net.UDPConn
-	udpRecvConn     *net.UDPConn
-	playbackBuffer  chan []float32
+	// ---- Codec ----
+
+	// encoder is the Opus encoder used in the broadcast-stream PortAudio
+	// callback to convert float32 PCM captured from the microphone into a
+	// compressed Opus byte slice before it is sent over UDP.
+	encoder *opus.Encoder
+
+	// decoder is the Opus decoder used in decodeAndQueue and
+	// decodeAndQueuePLC to turn received Opus payloads (or a nil PLC
+	// stimulus) back into float32 PCM for the playback buffer.
+	decoder *opus.Decoder
+
+	// ---- Network ----
+
+	// udpSendConn is a connected UDP socket bound to the local interface IP
+	// so that outbound multicast datagrams egress the correct interface.
+	// Written to inside the PortAudio capture callback.
+	udpSendConn *net.UDPConn
+
+	// udpRecvConn is a UDP socket bound to 0.0.0.0:<mcastPort> that has
+	// joined the multicast group on the selected interface.  Owned by
+	// receiveLoop.
+	udpRecvConn *net.UDPConn
+
+	// localIP is the IPv4 address of the selected network interface.
+	// Used in receiveLoop to identify and optionally drop packets that
+	// originated from this node.
+	localIP string
+
+	// protocol is the normalized wire-framing mode ("udp" or "rtp").
+	// Set once at startup from PTTConfig.Protocol; read in receiveLoop and
+	// in the broadcast-stream callback to decide whether to prepend an RTP
+	// header.
+	protocol string
+
+	// rtpSeq is the rolling RTP sequence number written into every outbound
+	// RTP header.  Incremented by wrapRTP on each sent packet.
+	rtpSeq uint16
+
+	// rtpSSRC is the synchronisation source identifier written into every
+	// outbound RTP header.  Derived once at startup as the FNV-1a hash of
+	// rtpID.
+	rtpSSRC uint32
+
+	// rtpID is the string from which rtpSSRC is hashed.  Resolved in
+	// priority order: PTTConfig.RtpID → system hostname → local interface
+	// IP.
+	rtpID string
+
+	// ---- Audio ----
+
+	// broadcastStream is the PortAudio input stream capturing microphone
+	// audio.  Its callback encodes and sends each frame over UDP.
+	// Started/stopped by beginTransmission and endTransmission; re-opened
+	// by reopenBroadcastStream if a Start failure is detected.
 	broadcastStream *portaudio.Stream
-	localIP         string
-	protocol        string
-	rtpSeq          uint16
-	rtpSSRC         uint32
-	rtpID           string
-	inputDevice     *portaudio.DeviceInfo
 
-	// config from UCI (with fallbacks)
-	ifaceName       string
-	mcastAddr       string
-	pttKey          string
-	pttDeviceName   string
-	pttDevice       string
-	controlSource   string
-	audioDeviceHint string
+	// inputDevice is the resolved PortAudio DeviceInfo for the capture
+	// device.  Stored so that reopenBroadcastStream can re-open the stream
+	// without re-running the full device resolution logic.
+	inputDevice *portaudio.DeviceInfo
+
+	// playbackBuffer is a buffered channel of decoded float32 PCM frames.
+	// The PortAudio output callback drains it on each 20 ms tick; the
+	// receive path and PLC path write into it via decodeAndQueue /
+	// decodeAndQueuePLC.
+	playbackBuffer chan []float32
+
+	// beepBufferStart is a single 20 ms frame of a 1000 Hz sine wave at
+	// 20 % amplitude.  It is played to the local speaker immediately when
+	// PTT is pressed to provide audible transmit-start feedback.
 	beepBufferStart []float32
-	beepBufferStop  []float32
-	mcastPort       int
-	recordMutex     sync.Mutex
 
-	broadcasting  bool
-	debugEnabled  bool
+	// beepBufferStop is a single 20 ms frame of a 600 Hz sine wave at
+	// 20 % amplitude.  It is played to the local speaker when PTT is
+	// released to signal end of transmission.
+	beepBufferStop []float32
+
+	// ---- Resolved config (applied from PTTConfig with fallbacks) ----
+
+	// ifaceName is the network interface name after applying the default
+	// (br-ahwlan).  Used to look up the interface's IPv4 address and to
+	// join the multicast group.
+	ifaceName string
+
+	// mcastAddr is the multicast group address after applying the default
+	// (224.0.0.1).  Used as the UDP send destination and for the multicast
+	// group join on the receive socket.
+	mcastAddr string
+
+	// mcastPort is the UDP port after applying the default (5007).  Used
+	// as both the send destination port and the receive bind port.
+	mcastPort int
+
+	// pttKey is the evdev key filter after applying the default ("any").
+	// "any" matches all key press events; a decimal integer matches the
+	// specific Linux EV_KEY code.  Read in monitorPTT on every key event.
+	pttKey string
+
+	// pttDevice is the file-system glob after applying the default
+	// (/dev/hidraw0/*).  Passed to evdev.ListInputDevices to narrow the
+	// set of devices scanned when looking for the PTT button.
+	pttDevice string
+
+	// pttDeviceName is the exact evdev device name after applying the
+	// default ("AllInOneCable").  Compared against each enumerated device's
+	// Name in findPTTDevice to select the PTT button hardware.
+	pttDeviceName string
+
+	// controlSource is the normalised PTT event backend after applying the
+	// default ("evdev").  Read in Start to choose between the evdev loop
+	// and the bluealsa_xevent journal monitor.
+	controlSource string
+
+	// audioDeviceHint is the shared substring matcher applied to both
+	// InputDevice and OutputDevice when neither is set explicitly.
+	// Empty string disables hint-based matching.
+	audioDeviceHint string
+
+	// ---- Transmission state ----
+
+	// recordMutex guards the broadcasting field.  Must be held whenever
+	// broadcasting is read or written outside of the same goroutine.
+	recordMutex sync.Mutex
+
+	// broadcasting is true while the broadcast stream is actively capturing
+	// and sending microphone audio.  Guarded by recordMutex; toggled by
+	// beginTransmission and endTransmission.
+	broadcasting bool
+
+	// ---- Flags ----
+
+	// debugEnabled mirrors PTTConfig.Debug.  When true, device enumeration
+	// results and other verbose startup details are logged at Debug level.
+	debugEnabled bool
+
+	// loopbackAudio mirrors PTTConfig.Loopback.  When false, receiveLoop
+	// silently drops datagrams whose source IP is the loopback address or
+	// the local interface IP, preventing self-monitoring.
 	loopbackAudio bool
-	traceEnabled  bool
+
+	// traceEnabled mirrors PTTConfig.Trace.  When true, every inbound and
+	// outbound datagram is logged at Trace level with source address, byte
+	// count, and RTP header fields when present.
+	traceEnabled bool
 }
 
 // PTTConfig holds the static configuration for the PTT subsystem.
