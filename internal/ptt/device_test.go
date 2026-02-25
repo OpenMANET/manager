@@ -8,6 +8,62 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// ─── normalizeControlSource ───────────────────────────────────────────────────
+
+func TestNormalizeControlSource_Evdev(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"evdev", "evdev"},
+		{"EVDEV", "evdev"},
+		{"  evdev  ", "evdev"},
+		{"", "evdev"},
+		{"unknown", "evdev"},
+	}
+	for _, tc := range cases {
+		got := normalizeControlSource(tc.in)
+		if got != tc.want {
+			t.Errorf("normalizeControlSource(%q): got %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestNormalizeControlSource_BlueAlsa(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"bluealsa_xevent", "bluealsa_xevent"},
+		{"BLUEALSA_XEVENT", "bluealsa_xevent"},
+		{"  bluealsa_xevent  ", "bluealsa_xevent"},
+	}
+	for _, tc := range cases {
+		got := normalizeControlSource(tc.in)
+		if got != tc.want {
+			t.Errorf("normalizeControlSource(%q): got %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// ─── getIfaceIPv4 ─────────────────────────────────────────────────────────────
+
+func TestGetIfaceIPv4_Loopback(t *testing.T) {
+	ptt := &PTTConfig{Log: zerolog.Nop()}
+	ip, iface, err := ptt.getIfaceIPv4("lo")
+	if err != nil {
+		t.Fatalf("getIfaceIPv4(lo): %v", err)
+	}
+	if iface == nil {
+		t.Fatal("expected non-nil interface")
+	}
+	if ip == "" {
+		t.Error("expected non-empty IP address")
+	}
+}
+
+func TestGetIfaceIPv4_NotFound(t *testing.T) {
+	ptt := &PTTConfig{Log: zerolog.Nop()}
+	_, _, err := ptt.getIfaceIPv4("nonexistent99")
+	if err == nil {
+		t.Error("expected error for nonexistent interface")
+	}
+}
+
 func TestLogInputDeviceList(t *testing.T) {
 	// Capture log output
 	var buf bytes.Buffer

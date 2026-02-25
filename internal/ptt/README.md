@@ -15,8 +15,8 @@ It is intentionally low-level and aims for ATAK VX multicast compatibility when
    - A UDP sender is bound to the selected interface IP.
    - A UDP receiver listens on `0.0.0.0:<port>` and joins the multicast group on the interface.
 4. **PTT control source**:
-   - `evdev` (default): existing input-device behavior.
-   - `bluealsa_xevent`: reads BlueALSA HFP vendor events (`AT+XEVENT=...`), e.g. `PTT_DOWN`/`PTT_UP`.
+   - `evdev` (default): monitors a Linux input device; each matching key press **toggles** transmission (press-to-toggle).
+   - `bluealsa_xevent`: placeholder for a BlueALSA HFP vendor-event backend — not yet implemented.
 
 ## Audio/codec parameters
 
@@ -39,13 +39,14 @@ The mic callback:
 4. Optionally wraps in RTP (see below).
 5. Sends over UDP multicast.
 
-The receive loop:
+The receive path:
 
 1. Reads UDP datagrams.
-2. Optionally unwraps RTP.
-3. Opus decodes into PCM.
-4. Converts to `[]float32`.
-5. Queues to the playback buffer.
+2. In RTP mode, pushes frames into the jitter buffer and lets `rtpPlayoutLoop` drive playout.
+3. In UDP mode, auto-detects and unwraps RTP framing when present, then decodes directly.
+4. Opus decodes into PCM (with PLC for missing frames in RTP mode).
+5. Converts to `[]float32`.
+6. Queues to the playback channel.
 
 ## Multicast UDP
 
@@ -57,7 +58,8 @@ The receiver:
 
 Loopback suppression:
 
-- If `ptt.loopback` is false, packets from loopback or the local interface IP are dropped.
+- If `ptt.loopback` is false, packets from any loopback address (`127.x.x.x`) or from
+  the local interface IP are dropped.
 
 Trace logging:
 
@@ -66,35 +68,36 @@ Trace logging:
 ## Protocol: UDP vs RTP
 
 The protocol is controlled by `ptt.protocol` (`udp` or `rtp`), and normalized at startup.
-Receive path auto-detects RTP by header (0x80/0x81) even if protocol is set to UDP.
+The receive path auto-detects RTP by its version byte (`0x80`/`0x81`) even when protocol
+is set to `udp`.
 
 ### Why pick one over the other?
 
-- Use **UDP** when both endpoints are under your control and you want the simplest path with the fewest moving parts.
-- Use **RTP** when you need better interoperability with systems that expect RTP metadata (sequence/SSRC) or when integrating with tools that parse RTP streams.
+- Use **UDP** when both endpoints are under your control and you want the simplest path.
+- Use **RTP** when you need interoperability with systems that expect RTP metadata
+  (sequence/SSRC), or want to use the jitter buffer and PLC on the receive path.
 
 Practical tradeoffs:
 
 - **UDP advantages**
   - Smallest packet overhead.
   - Simplest send/receive behavior and easier debugging.
-  - Fewer assumptions about RTP header formatting across vendors.
 - **UDP downsides**
   - No explicit sequence numbers or sender identity in the packet header.
-  - Harder to do robust packet-order analysis in external tooling.
 
 - **RTP advantages**
-  - Includes sequence numbers and SSRC, which helps receiver-side stream tracking.
-  - Better fit for ecosystems that expect RTP (some radio plugins/interop paths).
-  - Easier to inspect with RTP-aware capture tools.
+  - Includes sequence numbers and SSRC for receiver-side stream tracking.
+  - Better fit for ecosystems that expect RTP.
+  - Drives the jitter buffer and PLC on the receive path.
 - **RTP downsides**
-  - Extra header overhead and slightly more parsing logic.
-  - Interop can still vary by implementation details (timestamp/SSRC behavior).
+  - Extra header overhead.
+  - Interop can vary by implementation details (timestamp/SSRC handling).
 
 Current recommendation in this codebase:
 
-- Start with **`protocol: udp`** if your setup sounds clean and both sides are working.
-- Switch to **`protocol: rtp`** when you need compatibility with an RTP-expecting peer or want RTP metadata for diagnostics/interop.
+- Start with **`protocol: udp`** for the simplest setup.
+- Switch to **`protocol: rtp`** when compatibility with an RTP-expecting peer is needed,
+  or to benefit from the jitter buffer and packet-loss concealment.
 
 ### UDP mode (default)
 
@@ -145,29 +148,61 @@ Receive logic:
 - If protocol is set to `rtp`, packets missing a valid RTP header are dropped.
 - If protocol is set to `udp`, RTP packets are still accepted and unwrapped.
 
+## RTP jitter buffer
+
+When `protocol: rtp` is active, a sequence-number-ordered jitter buffer (`rtpJitterBuffer`
+in `jitter.go`) smooths out network reordering and provides Packet Loss Concealment (PLC):
+
+- **Prebuffer**: waits until `rtpJitterPrebufferPackets` (3) frames are queued before
+  beginning playout, to absorb early arrival jitter.
+- **Max depth**: drops packets once `rtpJitterMaxDepth` (24) frames are buffered.
+- **Gap detection**: if the expected sequence number is missing and at least half the
+  buffer depth is occupied, the frame is skipped and PLC is applied.
+- **Idle concealment**: `shouldConceal` returns true when a packet arrived within the
+  last 100 ms, enabling the playout loop to generate comfort noise during a gap in an
+  otherwise active stream.
+- **Playout clock**: `rtpPlayoutLoop` ticks at 20 ms and drives one `popReady` per tick.
+
+Sequence numbers use **uint16 wrap-around-aware** comparison (`seqLess`) so streams
+that cross the 65535→0 boundary are handled correctly.
+
 ## PTT control handling
 
 ### `evdev` backend (default)
 
-The input device is selected by name from the `pttDevice` glob and `pttDeviceName`.
+The input device is selected by matching `pttDeviceName` against devices discovered
+by the `pttDevice` glob pattern.
 
 - If `ptt.pttKey` is `any`, any key press toggles PTT.
-- Otherwise it matches a numeric key code.
+- Otherwise it matches a numeric EV_KEY code (decimal).
 
-On press:
+On each matching **key press** (`EV_KEY` value=1), a `PTTToggle` event is emitted.
+The `Run` loop checks the current broadcasting state and calls `beginTransmission` or
+`endTransmission` accordingly — making this a **press-to-toggle** interaction model
+rather than a hold-to-talk model.
 
-1. Plays start tone.
-2. Starts mic stream.
+`beginTransmission`:
 
-### `bluealsa_xevent` backend (optional)
+1. Sets `broadcasting = true`.
+2. Drains the playback buffer.
+3. Queues the 1000 Hz start tone (0.2 amplitude, 20 ms).
+4. Waits 200 ms so the tone has time to play.
+5. Ensures the mic stream is open (calls `reopenBroadcast` if nil or on start failure).
+6. Starts the mic capture stream.
 
-This backend tails BlueALSA journal output and parses vendor events:
+`endTransmission`:
 
-- `PTT_DOWN` -> start transmission
-- `PTT_UP` -> stop transmission
-- `PREV_CH`, `NEXT_CH`, `BLE` -> currently logged for future mapping
+1. Stops the mic capture stream.
+2. Drains the playback buffer.
+3. Queues the 600 Hz stop tone (0.2 amplitude, 20 ms).
+4. Sets `broadcasting = false`.
 
-This mode is useful for speaker-mics that do not surface usable evdev key events.
+### `bluealsa_xevent` backend (placeholder)
+
+This backend is **not yet implemented** (`xevent.go` is currently empty). When implemented
+it will parse BlueALSA HFP vendor events (`AT+XEVENT=PTT_DOWN/PTT_UP`) and emit
+`PTTDown`/`PTTUp` events for hold-to-talk semantics. This mode is useful for
+speaker-mics that do not surface usable evdev key events.
 
 ## Bluetooth speaker-mic setup (BS-22 style)
 
@@ -220,7 +255,8 @@ ptt:
 
 Notes:
 
-- `controlSource: bluealsa_xevent` handles PTT events from BlueALSA logs (`AT+XEVENT=PTT_DOWN/PTT_UP`).
+- `controlSource: bluealsa_xevent` will handle PTT events from BlueALSA vendor events
+  once the backend is implemented.
 - `inputDevice` and `outputDevice` carry voice audio over SCO (mono/narrowband headset path).
 - If you use `audioDeviceHint`, leave `inputDevice`/`outputDevice` empty so hint matching is applied.
 
@@ -228,28 +264,37 @@ Notes:
 
 Example in `example_config.yml`:
 
-```
+```yaml
 ptt:
   enable: false
   mcastAddr: 224.0.0.1
   mcastPort: 5007
   protocol: udp
-  rtpId: ""  # optional; defaults to hostname. set to ATAK device identifier for strict VX RTP compatibility
+  rtpId: ""         # optional; defaults to hostname. Set to ATAK device identifier for strict VX RTP compatibility.
   pttKey: any
   debug: true
   trace: false
   loopback: true
-  pttDevice: /dev/hidraw0/*
-  pttDeviceName: Generic AB13X USB Audio
-  controlSource: evdev # or bluealsa_xevent
-  audioDeviceHint: ""  # optional shared matcher for BOTH input/output devices (e.g. "BS-22")
-  inputDevice: ""   # optional; device name substring or index for capture
-  outputDevice: ""  # optional; device name substring or index for playback
-  playbackBuffer: 2 # optional; playback buffer depth
+  pttDevice: /dev/hidraw0/*    # glob pattern for evdev device enumeration (maps to PTTDeviceGlob)
+  pttDeviceName: AllInOneCable # exact evdev device name to open
+  controlSource: evdev         # evdev (default) or bluealsa_xevent (not yet implemented)
+  audioDeviceHint: ""          # optional shared substring applied to BOTH input/output devices (e.g. "BS-22")
+  inputDevice: ""              # optional; device name substring or index for capture
+  outputDevice: ""             # optional; device name substring or index for playback
+  playbackBuffer: 2            # decoded-audio channel depth
 ```
 
-## Files of interest
+## Source files
 
-- `ptt.go`: initialization, codec setup, audio streams, multicast sockets
-- `comms.go`: RX loop, PTT input handling, start/stop logic
-- `rtp.go`: RTP wrapping/unwrapping and protocol helpers
+| File | Responsibility |
+|---|---|
+| `ptt.go` | `PTTConfig`/`PTTRuntime` structs; `applyDefaults`; `buildCodec`, `buildNetwork`, `buildAudio`, `buildEventSource`; `Run`; `Start` |
+| `comms.go` | `receiveLoop`, `rtpPlayoutLoop`, `decodeAndQueue`, `decodeAndQueuePLC`, `beginTransmission`, `endTransmission` |
+| `rtp.go` | `wrapRTP`, `unwrapRTP`, `parseRTPHeader`, `normalizeProtocol`, `rtpSSRCFromID` |
+| `jitter.go` | `rtpJitterBuffer`: sequence-ordered playout buffer with PLC gap detection |
+| `device.go` | `resolveAudioDevice`, `normalizeControlSource`, `getIfaceIPv4`, `findPTTDevice`, `joinMulticastGroup` |
+| `event.go` | `PTTEvent` constants (`PTTDown`, `PTTUp`, `PTTToggle`); `EventSource` interface; `evdevSource` |
+| `stream.go` | `AudioStream` interface and `portaudioStream` wrapper |
+| `transport.go` | `PacketWriter` and `PacketReader` interfaces |
+| `codec.go` | `AudioEncoder` and `AudioDecoder` interfaces; Opus encoder/decoder constructors |
+| `xevent.go` | BlueALSA xevent backend — placeholder, not yet implemented |

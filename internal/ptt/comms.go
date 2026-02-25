@@ -1,152 +1,45 @@
 package ptt
 
 import (
+	"context"
 	"net"
-	"strconv"
-	"sync"
 	"time"
-
-	evdev "github.com/gvalkov/golang-evdev"
 )
 
-const (
-	rtpJitterPrebufferPackets = 3
-	rtpJitterMaxDepth         = 24
-)
+// ─── Receive path ─────────────────────────────────────────────────────────────
 
-type rtpJitterBuffer struct {
-	mu        sync.Mutex
-	frames    map[uint16][]byte
-	expected  uint16
-	init      bool
-	started   bool
-	prebuffer int
-	maxDepth  int
-	lastPush  time.Time
-}
-
-func newRTPJitterBuffer(prebuffer, maxDepth int) *rtpJitterBuffer {
-	return &rtpJitterBuffer{
-		frames:    make(map[uint16][]byte),
-		prebuffer: prebuffer,
-		maxDepth:  maxDepth,
-	}
-}
-
-func seqLess(a, b uint16) bool {
-	return int16(a-b) < 0
-}
-
-func (jb *rtpJitterBuffer) push(seq uint16, payload []byte) bool {
-	jb.mu.Lock()
-	defer jb.mu.Unlock()
-
-	if !jb.init {
-		jb.expected = seq
-		jb.init = true
-	}
-
-	// Drop packets that are older than the current playout cursor.
-	if seqLess(seq, jb.expected) {
-		return false
-	}
-
-	if _, exists := jb.frames[seq]; exists {
-		return false
-	}
-
-	if len(jb.frames) >= jb.maxDepth {
-		return false
-	}
-
-	copied := make([]byte, len(payload))
-	copy(copied, payload)
-	jb.frames[seq] = copied
-	jb.lastPush = time.Now()
-	return true
-}
-
-func (jb *rtpJitterBuffer) popReady() (payload []byte, ready bool, skippedMissing bool) {
-	jb.mu.Lock()
-	defer jb.mu.Unlock()
-
-	if !jb.init {
-		return nil, false, false
-	}
-
-	if !jb.started {
-		if len(jb.frames) < jb.prebuffer {
-			return nil, false, false
-		}
-		jb.started = true
-	}
-
-	if payload, ok := jb.frames[jb.expected]; ok {
-		delete(jb.frames, jb.expected)
-		jb.expected++
-		return payload, true, false
-	}
-
-	// If we've buffered a lot and still don't have the expected packet, skip it.
-	if len(jb.frames) >= jb.maxDepth/2 {
-		jb.expected++
-		return nil, false, true
-	}
-
-	return nil, false, false
-}
-
-func (jb *rtpJitterBuffer) shouldConceal(recentWindow time.Duration) bool {
-	jb.mu.Lock()
-	defer jb.mu.Unlock()
-
-	if !jb.started || jb.lastPush.IsZero() {
-		return false
-	}
-
-	return time.Since(jb.lastPush) <= recentWindow
-}
-
-func (ptt *PTTConfig) rtpPlayoutLoop(jitter *rtpJitterBuffer) {
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		payload, ready, skipped := jitter.popReady()
-		if skipped {
-			if ptt.runtime.traceEnabled {
-				ptt.Log.Trace().Msg("RTP jitter buffer skipped missing packet")
-			}
-			ptt.decodeAndQueuePLC()
-			continue
-		}
-
-		if ready {
-			ptt.decodeAndQueue(payload)
-			continue
-		}
-
-		if jitter.shouldConceal(100 * time.Millisecond) {
-			ptt.decodeAndQueuePLC()
-		}
-	}
-}
-
-func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
+// receiveLoop reads datagrams from rt.receiver, manages the RTP jitter buffer
+// (when protocol is "rtp"), and queues decoded PCM frames to rt.playbackBuffer.
+// It exits when ctx is cancelled or the receiver returns an error after ctx is done.
+func (ptt *PTTConfig) receiveLoop(ctx context.Context, rt *PTTRuntime) {
 	buf := make([]byte, 1500)
 	jitter := newRTPJitterBuffer(rtpJitterPrebufferPackets, rtpJitterMaxDepth)
-	if ptt.runtime.protocol == protocolRTP {
-		go ptt.rtpPlayoutLoop(jitter)
+
+	if ptt.Protocol == protocolRTP {
+		go ptt.rtpPlayoutLoop(ctx, jitter, rt)
 	}
+
 	for {
-		n, src, err := udpConn.ReadFromUDP(buf)
-		if err != nil {
-			ptt.Log.Error().Err(err).Msg("Recv error")
-			continue
+		select {
+		case <-ctx.Done():
+			return
+		default:
 		}
 
-		loopbackDrop := !ptt.runtime.loopbackAudio && (src.IP.IsLoopback() || src.IP.String() == ptt.runtime.localIP)
-		if ptt.runtime.traceEnabled {
+		n, src, err := rt.receiver.ReadFromUDP(buf)
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				ptt.Log.Error().Err(err).Msg("Recv error")
+				continue
+			}
+		}
+
+		loopbackDrop := !ptt.Loopback && (src.IP.IsLoopback() || src.IP.String() == rt.localIP)
+
+		if ptt.Trace {
 			if seq, ts, ssrc, ok := parseRTPHeader(buf[:n]); ok {
 				ptt.Log.Trace().
 					Str("src", src.String()).
@@ -174,7 +67,7 @@ func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 		frame := make([]byte, n)
 		copy(frame, buf[:n])
 
-		if ptt.runtime.protocol == protocolRTP {
+		if ptt.Protocol == protocolRTP {
 			seq, _, _, ok := parseRTPHeader(frame)
 			if !ok {
 				ptt.Log.Debug().Msg("Dropping packet: invalid RTP header")
@@ -187,16 +80,53 @@ func (ptt *PTTConfig) receiveLoop(udpConn *net.UDPConn) {
 			continue
 		}
 
+		// UDP mode: auto-detect and unwrap RTP if present.
 		if payload, ok := unwrapRTP(frame); ok {
 			frame = payload
 		}
-		ptt.decodeAndQueue(frame)
+		ptt.decodeAndQueue(rt, frame)
 	}
 }
 
-func (ptt *PTTConfig) decodeAndQueue(frame []byte) {
+// rtpPlayoutLoop drives the RTP jitter buffer at a 20 ms tick rate.
+// It pops ready frames, applies PLC for missing frames, and queues to
+// rt.playbackBuffer.  Exits when ctx is cancelled.
+func (ptt *PTTConfig) rtpPlayoutLoop(ctx context.Context, jitter *rtpJitterBuffer, rt *PTTRuntime) {
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		payload, ready, skipped := jitter.popReady()
+		if skipped {
+			if ptt.Trace {
+				ptt.Log.Trace().Msg("RTP jitter buffer skipped missing packet")
+			}
+			ptt.decodeAndQueuePLC(rt)
+			continue
+		}
+
+		if ready {
+			ptt.decodeAndQueue(rt, payload)
+			continue
+		}
+
+		if jitter.shouldConceal(100 * time.Millisecond) {
+			ptt.decodeAndQueuePLC(rt)
+		}
+	}
+}
+
+// decodeAndQueue decodes an Opus frame into float32 PCM and queues it to
+// rt.playbackBuffer.  Drops the frame with a warning if the buffer is full.
+func (ptt *PTTConfig) decodeAndQueue(rt *PTTRuntime, frame []byte) {
 	pcm := make([]int16, frameSize)
-	n, err := ptt.runtime.decoder.Decode(frame, pcm)
+	n, err := rt.decoder.Decode(frame, pcm)
 	if err != nil {
 		return
 	}
@@ -207,18 +137,20 @@ func (ptt *PTTConfig) decodeAndQueue(frame []byte) {
 	}
 
 	select {
-	case ptt.runtime.playbackBuffer <- out:
-		if ptt.runtime.traceEnabled {
-			ptt.Log.Trace().Msgf("Queued playback buffer with %d samples (depth=%d)", len(out), len(ptt.runtime.playbackBuffer))
+	case rt.playbackBuffer <- out:
+		if ptt.Trace {
+			ptt.Log.Trace().Msgf("Queued playback buffer with %d samples (depth=%d)", len(out), len(rt.playbackBuffer))
 		}
 	default:
 		ptt.Log.Warn().Msg("⚠️ Playback buffer full! Dropping packet.")
 	}
 }
 
-func (ptt *PTTConfig) decodeAndQueuePLC() {
+// decodeAndQueuePLC generates a Packet Loss Concealment frame via the Opus
+// decoder and queues it to rt.playbackBuffer.
+func (ptt *PTTConfig) decodeAndQueuePLC(rt *PTTRuntime) {
 	pcm := make([]int16, frameSize)
-	n, err := ptt.runtime.decoder.Decode(nil, pcm)
+	n, err := rt.decoder.Decode(nil, pcm)
 	if err != nil || n <= 0 {
 		return
 	}
@@ -229,106 +161,90 @@ func (ptt *PTTConfig) decodeAndQueuePLC() {
 	}
 
 	select {
-	case ptt.runtime.playbackBuffer <- out:
-		if ptt.runtime.traceEnabled {
-			ptt.Log.Trace().Msgf("Queued PLC playback buffer with %d samples (depth=%d)", len(out), len(ptt.runtime.playbackBuffer))
+	case rt.playbackBuffer <- out:
+		if ptt.Trace {
+			ptt.Log.Trace().Msgf("Queued PLC playback buffer with %d samples (depth=%d)", len(out), len(rt.playbackBuffer))
 		}
 	default:
 		ptt.Log.Warn().Msg("⚠️ Playback buffer full! Dropping PLC frame.")
 	}
 }
 
-func (ptt *PTTConfig) monitorPTT(dev *evdev.InputDevice) {
-	for {
-		ev, err := dev.ReadOne()
-		if err != nil {
-			continue
-		}
-		if ev.Type != evdev.EV_KEY {
-			continue
-		}
-		match := false
-		if ptt.PTTKey == "any" {
-			match = true
-		} else if kc, err := strconv.Atoi(ptt.PTTKey); err == nil && kc >= 0 && kc <= 65535 && ev.Code == uint16(kc) {
-			match = true
-		}
-		if !match {
-			continue
-		}
+// ─── Transmission state ───────────────────────────────────────────────────────
 
-		switch ev.Value {
-		case 1:
-			ptt.Log.Debug().Msgf("PTT down (code=%d)", ev.Code)
-			if ptt.isBroadcasting() {
-				ptt.Log.Debug().Msgf("PTT toggle: stopping transmission")
-				ptt.endTransmission()
-			} else {
-				ptt.Log.Debug().Msgf("PTT toggle: starting transmission")
-				ptt.beginTransmission()
-			}
-		case 0:
-			ptt.Log.Debug().Msgf("PTT up (code=%d)", ev.Code)
-		}
-	}
+func (ptt *PTTConfig) isBroadcasting(rt *PTTRuntime) bool {
+	rt.recordMutex.Lock()
+	defer rt.recordMutex.Unlock()
+	return rt.broadcasting
 }
 
-func (ptt *PTTConfig) isBroadcasting() bool {
-	ptt.runtime.recordMutex.Lock()
-	defer ptt.runtime.recordMutex.Unlock()
-	return ptt.runtime.broadcasting
-}
-
-func (ptt *PTTConfig) drainPlaybackBuffer() {
+func (ptt *PTTConfig) drainPlaybackBuffer(rt *PTTRuntime) {
 	for {
 		select {
-		case <-ptt.runtime.playbackBuffer:
+		case <-rt.playbackBuffer:
 		default:
 			return
 		}
 	}
 }
 
-func (ptt *PTTConfig) beginTransmission() {
-	ptt.runtime.recordMutex.Lock()
-	if ptt.runtime.broadcasting {
-		ptt.Log.Debug().Msgf("PTT down ignored; already broadcasting")
-		ptt.runtime.recordMutex.Unlock()
+// beginTransmission starts the mic capture stream and plays the start-tone
+// into the local speaker to signal the start of transmission.
+//
+// If the broadcast stream is nil or fails to start, rt.reopenBroadcast is
+// called to rebuild it using the input device that was resolved at startup.
+func (ptt *PTTConfig) beginTransmission(rt *PTTRuntime) {
+	rt.recordMutex.Lock()
+	if rt.broadcasting {
+		ptt.Log.Debug().Msg("PTT down ignored; already broadcasting")
+		rt.recordMutex.Unlock()
 		return
 	}
-	ptt.runtime.broadcasting = true
-	ptt.runtime.recordMutex.Unlock()
+	rt.broadcasting = true
+	rt.recordMutex.Unlock()
 
-	ptt.Log.Debug().Msgf("Begin transmission: playing start tone and starting mic stream")
-	ptt.drainPlaybackBuffer()
-	ptt.runtime.playbackBuffer <- ptt.runtime.beepBufferStart
+	ptt.Log.Debug().Msg("Begin transmission: playing start tone and starting mic stream")
+	ptt.drainPlaybackBuffer(rt)
+	rt.playbackBuffer <- rt.beepBufferStart
 	time.Sleep(200 * time.Millisecond)
 
-	if ptt.runtime.broadcastStream == nil {
+	if rt.broadcastStream == nil {
 		ptt.Log.Warn().Msg("Mic stream is nil; attempting to reopen")
-		if err := ptt.reopenBroadcastStream(); err != nil {
-			ptt.Log.Error().Err(err).Msg("Failed to reopen mic stream")
-			ptt.runtime.recordMutex.Lock()
-			ptt.runtime.broadcasting = false
-			ptt.runtime.recordMutex.Unlock()
-			return
+		if rt.reopenBroadcast != nil {
+			if err := rt.reopenBroadcast(); err != nil {
+				ptt.Log.Error().Err(err).Msg("Failed to reopen mic stream")
+				rt.recordMutex.Lock()
+				rt.broadcasting = false
+				rt.recordMutex.Unlock()
+				return
+			}
 		}
 	}
 
-	if err := ptt.runtime.broadcastStream.Start(); err != nil {
+	if rt.broadcastStream == nil {
+		ptt.Log.Error().Msg("Mic stream still nil after reopen attempt")
+		rt.recordMutex.Lock()
+		rt.broadcasting = false
+		rt.recordMutex.Unlock()
+		return
+	}
+
+	if err := rt.broadcastStream.Start(); err != nil {
 		ptt.Log.Error().Err(err).Msg("Failed to start mic stream; attempting to reopen stream")
-		if reErr := ptt.reopenBroadcastStream(); reErr != nil {
-			ptt.Log.Error().Err(reErr).Msg("Failed to reopen mic stream")
-			ptt.runtime.recordMutex.Lock()
-			ptt.runtime.broadcasting = false
-			ptt.runtime.recordMutex.Unlock()
-			return
+		if rt.reopenBroadcast != nil {
+			if reErr := rt.reopenBroadcast(); reErr != nil {
+				ptt.Log.Error().Err(reErr).Msg("Failed to reopen mic stream")
+				rt.recordMutex.Lock()
+				rt.broadcasting = false
+				rt.recordMutex.Unlock()
+				return
+			}
 		}
-		if err := ptt.runtime.broadcastStream.Start(); err != nil {
+		if err := rt.broadcastStream.Start(); err != nil {
 			ptt.Log.Error().Err(err).Msg("Failed to start mic stream after reopen")
-			ptt.runtime.recordMutex.Lock()
-			ptt.runtime.broadcasting = false
-			ptt.runtime.recordMutex.Unlock()
+			rt.recordMutex.Lock()
+			rt.broadcasting = false
+			rt.recordMutex.Unlock()
 			return
 		}
 	}
@@ -336,30 +252,32 @@ func (ptt *PTTConfig) beginTransmission() {
 	ptt.Log.Debug().Msg("Mic stream started")
 }
 
-func (ptt *PTTConfig) endTransmission() {
-	ptt.runtime.recordMutex.Lock()
-
-	if !ptt.runtime.broadcasting {
-		ptt.Log.Debug().Msgf("PTT up ignored; mic already idle")
-		ptt.runtime.recordMutex.Unlock()
+// endTransmission stops the mic capture stream and plays the stop-tone.
+func (ptt *PTTConfig) endTransmission(rt *PTTRuntime) {
+	rt.recordMutex.Lock()
+	if !rt.broadcasting {
+		ptt.Log.Debug().Msg("PTT up ignored; mic already idle")
+		rt.recordMutex.Unlock()
 		return
 	}
-
-	ptt.runtime.recordMutex.Unlock()
+	rt.recordMutex.Unlock()
 
 	ptt.Log.Debug().Msg("End transmission: stopping mic stream and playing stop tone")
-	if ptt.runtime.broadcastStream == nil {
+	if rt.broadcastStream == nil {
 		ptt.Log.Warn().Msg("Mic stream was nil during stop")
-	} else if err := ptt.runtime.broadcastStream.Stop(); err != nil {
+	} else if err := rt.broadcastStream.Stop(); err != nil {
 		ptt.Log.Error().Err(err).Msg("stop mic")
 	} else {
 		ptt.Log.Debug().Msg("Mic stream stopped")
 	}
 
-	ptt.drainPlaybackBuffer()
-	ptt.runtime.playbackBuffer <- ptt.runtime.beepBufferStop
+	ptt.drainPlaybackBuffer(rt)
+	rt.playbackBuffer <- rt.beepBufferStop
 
-	ptt.runtime.recordMutex.Lock()
-	ptt.runtime.broadcasting = false
-	ptt.runtime.recordMutex.Unlock()
+	rt.recordMutex.Lock()
+	rt.broadcasting = false
+	rt.recordMutex.Unlock()
 }
+
+// Ensure net is used (ReadFromUDP returns *net.UDPAddr).
+var _ *net.UDPAddr

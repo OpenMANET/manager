@@ -36,16 +36,18 @@ func randomRTPSeq() uint16 {
 	return uint16(rand.Intn(65536))
 }
 
-func (ptt *PTTConfig) wrapRTP(payload []byte) []byte {
-	seq := ptt.runtime.rtpSeq
-	ptt.runtime.rtpSeq++
+// wrapRTP prepends a 12-byte RTP header to payload using sequence/SSRC state
+// from rt.  rt.rtpSeq is incremented on each call.
+func (ptt *PTTConfig) wrapRTP(payload []byte, rt *PTTRuntime) []byte {
+	seq := rt.rtpSeq
+	rt.rtpSeq++
 
 	packet := make([]byte, rtpHeaderSize+len(payload))
 	packet[0] = 0x80
 	packet[1] = 0x00
 	binary.BigEndian.PutUint16(packet[2:], seq)
 	binary.BigEndian.PutUint32(packet[4:], uint32(time.Now().Unix()))
-	binary.BigEndian.PutUint32(packet[8:], ptt.runtime.rtpSSRC)
+	binary.BigEndian.PutUint32(packet[8:], rt.rtpSSRC)
 	copy(packet[rtpHeaderSize:], payload)
 	return packet
 }
