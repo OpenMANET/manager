@@ -1,7 +1,9 @@
 package batmanadv
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"sort"
 )
@@ -20,18 +22,18 @@ type Gateway struct {
 type Gateways []Gateway
 
 func GetMeshGateways(iface string) (*Gateways, error) {
-	cmd := exec.Command("batctl", "gwj")
+	cmd := exec.CommandContext(context.Background(), "batctl", "gwj")
 
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("batctl gwj: %w", err)
 	}
 
 	var gateways Gateways
 
 	err = json.Unmarshal(output, &gateways)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal gateways: %w", err)
 	}
 
 	return &gateways, nil

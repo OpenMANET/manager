@@ -63,8 +63,8 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Addr:         serverAddress,
 		Handler:      withCORS(api),
 		Protocols:    p,
-		ReadTimeout:  time.Duration(30 * time.Second),
-		WriteTimeout: time.Duration(30 * time.Second),
+			ReadTimeout:  30 * time.Second,
+			WriteTimeout: 30 * time.Second,
 		ErrorLog:     logger.StandardLogger(cfg.Log),
 	}
 

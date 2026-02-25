@@ -1,6 +1,10 @@
 package ptt
 
-import "github.com/hraban/opus"
+import (
+	"fmt"
+
+	"github.com/hraban/opus"
+)
 
 // AudioEncoder encodes int16 PCM samples into a compressed byte slice.
 // A thin interface over *opus.Encoder to allow test doubles.
@@ -18,41 +22,51 @@ type AudioDecoder interface {
 type opusEncoder struct{ enc *opus.Encoder }
 
 func (o *opusEncoder) Encode(pcm []int16, data []byte) (int, error) {
-	return o.enc.Encode(pcm, data)
+	n, err := o.enc.Encode(pcm, data)
+	if err != nil {
+		return 0, fmt.Errorf("opus encode: %w", err)
+	}
+
+	return n, nil
 }
 
 // opusDecoder wraps *opus.Decoder to satisfy AudioDecoder.
 type opusDecoder struct{ dec *opus.Decoder }
 
 func (o *opusDecoder) Decode(data []byte, pcm []int16) (int, error) {
-	return o.dec.Decode(data, pcm)
+	n, err := o.dec.Decode(data, pcm)
+	if err != nil {
+		return 0, fmt.Errorf("opus decode: %w", err)
+	}
+
+	return n, nil
 }
 
 // newOpusEncoder creates an Opus encoder preconfigured with the PTT codec parameters.
 func newOpusEncoder() (AudioEncoder, error) {
 	enc, err := opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create opus encoder: %w", err)
 	}
 
 	if err := enc.SetBitrate(targetBitrate); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("set opus bitrate: %w", err)
 	}
 
 	if err := enc.SetComplexity(encoderComplexity); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("set opus complexity: %w", err)
 	}
 
 	if err := enc.SetInBandFEC(false); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("set opus in-band FEC: %w", err)
 	}
 
 	if err := enc.SetPacketLossPerc(packetLossPerc); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("set opus packet loss percentage: %w", err)
 	}
 
 	if err := enc.SetDTX(false); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("set opus DTX: %w", err)
 	}
 
 	return &opusEncoder{enc: enc}, nil
@@ -62,7 +76,7 @@ func newOpusEncoder() (AudioEncoder, error) {
 func newOpusDecoder() (AudioDecoder, error) {
 	dec, err := opus.NewDecoder(sampleRate, channels)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create opus decoder: %w", err)
 	}
 
 	return &opusDecoder{dec: dec}, nil

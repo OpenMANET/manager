@@ -1,7 +1,9 @@
 package batmanadv
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os/exec"
 )
 
@@ -55,16 +57,16 @@ type McastFlagsPriv struct {
 }
 
 func GetMeshConfig(iface string) (*MeshConfig, error) {
-	cmd := exec.Command("batctl", "mj")
+	cmd := exec.CommandContext(context.Background(), "batctl", "mj")
 
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("batctl mj: %w", err)
 	}
 
 	var config MeshConfig
-	if err := json.Unmarshal(output, &config); err != nil {
-		return nil, err
+	if unmarshalErr := json.Unmarshal(output, &config); unmarshalErr != nil {
+		return nil, fmt.Errorf("unmarshal mesh config: %w", unmarshalErr)
 	}
 
 	return &config, nil

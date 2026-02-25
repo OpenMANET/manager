@@ -200,7 +200,7 @@ func (ptt *PTTConfig) buildNetwork() (PacketWriter, PacketReader, string, error)
 
 	sendConn, err := net.DialUDP("udp4", src, dst)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", fmt.Errorf("dial UDP sender: %w", err)
 	}
 
 	ptt.Log.Debug().Msgf("Sender bound to %s -> %s:%d", localIP, ptt.McastAddr, ptt.McastPort)
@@ -209,14 +209,14 @@ func (ptt *PTTConfig) buildNetwork() (PacketWriter, PacketReader, string, error)
 	if err != nil {
 		_ = sendConn.Close()
 
-		return nil, nil, "", err
+		return nil, nil, "", fmt.Errorf("listen UDP receiver: %w", err)
 	}
 
 	if err := recvConn.SetReadBuffer(65535); err != nil {
 		_ = sendConn.Close()
 		_ = recvConn.Close()
 
-		return nil, nil, "", err
+		return nil, nil, "", fmt.Errorf("set read buffer: %w", err)
 	}
 
 	if err := ptt.joinMulticastGroup(ifi, recvConn, net.ParseIP(ptt.McastAddr)); err != nil {
@@ -270,7 +270,7 @@ func (ptt *PTTConfig) buildAudio(rt *PTTRuntime) (playback AudioStream, broadcas
 		}
 	})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("open playback stream: %w", err)
 	}
 
 	broadcast, err = ptt.openBroadcastStreamOn(inDev, rt)
@@ -320,7 +320,7 @@ func (ptt *PTTConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *PTT
 		}
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open broadcast stream: %w", err)
 	}
 
 	return &portaudioStream{stream}, nil
@@ -352,17 +352,15 @@ func (ptt *PTTConfig) reopenBroadcastStream(rt *PTTRuntime, inDev *portaudio.Dev
 
 // buildEventSource constructs the EventSource selected by PTTConfig.ControlSource.
 func (ptt *PTTConfig) buildEventSource() (EventSource, error) {
-	switch normalizeControlSource(ptt.ControlSource) {
-	default:
-		dev := ptt.findPTTDevice()
-		if dev == nil {
-			return nil, errors.New("PTT device not found")
-		}
-
-		ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", dev.Name)
-
-		return NewEvdevSource(dev, ptt.PTTKey, ptt.Log), nil
+	// Currently only evdev is supported; switch will grow as new sources are added.
+	dev := ptt.findPTTDevice()
+	if dev == nil {
+		return nil, errors.New("PTT device not found")
 	}
+
+	ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", dev.Name)
+
+	return NewEvdevSource(dev, ptt.PTTKey, ptt.Log), nil
 }
 
 // ─── Run (main event loop) ────────────────────────────────────────────────────
@@ -484,14 +482,17 @@ func (ptt *PTTConfig) Start() {
 	activeConfig.Store(ptt)
 
 	// ── PortAudio ──────────────────────────────────────────────────────────
-	if err := portaudio.Initialize(); err != nil {
+	err = portaudio.Initialize()
+	if err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to initialize PortAudio")
 	}
 
 	go func() {
 		<-ptt.Interrupt
 		ptt.Log.Info().Msg("Received shutdown signal, cleaning up PortAudio")
-		portaudio.Terminate()
+
+		_ = portaudio.Terminate()
+
 		os.Exit(0)
 	}()
 
@@ -504,7 +505,8 @@ func (ptt *PTTConfig) Start() {
 	// Wire the reopen closure so comms.go has no portaudio dependency.
 	rt.reopenBroadcast = func() error { return ptt.reopenBroadcastStream(rt, inDev) }
 
-	if err := playbackStream.Start(); err != nil {
+	err = playbackStream.Start()
+	if err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to start playback stream")
 	}
 

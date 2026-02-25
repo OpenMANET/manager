@@ -2,7 +2,6 @@ package logger
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"time"
@@ -153,30 +152,4 @@ func (w *zerologWriter) Write(p []byte) (n int, err error) {
 	w.log.Info().Msg(string(p))
 
 	return len(p), nil
-}
-
-type stdLogger struct {
-	log zerolog.Logger
-}
-
-func (s *stdLogger) Fatal(v ...interface{}) {
-	s.log.Fatal().Msg(fmt.Sprint(v...))
-	os.Exit(1)
-}
-
-func (s *stdLogger) Fatalf(format string, v ...interface{}) {
-	s.log.Fatal().Msg(fmt.Sprintf(format, v...))
-	os.Exit(1)
-}
-
-func (s *stdLogger) Print(v ...interface{}) {
-	s.log.Info().Msg(fmt.Sprint(v...))
-}
-
-func (s *stdLogger) Println(v ...interface{}) {
-	s.log.Info().Msg(fmt.Sprintln(v...))
-}
-
-func (s *stdLogger) Printf(format string, v ...interface{}) {
-	s.log.Info().Msg(fmt.Sprintf(format, v...))
 }

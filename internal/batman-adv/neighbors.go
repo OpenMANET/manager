@@ -2,6 +2,7 @@ package batmanadv
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"strings"
 )
@@ -29,7 +30,7 @@ type BatHosts struct {
 func ParseBatHostsFile(filePath string) (*BatHosts, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open bat-hosts file: %w", err)
 	}
 	defer file.Close()
 
@@ -96,7 +97,7 @@ func ParseBatHosts(reader *os.File) (*BatHosts, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan bat-hosts: %w", err)
 	}
 
 	return batHosts, nil

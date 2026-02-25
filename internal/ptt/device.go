@@ -14,7 +14,7 @@ import (
 func (ptt *PTTConfig) resolveAudioDevice(spec string, wantInput bool) (*portaudio.DeviceInfo, error) {
 	devs, err := portaudio.Devices()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list audio devices: %w", err)
 	}
 
 	if ptt.Debug {
@@ -27,10 +27,20 @@ func (ptt *PTTConfig) resolveAudioDevice(spec string, wantInput bool) (*portaudi
 
 	if spec == "" {
 		if wantInput {
-			return portaudio.DefaultInputDevice()
+			dev, err := portaudio.DefaultInputDevice()
+			if err != nil {
+				return nil, fmt.Errorf("get default input device: %w", err)
+			}
+
+			return dev, nil
 		}
 
-		return portaudio.DefaultOutputDevice()
+		dev, err := portaudio.DefaultOutputDevice()
+		if err != nil {
+			return nil, fmt.Errorf("get default output device: %w", err)
+		}
+
+		return dev, nil
 	}
 
 	if idx, err := strconv.Atoi(spec); err == nil {
@@ -125,12 +135,12 @@ func (ptt *PTTConfig) logInputDeviceList() {
 func (ptt *PTTConfig) getIfaceIPv4(name string) (string, *net.Interface, error) {
 	ifi, err := net.InterfaceByName(name)
 	if err != nil {
-		return "", nil, err
+		return "", nil, fmt.Errorf("get interface %s: %w", name, err)
 	}
 
 	addrs, err := ifi.Addrs()
 	if err != nil {
-		return "", nil, err
+		return "", nil, fmt.Errorf("get addresses for %s: %w", name, err)
 	}
 
 	for _, a := range addrs {
@@ -145,5 +155,9 @@ func (ptt *PTTConfig) getIfaceIPv4(name string) (string, *net.Interface, error) 
 func (ptt *PTTConfig) joinMulticastGroup(iface *net.Interface, conn *net.UDPConn, group net.IP) error {
 	p := ipv4.NewPacketConn(conn)
 
-	return p.JoinGroup(iface, &net.UDPAddr{IP: group})
+	if err := p.JoinGroup(iface, &net.UDPAddr{IP: group}); err != nil {
+		return fmt.Errorf("join multicast group %s on %s: %w", group, iface.Name, err)
+	}
+
+	return nil
 }

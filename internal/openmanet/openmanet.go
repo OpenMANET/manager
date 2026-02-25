@@ -80,7 +80,9 @@ func Start() {
 
 	// Initialize and start management module
 	if cfg.GetAlfredEnable() {
-		manager, err := mgmt.NewManager(mgmt.ManagementConfig{
+		var manager *mgmt.ManagementConfig
+
+		manager, err = mgmt.NewManager(mgmt.ManagementConfig{
 			InteruptChan:               c,
 			Log:                        logger.GetLogger("mgmt"),
 			GPS:                        gps,
@@ -144,8 +146,8 @@ func Start() {
 
 	<-c
 
-	api.Stop(ctx)
-	database.CloseConnection()
+	_ = api.Stop(ctx)
+	_ = database.CloseConnection()
 
 	if cfg.GetEnableGNSS() {
 		gps.Close()

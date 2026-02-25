@@ -9,6 +9,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const (
+	errRouteNil      = "route cannot be nil"
+	testMeshIfaceBat = "bat0"
+)
+
 // Helper functions to create test data
 
 func createTestIPNet(cidr string) *net.IPNet {
@@ -79,7 +84,7 @@ func TestRoute_String(t *testing.T) {
 			route: &Route{
 				Destination: createTestIPNet("172.16.0.0/16"),
 				Gateway:     nil,
-				Interface:   "bat0",
+				Interface:   testMeshIfaceBat,
 				Metric:      10,
 				Table:       100,
 			},
@@ -284,7 +289,7 @@ func TestAddRoute_NilRoute(t *testing.T) {
 		t.Error("AddRoute(nil) expected error, got nil")
 	}
 
-	if err.Error() != "route cannot be nil" {
+	if err.Error() != errRouteNil {
 		t.Errorf("AddRoute(nil) error = %v, want 'route cannot be nil'", err)
 	}
 }
@@ -295,7 +300,7 @@ func TestDeleteRoute_NilRoute(t *testing.T) {
 		t.Error("DeleteRoute(nil) expected error, got nil")
 	}
 
-	if err.Error() != "route cannot be nil" {
+	if err.Error() != errRouteNil {
 		t.Errorf("DeleteRoute(nil) error = %v, want 'route cannot be nil'", err)
 	}
 }
@@ -306,7 +311,7 @@ func TestReplaceRoute_NilRoute(t *testing.T) {
 		t.Error("ReplaceRoute(nil) expected error, got nil")
 	}
 
-	if err.Error() != "route cannot be nil" {
+	if err.Error() != errRouteNil {
 		t.Errorf("ReplaceRoute(nil) error = %v, want 'route cannot be nil'", err)
 	}
 }
@@ -611,7 +616,7 @@ func TestRoute_AllFields(t *testing.T) {
 	route := Route{
 		Destination: createTestIPNet("172.16.0.0/12"),
 		Gateway:     net.ParseIP("10.0.0.1"),
-		Interface:   "bat0",
+		Interface:   testMeshIfaceBat,
 		Metric:      250,
 		Table:       100,
 		Scope:       netlink.SCOPE_LINK,
@@ -626,7 +631,7 @@ func TestRoute_AllFields(t *testing.T) {
 		t.Errorf("Gateway = %v, want 10.0.0.1", route.Gateway)
 	}
 
-	if route.Interface != "bat0" {
+	if route.Interface != testMeshIfaceBat {
 		t.Errorf("Interface = %v, want bat0", route.Interface)
 	}
 

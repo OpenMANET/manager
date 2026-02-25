@@ -206,7 +206,7 @@ func TestSwappableReceiver_ReadDelegatesToImpl(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if n != 2 || buf[0] != 0xCA || buf[1] != 0xFE {
+	if n != 2 || buf[0] != 0xCA || buf[1] != 0xFE { //nolint:gosec // buf is always 32 bytes
 		t.Errorf("unexpected read result: n=%d buf[0:2]=%v", n, buf[:2])
 	}
 
@@ -392,7 +392,12 @@ func TestReplaceNetwork_UpdatesLocalIP(t *testing.T) {
 
 	ptt.replaceNetwork(rt, &mockWriter{}, &trackingReader{}, "172.16.0.5")
 
-	if got := rt.localIP.Load().(string); got != "172.16.0.5" {
+	got, ok := rt.localIP.Load().(string)
+	if !ok {
+		t.Fatal("localIP is not a string")
+	}
+
+	if got != "172.16.0.5" {
 		t.Errorf("expected localIP=172.16.0.5 after replaceNetwork; got %q", got)
 	}
 }
@@ -623,9 +628,18 @@ func TestUpdateMulticastEndpoint_LocalIPUpdatedAfterSuccessfulSwap(t *testing.T)
 	var v atomic.Value // just to confirm the type works the same way
 
 	v.Store("192.168.10.5")
-	want := v.Load().(string)
 
-	if got := rt.localIP.Load().(string); got != want {
+	want, ok := v.Load().(string)
+	if !ok {
+		t.Fatal("want is not a string")
+	}
+
+	got, ok2 := rt.localIP.Load().(string)
+	if !ok2 {
+		t.Fatal("localIP is not a string")
+	}
+
+	if got != want {
 		t.Errorf("expected localIP %q; got %q", want, got)
 	}
 }

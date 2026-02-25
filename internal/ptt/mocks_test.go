@@ -62,34 +62,6 @@ func (m *mockDecoder) Decode(data []byte, pcm []int16) (int, error) {
 	return len(pcm), nil
 }
 
-// ─── Mock AudioEncoder ────────────────────────────────────────────────────────
-
-// mockEncoder satisfies AudioEncoder.  Stores the last PCM slice and returns a
-// fixed canned payload.
-type mockEncoder struct {
-	encodeErr   error
-	lastPCM     []int16
-	cannedBytes []byte
-}
-
-func (m *mockEncoder) Encode(pcm []int16, data []byte) (int, error) {
-	m.lastPCM = make([]int16, len(pcm))
-	copy(m.lastPCM, pcm)
-
-	if m.encodeErr != nil {
-		return 0, m.encodeErr
-	}
-
-	payload := m.cannedBytes
-	if payload == nil {
-		payload = []byte{0xde, 0xad, 0xbe, 0xef}
-	}
-
-	n := copy(data, payload)
-
-	return n, nil
-}
-
 // ─── Mock PacketWriter ────────────────────────────────────────────────────────
 
 // mockWriter satisfies PacketWriter.  Written packets accumulate in Packets.

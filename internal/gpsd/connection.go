@@ -97,7 +97,7 @@ func (g *GPSService) connectionHandler() {
 
 // connect establishes a connection to GPSD and sends the watch command
 func (g *GPSService) connect() error {
-	conn, err := net.Dial("tcp", g.address)
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", g.address)
 	if err != nil {
 		return fmt.Errorf("failed to dial GPSD: %w", err)
 	}

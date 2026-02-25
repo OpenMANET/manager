@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/mdlayher/wifi"
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/config"
@@ -21,10 +23,10 @@ type StatusService struct {
 
 func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*serviceproto.ServiceStatusResponse, error) {
 	var (
-		meshConnected            = false
-		isMeshGateway            = false
-		connectedNeighbors int32 = 0
-		numMeshInterfaces  int32 = 0
+		meshConnected      bool
+		isMeshGateway      bool
+		connectedNeighbors int32
+		numMeshInterfaces  int32
 	)
 
 	s.Log.Debug().Msg("GetStatus Request Received")
@@ -39,11 +41,13 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 
 	for _, meshInterface := range meshInterfaces {
 		// Get the wifi stations connected to the mesh interface
-		connectedStations, err := s.Wifi.StationInfo(meshInterface)
+		var connectedStations []*wifi.StationInfo
+
+		connectedStations, err = s.Wifi.StationInfo(meshInterface)
 		if err != nil {
 			s.Log.Error().Err(err).Msgf("Failed to get station info for interface: %s", meshInterface.Name)
 
-			return nil, err
+			return nil, fmt.Errorf("station info for %s: %w", meshInterface.Name, err)
 		}
 
 		if len(connectedStations) > 0 {

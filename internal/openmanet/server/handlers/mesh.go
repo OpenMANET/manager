@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
@@ -52,7 +53,7 @@ func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*s
 		if err != nil {
 			m.Log.Error().Err(err).Msgf("Failed to get station info for interface: %s", meshInterface.Name)
 
-			return nil, err
+			return nil, fmt.Errorf("station info for %s: %w", meshInterface.Name, err)
 		}
 
 		// Map connected stations to batman-adv hosts to get hostnames

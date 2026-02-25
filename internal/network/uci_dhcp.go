@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -735,17 +736,22 @@ func (r *DHCPLeasesResponse) GetAllLeases() []DHCPLease {
 
 // UbusCommandExecutor defines an interface for executing ubus commands.
 type UbusCommandExecutor interface {
-	Execute(args ...string) ([]byte, error)
+	Execute(ctx context.Context, args ...string) ([]byte, error)
 }
 
 // DefaultUbusExecutor executes real ubus commands.
 type DefaultUbusExecutor struct{}
 
 // Execute runs the ubus command with the given arguments.
-func (e *DefaultUbusExecutor) Execute(args ...string) ([]byte, error) {
-	cmd := exec.Command("ubus", args...)
+func (e *DefaultUbusExecutor) Execute(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "ubus", args...)
 
-	return cmd.Output()
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("ubus %v: %w", args, err)
+	}
+
+	return out, nil
 }
 
 // GetCurrentDHCPLeases retrieves all current DHCP leases from OpenWRT using ubus.
@@ -765,14 +771,14 @@ func (e *DefaultUbusExecutor) Execute(args ...string) ([]byte, error) {
 //	        lease.GetHostname(), lease.GetMacAddr(), lease.GetIPAddr())
 //	}
 func GetCurrentDHCPLeases() (*DHCPLeasesResponse, error) {
-	return GetCurrentDHCPLeasesWithExecutor(&DefaultUbusExecutor{})
+	return GetCurrentDHCPLeasesWithExecutor(context.Background(), &DefaultUbusExecutor{})
 }
 
 // GetCurrentDHCPLeasesWithExecutor retrieves DHCP leases using a custom executor.
 // This function is primarily used for testing with mocked ubus commands.
-func GetCurrentDHCPLeasesWithExecutor(executor UbusCommandExecutor) (*DHCPLeasesResponse, error) {
+func GetCurrentDHCPLeasesWithExecutor(ctx context.Context, executor UbusCommandExecutor) (*DHCPLeasesResponse, error) {
 	// Execute ubus command
-	output, err := executor.Execute("call", "luci-rpc", "getDHCPLeases")
+	output, err := executor.Execute(ctx, "call", "luci-rpc", "getDHCPLeases")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute ubus command: %w", err)
 	}

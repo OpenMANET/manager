@@ -3,6 +3,7 @@ package mgmt
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -232,14 +233,14 @@ func (ndw *NodeDataWorker) StartReceive() {
 func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error {
 	var dhcpStart, dhcpLimit sql.NullInt64
 
-	var ctx = context.Background()
+	ctx := context.Background()
 
 	if nodeData.UciDhcpStart != "" {
 		start, err := strconv.ParseInt(nodeData.UciDhcpStart, 10, 64)
 		if err != nil {
 			ndw.Config.Log.Error().Err(err).Msg("Error parsing UciDhcpStart")
 
-			return err
+			return fmt.Errorf("parse UciDhcpStart: %w", err)
 		}
 
 		dhcpStart = sql.NullInt64{Int64: start, Valid: true}
@@ -250,7 +251,7 @@ func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error {
 		if err != nil {
 			ndw.Config.Log.Error().Err(err).Msg("Error parsing UciDhcpLimit")
 
-			return err
+			return fmt.Errorf("parse UciDhcpLimit: %w", err)
 		}
 
 		dhcpLimit = sql.NullInt64{Int64: limit, Valid: true}

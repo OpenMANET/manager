@@ -5,8 +5,10 @@ import (
 	"testing"
 )
 
+const testBatHostsFilePath = "../../testfixtures/batman-adv/bat-hosts"
+
 func TestParseBatHostsFile(t *testing.T) {
-	testFilePath := "../../testfixtures/batman-adv/bat-hosts"
+	testFilePath := testBatHostsFilePath
 
 	batHosts, err := ParseBatHostsFile(testFilePath)
 	if err != nil {
@@ -97,7 +99,7 @@ func TestParseBatHostsFile(t *testing.T) {
 }
 
 func TestGetHostByMAC(t *testing.T) {
-	testFilePath := "../../testfixtures/batman-adv/bat-hosts"
+	testFilePath := testBatHostsFilePath
 
 	batHosts, err := ParseBatHostsFile(testFilePath)
 	if err != nil {
@@ -127,7 +129,7 @@ func TestGetHostByMAC(t *testing.T) {
 }
 
 func TestGetHostByMAC_CaseInsensitive(t *testing.T) {
-	testFilePath := "../../testfixtures/batman-adv/bat-hosts"
+	testFilePath := testBatHostsFilePath
 
 	batHosts, err := ParseBatHostsFile(testFilePath)
 	if err != nil {
@@ -172,7 +174,7 @@ func TestParseBatHosts_NonExistentFile(t *testing.T) {
 }
 
 func TestGetNodeByMAC(t *testing.T) {
-	testFilePath := "../../testfixtures/batman-adv/bat-hosts"
+	testFilePath := testBatHostsFilePath
 
 	batHosts, err := ParseBatHostsFile(testFilePath)
 	if err != nil {

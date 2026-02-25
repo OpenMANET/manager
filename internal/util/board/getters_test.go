@@ -7,6 +7,8 @@ import (
 	"testing"
 )
 
+const testEthIface = "eth0"
+
 func loadTestBoard(t *testing.T) *Board {
 	boardPath := filepath.Join("..", "..", "..", "testfixtures", "uci", "board.json")
 
@@ -44,7 +46,7 @@ func TestBoardGetters(t *testing.T) {
 	network := board.GetNetwork()
 
 	lan := network.GetLan()
-	if lan.GetDevice() != "eth0" {
+	if lan.GetDevice() != testEthIface {
 		t.Errorf("Expected LAN device 'eth0', got '%s'", lan.GetDevice())
 	}
 
@@ -89,7 +91,7 @@ func TestSystemGetters(t *testing.T) {
 func TestNetworkGetters(t *testing.T) {
 	network := Network{
 		Lan: Lan{
-			Device:   "eth0",
+			Device:   testEthIface,
 			Protocol: "dhcp",
 			Ipaddr:   "192.168.1.1",
 			Netmask:  "255.255.255.0",
@@ -97,7 +99,7 @@ func TestNetworkGetters(t *testing.T) {
 	}
 
 	lan := network.GetLan()
-	if lan.GetDevice() != "eth0" {
+	if lan.GetDevice() != testEthIface {
 		t.Errorf("Expected device 'eth0', got '%s'", lan.GetDevice())
 	}
 

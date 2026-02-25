@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os/exec"
@@ -250,8 +251,8 @@ func GetNetworkCIDR(name string) (string, error) {
 // It executes the "ifup" command with the provided interface name.
 // Returns an error if the command fails to execute or if the interface
 // cannot be brought up.
-func PerformIfUp(name string) error {
-	cmd := exec.Command("ifup", name)
+func PerformIfUp(ctx context.Context, name string) error {
+	cmd := exec.CommandContext(ctx, "ifup", name)
 
 	return cmd.Run()
 }
@@ -260,8 +261,8 @@ func PerformIfUp(name string) error {
 // It executes the "ifdown" command with the provided interface name.
 // Returns an error if the command fails to execute or if the interface
 // cannot be brought down.
-func PerformIfDown(name string) error {
-	cmd := exec.Command("ifdown", name)
+func PerformIfDown(ctx context.Context, name string) error {
+	cmd := exec.CommandContext(ctx, "ifdown", name)
 
 	return cmd.Run()
 }

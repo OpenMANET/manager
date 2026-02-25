@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	"github.com/openmanet/openmanetd/internal/mgmt"
@@ -21,7 +22,7 @@ func (w *InterfaceService) GetWirelessInterface(_ context.Context, req *servicep
 	if err != nil {
 		w.Log.Error().Err(err).Msg("Failed to get interface")
 
-		return nil, err
+		return nil, fmt.Errorf("list wifi interfaces: %w", err)
 	}
 
 	var wifiInt *serviceproto.WirelessInterface

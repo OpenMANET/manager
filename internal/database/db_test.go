@@ -46,10 +46,10 @@ func TestNewConnectionSuccess(t *testing.T) {
 		t.Errorf("Database file was not created at %s", dbPath)
 	}
 
-	// Verify that the schema was applied by checking if the table exists
+	// Verify the schema was applied by checking if the table exists
 	var tableName string
 
-	err = sqlDB.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='mesh_nodes'").Scan(&tableName)
+	err = sqlDB.QueryRowContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name='mesh_nodes'").Scan(&tableName)
 	if err != nil {
 		t.Fatalf("Failed to query for mesh_nodes table: %v", err)
 	}
@@ -94,7 +94,8 @@ func TestNewConnectionContextCancellation(t *testing.T) {
 	_, err := NewConnection(ctx, log, dbPath)
 	if err == nil {
 		t.Error("NewConnection() with canceled context should return error")
-		CloseConnection()
+
+		_ = CloseConnection()
 	}
 }
 
@@ -108,7 +109,8 @@ func TestNewConnectionInvalidPath(t *testing.T) {
 	_, err := NewConnection(ctx, log, dbPath)
 	if err == nil {
 		t.Error("NewConnection() with invalid path should return error")
-		CloseConnection()
+
+		_ = CloseConnection()
 	}
 }
 
@@ -140,7 +142,7 @@ func TestNewConnectionDatabaseConfiguration(t *testing.T) {
 	// Verify foreign keys are enabled
 	var foreignKeys int
 
-	err = sqlDB.QueryRow("PRAGMA foreign_keys").Scan(&foreignKeys)
+	err = sqlDB.QueryRowContext(context.Background(), "PRAGMA foreign_keys").Scan(&foreignKeys)
 	if err != nil {
 		t.Fatalf("Failed to check foreign_keys pragma: %v", err)
 	}
@@ -201,7 +203,7 @@ func TestCloseConnectionSuccess(t *testing.T) {
 
 	t.Cleanup(func() {
 		// Attempt cleanup in case the test fails before explicit close
-		CloseConnection()
+		_ = CloseConnection()
 	})
 
 	// Close the connection
@@ -211,7 +213,7 @@ func TestCloseConnectionSuccess(t *testing.T) {
 	}
 
 	// Verify that the connection is actually closed by trying to ping
-	err = sqlDB.Ping()
+	err = sqlDB.PingContext(context.Background())
 	if err == nil {
 		t.Error("Expected error when pinging closed database, got nil")
 	}
@@ -230,7 +232,7 @@ func TestCloseConnectionMultipleTimes(t *testing.T) {
 
 	t.Cleanup(func() {
 		// Attempt cleanup in case the test fails before reaching the close calls
-		CloseConnection()
+		_ = CloseConnection()
 	})
 
 	// First close
@@ -273,7 +275,7 @@ func TestNewConnectionSchemaApplication(t *testing.T) {
 		"altitude", "uci_dhcp_start", "uci_dhcp_limit", "created_at", "updated_at",
 	}
 
-	rows, err := sqlDB.Query("PRAGMA table_info(mesh_nodes)")
+	rows, err := sqlDB.QueryContext(context.Background(), "PRAGMA table_info(mesh_nodes)")
 	if err != nil {
 		t.Fatalf("Failed to get table info: %v", err)
 	}
@@ -362,5 +364,5 @@ func TestCloseConnectionWithNilDB(t *testing.T) {
 		}
 	}()
 
-	CloseConnection()
+_ = CloseConnection()
 }

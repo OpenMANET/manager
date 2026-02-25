@@ -2,6 +2,7 @@ package board
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 )
 
@@ -11,12 +12,12 @@ import (
 func NewBoardConfigInfo() (*Board, error) {
 	data, err := os.ReadFile("/etc/board.json")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read board.json: %w", err)
 	}
 
 	var board Board
 	if err := json.Unmarshal(data, &board); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal board.json: %w", err)
 	}
 
 	return &board, nil

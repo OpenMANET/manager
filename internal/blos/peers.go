@@ -85,7 +85,7 @@ func (r *BLOS) createVxlanPeer(peerIP string) error {
 		}
 	}
 
-	if err := network.ForceReloadConfig(); err != nil {
+	if err := network.ForceReloadConfig(r.ctx); err != nil {
 		r.Logger.Error().
 			Err(err).
 			Msg("Failed to reload UCI config after creating/updating peer, continuing anyway")
@@ -158,7 +158,7 @@ func (r *BLOS) syncVXLANPeersWithTailscale() error {
 	r.lastSyncedPeerIPs = activePeerIPs
 
 	// Bring up or refresh the VXLAN interface after syncing peers
-	if err := r.interfaceManager.BringUp(defaultVxLanDeviceName); err != nil {
+	if err := r.interfaceManager.BringUp(r.ctx, defaultVxLanDeviceName); err != nil {
 		r.Logger.Error().
 			Err(err).
 			Msgf("Failed to bring up interface %s after syncing peers", defaultVxLanDeviceName)
@@ -245,7 +245,7 @@ func (r *BLOS) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
 		}
 	}
 
-	if err := network.ForceReloadConfig(); err != nil {
+	if err := network.ForceReloadConfig(r.ctx); err != nil {
 		r.Logger.Error().
 			Err(err).
 			Msg("Failed to reload UCI config after removing inactive peers, continuing anyway")
