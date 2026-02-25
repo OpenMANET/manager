@@ -33,7 +33,7 @@ const (
 	defaultLoopback      bool   = true
 	defaultPTTDevice     string = "/dev/hidraw0/*"
 	defaultPTTDeviceName string = "AllInOneCable"
-	defaultControlSource string = "evdev"
+	defaultControlSource string = "cm108"
 )
 
 // activeConfig holds the PTTConfig that was most recently started via Start().
@@ -141,7 +141,7 @@ func (ptt *PTTConfig) applyDefaults() {
 		ptt.PTTDeviceName = defaultPTTDeviceName
 	}
 
-	ptt.ControlSource = normalizeControlSource(ptt.ControlSource) // handles empty → "evdev"
+	ptt.ControlSource = normalizeControlSource(ptt.ControlSource) // handles empty → "cm108"
 
 	// Resolve RtpID: explicit value → hostname
 	if ptt.RtpID == "" {
@@ -351,15 +351,23 @@ func (ptt *PTTConfig) reopenBroadcastStream(rt *PTTRuntime, inDev *portaudio.Dev
 
 // buildEventSource constructs the EventSource selected by PTTConfig.ControlSource.
 func (ptt *PTTConfig) buildEventSource() (EventSource, error) {
-	// Currently only evdev is supported; switch will grow as new sources are added.
-	dev := ptt.findPTTDevice()
-	if dev == nil {
-		return nil, errors.New("PTT device not found")
+	switch ptt.ControlSource {
+	case "cm108":
+		ptt.Log.Info().Msgf("🎙️ Listening for PTT on CM108 HID dongle (VID=0x%04X PID=0x%04X)",
+			cm108VendorID, cm108ProductID)
+
+		return NewCM108Source(ptt.Log), nil
+
+	default: // "evdev" and everything else
+		dev := ptt.findPTTDevice()
+		if dev == nil {
+			return nil, errors.New("PTT device not found")
+		}
+
+		ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", dev.Name)
+
+		return NewEvdevSource(dev, ptt.PTTKey, ptt.Log), nil
 	}
-
-	ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", dev.Name)
-
-	return NewEvdevSource(dev, ptt.PTTKey, ptt.Log), nil
 }
 
 // ─── Run (main event loop) ────────────────────────────────────────────────────

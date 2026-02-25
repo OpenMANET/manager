@@ -117,8 +117,8 @@ func TestApplyDefaults_ControlSourceDefault(t *testing.T) {
 	ptt := &PTTConfig{Log: zerolog.Nop()}
 	ptt.applyDefaults()
 
-	if ptt.ControlSource != "evdev" {
-		t.Errorf("ControlSource: got %q, want %q", ptt.ControlSource, "evdev")
+	if ptt.ControlSource != "cm108" {
+		t.Errorf("ControlSource: got %q, want %q", ptt.ControlSource, "cm108")
 	}
 }
 
