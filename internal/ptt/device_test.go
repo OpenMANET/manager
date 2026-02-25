@@ -30,7 +30,7 @@ func TestNormalizeControlSource_CM108(t *testing.T) {
 		{"CM108", "cm108"},
 		{"  cm108  ", "cm108"},
 		{"", "cm108"},     // empty → default (cm108)
-		{"unknown", "cm108"}, // unrecognised → default (cm108)
+		{"unknown", "cm108"}, // unrecognized → default (cm108)
 	}
 	for _, tc := range cases {
 		got := normalizeControlSource(tc.in)

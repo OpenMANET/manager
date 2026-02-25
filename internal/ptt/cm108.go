@@ -3,6 +3,9 @@ package ptt
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	hid "github.com/sstallion/go-hid"
@@ -57,7 +60,15 @@ type hidDeviceWrapper struct {
 	inner *hid.Device
 }
 
-func (w *hidDeviceWrapper) Read(b []byte) (int, error) { return w.inner.Read(b) }
+func (w *hidDeviceWrapper) Read(b []byte) (int, error) {
+	n, err := w.inner.Read(b)
+	if err != nil {
+		return 0, fmt.Errorf("hid read: %w", err)
+	}
+
+	return n, nil
+}
+
 func (w *hidDeviceWrapper) Close() error {
 	err := w.inner.Close()
 	_ = hid.Exit()
@@ -65,7 +76,7 @@ func (w *hidDeviceWrapper) Close() error {
 	return err
 }
 
-// defaultHIDOpener is the production HIDOpener.  It initialises HIDAPI,
+// defaultHIDOpener is the production HIDOpener.  It initializes HIDAPI,
 // opens the device, and wraps it so that Close() performs cleanup.
 func defaultHIDOpener(vendorID, productID uint16) (HIDDevice, error) {
 	if err := hid.Init(); err != nil {
@@ -141,7 +152,7 @@ func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent {
 		prevGPIO3 := false
 
 		for {
-			// Honour context cancellation before blocking on Read.
+			// Honor context cancellation before blocking on Read.
 			select {
 			case <-ctx.Done():
 				return
@@ -187,9 +198,11 @@ func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent {
 
 			if gpio3 {
 				ev = PTTDown
+
 				s.log.Debug().Msg("CM108: GPIO3 HIGH → PTTDown")
 			} else {
 				ev = PTTUp
+
 				s.log.Debug().Msg("CM108: GPIO3 LOW → PTTUp")
 			}
 
@@ -202,4 +215,77 @@ func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent {
 	}()
 
 	return ch
+}
+
+// ─── CM108 ALSA card detection ────────────────────────────────────────────────
+
+// detectAndSetALSACard probes /proc/asound/card*/usbid to locate the CM108
+// by its VID:PID and sets the ALSA_CARD environment variable to its card
+// number.  This must be called before portaudio.Initialize() so that PortAudio
+// and ALSA select the correct card.  On OpenWRT the kernel exposes a usbid
+// file under /proc/asound/card<N>/ for every registered USB audio device.
+//
+// If ALSA_CARD is already present in the environment it is left unchanged.
+func detectAndSetALSACard(log zerolog.Logger) {
+	detectAndSetALSACardFromRoot("/proc/asound", log)
+}
+
+// detectAndSetALSACardFromRoot is the testable core of detectAndSetALSACard.
+// root replaces /proc/asound so tests can supply a temporary directory tree.
+func detectAndSetALSACardFromRoot(root string, log zerolog.Logger) {
+	if v := os.Getenv("ALSA_CARD"); v != "" {
+		log.Debug().Str("ALSA_CARD", v).Msg("CM108: ALSA_CARD already set, skipping auto-detection")
+
+		return
+	}
+
+	pattern := filepath.Join(root, "card*", "usbid")
+
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) == 0 {
+		log.Warn().Msgf("CM108: no USB audio cards found at %s; ALSA_CARD not set", pattern)
+
+		return
+	}
+
+	target := fmt.Sprintf("%04x:%04x", cm108VendorID, cm108ProductID)
+
+	for _, path := range matches {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			log.Debug().Err(readErr).Str("path", path).Msg("CM108: could not read usbid")
+
+			continue
+		}
+
+		if strings.TrimSpace(strings.ToLower(string(data))) != target {
+			continue
+		}
+
+		// Path shape: <root>/card<N>/usbid — extract the numeric suffix.
+		cardDir := filepath.Base(filepath.Dir(path)) // "card<N>"
+		cardNum := strings.TrimPrefix(cardDir, "card")
+
+		if cardNum == cardDir {
+			log.Warn().Str("path", path).Msg("CM108: unexpected usbid path format")
+
+			continue
+		}
+
+		if setErr := os.Setenv("ALSA_CARD", cardNum); setErr != nil {
+			log.Error().Err(setErr).Msg("CM108: failed to set ALSA_CARD")
+
+			return
+		}
+
+		log.Info().
+			Str("ALSA_CARD", cardNum).
+			Msgf("CM108: auto-detected card %s for VID=0x%04X PID=0x%04X",
+				cardNum, cm108VendorID, cm108ProductID)
+
+		return
+	}
+
+	log.Warn().Msgf("CM108: no card matching VID=0x%04X PID=0x%04X found in %s; ALSA_CARD not set",
+		cm108VendorID, cm108ProductID, root)
 }

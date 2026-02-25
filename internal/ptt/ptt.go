@@ -352,7 +352,7 @@ func (ptt *PTTConfig) reopenBroadcastStream(rt *PTTRuntime, inDev *portaudio.Dev
 // buildEventSource constructs the EventSource selected by PTTConfig.ControlSource.
 func (ptt *PTTConfig) buildEventSource() (EventSource, error) {
 	switch ptt.ControlSource {
-	case "cm108":
+	case defaultControlSource:
 		ptt.Log.Info().Msgf("🎙️ Listening for PTT on CM108 HID dongle (VID=0x%04X PID=0x%04X)",
 			cm108VendorID, cm108ProductID)
 
@@ -420,6 +420,12 @@ func (ptt *PTTConfig) Start() {
 	}
 
 	ptt.applyDefaults()
+
+	// Auto-detect and set ALSA_CARD for the CM108 dongle before PortAudio
+	// initializes, so the correct card index is used from the start.
+	if ptt.ControlSource == defaultControlSource {
+		detectAndSetALSACard(ptt.Log)
+	}
 
 	if ptt.Debug {
 		ptt.logInputDeviceList()
@@ -489,7 +495,16 @@ func (ptt *PTTConfig) Start() {
 	activeConfig.Store(ptt)
 
 	// ── PortAudio ──────────────────────────────────────────────────────────
+	// Suppress "Unknown PCM cards.pcm.*" noise that ALSA prints to stderr
+	// while PortAudio probes every virtual device alias during initialisation.
+	// The handler is restored immediately after so genuine ALSA errors are
+	// still reported at runtime.
+	silenceALSAProbeNoise()
+
 	err = portaudio.Initialize()
+
+	restoreALSAErrorHandler()
+
 	if err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to initialize PortAudio")
 	}
