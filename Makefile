@@ -44,11 +44,11 @@ sqlc-gen: ## Generate sqlc code
 	$(GOBIN)/sqlc generate
 
 .PHONY: build
-build: fmt vet sqlc-gen ## Build manager binary.
+build: fmt vet buf sqlc-gen ## Build manager binary.
 	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -o bin/openmanetd main.go
 
 .PHONY: run
-run: fmt vet sqlc-gen ## Run a controller from your host.
+run: fmt vet buf sqlc-gen ## Run a controller from your host.
 	go run ./main.go
 
 .PHONY: buf
@@ -56,8 +56,12 @@ buf: ## Generate protobuf code
 	buf generate
 
 .PHONY: test
-test:
+test: fmt vet buf sqlc-gen ## Run tests.
 	go test ./... -coverprofile=coverage.out -covermode=atomic
+
+.PHONY: lint
+lint: ## Run linters.
+	$(GOBIN)/golangci-lint run --timeout 5m
 
 .PHONY: sysroot-pack
 sysroot-pack:
