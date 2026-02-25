@@ -12,7 +12,7 @@ import (
 )
 
 //go:embed schema.sql
-var ddl string //nolint:gochecknoglobals
+var ddl string    //nolint:gochecknoglobals
 var sqlDB *sql.DB //nolint:gochecknoglobals
 
 // NewConnection establishes a new SQLite database connection and returns a Queries instance.
