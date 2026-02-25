@@ -403,10 +403,31 @@ func TestReplaceNetwork_ConcurrentWritesDuringSwap(t *testing.T) {
 
 // ─── UpdateMulticastEndpoint validation ──────────────────────────────────────
 
+// setActiveForTest registers cfg as the active config for the duration of the
+// test and restores nil when the test ends, preventing cross-test pollution.
+func setActiveForTest(t *testing.T, cfg *PTTConfig) {
+	t.Helper()
+	activeConfig.Store(cfg)
+	t.Cleanup(func() { activeConfig.Store(nil) })
+}
+
+func TestUpdateMulticastEndpoint_NotStarted_Error(t *testing.T) {
+	// activeConfig is nil (no Store called) — subsystem never started.
+	activeConfig.Store(nil)
+	err := UpdateMulticastEndpoint("224.0.0.2", 5008)
+	if err == nil {
+		t.Fatal("expected error when activeConfig is nil")
+	}
+	if !strings.Contains(err.Error(), "not running") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
 func TestUpdateMulticastEndpoint_NilRuntime_Error(t *testing.T) {
-	ptt := &PTTConfig{Log: zerolog.Nop()}
-	// runtime is nil — subsystem not started.
-	err := UpdateMulticastEndpoint(ptt, "224.0.0.2", 5008)
+	cfg := &PTTConfig{Log: zerolog.Nop()}
+	// runtime is nil — Start was not completed.
+	setActiveForTest(t, cfg)
+	err := UpdateMulticastEndpoint("224.0.0.2", 5008)
 	if err == nil {
 		t.Fatal("expected error when runtime is nil")
 	}
@@ -416,10 +437,11 @@ func TestUpdateMulticastEndpoint_NilRuntime_Error(t *testing.T) {
 }
 
 func TestUpdateMulticastEndpoint_InvalidIP_Error(t *testing.T) {
-	ptt := &PTTConfig{Log: zerolog.Nop()}
-	ptt.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	cfg := &PTTConfig{Log: zerolog.Nop()}
+	cfg.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	setActiveForTest(t, cfg)
 
-	err := UpdateMulticastEndpoint(ptt, "not-an-ip", 5008)
+	err := UpdateMulticastEndpoint("not-an-ip", 5008)
 	if err == nil {
 		t.Fatal("expected error for unparseable IP")
 	}
@@ -429,11 +451,12 @@ func TestUpdateMulticastEndpoint_InvalidIP_Error(t *testing.T) {
 }
 
 func TestUpdateMulticastEndpoint_IPv6_Error(t *testing.T) {
-	ptt := &PTTConfig{Log: zerolog.Nop()}
-	ptt.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	cfg := &PTTConfig{Log: zerolog.Nop()}
+	cfg.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	setActiveForTest(t, cfg)
 
 	// Valid IPv6 multicast address — should be rejected (not IPv4).
-	err := UpdateMulticastEndpoint(ptt, "ff02::1", 5008)
+	err := UpdateMulticastEndpoint("ff02::1", 5008)
 	if err == nil {
 		t.Fatal("expected error for IPv6 address")
 	}
@@ -443,10 +466,11 @@ func TestUpdateMulticastEndpoint_IPv6_Error(t *testing.T) {
 }
 
 func TestUpdateMulticastEndpoint_UnicastIP_Error(t *testing.T) {
-	ptt := &PTTConfig{Log: zerolog.Nop()}
-	ptt.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	cfg := &PTTConfig{Log: zerolog.Nop()}
+	cfg.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	setActiveForTest(t, cfg)
 
-	err := UpdateMulticastEndpoint(ptt, "10.0.0.1", 5008)
+	err := UpdateMulticastEndpoint("10.0.0.1", 5008)
 	if err == nil {
 		t.Fatal("expected error for non-multicast IPv4 address")
 	}
@@ -456,20 +480,22 @@ func TestUpdateMulticastEndpoint_UnicastIP_Error(t *testing.T) {
 }
 
 func TestUpdateMulticastEndpoint_BroadcastIP_Error(t *testing.T) {
-	ptt := &PTTConfig{Log: zerolog.Nop()}
-	ptt.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	cfg := &PTTConfig{Log: zerolog.Nop()}
+	cfg.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	setActiveForTest(t, cfg)
 
-	err := UpdateMulticastEndpoint(ptt, "255.255.255.255", 5008)
+	err := UpdateMulticastEndpoint("255.255.255.255", 5008)
 	if err == nil {
 		t.Fatal("expected error for broadcast address (not multicast)")
 	}
 }
 
 func TestUpdateMulticastEndpoint_PortZero_Error(t *testing.T) {
-	ptt := &PTTConfig{Log: zerolog.Nop()}
-	ptt.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	cfg := &PTTConfig{Log: zerolog.Nop()}
+	cfg.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	setActiveForTest(t, cfg)
 
-	err := UpdateMulticastEndpoint(ptt, "224.0.0.2", 0)
+	err := UpdateMulticastEndpoint("224.0.0.2", 0)
 	if err == nil {
 		t.Fatal("expected error for port 0")
 	}
@@ -479,10 +505,11 @@ func TestUpdateMulticastEndpoint_PortZero_Error(t *testing.T) {
 }
 
 func TestUpdateMulticastEndpoint_PortTooHigh_Error(t *testing.T) {
-	ptt := &PTTConfig{Log: zerolog.Nop()}
-	ptt.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	cfg := &PTTConfig{Log: zerolog.Nop()}
+	cfg.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	setActiveForTest(t, cfg)
 
-	err := UpdateMulticastEndpoint(ptt, "224.0.0.2", 65536)
+	err := UpdateMulticastEndpoint("224.0.0.2", 65536)
 	if err == nil {
 		t.Fatal("expected error for port 65536")
 	}
@@ -495,10 +522,11 @@ func TestUpdateMulticastEndpoint_PortBoundaries_Valid(t *testing.T) {
 	// Ports 1 and 65535 must pass validation (buildNetwork will fail due to
 	// no real network in tests, but the port check itself must succeed).
 	for _, port := range []int{1, 65535} {
-		ptt := &PTTConfig{Log: zerolog.Nop(), Iface: "lo"}
-		ptt.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+		cfg := &PTTConfig{Log: zerolog.Nop(), Iface: "lo"}
+		cfg.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+		setActiveForTest(t, cfg)
 
-		err := UpdateMulticastEndpoint(ptt, "224.0.0.2", port)
+		err := UpdateMulticastEndpoint("224.0.0.2", port)
 		// Expect either nil or a network-level error — NOT a port range error.
 		if err != nil && strings.Contains(err.Error(), "out of range") {
 			t.Errorf("port %d should be valid but got range error: %v", port, err)
@@ -507,10 +535,11 @@ func TestUpdateMulticastEndpoint_PortBoundaries_Valid(t *testing.T) {
 }
 
 func TestUpdateMulticastEndpoint_NegativePort_Error(t *testing.T) {
-	ptt := &PTTConfig{Log: zerolog.Nop()}
-	ptt.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	cfg := &PTTConfig{Log: zerolog.Nop()}
+	cfg.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	setActiveForTest(t, cfg)
 
-	err := UpdateMulticastEndpoint(ptt, "224.0.0.2", -1)
+	err := UpdateMulticastEndpoint("224.0.0.2", -1)
 	if err == nil {
 		t.Fatal("expected error for negative port")
 	}
@@ -523,24 +552,24 @@ func TestUpdateMulticastEndpoint_NegativePort_Error(t *testing.T) {
 // that McastAddr and McastPort are restored to their previous values when
 // buildNetwork fails, leaving the running config unchanged.
 func TestUpdateMulticastEndpoint_ConfigRolledBackOnBuildNetworkFailure(t *testing.T) {
-	ptt := &PTTConfig{
+	cfg := &PTTConfig{
 		Log:       zerolog.Nop(),
 		McastAddr: "224.0.0.1",
 		McastPort: 5007,
-		// Use "lo" — this ensures getIfaceIPv4 runs, but the multicast join
-		// will fail on a loopback interface in most CI environments.
+		// Use a nonexistent iface so buildNetwork fails, triggering rollback.
 		Iface: "nonexistent-iface-xyz",
 	}
-	ptt.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	cfg.runtime = newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+	setActiveForTest(t, cfg)
 
-	_ = UpdateMulticastEndpoint(ptt, "224.0.0.99", 9999)
+	_ = UpdateMulticastEndpoint("224.0.0.99", 9999)
 
 	// Config must be rolled back to original values regardless of outcome.
-	if ptt.McastAddr != "224.0.0.1" {
-		t.Errorf("expected McastAddr rolled back to 224.0.0.1; got %q", ptt.McastAddr)
+	if cfg.McastAddr != "224.0.0.1" {
+		t.Errorf("expected McastAddr rolled back to 224.0.0.1; got %q", cfg.McastAddr)
 	}
-	if ptt.McastPort != 5007 {
-		t.Errorf("expected McastPort rolled back to 5007; got %d", ptt.McastPort)
+	if cfg.McastPort != 5007 {
+		t.Errorf("expected McastPort rolled back to 5007; got %d", cfg.McastPort)
 	}
 }
 
