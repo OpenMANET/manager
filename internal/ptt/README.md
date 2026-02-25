@@ -71,7 +71,7 @@ Use `UpdateMulticastEndpoint` from anywhere in the application to move to a diff
 multicast address or port without restarting the subsystem:
 
 ```go
-if err := ptt.UpdateMulticastEndpoint(cfg, "239.255.0.1", 5010); err != nil {
+if err := ptt.UpdateMulticastEndpoint("239.255.0.1", 5010); err != nil {
     log.Error().Err(err).Msg("failed to change multicast endpoint")
 }
 ```

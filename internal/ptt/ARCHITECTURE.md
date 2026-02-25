@@ -743,11 +743,11 @@ The framing decision lives entirely in `rtp.go` and in the send callback inside
 
 ### Changing the multicast endpoint at runtime
 
-Use the public `UpdateMulticastEndpoint(ptt, addr, port)` function from anywhere
+Use the public `UpdateMulticastEndpoint(addr, port)` function from anywhere
 in the application:
 
 ```go
-if err := ptt.UpdateMulticastEndpoint(cfg, "239.255.0.1", 5010); err != nil {
+if err := ptt.UpdateMulticastEndpoint("239.255.0.1", 5010); err != nil {
     log.Error().Err(err).Msg("failed to change PTT multicast endpoint")
 }
 ```
@@ -756,9 +756,9 @@ The function validates inputs, allocates new UDP sockets, and delegates to the
 internal `replaceNetwork` helper:
 
 ```
-UpdateMulticastEndpoint(ptt, addr, port)
+UpdateMulticastEndpoint(addr, port)
   │
-  ├─ guard: runtime == nil?  → error "not running"
+  ├─ guard: activeConfig nil or runtime == nil?  → error "not running"
   ├─ validate: IPv4 multicast address?
   ├─ validate: port in [1, 65535]?
   │

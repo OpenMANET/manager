@@ -37,6 +37,10 @@ const (
 	defaultControlSource string = "evdev"
 )
 
+// activeConfig holds the PTTConfig that was most recently started via Start().
+// UpdateMulticastEndpoint reads it so callers need not pass the config explicitly.
+var activeConfig atomic.Pointer[PTTConfig]
+
 // PTTRuntime holds live resources allocated by Start.  All fields are
 // interfaces so that unit tests can inject fakes without touching hardware.
 type PTTRuntime struct {
@@ -501,6 +505,7 @@ func (ptt *PTTConfig) Start() {
 	}
 
 	ptt.runtime = rt
+	activeConfig.Store(ptt)
 
 	// ── PortAudio ──────────────────────────────────────────────────────────
 	if err := portaudio.Initialize(); err != nil {
@@ -575,7 +580,7 @@ func (ptt *PTTConfig) replaceNetwork(rt *PTTRuntime, newSender PacketWriter, new
 
 // UpdateMulticastEndpoint changes the multicast group address and UDP port
 // used by the live PTT subsystem.  It is safe to call concurrently with the
-// send/receive path.
+// send/receive path and from anywhere in the application.
 //
 // A new pair of UDP sockets is established for (addr, port) before the swap
 // so the subsystem is never left without functional sockets if the new
@@ -586,11 +591,12 @@ func (ptt *PTTConfig) replaceNetwork(rt *PTTRuntime, newSender PacketWriter, new
 //   - addr not being a valid IPv4 multicast address
 //   - port outside [1, 65535]
 //   - failure to establish new UDP sockets
-func UpdateMulticastEndpoint(ptt *PTTConfig, addr string, port int) error {
-	rt := ptt.runtime
-	if rt == nil {
+func UpdateMulticastEndpoint(addr string, port int) error {
+	ptt := activeConfig.Load()
+	if ptt == nil || ptt.runtime == nil {
 		return errors.New("ptt: subsystem is not running")
 	}
+	rt := ptt.runtime
 
 	ip := net.ParseIP(addr)
 	if ip == nil || ip.To4() == nil {
