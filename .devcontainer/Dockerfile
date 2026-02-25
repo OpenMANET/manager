@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # This is the name of the git repo folder.  This needs to be changed for each repo dev
 # containers are used in.
-ENV WORKSPACE_NAME=protobufs
+ENV WORKSPACE_NAME=openmanetd
 
 USER root
 
