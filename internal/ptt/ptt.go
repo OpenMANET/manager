@@ -425,6 +425,13 @@ func (ptt *PTTConfig) Start() {
 		detectAndSetALSACard(ptt.Log)
 	}
 
+	switch {
+	case ptt.Trace:
+		ptt.Log = ptt.Log.Level(zerolog.TraceLevel)
+	case ptt.Debug:
+		ptt.Log = ptt.Log.Level(zerolog.DebugLevel)
+	}
+
 	if ptt.Debug {
 		ptt.logInputDeviceList()
 	}

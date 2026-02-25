@@ -22,7 +22,7 @@ const (
 	DefaultAlfredDataTypePosition      bool   = true
 	DefaultAlfredDataTypeAddressReserv bool   = true
 	DefaultPTTEnable                   bool   = false
-	DefaultPTTMcastAddr                string = "224.0.0.1"
+	DefaultPTTMcastAddr                string = "225.41.1.1"
 	DefaultPTTMcastPort                int    = 5007
 	DefaultPTTProtocol                 string = "udp"
 	DefaultPTTRtpID                    string = ""
