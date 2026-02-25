@@ -127,6 +127,7 @@ func Start() {
 		DB:   db,
 		GPS:  gps,
 	})
+
 	log.Info().Msg("OpenMANETd API Server starting on port 8087")
 
 	if cfg.BLOSEnabled() {
@@ -146,10 +147,12 @@ func Start() {
 			log.Fatal().Err(err).Msg("API Server failed")
 		}
 	}()
+
 	<-c
 
 	api.Stop(ctx)
 	database.CloseConnection()
+
 	if cfg.GetEnableGNSS() {
 		gps.Close()
 	}

@@ -71,6 +71,7 @@ func (g *GPSService) updateSatelliteInfo(sky SKYReport) {
 func (g *GPSService) GetPosition() PositionReport {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position
 }
 
@@ -78,6 +79,7 @@ func (g *GPSService) GetPosition() PositionReport {
 func (g *GPSService) GetLatitude() float64 {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position.Latitude
 }
 
@@ -85,6 +87,7 @@ func (g *GPSService) GetLatitude() float64 {
 func (g *GPSService) GetLongitude() float64 {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position.Longitude
 }
 
@@ -92,6 +95,7 @@ func (g *GPSService) GetLongitude() float64 {
 func (g *GPSService) GetAltitude() float64 {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position.Altitude
 }
 
@@ -99,6 +103,7 @@ func (g *GPSService) GetAltitude() float64 {
 func (g *GPSService) GetSpeed() float64 {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position.Speed
 }
 
@@ -106,6 +111,7 @@ func (g *GPSService) GetSpeed() float64 {
 func (g *GPSService) GetTrack() float64 {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position.Track
 }
 
@@ -113,6 +119,7 @@ func (g *GPSService) GetTrack() float64 {
 func (g *GPSService) IsValid() bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position.Valid
 }
 
@@ -120,6 +127,7 @@ func (g *GPSService) IsValid() bool {
 func (g *GPSService) GetMode() int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position.Mode
 }
 
@@ -129,6 +137,7 @@ func (g *GPSService) GetMode() int {
 func (g *GPSService) GetHorizontalAccuracy() float64 {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position.EPH
 }
 
@@ -137,6 +146,7 @@ func (g *GPSService) GetHorizontalAccuracy() float64 {
 func (g *GPSService) GetVerticalAccuracy() float64 {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position.EPV
 }
 
@@ -145,6 +155,7 @@ func (g *GPSService) GetVerticalAccuracy() float64 {
 func (g *GPSService) GetLongitudeError() float64 {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position.EPX
 }
 
@@ -153,6 +164,7 @@ func (g *GPSService) GetLongitudeError() float64 {
 func (g *GPSService) GetLatitudeError() float64 {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position.EPY
 }
 
@@ -161,6 +173,7 @@ func (g *GPSService) GetLatitudeError() float64 {
 func (g *GPSService) GetDGPSAge() float64 {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position.DGPSAge
 }
 
@@ -169,5 +182,6 @@ func (g *GPSService) GetDGPSAge() float64 {
 func (g *GPSService) GetDGPSStation() int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.position.DGPSStation
 }

@@ -18,6 +18,7 @@ func TestGPSService_UpdatePosition(t *testing.T) {
 	mock := newMockGPSDServer(t)
 	mock.AddTPVMessage(37.7749, -122.4194, 10.5, 5.2, 45.0, 3)
 	mock.Start()
+
 	defer mock.Stop()
 
 	<-mock.started
@@ -62,6 +63,7 @@ func TestGPSService_InvalidPosition(t *testing.T) {
 	mock := newMockGPSDServer(t)
 	mock.AddTPVMessage(0, 0, 0, 0, 0, 1)
 	mock.Start()
+
 	defer mock.Stop()
 
 	<-mock.started
@@ -105,6 +107,7 @@ func TestGPSService_ConcurrentAccess(t *testing.T) {
 				_ = gps.GetPosition()
 				_ = gps.IsValid()
 			}
+
 			done <- true
 		}()
 	}
@@ -122,6 +125,7 @@ func TestGPSService_ConcurrentAccess(t *testing.T) {
 				}
 				gps.updatePosition(tpv)
 			}
+
 			done <- true
 		}(i)
 	}
@@ -178,6 +182,7 @@ func TestConcurrentTPVandSKYUpdates(t *testing.T) {
 
 			time.Sleep(1 * time.Millisecond)
 		}
+
 		done <- true
 	}()
 
@@ -191,6 +196,7 @@ func TestConcurrentTPVandSKYUpdates(t *testing.T) {
 			gps.updateSatelliteInfo(sky)
 			time.Sleep(1 * time.Millisecond)
 		}
+
 		done <- true
 	}()
 
@@ -207,6 +213,7 @@ func TestConcurrentTPVandSKYUpdates(t *testing.T) {
 	if pos.SatellitesUsed < 8 || pos.SatellitesUsed > 10 {
 		t.Errorf("Expected satellite count between 8-10, got %d", pos.SatellitesUsed)
 	}
+
 	if pos.HDOP < 1.2 {
 		t.Errorf("Expected HDOP >= 1.2, got %f", pos.HDOP)
 	}

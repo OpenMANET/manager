@@ -43,6 +43,7 @@ func ParseBatHosts(reader *os.File) (*BatHosts, error) {
 	}
 
 	scanner := bufio.NewScanner(reader)
+
 	var currentNode *Node
 
 	for scanner.Scan() {
@@ -69,6 +70,7 @@ func ParseBatHosts(reader *os.File) (*BatHosts, error) {
 					Hosts:   []BatHost{},
 				}
 			}
+
 			continue
 		}
 
@@ -109,6 +111,7 @@ func (bh *BatHosts) GetHostByMAC(mac string) string {
 			}
 		}
 	}
+
 	return ""
 }
 
@@ -119,5 +122,6 @@ func (bh *BatHosts) GetNodeByMAC(nodeMAC string) *Node {
 			return &node
 		}
 	}
+
 	return nil
 }

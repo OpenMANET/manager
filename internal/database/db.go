@@ -47,6 +47,7 @@ func NewConnection(ctx context.Context, log zerolog.Logger, dbFilePath string) (
 
 	if _, err := db.ExecContext(ctx, ddl); err != nil {
 		log.Error().Err(err).Msg("Failed to execute DDL schema")
+
 		return nil, err
 	}
 

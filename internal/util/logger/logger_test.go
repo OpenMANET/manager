@@ -55,6 +55,7 @@ func TestInitLogging(t *testing.T) {
 
 			// Verify the log level was set correctly
 			expectedLevel := zerolog.InfoLevel
+
 			switch tt.logLevel {
 			case "debug":
 				expectedLevel = zerolog.DebugLevel
@@ -208,12 +209,15 @@ func TestLoggerConstants(t *testing.T) {
 	if timestampFieldName != "time" {
 		t.Errorf("timestampFieldName = %q, want %q", timestampFieldName, "time")
 	}
+
 	if MessageFieldName != "message" {
 		t.Errorf("MessageFieldName = %q, want %q", MessageFieldName, "message")
 	}
+
 	if errorFieldName != "error" {
 		t.Errorf("errorFieldName = %q, want %q", errorFieldName, "error")
 	}
+
 	if LogComponentFieldName != "component" {
 		t.Errorf("LogComponentFieldName = %q, want %q", LogComponentFieldName, "component")
 	}
@@ -230,9 +234,11 @@ func TestLoggerFieldNames(t *testing.T) {
 	if zerolog.TimestampFieldName != timestampFieldName {
 		t.Errorf("zerolog.TimestampFieldName = %q, want %q", zerolog.TimestampFieldName, timestampFieldName)
 	}
+
 	if zerolog.MessageFieldName != MessageFieldName {
 		t.Errorf("zerolog.MessageFieldName = %q, want %q", zerolog.MessageFieldName, MessageFieldName)
 	}
+
 	if zerolog.ErrorFieldName != errorFieldName {
 		t.Errorf("zerolog.ErrorFieldName = %q, want %q", zerolog.ErrorFieldName, errorFieldName)
 	}
@@ -250,6 +256,7 @@ func TestGetLoggerMultipleCalls(t *testing.T) {
 	if log1.GetLevel() == zerolog.Disabled {
 		t.Error("First logger is disabled")
 	}
+
 	if log2.GetLevel() == zerolog.Disabled {
 		t.Error("Second logger is disabled")
 	}

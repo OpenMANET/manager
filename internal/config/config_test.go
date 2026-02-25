@@ -45,6 +45,7 @@ func TestGetMeshNetInterface(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetMeshNetInterface()
 			if got != tt.want {
 				t.Errorf("GetMeshNetInterface() = %v, want %v", got, tt.want)
@@ -55,8 +56,8 @@ func TestGetMeshNetInterface(t *testing.T) {
 
 func TestGetGatewayMode(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -84,6 +85,7 @@ func TestGetGatewayMode(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetGatewayMode()
 			if got != tt.want {
 				t.Errorf("GetGatewayMode() = %v, want %v", got, tt.want)
@@ -123,6 +125,7 @@ func TestGetAlfredMode(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetAlfredMode()
 			if got != tt.want {
 				t.Errorf("GetAlfredMode() = %v, want %v", got, tt.want)
@@ -133,8 +136,8 @@ func TestGetAlfredMode(t *testing.T) {
 
 func TestGetPTTMcastPort(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *int
+		name     string
 		want     int
 	}{
 		{
@@ -162,6 +165,7 @@ func TestGetPTTMcastPort(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetPTTMcastPort()
 			if got != tt.want {
 				t.Errorf("GetPTTMcastPort() = %v, want %v", got, tt.want)
@@ -196,6 +200,7 @@ func TestGetPTTProtocol(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetPTTProtocol()
 			if got != tt.want {
 				t.Errorf("GetPTTProtocol() = %v, want %v", got, tt.want)
@@ -230,6 +235,7 @@ func TestGetPTTRtpID(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetPTTRtpID()
 			if got != tt.want {
 				t.Errorf("GetPTTRtpID() = %v, want %v", got, tt.want)
@@ -240,8 +246,8 @@ func TestGetPTTRtpID(t *testing.T) {
 
 func TestGetPTTEnable(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -269,6 +275,7 @@ func TestGetPTTEnable(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetPTTEnable()
 			if got != tt.want {
 				t.Errorf("GetPTTEnable() = %v, want %v", got, tt.want)
@@ -279,8 +286,8 @@ func TestGetPTTEnable(t *testing.T) {
 
 func TestGetAlfredDataTypeGateway(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -308,6 +315,7 @@ func TestGetAlfredDataTypeGateway(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetAlfredDataTypeGateway()
 			if got != tt.want {
 				t.Errorf("GetAlfredDataTypeGateway() = %v, want %v", got, tt.want)
@@ -342,6 +350,7 @@ func TestGetPTTMcastAddr(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetPTTMcastAddr()
 			if got != tt.want {
 				t.Errorf("GetPTTMcastAddr() = %v, want %v", got, tt.want)
@@ -376,6 +385,7 @@ func TestGetAlfredSocketPath(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetAlfredSocketPath()
 			if got != tt.want {
 				t.Errorf("GetAlfredSocketPath() = %v, want %v", got, tt.want)
@@ -410,6 +420,7 @@ func TestGetDBFile(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetDBFile()
 			if got != tt.want {
 				t.Errorf("GetDBFile() = %v, want %v", got, tt.want)
@@ -420,8 +431,8 @@ func TestGetDBFile(t *testing.T) {
 
 func TestGetResetDBOnStart(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -449,6 +460,7 @@ func TestGetResetDBOnStart(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetResetDBOnStart()
 			if got != tt.want {
 				t.Errorf("GetResetDBOnStart() = %v, want %v", got, tt.want)
@@ -483,6 +495,7 @@ func TestGetAlfredBatInterface(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetAlfredBatInterface()
 			if got != tt.want {
 				t.Errorf("GetAlfredBatInterface() = %v, want %v", got, tt.want)
@@ -493,8 +506,8 @@ func TestGetAlfredBatInterface(t *testing.T) {
 
 func TestGetAlfredDataTypeNode(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -522,6 +535,7 @@ func TestGetAlfredDataTypeNode(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetAlfredDataTypeNode()
 			if got != tt.want {
 				t.Errorf("GetAlfredDataTypeNode() = %v, want %v", got, tt.want)
@@ -532,8 +546,8 @@ func TestGetAlfredDataTypeNode(t *testing.T) {
 
 func TestGetAlfredDataTypePosition(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -561,6 +575,7 @@ func TestGetAlfredDataTypePosition(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetAlfredDataTypePosition()
 			if got != tt.want {
 				t.Errorf("GetAlfredDataTypePosition() = %v, want %v", got, tt.want)
@@ -571,8 +586,8 @@ func TestGetAlfredDataTypePosition(t *testing.T) {
 
 func TestGetAlfredDataTypeAddressReservation(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -600,6 +615,7 @@ func TestGetAlfredDataTypeAddressReservation(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetAlfredDataTypeAddressReservation()
 			if got != tt.want {
 				t.Errorf("GetAlfredDataTypeAddressReservation() = %v, want %v", got, tt.want)
@@ -634,6 +650,7 @@ func TestGetPTTPttKey(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetPTTPttKey()
 			if got != tt.want {
 				t.Errorf("GetPTTPttKey() = %v, want %v", got, tt.want)
@@ -644,8 +661,8 @@ func TestGetPTTPttKey(t *testing.T) {
 
 func TestGetPTTDebug(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -673,6 +690,7 @@ func TestGetPTTDebug(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetPTTDebug()
 			if got != tt.want {
 				t.Errorf("GetPTTDebug() = %v, want %v", got, tt.want)
@@ -683,8 +701,8 @@ func TestGetPTTDebug(t *testing.T) {
 
 func TestGetPTTLoopback(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -712,6 +730,7 @@ func TestGetPTTLoopback(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetPTTLoopback()
 			if got != tt.want {
 				t.Errorf("GetPTTLoopback() = %v, want %v", got, tt.want)
@@ -722,8 +741,8 @@ func TestGetPTTLoopback(t *testing.T) {
 
 func TestGetPTTTrace(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -751,6 +770,7 @@ func TestGetPTTTrace(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetPTTTrace()
 			if got != tt.want {
 				t.Errorf("GetPTTTrace() = %v, want %v", got, tt.want)
@@ -785,6 +805,7 @@ func TestGetPTTPttDevice(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetPTTPttDevice()
 			if got != tt.want {
 				t.Errorf("GetPTTPttDevice() = %v, want %v", got, tt.want)
@@ -819,6 +840,7 @@ func TestGetPTTPttDeviceName(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetPTTPttDeviceName()
 			if got != tt.want {
 				t.Errorf("GetPTTPttDeviceName() = %v, want %v", got, tt.want)
@@ -853,6 +875,7 @@ func TestGetPTTControlSource(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetPTTControlSource()
 			if got != tt.want {
 				t.Errorf("GetPTTControlSource() = %v, want %v", got, tt.want)
@@ -887,6 +910,7 @@ func TestGetPTTAudioDeviceHint(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetPTTAudioDeviceHint()
 			if got != tt.want {
 				t.Errorf("GetPTTAudioDeviceHint() = %v, want %v", got, tt.want)
@@ -907,9 +931,11 @@ func TestConfigReload(t *testing.T) {
 	if got := cfg.GetMeshNetInterface(); got != "eth0" {
 		t.Errorf("Initial GetMeshNetInterface() = %v, want eth0", got)
 	}
+
 	if got := cfg.GetGatewayMode(); got != true {
 		t.Errorf("Initial GetGatewayMode() = %v, want true", got)
 	}
+
 	if got := cfg.GetPTTMcastPort(); got != 8080 {
 		t.Errorf("Initial GetPTTMcastPort() = %v, want 8080", got)
 	}
@@ -926,9 +952,11 @@ func TestConfigReload(t *testing.T) {
 	if got := cfg.GetMeshNetInterface(); got != "wlan0" {
 		t.Errorf("After reload GetMeshNetInterface() = %v, want wlan0", got)
 	}
+
 	if got := cfg.GetGatewayMode(); got != false {
 		t.Errorf("After reload GetGatewayMode() = %v, want false", got)
 	}
+
 	if got := cfg.GetPTTMcastPort(); got != 9090 {
 		t.Errorf("After reload GetPTTMcastPort() = %v, want 9090", got)
 	}
@@ -941,6 +969,7 @@ func TestConfigOnChangeCallback(t *testing.T) {
 	cfg := New(v)
 
 	callbackCalled := false
+
 	var receivedConfig *Config
 
 	cfg.OnConfigChange(func(c *Config) {
@@ -968,8 +997,8 @@ func TestConfigOnChangeCallback(t *testing.T) {
 
 func TestGetEnableGNSS(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -997,6 +1026,7 @@ func TestGetEnableGNSS(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetEnableGNSS()
 			if got != tt.want {
 				t.Errorf("GetEnableGNSS() = %v, want %v", got, tt.want)
@@ -1007,8 +1037,8 @@ func TestGetEnableGNSS(t *testing.T) {
 
 func TestGetGNSSSendAsNMEA(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -1036,6 +1066,7 @@ func TestGetGNSSSendAsNMEA(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetGNSSSendAsNMEA()
 			if got != tt.want {
 				t.Errorf("GetGNSSSendAsNMEA() = %v, want %v", got, tt.want)
@@ -1046,8 +1077,8 @@ func TestGetGNSSSendAsNMEA(t *testing.T) {
 
 func TestGetGNSSSendAsCoT(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -1075,6 +1106,7 @@ func TestGetGNSSSendAsCoT(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.GetGNSSSendAsCoT()
 			if got != tt.want {
 				t.Errorf("GetGNSSSendAsCoT() = %v, want %v", got, tt.want)
@@ -1116,6 +1148,7 @@ func TestGetBLOSStatusWorkerInterval(t *testing.T) {
 			if tt.setKey {
 				v.Set("blos.statusWorkerInterval", tt.setValue)
 			}
+
 			c := New(v)
 
 			result := c.GetBLOSStatusWorkerInterval()
@@ -1129,8 +1162,8 @@ func TestGetBLOSStatusWorkerInterval(t *testing.T) {
 // TestBLOSEnabled tests the BLOSEnabled method.
 func TestBLOSEnabled(t *testing.T) {
 	tests := []struct {
-		name     string
 		setValue *bool
+		name     string
 		want     bool
 	}{
 		{
@@ -1158,6 +1191,7 @@ func TestBLOSEnabled(t *testing.T) {
 			}
 
 			cfg := New(v)
+
 			got := cfg.BLOSEnabled()
 			if got != tt.want {
 				t.Errorf("BLOSEnabled() = %v, want %v", got, tt.want)

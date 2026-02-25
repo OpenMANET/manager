@@ -27,24 +27,23 @@ func (c *LocalStatusClient) Status(ctx context.Context) (*ipnstate.Status, error
 
 // StatusWorker manages periodic polling of Tailscale status and stores peer information.
 type StatusWorker struct {
-	logger zerolog.Logger
-
+	logger         zerolog.Logger
 	client         StatusClient
 	ctx            context.Context
 	peers          map[key.NodePublic]*ipnstate.PeerStatus
 	status         *ipnstate.Status
 	cancel         context.CancelFunc
+	onStatusUpdate func() error
 	wg             sync.WaitGroup
 	interval       time.Duration
-	onStatusUpdate func() error
-
-	mu      sync.RWMutex
-	running bool
+	mu             sync.RWMutex
+	running        bool
 }
 
 // NewStatusWorker creates a new StatusWorker with the given configuration.
 func NewStatusWorker(client StatusClient, interval time.Duration, logger zerolog.Logger) *StatusWorker {
 	ctx, cancel := context.WithCancel(context.Background())
+
 	return &StatusWorker{
 		client:   client,
 		interval: interval,
@@ -59,6 +58,7 @@ func NewStatusWorker(client StatusClient, interval time.Duration, logger zerolog
 func (w *StatusWorker) SetOnStatusUpdate(callback func() error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
 	w.onStatusUpdate = callback
 }
 
@@ -67,12 +67,15 @@ func (w *StatusWorker) Start() {
 	w.mu.Lock()
 	if w.running {
 		w.mu.Unlock()
+
 		return
 	}
+
 	w.running = true
 	w.mu.Unlock()
 
 	w.wg.Add(1)
+
 	go w.run()
 }
 
@@ -81,8 +84,10 @@ func (w *StatusWorker) Stop() {
 	w.mu.Lock()
 	if !w.running {
 		w.mu.Unlock()
+
 		return
 	}
+
 	w.running = false
 	w.mu.Unlock()
 
@@ -104,6 +109,7 @@ func (w *StatusWorker) run() {
 		select {
 		case <-w.ctx.Done():
 			w.logger.Debug().Msg("Status worker stopped")
+
 			return
 		case <-ticker.C:
 			w.fetchAndStoreStatus()
@@ -116,6 +122,7 @@ func (w *StatusWorker) fetchAndStoreStatus() {
 	status, err := w.client.Status(w.ctx)
 	if err != nil {
 		w.logger.Error().Err(err).Msg("Failed to fetch Tailscale status")
+
 		return
 	}
 
@@ -150,6 +157,7 @@ func (w *StatusWorker) GetPeer(nodeKey key.NodePublic) (*ipnstate.PeerStatus, bo
 	defer w.mu.RUnlock()
 
 	peer, ok := w.peers[nodeKey]
+
 	return peer, ok
 }
 

@@ -34,12 +34,14 @@ func NewBLOS(cfg *config.Config, logger zerolog.Logger) (*BLOS, error) {
 	meshCfg, err := batmanadv.GetMeshConfig(cfg.GetAlfredBatInterface())
 	if err != nil {
 		logger.Error().Err(err).Msg("Error getting mesh config")
+
 		return nil, err
 	}
 
 	// Only initialize BLOS if we are in gateway mode
 	if !meshCfg.IsGatewayMode() {
 		logger.Info().Msg("Not in gateway mode, skipping BLOS initialization")
+
 		return nil, nil
 	}
 
@@ -84,6 +86,7 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error {
 	tunnelStatus, err := local.Status(ctx)
 	if err != nil {
 		r.Logger.Error().Err(err).Msg("Failed to get Tailscale status")
+
 		return err
 	}
 
@@ -104,7 +107,6 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error {
 
 	// Only configure BLOS interfaces if the mesh network interface exists
 	if network.NetworkSectionExistsWithReader(r.Config.GetAlfredBatInterface(), r.uciNetworkConfig) {
-
 		blosConfigured, err := network.IsBLOSConfiguredWithReader(r.uciOpenManetConfig)
 		if err != nil {
 			return err
@@ -138,8 +140,10 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error {
 
 			// Reboot the system to clean up things and apply new network settings.  This is required to properly set up the tunnel and interfaces in the correct order, and to ensure a clean state.  We will likely need to reboot at least once anyway after installation to get Tailscale set up, so doing it here ensures we don't end up in a broken state if we try to configure interfaces before Tailscale is fully set up and authenticated.
 			r.Logger.Info().Msg("BLOS configured successfully, rebooting system to apply changes")
+
 			if err = system.Reboot(); err != nil {
 				r.Logger.Error().Err(err).Msg("Failed to reboot system after BLOS configuration")
+
 				return err
 			}
 		}
@@ -167,6 +171,7 @@ func (r *BLOS) GetPeers() map[key.NodePublic]*ipnstate.PeerStatus {
 	if r.statusWorker == nil {
 		return nil
 	}
+
 	return r.statusWorker.GetPeers()
 }
 
@@ -175,6 +180,7 @@ func (r *BLOS) GetPeer(nodeKey key.NodePublic) (*ipnstate.PeerStatus, bool) {
 	if r.statusWorker == nil {
 		return nil, false
 	}
+
 	return r.statusWorker.GetPeer(nodeKey)
 }
 
@@ -183,6 +189,7 @@ func (r *BLOS) GetStatus() *ipnstate.Status {
 	if r.statusWorker == nil {
 		return nil
 	}
+
 	return r.statusWorker.GetStatus()
 }
 

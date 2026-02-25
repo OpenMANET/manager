@@ -53,11 +53,13 @@ func (gw *GatewayWorker) StartSend() {
 			configured, err := network.IsDHCPConfiguredWithReader(gw.Config.uciOpenMANETConfig)
 			if err != nil {
 				gw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
+
 				continue
 			}
 
 			if !configured {
 				gw.Config.Log.Debug().Msg("Static Address & DHCP not configured, skipping gateway data send")
+
 				continue
 			}
 
@@ -65,27 +67,32 @@ func (gw *GatewayWorker) StartSend() {
 			meshCfg, err := batmanadv.GetMeshConfig(gw.Config.BatInterface)
 			if err != nil {
 				gw.Config.Log.Error().Err(err).Msg("Error getting mesh config")
+
 				continue
 			}
 
 			// Only send gateway data if we are in gateway mode
 			if meshCfg.IsGatewayMode() {
 				iface := network.GetInterfaceByName(gw.Config.IFace)
+
 				hostname, err := os.Hostname()
 				if err != nil {
 					gw.Config.Log.Error().Err(err).Msg("Error getting hostname")
+
 					hostname = "unknown"
 				}
 
 				// Verify that the interface has an IP address
 				if len(iface.IP) == 0 {
 					gw.Config.Log.Warn().Msgf("Interface %s has no IP address", gw.Config.IFace)
+
 					continue
 				}
 
 				// Verify that the interface has a valid IPV4 address
 				if iface.IP[0].IP.To4() == nil {
 					gw.Config.Log.Warn().Msgf("Interface %s has no valid IPv4 address", gw.Config.IFace)
+
 					continue
 				}
 
@@ -102,15 +109,18 @@ func (gw *GatewayWorker) StartSend() {
 				}
 
 				var gatewayDataBytes []byte
+
 				gatewayDataBytes, err = gatewayData.MarshalVT()
 				if err != nil {
 					gw.Config.Log.Error().Err(err).Msg("Error marshaling gateway data")
+
 					continue
 				}
 
 				encryptedPayload, err := gw.Config.payloadCodec.Encrypt(GatewayDataType, gatewayDataBytes)
 				if err != nil {
 					gw.Config.Log.Error().Err(err).Msg("Error encrypting gateway data")
+
 					continue
 				}
 
@@ -137,6 +147,7 @@ func (gw *GatewayWorker) StartReceive() {
 			meshCfg, err := batmanadv.GetMeshConfig(gw.Config.BatInterface)
 			if err != nil {
 				gw.Config.Log.Error().Err(err).Msg("Error getting mesh config")
+
 				continue
 			}
 
@@ -148,6 +159,7 @@ func (gw *GatewayWorker) StartReceive() {
 			record, err := gw.Client.Request(GatewayDataType)
 			if err != nil {
 				gw.Config.Log.Error().Err(err).Msg("Error receiving gateway data")
+
 				continue
 			}
 
@@ -155,12 +167,14 @@ func (gw *GatewayWorker) StartReceive() {
 			batGwys, err := batmanadv.GetMeshGateways(gw.Config.BatInterface)
 			if err != nil {
 				gw.Config.Log.Error().Err(err).Msg("Error getting mesh gateways")
+
 				continue
 			}
 
 			// If no gateways are present in batman-adv, skip processing
 			if len(*batGwys) == 0 {
 				gw.Config.Log.Debug().Msg("No gateways present in batman-adv")
+
 				continue
 			}
 
@@ -169,6 +183,7 @@ func (gw *GatewayWorker) StartReceive() {
 			// This is to identify the active gateway in the mesh
 			if len(*batGwys) == 1 {
 				batGw := batGwys.GetBest()
+
 				for _, rec := range record {
 					gatewayData, ok := gw.decodeGatewayRecord(rec)
 					if !ok {
@@ -187,6 +202,7 @@ func (gw *GatewayWorker) StartReceive() {
 							iFaceName, err := util.InterfaceWithoutBridge(gw.Config.IFace)
 							if err != nil {
 								gw.Config.Log.Error().Err(err).Msg("Error normalizing interface name for DNS setting")
+
 								continue
 							}
 
@@ -226,6 +242,7 @@ func (gw *GatewayWorker) StartReceive() {
 							iFaceName, err := util.InterfaceWithoutBridge(gw.Config.IFace)
 							if err != nil {
 								gw.Config.Log.Error().Err(err).Msg("Error normalizing interface name for DNS setting")
+
 								continue
 							}
 
@@ -242,19 +259,21 @@ func (gw *GatewayWorker) StartReceive() {
 	}
 }
 
-func (gw *GatewayWorker) decodeGatewayRecord(rec alfred.Record) (proto.Gateway, bool) {
+func (gw *GatewayWorker) decodeGatewayRecord(rec alfred.Record) (*proto.Gateway, bool) {
 	decodedPayload := rec.Data
 
 	switch rec.Version {
 	case GatewayDataTypeVersion:
 		var err error
+
 		decodedPayload, err = gw.Config.payloadCodec.Decrypt(GatewayDataType, rec.Source, rec.Data)
 		if err != nil {
 			gw.Config.Log.Warn().
 				Err(err).
 				Str("source", rec.Source.String()).
 				Msg("Dropping gateway data payload that failed authentication/decryption")
-			return proto.Gateway{}, false
+
+			return nil, false
 		}
 	case legacyGatewayDataTypeVersion:
 		gw.Config.Log.Debug().
@@ -265,14 +284,17 @@ func (gw *GatewayWorker) decodeGatewayRecord(rec alfred.Record) (proto.Gateway, 
 			Uint8("version", rec.Version).
 			Str("source", rec.Source.String()).
 			Msg("Dropping gateway data payload with unsupported version")
-		return proto.Gateway{}, false
+
+		return nil, false
 	}
 
 	var gatewayData proto.Gateway
 	if err := gatewayData.UnmarshalVT(decodedPayload); err != nil {
 		gw.Config.Log.Error().Err(err).Msg("Error unmarshaling gateway data")
-		return proto.Gateway{}, false
+
+		return nil, false
 	}
 
-	return gatewayData, true
+	return &gatewayData, true
 }
+

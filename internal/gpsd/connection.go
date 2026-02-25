@@ -49,6 +49,7 @@ func (g *GPSService) Close() error {
 	if g.conn != nil {
 		return g.conn.Close()
 	}
+
 	return nil
 }
 
@@ -70,10 +71,12 @@ func (g *GPSService) connectionHandler() {
 
 				if attempt >= maxReconnectAttempts {
 					g.Log.Error().Msg("Maximum reconnection attempts reached, giving up")
+
 					return
 				}
 
 				time.Sleep(g.reconnectDelay)
+
 				continue
 			}
 
@@ -105,13 +108,16 @@ func (g *GPSService) connect() error {
 
 	// Enable watching for updates with JSON output and raw NMEA sentences
 	watchCmd := "?WATCH={\"enable\":true,\"json\":true,\"nmea\":true}\n"
+
 	_, err = conn.Write([]byte(watchCmd))
 	if err != nil {
 		conn.Close()
+
 		return fmt.Errorf("failed to send watch command: %w", err)
 	}
 
 	g.Log.Info().Str("address", g.address).Msg("Connected to GPSD")
+
 	return nil
 }
 
@@ -146,6 +152,7 @@ func (g *GPSService) processGPSDMessage(message string) {
 	// Check if this is an NMEA sentence (starts with $)
 	if len(message) > 0 && message[0] == '$' {
 		g.processNMEASentence(message)
+
 		return
 	}
 
@@ -153,6 +160,7 @@ func (g *GPSService) processGPSDMessage(message string) {
 	var baseMsg struct {
 		Class string `json:"class"`
 	}
+
 	err := json.Unmarshal([]byte(message), &baseMsg)
 	if err != nil {
 		return
@@ -161,18 +169,22 @@ func (g *GPSService) processGPSDMessage(message string) {
 	switch baseMsg.Class {
 	case "TPV":
 		var report TPVReport
+
 		err := json.Unmarshal([]byte(message), &report)
 		if err != nil {
 			return
 		}
+
 		g.updatePosition(report)
 
 	case "SKY":
 		var skyReport SKYReport
+
 		err := json.Unmarshal([]byte(message), &skyReport)
 		if err != nil {
 			return
 		}
+
 		g.updateSatelliteInfo(skyReport)
 	}
 }

@@ -19,6 +19,7 @@ func (ptt *PTTConfig) resolveAudioDevice(spec string, wantInput bool) (*portaudi
 
 	if ptt.Debug {
 		ptt.Log.Debug().Msgf("Discovered %d audio devices:", len(devs))
+
 		for i, d := range devs {
 			ptt.Log.Debug().Msgf(" [%d] %s (in=%d out=%d)", i, d.Name, d.MaxInputChannels, d.MaxOutputChannels)
 		}
@@ -28,6 +29,7 @@ func (ptt *PTTConfig) resolveAudioDevice(spec string, wantInput bool) (*portaudi
 		if wantInput {
 			return portaudio.DefaultInputDevice()
 		}
+
 		return portaudio.DefaultOutputDevice()
 	}
 
@@ -35,6 +37,7 @@ func (ptt *PTTConfig) resolveAudioDevice(spec string, wantInput bool) (*portaudi
 		if idx < 0 || idx >= len(devs) {
 			return nil, fmt.Errorf("audio device index %d out of range (0-%d)", idx, len(devs)-1)
 		}
+
 		return devs[idx], nil
 	}
 
@@ -42,22 +45,27 @@ func (ptt *PTTConfig) resolveAudioDevice(spec string, wantInput bool) (*portaudi
 		if wantInput && d.MaxInputChannels == 0 {
 			continue
 		}
+
 		if !wantInput && d.MaxOutputChannels == 0 {
 			continue
 		}
+
 		if d.Name == spec {
 			return d, nil
 		}
 	}
 
 	specLower := strings.ToLower(spec)
+
 	for _, d := range devs {
 		if wantInput && d.MaxInputChannels == 0 {
 			continue
 		}
+
 		if !wantInput && d.MaxOutputChannels == 0 {
 			continue
 		}
+
 		if strings.Contains(strings.ToLower(d.Name), specLower) {
 			return d, nil
 		}
@@ -82,17 +90,20 @@ func (ptt *PTTConfig) findPTTDevice() *evdev.InputDevice {
 	devs, err := evdev.ListInputDevices(ptt.PTTDeviceGlob)
 	if err != nil {
 		ptt.Log.Error().Err(err).Msg("evdev.ListInputDevices")
+
 		return nil
 	}
 
 	for _, d := range devs {
 		if d.Name == ptt.PTTDeviceName {
 			ptt.Log.Debug().Msgf("Matched PTT device %s (%s)", d.Name, d.Fn)
+
 			return d
 		}
 	}
 
 	ptt.Log.Error().Msgf("PTT device %q not found", ptt.PTTDeviceName)
+
 	return nil
 }
 
@@ -100,10 +111,12 @@ func (ptt *PTTConfig) logInputDeviceList() {
 	devs, err := evdev.ListInputDevices(ptt.PTTDeviceGlob)
 	if err != nil {
 		ptt.Log.Error().Err(err).Msg("Unable to list input devices")
+
 		return
 	}
 
 	ptt.Log.Debug().Msgf("Discovered %d input devices:", len(devs))
+
 	for _, d := range devs {
 		ptt.Log.Debug().Interface("input-device", d).Msgf(" - %s (%s)", d.Name, d.Fn)
 	}

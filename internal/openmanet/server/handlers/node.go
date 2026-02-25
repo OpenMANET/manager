@@ -39,6 +39,7 @@ func (n *NodeService) ListNodes(ctx context.Context, _ *emptypb.Empty) (*service
 			},
 		})
 	}
+
 	return &serviceproto.ListNodesResponse{Nodes: protoNodes}, nil
 }
 

@@ -206,9 +206,11 @@ func TestUpdatePosition_TriggersLocationSend(t *testing.T) {
 	if !pos.Valid {
 		t.Error("Expected valid position after update")
 	}
+
 	if pos.Latitude != 37.7749 {
 		t.Errorf("Expected latitude 37.7749, got %f", pos.Latitude)
 	}
+
 	if pos.Longitude != -122.4194 {
 		t.Errorf("Expected longitude -122.4194, got %f", pos.Longitude)
 	}
@@ -245,6 +247,7 @@ func TestUpdateSatelliteInfo(t *testing.T) {
 	if pos.SatellitesUsed != 8 {
 		t.Errorf("Expected 8 satellites used, got %d", pos.SatellitesUsed)
 	}
+
 	if pos.HDOP != 1.2 {
 		t.Errorf("Expected HDOP 1.2, got %f", pos.HDOP)
 	}
@@ -279,6 +282,7 @@ func TestUpdateSatelliteInfo_ZeroValues(t *testing.T) {
 	if pos.SatellitesUsed != 5 {
 		t.Errorf("Expected satellites to remain 5, got %d", pos.SatellitesUsed)
 	}
+
 	if pos.HDOP != 2.0 {
 		t.Errorf("Expected HDOP to remain 2.0, got %f", pos.HDOP)
 	}
@@ -303,6 +307,7 @@ func TestUpdatePosition_PreservesSatelliteData(t *testing.T) {
 	if gps.position.SatellitesUsed != 10 {
 		t.Errorf("Expected satellites 10, got %d", gps.position.SatellitesUsed)
 	}
+
 	if gps.position.HDOP != 1.5 {
 		t.Errorf("Expected HDOP 1.5, got %f", gps.position.HDOP)
 	}
@@ -328,6 +333,7 @@ func TestUpdatePosition_PreservesSatelliteData(t *testing.T) {
 	if pos.SatellitesUsed != 10 {
 		t.Errorf("Expected satellites to be preserved at 10, got %d", pos.SatellitesUsed)
 	}
+
 	if pos.HDOP != 1.5 {
 		t.Errorf("Expected HDOP to be preserved at 1.5, got %f", pos.HDOP)
 	}
@@ -336,6 +342,7 @@ func TestUpdatePosition_PreservesSatelliteData(t *testing.T) {
 	if pos.Latitude != 40.7128 {
 		t.Errorf("Expected latitude 40.7128, got %f", pos.Latitude)
 	}
+
 	if !pos.Valid {
 		t.Error("Expected position to be valid")
 	}

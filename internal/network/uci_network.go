@@ -40,17 +40,17 @@ type UCINetwork struct {
 // UCIDevice represents a UCI network device configuration (config device).
 // Devices can be physical interfaces, bridges, VLANs, or other virtual devices.
 type UCIDevice struct {
-	Name    string   `uci:"option name"`    // Device name (required)
-	Type    string   `uci:"option type"`    // Device type (e.g., bridge, vlan, macvlan, veth, vrf)
-	MacAddr string   `uci:"option macaddr"` // MAC address override
-	Ifname  string   `uci:"option ifname"`  // Base L2 device (required for macvlan type)
-	Ports   []string `uci:"list ports"`     // Bridge member ports (for bridge type)
-	RxPause string   `uci:"option rxpause"` // RX flow control (1 enables RX pause frames)
-	TxPause string   `uci:"option txpause"` // TX flow control (1 enables TX pause frames)
-	AutoNeg string   `uci:"option autoneg"` // Auto-negotiation (1 enables auto-negotiation)
-	Speed   string   `uci:"option speed"`   // Speed of the device
-	Duplex  string   `uci:"option duplex"`  // Duplex mode (1 = full duplex, 0 = half duplex)
-	Table   string   `uci:"option table"`   // Routing table name or number (for VRF type, default: 10)
+	Name    string   `uci:"option name"`
+	Type    string   `uci:"option type"`
+	MacAddr string   `uci:"option macaddr"`
+	Ifname  string   `uci:"option ifname"`
+	RxPause string   `uci:"option rxpause"`
+	TxPause string   `uci:"option txpause"`
+	AutoNeg string   `uci:"option autoneg"`
+	Speed   string   `uci:"option speed"`
+	Duplex  string   `uci:"option duplex"`
+	Table   string   `uci:"option table"`
+	Ports   []string `uci:"list ports"`
 }
 
 // RemovePort removes a port from the Ports list if it exists.
@@ -68,9 +68,11 @@ func (d *UCIDevice) RemovePort(port string) bool {
 		if p == port {
 			// Remove the port by creating a new slice
 			d.Ports = append(d.Ports[:i], d.Ports[i+1:]...)
+
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -155,30 +157,39 @@ func GetUCINetworkByNameWithReader(name string, reader ConfigReader) (*UCINetwor
 	if values, ok := reader.Get(networkConfigName, name, "proto"); ok && len(values) > 0 {
 		config.Proto = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "netmask"); ok && len(values) > 0 {
 		config.NetMask = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "ipaddr"); ok && len(values) > 0 {
 		config.IPAddr = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "gateway"); ok && len(values) > 0 {
 		config.Gateway = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "dns"); ok && len(values) > 0 {
 		config.DNS = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "device"); ok && len(values) > 0 {
 		config.Device = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "master"); ok && len(values) > 0 {
 		config.Master = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "ip6assign"); ok && len(values) > 0 {
 		config.IPV6Assignment = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "ip6ifaceid"); ok && len(values) > 0 {
 		config.IPV6IfaceID = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "ip6class"); ok && len(values) > 0 {
 		config.IPV6Class = values[0]
 	}
@@ -222,46 +233,55 @@ func SetNetworkConfigWithReader(section string, config *UCINetwork, reader Confi
 			return fmt.Errorf("failed to set proto: %w", err)
 		}
 	}
+
 	if config.NetMask != "" {
 		if err := reader.SetType(networkConfigName, section, "netmask", uci.TypeOption, config.NetMask); err != nil {
 			return fmt.Errorf("failed to set netmask: %w", err)
 		}
 	}
+
 	if config.IPAddr != "" {
 		if err := reader.SetType(networkConfigName, section, "ipaddr", uci.TypeOption, config.IPAddr); err != nil {
 			return fmt.Errorf("failed to set ipaddr: %w", err)
 		}
 	}
+
 	if config.Gateway != "" {
 		if err := reader.SetType(networkConfigName, section, "gateway", uci.TypeOption, config.Gateway); err != nil {
 			return fmt.Errorf("failed to set gateway: %w", err)
 		}
 	}
+
 	if config.DNS != "" {
 		if err := reader.SetType(networkConfigName, section, "dns", uci.TypeOption, config.DNS); err != nil {
 			return fmt.Errorf("failed to set dns: %w", err)
 		}
 	}
+
 	if config.Device != "" {
 		if err := reader.SetType(networkConfigName, section, "device", uci.TypeOption, config.Device); err != nil {
 			return fmt.Errorf("failed to set device: %w", err)
 		}
 	}
+
 	if config.Master != "" {
 		if err := reader.SetType(networkConfigName, section, "master", uci.TypeOption, config.Master); err != nil {
 			return fmt.Errorf("failed to set master: %w", err)
 		}
 	}
+
 	if config.IPV6Assignment != "" {
 		if err := reader.SetType(networkConfigName, section, "ip6assign", uci.TypeOption, config.IPV6Assignment); err != nil {
 			return fmt.Errorf("failed to set ip6assign: %w", err)
 		}
 	}
+
 	if config.IPV6IfaceID != "" {
 		if err := reader.SetType(networkConfigName, section, "ip6ifaceid", uci.TypeOption, config.IPV6IfaceID); err != nil {
 			return fmt.Errorf("failed to set ip6ifaceid: %w", err)
 		}
 	}
+
 	if config.IPV6Class != "" {
 		if err := reader.SetType(networkConfigName, section, "ip6class", uci.TypeList, config.IPV6Class); err != nil {
 			return fmt.Errorf("failed to set ip6class: %w", err)
@@ -329,6 +349,7 @@ func NetworkSectionExistsWithReader(section string, reader ConfigReader) bool {
 	// Try to get any option from the section to verify it exists
 	// We check for 'proto' as it's a common option in network sections
 	_, exists := reader.Get(networkConfigName, section, "proto")
+
 	return exists
 }
 
@@ -665,6 +686,7 @@ func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bo
 	if baseIP == nil {
 		return "", fmt.Errorf("failed to parse base IP")
 	}
+
 	baseIP = baseIP.To4()
 
 	if gatewayMode {
@@ -681,6 +703,7 @@ func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bo
 			// IP is available, return it
 			return candidateIP, nil
 		}
+
 		return "", fmt.Errorf("no available IP addresses in 10.41.0.0/24 range")
 	}
 
@@ -761,6 +784,7 @@ func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bo
 //	fmt.Printf("Device type: %s\n", device.Type)
 func GetDeviceByName(name string) (*UCIDevice, error) {
 	reader := NewUCINetworkConfigReader()
+
 	return GetDeviceByNameWithReader(name, reader)
 }
 
@@ -860,6 +884,7 @@ func loadDeviceFromSection(section string, reader ConfigReader) (*UCIDevice, err
 // Note: This operation requires appropriate privileges and commits the configuration.
 func SetDeviceConfig(name string, device *UCIDevice) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetDeviceConfigWithReader(name, device, reader)
 }
 
@@ -867,6 +892,7 @@ func SetDeviceConfig(name string, device *UCIDevice) error {
 func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigReader) error {
 	// Find existing device section by name
 	var section string
+
 	sections, err := reader.GetSections(networkConfigName, "device")
 	if err != nil {
 		return fmt.Errorf("failed to get device sections: %w", err)
@@ -877,6 +903,7 @@ func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigRead
 		if values, ok := reader.Get(networkConfigName, sec, "name"); ok && len(values) > 0 {
 			if values[0] == name {
 				section = sec
+
 				break
 			}
 		}
@@ -892,6 +919,7 @@ func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigRead
 		if err != nil {
 			return fmt.Errorf("failed to get device sections: %w", err)
 		}
+
 		if len(sections) > 0 {
 			section = sections[len(sections)-1] // Use the last one (newly created)
 		}
@@ -994,6 +1022,7 @@ func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigRead
 // Note: This operation requires appropriate privileges and commits the configuration.
 func DeleteDeviceConfig(name string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return DeleteDeviceConfigWithReader(name, reader)
 }
 
@@ -1006,10 +1035,12 @@ func DeleteDeviceConfigWithReader(name string, reader ConfigReader) error {
 	}
 
 	var sectionToDelete string
+
 	for _, section := range sections {
 		if values, ok := reader.Get(networkConfigName, section, "name"); ok && len(values) > 0 {
 			if values[0] == name {
 				sectionToDelete = section
+
 				break
 			}
 		}
@@ -1046,6 +1077,7 @@ func DeleteDeviceConfigWithReader(name string, reader ConfigReader) error {
 //	}
 func DeviceSectionExists(name string) bool {
 	reader := NewUCINetworkConfigReader()
+
 	return DeviceSectionExistsWithReader(name, reader)
 }
 
@@ -1072,6 +1104,7 @@ func DeviceSectionExistsWithReader(name string, reader ConfigReader) bool {
 // It returns a map of device names to UCIDevice configurations.
 func GetAllDevices() (map[string]*UCIDevice, error) {
 	reader := NewUCINetworkConfigReader()
+
 	return GetAllDevicesWithReader(reader)
 }
 
@@ -1106,6 +1139,7 @@ func GetAllDevicesWithReader(reader ConfigReader) (map[string]*UCIDevice, error)
 // ForceReloadConfig forces a reload of the network configuration by executing the OpenWrt network init script.
 func ForceReloadConfig() error {
 	cmd := exec.Command("reload_config")
+
 	return cmd.Run()
 }
 
@@ -1116,6 +1150,7 @@ func ForceReloadConfig() error {
 // Returns an error if the reload command fails to execute or returns a non-zero exit code.
 func ReloadNetwork() error {
 	cmd := exec.Command("/etc/init.d/network", "reload")
+
 	return cmd.Run()
 }
 
@@ -1128,5 +1163,6 @@ func ReloadNetwork() error {
 //     from command execution
 func RestartNetwork() error {
 	cmd := exec.Command("/etc/init.d/network", "restart")
+
 	return cmd.Run()
 }

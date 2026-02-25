@@ -44,13 +44,16 @@ func TestNormalizeControlSource_BlueAlsa(t *testing.T) {
 
 func TestGetIfaceIPv4_Loopback(t *testing.T) {
 	ptt := &PTTConfig{Log: zerolog.Nop()}
+
 	ip, iface, err := ptt.getIfaceIPv4("lo")
 	if err != nil {
 		t.Fatalf("getIfaceIPv4(lo): %v", err)
 	}
+
 	if iface == nil {
 		t.Fatal("expected non-nil interface")
 	}
+
 	if ip == "" {
 		t.Error("expected non-empty IP address")
 	}
@@ -58,6 +61,7 @@ func TestGetIfaceIPv4_Loopback(t *testing.T) {
 
 func TestGetIfaceIPv4_NotFound(t *testing.T) {
 	ptt := &PTTConfig{Log: zerolog.Nop()}
+
 	_, _, err := ptt.getIfaceIPv4("nonexistent99")
 	if err == nil {
 		t.Error("expected error for nonexistent interface")
@@ -67,6 +71,7 @@ func TestGetIfaceIPv4_NotFound(t *testing.T) {
 func TestLogInputDeviceList(t *testing.T) {
 	// Capture log output
 	var buf bytes.Buffer
+
 	logger := zerolog.New(&buf).With().Timestamp().Logger()
 
 	// Create a PTTConfig instance with the test logger
@@ -92,6 +97,7 @@ func TestLogInputDeviceList(t *testing.T) {
 func TestJoinMulticastGroup(t *testing.T) {
 	// Create a test logger
 	var buf bytes.Buffer
+
 	logger := zerolog.New(&buf).With().Timestamp().Logger()
 
 	// Create a PTTConfig instance
@@ -113,10 +119,12 @@ func TestJoinMulticastGroup(t *testing.T) {
 	}
 
 	var testIface *net.Interface
+
 	for i := range ifaces {
 		// Skip loopback and down interfaces
 		if ifaces[i].Flags&net.FlagUp != 0 && ifaces[i].Flags&net.FlagMulticast != 0 {
 			testIface = &ifaces[i]
+
 			break
 		}
 	}
@@ -137,6 +145,7 @@ func TestJoinMulticastGroup(t *testing.T) {
 func TestJoinMulticastGroup_InvalidGroup(t *testing.T) {
 	// Create a test logger
 	var buf bytes.Buffer
+
 	logger := zerolog.New(&buf).With().Timestamp().Logger()
 
 	// Create a PTTConfig instance
@@ -158,9 +167,11 @@ func TestJoinMulticastGroup_InvalidGroup(t *testing.T) {
 	}
 
 	var testIface *net.Interface
+
 	for i := range ifaces {
 		if ifaces[i].Flags&net.FlagUp != 0 && ifaces[i].Flags&net.FlagMulticast != 0 {
 			testIface = &ifaces[i]
+
 			break
 		}
 	}

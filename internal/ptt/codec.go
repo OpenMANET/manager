@@ -34,21 +34,27 @@ func newOpusEncoder() (AudioEncoder, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if err := enc.SetBitrate(targetBitrate); err != nil {
 		return nil, err
 	}
+
 	if err := enc.SetComplexity(encoderComplexity); err != nil {
 		return nil, err
 	}
+
 	if err := enc.SetInBandFEC(false); err != nil {
 		return nil, err
 	}
+
 	if err := enc.SetPacketLossPerc(packetLossPerc); err != nil {
 		return nil, err
 	}
+
 	if err := enc.SetDTX(false); err != nil {
 		return nil, err
 	}
+
 	return &opusEncoder{enc: enc}, nil
 }
 
@@ -58,5 +64,6 @@ func newOpusDecoder() (AudioDecoder, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &opusDecoder{dec: dec}, nil
 }

@@ -34,10 +34,13 @@ func (m *mockOpenMANETConfigReader) Get(config, section, option string) ([]strin
 	if m.data[config] == nil {
 		return nil, false
 	}
+
 	if m.data[config][section] == nil {
 		return nil, false
 	}
+
 	values, ok := m.data[config][section][option]
+
 	return values, ok
 }
 
@@ -50,6 +53,7 @@ func (m *mockOpenMANETConfigReader) GetSections(config, secType string) ([]strin
 			}
 		}
 	}
+
 	return sections, nil
 }
 
@@ -57,10 +61,13 @@ func (m *mockOpenMANETConfigReader) SetType(config, section, option string, typ 
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
 	}
+
 	if m.data[config][section] == nil {
 		m.data[config][section] = make(map[string][]string)
 	}
+
 	m.data[config][section][option] = values
+
 	return nil
 }
 
@@ -68,6 +75,7 @@ func (m *mockOpenMANETConfigReader) Del(config, section, option string) error {
 	if m.data[config] != nil && m.data[config][section] != nil {
 		delete(m.data[config][section], option)
 	}
+
 	return nil
 }
 
@@ -75,13 +83,16 @@ func (m *mockOpenMANETConfigReader) AddSection(config, section, typ string) erro
 	if m.sections[config] == nil {
 		m.sections[config] = make(map[string]string)
 	}
+
 	m.sections[config][section] = typ
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
 	}
+
 	if m.data[config][section] == nil {
 		m.data[config][section] = make(map[string][]string)
 	}
+
 	return nil
 }
 
@@ -89,9 +100,11 @@ func (m *mockOpenMANETConfigReader) DelSection(config, section string) error {
 	if m.data[config] != nil {
 		delete(m.data[config], section)
 	}
+
 	if m.sections[config] != nil {
 		delete(m.sections[config], section)
 	}
+
 	return nil
 }
 
@@ -114,6 +127,7 @@ func TestGetOpenMANETConfigWithReader(t *testing.T) {
 	if config.DHCPConfigured != "0" {
 		t.Errorf("Expected DHCPConfigured=0, got %s", config.DHCPConfigured)
 	}
+
 	if config.Config != "/etc/openmanet/config.yml" {
 		t.Errorf("Expected Config=/etc/openmanet/config.yml, got %s", config.Config)
 	}
@@ -130,6 +144,7 @@ func TestGetOpenMANETConfigWithReader_Empty(t *testing.T) {
 	if config.DHCPConfigured != "" {
 		t.Errorf("Expected empty DHCPConfigured, got %s", config.DHCPConfigured)
 	}
+
 	if config.Config != "" {
 		t.Errorf("Expected empty Config, got %s", config.Config)
 	}
@@ -157,6 +172,7 @@ func TestSetOpenMANETConfigWithReader(t *testing.T) {
 	if readConfig.DHCPConfigured != "1" {
 		t.Errorf("Expected DHCPConfigured=1, got %s", readConfig.DHCPConfigured)
 	}
+
 	if readConfig.Config != "/custom/path/config.yml" {
 		t.Errorf("Expected Config=/custom/path/config.yml, got %s", readConfig.Config)
 	}
@@ -192,6 +208,7 @@ func TestSetOpenMANETConfigWithReader_PartialConfig(t *testing.T) {
 	if readConfig.DHCPConfigured != "1" {
 		t.Errorf("Expected DHCPConfigured=1, got %s", readConfig.DHCPConfigured)
 	}
+
 	if readConfig.Config != "" {
 		t.Errorf("Expected empty Config, got %s", readConfig.Config)
 	}
@@ -244,6 +261,7 @@ func TestIsDHCPConfiguredWithReader(t *testing.T) {
 				if err == nil {
 					t.Error("Expected error, got nil")
 				}
+
 				return
 			}
 
@@ -276,6 +294,7 @@ func TestSetDHCPConfiguredWithReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IsDHCPConfiguredWithReader failed: %v", err)
 	}
+
 	if !configured {
 		t.Error("Expected DHCP to be configured")
 	}
@@ -301,6 +320,7 @@ func TestClearDHCPConfiguredWithReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IsDHCPConfiguredWithReader failed: %v", err)
 	}
+
 	if configured {
 		t.Error("Expected DHCP to not be configured")
 	}
@@ -348,6 +368,7 @@ func TestSetConfigPathWithReader(t *testing.T) {
 	mock := newMockOpenMANETConfigReader()
 
 	path := "/new/config/path.yml"
+
 	err := SetConfigPathWithReader(path, mock)
 	if err != nil {
 		t.Fatalf("SetConfigPathWithReader failed: %v", err)
@@ -363,6 +384,7 @@ func TestSetConfigPathWithReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConfigPathWithReader failed: %v", err)
 	}
+
 	if readPath != path {
 		t.Errorf("Expected %s, got %s", path, readPath)
 	}
@@ -522,6 +544,7 @@ func TestCompleteWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to check DHCP configured: %v", err)
 	}
+
 	if configured {
 		t.Error("Expected DHCP to not be configured initially")
 	}
@@ -537,12 +560,14 @@ func TestCompleteWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to check DHCP configured: %v", err)
 	}
+
 	if !configured {
 		t.Error("Expected DHCP to be configured")
 	}
 
 	// Step 5: Change config path
 	newPath := "/new/location/config.yml"
+
 	err = SetConfigPathWithReader(newPath, mock)
 	if err != nil {
 		t.Fatalf("Failed to set config path: %v", err)
@@ -553,6 +578,7 @@ func TestCompleteWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get config path: %v", err)
 	}
+
 	if path != newPath {
 		t.Errorf("Expected path %s, got %s", newPath, path)
 	}
@@ -562,9 +588,11 @@ func TestCompleteWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get final config: %v", err)
 	}
+
 	if finalConfig.DHCPConfigured != "1" {
 		t.Errorf("Expected DHCPConfigured=1, got %s", finalConfig.DHCPConfigured)
 	}
+
 	if finalConfig.Config != newPath {
 		t.Errorf("Expected Config=%s, got %s", newPath, finalConfig.Config)
 	}
@@ -619,6 +647,7 @@ func TestIsBLOSConfiguredWithReader(t *testing.T) {
 				if err == nil {
 					t.Error("Expected error, got nil")
 				}
+
 				return
 			}
 
@@ -651,6 +680,7 @@ func TestSetBLOSConfiguredWithReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IsBLOSConfiguredWithReader failed: %v", err)
 	}
+
 	if !configured {
 		t.Error("Expected BLOS to be configured")
 	}
@@ -676,6 +706,7 @@ func TestClearBLOSConfiguredWithReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IsBLOSConfiguredWithReader failed: %v", err)
 	}
+
 	if configured {
 		t.Error("Expected BLOS to not be configured")
 	}
@@ -749,9 +780,11 @@ func TestGetOpenMANETConfigWithReader_IncludesBLOS(t *testing.T) {
 	if config.DHCPConfigured != "1" {
 		t.Errorf("Expected DHCPConfigured=1, got %s", config.DHCPConfigured)
 	}
+
 	if config.BLOSConfigured != "1" {
 		t.Errorf("Expected BLOSConfigured=1, got %s", config.BLOSConfigured)
 	}
+
 	if config.Config != "/etc/openmanet/config.yml" {
 		t.Errorf("Expected Config=/etc/openmanet/config.yml, got %s", config.Config)
 	}
@@ -780,9 +813,11 @@ func TestSetOpenMANETConfigWithReader_IncludesBLOS(t *testing.T) {
 	if readConfig.DHCPConfigured != "1" {
 		t.Errorf("Expected DHCPConfigured=1, got %s", readConfig.DHCPConfigured)
 	}
+
 	if readConfig.BLOSConfigured != "1" {
 		t.Errorf("Expected BLOSConfigured=1, got %s", readConfig.BLOSConfigured)
 	}
+
 	if readConfig.Config != "/custom/path/config.yml" {
 		t.Errorf("Expected Config=/custom/path/config.yml, got %s", readConfig.Config)
 	}
@@ -808,6 +843,7 @@ func TestCompleteWorkflowWithBLOS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to check DHCP configured: %v", err)
 	}
+
 	if dhcpConfigured {
 		t.Error("Expected DHCP to not be configured initially")
 	}
@@ -816,6 +852,7 @@ func TestCompleteWorkflowWithBLOS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to check BLOS configured: %v", err)
 	}
+
 	if BLOSConfigured {
 		t.Error("Expected BLOS to not be configured initially")
 	}
@@ -836,6 +873,7 @@ func TestCompleteWorkflowWithBLOS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to check DHCP configured: %v", err)
 	}
+
 	if !dhcpConfigured {
 		t.Error("Expected DHCP to be configured")
 	}
@@ -844,6 +882,7 @@ func TestCompleteWorkflowWithBLOS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to check BLOS configured: %v", err)
 	}
+
 	if !BLOSConfigured {
 		t.Error("Expected BLOS to be configured")
 	}
@@ -853,9 +892,11 @@ func TestCompleteWorkflowWithBLOS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get final config: %v", err)
 	}
+
 	if finalConfig.DHCPConfigured != "1" {
 		t.Errorf("Expected DHCPConfigured=1, got %s", finalConfig.DHCPConfigured)
 	}
+
 	if finalConfig.BLOSConfigured != "1" {
 		t.Errorf("Expected BLOSConfigured=1, got %s", finalConfig.BLOSConfigured)
 	}
@@ -871,6 +912,7 @@ func TestCompleteWorkflowWithBLOS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to check BLOS configured: %v", err)
 	}
+
 	if BLOSConfigured {
 		t.Error("Expected BLOS to not be configured after clearing")
 	}
@@ -879,6 +921,7 @@ func TestCompleteWorkflowWithBLOS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to check DHCP configured: %v", err)
 	}
+
 	if !dhcpConfigured {
 		t.Error("Expected DHCP to still be configured")
 	}

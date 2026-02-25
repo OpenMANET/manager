@@ -56,15 +56,14 @@ func InitLogging(ctx context.Context) zerolog.Logger {
 	setLogLevel(viper.GetString("logLevel"))
 
 	// Set our logger as the writer for standard library log
-	//log.SetFlags(0)
-	//log.SetOutput(zlog)
+	// log.SetFlags(0)
+	// log.SetOutput(zlog)
 
 	return zlog
 }
 
 // getLogger returns a logger with the given component name
 func getLogger(component string) zerolog.Logger {
-
 	zerolog.TimestampFieldName = timestampFieldName
 	zerolog.MessageFieldName = MessageFieldName
 	zerolog.ErrorFieldName = errorFieldName
@@ -85,8 +84,8 @@ func getLogger(component string) zerolog.Logger {
 	setLogLevel(viper.GetString("logLevel"))
 
 	// Set our logger as the writer for standard library log
-	//log.SetFlags(0)
-	//log.SetOutput(zlog)
+	// log.SetFlags(0)
+	// log.SetOutput(zlog)
 
 	return zlog
 }
@@ -152,6 +151,7 @@ type zerologWriter struct {
 
 func (w *zerologWriter) Write(p []byte) (n int, err error) {
 	w.log.Info().Msg(string(p))
+
 	return len(p), nil
 }
 

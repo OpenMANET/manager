@@ -16,6 +16,7 @@ func setupTestDB(t *testing.T) string {
 	t.Helper()
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
+
 	return dbPath
 }
 
@@ -29,6 +30,7 @@ func TestNewConnectionSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() error = %v, want nil", err)
 	}
+
 	t.Cleanup(func() {
 		if err := CloseConnection(); err != nil {
 			t.Errorf("Cleanup: CloseConnection() error = %v", err)
@@ -46,10 +48,12 @@ func TestNewConnectionSuccess(t *testing.T) {
 
 	// Verify that the schema was applied by checking if the table exists
 	var tableName string
+
 	err = sqlDB.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='mesh_nodes'").Scan(&tableName)
 	if err != nil {
 		t.Fatalf("Failed to query for mesh_nodes table: %v", err)
 	}
+
 	if tableName != "mesh_nodes" {
 		t.Errorf("Expected table 'mesh_nodes' to exist, got %s", tableName)
 	}
@@ -65,6 +69,7 @@ func TestNewConnectionWithContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() error = %v, want nil", err)
 	}
+
 	t.Cleanup(func() {
 		if err := CloseConnection(); err != nil {
 			t.Errorf("Cleanup: CloseConnection() error = %v", err)
@@ -76,19 +81,19 @@ func TestNewConnectionWithContext(t *testing.T) {
 	}
 }
 
-// TestNewConnectionContextCancellation tests behavior with cancelled context
+// TestNewConnectionContextCancellation tests behavior with canceled context
 func TestNewConnectionContextCancellation(t *testing.T) {
-	// Create a context that is already cancelled
+	// Create a context that is already canceled
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	log := zerolog.New(os.Stderr)
 	dbPath := setupTestDB(t)
 
-	// NewConnection should fail because context is cancelled
+	// NewConnection should fail because context is canceled
 	_, err := NewConnection(ctx, log, dbPath)
 	if err == nil {
-		t.Error("NewConnection() with cancelled context should return error")
+		t.Error("NewConnection() with canceled context should return error")
 		CloseConnection()
 	}
 }
@@ -117,6 +122,7 @@ func TestNewConnectionDatabaseConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() error = %v, want nil", err)
 	}
+
 	t.Cleanup(func() {
 		if err := CloseConnection(); err != nil {
 			t.Errorf("Cleanup: CloseConnection() error = %v", err)
@@ -133,10 +139,12 @@ func TestNewConnectionDatabaseConfiguration(t *testing.T) {
 
 	// Verify foreign keys are enabled
 	var foreignKeys int
+
 	err = sqlDB.QueryRow("PRAGMA foreign_keys").Scan(&foreignKeys)
 	if err != nil {
 		t.Fatalf("Failed to check foreign_keys pragma: %v", err)
 	}
+
 	if foreignKeys != 1 {
 		t.Errorf("Expected foreign_keys to be enabled (1), got %d", foreignKeys)
 	}
@@ -153,6 +161,7 @@ func TestNewConnectionMultipleTimes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("First NewConnection() error = %v, want nil", err)
 	}
+
 	if queries1 == nil {
 		t.Fatal("First NewConnection() returned nil queries")
 	}
@@ -167,6 +176,7 @@ func TestNewConnectionMultipleTimes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Second NewConnection() error = %v, want nil", err)
 	}
+
 	t.Cleanup(func() {
 		if err := CloseConnection(); err != nil {
 			t.Errorf("Cleanup: CloseConnection() error = %v", err)
@@ -188,6 +198,7 @@ func TestCloseConnectionSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() error = %v, want nil", err)
 	}
+
 	t.Cleanup(func() {
 		// Attempt cleanup in case the test fails before explicit close
 		CloseConnection()
@@ -216,6 +227,7 @@ func TestCloseConnectionMultipleTimes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() error = %v, want nil", err)
 	}
+
 	t.Cleanup(func() {
 		// Attempt cleanup in case the test fails before reaching the close calls
 		CloseConnection()
@@ -248,6 +260,7 @@ func TestNewConnectionSchemaApplication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() error = %v, want nil", err)
 	}
+
 	t.Cleanup(func() {
 		if err := CloseConnection(); err != nil {
 			t.Errorf("Cleanup: CloseConnection() error = %v", err)
@@ -267,28 +280,36 @@ func TestNewConnectionSchemaApplication(t *testing.T) {
 	defer rows.Close()
 
 	var foundColumns []string
+
 	for rows.Next() {
 		var cid int
+
 		var name, colType string
+
 		var notNull, pk int
+
 		var dfltValue sql.NullString
 
 		err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk)
 		if err != nil {
 			t.Fatalf("Failed to scan column info: %v", err)
 		}
+
 		foundColumns = append(foundColumns, name)
 	}
 
 	// Verify all expected columns are present
 	for _, expected := range expectedColumns {
 		found := false
+
 		for _, actual := range foundColumns {
 			if actual == expected {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			t.Errorf("Expected column %s not found in mesh_nodes table", expected)
 		}
@@ -308,6 +329,7 @@ func TestNewConnectionWithTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConnection() with timeout error = %v, want nil", err)
 	}
+
 	t.Cleanup(func() {
 		if err := CloseConnection(); err != nil {
 			t.Errorf("Cleanup: CloseConnection() error = %v", err)
@@ -323,6 +345,7 @@ func TestNewConnectionWithTimeout(t *testing.T) {
 func TestCloseConnectionWithNilDB(t *testing.T) {
 	// Save the current sqlDB and restore it after test
 	oldDB := sqlDB
+
 	defer func() { sqlDB = oldDB }()
 
 	// Set sqlDB to nil

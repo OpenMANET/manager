@@ -10,7 +10,7 @@ import (
 
 // receiveLoop reads datagrams from rt.receiver, manages the RTP jitter buffer
 // (when protocol is "rtp"), and queues decoded PCM frames to rt.playbackBuffer.
-// It exits when ctx is cancelled or the receiver returns an error after ctx is done.
+// It exits when ctx is canceled or the receiver returns an error after ctx is done.
 func (ptt *PTTConfig) receiveLoop(ctx context.Context, rt *PTTRuntime) {
 	buf := make([]byte, 1500)
 	jitter := newRTPJitterBuffer(rtpJitterPrebufferPackets, rtpJitterMaxDepth)
@@ -33,6 +33,7 @@ func (ptt *PTTConfig) receiveLoop(ctx context.Context, rt *PTTRuntime) {
 				return
 			default:
 				ptt.Log.Error().Err(err).Msg("Recv error")
+
 				continue
 			}
 		}
@@ -41,6 +42,7 @@ func (ptt *PTTConfig) receiveLoop(ctx context.Context, rt *PTTRuntime) {
 		if v := rt.localIP.Load(); v != nil {
 			localIP = v.(string)
 		}
+
 		loopbackDrop := !ptt.Loopback && (src.IP.IsLoopback() || src.IP.String() == localIP)
 
 		if ptt.Trace {
@@ -75,12 +77,15 @@ func (ptt *PTTConfig) receiveLoop(ctx context.Context, rt *PTTRuntime) {
 			seq, _, _, ok := parseRTPHeader(frame)
 			if !ok {
 				ptt.Log.Debug().Msg("Dropping packet: invalid RTP header")
+
 				continue
 			}
+
 			payload, _ := unwrapRTP(frame)
 			if pushed := jitter.push(seq, payload); !pushed {
 				continue
 			}
+
 			continue
 		}
 
@@ -88,13 +93,14 @@ func (ptt *PTTConfig) receiveLoop(ctx context.Context, rt *PTTRuntime) {
 		if payload, ok := unwrapRTP(frame); ok {
 			frame = payload
 		}
+
 		ptt.decodeAndQueue(rt, frame)
 	}
 }
 
 // rtpPlayoutLoop drives the RTP jitter buffer at a 20 ms tick rate.
 // It pops ready frames, applies PLC for missing frames, and queues to
-// rt.playbackBuffer.  Exits when ctx is cancelled.
+// rt.playbackBuffer.  Exits when ctx is canceled.
 func (ptt *PTTConfig) rtpPlayoutLoop(ctx context.Context, jitter *rtpJitterBuffer, rt *PTTRuntime) {
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
@@ -111,12 +117,15 @@ func (ptt *PTTConfig) rtpPlayoutLoop(ctx context.Context, jitter *rtpJitterBuffe
 			if ptt.Trace {
 				ptt.Log.Trace().Msg("RTP jitter buffer skipped missing packet")
 			}
+
 			ptt.decodeAndQueuePLC(rt)
+
 			continue
 		}
 
 		if ready {
 			ptt.decodeAndQueue(rt, payload)
+
 			continue
 		}
 
@@ -130,6 +139,7 @@ func (ptt *PTTConfig) rtpPlayoutLoop(ctx context.Context, jitter *rtpJitterBuffe
 // rt.playbackBuffer.  Drops the frame with a warning if the buffer is full.
 func (ptt *PTTConfig) decodeAndQueue(rt *PTTRuntime, frame []byte) {
 	pcm := make([]int16, frameSize)
+
 	n, err := rt.decoder.Decode(frame, pcm)
 	if err != nil {
 		return
@@ -154,6 +164,7 @@ func (ptt *PTTConfig) decodeAndQueue(rt *PTTRuntime, frame []byte) {
 // decoder and queues it to rt.playbackBuffer.
 func (ptt *PTTConfig) decodeAndQueuePLC(rt *PTTRuntime) {
 	pcm := make([]int16, frameSize)
+
 	n, err := rt.decoder.Decode(nil, pcm)
 	if err != nil || n <= 0 {
 		return
@@ -179,6 +190,7 @@ func (ptt *PTTConfig) decodeAndQueuePLC(rt *PTTRuntime) {
 func (ptt *PTTConfig) isBroadcasting(rt *PTTRuntime) bool {
 	rt.recordMutex.Lock()
 	defer rt.recordMutex.Unlock()
+
 	return rt.broadcasting
 }
 
@@ -202,24 +214,30 @@ func (ptt *PTTConfig) beginTransmission(rt *PTTRuntime) {
 	if rt.broadcasting {
 		ptt.Log.Debug().Msg("PTT down ignored; already broadcasting")
 		rt.recordMutex.Unlock()
+
 		return
 	}
+
 	rt.broadcasting = true
 	rt.recordMutex.Unlock()
 
 	ptt.Log.Debug().Msg("Begin transmission: playing start tone and starting mic stream")
 	ptt.drainPlaybackBuffer(rt)
+
 	rt.playbackBuffer <- rt.beepBufferStart
+
 	time.Sleep(200 * time.Millisecond)
 
 	if rt.broadcastStream == nil {
 		ptt.Log.Warn().Msg("Mic stream is nil; attempting to reopen")
+
 		if rt.reopenBroadcast != nil {
 			if err := rt.reopenBroadcast(); err != nil {
 				ptt.Log.Error().Err(err).Msg("Failed to reopen mic stream")
 				rt.recordMutex.Lock()
 				rt.broadcasting = false
 				rt.recordMutex.Unlock()
+
 				return
 			}
 		}
@@ -230,25 +248,30 @@ func (ptt *PTTConfig) beginTransmission(rt *PTTRuntime) {
 		rt.recordMutex.Lock()
 		rt.broadcasting = false
 		rt.recordMutex.Unlock()
+
 		return
 	}
 
 	if err := rt.broadcastStream.Start(); err != nil {
 		ptt.Log.Error().Err(err).Msg("Failed to start mic stream; attempting to reopen stream")
+
 		if rt.reopenBroadcast != nil {
 			if reErr := rt.reopenBroadcast(); reErr != nil {
 				ptt.Log.Error().Err(reErr).Msg("Failed to reopen mic stream")
 				rt.recordMutex.Lock()
 				rt.broadcasting = false
 				rt.recordMutex.Unlock()
+
 				return
 			}
 		}
+
 		if err := rt.broadcastStream.Start(); err != nil {
 			ptt.Log.Error().Err(err).Msg("Failed to start mic stream after reopen")
 			rt.recordMutex.Lock()
 			rt.broadcasting = false
 			rt.recordMutex.Unlock()
+
 			return
 		}
 	}
@@ -262,11 +285,13 @@ func (ptt *PTTConfig) endTransmission(rt *PTTRuntime) {
 	if !rt.broadcasting {
 		ptt.Log.Debug().Msg("PTT up ignored; mic already idle")
 		rt.recordMutex.Unlock()
+
 		return
 	}
 	rt.recordMutex.Unlock()
 
 	ptt.Log.Debug().Msg("End transmission: stopping mic stream and playing stop tone")
+
 	if rt.broadcastStream == nil {
 		ptt.Log.Warn().Msg("Mic stream was nil during stop")
 	} else if err := rt.broadcastStream.Stop(); err != nil {
@@ -276,6 +301,7 @@ func (ptt *PTTConfig) endTransmission(rt *PTTRuntime) {
 	}
 
 	ptt.drainPlaybackBuffer(rt)
+
 	rt.playbackBuffer <- rt.beepBufferStop
 
 	rt.recordMutex.Lock()

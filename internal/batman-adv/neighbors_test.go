@@ -34,15 +34,19 @@ func TestParseBatHostsFile(t *testing.T) {
 	expectedMAC := "3c:22:7f:37:4c:0c"
 	expectedHostname := "BCM2711-97d6_wlan0"
 	found := false
+
 	for _, host := range node1.Hosts {
 		if host.MAC == expectedMAC {
 			found = true
+
 			if host.Hostname != expectedHostname {
 				t.Errorf("Expected hostname %s, got %s", expectedHostname, host.Hostname)
 			}
+
 			break
 		}
 	}
+
 	if !found {
 		t.Errorf("Host with MAC %s not found in node 1", expectedMAC)
 	}
@@ -145,7 +149,9 @@ func TestParseBatHosts_EmptyFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
+
 	defer os.Remove(tmpFile.Name())
+
 	tmpFile.Close()
 
 	batHosts, err := ParseBatHostsFile(tmpFile.Name())

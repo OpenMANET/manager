@@ -9,6 +9,7 @@ import (
 
 func TestPayloadCodecRoundTrip(t *testing.T) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
 	codec, err := newPayloadCodecFromPassphrase("mesh-password", func() time.Time { return now })
 	if err != nil {
 		t.Fatalf("newPayloadCodecFromPassphrase failed: %v", err)
@@ -35,6 +36,7 @@ func TestPayloadCodecRoundTrip(t *testing.T) {
 
 func TestPayloadCodecReplayDetection(t *testing.T) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
 	codec, err := newPayloadCodecFromPassphrase("mesh-password", func() time.Time { return now })
 	if err != nil {
 		t.Fatalf("newPayloadCodecFromPassphrase failed: %v", err)
@@ -42,6 +44,7 @@ func TestPayloadCodecReplayDetection(t *testing.T) {
 
 	dataType := uint8(7)
 	source := net.HardwareAddr{0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff}
+
 	encrypted, err := codec.Encrypt(dataType, []byte("payload"))
 	if err != nil {
 		t.Fatalf("Encrypt failed: %v", err)
@@ -58,6 +61,7 @@ func TestPayloadCodecReplayDetection(t *testing.T) {
 
 func TestPayloadCodecRejectsExpiredPayload(t *testing.T) {
 	current := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
 	codec, err := newPayloadCodecFromPassphrase("mesh-password", func() time.Time { return current })
 	if err != nil {
 		t.Fatalf("newPayloadCodecFromPassphrase failed: %v", err)
@@ -65,6 +69,7 @@ func TestPayloadCodecRejectsExpiredPayload(t *testing.T) {
 
 	dataType := uint8(9)
 	source := net.HardwareAddr{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}
+
 	encrypted, err := codec.Encrypt(dataType, []byte("payload"))
 	if err != nil {
 		t.Fatalf("Encrypt failed: %v", err)

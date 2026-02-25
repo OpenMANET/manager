@@ -21,12 +21,14 @@ type Gateways []Gateway
 
 func GetMeshGateways(iface string) (*Gateways, error) {
 	cmd := exec.Command("batctl", "gwj")
+
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
 
 	var gateways Gateways
+
 	err = json.Unmarshal(output, &gateways)
 	if err != nil {
 		return nil, err
@@ -40,11 +42,13 @@ func (gws *Gateways) GetBest() *Gateway {
 	if gws == nil {
 		return nil
 	}
+
 	for i := range *gws {
 		if (*gws)[i].Best {
 			return &(*gws)[i]
 		}
 	}
+
 	return nil
 }
 
@@ -53,11 +57,13 @@ func (gws *Gateways) FindByOrigAddress(origAddress string) *Gateway {
 	if gws == nil {
 		return nil
 	}
+
 	for i := range *gws {
 		if (*gws)[i].OrigAddress == origAddress {
 			return &(*gws)[i]
 		}
 	}
+
 	return nil
 }
 
@@ -66,11 +72,13 @@ func (gws *Gateways) FindByInterface(ifname string) *Gateway {
 	if gws == nil {
 		return nil
 	}
+
 	for i := range *gws {
 		if (*gws)[i].HardIfname == ifname {
 			return &(*gws)[i]
 		}
 	}
+
 	return nil
 }
 
@@ -79,12 +87,15 @@ func (gws *Gateways) FilterByInterface(ifname string) Gateways {
 	if gws == nil {
 		return Gateways{}
 	}
+
 	var filtered Gateways
+
 	for _, gw := range *gws {
 		if gw.HardIfname == ifname {
 			filtered = append(filtered, gw)
 		}
 	}
+
 	return filtered
 }
 
@@ -93,6 +104,7 @@ func (gws *Gateways) Count() int {
 	if gws == nil {
 		return 0
 	}
+
 	return len(*gws)
 }
 
@@ -111,7 +123,9 @@ func (gws *Gateways) GetHighestThroughput() *Gateway {
 	if gws == nil || len(*gws) == 0 {
 		return nil
 	}
+
 	var best *Gateway
+
 	maxThroughput := 0
 	for i := range *gws {
 		if (*gws)[i].Throughput > maxThroughput {
@@ -119,6 +133,7 @@ func (gws *Gateways) GetHighestThroughput() *Gateway {
 			best = &(*gws)[i]
 		}
 	}
+
 	return best
 }
 
@@ -127,6 +142,7 @@ func (gws *Gateways) SortByThroughput() {
 	if gws == nil {
 		return
 	}
+
 	sort.Slice(*gws, func(i, j int) bool {
 		return (*gws)[i].Throughput > (*gws)[j].Throughput
 	})
@@ -137,6 +153,7 @@ func (gws *Gateways) SortByOrigAddress() {
 	if gws == nil {
 		return
 	}
+
 	sort.Slice(*gws, func(i, j int) bool {
 		return (*gws)[i].OrigAddress < (*gws)[j].OrigAddress
 	})
@@ -147,10 +164,12 @@ func (gws *Gateways) GetOrigAddresses() []string {
 	if gws == nil {
 		return []string{}
 	}
+
 	addresses := make([]string, len(*gws))
 	for i, gw := range *gws {
 		addresses[i] = gw.OrigAddress
 	}
+
 	return addresses
 }
 
@@ -159,6 +178,7 @@ func (gws *Gateways) GetInterfaces() []string {
 	if gws == nil {
 		return []string{}
 	}
+
 	ifaceMap := make(map[string]bool)
 	for _, gw := range *gws {
 		ifaceMap[gw.HardIfname] = true
@@ -168,7 +188,9 @@ func (gws *Gateways) GetInterfaces() []string {
 	for iface := range ifaceMap {
 		interfaces = append(interfaces, iface)
 	}
+
 	sort.Strings(interfaces)
+
 	return interfaces
 }
 
@@ -177,10 +199,12 @@ func (gws *Gateways) TotalThroughput() int {
 	if gws == nil {
 		return 0
 	}
+
 	total := 0
 	for _, gw := range *gws {
 		total += gw.Throughput
 	}
+
 	return total
 }
 
@@ -189,6 +213,7 @@ func (gws *Gateways) AverageThroughput() float64 {
 	if gws == nil || len(*gws) == 0 {
 		return 0.0
 	}
+
 	return float64(gws.TotalThroughput()) / float64(len(*gws))
 }
 
@@ -197,9 +222,11 @@ func (gws *Gateways) String() string {
 	if gws == nil {
 		return "[]"
 	}
+
 	data, err := json.MarshalIndent(gws, "", "  ")
 	if err != nil {
 		return "[]"
 	}
+
 	return string(data)
 }

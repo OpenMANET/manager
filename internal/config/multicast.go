@@ -45,6 +45,7 @@ func GetMulticastGroupAddresses() []string {
 	result := make([]string, len(multicastGroupAddresses)+len(multicastTalkGroupAddresses))
 	copy(result, multicastGroupAddresses)
 	copy(result[len(multicastGroupAddresses):], multicastTalkGroupAddresses)
+
 	return result
 }
 
@@ -57,8 +58,10 @@ func GetMulticastGroupAddresses() []string {
 func GetMulticastGroupSet() map[string]bool {
 	result := make(map[string]bool)
 	maps.Copy(result, multicastGroupSet)
+
 	for _, addr := range multicastTalkGroupAddresses {
 		result[addr] = true
 	}
+
 	return result
 }

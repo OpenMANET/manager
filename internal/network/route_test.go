@@ -13,6 +13,7 @@ import (
 
 func createTestIPNet(cidr string) *net.IPNet {
 	_, ipNet, _ := net.ParseCIDR(cidr)
+
 	return ipNet
 }
 
@@ -98,9 +99,9 @@ func TestRoute_String(t *testing.T) {
 
 func TestRoutesMatch(t *testing.T) {
 	tests := []struct {
-		name string
 		r1   *Route
 		r2   *Route
+		name string
 		want bool
 	}{
 		{
@@ -282,6 +283,7 @@ func TestAddRoute_NilRoute(t *testing.T) {
 	if err == nil {
 		t.Error("AddRoute(nil) expected error, got nil")
 	}
+
 	if err.Error() != "route cannot be nil" {
 		t.Errorf("AddRoute(nil) error = %v, want 'route cannot be nil'", err)
 	}
@@ -292,6 +294,7 @@ func TestDeleteRoute_NilRoute(t *testing.T) {
 	if err == nil {
 		t.Error("DeleteRoute(nil) expected error, got nil")
 	}
+
 	if err.Error() != "route cannot be nil" {
 		t.Errorf("DeleteRoute(nil) error = %v, want 'route cannot be nil'", err)
 	}
@@ -302,6 +305,7 @@ func TestReplaceRoute_NilRoute(t *testing.T) {
 	if err == nil {
 		t.Error("ReplaceRoute(nil) expected error, got nil")
 	}
+
 	if err.Error() != "route cannot be nil" {
 		t.Errorf("ReplaceRoute(nil) error = %v, want 'route cannot be nil'", err)
 	}
@@ -312,6 +316,7 @@ func TestRouteExists_NilRoute(t *testing.T) {
 	if err == nil {
 		t.Error("RouteExists(nil) expected error, got nil")
 	}
+
 	if exists {
 		t.Error("RouteExists(nil) should return false")
 	}
@@ -426,6 +431,7 @@ func TestAddNetworkRoute(t *testing.T) {
 
 	// Test with invalid interface to verify error handling
 	network := createTestIPNet("10.0.0.0/8")
+
 	err := AddNetworkRoute(network, net.ParseIP("192.168.1.1"), "nonexistent999", 100)
 	if err == nil {
 		t.Error("AddNetworkRoute() with invalid interface expected error, got nil")
@@ -439,6 +445,7 @@ func TestDeleteNetworkRoute(t *testing.T) {
 
 	// Test with invalid interface to verify error handling
 	network := createTestIPNet("10.0.0.0/8")
+
 	err := DeleteNetworkRoute(network, net.ParseIP("192.168.1.1"), "nonexistent999")
 	if err == nil {
 		t.Error("DeleteNetworkRoute() with invalid interface expected error, got nil")
@@ -481,6 +488,7 @@ func TestGetAllRoutes(t *testing.T) {
 		t.Logf("GetAllRoutes() error (may be expected in test environment): %v", err)
 	} else {
 		t.Logf("GetAllRoutes() returned %d routes", len(routes))
+
 		for _, route := range routes {
 			t.Logf("  Route: %s", route.String())
 		}
@@ -508,12 +516,15 @@ func TestGetDefaultRoute(t *testing.T) {
 		if route.Destination != nil {
 			t.Error("Default route should have nil destination")
 		}
+
 		if route.Gateway == nil {
 			t.Error("Default route should have a gateway")
 		}
+
 		if route.Table != unix.RT_TABLE_MAIN {
 			t.Errorf("Default route should be from main routing table, got table %d", route.Table)
 		}
+
 		if route.Interface == "" {
 			t.Error("Default route should have an interface")
 		}
@@ -610,21 +621,27 @@ func TestRoute_AllFields(t *testing.T) {
 	if route.Destination.String() != "172.16.0.0/12" {
 		t.Errorf("Destination = %v, want 172.16.0.0/12", route.Destination)
 	}
+
 	if !route.Gateway.Equal(net.ParseIP("10.0.0.1")) {
 		t.Errorf("Gateway = %v, want 10.0.0.1", route.Gateway)
 	}
+
 	if route.Interface != "bat0" {
 		t.Errorf("Interface = %v, want bat0", route.Interface)
 	}
+
 	if route.Metric != 250 {
 		t.Errorf("Metric = %v, want 250", route.Metric)
 	}
+
 	if route.Table != 100 {
 		t.Errorf("Table = %v, want 100", route.Table)
 	}
+
 	if route.Scope != netlink.SCOPE_LINK {
 		t.Errorf("Scope = %v, want SCOPE_LINK", route.Scope)
 	}
+
 	if route.Protocol != netlink.RouteProtocol(unix.RTPROT_STATIC) {
 		t.Errorf("Protocol = %v, want RTPROT_STATIC", route.Protocol)
 	}
@@ -647,6 +664,7 @@ func TestCreateTestIPNet(t *testing.T) {
 			if ipNet == nil {
 				t.Fatal("createTestIPNet() returned nil")
 			}
+
 			if ipNet.String() != tt.want {
 				t.Errorf("createTestIPNet(%s) = %v, want %v", tt.cidr, ipNet.String(), tt.want)
 			}
@@ -659,12 +677,15 @@ func TestCreateTestRoute(t *testing.T) {
 	if route == nil {
 		t.Fatal("createTestRoute() returned nil")
 	}
+
 	if route.Destination == nil {
 		t.Error("createTestRoute() Destination is nil")
 	}
+
 	if route.Gateway == nil {
 		t.Error("createTestRoute() Gateway is nil")
 	}
+
 	if route.Interface == "" {
 		t.Error("createTestRoute() Interface is empty")
 	}
@@ -675,12 +696,15 @@ func TestCreateTestDefaultRoute(t *testing.T) {
 	if route == nil {
 		t.Fatal("createTestDefaultRoute() returned nil")
 	}
+
 	if route.Destination != nil {
 		t.Error("createTestDefaultRoute() Destination should be nil")
 	}
+
 	if route.Gateway == nil {
 		t.Error("createTestDefaultRoute() Gateway is nil")
 	}
+
 	if route.Interface == "" {
 		t.Error("createTestDefaultRoute() Interface is empty")
 	}
