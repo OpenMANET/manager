@@ -11,7 +11,7 @@ import (
 // receiveLoop reads datagrams from rt.receiver, manages the RTP jitter buffer
 // (when protocol is "rtp"), and queues decoded PCM frames to rt.playbackBuffer.
 // It exits when ctx is canceled or the receiver returns an error after ctx is done.
-func (ptt *PTTConfig) receiveLoop(ctx context.Context, rt *PTTRuntime) {
+func (ptt *PTTConfig) receiveLoop(ctx context.Context, rt *PTTRuntime) { //nolint:gocognit
 	buf := make([]byte, 1500)
 	jitter := newRTPJitterBuffer(rtpJitterPrebufferPackets, rtpJitterMaxDepth)
 

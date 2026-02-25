@@ -38,7 +38,7 @@ const (
 
 // activeConfig holds the PTTConfig that was most recently started via Start().
 // UpdateMulticastEndpoint reads it so callers need not pass the config explicitly.
-var activeConfig atomic.Pointer[PTTConfig]
+var activeConfig atomic.Pointer[PTTConfig] //nolint:gochecknoglobals
 
 // PTTRuntime holds live resources allocated by Start.  All fields are
 // interfaces so that unit tests can inject fakes without touching hardware.

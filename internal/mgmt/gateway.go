@@ -41,7 +41,7 @@ func NewGatewayWorker(config *ManagementConfig, client *alfred.Client, shutdownC
 }
 
 // Start begins the periodic sending of gateway data to the Alfred client.
-func (gw *GatewayWorker) StartSend() {
+func (gw *GatewayWorker) StartSend() { //nolint:gocognit
 	ticker := time.NewTicker(gw.sendInterval)
 	defer ticker.Stop()
 
@@ -134,7 +134,7 @@ func (gw *GatewayWorker) StartSend() {
 }
 
 // Start begins the periodic receiving of gateway data from the Alfred client.
-func (gw *GatewayWorker) StartReceive() {
+func (gw *GatewayWorker) StartReceive() { //nolint:gocognit
 	ticker := time.NewTicker(gw.recvInterval)
 	defer ticker.Stop()
 
@@ -181,7 +181,7 @@ func (gw *GatewayWorker) StartReceive() {
 			// If only one gateway is present from batman-adv, loop through the
 			// gateway records and match batman-adv original address MAC to the received gateway MAC
 			// This is to identify the active gateway in the mesh
-			if len(*batGwys) == 1 {
+			if len(*batGwys) == 1 { //nolint:nestif
 				batGw := batGwys.GetBest()
 
 				for _, rec := range record {
@@ -217,7 +217,7 @@ func (gw *GatewayWorker) StartReceive() {
 				continue
 			}
 
-			if len(*batGwys) > 1 {
+			if len(*batGwys) > 1 { //nolint:nestif
 				// TODO: Handle multiple gateways in batman-adv
 				batGw := batGwys.GetBest()
 

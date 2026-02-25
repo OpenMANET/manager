@@ -34,7 +34,7 @@ func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client
 	}
 }
 
-func (arw *AddressReservationWorker) ReserveAddressIfNeeded() {
+func (arw *AddressReservationWorker) ReserveAddressIfNeeded() { //nolint:gocognit
 	var (
 		ticker             = time.NewTicker(arw.reserveInterval)
 		ipConflictDetected = false
@@ -77,7 +77,7 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded() {
 				}
 			}
 
-			if !configured || ipConflictDetected {
+			if !configured || ipConflictDetected { //nolint:nestif
 				arw.Config.Log.Debug().Msg("DHCP not configured or IP conflict detected, reserving address")
 
 				// Get mesh config to determine if we are a gateway
@@ -177,7 +177,7 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded() {
 	}
 }
 
-func (arw *AddressReservationWorker) cleanUpInterfaces() error {
+func (arw *AddressReservationWorker) cleanUpInterfaces() error { //nolint:gocognit
 	meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
 	if err != nil {
 		return fmt.Errorf("%w", err)

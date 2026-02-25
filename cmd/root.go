@@ -29,10 +29,10 @@ var (
 	version string
 )
 
-var cfgFile string
+var cfgFile string //nolint:gochecknoglobals
 
 // rootCmd represents the base command when called without any subcommands
-var rootCmd = &cobra.Command{
+var rootCmd = &cobra.Command{ //nolint:gochecknoglobals
 	Use:   "openmanet",
 	Short: "A management process for OpenMANET nodes",
 	Long: `OpenMANET Manager is a management application for OpenMANET nodes.

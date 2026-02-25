@@ -15,21 +15,21 @@ const (
 
 var (
 	// multicastGroupAddresses is a list of multicast addresses used for various services
-	multicastGroupAddresses = []string{
+	multicastGroupAddresses = []string{ //nolint:gochecknoglobals
 		ATAKSAAddress,
 		ATAKChatAddress,
 		MDNSAddress,
 	}
 
 	// multicastGroupSet is a set of multicast addresses for quick lookup
-	multicastGroupSet = map[string]bool{
+	multicastGroupSet = map[string]bool{ //nolint:gochecknoglobals
 		ATAKSAAddress:   true,
 		ATAKChatAddress: true,
 		MDNSAddress:     true,
 	}
 
 	// multicastTalkGroupAddresses is a list of multicast addresses used for talk groups
-	multicastTalkGroupAddresses = []string{
+	multicastTalkGroupAddresses = []string{ //nolint:gochecknoglobals
 		"225.41.1.1",
 		"225.41.1.2",
 		"225.41.1.3",

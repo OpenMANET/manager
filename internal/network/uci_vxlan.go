@@ -77,7 +77,7 @@ func GetVXLANByName(name string) (*UCIVXLANConfig, error) {
 }
 
 // GetVXLANByNameWithReader loads and returns the UCI VXLAN interface configuration by name using the provided reader.
-func GetVXLANByNameWithReader(name string, reader ConfigReader) (*UCIVXLANConfig, error) {
+func GetVXLANByNameWithReader(name string, reader ConfigReader) (*UCIVXLANConfig, error) { //nolint:gocognit,gocyclo
 	config := &UCIVXLANConfig{}
 
 	if values, ok := reader.Get(networkConfigName, name, "proto"); ok && len(values) > 0 {
@@ -213,7 +213,7 @@ func SetVXLANConfig(section string, config *UCIVXLANConfig) error {
 }
 
 // SetVXLANConfigWithReader creates or updates a VXLAN interface configuration using the provided reader.
-func SetVXLANConfigWithReader(section string, config *UCIVXLANConfig, reader ConfigReader) error {
+func SetVXLANConfigWithReader(section string, config *UCIVXLANConfig, reader ConfigReader) error { //nolint:gocognit,gocyclo
 	// Check if the section exists; if not, create it
 	if !NetworkSectionExistsWithReader(section, reader) {
 		if err := reader.AddSection(networkConfigName, section, "interface"); err != nil {
@@ -1329,7 +1329,7 @@ func AddVXLANPeerWithReader(peer *UCIVXLANPeer, reader ConfigReader) error {
 //   - reader: The ConfigReader to use for UCI operations
 //
 // Returns an error if any operation fails.
-func BatchAddVXLANPeersWithReader(peers []UCIVXLANPeer, reader ConfigReader) error {
+func BatchAddVXLANPeersWithReader(peers []UCIVXLANPeer, reader ConfigReader) error { //nolint:gocognit
 	if len(peers) == 0 {
 		return nil
 	}

@@ -11,7 +11,7 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
-func (ptt *PTTConfig) resolveAudioDevice(spec string, wantInput bool) (*portaudio.DeviceInfo, error) {
+func (ptt *PTTConfig) resolveAudioDevice(spec string, wantInput bool) (*portaudio.DeviceInfo, error) { //nolint:gocognit
 	devs, err := portaudio.Devices()
 	if err != nil {
 		return nil, fmt.Errorf("list audio devices: %w", err)

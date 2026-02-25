@@ -527,7 +527,7 @@ type DHCPRange struct {
 // Note: This function accounts for existing DHCP ranges to prevent conflicts.
 // It attempts to find the lowest available start address that can accommodate
 // the desired limit without overlapping with existing ranges.
-func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMask string, desiredLimit int) (int, error) {
+func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMask string, desiredLimit int) (int, error) { //nolint:gocognit
 	if desiredLimit <= 0 {
 		return 0, fmt.Errorf("desiredLimit must be greater than 0")
 	}

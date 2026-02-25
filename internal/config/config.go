@@ -112,7 +112,7 @@ func New(v *viper.Viper) *Config {
 }
 
 // reload reads all configuration values from viper and updates the Config fields.
-func (c *Config) reload() {
+func (c *Config) reload() { //nolint:gocognit,gocyclo
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

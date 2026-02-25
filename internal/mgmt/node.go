@@ -40,7 +40,7 @@ func NewNodeDataWorker(config *ManagementConfig, client *alfred.Client, interval
 }
 
 // Start begins the periodic sending of node data to the Alfred client.
-func (ndw *NodeDataWorker) StartSend() {
+func (ndw *NodeDataWorker) StartSend() { //nolint:gocognit
 	ticker := time.NewTicker(ndw.Interval)
 	defer ticker.Stop()
 
@@ -144,7 +144,7 @@ func (ndw *NodeDataWorker) StartSend() {
 }
 
 // Start begins the periodic receiving of node data from the Alfred client.
-func (ndw *NodeDataWorker) StartReceive() {
+func (ndw *NodeDataWorker) StartReceive() { //nolint:gocognit
 	ticker := time.NewTicker(ndw.Interval)
 	defer ticker.Stop()
 
@@ -230,7 +230,7 @@ func (ndw *NodeDataWorker) StartReceive() {
 // Returns:
 //   - error: Returns an error if DHCP field parsing fails, otherwise returns nil
 //     even if database insertion fails
-func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error {
+func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error { //nolint:gocognit
 	var dhcpStart, dhcpLimit sql.NullInt64
 
 	ctx := context.Background()
