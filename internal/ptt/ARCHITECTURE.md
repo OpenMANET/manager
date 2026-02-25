@@ -28,6 +28,7 @@ higher-level [README](README.md).
 ```
 ptt/
 ├── ptt.go          PTTConfig + PTTRuntime structs; startup pipeline (Start/Run)
+│                   replaceNetwork(); UpdateMulticastEndpoint()
 ├── comms.go        Receive loop, playout loop, beginTransmission, endTransmission
 ├── rtp.go          RTP framing helpers (wrap/unwrap/parse, SSRC, seq)
 ├── jitter.go       RTP jitter buffer with PLC gap detection
@@ -35,7 +36,8 @@ ptt/
 ├── device.go       Audio device resolution; network helpers; evdev enumeration
 ├── codec.go        AudioEncoder/AudioDecoder interfaces; Opus constructors
 ├── stream.go       AudioStream interface; portaudioStream wrapper
-├── transport.go    PacketWriter/PacketReader interfaces
+├── transport.go    PacketWriter/PacketReader interfaces;
+│                   swappableSender / swappableReceiver (atomic-swap wrappers)
 └── xevent.go       BlueALSA xevent backend (placeholder — not yet implemented)
 ```
 
@@ -117,24 +119,32 @@ tests can swap implementations without real hardware.
 
 ```
 PTTRuntime
-├── encoder         AudioEncoder        Opus encoder
-├── decoder         AudioDecoder        Opus decoder (nil arg → PLC)
+├── encoder         AudioEncoder          Opus encoder
+├── decoder         AudioDecoder          Opus decoder (nil arg → PLC)
 │
-├── sender          PacketWriter        UDP send conn
-├── receiver        PacketReader        UDP recv conn
-├── localIP         string              source IP for loopback filter
-├── rtpSeq          uint16              per-packet sequence counter
-├── rtpSSRC         uint32              FNV-1a hash of RtpID/hostname/IP
+├── sender          *swappableSender      atomic-swappable UDP send conn
+├── receiver        *swappableReceiver    atomic-swappable UDP recv conn
+├── localIP         atomic.Value (string) source IP for loopback filter
+├── rtpSeq          uint16                per-packet sequence counter
+├── rtpSSRC         uint32                FNV-1a hash of RtpID/hostname/IP
 │
-├── broadcastStream AudioStream         mic capture (start/stop per tx)
-├── playbackBuffer  chan []float32       decoded PCM frames → speaker
-├── beepBufferStart []float32           1000 Hz tone (tx start)
-├── beepBufferStop  []float32           600 Hz tone (tx end)
+├── broadcastStream AudioStream           mic capture (start/stop per tx)
+├── playbackBuffer  chan []float32         decoded PCM frames → speaker
+├── beepBufferStart []float32             1000 Hz tone (tx start)
+├── beepBufferStop  []float32             600 Hz tone (tx end)
 │
-├── recordMutex     sync.Mutex          guards broadcasting
+├── recordMutex     sync.Mutex            guards broadcasting
 ├── broadcasting    bool
-└── reopenBroadcast func() error        closure → reopenBroadcastStream
+└── reopenBroadcast func() error          closure → reopenBroadcastStream
 ```
+
+`sender` and `receiver` are not plain interfaces — they are concrete
+`*swappableSender` / `*swappableReceiver` wrappers (see §10) that still satisfy
+`PacketWriter` / `PacketReader`.  This lets `UpdateMulticastEndpoint` atomically
+replace the underlying connections while the send/receive path continues to
+operate without locking.  `localIP` is an `atomic.Value` for the same reason:
+it is read on every received packet by `receiveLoop` and written only by
+`replaceNetwork`.
 
 ---
 
@@ -163,11 +173,14 @@ Start()
   │
   ├─ 5. buildNetwork()
   │     getIfaceIPv4(Iface)         → localIP, *net.Interface
-  │     net.DialUDP(localIP → mcast) → PacketWriter (sender)
-  │     net.ListenUDP(0.0.0.0:port)  → PacketReader (receiver)
+  │     net.DialUDP(localIP → mcast) → PacketWriter (raw sender)
+  │     net.ListenUDP(0.0.0.0:port)  → PacketReader (raw receiver)
   │     joinMulticastGroup(ifi, conn, group)
   │
   ├─ 6. Assemble PTTRuntime (enc, dec, sender, receiver, buffers)
+  │     sender   = newSwappableSender(rawSender)
+  │     receiver = newSwappableReceiver(rawReceiver)
+  │     rt.localIP.Store(localIP)       ← atomic.Value
   │     If Protocol==rtp: derive rtpSSRC, randomise rtpSeq
   │
   ├─ 7. portaudio.Initialize()
@@ -583,7 +596,7 @@ type PacketWriter interface {
 }
 ```
 
-- Production: `*net.UDPConn` (satisfies the interface directly)
+- Production: `*swappableSender` wrapping a `*net.UDPConn`
 - Test: `mockWriter` — accumulates packets in `Packets [][]byte`
 
 ### PacketReader (`transport.go`)
@@ -595,8 +608,40 @@ type PacketReader interface {
 }
 ```
 
-- Production: `*net.UDPConn`
-- Test: `mockReader` — pre-seeded packet queue; blocks then errors on `Close()`
+- Production: `*swappableReceiver` wrapping a `*net.UDPConn`
+- Test: `mockReader` (wrapped with `newSwappableReceiver`) — pre-seeded packet queue; blocks then errors on `Close()`
+
+### swappableSender / swappableReceiver (`transport.go`)
+
+Concrete wrappers added to support runtime multicast endpoint changes.
+Both satisfy the `PacketWriter` / `PacketReader` interfaces respectively.
+
+```go
+// swappableSender
+func (s *swappableSender) Write(b []byte) (int, error)           // PacketWriter
+func (s *swappableSender) swap(newW PacketWriter) PacketWriter   // returns old
+
+// swappableReceiver
+func (r *swappableReceiver) ReadFromUDP(b []byte) (int, *net.UDPAddr, error)  // PacketReader
+func (r *swappableReceiver) Close() error                                     // PacketReader
+func (r *swappableReceiver) swap(newR PacketReader) PacketReader              // returns old
+```
+
+**Hot-path locking discipline** — neither wrapper holds a lock during I/O:
+
+```
+Write / ReadFromUDP / Close:
+  RLock → snapshot impl pointer → RUnlock → call impl (no lock held during I/O)
+
+swap:
+  Lock → update impl pointer → Unlock → return old (caller closes it)
+```
+
+This means `swap` can execute concurrently with any number of `Write` or
+`ReadFromUDP` calls without ever blocking them for longer than a pointer
+read.  Closing the old socket after the swap unblocks any in-flight
+`ReadFromUDP` on the old connection, causing `receiveLoop` to loop and
+immediately read from the new socket.
 
 ### EventSource (`event.go`)
 
@@ -696,6 +741,52 @@ The framing decision lives entirely in `rtp.go` and in the send callback inside
 `normalizeProtocol`, add a wrap call in the send path, and a matching unwrap in
 `receiveLoop`.
 
+### Changing the multicast endpoint at runtime
+
+Use the public `UpdateMulticastEndpoint(ptt, addr, port)` function from anywhere
+in the application:
+
+```go
+if err := ptt.UpdateMulticastEndpoint(cfg, "239.255.0.1", 5010); err != nil {
+    log.Error().Err(err).Msg("failed to change PTT multicast endpoint")
+}
+```
+
+The function validates inputs, allocates new UDP sockets, and delegates to the
+internal `replaceNetwork` helper:
+
+```
+UpdateMulticastEndpoint(ptt, addr, port)
+  │
+  ├─ guard: runtime == nil?  → error "not running"
+  ├─ validate: IPv4 multicast address?
+  ├─ validate: port in [1, 65535]?
+  │
+  ├─ temporarily update McastAddr / McastPort on PTTConfig
+  ├─ buildNetwork()  →  newSender, newReceiver, newLocalIP
+  │    error → roll back McastAddr/McastPort, return error
+  │
+  └─ replaceNetwork(rt, newSender, newReceiver, newLocalIP)
+       │
+       ├─ rt.receiver.swap(newReceiver)  ← atomic; receiveLoop
+       │                                   now reads from new socket
+       ├─ rt.sender.swap(newSender)      ← atomic; PortAudio callback
+       │                                   now writes to new socket
+       ├─ rt.localIP.Store(newLocalIP)   ← atomic.Value
+       │
+       ├─ oldReceiver.Close()   ← unblocks in-flight ReadFromUDP;
+       │                          receiveLoop skips the error and
+       │                          immediately reads from the new receiver
+       └─ oldSender.Close()    ← if the concrete type has Close()
+```
+
+The swap is always applied even if `buildNetwork` returns an error mid-way —
+but in practice the error path returns before `replaceNetwork` is called, so
+the runtime sockets are never left in a partial state.
+
+No changes to `comms.go`, the PortAudio callbacks, or `Run` are required; they
+already dereference the swappable wrappers transparently.
+
 ---
 
 ## 12. Testing Strategy
@@ -709,6 +800,7 @@ dependency is hidden behind one of the five interfaces above.
 |---|---|
 | `comms_test.go` | `decodeAndQueue`, `decodeAndQueuePLC`, `receiveLoop`, `rtpPlayoutLoop` |
 | `device_test.go` | `normalizeControlSource`, `getIfaceIPv4`, `logInputDeviceList`, `joinMulticastGroup` |
+| `endpoint_test.go` | `swappableSender`, `swappableReceiver`, `replaceNetwork`, `UpdateMulticastEndpoint` |
 | `event_test.go` | `applyDefaults`, `NewPTT`, `Run` event dispatch |
 | `jitter_test.go` | `push`, `popReady`, `shouldConceal`, `seqLess` |
 | `rtp_test.go` | `normalizeProtocol`, `wrapRTP`, `unwrapRTP`, `parseRTPHeader`, `rtpSSRCFromID` |
@@ -722,16 +814,45 @@ calling `Start`:
 
 ```go
 rt := &PTTRuntime{
-    encoder:        &mockEncoder{cannedBytes: []byte{0xde, 0xad}},
-    decoder:        &mockDecoder{fillValue: 8192},
-    sender:         &mockWriter{},
-    receiver:       newMockReader(mockPacket{data: ..., src: ...}),
+    encoder:         &mockEncoder{cannedBytes: []byte{0xde, 0xad}},
+    decoder:         &mockDecoder{fillValue: 8192},
+    sender:          newSwappableSender(&mockWriter{}),
+    receiver:        newSwappableReceiver(newMockReader(mockPacket{data: ..., src: ...})),
     broadcastStream: &mockStream{},
-    playbackBuffer: make(chan []float32, 8),
+    playbackBuffer:  make(chan []float32, 8),
     beepBufferStart: make([]float32, frameSize),
     beepBufferStop:  make([]float32, frameSize),
 }
+rt.localIP.Store("10.0.0.1")
 ptt := &PTTConfig{Log: zerolog.Nop(), Protocol: protocolUDP, Loopback: true}
+```
+
+`sender` and `receiver` are never set as plain `PacketWriter`/`PacketReader`
+fields in tests anymore; they are always wrapped so `replaceNetwork` (and
+any code that reads `rt.localIP`) works correctly.
+
+For `replaceNetwork`/`UpdateMulticastEndpoint` tests that need no real sockets,
+a minimal runtime is assembled with `newReplaceNetworkRuntime`:
+
+```go
+rt := newReplaceNetworkRuntime(&mockWriter{}, &trackingReader{})
+// rt.sender and rt.receiver are swappable; rt.localIP is initialised
+```
+
+### Concurrency tests
+
+Tests that fire many goroutines concurrently use `safeMockWriter` (a
+mutex-protected variant of `mockWriter`) instead of the plain `mockWriter`.
+This ensures the race detector reports genuine races in the production
+code rather than races inside an unsynchronised mock:
+
+```go
+wOld := &safeMockWriter{}
+wNew := &safeMockWriter{}
+s    := newSwappableSender(wOld)
+// ... launch goroutines calling s.Write() ...
+s.swap(wNew)
+// total writes across wOld + wNew must equal goroutine count
 ```
 
 ### Testing the receive loop

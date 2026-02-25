@@ -198,7 +198,7 @@ func TestNewPTT_CopiesAllFields(t *testing.T) {
 // broadcast stream, empty blocking receiver, and populated beep buffers.
 func newRunTestRuntime(stream AudioStream, reader *mockReader) *PTTRuntime {
 	rt := newTestRuntime(stream)
-	rt.receiver = reader
+	rt.receiver = newSwappableReceiver(reader)
 	return rt
 }
 

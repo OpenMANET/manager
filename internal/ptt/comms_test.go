@@ -120,10 +120,10 @@ func TestReceiveLoop_UDP_DecodesAndQueues(t *testing.T) {
 	dec := &mockDecoder{}
 	rt := &PTTRuntime{
 		decoder:        dec,
-		receiver:       reader,
-		localIP:        "10.0.0.2",
+		receiver:       newSwappableReceiver(reader),
 		playbackBuffer: make(chan []float32, 4),
 	}
+	rt.localIP.Store("10.0.0.2")
 	ptt := &PTTConfig{
 		Log:      zerolog.Nop(),
 		Protocol: protocolUDP,
@@ -148,10 +148,10 @@ func TestReceiveLoop_LoopbackDrop(t *testing.T) {
 	dec := &mockDecoder{}
 	rt := &PTTRuntime{
 		decoder:        dec,
-		receiver:       reader,
-		localIP:        "10.0.0.1", // same as src
+		receiver:       newSwappableReceiver(reader),
 		playbackBuffer: make(chan []float32, 4),
 	}
+	rt.localIP.Store("10.0.0.1") // same as src
 	ptt := &PTTConfig{
 		Log:      zerolog.Nop(),
 		Protocol: protocolUDP,
@@ -175,10 +175,10 @@ func TestReceiveLoop_RTP_InvalidHeaderDropped(t *testing.T) {
 	dec := &mockDecoder{}
 	rt := &PTTRuntime{
 		decoder:        dec,
-		receiver:       reader,
-		localIP:        "10.0.0.1",
+		receiver:       newSwappableReceiver(reader),
 		playbackBuffer: make(chan []float32, 4),
 	}
+	rt.localIP.Store("10.0.0.1")
 	ptt := &PTTConfig{
 		Log:      zerolog.Nop(),
 		Protocol: protocolRTP,
@@ -232,10 +232,10 @@ func TestReceiveLoop_LoopbackIPDrop(t *testing.T) {
 	dec := &mockDecoder{}
 	rt := &PTTRuntime{
 		decoder:        dec,
-		receiver:       reader,
-		localIP:        "10.0.0.5", // different from src
+		receiver:       newSwappableReceiver(reader),
 		playbackBuffer: make(chan []float32, 4),
 	}
+	rt.localIP.Store("10.0.0.5") // different from src
 	ptt := &PTTConfig{
 		Log:      zerolog.Nop(),
 		Protocol: protocolUDP,
@@ -265,10 +265,10 @@ func TestReceiveLoop_UDP_AutoDetectRTP(t *testing.T) {
 	dec := &mockDecoder{fillValue: 8192}
 	rt := &PTTRuntime{
 		decoder:        dec,
-		receiver:       reader,
-		localIP:        "10.0.0.1",
+		receiver:       newSwappableReceiver(reader),
 		playbackBuffer: make(chan []float32, 4),
 	}
+	rt.localIP.Store("10.0.0.1")
 	ptt := &PTTConfig{
 		Log:      zerolog.Nop(),
 		Protocol: protocolUDP, // UDP mode — auto-detect RTP

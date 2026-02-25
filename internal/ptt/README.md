@@ -65,6 +65,27 @@ Trace logging:
 
 - When `ptt.trace` is true, each UDP packet on the multicast port is logged with source, size, and RTP header fields when present.
 
+### Changing the multicast endpoint at runtime
+
+Use `UpdateMulticastEndpoint` from anywhere in the application to move to a different
+multicast address or port without restarting the subsystem:
+
+```go
+if err := ptt.UpdateMulticastEndpoint(cfg, "239.255.0.1", 5010); err != nil {
+    log.Error().Err(err).Msg("failed to change multicast endpoint")
+}
+```
+
+The function:
+1. Validates that `addr` is an IPv4 multicast address and `port` is in `[1, 65535]`.
+2. Opens a new pair of UDP sockets for the new endpoint.
+3. Atomically replaces the sender and receiver inside the running runtime.
+4. Closes the old sockets (which unblocks the receive goroutine immediately).
+5. On any error, leaves the config and sockets unchanged.
+
+The address and port in `PTTConfig` (`McastAddr`/`McastPort`) are also updated on
+success, so subsequent calls to `buildNetwork` use the new values.
+
 ## Protocol: UDP vs RTP
 
 The protocol is controlled by `ptt.protocol` (`udp` or `rtp`), and normalized at startup.
@@ -288,13 +309,13 @@ ptt:
 
 | File | Responsibility |
 |---|---|
-| `ptt.go` | `PTTConfig`/`PTTRuntime` structs; `applyDefaults`; `buildCodec`, `buildNetwork`, `buildAudio`, `buildEventSource`; `Run`; `Start` |
+| `ptt.go` | `PTTConfig`/`PTTRuntime` structs; `applyDefaults`; `buildCodec`, `buildNetwork`, `buildAudio`, `buildEventSource`; `Run`; `Start`; `replaceNetwork`; `UpdateMulticastEndpoint` |
 | `comms.go` | `receiveLoop`, `rtpPlayoutLoop`, `decodeAndQueue`, `decodeAndQueuePLC`, `beginTransmission`, `endTransmission` |
 | `rtp.go` | `wrapRTP`, `unwrapRTP`, `parseRTPHeader`, `normalizeProtocol`, `rtpSSRCFromID` |
 | `jitter.go` | `rtpJitterBuffer`: sequence-ordered playout buffer with PLC gap detection |
 | `device.go` | `resolveAudioDevice`, `normalizeControlSource`, `getIfaceIPv4`, `findPTTDevice`, `joinMulticastGroup` |
 | `event.go` | `PTTEvent` constants (`PTTDown`, `PTTUp`, `PTTToggle`); `EventSource` interface; `evdevSource` |
 | `stream.go` | `AudioStream` interface and `portaudioStream` wrapper |
-| `transport.go` | `PacketWriter` and `PacketReader` interfaces |
+| `transport.go` | `PacketWriter` and `PacketReader` interfaces; `swappableSender` and `swappableReceiver` atomic-swap wrappers |
 | `codec.go` | `AudioEncoder` and `AudioDecoder` interfaces; Opus encoder/decoder constructors |
 | `xevent.go` | BlueALSA xevent backend — placeholder, not yet implemented |

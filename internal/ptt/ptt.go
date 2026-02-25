@@ -3,11 +3,13 @@ package ptt
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"net"
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/gordonklaus/portaudio"
@@ -42,9 +44,9 @@ type PTTRuntime struct {
 	decoder AudioDecoder
 
 	// ---- Network ----
-	sender   PacketWriter
-	receiver PacketReader
-	localIP  string
+	sender   *swappableSender
+	receiver *swappableReceiver
+	localIP  atomic.Value // stores string
 	rtpSeq   uint16
 	rtpSSRC  uint32
 
@@ -469,23 +471,23 @@ func (ptt *PTTConfig) Start() {
 	}
 
 	// ── network ────────────────────────────────────────────────────────────
-	sender, receiver, localIP, err := ptt.buildNetwork()
+	rawSender, rawReceiver, localIP, err := ptt.buildNetwork()
 	if err != nil {
 		ptt.Log.Fatal().Err(err).Msg("Failed to set up network")
 	}
-	defer receiver.Close()
 
 	// ── assemble runtime ───────────────────────────────────────────────────
 	rt := &PTTRuntime{
 		encoder:         enc,
 		decoder:         dec,
-		sender:          sender,
-		receiver:        receiver,
-		localIP:         localIP,
+		sender:          newSwappableSender(rawSender),
+		receiver:        newSwappableReceiver(rawReceiver),
 		playbackBuffer:  playbackBuf,
 		beepBufferStart: beepStart,
 		beepBufferStop:  beepStop,
 	}
+	rt.localIP.Store(localIP)
+	defer rt.receiver.Close()
 
 	if ptt.Protocol == protocolRTP {
 		rtpID := ptt.RtpID
@@ -545,4 +547,74 @@ func (ptt *PTTConfig) Start() {
 	}()
 
 	ptt.Run(ctx, rt, src)
+}
+
+// ─── Runtime network reconfiguration ─────────────────────────────────────────
+
+// replaceNetwork atomically swaps the sender, receiver, and local IP stored in
+// a running PTTRuntime, then closes the old sockets.  Closing the old receiver
+// unblocks any in-flight ReadFromUDP in receiveLoop, which will immediately
+// loop back and read from the new receiver.
+//
+// This is an internal helper called by UpdateMulticastEndpoint.  It may also
+// be called directly in tests to exercise the swap path without real sockets.
+func (ptt *PTTConfig) replaceNetwork(rt *PTTRuntime, newSender PacketWriter, newReceiver PacketReader, newLocalIP string) {
+	// Swap receiver first so that receiveLoop is already pointing at the new
+	// socket when the old socket's Close() unblocks its current ReadFromUDP.
+	oldReceiver := rt.receiver.swap(newReceiver)
+	oldSender := rt.sender.swap(newSender)
+	rt.localIP.Store(newLocalIP)
+
+	// Close old sockets after the swap.
+	_ = oldReceiver.Close()
+	if c, ok := oldSender.(interface{ Close() error }); ok {
+		_ = c.Close()
+	}
+}
+
+// UpdateMulticastEndpoint changes the multicast group address and UDP port
+// used by the live PTT subsystem.  It is safe to call concurrently with the
+// send/receive path.
+//
+// A new pair of UDP sockets is established for (addr, port) before the swap
+// so the subsystem is never left without functional sockets if the new
+// endpoint fails to bind.  On error the old sockets are kept unchanged.
+//
+// Errors are returned for:
+//   - the PTT subsystem not yet running (Start not called)
+//   - addr not being a valid IPv4 multicast address
+//   - port outside [1, 65535]
+//   - failure to establish new UDP sockets
+func UpdateMulticastEndpoint(ptt *PTTConfig, addr string, port int) error {
+	rt := ptt.runtime
+	if rt == nil {
+		return errors.New("ptt: subsystem is not running")
+	}
+
+	ip := net.ParseIP(addr)
+	if ip == nil || ip.To4() == nil {
+		return fmt.Errorf("ptt: %q is not a valid IPv4 address", addr)
+	}
+	if !ip.IsMulticast() {
+		return fmt.Errorf("ptt: %q is not a multicast address", addr)
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("ptt: port %d is out of range [1, 65535]", port)
+	}
+
+	// Temporarily update config so buildNetwork picks up the new values.
+	oldAddr, oldPort := ptt.McastAddr, ptt.McastPort
+	ptt.McastAddr, ptt.McastPort = addr, port
+
+	newSender, newReceiver, newLocalIP, err := ptt.buildNetwork()
+	if err != nil {
+		ptt.McastAddr, ptt.McastPort = oldAddr, oldPort // roll back config
+		return fmt.Errorf("ptt: failed to establish %s:%d: %w", addr, port, err)
+	}
+
+	ptt.replaceNetwork(rt, newSender, newReceiver, newLocalIP)
+
+	ptt.Log.Info().Msgf("PTT multicast endpoint updated: %s:%d → %s:%d",
+		oldAddr, oldPort, addr, port)
+	return nil
 }
