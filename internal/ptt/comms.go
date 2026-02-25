@@ -37,7 +37,11 @@ func (ptt *PTTConfig) receiveLoop(ctx context.Context, rt *PTTRuntime) {
 			}
 		}
 
-		loopbackDrop := !ptt.Loopback && (src.IP.IsLoopback() || src.IP.String() == rt.localIP)
+		var localIP string
+		if v := rt.localIP.Load(); v != nil {
+			localIP = v.(string)
+		}
+		loopbackDrop := !ptt.Loopback && (src.IP.IsLoopback() || src.IP.String() == localIP)
 
 		if ptt.Trace {
 			if seq, ts, ssrc, ok := parseRTPHeader(buf[:n]); ok {
