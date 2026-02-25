@@ -20,15 +20,18 @@ func (w *InterfaceService) GetWirelessInterface(_ context.Context, req *servicep
 	wifiInterfaces, err := w.Wifi.Interfaces()
 	if err != nil {
 		w.Log.Error().Err(err).Msg("Failed to get interface")
+
 		return nil, err
 	}
 
 	var wifiInt *serviceproto.WirelessInterface
+
 	for _, iface := range wifiInterfaces {
 		// find the interface with the requested name
 		if req.Name != "" && iface.Name != req.Name {
 			continue
 		}
+
 		wifiInt = &serviceproto.WirelessInterface{
 			Index:           int32(iface.Index),
 			Name:            iface.Name,
@@ -52,6 +55,7 @@ func (w *InterfaceService) ListWirelessInterfaces(_ context.Context, _ *emptypb.
 	wifiInterfaces, err := w.Wifi.GetMeshInterfaces()
 	if err != nil {
 		w.Log.Error().Err(err).Msg("Failed to list interfaces")
+
 		return nil, err
 	}
 

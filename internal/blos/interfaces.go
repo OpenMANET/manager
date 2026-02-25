@@ -75,7 +75,6 @@ func (r *BLOS) createOrConfigureTunnelInterface() error {
 		}
 
 		if device != nil && containsString(device.Ports, defaultTunnelDeviceName) {
-
 			removeDevice := exec.Command("uci", "del_list", "network."+r.Config.MeshNetInterface+".ports="+defaultTunnelDeviceName)
 			if err := removeDevice.Run(); err != nil {
 				return err
@@ -155,6 +154,7 @@ func (r *BLOS) configureTailscalePreferences(ctx context.Context) error {
 	prefs, err := lc.GetPrefs(ctx)
 	if err != nil {
 		r.Logger.Error().Err(err).Msg("Failed to get Tailscale preferences")
+
 		return err
 	}
 
@@ -169,10 +169,12 @@ func (r *BLOS) configureTailscalePreferences(ctx context.Context) error {
 	})
 	if err != nil {
 		r.Logger.Error().Err(err).Msg("Failed to update Tailscale preferences")
+
 		return err
 	}
 
 	r.Logger.Info().Msg("Successfully configured Tailscale preferences (RouteAll: true, NoSNAT: false)")
+
 	return nil
 }
 

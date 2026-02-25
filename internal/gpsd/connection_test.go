@@ -15,6 +15,7 @@ func TestNewGPSService(t *testing.T) {
 
 	// Create a mock server
 	mock := newMockGPSDServer(t)
+
 	mock.Start()
 	defer mock.Stop()
 
@@ -136,6 +137,7 @@ func TestGPSService_Close(t *testing.T) {
 
 	t.Run("Close with connection", func(t *testing.T) {
 		mock := newMockGPSDServer(t)
+
 		mock.Start()
 		defer mock.Stop()
 
@@ -172,6 +174,7 @@ func TestReconnectionLimit(t *testing.T) {
 
 	// Start the connection handler in a goroutine
 	done := make(chan struct{})
+
 	go func() {
 		gps.connectionHandler()
 		close(done)
@@ -230,6 +233,7 @@ func TestProcessGPSDMessage_SKYReport(t *testing.T) {
 	if pos.SatellitesUsed != 7 {
 		t.Errorf("Expected 7 satellites, got %d", pos.SatellitesUsed)
 	}
+
 	if pos.HDOP != 1.5 {
 		t.Errorf("Expected HDOP 1.5, got %f", pos.HDOP)
 	}
@@ -268,6 +272,7 @@ func TestProcessGPSDMessage_TPVWithGeoidSep(t *testing.T) {
 	if pos.GeoidSeparation != -33.5 {
 		t.Errorf("Expected geoid separation -33.5, got %f", pos.GeoidSeparation)
 	}
+
 	if !pos.Valid {
 		t.Error("Expected valid position")
 	}
@@ -309,15 +314,19 @@ func TestProcessGPSDMessage_TPVWithAccuracyEstimates(t *testing.T) {
 	if pos.EPH != 5.2 {
 		t.Errorf("Expected EPH 5.2, got %f", pos.EPH)
 	}
+
 	if pos.EPX != 3.1 {
 		t.Errorf("Expected EPX 3.1, got %f", pos.EPX)
 	}
+
 	if pos.EPY != 4.3 {
 		t.Errorf("Expected EPY 4.3, got %f", pos.EPY)
 	}
+
 	if pos.EPV != 8.7 {
 		t.Errorf("Expected EPV 8.7, got %f", pos.EPV)
 	}
+
 	if !pos.Valid {
 		t.Error("Expected valid position")
 	}
@@ -357,9 +366,11 @@ func TestProcessGPSDMessage_TPVWithDGPS(t *testing.T) {
 	if pos.DGPSAge != 2.5 {
 		t.Errorf("Expected DGPS age 2.5, got %f", pos.DGPSAge)
 	}
+
 	if pos.DGPSStation != 120 {
 		t.Errorf("Expected DGPS station 120, got %d", pos.DGPSStation)
 	}
+
 	if !pos.Valid {
 		t.Error("Expected valid position")
 	}
@@ -436,6 +447,7 @@ func TestSKYReport_WithSatelliteDetails(t *testing.T) {
 	if pos.SatellitesUsed != 8 {
 		t.Errorf("Expected 8 satellites used, got %d", pos.SatellitesUsed)
 	}
+
 	if pos.HDOP != 1.2 {
 		t.Errorf("Expected HDOP 1.2, got %f", pos.HDOP)
 	}

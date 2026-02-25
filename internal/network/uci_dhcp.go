@@ -22,7 +22,7 @@ const (
 // UCIDnsmasq represents the dnsmasq global configuration section.
 type UCIDnsmasq struct {
 	DomainNeeded    string `uci:"option domainneeded"`
-	LocaliseQueries string `uci:"option localise_queries"`
+	LocaliseQueries string `uci:"option localize_queries"`
 	RebindLocalhost string `uci:"option rebind_localhost"`
 	Local           string `uci:"option local"`
 	Domain          string `uci:"option domain"`
@@ -116,33 +116,43 @@ func GetDnsmasqConfigWithReader(reader DHCPConfigReader) (*UCIDnsmasq, error) {
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "domainneeded"); ok && len(values) > 0 {
 		config.DomainNeeded = values[0]
 	}
-	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "localise_queries"); ok && len(values) > 0 {
+
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "localize_queries"); ok && len(values) > 0 {
 		config.LocaliseQueries = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "rebind_localhost"); ok && len(values) > 0 {
 		config.RebindLocalhost = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "local"); ok && len(values) > 0 {
 		config.Local = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "domain"); ok && len(values) > 0 {
 		config.Domain = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "expandhosts"); ok && len(values) > 0 {
 		config.ExpandHosts = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "cachesize"); ok && len(values) > 0 {
 		config.CacheSize = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "authoritative"); ok && len(values) > 0 {
 		config.Authoritative = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "readethers"); ok && len(values) > 0 {
 		config.ReadEthers = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "localservice"); ok && len(values) > 0 {
 		config.LocalService = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "ednspacket_max"); ok && len(values) > 0 {
 		config.EdnsPacketMax = values[0]
 	}
@@ -162,27 +172,35 @@ func GetDHCPConfigWithReader(section string, reader DHCPConfigReader) (*UCIDHCP,
 	if values, ok := reader.Get(dhcpConfigName, section, "interface"); ok && len(values) > 0 {
 		config.Interface = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "start"); ok && len(values) > 0 {
 		config.Start = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "limit"); ok && len(values) > 0 {
 		config.Limit = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "leasetime"); ok && len(values) > 0 {
 		config.LeaseTime = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "ignore"); ok && len(values) > 0 {
 		config.Ignore = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "dhcp_option"); ok && len(values) > 0 {
 		config.DHCPOption = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "ra"); ok && len(values) > 0 {
 		config.Ra = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "ra_default"); ok && len(values) > 0 {
 		config.RaDefault = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "force"); ok && len(values) > 0 {
 		config.Force = values[0]
 	}
@@ -227,41 +245,49 @@ func SetDHCPConfigWithReader(section string, config *UCIDHCP, reader DHCPConfigR
 			return fmt.Errorf("failed to set interface: %w", err)
 		}
 	}
+
 	if config.Start != "" {
 		if err := reader.SetType(dhcpConfigName, section, "start", uci.TypeOption, config.Start); err != nil {
 			return fmt.Errorf("failed to set start: %w", err)
 		}
 	}
+
 	if config.Limit != "" {
 		if err := reader.SetType(dhcpConfigName, section, "limit", uci.TypeOption, config.Limit); err != nil {
 			return fmt.Errorf("failed to set limit: %w", err)
 		}
 	}
+
 	if config.LeaseTime != "" {
 		if err := reader.SetType(dhcpConfigName, section, "leasetime", uci.TypeOption, config.LeaseTime); err != nil {
 			return fmt.Errorf("failed to set leasetime: %w", err)
 		}
 	}
+
 	if config.Ignore != "" {
 		if err := reader.SetType(dhcpConfigName, section, "ignore", uci.TypeOption, config.Ignore); err != nil {
 			return fmt.Errorf("failed to set ignore: %w", err)
 		}
 	}
+
 	if config.DHCPOption != "" {
 		if err := reader.SetType(dhcpConfigName, section, "dhcp_option", uci.TypeOption, config.DHCPOption); err != nil {
 			return fmt.Errorf("failed to set dhcp_option: %w", err)
 		}
 	}
+
 	if config.Ra != "" {
 		if err := reader.SetType(dhcpConfigName, section, "ra", uci.TypeOption, config.Ra); err != nil {
 			return fmt.Errorf("failed to set ra: %w", err)
 		}
 	}
+
 	if config.RaDefault != "" {
 		if err := reader.SetType(dhcpConfigName, section, "ra_default", uci.TypeOption, config.RaDefault); err != nil {
 			return fmt.Errorf("failed to set ra_default: %w", err)
 		}
 	}
+
 	if config.Force != "" {
 		if err := reader.SetType(dhcpConfigName, section, "force", uci.TypeOption, config.Force); err != nil {
 			return fmt.Errorf("failed to set force: %w", err)
@@ -329,6 +355,7 @@ func DHCPSectionExistsWithReader(section string, reader DHCPConfigReader) bool {
 	// Try to get any option from the section to verify it exists
 	// We check for 'interface' as it's a common option in DHCP sections
 	_, exists := reader.Get(dhcpConfigName, section, "interface")
+
 	return exists
 }
 
@@ -422,6 +449,7 @@ func SetDHCPRangeWithReader(section, start, limit string, reader DHCPConfigReade
 	if _, err := strconv.Atoi(start); err != nil {
 		return fmt.Errorf("start must be a number: %w", err)
 	}
+
 	if _, err := strconv.Atoi(limit); err != nil {
 		return fmt.Errorf("limit must be a number: %w", err)
 	}
@@ -429,6 +457,7 @@ func SetDHCPRangeWithReader(section, start, limit string, reader DHCPConfigReade
 	if err := reader.SetType(dhcpConfigName, section, "start", uci.TypeOption, start); err != nil {
 		return fmt.Errorf("failed to set start: %w", err)
 	}
+
 	if err := reader.SetType(dhcpConfigName, section, "limit", uci.TypeOption, limit); err != nil {
 		return fmt.Errorf("failed to set limit: %w", err)
 	}
@@ -507,6 +536,7 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 	if ip == nil {
 		return 0, fmt.Errorf("invalid network address: %s", networkAddr)
 	}
+
 	ip = ip.To4()
 	if ip == nil {
 		return 0, fmt.Errorf("network address must be IPv4: %s", networkAddr)
@@ -516,6 +546,7 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 	if mask == nil {
 		return 0, fmt.Errorf("invalid subnet mask: %s", subnetMask)
 	}
+
 	mask = mask.To4()
 	if mask == nil {
 		return 0, fmt.Errorf("subnet mask must be IPv4: %s", subnetMask)
@@ -527,6 +558,7 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 	if bits != 32 {
 		return 0, fmt.Errorf("invalid subnet mask")
 	}
+
 	networkSize := (1 << uint(bits-ones)) - 2 // Subtract network and broadcast addresses
 
 	if networkSize <= 0 {
@@ -535,8 +567,8 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 
 	// Collect existing DHCP ranges from records
 	var existingRanges []DHCPRange
-	for _, node := range nodes {
 
+	for _, node := range nodes {
 		// Ensure we have valid DHCP start and limit
 		if !node.UciDhcpStart.Valid || !node.UciDhcpLimit.Valid {
 			continue
@@ -568,12 +600,14 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 		if start < 1 || start+desiredLimit-1 > networkSize {
 			return false
 		}
+
 		proposedEnd := start + desiredLimit - 1
 		for _, existing := range existingRanges {
 			if rangesOverlap(start, proposedEnd, existing.Start, existing.End) {
 				return false
 			}
 		}
+
 		return true
 	}
 
@@ -591,11 +625,13 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 
 		// Move past any conflicting range
 		moved := false
+
 		proposedEnd := candidate + desiredLimit - 1
 		for _, existing := range existingRanges {
 			if rangesOverlap(candidate, proposedEnd, existing.Start, existing.End) {
 				candidate = existing.End + 1
 				moved = true
+
 				break
 			}
 		}
@@ -614,11 +650,13 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 
 		// Move past any conflicting range
 		moved := false
+
 		proposedEnd := candidate + desiredLimit - 1
 		for _, existing := range existingRanges {
 			if rangesOverlap(candidate, proposedEnd, existing.Start, existing.End) {
 				candidate = existing.End + 1
 				moved = true
+
 				break
 			}
 		}
@@ -691,6 +729,7 @@ func (r *DHCPLeasesResponse) GetAllLeases() []DHCPLease {
 	all := make([]DHCPLease, 0, len(r.DHCPLeases)+len(r.DHCP6Leases))
 	all = append(all, r.DHCPLeases...)
 	all = append(all, r.DHCP6Leases...)
+
 	return all
 }
 
@@ -705,6 +744,7 @@ type DefaultUbusExecutor struct{}
 // Execute runs the ubus command with the given arguments.
 func (e *DefaultUbusExecutor) Execute(args ...string) ([]byte, error) {
 	cmd := exec.Command("ubus", args...)
+
 	return cmd.Output()
 }
 

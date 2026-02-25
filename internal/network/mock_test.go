@@ -36,8 +36,10 @@ func TestMockConfigReader_AnonymousSections(t *testing.T) {
 	for i, expected := range expectedSections {
 		if i >= len(sections) {
 			t.Errorf("Missing section %s", expected)
+
 			continue
 		}
+
 		if sections[i] != expected {
 			t.Errorf("Expected section[%d] to be %q, got %q", i, expected, sections[i])
 		}

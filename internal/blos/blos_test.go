@@ -65,6 +65,7 @@ func TestBLOSWithStatusWorker(t *testing.T) {
 	var testKey key.NodePublic
 	for k := range mockStatus.Peer {
 		testKey = k
+
 		break
 	}
 
@@ -72,6 +73,7 @@ func TestBLOSWithStatusWorker(t *testing.T) {
 	if !ok {
 		t.Error("Expected to find peer")
 	}
+
 	if peer == nil {
 		t.Error("Expected peer to be non-nil")
 	}
@@ -109,6 +111,7 @@ func TestBLOSGetPeersWhenWorkerIsNil(t *testing.T) {
 	}
 
 	var testKey key.NodePublic
+
 	_, ok := r.GetPeer(testKey)
 	if ok {
 		t.Error("Expected GetPeer to return false when worker is nil")
@@ -148,6 +151,7 @@ func TestBLOSStatusWorkerInterval(t *testing.T) {
 			if tt.configInterval > 0 {
 				v.Set("BLOS.statusWorkerInterval", tt.configInterval)
 			}
+
 			cfg := config.New(v)
 			logger := zerolog.Nop()
 
@@ -185,6 +189,7 @@ func TestBLOSConcurrentAccess(t *testing.T) {
 	interval := time.Duration(cfg.GetBLOSStatusWorkerInterval()) * time.Second
 	r.statusWorker = NewStatusWorker(mockClient, interval, logger)
 	r.statusWorker.Start()
+
 	defer r.Stop()
 
 	// Wait for initial fetch
@@ -192,12 +197,14 @@ func TestBLOSConcurrentAccess(t *testing.T) {
 
 	// Spawn multiple goroutines accessing peer data
 	done := make(chan bool)
+
 	for i := 0; i < 10; i++ {
 		go func() {
 			for j := 0; j < 100; j++ {
 				_ = r.GetPeers()
 				_ = r.GetStatus()
 			}
+
 			done <- true
 		}()
 	}
@@ -206,6 +213,5 @@ func TestBLOSConcurrentAccess(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		<-done
 	}
-
 	// If we get here without panic, the test passes
 }

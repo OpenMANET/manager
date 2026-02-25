@@ -47,6 +47,7 @@ func TestWrapAndUnwrapRTP(t *testing.T) {
 	if !ok {
 		t.Fatal("unwrapRTP returned ok=false on a valid RTP packet")
 	}
+
 	if string(got) != string(payload) {
 		t.Errorf("unwrapped payload: got %v, want %v", got, payload)
 	}
@@ -62,6 +63,7 @@ func TestUnwrapRTP_TooShort(t *testing.T) {
 func TestUnwrapRTP_NotRTP(t *testing.T) {
 	pkt := make([]byte, rtpHeaderSize+4)
 	pkt[0] = 0x40 // not 0x80 or 0x81
+
 	_, ok := unwrapRTP(pkt)
 	if ok {
 		t.Error("expected ok=false for non-RTP first byte")
@@ -74,13 +76,16 @@ func TestParseRTPHeader(t *testing.T) {
 	payload := []byte{0xaa, 0xbb}
 
 	wrapped := ptt.wrapRTP(payload, rt)
+
 	seq, _, ssrc, ok := parseRTPHeader(wrapped)
 	if !ok {
 		t.Fatal("parseRTPHeader returned ok=false")
 	}
+
 	if seq != 7 {
 		t.Errorf("seq: got %d, want 7", seq)
 	}
+
 	if ssrc != 0x12345678 {
 		t.Errorf("ssrc: got 0x%08x, want 0x12345678", ssrc)
 	}
@@ -101,6 +106,7 @@ func TestRtpSSRCFromID(t *testing.T) {
 	if a == b {
 		t.Error("different IDs should produce different SSRCs")
 	}
+
 	if a != same {
 		t.Error("same ID should produce same SSRC")
 	}

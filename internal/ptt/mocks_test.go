@@ -20,30 +20,45 @@ type mockStream struct {
 	closeCalls int
 }
 
-func (m *mockStream) Start() error { m.startCalls++; return m.startErr }
-func (m *mockStream) Stop() error  { m.stopCalls++; return m.stopErr }
-func (m *mockStream) Close() error { m.closeCalls++; return m.closeErr }
+func (m *mockStream) Start() error {
+	m.startCalls++
+
+	return m.startErr
+}
+func (m *mockStream) Stop() error {
+	m.stopCalls++
+
+	return m.stopErr
+}
+func (m *mockStream) Close() error {
+	m.closeCalls++
+
+	return m.closeErr
+}
 
 // ─── Mock AudioDecoder ────────────────────────────────────────────────────────
 
 // mockDecoder satisfies AudioDecoder.  It fills pcm with a fixed repeating value.
 type mockDecoder struct {
 	decodeErr error
+	returnN   int
 	fillValue int16
-	returnN   int  // when >0 OR forceN is set, overrides returned sample count
-	forceN    bool // when true, returnN is used even when 0
+	forceN    bool
 }
 
 func (m *mockDecoder) Decode(data []byte, pcm []int16) (int, error) {
 	if m.decodeErr != nil {
 		return 0, m.decodeErr
 	}
+
 	for i := range pcm {
 		pcm[i] = m.fillValue
 	}
+
 	if m.returnN > 0 || m.forceN {
 		return m.returnN, nil
 	}
+
 	return len(pcm), nil
 }
 
@@ -60,14 +75,18 @@ type mockEncoder struct {
 func (m *mockEncoder) Encode(pcm []int16, data []byte) (int, error) {
 	m.lastPCM = make([]int16, len(pcm))
 	copy(m.lastPCM, pcm)
+
 	if m.encodeErr != nil {
 		return 0, m.encodeErr
 	}
+
 	payload := m.cannedBytes
 	if payload == nil {
 		payload = []byte{0xde, 0xad, 0xbe, 0xef}
 	}
+
 	n := copy(data, payload)
+
 	return n, nil
 }
 
@@ -83,26 +102,28 @@ func (m *mockWriter) Write(b []byte) (int, error) {
 	if m.writeErr != nil {
 		return 0, m.writeErr
 	}
+
 	cp := make([]byte, len(b))
 	copy(cp, b)
 	m.Packets = append(m.Packets, cp)
+
 	return len(b), nil
 }
 
 // ─── Mock PacketReader ────────────────────────────────────────────────────────
 
 type mockPacket struct {
-	data []byte
 	src  *net.UDPAddr
+	data []byte
 }
 
 // mockReader satisfies PacketReader.  Pre-loaded packets are returned one per
 // call; when the queue is empty it blocks until Close is called.
 type mockReader struct {
-	mu      sync.Mutex
-	packets []mockPacket
 	closed  chan struct{}
+	packets []mockPacket
 	once    sync.Once
+	mu      sync.Mutex
 }
 
 func newMockReader(pkts ...mockPacket) *mockReader {
@@ -120,6 +141,7 @@ func (m *mockReader) ReadFromUDP(b []byte) (int, *net.UDPAddr, error) {
 			m.packets = m.packets[1:]
 			n := copy(b, pkt.data)
 			m.mu.Unlock()
+
 			return n, pkt.src, nil
 		}
 		m.mu.Unlock()
@@ -134,6 +156,7 @@ func (m *mockReader) ReadFromUDP(b []byte) (int, *net.UDPAddr, error) {
 
 func (m *mockReader) Close() error {
 	m.once.Do(func() { close(m.closed) })
+
 	return nil
 }
 

@@ -12,8 +12,8 @@ const (
 )
 
 type wirelessSection struct {
-	typ     string
 	options map[string]string
+	typ     string
 }
 
 // GetWirelessMeshPassphrase returns the first enabled mesh interface passphrase
@@ -55,6 +55,7 @@ func GetWirelessMeshPassphraseFromPath(path string) (string, error) {
 		key := strings.TrimSpace(section.options["key"])
 		if key == "" {
 			meshMissingK = true
+
 			return "", false
 		}
 
@@ -77,6 +78,7 @@ func GetWirelessMeshPassphraseFromPath(path string) (string, error) {
 				typ:     typ,
 				options: map[string]string{},
 			}
+
 			continue
 		}
 
@@ -115,6 +117,7 @@ func parseUCIConfigLine(line string) (string, string, bool) {
 	}
 
 	typ := trimUCIValue(fields[1])
+
 	name := ""
 	if len(fields) > 2 {
 		name = trimUCIValue(fields[2])
@@ -151,6 +154,7 @@ func parseUCIOptionLine(line string) (string, string, bool) {
 	}
 
 	value := trimUCIValue(strings.TrimSpace(rest[spaceIdx+1:]))
+
 	return name, value, true
 }
 
@@ -162,6 +166,7 @@ func trimUCIValue(v string) string {
 
 	first := v[0]
 	last := v[len(v)-1]
+
 	if (first == '\'' && last == '\'') || (first == '"' && last == '"') {
 		return v[1 : len(v)-1]
 	}

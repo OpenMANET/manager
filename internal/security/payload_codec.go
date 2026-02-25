@@ -41,11 +41,10 @@ type replayEntry struct {
 // the mesh passphrase.
 type PayloadCodec struct {
 	aead         cipher.AEAD
-	replayWindow time.Duration
 	now          func() time.Time
-
-	mu   sync.Mutex
-	seen map[string]replayEntry
+	seen         map[string]replayEntry
+	replayWindow time.Duration
+	mu           sync.Mutex
 }
 
 // NewPayloadCodecFromPassphrase creates a payload codec from the mesh
@@ -63,6 +62,7 @@ func newPayloadCodecFromPassphrase(passphrase string, nowFn func() time.Time) (*
 	// Derive a key from the mesh passphrase with domain separation for
 	// OpenMANET Alfred payload protection.
 	key := argon2.IDKey([]byte(passphrase), []byte("openmanetd-alfred-aead-v1"), 1, 64*1024, 4, chacha20poly1305.KeySize)
+
 	aead, err := chacha20poly1305.NewX(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize payload AEAD: %w", err)
@@ -109,23 +109,27 @@ func (c *PayloadCodec) Decrypt(dataType uint8, source net.HardwareAddr, encrypte
 	ts := int64(binary.BigEndian.Uint64(encrypted[1:9]))
 	msgTime := time.Unix(ts, 0)
 	now := c.now()
+
 	if msgTime.Before(now.Add(-c.replayWindow)) || msgTime.After(now.Add(c.replayWindow)) {
 		return nil, ErrPayloadExpired
 	}
 
 	nonce := encrypted[9:envelopeHeaderSize]
+
 	key := replayKey(source, nonce)
 	if c.isReplay(key, now) {
 		return nil, ErrReplayDetected
 	}
 
 	aad := buildAAD(dataType, ts)
+
 	plaintext, err := c.aead.Open(nil, nonce, encrypted[envelopeHeaderSize:], aad)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt payload: %w", err)
 	}
 
 	c.markSeen(key, now)
+
 	return plaintext, nil
 }
 
@@ -135,6 +139,7 @@ func (c *PayloadCodec) isReplay(key string, now time.Time) bool {
 
 	c.pruneSeen(now)
 	_, exists := c.seen[key]
+
 	return exists
 }
 
@@ -162,9 +167,11 @@ func replayKey(source net.HardwareAddr, nonce []byte) string {
 	}
 
 	var b strings.Builder
+
 	b.WriteString(sourceID)
 	b.WriteByte(':')
 	b.WriteString(hex.EncodeToString(nonce))
+
 	return b.String()
 }
 
@@ -173,5 +180,6 @@ func buildAAD(dataType uint8, timestamp int64) []byte {
 	aad[0] = envelopeVersion
 	aad[1] = dataType
 	binary.BigEndian.PutUint64(aad[2:], uint64(timestamp))
+
 	return aad
 }

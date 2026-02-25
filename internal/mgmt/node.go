@@ -51,19 +51,23 @@ func (ndw *NodeDataWorker) StartSend() {
 			configured, err := network.IsDHCPConfiguredWithReader(ndw.Config.uciOpenMANETConfig)
 			if err != nil {
 				ndw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
+
 				continue
 			}
 
 			if !configured {
 				ndw.Config.Log.Debug().Msg("Static Address & DHCP not configured, skipping node data send")
+
 				continue
 			}
 
 			// Get interface information
 			iface := network.GetInterfaceByName(ndw.Config.IFace)
+
 			hostname, err := os.Hostname()
 			if err != nil {
 				ndw.Config.Log.Error().Err(err).Msg("Error getting hostname")
+
 				hostname = "unknown"
 			}
 
@@ -77,6 +81,7 @@ func (ndw *NodeDataWorker) StartSend() {
 			dhcp, err := network.GetDHCPConfigWithReader(normalizedIface, ndw.Config.uciDHCPConfig)
 			if err != nil {
 				ndw.Config.Log.Error().Err(err).Msg("Error getting DHCP configuration")
+
 				continue
 			}
 
@@ -114,15 +119,18 @@ func (ndw *NodeDataWorker) StartSend() {
 			}
 
 			var nodeDataBytes []byte
+
 			nodeDataBytes, err = nodeData.MarshalVT()
 			if err != nil {
 				ndw.Config.Log.Error().Err(err).Msg("Error marshaling node data")
+
 				continue
 			}
 
 			encryptedPayload, err := ndw.Config.payloadCodec.Encrypt(NodeDataType, nodeDataBytes)
 			if err != nil {
 				ndw.Config.Log.Error().Err(err).Msg("Error encrypting node data")
+
 				continue
 			}
 
@@ -147,11 +155,13 @@ func (ndw *NodeDataWorker) StartReceive() {
 			record, err := ndw.Client.Request(NodeDataType)
 			if err != nil {
 				ndw.Config.Log.Error().Err(err).Msg("Error receiving node data")
+
 				continue
 			}
 
 			for _, rec := range record {
 				decodedPayload := rec.Data
+
 				switch rec.Version {
 				case NodeDataTypeVersion:
 					decodedPayload, err = ndw.Config.payloadCodec.Decrypt(NodeDataType, rec.Source, rec.Data)
@@ -160,6 +170,7 @@ func (ndw *NodeDataWorker) StartReceive() {
 							Err(err).
 							Str("source", rec.Source.String()).
 							Msg("Dropping node data payload that failed authentication/decryption")
+
 						continue
 					}
 				case legacyNodeDataTypeVersion:
@@ -171,13 +182,16 @@ func (ndw *NodeDataWorker) StartReceive() {
 						Uint8("version", rec.Version).
 						Str("source", rec.Source.String()).
 						Msg("Dropping node data payload with unsupported version")
+
 					continue
 				}
 
 				var nodeData proto.Node
+
 				err = nodeData.UnmarshalVT(decodedPayload)
 				if err != nil {
 					ndw.Config.Log.Error().Err(err).Msg("Error unmarshaling node data")
+
 					continue
 				}
 
@@ -217,14 +231,17 @@ func (ndw *NodeDataWorker) StartReceive() {
 //     even if database insertion fails
 func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error {
 	var dhcpStart, dhcpLimit sql.NullInt64
-	var ctx context.Context = context.Background()
+
+	var ctx = context.Background()
 
 	if nodeData.UciDhcpStart != "" {
 		start, err := strconv.ParseInt(nodeData.UciDhcpStart, 10, 64)
 		if err != nil {
 			ndw.Config.Log.Error().Err(err).Msg("Error parsing UciDhcpStart")
+
 			return err
 		}
+
 		dhcpStart = sql.NullInt64{Int64: start, Valid: true}
 	}
 
@@ -232,8 +249,10 @@ func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error {
 		limit, err := strconv.ParseInt(nodeData.UciDhcpLimit, 10, 64)
 		if err != nil {
 			ndw.Config.Log.Error().Err(err).Msg("Error parsing UciDhcpLimit")
+
 			return err
 		}
+
 		dhcpLimit = sql.NullInt64{Int64: limit, Valid: true}
 	}
 
@@ -248,7 +267,6 @@ func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error {
 		UciDhcpStart: dhcpStart,
 		UciDhcpLimit: dhcpLimit,
 	})
-
 	if err != nil {
 		ndw.Config.Log.Error().Err(err).Msg("Error inserting node data into database")
 	}

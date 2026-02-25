@@ -185,6 +185,7 @@ func TestGetMulticastGroupAddressesNoDuplicates(t *testing.T) {
 		if seen[addr] {
 			t.Errorf("duplicate address found: %s", addr)
 		}
+
 		seen[addr] = true
 	}
 }

@@ -205,6 +205,7 @@ func GetRoutes(table int) ([]*Route, error) {
 	}
 
 	routes := make([]*Route, 0, len(nlRoutes))
+
 	for _, nlRoute := range nlRoutes {
 		link, err := netlink.LinkByIndex(nlRoute.LinkIndex)
 		if err != nil {
@@ -251,6 +252,7 @@ func GetAllRoutes() ([]*Route, error) {
 	}
 
 	routes := make([]*Route, 0, len(nlRoutes))
+
 	for _, nlRoute := range nlRoutes {
 		link, err := netlink.LinkByIndex(nlRoute.LinkIndex)
 		if err != nil {
@@ -303,6 +305,7 @@ func GetDefaultRoute() (*Route, error) {
 	}
 
 	var defaultRoute *Route
+
 	lowestMetric := -1
 
 	// Define the default route destination (0.0.0.0/0)
@@ -591,6 +594,7 @@ func GetRouteToDestination(destination net.IP) (*Route, error) {
 	}
 
 	r := nlRoute[0]
+
 	link, err := netlink.LinkByIndex(r.LinkIndex)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get interface for route: %w", err)
@@ -679,6 +683,7 @@ func routesMatch(r1, r2 *Route) bool {
 	if (r1.Destination == nil) != (r2.Destination == nil) {
 		return false
 	}
+
 	if r1.Destination != nil && r2.Destination != nil {
 		if !r1.Destination.IP.Equal(r2.Destination.IP) ||
 			r1.Destination.Mask.String() != r2.Destination.Mask.String() {
@@ -690,6 +695,7 @@ func routesMatch(r1, r2 *Route) bool {
 	if (r1.Gateway == nil) != (r2.Gateway == nil) {
 		return false
 	}
+
 	if r1.Gateway != nil && r2.Gateway != nil && !r1.Gateway.Equal(r2.Gateway) {
 		return false
 	}
@@ -832,6 +838,7 @@ func GetRoutesForInterface(iface string) ([]*Route, error) {
 	}
 
 	routes := make([]*Route, 0, len(nlRoutes))
+
 	for _, nlRoute := range nlRoutes {
 		route := &Route{
 			Destination: nlRoute.Dst,

@@ -32,12 +32,14 @@ func newMockGPSDServer(t *testing.T) *mockGPSDServer {
 
 func (m *mockGPSDServer) Start() {
 	close(m.started)
+
 	go func() {
 		for {
 			conn, err := m.listener.Accept()
 			if err != nil {
 				return
 			}
+
 			go m.handleConnection(conn)
 		}
 	}()
@@ -48,6 +50,7 @@ func (m *mockGPSDServer) handleConnection(conn net.Conn) {
 
 	// Read the watch command
 	buf := make([]byte, 1024)
+
 	_, err := conn.Read(buf)
 	if err != nil {
 		return
@@ -59,6 +62,7 @@ func (m *mockGPSDServer) handleConnection(conn net.Conn) {
 		if err != nil {
 			return
 		}
+
 		time.Sleep(10 * time.Millisecond)
 	}
 
@@ -118,6 +122,7 @@ func verifyNMEAChecksum(nmea string) bool {
 	expectedChecksum := calculateNMEAChecksum(sentence)
 
 	var actualChecksum byte
+
 	fmt.Sscanf(parts[1], "%02X", &actualChecksum)
 
 	return expectedChecksum == actualChecksum

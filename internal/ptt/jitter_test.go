@@ -25,9 +25,11 @@ func TestJitterBuffer_PushAndPop_InOrder(t *testing.T) {
 		if skipped {
 			t.Fatalf("frame %d: unexpected skip", i)
 		}
+
 		if !ready {
 			t.Fatalf("frame %d: expected ready=true", i)
 		}
+
 		if string(got) != string(want) {
 			t.Errorf("frame %d: got %v, want %v", i, got, want)
 		}
@@ -72,6 +74,7 @@ func TestJitterBuffer_DuplicateDropped(t *testing.T) {
 	jb := newRTPJitterBuffer(1, 24)
 
 	jb.push(0, []byte{0x01})
+
 	if jb.push(0, []byte{0x01}) {
 		t.Error("expected duplicate packet to be rejected")
 	}

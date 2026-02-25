@@ -22,6 +22,7 @@ func (r *BLOS) createVXMulticastPeers() error {
 
 	// Collect peers that need to be created
 	peersToCreate := []network.UCIVXLANPeer{}
+
 	for _, addr := range config.GetMulticastGroupAddresses() {
 		if !network.VXLANPeerExistsByDst(addr) {
 			peersToCreate = append(peersToCreate, network.UCIVXLANPeer{
@@ -35,6 +36,7 @@ func (r *BLOS) createVXMulticastPeers() error {
 	// If no peers need to be created, return early
 	if len(peersToCreate) == 0 {
 		r.Logger.Debug().Msg("All multicast peers already exist")
+
 		return nil
 	}
 
@@ -44,6 +46,7 @@ func (r *BLOS) createVXMulticastPeers() error {
 			Err(err).
 			Int("count", len(peersToCreate)).
 			Msg("Failed to batch create VXLAN multicast peers")
+
 		return err
 	}
 
@@ -100,6 +103,7 @@ func (r *BLOS) syncVXLANPeersWithTailscale() error {
 	tailscalePeers := r.GetPeers()
 	if tailscalePeers == nil {
 		r.Logger.Debug().Msg("No Tailscale peers available")
+
 		return nil
 	}
 
@@ -109,6 +113,7 @@ func (r *BLOS) syncVXLANPeersWithTailscale() error {
 	for _, peer := range tailscalePeers {
 		if len(peer.TailscaleIPs) == 0 {
 			r.Logger.Debug().Str("peer", peer.HostName).Msg("Peer has no Tailscale IPs")
+
 			continue
 		}
 
@@ -122,6 +127,7 @@ func (r *BLOS) syncVXLANPeersWithTailscale() error {
 
 	if !hasChanges {
 		r.Logger.Debug().Msg("No changes in Tailscale peers, skipping VXLAN sync")
+
 		return nil
 	}
 
@@ -136,6 +142,7 @@ func (r *BLOS) syncVXLANPeersWithTailscale() error {
 				Err(err).
 				Str("ip", peerIP).
 				Msg("Failed to create/update VXLAN peer")
+
 			return err
 		}
 	}
@@ -155,6 +162,7 @@ func (r *BLOS) syncVXLANPeersWithTailscale() error {
 		r.Logger.Error().
 			Err(err).
 			Msgf("Failed to bring up interface %s after syncing peers", defaultVxLanDeviceName)
+
 		return err
 	}
 
@@ -205,6 +213,7 @@ func (r *BLOS) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
 		r.Logger.Error().
 			Err(err).
 			Msg("Failed to get all VXLAN peers")
+
 		return err
 	}
 
@@ -231,6 +240,7 @@ func (r *BLOS) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
 				Err(err).
 				Str("dst", peer.Dst).
 				Msg("Failed to remove inactive VXLAN peer")
+
 			return err
 		}
 	}

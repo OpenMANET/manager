@@ -21,9 +21,11 @@ func newTestRuntime(stream AudioStream) *PTTRuntime {
 	for i := range rt.beepBufferStart {
 		rt.beepBufferStart[i] = 0.5
 	}
+
 	for i := range rt.beepBufferStop {
 		rt.beepBufferStop[i] = -0.5
 	}
+
 	return rt
 }
 
@@ -37,6 +39,7 @@ func newSilentPTT() *PTTConfig {
 func TestIsBroadcasting_FalseByDefault(t *testing.T) {
 	rt := newTestRuntime(&mockStream{})
 	ptt := newSilentPTT()
+
 	if ptt.isBroadcasting(rt) {
 		t.Error("expected isBroadcasting=false on a fresh runtime")
 	}
@@ -49,9 +52,11 @@ func TestDrainPlaybackBuffer(t *testing.T) {
 	ptt := newSilentPTT()
 
 	rt.playbackBuffer <- make([]float32, 32)
+
 	rt.playbackBuffer <- make([]float32, 32)
 
 	ptt.drainPlaybackBuffer(rt)
+
 	if len(rt.playbackBuffer) != 0 {
 		t.Errorf("expected empty buffer; got depth %d", len(rt.playbackBuffer))
 	}
@@ -65,11 +70,13 @@ func TestBeginTransmission_StartsStream(t *testing.T) {
 	ptt := newSilentPTT()
 
 	go ptt.beginTransmission(rt) // runs in goroutine due to sleep
+
 	time.Sleep(400 * time.Millisecond)
 
 	if ms.startCalls == 0 {
 		t.Error("expected broadcastStream.Start() to be called")
 	}
+
 	if !ptt.isBroadcasting(rt) {
 		t.Error("expected isBroadcasting=true after beginTransmission")
 	}
@@ -81,8 +88,11 @@ func TestBeginTransmission_Idempotent(t *testing.T) {
 	ptt := newSilentPTT()
 
 	go ptt.beginTransmission(rt)
+
 	time.Sleep(400 * time.Millisecond)
+
 	go ptt.beginTransmission(rt) // second call should be a no-op
+
 	time.Sleep(50 * time.Millisecond)
 
 	if ms.startCalls != 1 {
@@ -113,6 +123,7 @@ func TestEndTransmission_StopsStream(t *testing.T) {
 
 	// Start first.
 	go ptt.beginTransmission(rt)
+
 	time.Sleep(400 * time.Millisecond)
 
 	ptt.endTransmission(rt)
@@ -120,6 +131,7 @@ func TestEndTransmission_StopsStream(t *testing.T) {
 	if ms.stopCalls == 0 {
 		t.Error("expected broadcastStream.Stop() to be called")
 	}
+
 	if ptt.isBroadcasting(rt) {
 		t.Error("expected isBroadcasting=false after endTransmission")
 	}
@@ -131,6 +143,7 @@ func TestEndTransmission_PlaysStopBeep(t *testing.T) {
 	ptt := newSilentPTT()
 
 	go ptt.beginTransmission(rt)
+
 	time.Sleep(400 * time.Millisecond)
 
 	// Drain the start beep first.
@@ -167,15 +180,18 @@ func TestBeginTransmission_UsesReopenWhenStreamNil(t *testing.T) {
 	rt.reopenBroadcast = func() error {
 		reopenCalled = true
 		rt.broadcastStream = ms
+
 		return nil
 	}
 
 	go ptt.beginTransmission(rt)
+
 	time.Sleep(400 * time.Millisecond)
 
 	if !reopenCalled {
 		t.Error("expected reopenBroadcast to be called when stream is nil")
 	}
+
 	if ms.startCalls == 0 {
 		t.Error("expected Start() to be called after reopen")
 	}
@@ -191,15 +207,18 @@ func TestBeginTransmission_StreamStartError_ReopensSuccessfully(t *testing.T) {
 
 	rt.reopenBroadcast = func() error {
 		rt.broadcastStream = goodStream
+
 		return nil
 	}
 
 	go ptt.beginTransmission(rt)
+
 	time.Sleep(400 * time.Millisecond)
 
 	if goodStream.startCalls == 0 {
 		t.Error("expected new stream Start() to be called after successful reopen")
 	}
+
 	if !ptt.isBroadcasting(rt) {
 		t.Error("expected broadcasting=true after reopen succeeds and new Start() succeeds")
 	}
@@ -215,6 +234,7 @@ func TestBeginTransmission_StreamStartError_ReopenFails(t *testing.T) {
 	}
 
 	go ptt.beginTransmission(rt)
+
 	time.Sleep(400 * time.Millisecond)
 
 	if ptt.isBroadcasting(rt) {
@@ -231,10 +251,12 @@ func TestBeginTransmission_StreamStartError_SecondStartFails(t *testing.T) {
 
 	rt.reopenBroadcast = func() error {
 		rt.broadcastStream = alsoFailStream
+
 		return nil
 	}
 
 	go ptt.beginTransmission(rt)
+
 	time.Sleep(400 * time.Millisecond)
 
 	if ptt.isBroadcasting(rt) {

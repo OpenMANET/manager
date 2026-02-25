@@ -19,12 +19,14 @@ func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*s
 	var (
 		protoNeighbors []*serviceproto.MeshNeighbor
 	)
+
 	m.Log.Debug().Msg("ListMeshNeighbors Request Received")
 
 	// Get batman-adv hosts file
 	batHosts, err := batmanadv.ParseBatHostsFile(batmanadv.BatHostsFilePath)
 	if err != nil {
 		m.Log.Error().Err(err).Msg("Failed to parse batman-adv hosts file")
+
 		return nil, err
 	}
 
@@ -40,6 +42,7 @@ func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*s
 	meshInterfaces, err := m.Wifi.GetMeshInterfaces()
 	if err != nil {
 		m.Log.Error().Err(err).Msg("Failed to list mesh neighbors")
+
 		return nil, err
 	}
 
@@ -48,6 +51,7 @@ func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*s
 		connectedStations, err := m.Wifi.StationInfo(meshInterface)
 		if err != nil {
 			m.Log.Error().Err(err).Msgf("Failed to get station info for interface: %s", meshInterface.Name)
+
 			return nil, err
 		}
 

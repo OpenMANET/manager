@@ -48,34 +48,34 @@ const (
 // Config holds the application configuration values with automatic reloading support.
 type Config struct {
 	v                           *viper.Viper
-	MeshNetInterface            string
-	DBFile                      string
+	PTTProtocol                 string
+	PTTPttDevice                string
 	AlfredMode                  string
 	AlfredBatInterface          string
 	AlfredSocketPath            string
-	AlfredEnable                bool
-	PTTMcastAddr                string
-	PTTProtocol                 string
+	MeshNetInterface            string
+	DBFile                      string
 	PTTRtpID                    string
+	PTTMcastAddr                string
 	PTTPttKey                   string
-	PTTPttDevice                string
+	PTTOutputDevice             string
 	PTTPttDeviceName            string
 	PTTControlSource            string
 	PTTAudioDeviceHint          string
 	PTTInputDevice              string
-	PTTOutputDevice             string
-	PTTPlaybackBuffer           int
 	onChangeCallbacks           []func(*Config)
-	PTTMcastPort                int
-	BLOSEnable                  bool
 	BLOSStatusWorkerInterval    int
+	PTTPlaybackBuffer           int
+	PTTMcastPort                int
 	mu                          sync.RWMutex
+	AlfredDataTypeNode          bool
+	PTTEnable                   bool
 	GatewayMode                 bool
 	AlfredDataTypeGateway       bool
-	AlfredDataTypeNode          bool
+	AlfredEnable                bool
 	AlfredDataTypePosition      bool
 	AlfredDataTypeAddressReserv bool
-	PTTEnable                   bool
+	BLOSEnable                  bool
 	PTTDebug                    bool
 	PTTLoopback                 bool
 	PTTTrace                    bool
@@ -324,6 +324,7 @@ func (c *Config) reload() {
 func (c *Config) OnConfigChange(callback func(*Config)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.onChangeCallbacks = append(c.onChangeCallbacks, callback)
 }
 
@@ -343,6 +344,7 @@ func (c *Config) notifyCallbacks() {
 func (c *Config) GetMeshNetInterface() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.MeshNetInterface
 }
 
@@ -350,6 +352,7 @@ func (c *Config) GetMeshNetInterface() string {
 func (c *Config) GetGatewayMode() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.GatewayMode
 }
 
@@ -357,6 +360,7 @@ func (c *Config) GetGatewayMode() bool {
 func (c *Config) GetDBFile() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.DBFile
 }
 
@@ -364,6 +368,7 @@ func (c *Config) GetDBFile() string {
 func (c *Config) GetResetDBOnStart() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.ResetDBOnStart
 }
 
@@ -371,6 +376,7 @@ func (c *Config) GetResetDBOnStart() bool {
 func (c *Config) GetAlfredMode() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.AlfredMode
 }
 
@@ -378,6 +384,7 @@ func (c *Config) GetAlfredMode() string {
 func (c *Config) GetAlfredBatInterface() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.AlfredBatInterface
 }
 
@@ -385,6 +392,7 @@ func (c *Config) GetAlfredBatInterface() string {
 func (c *Config) GetAlfredSocketPath() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.AlfredSocketPath
 }
 
@@ -392,6 +400,7 @@ func (c *Config) GetAlfredSocketPath() string {
 func (c *Config) GetAlfredEnable() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.AlfredEnable
 }
 
@@ -399,6 +408,7 @@ func (c *Config) GetAlfredEnable() bool {
 func (c *Config) GetAlfredDataTypeGateway() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.AlfredDataTypeGateway
 }
 
@@ -406,6 +416,7 @@ func (c *Config) GetAlfredDataTypeGateway() bool {
 func (c *Config) GetAlfredDataTypeNode() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.AlfredDataTypeNode
 }
 
@@ -413,6 +424,7 @@ func (c *Config) GetAlfredDataTypeNode() bool {
 func (c *Config) GetAlfredDataTypePosition() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.AlfredDataTypePosition
 }
 
@@ -420,6 +432,7 @@ func (c *Config) GetAlfredDataTypePosition() bool {
 func (c *Config) GetAlfredDataTypeAddressReservation() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.AlfredDataTypeAddressReserv
 }
 
@@ -427,6 +440,7 @@ func (c *Config) GetAlfredDataTypeAddressReservation() bool {
 func (c *Config) GetPTTEnable() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTEnable
 }
 
@@ -434,6 +448,7 @@ func (c *Config) GetPTTEnable() bool {
 func (c *Config) GetPTTMcastAddr() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTMcastAddr
 }
 
@@ -441,6 +456,7 @@ func (c *Config) GetPTTMcastAddr() string {
 func (c *Config) GetPTTMcastPort() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTMcastPort
 }
 
@@ -448,6 +464,7 @@ func (c *Config) GetPTTMcastPort() int {
 func (c *Config) GetPTTProtocol() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTProtocol
 }
 
@@ -455,6 +472,7 @@ func (c *Config) GetPTTProtocol() string {
 func (c *Config) GetPTTRtpID() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTRtpID
 }
 
@@ -462,6 +480,7 @@ func (c *Config) GetPTTRtpID() string {
 func (c *Config) GetPTTPttKey() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTPttKey
 }
 
@@ -469,6 +488,7 @@ func (c *Config) GetPTTPttKey() string {
 func (c *Config) GetPTTDebug() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTDebug
 }
 
@@ -476,6 +496,7 @@ func (c *Config) GetPTTDebug() bool {
 func (c *Config) GetPTTLoopback() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTLoopback
 }
 
@@ -483,6 +504,7 @@ func (c *Config) GetPTTLoopback() bool {
 func (c *Config) GetPTTTrace() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTTrace
 }
 
@@ -490,6 +512,7 @@ func (c *Config) GetPTTTrace() bool {
 func (c *Config) GetPTTPttDevice() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTPttDevice
 }
 
@@ -497,6 +520,7 @@ func (c *Config) GetPTTPttDevice() string {
 func (c *Config) GetPTTPttDeviceName() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTPttDeviceName
 }
 
@@ -504,6 +528,7 @@ func (c *Config) GetPTTPttDeviceName() string {
 func (c *Config) GetPTTControlSource() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTControlSource
 }
 
@@ -511,6 +536,7 @@ func (c *Config) GetPTTControlSource() string {
 func (c *Config) GetPTTAudioDeviceHint() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTAudioDeviceHint
 }
 
@@ -518,6 +544,7 @@ func (c *Config) GetPTTAudioDeviceHint() string {
 func (c *Config) GetPTTInputDevice() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTInputDevice
 }
 
@@ -525,6 +552,7 @@ func (c *Config) GetPTTInputDevice() string {
 func (c *Config) GetPTTOutputDevice() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTOutputDevice
 }
 
@@ -532,6 +560,7 @@ func (c *Config) GetPTTOutputDevice() string {
 func (c *Config) GetPTTPlaybackBuffer() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.PTTPlaybackBuffer
 }
 
@@ -539,6 +568,7 @@ func (c *Config) GetPTTPlaybackBuffer() int {
 func (c *Config) GetEnableGNSS() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.EnableGNSS
 }
 
@@ -546,6 +576,7 @@ func (c *Config) GetEnableGNSS() bool {
 func (c *Config) GetGNSSSendAsNMEA() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.GNSSSendAsNMEA
 }
 
@@ -553,6 +584,7 @@ func (c *Config) GetGNSSSendAsNMEA() bool {
 func (c *Config) GetGNSSSendAsCoT() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.GNSSSendAsCoT
 }
 
@@ -560,6 +592,7 @@ func (c *Config) GetGNSSSendAsCoT() bool {
 func (c *Config) BLOSEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.BLOSEnable
 }
 
@@ -567,5 +600,6 @@ func (c *Config) BLOSEnabled() bool {
 func (c *Config) GetBLOSStatusWorkerInterval() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.BLOSStatusWorkerInterval
 }

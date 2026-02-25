@@ -21,17 +21,19 @@ type StatusService struct {
 
 func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*serviceproto.ServiceStatusResponse, error) {
 	var (
-		meshConnected      bool  = false
-		isMeshGateway      bool  = false
+		meshConnected            = false
+		isMeshGateway            = false
 		connectedNeighbors int32 = 0
 		numMeshInterfaces  int32 = 0
 	)
+
 	s.Log.Debug().Msg("GetStatus Request Received")
 
 	// Get mesh wifi interfaces
 	meshInterfaces, err := s.Wifi.GetMeshInterfaces()
 	if err != nil {
 		s.Log.Error().Err(err).Msg("Failed to list mesh neighbors")
+
 		return nil, err
 	}
 
@@ -40,12 +42,14 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 		connectedStations, err := s.Wifi.StationInfo(meshInterface)
 		if err != nil {
 			s.Log.Error().Err(err).Msgf("Failed to get station info for interface: %s", meshInterface.Name)
+
 			return nil, err
 		}
 
 		if len(connectedStations) > 0 {
 			connectedNeighbors += int32(len(connectedStations))
 			meshConnected = true
+
 			break
 		}
 	}
@@ -55,6 +59,7 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 	meshCfg, err := batmanadv.GetMeshConfig(s.Cfg.GetAlfredBatInterface())
 	if err != nil {
 		s.Log.Error().Err(err).Msg("Error getting mesh config")
+
 		return nil, err
 	}
 

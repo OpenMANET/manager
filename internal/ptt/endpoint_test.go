@@ -16,13 +16,14 @@ import (
 // mockClosingWriter extends mockWriter with a Close method so the
 // "close old sender" code path in replaceNetwork can be exercised.
 type mockClosingWriter struct {
+	closeErr error
 	mockWriter
-	closeErr    error
 	closeCalled bool
 }
 
 func (m *mockClosingWriter) Close() error {
 	m.closeCalled = true
+
 	return m.closeErr
 }
 
@@ -31,8 +32,8 @@ func (m *mockClosingWriter) Close() error {
 // races reported by the race detector would be false positives about the mock
 // rather than about swappableSender itself.
 type safeMockWriter struct {
-	mu      sync.Mutex
 	Packets [][]byte
+	mu      sync.Mutex
 }
 
 func (s *safeMockWriter) Write(b []byte) (int, error) {
@@ -41,12 +42,14 @@ func (s *safeMockWriter) Write(b []byte) (int, error) {
 	s.mu.Lock()
 	s.Packets = append(s.Packets, cp)
 	s.mu.Unlock()
+
 	return len(b), nil
 }
 
 func (s *safeMockWriter) count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return len(s.Packets)
 }
 
@@ -66,12 +69,14 @@ func (t *trackingReader) Close() error {
 	t.mu.Lock()
 	t.closed = true
 	t.mu.Unlock()
+
 	return nil
 }
 
 func (t *trackingReader) wasClosed() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	return t.closed
 }
 
@@ -85,9 +90,11 @@ func TestSwappableSender_WriteDelegatesToImpl(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if n != 3 {
 		t.Fatalf("expected n=3; got %d", n)
 	}
+
 	if len(w.Packets) != 1 {
 		t.Fatalf("expected 1 packet captured; got %d", len(w.Packets))
 	}
@@ -125,6 +132,7 @@ func TestSwappableSender_AfterSwap_WritesGoToNewImpl(t *testing.T) {
 	if len(old.Packets) != 0 {
 		t.Error("expected no packets on old writer after swap")
 	}
+
 	if len(newW.Packets) != 1 {
 		t.Error("expected 1 packet on new writer after swap")
 	}
@@ -143,6 +151,7 @@ func TestSwappableSender_MultipleSwaps(t *testing.T) {
 	if len(w3.Packets) != 1 {
 		t.Error("expected write to reach the most-recent writer (w3)")
 	}
+
 	if len(w1.Packets)+len(w2.Packets) != 0 {
 		t.Error("expected no writes on w1 or w2 after double swap")
 	}
@@ -159,10 +168,13 @@ func TestSwappableSender_ConcurrentWrites(t *testing.T) {
 	)
 
 	const goroutines = 50
+
 	wg.Add(goroutines)
+
 	for i := 0; i < goroutines; i++ {
 		go func() {
 			defer wg.Done()
+
 			_, _ = s.Write([]byte{0x01})
 		}()
 	}
@@ -188,13 +200,16 @@ func TestSwappableReceiver_ReadDelegatesToImpl(t *testing.T) {
 	))
 
 	buf := make([]byte, 32)
+
 	n, src, err := r.ReadFromUDP(buf)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if n != 2 || buf[0] != 0xCA || buf[1] != 0xFE {
 		t.Errorf("unexpected read result: n=%d buf[0:2]=%v", n, buf[:2])
 	}
+
 	if src.IP.String() != "192.168.1.1" {
 		t.Errorf("unexpected src: %s", src.IP.String())
 	}
@@ -207,6 +222,7 @@ func TestSwappableReceiver_CloseDelegatesToImpl(t *testing.T) {
 	if err := r.Close(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !tr.wasClosed() {
 		t.Error("expected underlying reader to be closed")
 	}
@@ -231,13 +247,16 @@ func TestSwappableReceiver_AfterSwap_ReadsFromNewImpl(t *testing.T) {
 	r.swap(newReader)
 
 	buf := make([]byte, 4)
+
 	n, src, err := r.ReadFromUDP(buf)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if n != 1 || buf[0] != 0x02 {
 		t.Errorf("expected data from new reader (0x02); got n=%d buf[0]=%#x", n, buf[0])
 	}
+
 	if src.IP.String() != "2.2.2.2" {
 		t.Errorf("expected src 2.2.2.2; got %s", src.IP.String())
 	}
@@ -254,6 +273,7 @@ func TestSwappableReceiver_AfterSwap_CloseClosesNewImpl(t *testing.T) {
 	if !newTR.wasClosed() {
 		t.Error("expected new impl to be closed after swap+Close")
 	}
+
 	if old.wasClosed() {
 		t.Error("expected old impl NOT to be closed by the wrapper's Close() after swap")
 	}
@@ -269,6 +289,7 @@ func newReplaceNetworkRuntime(sender PacketWriter, receiver PacketReader) *PTTRu
 		receiver: newSwappableReceiver(receiver),
 	}
 	rt.localIP.Store("10.0.0.1")
+
 	return rt
 }
 
@@ -288,6 +309,7 @@ func TestReplaceNetwork_WritesGoToNewSender(t *testing.T) {
 	if len(newSender.Packets) != 1 {
 		t.Error("expected write to reach newSender after replaceNetwork")
 	}
+
 	if len(oldSender.Packets) != 0 {
 		t.Error("expected no writes on oldSender after replaceNetwork")
 	}
@@ -306,6 +328,7 @@ func TestReplaceNetwork_ReadsFromNewReceiver(t *testing.T) {
 
 	buf := make([]byte, 4)
 	n, src, _ := rt.receiver.ReadFromUDP(buf)
+
 	if n != 1 || buf[0] != 0x02 {
 		t.Errorf("expected read from new receiver (0x02 from 2.2.2.2); got n=%d buf[0]=%#x src=%s",
 			n, buf[0], src)
@@ -383,11 +406,15 @@ func TestReplaceNetwork_ConcurrentWritesDuringSwap(t *testing.T) {
 	ptt := &PTTConfig{Log: zerolog.Nop()}
 
 	var wg sync.WaitGroup
+
 	const goroutines = 40
+
 	wg.Add(goroutines)
+
 	for i := 0; i < goroutines; i++ {
 		go func() {
 			defer wg.Done()
+
 			_, _ = rt.sender.Write([]byte{0x01})
 		}()
 	}
@@ -414,10 +441,12 @@ func setActiveForTest(t *testing.T, cfg *PTTConfig) {
 func TestUpdateMulticastEndpoint_NotStarted_Error(t *testing.T) {
 	// activeConfig is nil (no Store called) — subsystem never started.
 	activeConfig.Store(nil)
+
 	err := UpdateMulticastEndpoint("224.0.0.2", 5008)
 	if err == nil {
 		t.Fatal("expected error when activeConfig is nil")
 	}
+
 	if !strings.Contains(err.Error(), "not running") {
 		t.Errorf("unexpected error message: %v", err)
 	}
@@ -427,10 +456,12 @@ func TestUpdateMulticastEndpoint_NilRuntime_Error(t *testing.T) {
 	cfg := &PTTConfig{Log: zerolog.Nop()}
 	// runtime is nil — Start was not completed.
 	setActiveForTest(t, cfg)
+
 	err := UpdateMulticastEndpoint("224.0.0.2", 5008)
 	if err == nil {
 		t.Fatal("expected error when runtime is nil")
 	}
+
 	if !strings.Contains(err.Error(), "not running") {
 		t.Errorf("unexpected error message: %v", err)
 	}
@@ -445,6 +476,7 @@ func TestUpdateMulticastEndpoint_InvalidIP_Error(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unparseable IP")
 	}
+
 	if !strings.Contains(err.Error(), "not a valid IPv4 address") {
 		t.Errorf("unexpected error message: %v", err)
 	}
@@ -460,6 +492,7 @@ func TestUpdateMulticastEndpoint_IPv6_Error(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for IPv6 address")
 	}
+
 	if !strings.Contains(err.Error(), "not a valid IPv4 address") {
 		t.Errorf("unexpected error message: %v", err)
 	}
@@ -474,6 +507,7 @@ func TestUpdateMulticastEndpoint_UnicastIP_Error(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-multicast IPv4 address")
 	}
+
 	if !strings.Contains(err.Error(), "not a multicast address") {
 		t.Errorf("unexpected error message: %v", err)
 	}
@@ -499,6 +533,7 @@ func TestUpdateMulticastEndpoint_PortZero_Error(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for port 0")
 	}
+
 	if !strings.Contains(err.Error(), "out of range") {
 		t.Errorf("unexpected error message: %v", err)
 	}
@@ -513,6 +548,7 @@ func TestUpdateMulticastEndpoint_PortTooHigh_Error(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for port 65536")
 	}
+
 	if !strings.Contains(err.Error(), "out of range") {
 		t.Errorf("unexpected error message: %v", err)
 	}
@@ -543,6 +579,7 @@ func TestUpdateMulticastEndpoint_NegativePort_Error(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for negative port")
 	}
+
 	if !strings.Contains(err.Error(), "out of range") {
 		t.Errorf("unexpected error message: %v", err)
 	}
@@ -568,6 +605,7 @@ func TestUpdateMulticastEndpoint_ConfigRolledBackOnBuildNetworkFailure(t *testin
 	if cfg.McastAddr != "224.0.0.1" {
 		t.Errorf("expected McastAddr rolled back to 224.0.0.1; got %q", cfg.McastAddr)
 	}
+
 	if cfg.McastPort != 5007 {
 		t.Errorf("expected McastPort rolled back to 5007; got %d", cfg.McastPort)
 	}
@@ -583,6 +621,7 @@ func TestUpdateMulticastEndpoint_LocalIPUpdatedAfterSuccessfulSwap(t *testing.T)
 	ptt.replaceNetwork(rt, &mockWriter{}, &trackingReader{}, "192.168.10.5")
 
 	var v atomic.Value // just to confirm the type works the same way
+
 	v.Store("192.168.10.5")
 	want := v.Load().(string)
 

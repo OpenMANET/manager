@@ -14,13 +14,13 @@ import (
 
 // MockStatusClient is a mock implementation of StatusClient for testing.
 type MockStatusClient struct {
-	mu             sync.Mutex
-	statusFunc     func(ctx context.Context) (*ipnstate.Status, error)
-	callCount      int
 	lastCallTime   time.Time
-	shouldError    bool
 	errorToReturn  error
+	statusFunc     func(ctx context.Context) (*ipnstate.Status, error)
 	statusToReturn *ipnstate.Status
+	callCount      int
+	mu             sync.Mutex
+	shouldError    bool
 }
 
 // Status implements the StatusClient interface for mocking.
@@ -39,6 +39,7 @@ func (m *MockStatusClient) Status(ctx context.Context) (*ipnstate.Status, error)
 		if m.errorToReturn != nil {
 			return nil, m.errorToReturn
 		}
+
 		return nil, errors.New("mock error")
 	}
 
@@ -54,6 +55,7 @@ func (m *MockStatusClient) Status(ctx context.Context) (*ipnstate.Status, error)
 func (m *MockStatusClient) GetCallCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	return m.callCount
 }
 
@@ -61,6 +63,7 @@ func (m *MockStatusClient) GetCallCount() int {
 func (m *MockStatusClient) ResetCallCount() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.callCount = 0
 }
 
@@ -68,6 +71,7 @@ func (m *MockStatusClient) ResetCallCount() {
 func (m *MockStatusClient) SetError(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.shouldError = true
 	m.errorToReturn = err
 }
@@ -76,6 +80,7 @@ func (m *MockStatusClient) SetError(err error) {
 func (m *MockStatusClient) SetStatus(status *ipnstate.Status) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.shouldError = false
 	m.statusToReturn = status
 }
@@ -155,6 +160,7 @@ func TestStatusWorkerStartStop(t *testing.T) {
 
 	// Starting again should not cause issues
 	worker.Start()
+
 	if !worker.IsRunning() {
 		t.Error("Worker should still be running after second Start()")
 	}
@@ -176,6 +182,7 @@ func TestStatusWorkerFetchesStatus(t *testing.T) {
 	interval := 50 * time.Millisecond
 
 	worker := NewStatusWorker(client, interval, logger)
+
 	worker.Start()
 	defer worker.Stop()
 
@@ -206,6 +213,7 @@ func TestStatusWorkerStoresStatus(t *testing.T) {
 	interval := 10 * time.Second
 
 	worker := NewStatusWorker(client, interval, logger)
+
 	worker.Start()
 	defer worker.Stop()
 
@@ -237,6 +245,7 @@ func TestStatusWorkerGetPeer(t *testing.T) {
 	interval := 10 * time.Second
 
 	worker := NewStatusWorker(client, interval, logger)
+
 	worker.Start()
 	defer worker.Stop()
 
@@ -247,6 +256,7 @@ func TestStatusWorkerGetPeer(t *testing.T) {
 	var testKey key.NodePublic
 	for k := range mockStatus.Peer {
 		testKey = k
+
 		break
 	}
 
@@ -261,16 +271,20 @@ func TestStatusWorkerGetPeer(t *testing.T) {
 
 	// Test with non-existent key (use all the existing keys + 1 to ensure it doesn't exist)
 	allKeys := worker.GetPeers()
+
 	var nonExistentKey key.NodePublic
 	// We'll just use the zero-value key and verify it's not in the map
 	// This works because our mock creates non-zero keys
 	foundZeroKey := false
+
 	for k := range allKeys {
 		if k == nonExistentKey {
 			foundZeroKey = true
+
 			break
 		}
 	}
+
 	if !foundZeroKey {
 		// The zero key is not in the map, so we can use it as a non-existent key
 		_, ok = worker.GetPeer(nonExistentKey)
@@ -289,6 +303,7 @@ func TestStatusWorkerHandlesErrors(t *testing.T) {
 	interval := 50 * time.Millisecond
 
 	worker := NewStatusWorker(client, interval, logger)
+
 	worker.Start()
 	defer worker.Stop()
 
@@ -323,6 +338,7 @@ func TestStatusWorkerConcurrency(t *testing.T) {
 	interval := 20 * time.Millisecond
 
 	worker := NewStatusWorker(client, interval, logger)
+
 	worker.Start()
 	defer worker.Stop()
 
@@ -330,24 +346,27 @@ func TestStatusWorkerConcurrency(t *testing.T) {
 	time.Sleep(30 * time.Millisecond)
 
 	var wg sync.WaitGroup
+
 	numGoroutines := 10
 
 	// Spawn multiple goroutines reading from the worker concurrently
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
+
 			for j := 0; j < 100; j++ {
 				_ = worker.GetPeers()
 				_ = worker.GetStatus()
 				_ = worker.IsRunning()
+
 				time.Sleep(time.Millisecond)
 			}
 		}()
 	}
 
 	wg.Wait()
-
 	// If we get here without panic, the test passes
 }
 
@@ -383,7 +402,6 @@ func TestLocalStatusClient(t *testing.T) {
 	client := &LocalStatusClient{}
 	// Verify the client is usable (has the Status method)
 	_ = client
-
 	// Note: We don't actually call Status() here because it would require
 	// a real Tailscale daemon to be running, which may not be available
 	// in the test environment.
@@ -399,6 +417,7 @@ func TestStatusWorkerGetPeersReturnsACopy(t *testing.T) {
 	interval := 10 * time.Second
 
 	worker := NewStatusWorker(client, interval, logger)
+
 	worker.Start()
 	defer worker.Stop()
 
@@ -434,12 +453,15 @@ func TestStatusWorker_SetOnStatusUpdate(t *testing.T) {
 	worker := NewStatusWorker(client, interval, logger)
 
 	callCount := 0
+
 	var mu sync.Mutex
 
 	callback := func() error {
 		mu.Lock()
 		defer mu.Unlock()
+
 		callCount++
+
 		return nil
 	}
 
@@ -515,6 +537,7 @@ func TestStatusWorker_CallbackNotCalledOnError(t *testing.T) {
 	callCount := 0
 	callback := func() error {
 		callCount++
+
 		return nil
 	}
 
@@ -540,16 +563,20 @@ func TestStatusWorker_CallbackWithRunningWorker(t *testing.T) {
 	worker := NewStatusWorker(client, interval, logger)
 
 	callCount := 0
+
 	var mu sync.Mutex
 
 	callback := func() error {
 		mu.Lock()
 		defer mu.Unlock()
+
 		callCount++
+
 		return nil
 	}
 
 	worker.SetOnStatusUpdate(callback)
+
 	worker.Start()
 	defer worker.Stop()
 

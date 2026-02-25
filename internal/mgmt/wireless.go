@@ -41,6 +41,7 @@ func (wc *WirelessConfig) GetMeshInterfaces() ([]*wifi.Interface, error) {
 	}
 
 	var meshIfaces []*wifi.Interface
+
 	for _, iface := range ifaces {
 		if iface.Type == wifi.InterfaceTypeMeshPoint {
 			meshIfaces = append(meshIfaces, iface)

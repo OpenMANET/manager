@@ -103,9 +103,11 @@ func GetOpenMANETConfigWithReader(reader OpenMANETConfigReader) (*UCIOpenMANET, 
 	if values, ok := reader.Get(openmanetdConfigName, "config", "dhcpconfigured"); ok && len(values) > 0 {
 		config.DHCPConfigured = values[0]
 	}
+
 	if values, ok := reader.Get(openmanetdConfigName, "config", "BLOSconfigured"); ok && len(values) > 0 {
 		config.BLOSConfigured = values[0]
 	}
+
 	if values, ok := reader.Get(openmanetdConfigName, "config", "config"); ok && len(values) > 0 {
 		config.Config = values[0]
 	}
@@ -147,11 +149,13 @@ func SetOpenMANETConfigWithReader(config *UCIOpenMANET, reader OpenMANETConfigRe
 			return fmt.Errorf("failed to set dhcpconfigured: %w", err)
 		}
 	}
+
 	if config.BLOSConfigured != "" {
 		if err := reader.SetType(openmanetdConfigName, "config", "BLOSconfigured", uci.TypeOption, config.BLOSConfigured); err != nil {
 			return fmt.Errorf("failed to set BLOSconfigured: %w", err)
 		}
 	}
+
 	if config.Config != "" {
 		if err := reader.SetType(openmanetdConfigName, "config", "config", uci.TypeOption, config.Config); err != nil {
 			return fmt.Errorf("failed to set config: %w", err)
@@ -421,5 +425,6 @@ func SetConfigPathWithReader(path string, reader OpenMANETConfigReader) error {
 	if err := reader.SetType(openmanetdConfigName, "config", "config", uci.TypeOption, path); err != nil {
 		return fmt.Errorf("failed to set config path: %w", err)
 	}
+
 	return nil
 }

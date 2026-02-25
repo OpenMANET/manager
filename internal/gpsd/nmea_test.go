@@ -20,9 +20,9 @@ import (
 
 func TestFormatGGA(t *testing.T) {
 	testCases := []struct {
+		validate func(t *testing.T, nmea string)
 		name     string
 		position PositionReport
-		validate func(t *testing.T, nmea string)
 	}{
 		{
 			name: "Northern Hemisphere, Eastern Longitude",
@@ -38,12 +38,15 @@ func TestFormatGGA(t *testing.T) {
 				if !strings.HasPrefix(nmea, "$GPGGA") {
 					t.Errorf("Expected GPGGA prefix, got %s", nmea)
 				}
+
 				if !strings.Contains(nmea, ",N,") {
 					t.Error("Expected N (North) hemisphere")
 				}
+
 				if !strings.Contains(nmea, ",E,") {
 					t.Error("Expected E (East) hemisphere")
 				}
+
 				if !strings.Contains(nmea, "*") {
 					t.Error("Expected checksum marker")
 				}
@@ -63,6 +66,7 @@ func TestFormatGGA(t *testing.T) {
 				if !strings.Contains(nmea, ",S,") {
 					t.Error("Expected S (South) hemisphere")
 				}
+
 				if !strings.Contains(nmea, ",W,") {
 					t.Error("Expected W (West) hemisphere")
 				}
@@ -165,18 +169,18 @@ func TestCalculateNMEAChecksum(t *testing.T) {
 func TestFormatGGA_QualityIndicator_DGPS(t *testing.T) {
 	now := time.Date(2024, 1, 15, 12, 30, 45, 0, time.UTC)
 
-	tests := []struct {
+	tests := []struct { //nolint:govet
 		name            string
 		mode            int
 		dgpsStation     int
 		expectedQuality string
 	}{
-		{"No fix - mode 0", 0, 0, "0"},
-		{"No fix - mode 1", 1, 0, "0"},
-		{"2D fix - no DGPS", 2, 0, "1"},
-		{"3D fix - no DGPS", 3, 0, "1"},
-		{"2D fix - with DGPS", 2, 120, "2"},
-		{"3D fix - with DGPS", 3, 120, "2"},
+		{name: "No fix - mode 0", mode: 0, dgpsStation: 0, expectedQuality: "0"},
+		{name: "No fix - mode 1", mode: 1, dgpsStation: 0, expectedQuality: "0"},
+		{name: "2D fix - no DGPS", mode: 2, dgpsStation: 0, expectedQuality: "1"},
+		{name: "3D fix - no DGPS", mode: 3, dgpsStation: 0, expectedQuality: "1"},
+		{name: "2D fix - with DGPS", mode: 2, dgpsStation: 120, expectedQuality: "2"},
+		{name: "3D fix - with DGPS", mode: 3, dgpsStation: 120, expectedQuality: "2"},
 	}
 
 	for _, tt := range tests {
@@ -212,13 +216,13 @@ func TestFormatGGA_QualityIndicator_DGPS(t *testing.T) {
 func TestFormatGGA_QualityIndicator(t *testing.T) {
 	now := time.Date(2024, 1, 15, 12, 30, 45, 0, time.UTC)
 
-	tests := []struct {
+	tests := []struct { //nolint:govet
 		name            string
 		mode            int
 		expectedQuality string
 	}{
-		{"No fix - mode 0", 0, "0"},
-		{"No fix - mode 1", 1, "0"},
+		{name: "No fix - mode 0", mode: 0, expectedQuality: "0"},
+		{name: "No fix - mode 1", mode: 1, expectedQuality: "0"},
 		{"2D fix - mode 2", 2, "1"},
 		{"3D fix - mode 3", 3, "1"},
 	}
@@ -331,10 +335,10 @@ func TestFormatGGA_WithDGPSData(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		dgpsAge     float64
-		dgpsStation int
 		expectAge   string
 		expectSta   string
+		dgpsAge     float64
+		dgpsStation int
 	}{
 		{
 			name:        "DGPS with age and station",

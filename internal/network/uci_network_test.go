@@ -13,31 +13,31 @@ import (
 
 // mockConfigReader is a test double that returns predefined configuration values.
 type mockConfigReader struct {
-	data           map[string]map[string]map[string][]string
-	sectionTypes   map[string]map[string]string // config -> section -> type
-	anonSections   map[string][]string          // config -> list of anonymous section internal keys
-	anonSectionSeq int                          // sequence number for generating unique anonymous section keys
-	commitError    error
-	setTypeError   error
-	delSectionErr  error
-	addSectionErr  error
 	reloadError    error
 	delError       error
-	commitCalled   bool
-	reloadCalled   bool
-	commitCount    int
-	reloadCount    int
-	setTypeCalls   []setTypeCall
+	addSectionErr  error
+	delSectionErr  error
+	commitError    error
+	setTypeError   error
+	anonSections   map[string][]string
+	sectionTypes   map[string]map[string]string
+	data           map[string]map[string]map[string][]string
 	delSectionCall string
 	addSectionCall string
+	setTypeCalls   []setTypeCall
+	anonSectionSeq int
+	commitCount    int
+	reloadCount    int
+	commitCalled   bool
+	reloadCalled   bool
 }
 
 type setTypeCall struct {
 	config  string
 	section string
 	option  string
-	typ     uci.OptionType
 	values  []string
+	typ     uci.OptionType
 }
 
 func (m *mockConfigReader) Get(config, section, option string) ([]string, bool) {
@@ -51,15 +51,18 @@ func (m *mockConfigReader) Get(config, section, option string) ([]string, bool) 
 			}
 		}
 	}
+
 	return nil, false
 }
 
 func (m *mockConfigReader) GetSections(config, secType string) ([]string, error) {
 	// Return sections filtered by type, using proper UCI section references
 	var sections []string
+
 	if m.sectionTypes == nil {
 		m.sectionTypes = make(map[string]map[string]string)
 	}
+
 	if m.anonSections == nil {
 		m.anonSections = make(map[string][]string)
 	}
@@ -74,6 +77,7 @@ func (m *mockConfigReader) GetSections(config, secType string) ([]string, error)
 
 		// Then collect anonymous sections in order
 		anonCount := 0
+
 		for _, anonKey := range m.anonSections[config] {
 			if stype, ok := typeMap[anonKey]; ok && stype == secType {
 				sections = append(sections, fmt.Sprintf("@%s[%d]", secType, anonCount))
@@ -81,6 +85,7 @@ func (m *mockConfigReader) GetSections(config, secType string) ([]string, error)
 			}
 		}
 	}
+
 	return sections, nil
 }
 
@@ -100,12 +105,14 @@ func (m *mockConfigReader) resolveSectionRef(config, section string) string {
 			if _, err := fmt.Sscanf(indexStr, "%d", &index); err == nil {
 				// Find the Nth anonymous section of this type
 				count := 0
+
 				if anonList, ok := m.anonSections[config]; ok {
 					for _, anonKey := range anonList {
 						if stype, ok := m.sectionTypes[config][anonKey]; ok && stype == secType {
 							if count == index {
 								return anonKey
 							}
+
 							count++
 						}
 					}
@@ -121,6 +128,7 @@ func (m *mockConfigReader) SetType(config, section, option string, typ uci.Optio
 	if m.setTypeError != nil {
 		return m.setTypeError
 	}
+
 	m.setTypeCalls = append(m.setTypeCalls, setTypeCall{
 		config:  config,
 		section: section,
@@ -136,10 +144,13 @@ func (m *mockConfigReader) SetType(config, section, option string, typ uci.Optio
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
 	}
+
 	if m.data[config][actualSection] == nil {
 		m.data[config][actualSection] = make(map[string][]string)
 	}
+
 	m.data[config][actualSection][option] = values
+
 	return nil
 }
 
@@ -157,6 +168,7 @@ func (m *mockConfigReader) Del(config, section, option string) error {
 			delete(sectionData, option)
 		}
 	}
+
 	return nil
 }
 
@@ -164,21 +176,25 @@ func (m *mockConfigReader) AddSection(config, section, typ string) error {
 	if m.addSectionErr != nil {
 		return m.addSectionErr
 	}
+
 	m.addSectionCall = fmt.Sprintf("%s.%s.%s", config, section, typ)
 
 	// Track section types for GetSections
 	if m.sectionTypes == nil {
 		m.sectionTypes = make(map[string]map[string]string)
 	}
+
 	if m.sectionTypes[config] == nil {
 		m.sectionTypes[config] = make(map[string]string)
 	}
+
 	if m.anonSections == nil {
 		m.anonSections = make(map[string][]string)
 	}
 
 	// For anonymous sections (empty name), generate an internal key
 	actualSection := section
+
 	if section == "" {
 		m.anonSectionSeq++
 		actualSection = fmt.Sprintf("__anon__%d", m.anonSectionSeq)
@@ -191,6 +207,7 @@ func (m *mockConfigReader) AddSection(config, section, typ string) error {
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
 	}
+
 	if m.data[config][actualSection] == nil {
 		m.data[config][actualSection] = make(map[string][]string)
 	}
@@ -226,6 +243,7 @@ func (m *mockConfigReader) DelSection(config, section string) error {
 			for i, anonKey := range anonList {
 				if anonKey == actualSection {
 					m.anonSections[config] = append(anonList[:i], anonList[i+1:]...)
+
 					break
 				}
 			}
@@ -238,12 +256,14 @@ func (m *mockConfigReader) DelSection(config, section string) error {
 func (m *mockConfigReader) Commit() error {
 	m.commitCalled = true
 	m.commitCount++
+
 	return m.commitError
 }
 
 func (m *mockConfigReader) ReloadConfig() error {
 	m.reloadCalled = true
 	m.reloadCount++
+
 	return m.reloadError
 }
 
@@ -296,6 +316,7 @@ func TestGetUCINetworkByNameWithReader_Loopback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -315,6 +336,7 @@ func TestGetUCINetworkByNameWithReader_LAN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -331,6 +353,7 @@ func TestGetUCINetworkByNameWithReader_WAN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -352,6 +375,7 @@ func TestGetUCINetworkByNameWithReader_AHWLAN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -366,6 +390,7 @@ func TestGetUCINetworkByNameWithReader_NonExistent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -382,6 +407,7 @@ func TestGetUCINetworkByNameWithReader_Bat0(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -389,11 +415,11 @@ func TestGetUCINetworkByNameWithReader_Bat0(t *testing.T) {
 
 func TestSetNetworkConfigWithReader(t *testing.T) {
 	tests := []struct {
+		config      *UCINetwork
 		name        string
 		section     string
-		config      *UCINetwork
-		wantErr     bool
 		errContains string
+		wantErr     bool
 	}{
 		{
 			name:    "set_complete_config",
@@ -439,6 +465,7 @@ func TestSetNetworkConfigWithReader(t *testing.T) {
 				} else if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
 					t.Errorf("expected error containing %q, got %q", tt.errContains, err.Error())
 				}
+
 				return
 			}
 
@@ -453,12 +480,15 @@ func TestSetNetworkConfigWithReader(t *testing.T) {
 			// Verify all non-empty fields were set
 			if tt.config.Proto != "" {
 				found := false
+
 				for _, call := range reader.setTypeCalls {
 					if call.option == "proto" && call.values[0] == tt.config.Proto {
 						found = true
+
 						break
 					}
 				}
+
 				if !found {
 					t.Errorf("proto not set correctly")
 				}
@@ -481,6 +511,7 @@ func TestSetNetworkConfigWithReader_SetTypeError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to set proto") {
 		t.Errorf("expected error about proto, got: %v", err)
 	}
@@ -500,6 +531,7 @@ func TestSetNetworkConfigWithReader_CommitError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to commit network config") {
 		t.Errorf("expected error about commit, got: %v", err)
 	}
@@ -539,6 +571,7 @@ func TestDeleteNetworkConfigWithReader(t *testing.T) {
 				if !reader.commitCalled {
 					t.Error("expected Commit to be called")
 				}
+
 				expectedCall := fmt.Sprintf("network.%s", tt.section)
 				if reader.delSectionCall != expectedCall {
 					t.Errorf("expected DelSection call %q, got %q", expectedCall, reader.delSectionCall)
@@ -558,6 +591,7 @@ func TestDeleteNetworkConfigWithReader_DelSectionError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to delete network section") {
 		t.Errorf("expected error about delete section, got: %v", err)
 	}
@@ -573,6 +607,7 @@ func TestDeleteNetworkConfigWithReader_CommitError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to commit network config") {
 		t.Errorf("expected error about commit, got: %v", err)
 	}
@@ -580,9 +615,9 @@ func TestDeleteNetworkConfigWithReader_CommitError(t *testing.T) {
 
 func TestNetworkSectionExistsWithReader(t *testing.T) {
 	tests := []struct {
+		data    map[string]map[string]map[string][]string
 		name    string
 		section string
-		data    map[string]map[string]map[string][]string
 		want    bool
 	}{
 		{
@@ -703,6 +738,7 @@ func TestSetNetworkProtoWithReader(t *testing.T) {
 				if len(reader.setTypeCalls) != 1 {
 					t.Fatalf("expected 1 SetType call, got %d", len(reader.setTypeCalls))
 				}
+
 				call := reader.setTypeCalls[0]
 				if call.option != "proto" || call.values[0] != tt.proto {
 					t.Errorf("expected proto=%s, got %s", tt.proto, call.values[0])
@@ -729,6 +765,7 @@ func TestSetNetworkIPAddrWithReader(t *testing.T) {
 	if len(reader.setTypeCalls) != 1 {
 		t.Fatalf("expected 1 SetType call, got %d", len(reader.setTypeCalls))
 	}
+
 	call := reader.setTypeCalls[0]
 	if call.option != "ipaddr" || call.values[0] != "192.168.1.1" {
 		t.Errorf("expected ipaddr=192.168.1.1, got %s", call.values[0])
@@ -752,6 +789,7 @@ func TestSetNetworkNetmaskWithReader(t *testing.T) {
 	if len(reader.setTypeCalls) != 1 {
 		t.Fatalf("expected 1 SetType call, got %d", len(reader.setTypeCalls))
 	}
+
 	call := reader.setTypeCalls[0]
 	if call.option != "netmask" || call.values[0] != "255.255.255.0" {
 		t.Errorf("expected netmask=255.255.255.0, got %s", call.values[0])
@@ -775,6 +813,7 @@ func TestSetNetworkGatewayWithReader(t *testing.T) {
 	if len(reader.setTypeCalls) != 1 {
 		t.Fatalf("expected 1 SetType call, got %d", len(reader.setTypeCalls))
 	}
+
 	call := reader.setTypeCalls[0]
 	if call.option != "gateway" || call.values[0] != "192.168.1.254" {
 		t.Errorf("expected gateway=192.168.1.254, got %s", call.values[0])
@@ -862,6 +901,7 @@ func TestSetNetworkDNSWithReader(t *testing.T) {
 	if len(reader.setTypeCalls) != 1 {
 		t.Fatalf("expected 1 SetType call, got %d", len(reader.setTypeCalls))
 	}
+
 	call := reader.setTypeCalls[0]
 	if call.option != "dns" || call.values[0] != "1.1.1.1" {
 		t.Errorf("expected dns=1.1.1.1, got %s", call.values[0])
@@ -885,6 +925,7 @@ func TestSetNetworkDeviceWithReader(t *testing.T) {
 	if len(reader.setTypeCalls) != 1 {
 		t.Fatalf("expected 1 SetType call, got %d", len(reader.setTypeCalls))
 	}
+
 	call := reader.setTypeCalls[0]
 	if call.option != "device" || call.values[0] != "br-lan" {
 		t.Errorf("expected device=br-lan, got %s", call.values[0])
@@ -901,6 +942,7 @@ func TestSetNetworkProtoWithReader_SetTypeError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to set proto") {
 		t.Errorf("expected error about proto, got: %v", err)
 	}
@@ -916,6 +958,7 @@ func TestSetNetworkProtoWithReader_CommitError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to commit network config") {
 		t.Errorf("expected error about commit, got: %v", err)
 	}
@@ -968,6 +1011,7 @@ func TestSetNetworkIPV6AssignmentWithReader(t *testing.T) {
 	if len(reader.setTypeCalls) != 1 {
 		t.Fatalf("expected 1 SetType call, got %d", len(reader.setTypeCalls))
 	}
+
 	call := reader.setTypeCalls[0]
 	if call.option != "ip6assign" || call.values[0] != "60" {
 		t.Errorf("expected ip6assign=60, got %s", call.values[0])
@@ -991,6 +1035,7 @@ func TestSetNetworkIPV6IfaceIDWithReader(t *testing.T) {
 	if len(reader.setTypeCalls) != 1 {
 		t.Fatalf("expected 1 SetType call, got %d", len(reader.setTypeCalls))
 	}
+
 	call := reader.setTypeCalls[0]
 	if call.option != "ip6ifaceid" || call.values[0] != "::1" {
 		t.Errorf("expected ip6ifaceid=::1, got %s", call.values[0])
@@ -1014,6 +1059,7 @@ func TestSetNetworkIPV6ClassWithReader(t *testing.T) {
 	if len(reader.setTypeCalls) != 1 {
 		t.Fatalf("expected 1 SetType call, got %d", len(reader.setTypeCalls))
 	}
+
 	call := reader.setTypeCalls[0]
 	if call.option != "ip6class" || call.values[0] != "local" {
 		t.Errorf("expected ip6class=local, got %s", call.values[0])
@@ -1026,8 +1072,8 @@ func TestSetNetworkIPV6ClassWithReader(t *testing.T) {
 
 func TestSetNetworkConfigWithReader_IPv6Fields(t *testing.T) {
 	tests := []struct {
-		name    string
 		config  *UCINetwork
+		name    string
 		wantErr bool
 	}{
 		{
@@ -1094,12 +1140,15 @@ func TestSetNetworkConfigWithReader_IPv6Fields(t *testing.T) {
 				// Verify IPv6 fields were set if provided
 				if tt.config.IPV6Assignment != "" {
 					found := false
+
 					for _, call := range reader.setTypeCalls {
 						if call.option == "ip6assign" && call.values[0] == tt.config.IPV6Assignment {
 							found = true
+
 							break
 						}
 					}
+
 					if !found {
 						t.Errorf("ip6assign not set correctly")
 					}
@@ -1107,12 +1156,15 @@ func TestSetNetworkConfigWithReader_IPv6Fields(t *testing.T) {
 
 				if tt.config.IPV6IfaceID != "" {
 					found := false
+
 					for _, call := range reader.setTypeCalls {
 						if call.option == "ip6ifaceid" && call.values[0] == tt.config.IPV6IfaceID {
 							found = true
+
 							break
 						}
 					}
+
 					if !found {
 						t.Errorf("ip6ifaceid not set correctly")
 					}
@@ -1120,12 +1172,15 @@ func TestSetNetworkConfigWithReader_IPv6Fields(t *testing.T) {
 
 				if tt.config.IPV6Class != "" {
 					found := false
+
 					for _, call := range reader.setTypeCalls {
 						if call.option == "ip6class" && call.values[0] == tt.config.IPV6Class {
 							found = true
+
 							break
 						}
 					}
+
 					if !found {
 						t.Errorf("ip6class not set correctly")
 					}
@@ -1164,6 +1219,7 @@ func TestGetUCINetworkByNameWithReader_IPv6Fields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -1179,6 +1235,7 @@ func TestSetNetworkIPV6AssignmentWithReader_CommitError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to commit network config") {
 		t.Errorf("expected error about commit, got: %v", err)
 	}
@@ -1194,6 +1251,7 @@ func TestSetNetworkIPV6IfaceIDWithReader_SetTypeError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to set ip6ifaceid") {
 		t.Errorf("expected error about ip6ifaceid, got: %v", err)
 	}
@@ -1209,6 +1267,7 @@ func TestSetNetworkIPV6ClassWithReader_SetTypeError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to set ip6class") {
 		t.Errorf("expected error about ip6class, got: %v", err)
 	}
@@ -1226,15 +1285,16 @@ func stringContains(s, substr string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
 func TestSelectAvailableStaticIPFromNodeData_GatewayMode(t *testing.T) {
 	tests := []struct {
 		name        string
+		wantIP      string
 		nodes       []models.MeshNode
 		gatewayMode bool
-		wantIP      string
 		wantErr     bool
 	}{
 		{
@@ -1282,8 +1342,10 @@ func TestSelectAvailableStaticIPFromNodeData_GatewayMode(t *testing.T) {
 			got, err := SelectAvailableStaticIPFromNodeData(tt.nodes, tt.gatewayMode)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SelectAvailableStaticIPFromNodeData() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if !tt.wantErr && got != tt.wantIP {
 				t.Errorf("SelectAvailableStaticIPFromNodeData() = %v, want %v", got, tt.wantIP)
 			}
@@ -1364,8 +1426,8 @@ func TestSelectAvailableStaticIPFromNodeData_NormalMode_OneNode(t *testing.T) {
 func TestSelectAvailableStaticIPFromNodeData_NormalMode_MultipleNodes(t *testing.T) {
 	tests := []struct {
 		name    string
-		nodes   []models.MeshNode
 		wantIP  string
+		nodes   []models.MeshNode
 		wantErr bool
 	}{
 		{
@@ -1405,8 +1467,10 @@ func TestSelectAvailableStaticIPFromNodeData_NormalMode_MultipleNodes(t *testing
 			got, err := SelectAvailableStaticIPFromNodeData(tt.nodes, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SelectAvailableStaticIPFromNodeData() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if !tt.wantErr && got != tt.wantIP {
 				t.Errorf("SelectAvailableStaticIPFromNodeData() = %v, want %v", got, tt.wantIP)
 			}
@@ -1837,33 +1901,43 @@ func TestSetDeviceConfigWithReader_AllFields(t *testing.T) {
 	if readDevice.Name != device.Name {
 		t.Errorf("Name: got %v, expected %v", readDevice.Name, device.Name)
 	}
+
 	if readDevice.Type != device.Type {
 		t.Errorf("Type: got %v, expected %v", readDevice.Type, device.Type)
 	}
+
 	if readDevice.MacAddr != device.MacAddr {
 		t.Errorf("MacAddr: got %v, expected %v", readDevice.MacAddr, device.MacAddr)
 	}
+
 	if readDevice.Ifname != device.Ifname {
 		t.Errorf("Ifname: got %v, expected %v", readDevice.Ifname, device.Ifname)
 	}
+
 	if !reflect.DeepEqual(readDevice.Ports, device.Ports) {
 		t.Errorf("Ports: got %v, expected %v", readDevice.Ports, device.Ports)
 	}
+
 	if readDevice.RxPause != device.RxPause {
 		t.Errorf("RxPause: got %v, expected %v", readDevice.RxPause, device.RxPause)
 	}
+
 	if readDevice.TxPause != device.TxPause {
 		t.Errorf("TxPause: got %v, expected %v", readDevice.TxPause, device.TxPause)
 	}
+
 	if readDevice.AutoNeg != device.AutoNeg {
 		t.Errorf("AutoNeg: got %v, expected %v", readDevice.AutoNeg, device.AutoNeg)
 	}
+
 	if readDevice.Speed != device.Speed {
 		t.Errorf("Speed: got %v, expected %v", readDevice.Speed, device.Speed)
 	}
+
 	if readDevice.Duplex != device.Duplex {
 		t.Errorf("Duplex: got %v, expected %v", readDevice.Duplex, device.Duplex)
 	}
+
 	if readDevice.Table != device.Table {
 		t.Errorf("Table: got %v, expected %v", readDevice.Table, device.Table)
 	}
@@ -1968,11 +2042,11 @@ func TestDeleteDeviceConfigWithReader_CommitError(t *testing.T) {
 
 func TestDeviceSectionExistsWithReader(t *testing.T) {
 	tests := []struct {
-		name     string
-		devName  string
 		data     map[string]map[string]map[string][]string
 		secTypes map[string]map[string]string
 		anonSecs map[string][]string
+		name     string
+		devName  string
 		expected bool
 	}{
 		{
@@ -2080,12 +2154,15 @@ func TestGetAllDevicesWithReader(t *testing.T) {
 		if device.Name != "br-ahwlan" {
 			t.Errorf("br-ahwlan: expected name=br-ahwlan, got %v", device.Name)
 		}
+
 		if device.Type != "bridge" {
 			t.Errorf("br-ahwlan: expected type=bridge, got %v", device.Type)
 		}
+
 		if device.MacAddr != "AA:BB:CC:DD:EE:FF" {
 			t.Errorf("br-ahwlan: expected macaddr=AA:BB:CC:DD:EE:FF, got %v", device.MacAddr)
 		}
+
 		if len(device.Ports) != 1 || device.Ports[0] != "bat0" {
 			t.Errorf("br-ahwlan: expected ports=[bat0], got %v", device.Ports)
 		}

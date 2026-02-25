@@ -24,35 +24,27 @@ const (
 )
 
 type ManagementConfig struct {
-	Log          zerolog.Logger
-	DB           *models.Queries
-	InteruptChan chan os.Signal
-
-	GPS *gpsd.GPSService
-
-	uciOpenMANETConfig *network.UCIOpenMANETConfigReader
-	uciDHCPConfig      *network.UCIDHCPConfigReader
-	uciNetworkConfig   *network.UCINetworkConfigReader
-
-	boardConfigInfo *board.Board
-	IFace           string
-	AlfredMode      string
-	BatInterface    string
-	SocketPath      string
-	WirelessConfig  *WirelessConfig
-
-	gatewayWorkerSendInterval time.Duration
-	gatewayWorkerRecvInterval time.Duration
-
+	Log                                     zerolog.Logger
+	DB                                      *models.Queries
+	InteruptChan                            chan os.Signal
+	GPS                                     *gpsd.GPSService
+	uciOpenMANETConfig                      *network.UCIOpenMANETConfigReader
+	uciDHCPConfig                           *network.UCIDHCPConfigReader
+	uciNetworkConfig                        *network.UCINetworkConfigReader
+	boardConfigInfo                         *board.Board
+	payloadCodec                            *security.PayloadCodec
+	BatInterface                            string
+	AlfredMode                              string
+	SocketPath                              string
+	IFace                                   string
+	gatewayWorkerSendInterval               time.Duration
+	gatewayWorkerRecvInterval               time.Duration
 	addressReservationWorkerReserveInterval time.Duration
-
-	GatewayMode                bool
-	GatewayDataType            bool
-	NodeDataType               bool
-	PositionDataType           bool
-	AddressReservationDataType bool
-
-	payloadCodec *security.PayloadCodec
+	GatewayMode                             bool
+	GatewayDataType                         bool
+	NodeDataType                            bool
+	PositionDataType                        bool
+	AddressReservationDataType              bool
 }
 
 func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
@@ -122,7 +114,6 @@ func (m *ManagementConfig) Start() {
 		nodeDataWorker := NewNodeDataWorker(m, client, nodeDataWorkerInterval, m.InteruptChan)
 		go nodeDataWorker.StartSend()
 		go nodeDataWorker.StartReceive()
-
 	}
 
 	if m.GatewayDataType {

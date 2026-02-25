@@ -34,9 +34,11 @@ func TestDecodeAndQueue_Success(t *testing.T) {
 	if len(frame) == 0 {
 		t.Error("expected non-empty PCM frame")
 	}
+
 	for i, v := range frame {
 		if v < 0.49 || v > 0.51 {
 			t.Errorf("frame[%d] = %f; want ~0.5", i, v)
+
 			break
 		}
 	}
@@ -56,6 +58,7 @@ func TestDecodeAndQueue_DecoderError_Dropped(t *testing.T) {
 
 func TestDecodeAndQueue_BufferFull_Drops(t *testing.T) {
 	dec := &mockDecoder{}
+
 	rt := &PTTRuntime{
 		decoder:        dec,
 		playbackBuffer: make(chan []float32, 1),
@@ -124,6 +127,7 @@ func TestReceiveLoop_UDP_DecodesAndQueues(t *testing.T) {
 		playbackBuffer: make(chan []float32, 4),
 	}
 	rt.localIP.Store("10.0.0.2")
+
 	ptt := &PTTConfig{
 		Log:      zerolog.Nop(),
 		Protocol: protocolUDP,
@@ -152,6 +156,7 @@ func TestReceiveLoop_LoopbackDrop(t *testing.T) {
 		playbackBuffer: make(chan []float32, 4),
 	}
 	rt.localIP.Store("10.0.0.1") // same as src
+
 	ptt := &PTTConfig{
 		Log:      zerolog.Nop(),
 		Protocol: protocolUDP,
@@ -179,6 +184,7 @@ func TestReceiveLoop_RTP_InvalidHeaderDropped(t *testing.T) {
 		playbackBuffer: make(chan []float32, 4),
 	}
 	rt.localIP.Store("10.0.0.1")
+
 	ptt := &PTTConfig{
 		Log:      zerolog.Nop(),
 		Protocol: protocolRTP,
@@ -199,23 +205,27 @@ func udpSrc(ip string) *net.UDPAddr {
 	return &net.UDPAddr{IP: net.ParseIP(ip), Port: 1234}
 }
 
-// cancelAfterDrain returns a context that is cancelled once the reader's
+// cancelAfterDrain returns a context that is canceled once the reader's
 // pre-loaded packet queue becomes empty, causing receiveLoop to exit cleanly.
 func cancelAfterDrain(r *mockReader) context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
+
 	go func() {
 		for {
 			time.Sleep(5 * time.Millisecond)
 			r.mu.Lock()
 			empty := len(r.packets) == 0
 			r.mu.Unlock()
+
 			if empty {
 				cancel()
 				r.Close()
+
 				return
 			}
 		}
 	}()
+
 	return ctx
 }
 
@@ -236,6 +246,7 @@ func TestReceiveLoop_LoopbackIPDrop(t *testing.T) {
 		playbackBuffer: make(chan []float32, 4),
 	}
 	rt.localIP.Store("10.0.0.5") // different from src
+
 	ptt := &PTTConfig{
 		Log:      zerolog.Nop(),
 		Protocol: protocolUDP,
@@ -269,6 +280,7 @@ func TestReceiveLoop_UDP_AutoDetectRTP(t *testing.T) {
 		playbackBuffer: make(chan []float32, 4),
 	}
 	rt.localIP.Store("10.0.0.1")
+
 	ptt := &PTTConfig{
 		Log:      zerolog.Nop(),
 		Protocol: protocolUDP, // UDP mode — auto-detect RTP

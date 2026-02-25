@@ -45,7 +45,9 @@ func mockGatewaysJSON() string {
 // createMockGateways creates a Gateways slice from mock JSON
 func createMockGateways() *Gateways {
 	var gateways Gateways
+
 	json.Unmarshal([]byte(mockGatewaysJSON()), &gateways)
+
 	return &gateways
 }
 
@@ -65,9 +67,11 @@ func TestGetMeshGateways_Unmarshal(t *testing.T) {
 	if gateways[0].OrigAddress != "aa:bb:cc:dd:ee:01" {
 		t.Errorf("Expected orig_address 'aa:bb:cc:dd:ee:01', got '%s'", gateways[0].OrigAddress)
 	}
+
 	if !gateways[0].Best {
 		t.Error("Expected first gateway to be marked as best")
 	}
+
 	if gateways[0].Throughput != 10000 {
 		t.Errorf("Expected throughput 10000, got %d", gateways[0].Throughput)
 	}
@@ -117,6 +121,7 @@ func TestGetBest(t *testing.T) {
 				if got == nil {
 					t.Fatal("GetBest() = nil, want non-nil")
 				}
+
 				if got.OrigAddress != tt.wantAddr {
 					t.Errorf("GetBest().OrigAddress = %v, want %v", got.OrigAddress, tt.wantAddr)
 				}
@@ -165,6 +170,7 @@ func TestFindByOrigAddress(t *testing.T) {
 				if got == nil {
 					t.Fatal("FindByOrigAddress() = nil, want non-nil")
 				}
+
 				if got.OrigAddress != tt.origAddress {
 					t.Errorf("FindByOrigAddress().OrigAddress = %v, want %v", got.OrigAddress, tt.origAddress)
 				}
@@ -213,6 +219,7 @@ func TestFindByInterface(t *testing.T) {
 				if got == nil {
 					t.Fatal("FindByInterface() = nil, want non-nil")
 				}
+
 				if got.HardIfname != tt.ifname {
 					t.Errorf("FindByInterface().HardIfname = %v, want %v", got.HardIfname, tt.ifname)
 				}
@@ -262,6 +269,7 @@ func TestFilterByInterface(t *testing.T) {
 			if len(got) != tt.wantCount {
 				t.Errorf("FilterByInterface() returned %d gateways, want %d", len(got), tt.wantCount)
 			}
+
 			for _, gw := range got {
 				if gw.HardIfname != tt.ifname {
 					t.Errorf("FilterByInterface() returned gateway with ifname %s, want %s", gw.HardIfname, tt.ifname)
@@ -273,8 +281,8 @@ func TestFilterByInterface(t *testing.T) {
 
 func TestCount(t *testing.T) {
 	tests := []struct {
-		name     string
 		gateways *Gateways
+		name     string
 		want     int
 	}{
 		{
@@ -305,8 +313,8 @@ func TestCount(t *testing.T) {
 
 func TestIsEmpty(t *testing.T) {
 	tests := []struct {
-		name     string
 		gateways *Gateways
+		name     string
 		want     bool
 	}{
 		{
@@ -337,8 +345,8 @@ func TestIsEmpty(t *testing.T) {
 
 func TestHasBest(t *testing.T) {
 	tests := []struct {
-		name     string
 		gateways *Gateways
+		name     string
 		want     bool
 	}{
 		{
@@ -373,8 +381,8 @@ func TestGetHighestThroughput(t *testing.T) {
 	gateways := createMockGateways()
 
 	tests := []struct {
-		name           string
 		gateways       *Gateways
+		name           string
 		wantThroughput int
 		wantNil        bool
 	}{
@@ -407,6 +415,7 @@ func TestGetHighestThroughput(t *testing.T) {
 				if got == nil {
 					t.Fatal("GetHighestThroughput() = nil, want non-nil")
 				}
+
 				if got.Throughput != tt.wantThroughput {
 					t.Errorf("GetHighestThroughput().Throughput = %v, want %v", got.Throughput, tt.wantThroughput)
 				}
@@ -439,6 +448,7 @@ func TestSortByThroughput(t *testing.T) {
 
 	// Test nil gateways
 	var nilGateways *Gateways
+
 	nilGateways.SortByThroughput() // Should not panic
 }
 
@@ -461,6 +471,7 @@ func TestSortByOrigAddress(t *testing.T) {
 
 	// Test nil gateways
 	var nilGateways *Gateways
+
 	nilGateways.SortByOrigAddress() // Should not panic
 }
 
@@ -515,8 +526,8 @@ func TestGetInterfaces(t *testing.T) {
 
 func TestTotalThroughput(t *testing.T) {
 	tests := []struct {
-		name     string
 		gateways *Gateways
+		name     string
 		want     int
 	}{
 		{
@@ -547,8 +558,8 @@ func TestTotalThroughput(t *testing.T) {
 
 func TestAverageThroughput(t *testing.T) {
 	tests := []struct {
-		name     string
 		gateways *Gateways
+		name     string
 		want     float64
 	}{
 		{
@@ -579,8 +590,8 @@ func TestAverageThroughput(t *testing.T) {
 
 func TestGateways_String(t *testing.T) {
 	tests := []struct {
-		name     string
 		gateways *Gateways
+		name     string
 		wantJSON bool
 	}{
 		{
@@ -632,24 +643,31 @@ func TestGateway_AllFields(t *testing.T) {
 	if gw.HardIfindex != 42 {
 		t.Errorf("HardIfindex = %d, want 42", gw.HardIfindex)
 	}
+
 	if gw.HardIfname != "test-iface" {
 		t.Errorf("HardIfname = %s, want test-iface", gw.HardIfname)
 	}
+
 	if gw.OrigAddress != "aa:bb:cc:dd:ee:ff" {
 		t.Errorf("OrigAddress = %s, want aa:bb:cc:dd:ee:ff", gw.OrigAddress)
 	}
+
 	if !gw.Best {
 		t.Error("Best should be true")
 	}
+
 	if gw.Throughput != 12345 {
 		t.Errorf("Throughput = %d, want 12345", gw.Throughput)
 	}
+
 	if gw.BandwidthUp != 1000 {
 		t.Errorf("BandwidthUp = %d, want 1000", gw.BandwidthUp)
 	}
+
 	if gw.BandwidthDown != 5000 {
 		t.Errorf("BandwidthDown = %d, want 5000", gw.BandwidthDown)
 	}
+
 	if gw.Router != "aa:bb:cc:dd:ee:ff" {
 		t.Errorf("Router = %s, want aa:bb:cc:dd:ee:ff", gw.Router)
 	}

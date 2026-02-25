@@ -24,8 +24,8 @@ type PacketReader interface {
 // releases the lock before performing I/O — so no I/O ever happens under a
 // write lock.
 type swappableSender struct {
-	mu   sync.RWMutex
 	impl PacketWriter
+	mu   sync.RWMutex
 }
 
 func newSwappableSender(w PacketWriter) *swappableSender {
@@ -37,6 +37,7 @@ func (s *swappableSender) Write(b []byte) (int, error) {
 	s.mu.RLock()
 	w := s.impl
 	s.mu.RUnlock()
+
 	return w.Write(b)
 }
 
@@ -47,6 +48,7 @@ func (s *swappableSender) swap(newW PacketWriter) PacketWriter {
 	old := s.impl
 	s.impl = newW
 	s.mu.Unlock()
+
 	return old
 }
 
@@ -59,8 +61,8 @@ func (s *swappableSender) swap(newW PacketWriter) PacketWriter {
 // any in-progress ReadFromUDP on the old socket, causing receiveLoop to loop
 // back and immediately read from the new socket.
 type swappableReceiver struct {
-	mu   sync.RWMutex
 	impl PacketReader
+	mu   sync.RWMutex
 }
 
 func newSwappableReceiver(r PacketReader) *swappableReceiver {
@@ -72,6 +74,7 @@ func (r *swappableReceiver) ReadFromUDP(b []byte) (int, *net.UDPAddr, error) {
 	r.mu.RLock()
 	impl := r.impl
 	r.mu.RUnlock()
+
 	return impl.ReadFromUDP(b)
 }
 
@@ -80,6 +83,7 @@ func (r *swappableReceiver) Close() error {
 	r.mu.RLock()
 	impl := r.impl
 	r.mu.RUnlock()
+
 	return impl.Close()
 }
 
@@ -91,5 +95,6 @@ func (r *swappableReceiver) swap(newR PacketReader) PacketReader {
 	old := r.impl
 	r.impl = newR
 	r.mu.Unlock()
+
 	return old
 }

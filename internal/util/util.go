@@ -18,7 +18,7 @@ import (
 //   - string: The interface name without the "br-" prefix
 //   - error: An error if the interface is not a bridge interface
 func InterfaceWithoutBridge(iface string) (string, error) {
-	//InterFace is prefixed with "br-", remove the prefix because dhcp and network config is tied to the physical interface
+	// InterFace is prefixed with "br-", remove the prefix because dhcp and network config is tied to the physical interface
 	if after, ok := strings.CutPrefix(iface, "br-"); ok {
 		return after, nil
 	}

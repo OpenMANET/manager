@@ -60,8 +60,10 @@ func TestInterfaceWithoutBridge(t *testing.T) {
 			got, err := InterfaceWithoutBridge(tt.iface)
 			if (err != nil) != tt.wantError {
 				t.Errorf("InterfaceWithoutBridge() error = %v, wantError %v", err, tt.wantError)
+
 				return
 			}
+
 			if got != tt.want {
 				t.Errorf("InterfaceWithoutBridge() = %v, want %v", got, tt.want)
 			}

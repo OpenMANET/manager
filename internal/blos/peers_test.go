@@ -17,15 +17,15 @@ import (
 // MockConfigReader for testing VXLAN operations
 type MockVXLANConfigReader struct {
 	data                 map[string]map[string]map[string][]string
-	addedPeers           []network.UCIVXLANPeer
 	updatedPeers         map[string]network.UCIVXLANPeer
+	lastAnonymousSection string
+	addedPeers           []network.UCIVXLANPeer
 	deletedDsts          []string
 	commitCalled         bool
 	shouldFailCommit     bool
 	shouldFailAdd        bool
 	shouldFailUpdate     bool
 	shouldFailDelete     bool
-	lastAnonymousSection string // Track last anonymous section created
 }
 
 func newMockVXLANConfigReader() *MockVXLANConfigReader {
@@ -47,6 +47,7 @@ func (m *MockVXLANConfigReader) Get(config, section, option string) ([]string, b
 			}
 		}
 	}
+
 	return nil, false
 }
 
@@ -55,6 +56,7 @@ func (m *MockVXLANConfigReader) GetSections(config, secType string) ([]string, e
 	// In a real implementation, this would filter by section type
 	// For our mock, we'll return all section names that look like vxlan_peer sections
 	var sections []string
+
 	if configData, ok := m.data[config]; ok {
 		for section := range configData {
 			// Filter by checking if the section has typical VXLAN peer fields
@@ -65,6 +67,7 @@ func (m *MockVXLANConfigReader) GetSections(config, secType string) ([]string, e
 			}
 		}
 	}
+
 	return sections, nil
 }
 
@@ -81,7 +84,9 @@ func (m *MockVXLANConfigReader) SetType(config, section, option string, typ uci.
 	if m.data[config][section] == nil {
 		m.data[config][section] = make(map[string][]string)
 	}
+
 	m.data[config][section][option] = values
+
 	return nil
 }
 
@@ -91,6 +96,7 @@ func (m *MockVXLANConfigReader) Del(config, section, option string) error {
 			delete(sectionData, option)
 		}
 	}
+
 	return nil
 }
 
@@ -98,6 +104,7 @@ func (m *MockVXLANConfigReader) AddSection(config, section, typ string) error {
 	if m.shouldFailAdd {
 		return fmt.Errorf("mock add error")
 	}
+
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
 	}
@@ -106,13 +113,16 @@ func (m *MockVXLANConfigReader) AddSection(config, section, typ string) error {
 	if section == "" {
 		// Find the next available numeric peer name
 		peerNum := 0
+
 		for {
 			testSection := fmt.Sprintf("peer%d", peerNum)
 			if _, exists := m.data[config][testSection]; !exists {
 				section = testSection
 				m.lastAnonymousSection = section
+
 				break
 			}
+
 			peerNum++
 		}
 	}
@@ -120,6 +130,7 @@ func (m *MockVXLANConfigReader) AddSection(config, section, typ string) error {
 	if m.data[config][section] == nil {
 		m.data[config][section] = make(map[string][]string)
 	}
+
 	return nil
 }
 
@@ -127,9 +138,11 @@ func (m *MockVXLANConfigReader) DelSection(config, section string) error {
 	if m.shouldFailDelete {
 		return fmt.Errorf("mock delete error")
 	}
+
 	if configData, ok := m.data[config]; ok {
 		delete(configData, section)
 	}
+
 	return nil
 }
 
@@ -138,6 +151,7 @@ func (m *MockVXLANConfigReader) Commit() error {
 	if m.shouldFailCommit {
 		return fmt.Errorf("mock commit error")
 	}
+
 	return nil
 }
 
@@ -148,10 +162,12 @@ func (m *MockVXLANConfigReader) ReloadConfig() error {
 func (m *MockVXLANConfigReader) addPeer(dst, via, vxlan string) {
 	// Use numeric peer names like the real implementation
 	peerNum := len(m.data["network"])
+
 	section := fmt.Sprintf("peer%d", peerNum)
 	if m.data["network"][section] == nil {
 		m.data["network"][section] = make(map[string][]string)
 	}
+
 	m.data["network"][section]["dst"] = []string{dst}
 	m.data["network"][section]["via"] = []string{via}
 	m.data["network"][section]["vxlan"] = []string{vxlan}
@@ -185,6 +201,7 @@ func TestCreateVxlanPeer_New(t *testing.T) {
 
 	// Verify peer was added
 	found := false
+
 	for section := range mockReader.data["network"] {
 		if values, ok := mockReader.data["network"][section]["dst"]; ok && len(values) > 0 {
 			if values[0] == peerIP {
@@ -193,13 +210,16 @@ func TestCreateVxlanPeer_New(t *testing.T) {
 				if via, ok := mockReader.data["network"][section]["via"]; !ok || len(via) == 0 || via[0] != defaultTunnelDeviceName {
 					t.Error("Expected via field to be set correctly")
 				}
+
 				if vxlan, ok := mockReader.data["network"][section]["vxlan"]; !ok || len(vxlan) == 0 || vxlan[0] != defaultVxLanDeviceName {
 					t.Error("Expected vxlan field to be set correctly")
 				}
+
 				break
 			}
 		}
 	}
+
 	if !found {
 		t.Errorf("Expected peer %s to be added", peerIP)
 	}
@@ -221,18 +241,23 @@ func TestCreateVxlanPeer_Update(t *testing.T) {
 
 	// Verify peer was updated - find the section with this dst
 	found := false
+
 	for section := range mockReader.data["network"] {
 		if values, ok := mockReader.data["network"][section]["dst"]; ok && len(values) > 0 && values[0] == peerIP {
 			found = true
+
 			if via, ok := mockReader.data["network"][section]["via"]; !ok || len(via) == 0 || via[0] != defaultTunnelDeviceName {
 				t.Error("Expected via field to be updated")
 			}
+
 			if vxlan, ok := mockReader.data["network"][section]["vxlan"]; !ok || len(vxlan) == 0 || vxlan[0] != defaultVxLanDeviceName {
 				t.Error("Expected vxlan field to be updated")
 			}
+
 			break
 		}
 	}
+
 	if !found {
 		t.Error("Expected to find updated peer")
 	}
@@ -289,6 +314,7 @@ func TestSyncVXLANPeersWithTailscale_AddPeers(t *testing.T) {
 
 	// Verify both peers were added
 	foundPeers := 0
+
 	for section := range mockReader.data["network"] {
 		if values, ok := mockReader.data["network"][section]["dst"]; ok && len(values) > 0 {
 			dst := values[0]
@@ -340,12 +366,14 @@ func TestSyncVXLANPeersWithTailscale_RemoveInactivePeers(t *testing.T) {
 
 	// Verify only the active peer remains
 	foundPeers := 0
+
 	for section := range mockReader.data["network"] {
 		if values, ok := mockReader.data["network"][section]["dst"]; ok && len(values) > 0 {
 			dst := values[0]
 			if dst == "100.64.1.2" {
 				foundPeers++
 			}
+
 			if dst == "100.64.1.3" || dst == "100.64.1.4" {
 				t.Errorf("Inactive peer %s should have been removed", dst)
 			}
@@ -388,14 +416,17 @@ func TestSyncVXLANPeersWithTailscale_PreserveMulticast(t *testing.T) {
 	// Verify multicast peers are preserved
 	for _, addr := range config.GetMulticastGroupAddresses() {
 		found := false
+
 		for section := range mockReader.data["network"] {
 			if values, ok := mockReader.data["network"][section]["dst"]; ok && len(values) > 0 {
 				if values[0] == addr {
 					found = true
+
 					break
 				}
 			}
 		}
+
 		if !found {
 			t.Errorf("Multicast peer %s should have been preserved", addr)
 		}
@@ -443,6 +474,7 @@ func TestSyncVXLANPeersWithTailscale_PeerWithoutIP(t *testing.T) {
 
 	// Verify no peers were added (peer has no IP)
 	peerCount := 0
+
 	for section := range mockReader.data["network"] {
 		if _, ok := mockReader.data["network"][section]["dst"]; ok {
 			peerCount++
@@ -474,6 +506,7 @@ func TestRemoveInactiveVXLANPeers(t *testing.T) {
 
 	// Verify active peer remains
 	found := false
+
 	for section := range mockReader.data["network"] {
 		if values, ok := mockReader.data["network"][section]["dst"]; ok && len(values) > 0 {
 			if values[0] == "100.64.1.2" {
@@ -485,12 +518,14 @@ func TestRemoveInactiveVXLANPeers(t *testing.T) {
 			}
 		}
 	}
+
 	if !found {
 		t.Error("Active peer 100.64.1.2 should remain")
 	}
 
 	// Verify multicast is preserved
 	found = false
+
 	for section := range mockReader.data["network"] {
 		if values, ok := mockReader.data["network"][section]["dst"]; ok && len(values) > 0 {
 			if values[0] == "239.2.3.1" {
@@ -498,6 +533,7 @@ func TestRemoveInactiveVXLANPeers(t *testing.T) {
 			}
 		}
 	}
+
 	if !found {
 		t.Error("Multicast peer should have been preserved")
 	}

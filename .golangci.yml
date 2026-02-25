@@ -32,7 +32,7 @@ linters:
             - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
             - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
         shadow:
-          strict: false
+          strict: true
     misspell:
       locale: US
     nestif:
@@ -56,40 +56,6 @@ linters:
       - linters:
           - gosec
         text: G110|G115|G601|G404|G204|G306
-      - linters:
-          - govet
-        text: "shadow:"
-        path: "_test\\.go$"
-      - linters:
-          - govet
-        text: "fieldalignment:"
-        path: "_test\\.go$"
-      - linters:
-          - wrapcheck
-        text: sig:.*\.Close\(\)
-      - linters:
-          - wrapcheck
-        text: sig:.*\.Run\(\)
-      - linters:
-          - wrapcheck
-        text: sig:.*\.Shutdown\(
-      - linters:
-          - wrapcheck
-        text: "sig:.*github\\.com/openmanet/openmanetd"
-      - linters:
-          - wrapcheck
-        text: "sig:.*github\\.com/digineo/go-uci"
-      - linters:
-          - wrapcheck
-        text: "sig:.*tailscale\\.com"
-      - linters:
-          - gocognit
-          - nestif
-          - goconst
-          - noctx
-          - forcetypeassert
-          - staticcheck
-        path: "_test\\.go$"
     paths:
       - third_party$
       - builtin$

@@ -23,7 +23,7 @@ const (
 
 // EventSource is the single interface that both the evdev backend and the
 // BlueALSA XEVENT backend must satisfy.  It emits PTT events on a channel
-// that is closed when the supplied context is cancelled.
+// that is closed when the supplied context is canceled.
 type EventSource interface {
 	Events(ctx context.Context) <-chan PTTEvent
 }
@@ -33,9 +33,9 @@ type EventSource interface {
 // evdevSource reads Linux input events from an evdev device and emits
 // PTTToggle on each key-press that matches the configured key code.
 type evdevSource struct {
+	log    zerolog.Logger
 	dev    *evdev.InputDevice
 	pttKey string
-	log    zerolog.Logger
 }
 
 // NewEvdevSource constructs an evdevSource.  Exported for use in tests.
@@ -45,8 +45,10 @@ func NewEvdevSource(dev *evdev.InputDevice, pttKey string, log zerolog.Logger) E
 
 func (s *evdevSource) Events(ctx context.Context) <-chan PTTEvent {
 	ch := make(chan PTTEvent, 4)
+
 	go func() {
 		defer close(ch)
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -58,6 +60,7 @@ func (s *evdevSource) Events(ctx context.Context) <-chan PTTEvent {
 			if err != nil {
 				continue
 			}
+
 			if ev.Type != evdev.EV_KEY {
 				continue
 			}
@@ -69,6 +72,7 @@ func (s *evdevSource) Events(ctx context.Context) <-chan PTTEvent {
 			} else if kc, err := strconv.Atoi(s.pttKey); err == nil && kc >= 0 && kc <= 65535 && ev.Code == uint16(kc) {
 				match = true
 			}
+
 			if !match {
 				continue
 			}
@@ -76,6 +80,7 @@ func (s *evdevSource) Events(ctx context.Context) <-chan PTTEvent {
 			switch ev.Value {
 			case 1: // key-press: emit toggle
 				s.log.Debug().Msgf("PTT key press (code=%d)", ev.Code)
+
 				select {
 				case ch <- PTTToggle:
 				case <-ctx.Done():
@@ -86,5 +91,6 @@ func (s *evdevSource) Events(ctx context.Context) <-chan PTTEvent {
 			}
 		}
 	}()
+
 	return ch
 }

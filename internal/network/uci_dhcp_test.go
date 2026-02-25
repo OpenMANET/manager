@@ -38,10 +38,13 @@ func (m *mockDHCPConfigReader) Get(config, section, option string) ([]string, bo
 	if m.data[config] == nil {
 		return nil, false
 	}
+
 	if m.data[config][section] == nil {
 		return nil, false
 	}
+
 	values, ok := m.data[config][section][option]
+
 	return values, ok
 }
 
@@ -54,6 +57,7 @@ func (m *mockDHCPConfigReader) GetSections(config, secType string) ([]string, er
 			}
 		}
 	}
+
 	return sections, nil
 }
 
@@ -61,10 +65,13 @@ func (m *mockDHCPConfigReader) SetType(config, section, option string, typ uci.O
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
 	}
+
 	if m.data[config][section] == nil {
 		m.data[config][section] = make(map[string][]string)
 	}
+
 	m.data[config][section][option] = values
+
 	return nil
 }
 
@@ -72,6 +79,7 @@ func (m *mockDHCPConfigReader) Del(config, section, option string) error {
 	if m.data[config] != nil && m.data[config][section] != nil {
 		delete(m.data[config][section], option)
 	}
+
 	return nil
 }
 
@@ -79,13 +87,16 @@ func (m *mockDHCPConfigReader) AddSection(config, section, typ string) error {
 	if m.sections[config] == nil {
 		m.sections[config] = make(map[string]string)
 	}
+
 	m.sections[config][section] = typ
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
 	}
+
 	if m.data[config][section] == nil {
 		m.data[config][section] = make(map[string][]string)
 	}
+
 	return nil
 }
 
@@ -93,9 +104,11 @@ func (m *mockDHCPConfigReader) DelSection(config, section string) error {
 	if m.data[config] != nil {
 		delete(m.data[config], section)
 	}
+
 	if m.sections[config] != nil {
 		delete(m.sections[config], section)
 	}
+
 	return nil
 }
 
@@ -103,7 +116,7 @@ func (m *mockDHCPConfigReader) DelSection(config, section string) error {
 func setupMockDnsmasqData(m *mockDHCPConfigReader) {
 	_ = m.AddSection("dhcp", "dnsmasq", "dnsmasq")
 	_ = m.SetType("dhcp", "dnsmasq", "domainneeded", uci.TypeOption, "1")
-	_ = m.SetType("dhcp", "dnsmasq", "localise_queries", uci.TypeOption, "1")
+	_ = m.SetType("dhcp", "dnsmasq", "localize_queries", uci.TypeOption, "1")
 	_ = m.SetType("dhcp", "dnsmasq", "rebind_localhost", uci.TypeOption, "1")
 	_ = m.SetType("dhcp", "dnsmasq", "local", uci.TypeOption, "/lan/")
 	_ = m.SetType("dhcp", "dnsmasq", "domain", uci.TypeOption, "lan")
@@ -152,12 +165,15 @@ func TestGetDnsmasqConfigWithReader(t *testing.T) {
 	if config.DomainNeeded != "1" {
 		t.Errorf("Expected DomainNeeded=1, got %s", config.DomainNeeded)
 	}
+
 	if config.Domain != "lan" {
 		t.Errorf("Expected Domain=lan, got %s", config.Domain)
 	}
+
 	if config.CacheSize != "1000" {
 		t.Errorf("Expected CacheSize=1000, got %s", config.CacheSize)
 	}
+
 	if config.EdnsPacketMax != "1232" {
 		t.Errorf("Expected EdnsPacketMax=1232, got %s", config.EdnsPacketMax)
 	}
@@ -176,15 +192,19 @@ func TestGetDHCPConfigWithReader(t *testing.T) {
 	if lanConfig.Interface != "lan" {
 		t.Errorf("Expected Interface=lan, got %s", lanConfig.Interface)
 	}
+
 	if lanConfig.Start != "100" {
 		t.Errorf("Expected Start=100, got %s", lanConfig.Start)
 	}
+
 	if lanConfig.Limit != "150" {
 		t.Errorf("Expected Limit=150, got %s", lanConfig.Limit)
 	}
+
 	if lanConfig.LeaseTime != "12h" {
 		t.Errorf("Expected LeaseTime=12h, got %s", lanConfig.LeaseTime)
 	}
+
 	if lanConfig.Ra != "server" {
 		t.Errorf("Expected Ra=server, got %s", lanConfig.Ra)
 	}
@@ -198,6 +218,7 @@ func TestGetDHCPConfigWithReader(t *testing.T) {
 	if wanConfig.Interface != "wan" {
 		t.Errorf("Expected Interface=wan, got %s", wanConfig.Interface)
 	}
+
 	if wanConfig.Ignore != "1" {
 		t.Errorf("Expected Ignore=1, got %s", wanConfig.Ignore)
 	}
@@ -211,6 +232,7 @@ func TestGetDHCPConfigWithReader(t *testing.T) {
 	if ahwlanConfig.Interface != "ahwlan" {
 		t.Errorf("Expected Interface=ahwlan, got %s", ahwlanConfig.Interface)
 	}
+
 	if ahwlanConfig.Force != "1" {
 		t.Errorf("Expected Force=1, got %s", ahwlanConfig.Force)
 	}
@@ -242,15 +264,19 @@ func TestSetDHCPConfigWithReader(t *testing.T) {
 	if readConfig.Interface != "guest" {
 		t.Errorf("Expected Interface=guest, got %s", readConfig.Interface)
 	}
+
 	if readConfig.Start != "50" {
 		t.Errorf("Expected Start=50, got %s", readConfig.Start)
 	}
+
 	if readConfig.Limit != "100" {
 		t.Errorf("Expected Limit=100, got %s", readConfig.Limit)
 	}
+
 	if readConfig.LeaseTime != "6h" {
 		t.Errorf("Expected LeaseTime=6h, got %s", readConfig.LeaseTime)
 	}
+
 	if readConfig.Force != "1" {
 		t.Errorf("Expected Force=1, got %s", readConfig.Force)
 	}
@@ -284,9 +310,9 @@ func TestDeleteDHCPConfigWithReader(t *testing.T) {
 
 func TestDHCPSectionExistsWithReader(t *testing.T) {
 	tests := []struct {
+		setup   func(*mockDHCPConfigReader)
 		name    string
 		section string
-		setup   func(*mockDHCPConfigReader)
 		want    bool
 	}{
 		{
@@ -393,6 +419,7 @@ func TestIsDHCPEnabledWithReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IsDHCPEnabledWithReader(lan) failed: %v", err)
 	}
+
 	if !enabled {
 		t.Error("Expected lan DHCP to be enabled")
 	}
@@ -402,6 +429,7 @@ func TestIsDHCPEnabledWithReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IsDHCPEnabledWithReader(wan) failed: %v", err)
 	}
+
 	if enabled {
 		t.Error("Expected wan DHCP to be disabled")
 	}
@@ -572,12 +600,12 @@ func TestSetDHCPLeaseTimeWithReader_ErrorHandling(t *testing.T) {
 func TestCalculateAvailableDHCPStart(t *testing.T) {
 	tests := []struct {
 		name         string
-		nodes        []models.MeshNode
 		networkAddr  string
 		subnetMask   string
+		nodes        []models.MeshNode
 		desiredLimit int
-		expectedMin  int // Minimum expected value
-		expectedMax  int // Maximum expected value (or exact if min == max)
+		expectedMin  int
+		expectedMax  int
 		expectError  bool
 	}{
 		{
@@ -855,6 +883,7 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 				if err == nil {
 					t.Errorf("Expected error, got nil")
 				}
+
 				return
 			}
 
@@ -968,13 +997,14 @@ func mustMarshalAddressReservation(ar *proto.AddressReservation) []byte {
 	if err != nil {
 		panic(fmt.Sprintf("failed to marshal AddressReservation: %v", err))
 	}
+
 	return data
 }
 
 // mockUbusExecutor is a mock implementation of UbusCommandExecutor for testing.
 type mockUbusExecutor struct {
-	output []byte
 	err    error
+	output []byte
 }
 
 // Execute returns the pre-configured output and error.
@@ -994,15 +1024,19 @@ func TestDHCPLease_GetMethods(t *testing.T) {
 	if lease.GetExpires() != 43141 {
 		t.Errorf("GetExpires() = %d, want 43141", lease.GetExpires())
 	}
+
 	if lease.GetHostname() != "TestHost" {
 		t.Errorf("GetHostname() = %s, want TestHost", lease.GetHostname())
 	}
+
 	if lease.GetMacAddr() != "AA:BB:CC:DD:EE:FF" {
 		t.Errorf("GetMacAddr() = %s, want AA:BB:CC:DD:EE:FF", lease.GetMacAddr())
 	}
+
 	if lease.GetDUID() != "01aabbccddeeff" {
 		t.Errorf("GetDUID() = %s, want 01aabbccddeeff", lease.GetDUID())
 	}
+
 	if lease.GetIPAddr() != "10.41.0.100" {
 		t.Errorf("GetIPAddr() = %s, want 10.41.0.100", lease.GetIPAddr())
 	}
@@ -1062,6 +1096,7 @@ func TestDHCPLeasesResponse_GetMethods(t *testing.T) {
 	if gotAll[0].GetIPAddr() != "10.41.0.100" {
 		t.Errorf("GetAllLeases()[0] IP = %s, want 10.41.0.100", gotAll[0].GetIPAddr())
 	}
+
 	if gotAll[2].GetIPAddr() != "fe80::1" {
 		t.Errorf("GetAllLeases()[2] IP = %s, want fe80::1", gotAll[2].GetIPAddr())
 	}
@@ -1069,13 +1104,13 @@ func TestDHCPLeasesResponse_GetMethods(t *testing.T) {
 
 func TestGetCurrentDHCPLeasesWithExecutor(t *testing.T) {
 	tests := []struct {
+		mockErr       error
+		validateFirst func(*testing.T, DHCPLease)
 		name          string
 		mockOutput    string
-		mockErr       error
-		expectErr     bool
 		expectDHCP    int
 		expectDHCP6   int
-		validateFirst func(*testing.T, DHCPLease)
+		expectErr     bool
 	}{
 		{
 			name: "successful response with leases",
@@ -1105,12 +1140,15 @@ func TestGetCurrentDHCPLeasesWithExecutor(t *testing.T) {
 				if lease.GetHostname() != "Mac" {
 					t.Errorf("First lease hostname = %s, want Mac", lease.GetHostname())
 				}
+
 				if lease.GetMacAddr() != "9A:67:9D:6C:6E:92" {
 					t.Errorf("First lease MAC = %s, want 9A:67:9D:6C:6E:92", lease.GetMacAddr())
 				}
+
 				if lease.GetIPAddr() != "10.41.0.180" {
 					t.Errorf("First lease IP = %s, want 10.41.0.180", lease.GetIPAddr())
 				}
+
 				if lease.GetExpires() != 43141 {
 					t.Errorf("First lease expires = %d, want 43141", lease.GetExpires())
 				}
@@ -1199,6 +1237,7 @@ func TestGetCurrentDHCPLeasesWithExecutor(t *testing.T) {
 				if lease.GetHostname() != "" {
 					t.Errorf("Lease without hostname should have empty string, got %s", lease.GetHostname())
 				}
+
 				if lease.GetMacAddr() != "26:D2:E5:9A:BF:55" {
 					t.Errorf("MAC address = %s, want 26:D2:E5:9A:BF:55", lease.GetMacAddr())
 				}
@@ -1219,11 +1258,13 @@ func TestGetCurrentDHCPLeasesWithExecutor(t *testing.T) {
 				if err == nil {
 					t.Error("Expected error but got none")
 				}
+
 				return
 			}
 
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
+
 				return
 			}
 
