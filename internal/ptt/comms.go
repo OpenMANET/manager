@@ -96,6 +96,10 @@ func (ptt *PTTConfig) receiveLoop(ctx context.Context, rt *PTTRuntime) { //nolin
 			frame = payload
 		}
 
+		if ptt.isBroadcasting(rt) {
+			continue
+		}
+
 		ptt.decodeAndQueue(rt, frame)
 	}
 }
@@ -112,6 +116,10 @@ func (ptt *PTTConfig) rtpPlayoutLoop(ctx context.Context, jitter *rtpJitterBuffe
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+
+		if ptt.isBroadcasting(rt) {
+			continue
 		}
 
 		payload, ready, skipped := jitter.popReady()

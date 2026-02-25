@@ -198,7 +198,7 @@ func TestCM108Source_GPIO3_HighReport_EmitsPTTDown(t *testing.T) {
 		if ev != PTTDown {
 			t.Errorf("expected PTTDown; got %v", ev)
 		}
-	case <-time.After(400*time.Millisecond):
+	case <-time.After(400 * time.Millisecond):
 		t.Error("timed out waiting for PTTDown event")
 	}
 }
@@ -241,9 +241,9 @@ func TestCM108Source_GPIO3_HighThenLow_EmitsPTTDownThenPTTUp(t *testing.T) {
 
 func TestCM108Source_DuplicateReports_NoDuplicateEvents(t *testing.T) {
 	mock := newMockHIDDevice()
-	mock.queueReport(makeCM108Report(true)) // press
-	mock.queueReport(makeCM108Report(true)) // duplicate (no change)
-	mock.queueReport(makeCM108Report(true)) // duplicate (no change)
+	mock.queueReport(makeCM108Report(true))  // press
+	mock.queueReport(makeCM108Report(true))  // duplicate (no change)
+	mock.queueReport(makeCM108Report(true))  // duplicate (no change)
 	mock.queueReport(makeCM108Report(false)) // release
 
 	src := newCM108SourceWithOpener(openerReturning(mock), zerolog.Nop())
@@ -478,9 +478,9 @@ func TestDetectALSACard_MultipleCards_PicksCorrect(t *testing.T) {
 	withCleanALSACard(t)
 
 	root := t.TempDir()
-	writeUsbid(t, root, 0, "1234:5678")  // unrelated device
+	writeUsbid(t, root, 0, "1234:5678")                                             // unrelated device
 	writeUsbid(t, root, 1, fmt.Sprintf("%04x:%04x", cm108VendorID, cm108ProductID)) // CM108
-	writeUsbid(t, root, 2, "abcd:ef01")  // another unrelated device
+	writeUsbid(t, root, 2, "abcd:ef01")                                             // another unrelated device
 
 	detectAndSetALSACardFromRoot(root, zerolog.Nop())
 
