@@ -90,8 +90,8 @@ func normalizeControlSource(src string) string {
 		return "bluealsa_xevent"
 	case "evdev":
 		return "evdev"
-	default: // empty or unrecognised → cm108
-		return "cm108"
+	default: // empty or unrecognized → cm108
+		return defaultControlSource
 	}
 }
 

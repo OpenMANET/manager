@@ -3,6 +3,9 @@ package ptt
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -83,6 +86,7 @@ func makeCM108Report(gpio3High bool) []byte {
 // collectEvents drains ch for at most timeout, returning all received events.
 func collectEvents(ch <-chan PTTEvent, timeout time.Duration) []PTTEvent {
 	var events []PTTEvent
+
 	deadline := time.After(timeout)
 
 	for {
@@ -282,7 +286,7 @@ func TestCM108Source_ReadError_ClosesChannel(t *testing.T) {
 }
 
 func TestCM108Source_ContextCancel_ClosesChannel(t *testing.T) {
-	mock := newMockHIDDevice() // will block on Read until closed/cancelled
+	mock := newMockHIDDevice() // will block on Read until closed/canceled
 
 	src := newCM108SourceWithOpener(openerReturning(mock), zerolog.Nop())
 
@@ -308,6 +312,7 @@ func TestCM108Source_ShortReport_SkippedWithoutPanic(t *testing.T) {
 	mock := newMockHIDDevice()
 	// Queue a 1-byte report (too short to decode), then a valid GPIO3 HIGH report.
 	mock.reports <- []byte{0x00}
+
 	mock.queueReport(makeCM108Report(true))
 
 	src := newCM108SourceWithOpener(openerReturning(mock), zerolog.Nop())
@@ -379,5 +384,121 @@ func TestCM108Constants(t *testing.T) {
 
 	if cm108ProductID != 0x013C {
 		t.Errorf("ProductID: got 0x%04X, want 0x013C", cm108ProductID)
+	}
+}
+
+// ─── detectAndSetALSACardFromRoot tests ───────────────────────────────────────
+
+// writeUsbid creates <root>/card<N>/usbid containing the given id string.
+func writeUsbid(t *testing.T, root string, cardN int, id string) {
+	t.Helper()
+
+	dir := filepath.Join(root, fmt.Sprintf("card%d", cardN))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "usbid"), []byte(id+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+}
+
+// withCleanALSACard clears ALSA_CARD before the test and restores the previous
+// value (or unsets it) afterwards.
+func withCleanALSACard(t *testing.T) {
+	t.Helper()
+
+	prev, wasSet := os.LookupEnv("ALSA_CARD")
+
+	t.Cleanup(func() {
+		if wasSet {
+			_ = os.Setenv("ALSA_CARD", prev)
+		} else {
+			_ = os.Unsetenv("ALSA_CARD")
+		}
+	})
+
+	_ = os.Unsetenv("ALSA_CARD")
+}
+
+func TestDetectALSACard_MatchingDevice_SetsEnv(t *testing.T) {
+	withCleanALSACard(t)
+
+	root := t.TempDir()
+	writeUsbid(t, root, 0, fmt.Sprintf("%04x:%04x", cm108VendorID, cm108ProductID))
+
+	detectAndSetALSACardFromRoot(root, zerolog.Nop())
+
+	if got := os.Getenv("ALSA_CARD"); got != "0" {
+		t.Errorf("ALSA_CARD: got %q, want %q", got, "0")
+	}
+}
+
+func TestDetectALSACard_AlreadySet_NotOverridden(t *testing.T) {
+	withCleanALSACard(t)
+
+	_ = os.Setenv("ALSA_CARD", "3")
+
+	root := t.TempDir()
+	writeUsbid(t, root, 0, fmt.Sprintf("%04x:%04x", cm108VendorID, cm108ProductID))
+
+	detectAndSetALSACardFromRoot(root, zerolog.Nop())
+
+	if got := os.Getenv("ALSA_CARD"); got != "3" {
+		t.Errorf("ALSA_CARD should not be overridden; got %q, want %q", got, "3")
+	}
+}
+
+func TestDetectALSACard_NoCardsInRoot_NoSet(t *testing.T) {
+	withCleanALSACard(t)
+
+	root := t.TempDir() // empty — no card* subdirectories
+
+	detectAndSetALSACardFromRoot(root, zerolog.Nop())
+
+	if got := os.Getenv("ALSA_CARD"); got != "" {
+		t.Errorf("ALSA_CARD should not be set; got %q", got)
+	}
+}
+
+func TestDetectALSACard_WrongVIDPID_NoSet(t *testing.T) {
+	withCleanALSACard(t)
+
+	root := t.TempDir()
+	writeUsbid(t, root, 0, "1234:5678") // different device
+
+	detectAndSetALSACardFromRoot(root, zerolog.Nop())
+
+	if got := os.Getenv("ALSA_CARD"); got != "" {
+		t.Errorf("ALSA_CARD should not be set for wrong VID:PID; got %q", got)
+	}
+}
+
+func TestDetectALSACard_MultipleCards_PicksCorrect(t *testing.T) {
+	withCleanALSACard(t)
+
+	root := t.TempDir()
+	writeUsbid(t, root, 0, "1234:5678")  // unrelated device
+	writeUsbid(t, root, 1, fmt.Sprintf("%04x:%04x", cm108VendorID, cm108ProductID)) // CM108
+	writeUsbid(t, root, 2, "abcd:ef01")  // another unrelated device
+
+	detectAndSetALSACardFromRoot(root, zerolog.Nop())
+
+	if got := os.Getenv("ALSA_CARD"); got != "1" {
+		t.Errorf("ALSA_CARD: got %q, want %q", got, "1")
+	}
+}
+
+func TestDetectALSACard_UppercaseVIDPID_Matches(t *testing.T) {
+	withCleanALSACard(t)
+
+	root := t.TempDir()
+	// Some kernels write the usbid in uppercase, e.g. "0D8C:013C"
+	writeUsbid(t, root, 0, fmt.Sprintf("%04X:%04X", cm108VendorID, cm108ProductID))
+
+	detectAndSetALSACardFromRoot(root, zerolog.Nop())
+
+	if got := os.Getenv("ALSA_CARD"); got != "0" {
+		t.Errorf("ALSA_CARD: got %q, want %q (uppercase VID:PID should match)", got, "0")
 	}
 }
