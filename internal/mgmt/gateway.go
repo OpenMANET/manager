@@ -297,4 +297,3 @@ func (gw *GatewayWorker) decodeGatewayRecord(rec alfred.Record) (*proto.Gateway,
 
 	return &gatewayData, true
 }
-

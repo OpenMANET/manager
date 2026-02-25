@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	testNetworkProto  = "proto"
-	testBridgeType    = "bridge"
-	testVXLANIface    = "vxlan0"
+	testNetworkProto = "proto"
+	testBridgeType   = "bridge"
+	testVXLANIface   = "vxlan0"
 )
 
 // mockConfigReader is a test double that returns predefined configuration values.

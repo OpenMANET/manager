@@ -364,5 +364,5 @@ func TestCloseConnectionWithNilDB(t *testing.T) {
 		}
 	}()
 
-_ = CloseConnection()
+	_ = CloseConnection()
 }
