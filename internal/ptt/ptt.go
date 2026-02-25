@@ -15,6 +15,8 @@ import (
 
 	"github.com/gordonklaus/portaudio"
 	"github.com/rs/zerolog"
+
+	"github.com/openmanet/openmanetd/internal/config"
 )
 
 /********* defaults *********/
@@ -27,11 +29,7 @@ const (
 	packetLossPerc       int    = 30
 	defaultKey           string = "any"
 	defaultIface         string = "br-ahwlan"
-	defaultG             string = "224.0.0.1"
 	defaultPort          int    = 5007
-	defaultProtocol      string = protocolUDP
-	defaultDebug         bool   = true
-	defaultLoopback      bool   = true
 	defaultPTTDevice     string = "/dev/hidraw0/*"
 	defaultPTTDeviceName string = "AllInOneCable"
 	defaultControlSource string = "cm108"
@@ -122,7 +120,7 @@ func (ptt *PTTConfig) applyDefaults() {
 	}
 
 	if ptt.McastAddr == "" {
-		ptt.McastAddr = defaultG
+		ptt.McastAddr = config.GetMulticastGroupAddresses()[0]
 	}
 
 	if ptt.McastPort == 0 {

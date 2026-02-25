@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/openmanet/openmanetd/internal/config"
 )
 
 const (
@@ -24,8 +26,9 @@ func TestApplyDefaults_FillsEmpty(t *testing.T) {
 		t.Errorf("Iface: got %q, want %q", ptt.Iface, defaultIface)
 	}
 
-	if ptt.McastAddr != defaultG {
-		t.Errorf("McastAddr: got %q, want %q", ptt.McastAddr, defaultG)
+	wantMcastAddr := config.GetMulticastGroupAddresses()[0]
+	if ptt.McastAddr != wantMcastAddr {
+		t.Errorf("McastAddr: got %q, want %q", ptt.McastAddr, wantMcastAddr)
 	}
 
 	if ptt.McastPort != defaultPort {
