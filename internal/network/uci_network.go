@@ -221,7 +221,7 @@ func SetNetworkConfig(section string, config *UCINetwork) error {
 }
 
 // SetNetworkConfigWithReader creates or updates a network interface configuration using the provided reader.
-func SetNetworkConfigWithReader(section string, config *UCINetwork, reader ConfigReader) error {
+func SetNetworkConfigWithReader(section string, config *UCINetwork, reader ConfigReader) error { //nolint:gocognit
 	if config == nil {
 		return fmt.Errorf("config cannot be nil")
 	}
@@ -672,7 +672,7 @@ func SetNetworkIPV6ClassWithReader(section, ip6class string, reader ConfigReader
 //	    log.Fatalf("Failed to select IP: %v", err)
 //	}
 //	fmt.Printf("Selected IP: %s\n", ip)
-func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bool) (string, error) {
+func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bool) (string, error) { //nolint:gocognit
 	// Collect all reserved IP addresses
 	reservedIPs := make(map[string]bool)
 
@@ -887,7 +887,7 @@ func SetDeviceConfig(name string, device *UCIDevice) error {
 }
 
 // SetDeviceConfigWithReader creates or updates a device configuration using the provided reader.
-func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigReader) error {
+func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigReader) error { //nolint:gocognit,gocyclo
 	// Find existing device section by name
 	var section string
 

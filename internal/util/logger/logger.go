@@ -26,7 +26,7 @@ const (
 )
 
 // Shared console writer instance to reduce memory allocations
-var sharedConsoleWriter = zerolog.ConsoleWriter{
+var sharedConsoleWriter = zerolog.ConsoleWriter{ //nolint:gochecknoglobals
 	Out:           os.Stdout,
 	TimeFormat:    time.RFC3339,
 	PartsOrder:    []string{zerolog.LevelFieldName, LogComponentFieldName, MessageFieldName},

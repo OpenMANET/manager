@@ -20,7 +20,7 @@ type BLOS struct {
 	Config *config.Config
 	Logger zerolog.Logger
 
-	ctx                context.Context
+	ctx                context.Context //nolint:containedctx
 	uciOpenManetConfig network.OpenMANETConfigReader
 	uciNetworkConfig   network.ConfigReader
 	uciFirewallConfig  firewall.ConfigReader
@@ -106,7 +106,7 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error {
 	}
 
 	// Only configure BLOS interfaces if the mesh network interface exists
-	if network.NetworkSectionExistsWithReader(r.Config.GetAlfredBatInterface(), r.uciNetworkConfig) {
+	if network.NetworkSectionExistsWithReader(r.Config.GetAlfredBatInterface(), r.uciNetworkConfig) { //nolint:nestif
 		blosConfigured, err := network.IsBLOSConfiguredWithReader(r.uciOpenManetConfig)
 		if err != nil {
 			return err

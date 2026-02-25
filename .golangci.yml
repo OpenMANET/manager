@@ -78,6 +78,10 @@ linters:
       - linters:
           - wrapcheck
         text: "sig:.*tailscale\\.com"
+      - linters:
+          - gocognit
+          - nestif
+        path: "_test\\.go$"
     paths:
       - third_party$
       - builtin$

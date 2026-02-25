@@ -77,7 +77,7 @@ type GPSService struct {
 	Log               zerolog.Logger
 	lastMulticastTime time.Time // Last time a gps message was sent to multicast
 	conn              net.Conn
-	ctx               context.Context
+	ctx               context.Context //nolint:containedctx
 	Config            *config.Config
 	cancel            context.CancelFunc
 	address           string

@@ -51,7 +51,7 @@ const (
 // default tunnel device name. Returns an error if the network configuration operation fails.
 func (r *BLOS) createOrConfigureTunnelInterface() error {
 	// Check if the tunnel interface already exists in UCI
-	if !network.NetworkSectionExistsWithReader(defaultTunnelDeviceName, r.uciNetworkConfig) {
+	if !network.NetworkSectionExistsWithReader(defaultTunnelDeviceName, r.uciNetworkConfig) { //nolint:nestif
 		// Create a new network section for the tunnel interface
 		if err := network.SetNetworkConfigWithReader(defaultTunnelDeviceName, &network.UCINetwork{
 			Proto:  "none",

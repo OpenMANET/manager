@@ -668,7 +668,7 @@ func SetFirewallRule(section string, config *UCIFirewallRule) error {
 }
 
 // SetFirewallRuleWithReader creates or updates a firewall rule using the provided reader.
-func SetFirewallRuleWithReader(section string, config *UCIFirewallRule, reader ConfigReader) error {
+func SetFirewallRuleWithReader(section string, config *UCIFirewallRule, reader ConfigReader) error { //nolint:gocognit
 	if config == nil {
 		return fmt.Errorf("config cannot be nil")
 	}

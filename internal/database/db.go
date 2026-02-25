@@ -12,8 +12,8 @@ import (
 )
 
 //go:embed schema.sql
-var ddl string
-var sqlDB *sql.DB
+var ddl string //nolint:gochecknoglobals
+var sqlDB *sql.DB //nolint:gochecknoglobals
 
 // NewConnection establishes a new SQLite database connection and returns a Queries instance.
 // It opens a connection to the SQLite database at the specified file path with foreign keys enabled,

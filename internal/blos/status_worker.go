@@ -29,7 +29,7 @@ func (c *LocalStatusClient) Status(ctx context.Context) (*ipnstate.Status, error
 type StatusWorker struct {
 	logger         zerolog.Logger
 	client         StatusClient
-	ctx            context.Context
+	ctx            context.Context //nolint:containedctx
 	peers          map[key.NodePublic]*ipnstate.PeerStatus
 	status         *ipnstate.Status
 	cancel         context.CancelFunc
