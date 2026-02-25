@@ -103,7 +103,7 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded() {
 					continue
 				}
 
-				if err := network.SetNetworkConfigWithReader(normalizedIface, &network.UCINetwork{
+				err = network.SetNetworkConfigWithReader(normalizedIface, &network.UCINetwork{
 					Proto:          network.DefaultNetworkProto,
 					IPAddr:         staticIP,
 					NetMask:        network.DefaultNetworkMask,
@@ -111,7 +111,8 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded() {
 					IPV6IfaceID:    network.DefaultIPv6IfaceID,
 					IPV6Assignment: network.DefaultIPv6Assign,
 					Device:         arw.Config.IFace,
-				}, arw.Config.uciNetworkConfig); err != nil {
+				}, arw.Config.uciNetworkConfig)
+				if err != nil {
 					arw.Config.Log.Error().Err(err).Msg("Error setting network config for address reservation")
 
 					continue
@@ -192,28 +193,34 @@ func (arw *AddressReservationWorker) cleanUpInterfaces() error {
 	if network.NetworkSectionExistsWithReader("lan", arw.Config.uciNetworkConfig) {
 		arw.Config.Log.Info().Msg("Removing 'lan' network section")
 
-		if err := network.DeleteNetworkConfigWithReader("lan", arw.Config.uciNetworkConfig); err != nil {
+		err = network.DeleteNetworkConfigWithReader("lan", arw.Config.uciNetworkConfig)
+		if err != nil {
 			return fmt.Errorf("error deleting 'lan' network section: %w", err)
 		}
 	}
 
 	// Commit network changes
-	arw.Config.uciNetworkConfig.Commit()
+	if err = arw.Config.uciNetworkConfig.Commit(); err != nil {
+		return fmt.Errorf("commit network config: %w", err)
+	}
 
 	// Clean up DHCP sections if they exist
 	if network.DHCPSectionExistsWithReader("lan", arw.Config.uciDHCPConfig) {
 		arw.Config.Log.Info().Msg("Removing 'lan' DHCP section")
 
-		if err := network.DeleteDHCPConfigWithReader("lan", arw.Config.uciDHCPConfig); err != nil {
+		err = network.DeleteDHCPConfigWithReader("lan", arw.Config.uciDHCPConfig)
+		if err != nil {
 			return fmt.Errorf("error deleting 'lan' DHCP section: %w", err)
 		}
 	}
 
 	// Commit DHCP changes
-	arw.Config.uciDHCPConfig.Commit()
+	if err = arw.Config.uciDHCPConfig.Commit(); err != nil {
+		return fmt.Errorf("commit DHCP config: %w", err)
+	}
 
 	// Reload network to apply changes
-	err = network.ReloadNetwork()
+	err = network.ReloadNetwork(context.Background())
 	if err != nil {
 		return fmt.Errorf("error reloading network configuration: %w", err)
 	}

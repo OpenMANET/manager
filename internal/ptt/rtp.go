@@ -33,8 +33,7 @@ func rtpSSRCFromID(id string) uint32 {
 }
 
 func randomRTPSeq() uint16 {
-	rand.Seed(time.Now().UnixNano())
-
+	//nolint:gosec // weak random is fine for RTP sequence number initialisation
 	return uint16(rand.Intn(65536))
 }
 

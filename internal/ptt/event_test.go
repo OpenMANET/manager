@@ -1,13 +1,17 @@
 package ptt
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
+)
+
+const (
+	testBTHeadset      = "BT-Headset"
+	testBlueAlsaXEvent = "bluealsa_xevent"
 )
 
 // ─── applyDefaults ────────────────────────────────────────────────────────────
@@ -65,14 +69,14 @@ func TestApplyDefaults_PreservesExplicit(t *testing.T) {
 }
 
 func TestApplyDefaults_AudioHint_FillsBothDevices(t *testing.T) {
-	ptt := &PTTConfig{Log: zerolog.Nop(), AudioDeviceHint: "BT-Headset"}
+	ptt := &PTTConfig{Log: zerolog.Nop(), AudioDeviceHint: testBTHeadset}
 	ptt.applyDefaults()
 
-	if ptt.InputDevice != "BT-Headset" {
+	if ptt.InputDevice != testBTHeadset {
 		t.Errorf("InputDevice: got %q, want BT-Headset", ptt.InputDevice)
 	}
 
-	if ptt.OutputDevice != "BT-Headset" {
+	if ptt.OutputDevice != testBTHeadset {
 		t.Errorf("OutputDevice: got %q, want BT-Headset", ptt.OutputDevice)
 	}
 }
@@ -80,7 +84,7 @@ func TestApplyDefaults_AudioHint_FillsBothDevices(t *testing.T) {
 func TestApplyDefaults_AudioHint_DoesNotOverrideExplicit(t *testing.T) {
 	ptt := &PTTConfig{
 		Log:             zerolog.Nop(),
-		AudioDeviceHint: "BT-Headset",
+		AudioDeviceHint: testBTHeadset,
 		InputDevice:     "explicit-mic",
 	}
 	ptt.applyDefaults()
@@ -89,21 +93,9 @@ func TestApplyDefaults_AudioHint_DoesNotOverrideExplicit(t *testing.T) {
 		t.Errorf("explicit InputDevice should not be overridden; got %q", ptt.InputDevice)
 	}
 
-	if ptt.OutputDevice != "BT-Headset" {
+	if ptt.OutputDevice != testBTHeadset {
 		t.Errorf("OutputDevice from hint: got %q, want BT-Headset", ptt.OutputDevice)
 	}
-}
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
-
-type nopReadCloser struct {
-	*bytes.Buffer
-}
-
-func (n *nopReadCloser) Close() error { return nil }
-
-func newNopReadCloser(b *bytes.Buffer) *nopReadCloser {
-	return &nopReadCloser{b}
 }
 
 // ─── applyDefaults: additional coverage ──────────────────────────────────────
@@ -131,11 +123,11 @@ func TestApplyDefaults_ControlSourceDefault(t *testing.T) {
 }
 
 func TestApplyDefaults_ControlSourcePreserved(t *testing.T) {
-	ptt := &PTTConfig{Log: zerolog.Nop(), ControlSource: "bluealsa_xevent"}
+	ptt := &PTTConfig{Log: zerolog.Nop(), ControlSource: testBlueAlsaXEvent}
 	ptt.applyDefaults()
 
-	if ptt.ControlSource != "bluealsa_xevent" {
-		t.Errorf("ControlSource: got %q, want %q", ptt.ControlSource, "bluealsa_xevent")
+	if ptt.ControlSource != testBlueAlsaXEvent {
+		t.Errorf("ControlSource: got %q, want %q", ptt.ControlSource, testBlueAlsaXEvent)
 	}
 }
 

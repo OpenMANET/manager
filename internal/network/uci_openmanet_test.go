@@ -7,6 +7,8 @@ import (
 	"github.com/digineo/go-uci/v2"
 )
 
+const testOpenMANETConfigPath = "/etc/openmanet/config.yml"
+
 // mockOpenMANETConfigReader is a mock implementation of OpenMANETConfigReader for testing.
 type mockOpenMANETConfigReader struct {
 	data     map[string]map[string]map[string][]string // config -> section -> option -> values
@@ -112,7 +114,7 @@ func (m *mockOpenMANETConfigReader) DelSection(config, section string) error {
 func setupMockOpenMANETData(m *mockOpenMANETConfigReader) {
 	_ = m.AddSection("openmanetd", "config", "openmanet")
 	_ = m.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "0")
-	_ = m.SetType("openmanetd", "config", "config", uci.TypeOption, "/etc/openmanet/config.yml")
+	_ = m.SetType("openmanetd", "config", "config", uci.TypeOption, testOpenMANETConfigPath)
 }
 
 func TestGetOpenMANETConfigWithReader(t *testing.T) {
@@ -128,7 +130,7 @@ func TestGetOpenMANETConfigWithReader(t *testing.T) {
 		t.Errorf("Expected DHCPConfigured=0, got %s", config.DHCPConfigured)
 	}
 
-	if config.Config != "/etc/openmanet/config.yml" {
+	if config.Config != testOpenMANETConfigPath {
 		t.Errorf("Expected Config=/etc/openmanet/config.yml, got %s", config.Config)
 	}
 }
@@ -340,7 +342,7 @@ func TestGetConfigPathWithReader(t *testing.T) {
 		{
 			name:         "default path",
 			configPath:   "",
-			expectedPath: "/etc/openmanet/config.yml",
+			expectedPath: testOpenMANETConfigPath,
 		},
 	}
 
@@ -531,7 +533,7 @@ func TestCompleteWorkflow(t *testing.T) {
 	// Step 1: Initial configuration
 	config := &UCIOpenMANET{
 		DHCPConfigured: "0",
-		Config:         "/etc/openmanet/config.yml",
+		Config:         testOpenMANETConfigPath,
 	}
 
 	err := SetOpenMANETConfigWithReader(config, mock)
@@ -770,7 +772,7 @@ func TestGetOpenMANETConfigWithReader_IncludesBLOS(t *testing.T) {
 	_ = mock.AddSection("openmanetd", "config", "openmanet")
 	_ = mock.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "1")
 	_ = mock.SetType("openmanetd", "config", "BLOSconfigured", uci.TypeOption, "1")
-	_ = mock.SetType("openmanetd", "config", "config", uci.TypeOption, "/etc/openmanet/config.yml")
+	_ = mock.SetType("openmanetd", "config", "config", uci.TypeOption, testOpenMANETConfigPath)
 
 	config, err := GetOpenMANETConfigWithReader(mock)
 	if err != nil {
@@ -785,7 +787,7 @@ func TestGetOpenMANETConfigWithReader_IncludesBLOS(t *testing.T) {
 		t.Errorf("Expected BLOSConfigured=1, got %s", config.BLOSConfigured)
 	}
 
-	if config.Config != "/etc/openmanet/config.yml" {
+	if config.Config != testOpenMANETConfigPath {
 		t.Errorf("Expected Config=/etc/openmanet/config.yml, got %s", config.Config)
 	}
 }
@@ -830,7 +832,7 @@ func TestCompleteWorkflowWithBLOS(t *testing.T) {
 	config := &UCIOpenMANET{
 		DHCPConfigured: "0",
 		BLOSConfigured: "0",
-		Config:         "/etc/openmanet/config.yml",
+		Config:         testOpenMANETConfigPath,
 	}
 
 	err := SetOpenMANETConfigWithReader(config, mock)

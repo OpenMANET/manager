@@ -9,6 +9,8 @@ import (
 	"github.com/spf13/viper"
 )
 
+const testErrorLevel = "error"
+
 func TestInitLogging(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -32,7 +34,7 @@ func TestInitLogging(t *testing.T) {
 		},
 		{
 			name:     "initializes logger with error level",
-			logLevel: "error",
+			logLevel: testErrorLevel,
 			wantMsg:  "test message",
 		},
 	}
@@ -63,7 +65,7 @@ func TestInitLogging(t *testing.T) {
 				expectedLevel = zerolog.InfoLevel
 			case "warn":
 				expectedLevel = zerolog.WarnLevel
-			case "error":
+			case testErrorLevel:
 				expectedLevel = zerolog.ErrorLevel
 			case "fatal":
 				expectedLevel = zerolog.FatalLevel
@@ -168,7 +170,7 @@ func TestSetLogLevel(t *testing.T) {
 		},
 		{
 			name:     "sets error level",
-			logLevel: "error",
+			logLevel: testErrorLevel,
 			want:     zerolog.ErrorLevel,
 		},
 		{

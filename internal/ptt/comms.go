@@ -40,7 +40,9 @@ func (ptt *PTTConfig) receiveLoop(ctx context.Context, rt *PTTRuntime) {
 
 		var localIP string
 		if v := rt.localIP.Load(); v != nil {
-			localIP = v.(string)
+			if s, ok := v.(string); ok {
+				localIP = s
+			}
 		}
 
 		loopbackDrop := !ptt.Loopback && (src.IP.IsLoopback() || src.IP.String() == localIP)
@@ -82,7 +84,7 @@ func (ptt *PTTConfig) receiveLoop(ctx context.Context, rt *PTTRuntime) {
 			}
 
 			payload, _ := unwrapRTP(frame)
-			if pushed := jitter.push(seq, payload); !pushed {
+			if !jitter.push(seq, payload) {
 				continue
 			}
 

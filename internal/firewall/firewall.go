@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 
@@ -873,7 +874,7 @@ func AddNetworkToZoneWithReader(zone, network string, reader ConfigReader) error
 //	    log.Fatalf("Failed to reload firewall: %v", err)
 //	}
 func ReloadFirewall() error {
-	cmd := exec.Command("/etc/init.d/firewall", "reload")
+	cmd := exec.CommandContext(context.Background(), "/etc/init.d/firewall", "reload")
 
 	return cmd.Run()
 }
@@ -893,7 +894,7 @@ func ReloadFirewall() error {
 //	    log.Fatalf("Failed to restart firewall: %v", err)
 //	}
 func RestartFirewall() error {
-	cmd := exec.Command("/etc/init.d/firewall", "restart")
+	cmd := exec.CommandContext(context.Background(), "/etc/init.d/firewall", "restart")
 
 	return cmd.Run()
 }

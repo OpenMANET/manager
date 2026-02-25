@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"net"
@@ -681,13 +682,10 @@ func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bo
 		}
 	}
 
-	// Define the base network: 10.41.0.0/16
-	baseIP := net.ParseIP(DefaultNetworkAddress)
-	if baseIP == nil {
+	// Verify the base network address is valid
+	if net.ParseIP(DefaultNetworkAddress) == nil {
 		return "", fmt.Errorf("failed to parse base IP")
 	}
-
-	baseIP = baseIP.To4()
 
 	if gatewayMode {
 		// Gateway mode: only search in 10.41.0.0/24 range
@@ -1137,8 +1135,8 @@ func GetAllDevicesWithReader(reader ConfigReader) (map[string]*UCIDevice, error)
 }
 
 // ForceReloadConfig forces a reload of the network configuration by executing the OpenWrt network init script.
-func ForceReloadConfig() error {
-	cmd := exec.Command("reload_config")
+func ForceReloadConfig(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "reload_config")
 
 	return cmd.Run()
 }
@@ -1148,8 +1146,8 @@ func ForceReloadConfig() error {
 // without restarting the entire network subsystem.
 //
 // Returns an error if the reload command fails to execute or returns a non-zero exit code.
-func ReloadNetwork() error {
-	cmd := exec.Command("/etc/init.d/network", "reload")
+func ReloadNetwork(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "/etc/init.d/network", "reload")
 
 	return cmd.Run()
 }
@@ -1161,8 +1159,8 @@ func ReloadNetwork() error {
 // Returns:
 //   - error: nil if the network restart command succeeds, otherwise returns the error
 //     from command execution
-func RestartNetwork() error {
-	cmd := exec.Command("/etc/init.d/network", "restart")
+func RestartNetwork(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "/etc/init.d/network", "restart")
 
 	return cmd.Run()
 }

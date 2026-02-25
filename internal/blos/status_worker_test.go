@@ -12,6 +12,8 @@ import (
 	"tailscale.com/types/key"
 )
 
+const testStateRunning = "Running"
+
 // MockStatusClient is a mock implementation of StatusClient for testing.
 type MockStatusClient struct {
 	lastCallTime   time.Time
@@ -106,7 +108,7 @@ func createMockStatus() *ipnstate.Status {
 	}
 
 	return &ipnstate.Status{
-		BackendState: "Running",
+		BackendState: testStateRunning,
 		Peer:         peers,
 	}
 }
@@ -225,7 +227,7 @@ func TestStatusWorkerStoresStatus(t *testing.T) {
 		t.Fatal("Expected status to be stored")
 	}
 
-	if status.BackendState != "Running" {
+	if status.BackendState != testStateRunning {
 		t.Errorf("Expected BackendState 'Running', got '%s'", status.BackendState)
 	}
 
@@ -315,12 +317,9 @@ func TestStatusWorkerHandlesErrors(t *testing.T) {
 		t.Error("Worker should still be running after errors")
 	}
 
-	// Status should be nil or empty since all calls errored
+	// Status should be nil since all calls errored
 	status := worker.GetStatus()
-	if status != nil {
-		// If status is not nil, it means no successful call was made after the error
-		// which is expected
-	}
+	_ = status // nil is expected when all calls fail
 
 	// Verify multiple calls were attempted
 	if client.GetCallCount() < 2 {

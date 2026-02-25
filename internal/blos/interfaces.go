@@ -14,22 +14,22 @@ import (
 
 // InterfaceManager defines an interface for managing network interfaces.
 type InterfaceManager interface {
-	BringUp(name string) error
+	BringUp(ctx context.Context, name string) error
 }
 
 // RealInterfaceManager is the real implementation that calls actual network commands.
 type RealInterfaceManager struct{}
 
 // BringUp brings up a network interface by name using ifup command.
-func (r *RealInterfaceManager) BringUp(name string) error {
-	return network.PerformIfUp(name)
+func (r *RealInterfaceManager) BringUp(ctx context.Context, name string) error {
+	return network.PerformIfUp(ctx, name)
 }
 
 // NoOpInterfaceManager is a no-op implementation for testing.
 type NoOpInterfaceManager struct{}
 
 // BringUp does nothing and returns nil (for testing).
-func (n *NoOpInterfaceManager) BringUp(name string) error {
+func (n *NoOpInterfaceManager) BringUp(_ context.Context, name string) error {
 	return nil
 }
 
@@ -75,7 +75,7 @@ func (r *BLOS) createOrConfigureTunnelInterface() error {
 		}
 
 		if device != nil && containsString(device.Ports, defaultTunnelDeviceName) {
-			removeDevice := exec.Command("uci", "del_list", "network."+r.Config.MeshNetInterface+".ports="+defaultTunnelDeviceName)
+			removeDevice := exec.CommandContext(r.ctx, "uci", "del_list", "network."+r.Config.MeshNetInterface+".ports="+defaultTunnelDeviceName)
 			if err := removeDevice.Run(); err != nil {
 				return err
 			}
@@ -111,7 +111,7 @@ func (r *BLOS) createOrConfigureVxLanInterface() error {
 			return err
 		}
 
-		if err := network.ForceReloadConfig(); err != nil {
+		if err := network.ForceReloadConfig(r.ctx); err != nil {
 			return err
 		}
 
@@ -195,37 +195,6 @@ func (r *BLOS) updateTailscalePreferences(prefs *ipn.Prefs) {
 
 	// Apply the edits to the provided Prefs
 	prefs.ApplyEdits(&edits)
-}
-
-// createVxLanDevice creates a new VXLAN device in the system using UCI commands.
-// It sets the device type to "device" and assigns it the default VXLAN device name.
-// Returns an error if the UCI commands fail, otherwise returns nil.
-func (r *BLOS) createVxLanDevice() error {
-	setDevice := exec.Command("uci", "set", "network."+defaultVxLanDeviceName+"=device")
-	if err := setDevice.Run(); err != nil {
-		return err
-	}
-
-	setName := exec.Command("uci", "set", "network."+defaultVxLanDeviceName+".name="+defaultVxLanDeviceName)
-	if err := setName.Run(); err != nil {
-		return err
-	}
-
-	setipv4mtu := exec.Command("uci", "set", "network."+defaultVxLanDeviceName+".mtu="+strconv.Itoa(vxLanDefaultMTUValue))
-	if err := setipv4mtu.Run(); err != nil {
-		return err
-	}
-
-	setipv6mtu := exec.Command("uci", "set", "network."+defaultVxLanDeviceName+".mtu6="+strconv.Itoa(vxLanDefaultMTUValue))
-	if err := setipv6mtu.Run(); err != nil {
-		return err
-	}
-
-	if err := network.ForceReloadConfig(); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // containsString checks if a slice of strings contains a specific target string.

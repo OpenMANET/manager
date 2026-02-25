@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"fmt"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/openmanet/openmanetd/internal/database/models"
@@ -29,12 +30,12 @@ var sqlDB *sql.DB
 func NewConnection(ctx context.Context, log zerolog.Logger, dbFilePath string) (*models.Queries, error) {
 	db, err := sql.Open("sqlite3", "file:"+dbFilePath+"?_foreign_keys=on")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open database: %w", err)
 	}
 
 	// Verify that the connection is valid
 	if err := db.PingContext(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ping database: %w", err)
 	}
 
 	// Configure connection pool settings for SQLite
@@ -48,7 +49,7 @@ func NewConnection(ctx context.Context, log zerolog.Logger, dbFilePath string) (
 	if _, err := db.ExecContext(ctx, ddl); err != nil {
 		log.Error().Err(err).Msg("Failed to execute DDL schema")
 
-		return nil, err
+		return nil, fmt.Errorf("execute DDL schema: %w", err)
 	}
 
 	sqlDB = db

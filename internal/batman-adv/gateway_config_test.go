@@ -46,7 +46,7 @@ func mockGatewaysJSON() string {
 func createMockGateways() *Gateways {
 	var gateways Gateways
 
-	json.Unmarshal([]byte(mockGatewaysJSON()), &gateways)
+	_ = json.Unmarshal([]byte(mockGatewaysJSON()), &gateways)
 
 	return &gateways
 }

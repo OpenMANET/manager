@@ -96,11 +96,11 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error {
 	case "Stopped":
 		r.Logger.Info().Msg("Tunnel is stopped")
 
-		return errors.New("Tunnel is stopped. Ensure Tailscale is running and authenticated, then restart openmanetd.")
+		return errors.New("tunnel is stopped. Ensure Tailscale is running and authenticated, then restart openmanetd")
 	case "NeedsLogin", "NeedsMachineAuth":
 		r.Logger.Error().Msgf("Tunnel requires login or machine authentication: %s", tunnelStatus.BackendState)
 
-		return errors.New("Tunnel needs to autheticate, or machine auth is broken.  Fix the authentication and restart openmanetd.")
+		return errors.New("tunnel needs to autheticate, or machine auth is broken. Fix the authentication and restart openmanetd")
 	default:
 		r.Logger.Info().Msgf("Tunnel is in state: %s", tunnelStatus.BackendState)
 	}
@@ -114,27 +114,32 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error {
 
 		if !blosConfigured {
 			// Configure wireguard (tailscale) tunnel interface
-			if err := r.createOrConfigureTunnelInterface(); err != nil {
+			err = r.createOrConfigureTunnelInterface()
+			if err != nil {
 				return err
 			}
 
 			// Configure VxLAN interface
-			if err := r.createOrConfigureVxLanInterface(); err != nil {
+			err = r.createOrConfigureVxLanInterface()
+			if err != nil {
 				return err
 			}
 
 			// Configure Batman interface for tunnel
-			if err := r.createOrConfigureBatmanInterface(); err != nil {
+			err = r.createOrConfigureBatmanInterface()
+			if err != nil {
 				return err
 			}
 
 			// Create VxLAN multicast peers
-			if err := r.createVXMulticastPeers(); err != nil {
+			err = r.createVXMulticastPeers()
+			if err != nil {
 				return err
 			}
 
 			// Mark BLOS as configured in the OpenMANET config to avoid reconfiguring on every startup
-			if err := network.SetBLOSConfiguredWithReader(r.uciOpenManetConfig); err != nil {
+			err = network.SetBLOSConfiguredWithReader(r.uciOpenManetConfig)
+			if err != nil {
 				return err
 			}
 

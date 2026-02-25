@@ -1,6 +1,8 @@
 package mgmt
 
 import (
+	"fmt"
+
 	"github.com/mdlayher/wifi"
 )
 
@@ -17,7 +19,7 @@ type WirelessConfig struct {
 func NewWirelessConfig() (*WirelessConfig, error) {
 	wifiClient, err := wifi.New()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initialize wifi client: %w", err)
 	}
 
 	return &WirelessConfig{
@@ -37,7 +39,7 @@ func (wc *WirelessConfig) Close() error {
 func (wc *WirelessConfig) GetMeshInterfaces() ([]*wifi.Interface, error) {
 	ifaces, err := wc.Interfaces()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list wifi interfaces: %w", err)
 	}
 
 	var meshIfaces []*wifi.Interface

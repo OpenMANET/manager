@@ -1,6 +1,7 @@
 package gpsd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -18,7 +19,7 @@ type mockGPSDServer struct {
 }
 
 func newMockGPSDServer(t *testing.T) *mockGPSDServer {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Failed to create mock GPSD server: %v", err)
 	}
@@ -123,7 +124,7 @@ func verifyNMEAChecksum(nmea string) bool {
 
 	var actualChecksum byte
 
-	fmt.Sscanf(parts[1], "%02X", &actualChecksum)
+	_, _ = fmt.Sscanf(parts[1], "%02X", &actualChecksum)
 
 	return expectedChecksum == actualChecksum
 }

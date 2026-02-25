@@ -1,15 +1,16 @@
 package network
 
 import (
+	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/digineo/go-uci/v2"
-	proto "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
 	"github.com/openmanet/openmanetd/internal/database/models"
 )
+
+const testMACAddress = "AA:BB:CC:DD:EE:FF"
 
 // mockDHCPConfigReader is a mock implementation of DHCPConfigReader for testing.
 type mockDHCPConfigReader struct {
@@ -991,16 +992,6 @@ func TestDHCPRangeOverlap(t *testing.T) {
 	}
 }
 
-// mustMarshalAddressReservation marshals an AddressReservation or panics.
-func mustMarshalAddressReservation(ar *proto.AddressReservation) []byte {
-	data, err := ar.MarshalVT()
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal AddressReservation: %v", err))
-	}
-
-	return data
-}
-
 // mockUbusExecutor is a mock implementation of UbusCommandExecutor for testing.
 type mockUbusExecutor struct {
 	err    error
@@ -1008,7 +999,7 @@ type mockUbusExecutor struct {
 }
 
 // Execute returns the pre-configured output and error.
-func (m *mockUbusExecutor) Execute(args ...string) ([]byte, error) {
+func (m *mockUbusExecutor) Execute(_ context.Context, args ...string) ([]byte, error) {
 	return m.output, m.err
 }
 
@@ -1016,7 +1007,7 @@ func TestDHCPLease_GetMethods(t *testing.T) {
 	lease := DHCPLease{
 		Expires:  43141,
 		Hostname: "TestHost",
-		MacAddr:  "AA:BB:CC:DD:EE:FF",
+		MacAddr:  testMACAddress,
 		DUID:     "01aabbccddeeff",
 		IPAddr:   "10.41.0.100",
 	}
@@ -1029,7 +1020,7 @@ func TestDHCPLease_GetMethods(t *testing.T) {
 		t.Errorf("GetHostname() = %s, want TestHost", lease.GetHostname())
 	}
 
-	if lease.GetMacAddr() != "AA:BB:CC:DD:EE:FF" {
+	if lease.GetMacAddr() != testMACAddress {
 		t.Errorf("GetMacAddr() = %s, want AA:BB:CC:DD:EE:FF", lease.GetMacAddr())
 	}
 
@@ -1047,7 +1038,7 @@ func TestDHCPLeasesResponse_GetMethods(t *testing.T) {
 		{
 			Expires:  43141,
 			Hostname: "Host1",
-			MacAddr:  "AA:BB:CC:DD:EE:FF",
+			MacAddr:  testMACAddress,
 			DUID:     "01aabbccddeeff",
 			IPAddr:   "10.41.0.100",
 		},
@@ -1252,7 +1243,7 @@ func TestGetCurrentDHCPLeasesWithExecutor(t *testing.T) {
 				err:    tt.mockErr,
 			}
 
-			response, err := GetCurrentDHCPLeasesWithExecutor(mock)
+			response, err := GetCurrentDHCPLeasesWithExecutor(context.Background(), mock)
 
 			if tt.expectErr {
 				if err == nil {
