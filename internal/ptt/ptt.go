@@ -1,6 +1,7 @@
 package ptt
 
 import (
+	"context"
 	"errors"
 	"math"
 	"net"
@@ -10,7 +11,6 @@ import (
 	"syscall"
 
 	"github.com/gordonklaus/portaudio"
-	"github.com/hraban/opus"
 	"github.com/rs/zerolog"
 )
 
@@ -23,7 +23,7 @@ const (
 	encoderComplexity    int    = 10
 	packetLossPerc       int    = 30
 	defaultKey           string = "any"
-	defaultIface         string = "br-ahwlan" // ← use bridge by default; override in UCI if needed
+	defaultIface         string = "br-ahwlan"
 	defaultG             string = "224.0.0.1"
 	defaultPort          int    = 5007
 	defaultProtocol      string = protocolUDP
@@ -34,260 +34,113 @@ const (
 	defaultControlSource string = "evdev"
 )
 
-// PTTRuntime holds all resources and derived state for a running PTT instance.
-// It is allocated by Start once Enable is confirmed and is nil otherwise.
-// No field is safe to access concurrently unless documented below.
+// PTTRuntime holds live resources allocated by Start.  All fields are
+// interfaces so that unit tests can inject fakes without touching hardware.
 type PTTRuntime struct {
 	// ---- Codec ----
-
-	// encoder is the Opus encoder used in the broadcast-stream PortAudio
-	// callback to convert float32 PCM captured from the microphone into a
-	// compressed Opus byte slice before it is sent over UDP.
-	encoder *opus.Encoder
-
-	// decoder is the Opus decoder used in decodeAndQueue and
-	// decodeAndQueuePLC to turn received Opus payloads (or a nil PLC
-	// stimulus) back into float32 PCM for the playback buffer.
-	decoder *opus.Decoder
+	encoder AudioEncoder
+	decoder AudioDecoder
 
 	// ---- Network ----
-
-	// udpSendConn is a connected UDP socket bound to the local interface IP
-	// so that outbound multicast datagrams egress the correct interface.
-	// Written to inside the PortAudio capture callback.
-	udpSendConn *net.UDPConn
-
-	// udpRecvConn is a UDP socket bound to 0.0.0.0:<mcastPort> that has
-	// joined the multicast group on the selected interface.  Owned by
-	// receiveLoop.
-	udpRecvConn *net.UDPConn
-
-	// localIP is the IPv4 address of the selected network interface.
-	// Used in receiveLoop to identify and optionally drop packets that
-	// originated from this node.
-	localIP string
-
-	// protocol is the normalized wire-framing mode ("udp" or "rtp").
-	// Set once at startup from PTTConfig.Protocol; read in receiveLoop and
-	// in the broadcast-stream callback to decide whether to prepend an RTP
-	// header.
-	protocol string
-
-	// rtpSeq is the rolling RTP sequence number written into every outbound
-	// RTP header.  Incremented by wrapRTP on each sent packet.
-	rtpSeq uint16
-
-	// rtpSSRC is the synchronisation source identifier written into every
-	// outbound RTP header.  Derived once at startup as the FNV-1a hash of
-	// rtpID.
-	rtpSSRC uint32
-
-	// rtpID is the string from which rtpSSRC is hashed.  Resolved in
-	// priority order: PTTConfig.RtpID → system hostname → local interface
-	// IP.
-	rtpID string
+	sender   PacketWriter
+	receiver PacketReader
+	localIP  string
+	rtpSeq   uint16
+	rtpSSRC  uint32
 
 	// ---- Audio ----
-
-	// broadcastStream is the PortAudio input stream capturing microphone
-	// audio.  Its callback encodes and sends each frame over UDP.
-	// Started/stopped by beginTransmission and endTransmission; re-opened
-	// by reopenBroadcastStream if a Start failure is detected.
-	broadcastStream *portaudio.Stream
-
-	// inputDevice is the resolved PortAudio DeviceInfo for the capture
-	// device.  Stored so that reopenBroadcastStream can re-open the stream
-	// without re-running the full device resolution logic.
-	inputDevice *portaudio.DeviceInfo
-
-	// playbackBuffer is a buffered channel of decoded float32 PCM frames.
-	// The PortAudio output callback drains it on each 20 ms tick; the
-	// receive path and PLC path write into it via decodeAndQueue /
-	// decodeAndQueuePLC.
-	playbackBuffer chan []float32
-
-	// beepBufferStart is a single 20 ms frame of a 1000 Hz sine wave at
-	// 20 % amplitude.  It is played to the local speaker immediately when
-	// PTT is pressed to provide audible transmit-start feedback.
+	broadcastStream AudioStream
+	playbackBuffer  chan []float32
 	beepBufferStart []float32
-
-	// beepBufferStop is a single 20 ms frame of a 600 Hz sine wave at
-	// 20 % amplitude.  It is played to the local speaker when PTT is
-	// released to signal end of transmission.
-	beepBufferStop []float32
-
-	// ---- Resolved config (applied from PTTConfig with fallbacks) ----
-
-	// ifaceName is the network interface name after applying the default
-	// (br-ahwlan).  Used to look up the interface's IPv4 address and to
-	// join the multicast group.
-	ifaceName string
-
-	// mcastAddr is the multicast group address after applying the default
-	// (224.0.0.1).  Used as the UDP send destination and for the multicast
-	// group join on the receive socket.
-	mcastAddr string
-
-	// mcastPort is the UDP port after applying the default (5007).  Used
-	// as both the send destination port and the receive bind port.
-	mcastPort int
-
-	// pttKey is the evdev key filter after applying the default ("any").
-	// "any" matches all key press events; a decimal integer matches the
-	// specific Linux EV_KEY code.  Read in monitorPTT on every key event.
-	pttKey string
-
-	// pttDevice is the file-system glob after applying the default
-	// (/dev/hidraw0/*).  Passed to evdev.ListInputDevices to narrow the
-	// set of devices scanned when looking for the PTT button.
-	pttDevice string
-
-	// pttDeviceName is the exact evdev device name after applying the
-	// default ("AllInOneCable").  Compared against each enumerated device's
-	// Name in findPTTDevice to select the PTT button hardware.
-	pttDeviceName string
-
-	// controlSource is the normalised PTT event backend after applying the
-	// default ("evdev").  Read in Start to choose between the evdev loop
-	// and the bluealsa_xevent journal monitor.
-	controlSource string
-
-	// audioDeviceHint is the shared substring matcher applied to both
-	// InputDevice and OutputDevice when neither is set explicitly.
-	// Empty string disables hint-based matching.
-	audioDeviceHint string
+	beepBufferStop  []float32
 
 	// ---- Transmission state ----
-
-	// recordMutex guards the broadcasting field.  Must be held whenever
-	// broadcasting is read or written outside of the same goroutine.
-	recordMutex sync.Mutex
-
-	// broadcasting is true while the broadcast stream is actively capturing
-	// and sending microphone audio.  Guarded by recordMutex; toggled by
-	// beginTransmission and endTransmission.
+	recordMutex  sync.Mutex
 	broadcasting bool
 
-	// ---- Flags ----
-
-	// debugEnabled mirrors PTTConfig.Debug.  When true, device enumeration
-	// results and other verbose startup details are logged at Debug level.
-	debugEnabled bool
-
-	// loopbackAudio mirrors PTTConfig.Loopback.  When false, receiveLoop
-	// silently drops datagrams whose source IP is the loopback address or
-	// the local interface IP, preventing self-monitoring.
-	loopbackAudio bool
-
-	// traceEnabled mirrors PTTConfig.Trace.  When true, every inbound and
-	// outbound datagram is logged at Trace level with source address, byte
-	// count, and RTP header fields when present.
-	traceEnabled bool
+	// reopenBroadcast is a closure set by Start() that rebuilds the capture
+	// stream using the resolved input device.  It is called by beginTransmission
+	// when broadcastStream is nil or fails to start — keeping comms.go free of
+	// any direct portaudio dependency.
+	reopenBroadcast func() error
 }
 
 // PTTConfig holds the static configuration for the PTT subsystem.
 // Allocate one with NewPTT and call Start to begin operation.
-// All fields must be set before Start is called; none are mutated afterwards.
+// All exported fields must be set before Start is called; they are normalised
+// in-place by applyDefaults() at startup.
 type PTTConfig struct {
 	// Log is the zerolog logger used for all PTT subsystem messages.
 	Log zerolog.Logger
 
-	// Interrupt is the OS signal channel used to trigger a clean shutdown of
-	// the PTT service.  Typically populated from os/signal.Notify.
+	// Interrupt is the OS signal channel used to trigger a clean shutdown.
 	Interrupt chan os.Signal
 
 	// Enable controls whether the PTT subsystem starts at all.
-	// When false, Start returns immediately without allocating any resources.
 	Enable bool
 
 	// ---- Network ----
 
 	// Iface is the name of the network interface whose IPv4 address is used to
-	// bind the outbound UDP multicast sender and join the multicast group on
-	// the receiver side.
+	// bind the outbound UDP multicast sender and join the multicast group.
 	Iface string
 
 	// McastAddr is the IPv4 multicast group address (e.g. "224.0.0.1").
 	McastAddr string
 
-	// McastPort is the UDP port used for both sending and receiving multicast
-	// audio datagrams.
+	// McastPort is the UDP port used for both sending and receiving.
 	McastPort int
 
-	// Protocol selects the wire framing for audio datagrams.  "udp" sends raw
-	// Opus payloads; "rtp" prefixes each payload with a 12-byte RTP header.
-	// Receive path auto-detects RTP regardless of this setting.
+	// Protocol selects the wire framing ("udp" or "rtp").
 	Protocol string
 
-	// RtpID is the identifier used to derive the RTP SSRC via FNV-1a hashing.
-	// Defaults to the system hostname, falling back to the local interface IP.
-	// Set to the ATAK device identifier for strict VX multicast compatibility.
+	// RtpID derives the RTP SSRC via FNV-1a hashing.
 	RtpID string
 
 	// ---- Audio ----
 
-	// InputDevice specifies the PortAudio capture device.  Accepts a device
-	// index (as a decimal string), an exact device name, or a name substring.
-	// Empty string selects the system default input device.
+	// InputDevice specifies the PortAudio capture device (index, exact name, or substring).
 	InputDevice string
 
-	// OutputDevice specifies the PortAudio playback device.  Accepts a device
-	// index (as a decimal string), an exact device name, or a name substring.
-	// Empty string selects the system default output device.
+	// OutputDevice specifies the PortAudio playback device.
 	OutputDevice string
 
-	// AudioDeviceHint is a shared substring matcher applied to both
-	// InputDevice and OutputDevice when neither is explicitly set.  Useful
-	// when a single keyword (e.g. "BS-22") uniquely identifies both sides of
-	// a Bluetooth speaker-mic.
+	// AudioDeviceHint is a shared substring applied to both devices when neither is set.
 	AudioDeviceHint string
 
-	// PlaybackDepth controls the depth of the decoded-audio playback channel.
-	// Larger values tolerate more network jitter at the cost of added latency.
-	// Defaults to 2 when unset or zero.
+	// PlaybackDepth controls the decoded-audio channel depth. Defaults to 2.
 	PlaybackDepth int
 
 	// ---- PTT control ----
 
-	// PTTKey is the evdev key code that activates the transmit path.
-	// Use "any" to treat every key event as a PTT trigger, or provide a
-	// decimal integer matching a Linux EV_KEY code.
+	// PTTKey is the evdev key code filter ("any" or a decimal EV_KEY code).
 	PTTKey string
 
-	// PTTDeviceGlob is the file-system glob used to enumerate evdev input
-	// devices when searching for the PTT button hardware
-	// (e.g. "/dev/hidraw0/*").
+	// PTTDeviceGlob is the file-system glob for evdev device enumeration.
 	PTTDeviceGlob string
 
-	// PTTDeviceName is the exact device name as reported by evdev that will
-	// be opened as the PTT button source.
+	// PTTDeviceName is the exact evdev device name to open.
 	PTTDeviceName string
 
-	// ControlSource selects the PTT event backend.
-	// "evdev" (default) reads Linux input events via the evdev API.
-	// "bluealsa_xevent" tails the BlueALSA journal for AT+XEVENT=PTT_DOWN /
-	// PTT_UP vendor events from paired Bluetooth headsets.
+	// ControlSource selects the PTT backend: "evdev" or "bluealsa_xevent".
 	ControlSource string
 
 	// ---- Flags ----
 
-	// Debug enables device-enumeration and startup debug logging.
+	// Debug enables device-enumeration and startup verbose logging.
 	Debug bool
 
-	// Loopback controls whether audio transmitted by this node is also played
-	// back locally.  When false, datagrams sourced from the local interface
-	// IP are silently dropped on the receive path.
+	// Loopback controls whether locally-transmitted audio is played back.
 	Loopback bool
 
-	// Trace enables per-packet trace logging on both the send and receive
-	// paths, including RTP header fields when present.
+	// Trace enables per-packet trace logging.
 	Trace bool
 
-	// runtime holds internally-allocated resources and is populated by Start.
-	// It is nil when Enable is false or before Start is called.
+	// runtime holds internally-allocated resources; nil when not running.
 	runtime *PTTRuntime
 }
 
+// NewPTT copies cfg and returns a pointer ready for Start.
 func NewPTT(cfg PTTConfig) *PTTConfig {
 	return &PTTConfig{
 		Log:             cfg.Log,
@@ -312,148 +165,130 @@ func NewPTT(cfg PTTConfig) *PTTConfig {
 	}
 }
 
-func (ptt *PTTConfig) Start() {
-	if !ptt.Enable {
-		ptt.Log.Info().Msg("PTT functionality disabled; not starting.")
-		return
+// ─── Stage 1: defaults ────────────────────────────────────────────────────────
+
+// applyDefaults fills any empty PTTConfig fields with package-level constants.
+// It is idempotent and safe to call more than once.
+func (ptt *PTTConfig) applyDefaults() {
+	if ptt.Iface == "" {
+		ptt.Iface = defaultIface
+	}
+	if ptt.McastAddr == "" {
+		ptt.McastAddr = defaultG
+	}
+	if ptt.McastPort == 0 {
+		ptt.McastPort = defaultPort
+	}
+	if ptt.PTTKey == "" {
+		ptt.PTTKey = defaultKey
+	}
+	ptt.Protocol = normalizeProtocol(ptt.Protocol) // handles empty → "udp"
+	if ptt.PTTDeviceGlob == "" {
+		ptt.PTTDeviceGlob = defaultPTTDevice
+	}
+	if ptt.PTTDeviceName == "" {
+		ptt.PTTDeviceName = defaultPTTDeviceName
+	}
+	ptt.ControlSource = normalizeControlSource(ptt.ControlSource) // handles empty → "evdev"
+
+	// Resolve RtpID: explicit value → hostname
+	if ptt.RtpID == "" {
+		if hostname, err := os.Hostname(); err == nil && hostname != "" {
+			ptt.RtpID = hostname
+			ptt.Log.Debug().Msgf("RTP ID not set; using hostname %q", hostname)
+		}
 	}
 
-	// Initialize runtime state only when PTT is enabled
-	ptt.runtime = &PTTRuntime{
-		ifaceName:     defaultIface,
-		mcastAddr:     defaultG,
-		mcastPort:     defaultPort,
-		protocol:      defaultProtocol,
-		rtpID:         "",
-		pttKey:        defaultKey,
-		debugEnabled:  defaultDebug,
-		loopbackAudio: defaultLoopback,
-		pttDeviceName: defaultPTTDeviceName,
-		pttDevice:     defaultPTTDevice,
-		controlSource: defaultControlSource,
-	}
-
-	// apply config
-	if ptt.Iface != "" {
-		ptt.runtime.ifaceName = ptt.Iface
-	}
-	if ptt.McastAddr != "" {
-		ptt.runtime.mcastAddr = ptt.McastAddr
-	}
-	if ptt.McastPort != 0 {
-		ptt.runtime.mcastPort = ptt.McastPort
-	}
-	if ptt.PTTKey != "" {
-		ptt.runtime.pttKey = ptt.PTTKey
-	} else {
-		ptt.runtime.pttKey = defaultKey
-	}
-
-	if ptt.Protocol != "" {
-		ptt.runtime.protocol = normalizeProtocol(ptt.Protocol)
-	} else {
-		ptt.runtime.protocol = defaultProtocol
-	}
-
-	if ptt.RtpID != "" {
-		ptt.runtime.rtpID = ptt.RtpID
-	} else if hostname, err := os.Hostname(); err == nil && hostname != "" {
-		ptt.runtime.rtpID = hostname
-		ptt.Log.Debug().Msgf("RTP ID not set; using hostname %q", hostname)
-	}
-
-	ptt.runtime.debugEnabled = ptt.Debug
-	if ptt.runtime.debugEnabled {
-		ptt.logInputDeviceList()
-	}
-
-	ptt.runtime.loopbackAudio = ptt.Loopback
-	ptt.runtime.traceEnabled = ptt.Trace
-
-	if ptt.PTTDeviceGlob != "" {
-		ptt.runtime.pttDevice = ptt.PTTDeviceGlob
-	}
-
-	if ptt.PTTDeviceName != "" {
-		ptt.runtime.pttDeviceName = ptt.PTTDeviceName
-	}
-
-	if ptt.ControlSource != "" {
-		ptt.runtime.controlSource = ptt.ControlSource
-	}
+	// AudioDeviceHint fills InputDevice / OutputDevice when both are empty.
 	if ptt.AudioDeviceHint != "" {
-		ptt.runtime.audioDeviceHint = ptt.AudioDeviceHint
+		if ptt.InputDevice == "" {
+			ptt.InputDevice = ptt.AudioDeviceHint
+		}
+		if ptt.OutputDevice == "" {
+			ptt.OutputDevice = ptt.AudioDeviceHint
+		}
 	}
+}
 
-	playbackDepth := 2
-	if ptt.PlaybackDepth > 0 {
-		playbackDepth = ptt.PlaybackDepth
-	}
-	ptt.runtime.playbackBuffer = make(chan []float32, playbackDepth)
-	ptt.runtime.beepBufferStart = make([]float32, frameSize)
-	ptt.runtime.beepBufferStop = make([]float32, frameSize)
+// ─── Stage 2: codec ───────────────────────────────────────────────────────────
 
-	ptt.Log.Info().Msgf("Starting PTT on iface=%s mcast=%s:%d protocol=%s key=%s debug=%t trace=%t loopback=%t ptt_device=%s control_source=%s audio_hint=%s", ptt.runtime.ifaceName, ptt.runtime.mcastAddr, ptt.runtime.mcastPort, ptt.runtime.protocol, ptt.runtime.pttKey, ptt.runtime.debugEnabled, ptt.runtime.traceEnabled, ptt.runtime.loopbackAudio, ptt.runtime.pttDeviceName, ptt.runtime.controlSource, ptt.runtime.audioDeviceHint)
-
-	var err error
-	ptt.runtime.encoder, err = opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
+// buildCodec creates the Opus encoder and decoder, returning them as the
+// AudioEncoder / AudioDecoder interfaces.  Returns an error instead of
+// calling log.Fatal so that test code and callers can handle failures.
+func (ptt *PTTConfig) buildCodec() (AudioEncoder, AudioDecoder, error) {
+	enc, err := newOpusEncoder()
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to create Opus encoder")
+		return nil, nil, err
 	}
-
-	if err := ptt.runtime.encoder.SetBitrate(targetBitrate); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder bitrate")
-	}
-
-	if err := ptt.runtime.encoder.SetComplexity(encoderComplexity); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder complexity")
-	}
-
-	if err := ptt.runtime.encoder.SetInBandFEC(false); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder in-band FEC")
-	}
-
-	if err := ptt.runtime.encoder.SetPacketLossPerc(packetLossPerc); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder packet loss percentage")
-	}
-
-	if err := ptt.runtime.encoder.SetDTX(false); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder DTX")
-	}
-
-	ptt.runtime.decoder, err = opus.NewDecoder(sampleRate, channels)
+	dec, err := newOpusDecoder()
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to create Opus decoder")
+		return nil, nil, err
 	}
+	return enc, dec, nil
+}
 
-	if err := portaudio.Initialize(); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to initialize PortAudio")
-	}
+// ─── Stage 3: network ─────────────────────────────────────────────────────────
 
-	inputSpec, outputSpec := ptt.resolveAudioSpecs()
-
-	outDev, err := ptt.resolveAudioDevice(outputSpec, false)
+// buildNetwork resolves the interface IP, dials the UDP sender, opens the UDP
+// receiver, and joins the multicast group.
+func (ptt *PTTConfig) buildNetwork() (PacketWriter, PacketReader, string, error) {
+	localIP, ifi, err := ptt.getIfaceIPv4(ptt.Iface)
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to resolve output audio device")
+		return nil, nil, "", err
+	}
+	ptt.Log.Debug().Msgf("Using interface %s with IP %s", ptt.Iface, localIP)
+
+	dst := &net.UDPAddr{IP: net.ParseIP(ptt.McastAddr), Port: ptt.McastPort}
+	src := &net.UDPAddr{IP: net.ParseIP(localIP), Port: 0}
+
+	sendConn, err := net.DialUDP("udp4", src, dst)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	ptt.Log.Debug().Msgf("Sender bound to %s -> %s:%d", localIP, ptt.McastAddr, ptt.McastPort)
+
+	recvConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: ptt.McastPort})
+	if err != nil {
+		_ = sendConn.Close()
+		return nil, nil, "", err
 	}
 
-	inDev, err := ptt.resolveAudioDevice(inputSpec, true)
+	if err := recvConn.SetReadBuffer(65535); err != nil {
+		_ = sendConn.Close()
+		_ = recvConn.Close()
+		return nil, nil, "", err
+	}
+
+	if err := ptt.joinMulticastGroup(ifi, recvConn, net.ParseIP(ptt.McastAddr)); err != nil {
+		_ = sendConn.Close()
+		_ = recvConn.Close()
+		return nil, nil, "", err
+	}
+	ptt.Log.Debug().Msgf("Joined multicast group %s:%d", ptt.McastAddr, ptt.McastPort)
+
+	return sendConn, recvConn, localIP, nil
+}
+
+// ─── Stage 4: audio ───────────────────────────────────────────────────────────
+
+// buildAudio resolves audio devices, opens the PortAudio playback stream, and
+// opens (but does not start) the broadcast (capture) stream.
+// rt must already have encoder, playbackBuffer, and beep buffers populated.
+// Returns playback AudioStream, broadcast AudioStream, resolved input DeviceInfo, or an error.
+func (ptt *PTTConfig) buildAudio(rt *PTTRuntime) (playback AudioStream, broadcast AudioStream, inDev *portaudio.DeviceInfo, err error) {
+	outDev, err := ptt.resolveAudioDevice(ptt.OutputDevice, false)
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to resolve input audio device")
+		return nil, nil, nil, err
+	}
+
+	inDev, err = ptt.resolveAudioDevice(ptt.InputDevice, true)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	ptt.Log.Info().Msgf("Using audio devices: input=%s output=%s", inDev.Name, outDev.Name)
 
-	// handle shutdown
-	go func() {
-		<-ptt.Interrupt
-		ptt.Log.Info().Msg("Received shutdown signal, cleaning up PortAudio")
-		portaudio.Terminate()
-		os.Exit(0)
-	}()
-
-	// playback stream
-	params := portaudio.StreamParameters{
+	playbackParams := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
 			Device:   outDev,
 			Channels: channels,
@@ -462,9 +297,9 @@ func (ptt *PTTConfig) Start() {
 		FramesPerBuffer: frameSize,
 	}
 
-	playbackStream, err := portaudio.OpenStream(params, func(_, out []float32) {
+	rawPlayback, err := portaudio.OpenStream(playbackParams, func(_, out []float32) {
 		select {
-		case data := <-ptt.runtime.playbackBuffer:
+		case data := <-rt.playbackBuffer:
 			copy(out, data)
 		default:
 			for i := range out {
@@ -473,91 +308,21 @@ func (ptt *PTTConfig) Start() {
 		}
 	})
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to open PortAudio stream")
+		return nil, nil, nil, err
 	}
 
-	if err := playbackStream.Start(); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to start playback stream")
-	}
-	defer playbackStream.Stop()
-	defer playbackStream.Close()
-
-	ptt.runtime.inputDevice = inDev
-	if err := ptt.openBroadcastStream(inDev); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to open PortAudio stream")
-	}
-
-	defer ptt.runtime.broadcastStream.Close()
-
-	// beeps
-	for i := range ptt.runtime.beepBufferStart {
-		ptt.runtime.beepBufferStart[i] = float32(math.Sin(2*math.Pi*1000*float64(i)/float64(sampleRate))) * 0.2
-		ptt.runtime.beepBufferStop[i] = float32(math.Sin(2*math.Pi*600*float64(i)/float64(sampleRate))) * 0.2
-	}
-
-	// networking: bind send to iface IP; listen on :port and join group on iface
-	ifIP, ifi, err := ptt.getIfaceIPv4(ptt.runtime.ifaceName)
+	broadcast, err = ptt.openBroadcastStreamOn(inDev, rt)
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to get interface IPv4")
+		_ = rawPlayback.Close()
+		return nil, nil, nil, err
 	}
 
-	ptt.runtime.localIP = ifIP
-	if ptt.runtime.protocol == protocolRTP {
-		rtpID := ptt.runtime.rtpID
-		if rtpID == "" {
-			rtpID = ifIP
-			ptt.Log.Warn().Msg("RTP enabled but ptt.rtpId/hostname not set; using local IP to derive SSRC")
-		}
-		ptt.runtime.rtpSSRC = rtpSSRCFromID(rtpID)
-		ptt.runtime.rtpSeq = randomRTPSeq()
-	}
-	ptt.Log.Debug().Msgf("Using interface %s with IP %s", ptt.runtime.ifaceName, ifIP)
-
-	// sender bound to iface IP so traffic egresses that iface
-	dst := &net.UDPAddr{IP: net.ParseIP(ptt.runtime.mcastAddr), Port: ptt.runtime.mcastPort}
-	src := &net.UDPAddr{IP: net.ParseIP(ifIP), Port: 0}
-
-	ptt.runtime.udpSendConn, err = net.DialUDP("udp4", src, dst)
-	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to dial UDP")
-	}
-	ptt.Log.Debug().Msgf("Sender bound to %s -> %s:%d", src.IP.String(), ptt.runtime.mcastAddr, ptt.runtime.mcastPort)
-
-	// receiver on all, then join group on iface
-	ptt.runtime.udpRecvConn, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: ptt.runtime.mcastPort})
-	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to listen on UDP")
-	}
-
-	if err := ptt.runtime.udpRecvConn.SetReadBuffer(65535); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to set UDP read buffer")
-	}
-
-	if err := ptt.joinMulticastGroup(ifi, ptt.runtime.udpRecvConn, net.ParseIP(ptt.runtime.mcastAddr)); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to join multicast group")
-	}
-	ptt.Log.Debug().Msgf("Joined multicast group %s:%d", ptt.runtime.mcastAddr, ptt.runtime.mcastPort)
-
-	go ptt.receiveLoop(ptt.runtime.udpRecvConn)
-
-	switch normalizeControlSource(ptt.runtime.controlSource) {
-	case "bluealsa_xevent":
-		ptt.Log.Info().Msg("Listening for PTT using BlueALSA XEVENT backend")
-		go ptt.monitorBluealsaXEvents()
-	default:
-		pttDevice := ptt.findPTTDevice()
-		ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", pttDevice.Name)
-		ptt.Log.Debug().Msgf("Monitoring PTT device %s", pttDevice.Name)
-		go ptt.monitorPTT(pttDevice)
-	}
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	<-c
-	ptt.Log.Info().Msg("Exiting PTT service")
+	return &portaudioStream{rawPlayback}, broadcast, inDev, nil
 }
 
-func (ptt *PTTConfig) openBroadcastStream(inDev *portaudio.DeviceInfo) error {
+// openBroadcastStreamOn creates a PortAudio input stream for inDev that uses
+// rt.encoder to compress PCM and rt.sender to transmit each frame.
+func (ptt *PTTConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *PTTRuntime) (AudioStream, error) {
 	inParams := portaudio.StreamParameters{
 		Input: portaudio.StreamDeviceParameters{
 			Device:   inDev,
@@ -569,36 +334,215 @@ func (ptt *PTTConfig) openBroadcastStream(inDev *portaudio.DeviceInfo) error {
 
 	stream, err := portaudio.OpenStream(inParams, func(in []float32) {
 		pcm := make([]int16, len(in))
-
 		for i, v := range in {
 			pcm[i] = int16(v * 32767)
 		}
 
 		buf := make([]byte, 4000)
-		if n, err := ptt.runtime.encoder.Encode(pcm, buf); err == nil {
-			packet := buf[:n]
-			if ptt.runtime.protocol == protocolRTP {
-				packet = ptt.wrapRTP(packet)
-			}
-			_, _ = ptt.runtime.udpSendConn.Write(packet)
+		n, encErr := rt.encoder.Encode(pcm, buf)
+		if encErr != nil {
+			return
+		}
+		packet := buf[:n]
+		if ptt.Protocol == protocolRTP {
+			packet = ptt.wrapRTP(packet, rt)
+		}
+		_, _ = rt.sender.Write(packet)
+		if ptt.Trace {
+			ptt.Log.Trace().Int("bytes", len(packet)).Msg("PTT multicast packet sent")
 		}
 	})
 	if err != nil {
+		return nil, err
+	}
+	return &portaudioStream{stream}, nil
+}
+
+// reopenBroadcastStream closes the current broadcast stream and opens a new
+// one using inDev.  rt.broadcastStream is updated atomically under recordMutex.
+func (ptt *PTTConfig) reopenBroadcastStream(rt *PTTRuntime, inDev *portaudio.DeviceInfo) error {
+	if inDev == nil {
+		return errors.New("input device is not set")
+	}
+	if rt.broadcastStream != nil {
+		_ = rt.broadcastStream.Close()
+		rt.broadcastStream = nil
+	}
+	stream, err := ptt.openBroadcastStreamOn(inDev, rt)
+	if err != nil {
 		return err
 	}
-	ptt.runtime.broadcastStream = stream
+	rt.broadcastStream = stream
 	return nil
 }
 
-func (ptt *PTTConfig) reopenBroadcastStream() error {
-	if ptt.runtime.inputDevice == nil {
-		return errors.New("input device is not set")
+// ─── Stage 5: event source ────────────────────────────────────────────────────
+
+// buildEventSource constructs the EventSource selected by PTTConfig.ControlSource.
+func (ptt *PTTConfig) buildEventSource() (EventSource, error) {
+	switch normalizeControlSource(ptt.ControlSource) {
+	default:
+		dev := ptt.findPTTDevice()
+		if dev == nil {
+			return nil, errors.New("PTT device not found")
+		}
+		ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", dev.Name)
+		return NewEvdevSource(dev, ptt.PTTKey, ptt.Log), nil
+	}
+}
+
+// ─── Run (main event loop) ────────────────────────────────────────────────────
+
+// Run is the main PTT event loop.  It starts the receive goroutine and the
+// event source and blocks until ctx is cancelled.
+func (ptt *PTTConfig) Run(ctx context.Context, rt *PTTRuntime, src EventSource) {
+	go ptt.receiveLoop(ctx, rt)
+
+	events := src.Events(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			ptt.Log.Info().Msg("PTT context cancelled; exiting run loop")
+			return
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			switch ev {
+			case PTTDown:
+				ptt.beginTransmission(rt)
+			case PTTUp:
+				ptt.endTransmission(rt)
+			case PTTToggle:
+				if ptt.isBroadcasting(rt) {
+					ptt.Log.Debug().Msg("PTT toggle: stopping transmission")
+					ptt.endTransmission(rt)
+				} else {
+					ptt.Log.Debug().Msg("PTT toggle: starting transmission")
+					ptt.beginTransmission(rt)
+				}
+			}
+		}
+	}
+}
+
+// ─── Start (public entry point) ───────────────────────────────────────────────
+
+// Start initialises all PTT subsystems and blocks until an OS interrupt is
+// received.  Returns immediately if Enable is false.
+func (ptt *PTTConfig) Start() {
+	if !ptt.Enable {
+		ptt.Log.Info().Msg("PTT functionality disabled; not starting.")
+		return
 	}
 
-	if ptt.runtime.broadcastStream != nil {
-		_ = ptt.runtime.broadcastStream.Close()
-		ptt.runtime.broadcastStream = nil
+	ptt.applyDefaults()
+
+	if ptt.Debug {
+		ptt.logInputDeviceList()
 	}
 
-	return ptt.openBroadcastStream(ptt.runtime.inputDevice)
+	ptt.Log.Info().Msgf(
+		"Starting PTT on iface=%s mcast=%s:%d protocol=%s key=%s debug=%t trace=%t loopback=%t ptt_device=%s control_source=%s audio_hint=%s",
+		ptt.Iface, ptt.McastAddr, ptt.McastPort, ptt.Protocol, ptt.PTTKey,
+		ptt.Debug, ptt.Trace, ptt.Loopback, ptt.PTTDeviceName, ptt.ControlSource, ptt.AudioDeviceHint,
+	)
+
+	// ── codec ──────────────────────────────────────────────────────────────
+	enc, dec, err := ptt.buildCodec()
+	if err != nil {
+		ptt.Log.Fatal().Err(err).Msg("Failed to build Opus codec")
+	}
+
+	// ── playback buffer + beep tones ───────────────────────────────────────
+	playbackDepth := 2
+	if ptt.PlaybackDepth > 0 {
+		playbackDepth = ptt.PlaybackDepth
+	}
+	playbackBuf := make(chan []float32, playbackDepth)
+
+	beepStart := make([]float32, frameSize)
+	beepStop := make([]float32, frameSize)
+	for i := range beepStart {
+		beepStart[i] = float32(math.Sin(2*math.Pi*1000*float64(i)/float64(sampleRate))) * 0.2
+		beepStop[i] = float32(math.Sin(2*math.Pi*600*float64(i)/float64(sampleRate))) * 0.2
+	}
+
+	// ── network ────────────────────────────────────────────────────────────
+	sender, receiver, localIP, err := ptt.buildNetwork()
+	if err != nil {
+		ptt.Log.Fatal().Err(err).Msg("Failed to set up network")
+	}
+	defer receiver.Close()
+
+	// ── assemble runtime ───────────────────────────────────────────────────
+	rt := &PTTRuntime{
+		encoder:         enc,
+		decoder:         dec,
+		sender:          sender,
+		receiver:        receiver,
+		localIP:         localIP,
+		playbackBuffer:  playbackBuf,
+		beepBufferStart: beepStart,
+		beepBufferStop:  beepStop,
+	}
+
+	if ptt.Protocol == protocolRTP {
+		rtpID := ptt.RtpID
+		if rtpID == "" {
+			rtpID = localIP
+			ptt.Log.Warn().Msg("RTP enabled but ptt.rtpId/hostname not set; using local IP to derive SSRC")
+		}
+		rt.rtpSSRC = rtpSSRCFromID(rtpID)
+		rt.rtpSeq = randomRTPSeq()
+	}
+
+	ptt.runtime = rt
+
+	// ── PortAudio ──────────────────────────────────────────────────────────
+	if err := portaudio.Initialize(); err != nil {
+		ptt.Log.Fatal().Err(err).Msg("Failed to initialize PortAudio")
+	}
+
+	go func() {
+		<-ptt.Interrupt
+		ptt.Log.Info().Msg("Received shutdown signal, cleaning up PortAudio")
+		portaudio.Terminate()
+		os.Exit(0)
+	}()
+
+	playbackStream, broadcastStream, inDev, err := ptt.buildAudio(rt)
+	if err != nil {
+		ptt.Log.Fatal().Err(err).Msg("Failed to build audio streams")
+	}
+	rt.broadcastStream = broadcastStream
+	// Wire the reopen closure so comms.go has no portaudio dependency.
+	rt.reopenBroadcast = func() error { return ptt.reopenBroadcastStream(rt, inDev) }
+
+	if err := playbackStream.Start(); err != nil {
+		ptt.Log.Fatal().Err(err).Msg("Failed to start playback stream")
+	}
+	defer func() { _ = playbackStream.Stop() }()
+	defer playbackStream.Close() //nolint:errcheck
+	defer broadcastStream.Close()
+
+	// ── PTT event source ───────────────────────────────────────────────────
+	src, err := ptt.buildEventSource()
+	if err != nil {
+		ptt.Log.Fatal().Err(err).Msg("Failed to build PTT event source")
+	}
+
+	// ── run loop ───────────────────────────────────────────────────────────
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		ptt.Log.Info().Msg("Exiting PTT service")
+		cancel()
+	}()
+
+	ptt.Run(ctx, rt, src)
 }

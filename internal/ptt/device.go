@@ -66,24 +66,6 @@ func (ptt *PTTConfig) resolveAudioDevice(spec string, wantInput bool) (*portaudi
 	return nil, fmt.Errorf("audio device %q not found", spec)
 }
 
-func (ptt *PTTConfig) resolveAudioSpecs() (inputSpec, outputSpec string) {
-	inputSpec = ptt.InputDevice
-	outputSpec = ptt.OutputDevice
-
-	if ptt.runtime == nil || ptt.runtime.audioDeviceHint == "" {
-		return inputSpec, outputSpec
-	}
-
-	// Allow a single hint to target both sides of the BT speaker-mic.
-	if inputSpec == "" {
-		inputSpec = ptt.runtime.audioDeviceHint
-	}
-	if outputSpec == "" {
-		outputSpec = ptt.runtime.audioDeviceHint
-	}
-	return inputSpec, outputSpec
-}
-
 func normalizeControlSource(src string) string {
 	switch strings.ToLower(strings.TrimSpace(src)) {
 	case "bluealsa_xevent":
@@ -93,21 +75,24 @@ func normalizeControlSource(src string) string {
 	}
 }
 
+// findPTTDevice searches for the configured evdev device and returns it, or
+// nil if it cannot be found (error is logged).  Callers should treat a nil
+// return as a configuration error.
 func (ptt *PTTConfig) findPTTDevice() *evdev.InputDevice {
 	devs, err := evdev.ListInputDevices(ptt.PTTDeviceGlob)
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("evdev.ListInputDevices")
+		ptt.Log.Error().Err(err).Msg("evdev.ListInputDevices")
+		return nil
 	}
 
 	for _, d := range devs {
 		if d.Name == ptt.PTTDeviceName {
 			ptt.Log.Debug().Msgf("Matched PTT device %s (%s)", d.Name, d.Fn)
-
 			return d
 		}
 	}
-	ptt.Log.Fatal().Msgf("PTT device %q not found", ptt.PTTDeviceName)
 
+	ptt.Log.Error().Msgf("PTT device %q not found", ptt.PTTDeviceName)
 	return nil
 }
 
