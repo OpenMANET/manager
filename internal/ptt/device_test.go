@@ -15,8 +15,22 @@ func TestNormalizeControlSource_Evdev(t *testing.T) {
 		{"evdev", "evdev"},
 		{"EVDEV", "evdev"},
 		{"  evdev  ", "evdev"},
-		{"", "evdev"},
-		{"unknown", "evdev"},
+	}
+	for _, tc := range cases {
+		got := normalizeControlSource(tc.in)
+		if got != tc.want {
+			t.Errorf("normalizeControlSource(%q): got %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestNormalizeControlSource_CM108(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"cm108", "cm108"},
+		{"CM108", "cm108"},
+		{"  cm108  ", "cm108"},
+		{"", "cm108"},     // empty → default (cm108)
+		{"unknown", "cm108"}, // unrecognised → default (cm108)
 	}
 	for _, tc := range cases {
 		got := normalizeControlSource(tc.in)

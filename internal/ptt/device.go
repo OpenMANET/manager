@@ -88,8 +88,10 @@ func normalizeControlSource(src string) string {
 	switch strings.ToLower(strings.TrimSpace(src)) {
 	case "bluealsa_xevent":
 		return "bluealsa_xevent"
-	default:
+	case "evdev":
 		return "evdev"
+	default: // empty or unrecognised → cm108
+		return "cm108"
 	}
 }
 

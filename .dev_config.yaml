@@ -21,6 +21,8 @@ ptt:
   mcastAddr: 224.0.0.1
   mcastPort: 5007
   pttKey: any
+  # cm108 (default, C-Media CM108/CM108B USB HID dongle GPIO3), evdev, or bluealsa_xevent
+  controlSource: cm108
   debug: true
   loopback: true
   pttDevice: /dev/hidraw0/*
