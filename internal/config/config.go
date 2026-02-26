@@ -32,7 +32,7 @@ const (
 	DefaultPTTTrace                    bool    = false
 	DefaultPTTPttDevice                string  = "/dev/hidraw0/*"
 	DefaultPTTPttDeviceName            string  = ""
-	DefaultPTTControlSource            string  = "evdev"
+	DefaultPTTControlSource            string  = "cm108"
 	DefaultPTTAudioDeviceHint          string  = ""
 	DefaultPTTInputDevice              string  = ""
 	DefaultPTTOutputDevice             string  = ""
