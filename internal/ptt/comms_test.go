@@ -379,3 +379,58 @@ func TestRtpPlayoutLoop_ShouldConcealQueuesFrame(t *testing.T) {
 		t.Error("expected PLC concealment frame queued for active stream with gap")
 	}
 }
+
+// TestRtpPlayoutLoop_NoPLCDoubleQueue is a regression test for the "Playback
+// buffer full" warning that appeared under RTP but not UDP:
+//
+// Previously, when shouldConceal emitted a PLC frame for a missing packet but
+// did NOT advance jb.expected, the late original packet was still in the
+// buffer and was returned by popReady on a subsequent tick, producing two
+// frames for that timeslot.  Over time these extra frames accumulated and
+// filled the playback buffer.  advancePast() now discards the slot so the
+// late original is treated as stale, keeping the one-frame-per-tick invariant.
+func TestRtpPlayoutLoop_NoPLCDoubleQueue(t *testing.T) {
+	jb := newRTPJitterBuffer(1, 24)
+
+	// Prime: push/pop seq 0 so the buffer is started and expected == 1.
+	jb.push(0, []byte{0x00})
+	jb.popReady()
+
+	// Push seq 1 to record a recent lastPush, then pop it (expected → 2).
+	jb.push(1, []byte{0x01})
+	jb.popReady()
+
+	// Seq 2 is missing now.  Run one playout tick; shouldConceal fires and
+	// emits a PLC frame, advancing expected to 3.
+	dec := &mockDecoder{fillValue: 3000}
+	rt := &PTTRuntime{
+		decoder:        dec,
+		playbackBuffer: make(chan []float32, 10),
+	}
+	ptt := &PTTConfig{Log: zerolog.Nop()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	ptt.rtpPlayoutLoop(ctx, jb, rt)
+	cancel()
+
+	framesAfterPLC := len(rt.playbackBuffer)
+
+	// Now simulate the late arrival of the original seq 2.
+	// Because advancePast() advanced expected past 2, push must reject it.
+	accepted := jb.push(2, []byte{0x02})
+	if accepted {
+		t.Error("late original packet (seq 2) should be rejected after PLC advanced past it")
+	}
+
+	// Also confirm that running another playout tick does NOT add a second
+	// frame for what was the missing seq 2 slot.
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	ptt.rtpPlayoutLoop(ctx2, jb, rt)
+	cancel2()
+
+	framesTotal := len(rt.playbackBuffer)
+	if framesTotal > framesAfterPLC+1 {
+		t.Errorf("double-queue detected: %d frames after PLC, %d after late-arrival tick (want ≤%d)",
+			framesAfterPLC, framesTotal, framesAfterPLC+1)
+	}
+}

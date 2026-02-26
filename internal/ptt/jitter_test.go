@@ -136,6 +136,47 @@ func TestJitterBuffer_ShouldNotConcealWhenIdle(t *testing.T) {
 	}
 }
 
+func TestJitterBuffer_AdvancePast_DiscardsLateOriginal(t *testing.T) {
+	// After advancing past a sequence slot, the original (late) packet for
+	// that slot must be treated as stale and rejected by push.
+	jb := newRTPJitterBuffer(1, 24)
+
+	jb.push(0, []byte{0x00})
+	jb.popReady() // expected → 1
+
+	// Advance past seq 1 (simulating a PLC tick).
+	jb.advancePast() // expected → 2
+
+	// The late original for seq 1 must be rejected.
+	if jb.push(1, []byte{0x01}) {
+		t.Error("push(seq=1) should be rejected after advancePast moved expected to 2")
+	}
+
+	// Seq 2 (the next expected) must still be accepted.
+	if !jb.push(2, []byte{0x02}) {
+		t.Error("push(seq=2) should be accepted after advancePast moved expected to 2")
+	}
+}
+
+func TestJitterBuffer_AdvancePast_EvictsExistingFrame(t *testing.T) {
+	// If the frame for jb.expected is already buffered when advancePast is
+	// called, it should be removed so it is never returned by popReady.
+	jb := newRTPJitterBuffer(1, 24)
+
+	jb.push(0, []byte{0x00})
+	jb.popReady() // expected → 1
+
+	// Buffer seq 1 and then immediately call advancePast.
+	jb.push(1, []byte{0x01})
+	jb.advancePast() // expected → 2, seq 1 deleted
+
+	// popReady must NOT return seq 1.
+	payload, ready, _ := jb.popReady()
+	if ready {
+		t.Errorf("popReady returned an evicted frame: %v", payload)
+	}
+}
+
 func TestSeqLess(t *testing.T) {
 	cases := []struct {
 		a, b uint16

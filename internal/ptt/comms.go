@@ -140,6 +140,12 @@ func (ptt *PTTConfig) rtpPlayoutLoop(ctx context.Context, jitter *rtpJitterBuffe
 		}
 
 		if jitter.shouldConceal(100 * time.Millisecond) {
+			// Advance the playout cursor before generating PLC so that the late
+			// original packet (if it arrives) is discarded as stale.  Without
+			// this, popReady would return the real frame on the next tick in
+			// addition to the PLC frame already queued, causing the playback
+			// buffer to accumulate extra frames and eventually overflow.
+			jitter.advancePast()
 			ptt.decodeAndQueuePLC(rt)
 		}
 	}

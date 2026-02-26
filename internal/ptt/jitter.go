@@ -118,3 +118,15 @@ func (jb *rtpJitterBuffer) shouldConceal(recentWindow time.Duration) bool {
 
 	return time.Since(jb.lastPush) <= recentWindow
 }
+
+// advancePast discards the current expected sequence number and advances the
+// playout cursor by one.  Call this after emitting a PLC frame so that the
+// late original packet (if it arrives later) is treated as stale and dropped,
+// maintaining the invariant of exactly one frame produced per playout tick.
+func (jb *rtpJitterBuffer) advancePast() {
+	jb.mu.Lock()
+	defer jb.mu.Unlock()
+
+	delete(jb.frames, jb.expected)
+	jb.expected++
+}
