@@ -57,6 +57,12 @@ func Start() {
 
 	go ptt.Start()
 
+	// Init nl80211 wirelsss client
+	wirelessCfg, err := mgmt.NewWirelessConfig()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to initialize wireless configuration")
+	}
+
 	// Establish database connection
 	db, err := database.NewConnection(ctx, logger.GetLogger("database"), cfg.GetDBFile())
 	if err != nil {
