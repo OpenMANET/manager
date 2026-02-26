@@ -37,6 +37,7 @@ const (
 	DefaultPTTInputDevice              string = ""
 	DefaultPTTOutputDevice             string = ""
 	DefaultPTTPlaybackBuffer           int    = 2
+	DefaultPTTMicGain                  float32 = 1.0
 	DefaultResetDBOnStart              bool   = false
 	DefaultEnableGNSS                  bool   = false
 	DefaultGNSSSendAsNMEA              bool   = false
@@ -67,6 +68,7 @@ type Config struct {
 	BLOSStatusWorkerInterval    int
 	PTTPlaybackBuffer           int
 	PTTMcastPort                int
+	PTTMicGain                  float32
 	mu                          sync.RWMutex
 	AlfredDataTypeNode          bool
 	PTTEnable                   bool
@@ -304,6 +306,12 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.PTTPlaybackBuffer = val
 	} else {
 		c.PTTPlaybackBuffer = DefaultPTTPlaybackBuffer
+	}
+
+	if val := c.v.GetFloat64("ptt.micGain"); val > 0 {
+		c.PTTMicGain = float32(val)
+	} else {
+		c.PTTMicGain = DefaultPTTMicGain
 	}
 
 	// Load BLOS configuration
@@ -562,6 +570,16 @@ func (c *Config) GetPTTPlaybackBuffer() int {
 	defer c.mu.RUnlock()
 
 	return c.PTTPlaybackBuffer
+}
+
+// GetPTTMicGain returns the microphone gain multiplier applied during PTT transmission.
+// Values greater than 1.0 amplify; values between 0 and 1.0 attenuate. Zero or negative
+// values fall back to 1.0 (unity gain).
+func (c *Config) GetPTTMicGain() float32 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.PTTMicGain
 }
 
 // GetEnableGNSS returns whether GNSS is enabled.

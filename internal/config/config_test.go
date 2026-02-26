@@ -19,6 +19,10 @@ func strPtr(s string) *string {
 	return &s
 }
 
+func float64Ptr(f float64) *float64 {
+	return &f
+}
+
 func TestGetMeshNetInterface(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -914,6 +918,51 @@ func TestGetPTTAudioDeviceHint(t *testing.T) {
 			got := cfg.GetPTTAudioDeviceHint()
 			if got != tt.want {
 				t.Errorf("GetPTTAudioDeviceHint() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPTTMicGain(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *float64
+		want     float32
+	}{
+		{
+			name:     "returns configured gain",
+			setValue: float64Ptr(3.0),
+			want:     3.0,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultPTTMicGain,
+		},
+		{
+			name:     "returns default when zero",
+			setValue: float64Ptr(0),
+			want:     DefaultPTTMicGain,
+		},
+		{
+			name:     "returns default when negative",
+			setValue: float64Ptr(-1.0),
+			want:     DefaultPTTMicGain,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("ptt.micGain", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetPTTMicGain()
+			if got != tt.want {
+				t.Errorf("GetPTTMicGain() = %v, want %v", got, tt.want)
 			}
 		})
 	}
