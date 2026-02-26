@@ -100,7 +100,7 @@ PTTConfig
 ├── InputDevice     string              PortAudio device name/index
 ├── OutputDevice    string
 ├── AudioDeviceHint string              fills both if neither set
-├── PlaybackDepth   int                 channel buffer depth (default 2)
+├── PlaybackDepth   int                 channel buffer depth (default 10 = 200 ms)
 │
 ├── PTTKey          string              "any" | decimal EV_KEY code
 ├── PTTDeviceGlob   string              evdev glob, e.g. "/dev/hidraw0/*"
@@ -167,7 +167,7 @@ Start()
   │     newOpusDecoder() — 48 kHz, mono
   │
   ├─ 4. Build playback channel + beep buffers
-  │     chan []float32 (depth = PlaybackDepth, default 2)
+  │     chan []float32 (depth = PlaybackDepth, default 10)
   │     beepStart: 1000 Hz sine × 0.2 amplitude, frameSize samples
   │     beepStop:   600 Hz sine × 0.2 amplitude, frameSize samples
   │

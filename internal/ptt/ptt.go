@@ -79,6 +79,7 @@ type PTTConfig struct {
 	PTTDeviceGlob   string
 	PlaybackDepth   int
 	McastPort       int
+	MicGain         float32
 	Debug           bool
 	Loopback        bool
 	Trace           bool
@@ -107,6 +108,7 @@ func NewPTT(cfg PTTConfig) *PTTConfig {
 		InputDevice:     cfg.InputDevice,
 		OutputDevice:    cfg.OutputDevice,
 		PlaybackDepth:   cfg.PlaybackDepth,
+		MicGain:         cfg.MicGain,
 	}
 }
 
@@ -294,8 +296,20 @@ func (ptt *PTTConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *PTT
 	}
 
 	stream, err := portaudio.OpenStream(inParams, func(in []float32) {
+		gain := ptt.MicGain
+		if gain <= 0 {
+			gain = 1.0
+		}
+
 		pcm := make([]int16, len(in))
 		for i, v := range in {
+			v *= gain
+			if v > 1.0 {
+				v = 1.0
+			} else if v < -1.0 {
+				v = -1.0
+			}
+
 			pcm[i] = int16(v * 32767)
 		}
 
@@ -450,7 +464,11 @@ func (ptt *PTTConfig) Start() {
 	}
 
 	// ── playback buffer + beep tones ───────────────────────────────────────
-	playbackDepth := 2
+	// Default depth of 10 (200 ms) absorbs OS socket-buffer bursts and the
+	// PortAudio/playout-loop timing race that caused immediate drops with the
+	// old default of 2. The RTP jitter-buffer prebuffer alone requires ≥3, so
+	// 2 was always too small. Configure via PTTConfig.PlaybackDepth if needed.
+	playbackDepth := 10
 	if ptt.PlaybackDepth > 0 {
 		playbackDepth = ptt.PlaybackDepth
 	}

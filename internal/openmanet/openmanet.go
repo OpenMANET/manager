@@ -53,6 +53,7 @@ func Start() {
 		InputDevice:     cfg.GetPTTInputDevice(),
 		OutputDevice:    cfg.GetPTTOutputDevice(),
 		PlaybackDepth:   cfg.GetPTTPlaybackBuffer(),
+		MicGain:         cfg.GetPTTMicGain(),
 	})
 
 	go ptt.Start()

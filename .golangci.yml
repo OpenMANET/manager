@@ -61,6 +61,10 @@ linters:
         text: "shadow:"
         path: "_test\\.go$"
       - linters:
+          - govet
+        text: "fieldalignment:"
+        path: "_test\\.go$"
+      - linters:
           - wrapcheck
         text: sig:.*\.Close\(\)
       - linters:
