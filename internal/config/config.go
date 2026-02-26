@@ -10,40 +10,40 @@ import (
 
 // Default configuration values
 const (
-	DefaultMeshNetInterface            string = "br-ahwlan"
-	DefaultGatewayMode                 bool   = false
-	DefaultDBFile                      string = "/etc/openmanetd/openmanetd.db"
-	DefaultAlfredMode                  string = "primary"
-	DefaultAlfredBatInterface          string = "bat0"
-	DefaultAlfredSocketPath            string = "/var/run/alfred.sock"
-	DefaultAlfredEnable                bool   = true
-	DefaultAlfredDataTypeGateway       bool   = true
-	DefaultAlfredDataTypeNode          bool   = true
-	DefaultAlfredDataTypePosition      bool   = true
-	DefaultAlfredDataTypeAddressReserv bool   = true
-	DefaultPTTEnable                   bool   = false
-	DefaultPTTMcastAddr                string = "225.41.1.1"
-	DefaultPTTMcastPort                int    = 5007
-	DefaultPTTProtocol                 string = "udp"
-	DefaultPTTRtpID                    string = ""
-	DefaultPTTPttKey                   string = "any"
-	DefaultPTTDebug                    bool   = false
-	DefaultPTTLoopback                 bool   = false
-	DefaultPTTTrace                    bool   = false
-	DefaultPTTPttDevice                string = "/dev/hidraw0/*"
-	DefaultPTTPttDeviceName            string = ""
-	DefaultPTTControlSource            string = "evdev"
-	DefaultPTTAudioDeviceHint          string = ""
-	DefaultPTTInputDevice              string = ""
-	DefaultPTTOutputDevice             string = ""
-	DefaultPTTPlaybackBuffer           int    = 2
+	DefaultMeshNetInterface            string  = "br-ahwlan"
+	DefaultGatewayMode                 bool    = false
+	DefaultDBFile                      string  = "/etc/openmanetd/openmanetd.db"
+	DefaultAlfredMode                  string  = "primary"
+	DefaultAlfredBatInterface          string  = "bat0"
+	DefaultAlfredSocketPath            string  = "/var/run/alfred.sock"
+	DefaultAlfredEnable                bool    = true
+	DefaultAlfredDataTypeGateway       bool    = true
+	DefaultAlfredDataTypeNode          bool    = true
+	DefaultAlfredDataTypePosition      bool    = true
+	DefaultAlfredDataTypeAddressReserv bool    = true
+	DefaultPTTEnable                   bool    = false
+	DefaultPTTMcastAddr                string  = "225.41.1.1"
+	DefaultPTTMcastPort                int     = 5007
+	DefaultPTTProtocol                 string  = "udp"
+	DefaultPTTRtpID                    string  = ""
+	DefaultPTTPttKey                   string  = "any"
+	DefaultPTTDebug                    bool    = false
+	DefaultPTTLoopback                 bool    = false
+	DefaultPTTTrace                    bool    = false
+	DefaultPTTPttDevice                string  = "/dev/hidraw0/*"
+	DefaultPTTPttDeviceName            string  = ""
+	DefaultPTTControlSource            string  = "evdev"
+	DefaultPTTAudioDeviceHint          string  = ""
+	DefaultPTTInputDevice              string  = ""
+	DefaultPTTOutputDevice             string  = ""
+	DefaultPTTPlaybackBuffer           int     = 10
 	DefaultPTTMicGain                  float32 = 1.0
-	DefaultResetDBOnStart              bool   = false
-	DefaultEnableGNSS                  bool   = false
-	DefaultGNSSSendAsNMEA              bool   = false
-	DefaultGNSSSendAsCoT               bool   = false
-	DefaultEnableBLOS                  bool   = false
-	DefaultBLOSStatusWorkerInterval    int    = 30 // seconds
+	DefaultResetDBOnStart              bool    = false
+	DefaultEnableGNSS                  bool    = false
+	DefaultGNSSSendAsNMEA              bool    = false
+	DefaultGNSSSendAsCoT               bool    = false
+	DefaultEnableBLOS                  bool    = false
+	DefaultBLOSStatusWorkerInterval    int     = 30 // seconds
 )
 
 // Config holds the application configuration values with automatic reloading support.
