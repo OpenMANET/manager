@@ -55,7 +55,7 @@ func Start() {
 		PlaybackDepth:   cfg.GetPTTPlaybackBuffer(),
 	})
 
-	ptt.Start()
+	go ptt.Start()
 
 	// Init nl80211 wirelsss client
 	wirelessCfg, err := mgmt.NewWirelessConfig()
