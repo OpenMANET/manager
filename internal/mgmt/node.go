@@ -143,7 +143,6 @@ func (ndw *NodeDataWorker) StartSend() { //nolint:gocognit
 	}
 }
 
-// Start begins the periodic receiving of node data from the Alfred client.
 func (ndw *NodeDataWorker) StartReceive() { //nolint:gocognit
 	ticker := time.NewTicker(ndw.Interval)
 	defer ticker.Stop()
@@ -154,62 +153,31 @@ func (ndw *NodeDataWorker) StartReceive() { //nolint:gocognit
 			return
 		case <-ticker.C:
 			record, err := ndw.Client.Request(NodeDataType)
-			if err != nil {
+			if err != nil { //nolint:nestif
 				ndw.Config.Log.Error().Err(err).Msg("Error receiving node data")
+			} else {
+				for _, rec := range record {
+					var nodeData proto.Node
 
-				continue
-			}
-
-			for _, rec := range record {
-				decodedPayload := rec.Data
-
-				switch rec.Version {
-				case NodeDataTypeVersion:
-					decodedPayload, err = ndw.Config.payloadCodec.Decrypt(NodeDataType, rec.Source, rec.Data)
+					err = nodeData.UnmarshalVT(rec.Data)
 					if err != nil {
-						ndw.Config.Log.Warn().
-							Err(err).
-							Str("source", rec.Source.String()).
-							Msg("Dropping node data payload that failed authentication/decryption")
+						ndw.Config.Log.Error().Err(err).Msg("Error unmarshaling node data")
+					} else {
+						hostname, err := os.Hostname()
+						if err != nil {
+							ndw.Config.Log.Error().Err(err).Msg("Error getting hostname")
+						}
+						// ignore our own node data
+						if nodeData.Hostname == hostname {
+							continue
+						}
 
-						continue
+						ndw.Config.Log.Debug().Msgf("Received node data: %+v", &nodeData)
+
+						if err := ndw.RecordNodeData(&nodeData); err != nil {
+							ndw.Config.Log.Error().Err(err).Msg("Error recording node data")
+						}
 					}
-				case legacyNodeDataTypeVersion:
-					ndw.Config.Log.Debug().
-						Str("source", rec.Source.String()).
-						Msg("Received legacy plaintext node payload")
-				default:
-					ndw.Config.Log.Warn().
-						Uint8("version", rec.Version).
-						Str("source", rec.Source.String()).
-						Msg("Dropping node data payload with unsupported version")
-
-					continue
-				}
-
-				var nodeData proto.Node
-
-				err = nodeData.UnmarshalVT(decodedPayload)
-				if err != nil {
-					ndw.Config.Log.Error().Err(err).Msg("Error unmarshaling node data")
-
-					continue
-				}
-
-				hostname, err := os.Hostname()
-				if err != nil {
-					ndw.Config.Log.Error().Err(err).Msg("Error getting hostname")
-				}
-
-				// ignore our own node data
-				if nodeData.Hostname == hostname {
-					continue
-				}
-
-				ndw.Config.Log.Debug().Msgf("Received node data: %+v", &nodeData)
-
-				if err := ndw.RecordNodeData(&nodeData); err != nil {
-					ndw.Config.Log.Error().Err(err).Msg("Error recording node data")
 				}
 			}
 		}
