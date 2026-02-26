@@ -66,5 +66,6 @@
 # /apps/ @octocat
 # /apps/github @doctocat
 
+/internal/mgmt @coreywagehoft
 .golangci.yml @coreywagehoft
 .goreleaser.yml @coreywagehoft

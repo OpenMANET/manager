@@ -1,7 +1,6 @@
 package mgmt
 
 import (
-	"fmt"
 	"os"
 	"time"
 
@@ -9,7 +8,6 @@ import (
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/network"
-	"github.com/openmanet/openmanetd/internal/security"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/rs/zerolog"
 )
@@ -32,7 +30,6 @@ type ManagementConfig struct {
 	uciDHCPConfig                           *network.UCIDHCPConfigReader
 	uciNetworkConfig                        *network.UCINetworkConfigReader
 	boardConfigInfo                         *board.Board
-	payloadCodec                            *security.PayloadCodec
 	BatInterface                            string
 	AlfredMode                              string
 	SocketPath                              string
@@ -51,16 +48,6 @@ func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
 	boardConfigInfo, err := board.NewBoardConfigInfo()
 	if err != nil {
 		cfg.Log.Error().Err(err).Msg("Failed to load board configuration")
-	}
-
-	meshPassphrase, err := network.GetWirelessMeshPassphrase()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read mesh passphrase from wireless config: %w", err)
-	}
-
-	payloadCodec, err := security.NewPayloadCodecFromPassphrase(meshPassphrase)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize payload security: %w", err)
 	}
 
 	return &ManagementConfig{
@@ -87,7 +74,6 @@ func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
 		uciNetworkConfig:   network.NewUCINetworkConfigReader(),
 
 		boardConfigInfo: boardConfigInfo,
-		payloadCodec:    payloadCodec,
 	}, nil
 }
 

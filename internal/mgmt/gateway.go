@@ -13,9 +13,8 @@ import (
 )
 
 const (
-	GatewayDataType              uint8 = uint8(proto.DataType_DATA_TYPE_GATEWAY)
-	GatewayDataTypeVersion       uint8 = 2
-	legacyGatewayDataTypeVersion uint8 = 1
+	GatewayDataType        uint8 = uint8(proto.DataType_DATA_TYPE_GATEWAY)
+	GatewayDataTypeVersion uint8 = 1
 )
 
 type GatewayWorker struct {
@@ -117,14 +116,7 @@ func (gw *GatewayWorker) StartSend() { //nolint:gocognit
 					continue
 				}
 
-				encryptedPayload, err := gw.Config.payloadCodec.Encrypt(GatewayDataType, gatewayDataBytes)
-				if err != nil {
-					gw.Config.Log.Error().Err(err).Msg("Error encrypting gateway data")
-
-					continue
-				}
-
-				err = gw.Client.Set(GatewayDataType, GatewayDataTypeVersion, encryptedPayload)
+				err = gw.Client.Set(GatewayDataType, GatewayDataTypeVersion, gatewayDataBytes)
 				if err != nil {
 					gw.Config.Log.Error().Err(err).Msg("Error sending gateway data")
 				}
@@ -157,143 +149,110 @@ func (gw *GatewayWorker) StartReceive() { //nolint:gocognit
 			}
 
 			record, err := gw.Client.Request(GatewayDataType)
-			if err != nil {
+			if err != nil { //nolint:nestif
 				gw.Config.Log.Error().Err(err).Msg("Error receiving gateway data")
+			} else {
+				// Get the gateway status from batman-adv
+				batGwys, err := batmanadv.GetMeshGateways(gw.Config.BatInterface)
+				if err != nil {
+					gw.Config.Log.Error().Err(err).Msg("Error getting mesh gateways")
 
-				continue
-			}
+					continue
+				}
 
-			// Get the gateway status from batman-adv
-			batGwys, err := batmanadv.GetMeshGateways(gw.Config.BatInterface)
-			if err != nil {
-				gw.Config.Log.Error().Err(err).Msg("Error getting mesh gateways")
+				// If no gateways are present in batman-adv, skip processing
+				if len(*batGwys) == 0 {
+					gw.Config.Log.Debug().Msg("No gateways present in batman-adv")
 
-				continue
-			}
+					continue
+				}
 
-			// If no gateways are present in batman-adv, skip processing
-			if len(*batGwys) == 0 {
-				gw.Config.Log.Debug().Msg("No gateways present in batman-adv")
+				// If only one gateway is present from batman-adv, loop through the
+				// gateway records and match batman-adv original address MAC to the received gateway MAC
+				// This is to identify the active gateway in the mesh
+				if len(*batGwys) == 1 {
+					batGw := batGwys.GetBest()
 
-				continue
-			}
+					for _, rec := range record {
+						var gatewayData proto.Gateway
 
-			// If only one gateway is present from batman-adv, loop through the
-			// gateway records and match batman-adv original address MAC to the received gateway MAC
-			// This is to identify the active gateway in the mesh
-			if len(*batGwys) == 1 { //nolint:nestif
-				batGw := batGwys.GetBest()
+						err = gatewayData.UnmarshalVT(rec.Data)
+						if err != nil {
+							gw.Config.Log.Error().Err(err).Msg("Error unmarshaling gateway data")
 
-				for _, rec := range record {
-					gatewayData, ok := gw.decodeGatewayRecord(rec)
-					if !ok {
-						continue
-					}
+							continue
+						}
 
-					if gatewayData.Mac == batGw.OrigAddress {
-						// Replace default route with the matched gateway IP
-						ipString := net.ParseIP(gatewayData.Ipaddr)
+						if gatewayData.Mac == batGw.OrigAddress {
+							// Replace default route with the matched gateway IP
+							ipString := net.ParseIP(gatewayData.Ipaddr)
 
-						if ipString != nil {
-							if err := network.ReplaceDefaultRoute(ipString, gw.Config.IFace); err != nil {
-								gw.Config.Log.Error().Err(err).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
-							}
+							if ipString != nil {
+								if routeErr := network.ReplaceDefaultRoute(ipString, gw.Config.IFace); routeErr != nil {
+									gw.Config.Log.Error().Err(routeErr).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
+								}
 
-							iFaceName, err := util.InterfaceWithoutBridge(gw.Config.IFace)
-							if err != nil {
-								gw.Config.Log.Error().Err(err).Msg("Error normalizing interface name for DNS setting")
+								iFaceName, ifaceErr := util.InterfaceWithoutBridge(gw.Config.IFace)
+								if ifaceErr != nil {
+									gw.Config.Log.Error().Err(ifaceErr).Msg("Error normalizing interface name for DNS setting")
 
-								continue
-							}
+									continue
+								}
 
-							if err := network.SetNetworkDNSWithReader(iFaceName, ipString.String(), gw.Config.uciNetworkConfig); err != nil {
-								gw.Config.Log.Error().Err(err).Msgf("Failed to set DNS server to gateway %s", gatewayData.Ipaddr)
+								if dnsErr := network.SetNetworkDNSWithReader(iFaceName, ipString.String(), gw.Config.uciNetworkConfig); dnsErr != nil {
+									gw.Config.Log.Error().Err(dnsErr).Msgf("Failed to set DNS server to gateway %s", gatewayData.Ipaddr)
+								}
 							}
 						}
 					}
+					// Skip further processing as we have already matched the single gateway
+					continue
 				}
 
-				// Skip further processing as we have already matched the single gateway
-				continue
-			}
-
-			if len(*batGwys) > 1 { //nolint:nestif
-				// TODO: Handle multiple gateways in batman-adv
-				batGw := batGwys.GetBest()
-
-				gw.Config.Log.Debug().Msg("Multiple gateways present in batman-adv")
-				// Process received gateway records
-				for _, rec := range record {
-					gatewayData, ok := gw.decodeGatewayRecord(rec)
-					if !ok {
-						continue
-					}
-
+				if len(*batGwys) > 1 {
 					// TODO: Handle multiple gateways in batman-adv
-					if gatewayData.Mac == batGw.OrigAddress {
-						// Replace default route with the matched gateway IP
-						ipString := net.ParseIP(gatewayData.Ipaddr)
+					batGw := batGwys.GetBest()
 
-						if ipString != nil {
-							if err := network.ReplaceDefaultRoute(ipString, gw.Config.IFace); err != nil {
-								gw.Config.Log.Error().Err(err).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
-							}
+					gw.Config.Log.Debug().Msg("Multiple gateways present in batman-adv")
+					// Process received gateway records
+					for _, rec := range record {
+						// Unmarshal gateway data
+						var gatewayData proto.Gateway
 
-							iFaceName, err := util.InterfaceWithoutBridge(gw.Config.IFace)
-							if err != nil {
-								gw.Config.Log.Error().Err(err).Msg("Error normalizing interface name for DNS setting")
+						err = gatewayData.UnmarshalVT(rec.Data)
+						if err != nil {
+							gw.Config.Log.Error().Err(err).Msg("Error unmarshaling gateway data")
 
-								continue
-							}
-
-							if err := network.SetNetworkDNSWithReader(iFaceName, ipString.String(), gw.Config.uciNetworkConfig); err != nil {
-								gw.Config.Log.Error().Err(err).Msgf("Failed to set DNS server to gateway %s", gatewayData.Ipaddr)
-							}
+							continue
 						}
 
-						break
+						// TODO: Handle multiple gateways in batman-adv
+						if gatewayData.Mac == batGw.OrigAddress {
+							// Replace default route with the matched gateway IP
+							ipString := net.ParseIP(gatewayData.Ipaddr)
+
+							if ipString != nil {
+								if routeErr := network.ReplaceDefaultRoute(ipString, gw.Config.IFace); routeErr != nil {
+									gw.Config.Log.Error().Err(routeErr).Msgf("Failed to replace default route with gateway %s", gatewayData.Ipaddr)
+								}
+
+								iFaceName, ifaceErr := util.InterfaceWithoutBridge(gw.Config.IFace)
+								if ifaceErr != nil {
+									gw.Config.Log.Error().Err(ifaceErr).Msg("Error normalizing interface name for DNS setting")
+
+									continue
+								}
+
+								if dnsErr := network.SetNetworkDNSWithReader(iFaceName, ipString.String(), gw.Config.uciNetworkConfig); dnsErr != nil {
+									gw.Config.Log.Error().Err(dnsErr).Msgf("Failed to set DNS server to gateway %s", gatewayData.Ipaddr)
+								}
+							}
+
+							break
+						}
 					}
 				}
 			}
 		}
 	}
-}
-
-func (gw *GatewayWorker) decodeGatewayRecord(rec alfred.Record) (*proto.Gateway, bool) {
-	decodedPayload := rec.Data
-
-	switch rec.Version {
-	case GatewayDataTypeVersion:
-		var err error
-
-		decodedPayload, err = gw.Config.payloadCodec.Decrypt(GatewayDataType, rec.Source, rec.Data)
-		if err != nil {
-			gw.Config.Log.Warn().
-				Err(err).
-				Str("source", rec.Source.String()).
-				Msg("Dropping gateway data payload that failed authentication/decryption")
-
-			return nil, false
-		}
-	case legacyGatewayDataTypeVersion:
-		gw.Config.Log.Debug().
-			Str("source", rec.Source.String()).
-			Msg("Received legacy plaintext gateway payload")
-	default:
-		gw.Config.Log.Warn().
-			Uint8("version", rec.Version).
-			Str("source", rec.Source.String()).
-			Msg("Dropping gateway data payload with unsupported version")
-
-		return nil, false
-	}
-
-	var gatewayData proto.Gateway
-	if err := gatewayData.UnmarshalVT(decodedPayload); err != nil {
-		gw.Config.Log.Error().Err(err).Msg("Error unmarshaling gateway data")
-
-		return nil, false
-	}
-
-	return &gatewayData, true
 }

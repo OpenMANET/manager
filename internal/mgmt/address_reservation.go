@@ -39,7 +39,6 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded() { //nolint:gocogni
 		ticker             = time.NewTicker(arw.reserveInterval)
 		ipConflictDetected = false
 	)
-
 	defer ticker.Stop()
 
 	for {
@@ -201,7 +200,7 @@ func (arw *AddressReservationWorker) cleanUpInterfaces() error { //nolint:gocogn
 
 	// Commit network changes
 	if err = arw.Config.uciNetworkConfig.Commit(); err != nil {
-		return fmt.Errorf("commit network config: %w", err)
+		return fmt.Errorf("error committing network config: %w", err)
 	}
 
 	// Clean up DHCP sections if they exist
@@ -216,7 +215,7 @@ func (arw *AddressReservationWorker) cleanUpInterfaces() error { //nolint:gocogn
 
 	// Commit DHCP changes
 	if err = arw.Config.uciDHCPConfig.Commit(); err != nil {
-		return fmt.Errorf("commit DHCP config: %w", err)
+		return fmt.Errorf("error committing DHCP config: %w", err)
 	}
 
 	// Reload network to apply changes
