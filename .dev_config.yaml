@@ -16,14 +16,22 @@ alfred:
     addressReservation: true
 blos:
   enable: false
-ptt:
+comms:
   enable: false
-  mcastAddr: 224.0.0.1
-  mcastPort: 5007
-  pttKey: any
+  protocol: rtp
   # cm108 (default, C-Media CM108/CM108B USB HID dongle GPIO3), evdev, or bluealsa_xevent
   controlSource: cm108
   debug: true
-  loopback: true
-  pttDevice: /dev/hidraw0/*
-  pttDeviceName: Generic AB13X USB Audio
+  loopback: false
+  trace: true
+  playbackBuffer: 10
+  micGain: "1.0"
+  nanoPTT:
+    enable: false
+    devicePath: /dev/hidraw0/*
+    deviceName: Generic AB13X USB Audio
+  bluetoothPtt:
+    enable: false
+    audioDeviceHint: ""
+    inputDevice: ""
+    outputDevice: ""

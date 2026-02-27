@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	defaultControlSourceCM108 = "cm108"
-	defaultControlSourceEvdev = "evdev"
+	defaultControlSourceCM108   = "cm108"
+	defaultControlSourceNanoPTT = "nanoptt"
 )
 
 // normalizeControlSource maps raw config strings to canonical control source names.
@@ -22,8 +22,8 @@ func normalizeControlSource(src string) string {
 	switch strings.ToLower(strings.TrimSpace(src)) {
 	case "bluealsa_xevent":
 		return "bluealsa_xevent"
-	case defaultControlSourceEvdev:
-		return defaultControlSourceEvdev
+	case defaultControlSourceNanoPTT:
+		return defaultControlSourceNanoPTT
 	default:
 		return defaultControlSourceCM108
 	}
@@ -86,15 +86,15 @@ func resolveAudioDevice(spec string, wantInput bool) (*portaudio.DeviceInfo, err
 }
 
 // findCommDevice searches for a Linux input device whose name matches
-// cfg.CommDeviceName within the glob pattern cfg.CommDeviceGlob.
+// cfg.NanoPTTDeviceName within the glob pattern cfg.NanoPTTDevicePath.
 func (cfg *CommsConfig) findCommDevice() *evdev.InputDevice {
-	devs, err := evdev.ListInputDevices(cfg.CommDeviceGlob)
+	devs, err := evdev.ListInputDevices(cfg.NanoPTTDevicePath)
 	if err != nil {
 		return nil
 	}
 
 	for _, d := range devs {
-		if d.Name == cfg.CommDeviceName {
+		if d.Name == cfg.NanoPTTDeviceName {
 			return d
 		}
 	}

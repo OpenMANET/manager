@@ -33,51 +33,24 @@ func Start() {
 
 	banner.Print()
 
-	/* 	ptt := ptt.NewPTT(ptt.PTTConfig{
-	   		Interrupt:       c,
-	   		Log:             logger.GetLogger("ptt"),
-	   		Enable:          cfg.GetPTTEnable(),
-	   		Iface:           cfg.GetMeshNetInterface(),
-	   		McastAddr:       cfg.GetPTTMcastAddr(),
-	   		McastPort:       cfg.GetPTTMcastPort(),
-	   		Protocol:        cfg.GetPTTProtocol(),
-	   		RtpID:           cfg.GetPTTRtpID(),
-	   		PTTKey:          cfg.GetPTTPttKey(),
-	   		Debug:           cfg.GetPTTDebug(),
-	   		Loopback:        cfg.GetPTTLoopback(),
-	   		Trace:           cfg.GetPTTTrace(),
-	   		PTTDeviceGlob:   cfg.GetPTTPttDevice(),
-	   		PTTDeviceName:   cfg.GetPTTPttDeviceName(),
-	   		ControlSource:   cfg.GetPTTControlSource(),
-	   		AudioDeviceHint: cfg.GetPTTAudioDeviceHint(),
-	   		InputDevice:     cfg.GetPTTInputDevice(),
-	   		OutputDevice:    cfg.GetPTTOutputDevice(),
-	   		PlaybackDepth:   cfg.GetPTTPlaybackBuffer(),
-	   		MicGain:         cfg.GetPTTMicGain(),
-	   	})
-
-	   	go ptt.Start() */
-
 	comms := comms.NewComms(comms.CommsConfig{
-		Log:             logger.GetLogger("comms"),
-		Interrupt:       c,
-		Enable:          cfg.GetPTTEnable(),
-		Iface:           cfg.GetMeshNetInterface(),
-		McastAddr:       cfg.GetPTTMcastAddr(),
-		McastPort:       cfg.GetPTTMcastPort(),
-		RtpID:           cfg.GetPTTRtpID(),
-		CommKey:         cfg.GetPTTPttKey(),
-		Debug:           cfg.GetPTTDebug(),
-		Loopback:        cfg.GetPTTLoopback(),
-		Trace:           cfg.GetPTTTrace(),
-		CommDeviceGlob:  cfg.GetPTTPttDevice(),
-		CommDeviceName:  cfg.GetPTTPttDeviceName(),
-		ControlSource:   cfg.GetPTTControlSource(),
-		AudioDeviceHint: cfg.GetPTTAudioDeviceHint(),
-		InputDevice:     cfg.GetPTTInputDevice(),
-		OutputDevice:    cfg.GetPTTOutputDevice(),
-		PlaybackDepth:   cfg.GetPTTPlaybackBuffer(),
-		MicGain:         cfg.GetPTTMicGain(),
+		Log:                      logger.GetLogger("comms"),
+		Interrupt:                c,
+		Enable:                   cfg.GetCommsEnable(),
+		Iface:                    cfg.GetMeshNetInterface(),
+		Debug:                    cfg.GetCommsDebug(),
+		Loopback:                 cfg.GetCommsLoopback(),
+		Trace:                    cfg.GetCommsTrace(),
+		ControlSource:            cfg.GetCommsControlSource(),
+		MicGain:                  cfg.GetCommsMicGain(),
+		EnableNanoPTT:            cfg.GetCommsNanoPTTEnable(),
+		NanoPTTDevicePath:        cfg.GetCommsNanoPTTDevicePath(),
+		NanoPTTDeviceName:        cfg.GetCommsNanoPTTDeviceName(),
+		EnableBluetoothPtt:       cfg.GetCommsBluetoothPttEnable(),
+		BluetoothAudioDeviceHint: cfg.GetCommsBluetoothPttBluetoothAudioDeviceHint(),
+		BluetoothInputDevice:     cfg.GetCommsBluetoothPttBluetoothInputDevice(),
+		BluetoothOutputDevice:    cfg.GetCommsBluetoothPttBluetoothOutputDevice(),
+		PlaybackDepth:            cfg.GetCommsPlaybackBuffer(),
 	})
 
 	go comms.Start()

@@ -10,81 +10,77 @@ import (
 
 // Default configuration values
 const (
-	DefaultMeshNetInterface            string  = "br-ahwlan"
-	DefaultGatewayMode                 bool    = false
-	DefaultDBFile                      string  = "/etc/openmanetd/openmanetd.db"
-	DefaultAlfredMode                  string  = "primary"
-	DefaultAlfredBatInterface          string  = "bat0"
-	DefaultAlfredSocketPath            string  = "/var/run/alfred.sock"
-	DefaultAlfredEnable                bool    = true
-	DefaultAlfredDataTypeGateway       bool    = true
-	DefaultAlfredDataTypeNode          bool    = true
-	DefaultAlfredDataTypePosition      bool    = true
-	DefaultAlfredDataTypeAddressReserv bool    = true
-	DefaultPTTEnable                   bool    = false
-	DefaultPTTMcastAddr                string  = "225.41.1.1"
-	DefaultPTTMcastPort                int     = 5007
-	DefaultPTTProtocol                 string  = "udp"
-	DefaultPTTRtpID                    string  = ""
-	DefaultPTTPttKey                   string  = "any"
-	DefaultPTTDebug                    bool    = false
-	DefaultPTTLoopback                 bool    = false
-	DefaultPTTTrace                    bool    = false
-	DefaultPTTPttDevice                string  = "/dev/hidraw0/*"
-	DefaultPTTPttDeviceName            string  = ""
-	DefaultPTTControlSource            string  = "cm108"
-	DefaultPTTAudioDeviceHint          string  = ""
-	DefaultPTTInputDevice              string  = ""
-	DefaultPTTOutputDevice             string  = ""
-	DefaultPTTPlaybackBuffer           int     = 10
-	DefaultPTTMicGain                  float32 = 1.0
-	DefaultResetDBOnStart              bool    = false
-	DefaultEnableGNSS                  bool    = false
-	DefaultGNSSSendAsNMEA              bool    = false
-	DefaultGNSSSendAsCoT               bool    = false
-	DefaultEnableBLOS                  bool    = false
-	DefaultBLOSStatusWorkerInterval    int     = 30 // seconds
+	DefaultMeshNetInterface                          string  = "br-ahwlan"
+	DefaultGatewayMode                               bool    = false
+	DefaultDBFile                                    string  = "/etc/openmanetd/openmanetd.db"
+	DefaultAlfredMode                                string  = "primary"
+	DefaultAlfredBatInterface                        string  = "bat0"
+	DefaultAlfredSocketPath                          string  = "/var/run/alfred.sock"
+	DefaultAlfredEnable                              bool    = true
+	DefaultAlfredDataTypeGateway                     bool    = true
+	DefaultAlfredDataTypeNode                        bool    = true
+	DefaultAlfredDataTypePosition                    bool    = true
+	DefaultAlfredDataTypeAddressReserv               bool    = true
+	DefaultCommsEnable                               bool    = false
+	DefaultCommsProtocol                             string  = "rtp"
+	DefaultCommsDebug                                bool    = false
+	DefaultCommsLoopback                             bool    = false
+	DefaultCommsTrace                                bool    = false
+	DefaultCommsControlSource                        string  = "cm108"
+	DefaultCommsPlaybackBuffer                       int     = 2
+	DefaultCommsMicGain                              float32 = 1.0
+	DefaultCommsNanoPTTEnable                        bool    = false
+	DefaultCommsNanoPTTDevicePath                    string  = "/dev/hidraw0/*"
+	DefaultCommsNanoPTTDeviceName                    string  = ""
+	DefaultCommsBluetoothPttEnable                   bool    = false
+	DefaultCommsBluetoothPttBluetoothAudioDeviceHint string  = ""
+	DefaultCommsBluetoothPttBluetoothInputDevice     string  = ""
+	DefaultCommsBluetoothPttBluetoothOutputDevice    string  = ""
+	DefaultResetDBOnStart                            bool    = false
+	DefaultEnableGNSS                                bool    = false
+	DefaultGNSSSendAsNMEA                            bool    = false
+	DefaultGNSSSendAsCoT                             bool    = false
+	DefaultEnableBLOS                                bool    = false
+	DefaultBLOSStatusWorkerInterval                  int     = 30 // seconds
 )
 
 // Config holds the application configuration values with automatic reloading support.
 type Config struct {
-	v                           *viper.Viper
-	PTTProtocol                 string
-	PTTPttDevice                string
-	AlfredMode                  string
-	AlfredBatInterface          string
-	AlfredSocketPath            string
-	MeshNetInterface            string
-	DBFile                      string
-	PTTRtpID                    string
-	PTTMcastAddr                string
-	PTTPttKey                   string
-	PTTOutputDevice             string
-	PTTPttDeviceName            string
-	PTTControlSource            string
-	PTTAudioDeviceHint          string
-	PTTInputDevice              string
-	onChangeCallbacks           []func(*Config)
-	BLOSStatusWorkerInterval    int
-	PTTPlaybackBuffer           int
-	PTTMcastPort                int
-	PTTMicGain                  float32
-	mu                          sync.RWMutex
-	AlfredDataTypeNode          bool
-	PTTEnable                   bool
-	GatewayMode                 bool
-	AlfredDataTypeGateway       bool
-	AlfredEnable                bool
-	AlfredDataTypePosition      bool
-	AlfredDataTypeAddressReserv bool
-	BLOSEnable                  bool
-	PTTDebug                    bool
-	PTTLoopback                 bool
-	PTTTrace                    bool
-	ResetDBOnStart              bool
-	EnableGNSS                  bool
-	GNSSSendAsNMEA              bool
-	GNSSSendAsCoT               bool
+	v                                         *viper.Viper
+	CommsProtocol                             string
+	CommsNanoPTTDevicePath                    string
+	AlfredMode                                string
+	AlfredBatInterface                        string
+	AlfredSocketPath                          string
+	MeshNetInterface                          string
+	DBFile                                    string
+	CommsNanoPTTDeviceName                    string
+	CommsBluetoothPttBluetoothOutputDevice    string
+	CommsControlSource                        string
+	CommsBluetoothPttBluetoothAudioDeviceHint string
+	CommsBluetoothPttBluetoothInputDevice     string
+	onChangeCallbacks                         []func(*Config)
+	BLOSStatusWorkerInterval                  int
+	CommsPlaybackBuffer                       int
+	CommsMicGain                              float32
+	mu                                        sync.RWMutex
+	AlfredDataTypeNode                        bool
+	CommsEnable                               bool
+	GatewayMode                               bool
+	AlfredDataTypeGateway                     bool
+	AlfredEnable                              bool
+	AlfredDataTypePosition                    bool
+	AlfredDataTypeAddressReserv               bool
+	BLOSEnable                                bool
+	CommsDebug                                bool
+	CommsLoopback                             bool
+	CommsTrace                                bool
+	CommsNanoPTTEnable                        bool
+	CommsBluetoothPttEnable                   bool
+	ResetDBOnStart                            bool
+	EnableGNSS                                bool
+	GNSSSendAsNMEA                            bool
+	GNSSSendAsCoT                             bool
 }
 
 // New creates a new Config instance with the given viper instance.
@@ -211,107 +207,97 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.AlfredDataTypeAddressReserv = DefaultAlfredDataTypeAddressReserv
 	}
 
-	// Load PTT configuration
-	if c.v.IsSet("ptt.enable") {
-		c.PTTEnable = c.v.GetBool("ptt.enable")
+	// Load comms configuration
+	if c.v.IsSet("comms.enable") {
+		c.CommsEnable = c.v.GetBool("comms.enable")
 	} else {
-		c.PTTEnable = DefaultPTTEnable
+		c.CommsEnable = DefaultCommsEnable
 	}
 
-	if val := c.v.GetString("ptt.mcastAddr"); val != "" {
-		c.PTTMcastAddr = val
+	if val := strings.ToLower(c.v.GetString("comms.protocol")); val != "" {
+		c.CommsProtocol = val
 	} else {
-		c.PTTMcastAddr = DefaultPTTMcastAddr
+		c.CommsProtocol = DefaultCommsProtocol
 	}
 
-	if val := c.v.GetInt("ptt.mcastPort"); val != 0 {
-		c.PTTMcastPort = val
+	if c.v.IsSet("comms.debug") {
+		c.CommsDebug = c.v.GetBool("comms.debug")
 	} else {
-		c.PTTMcastPort = DefaultPTTMcastPort
+		c.CommsDebug = DefaultCommsDebug
 	}
 
-	if val := strings.ToLower(c.v.GetString("ptt.protocol")); val != "" {
-		c.PTTProtocol = val
+	if c.v.IsSet("comms.loopback") {
+		c.CommsLoopback = c.v.GetBool("comms.loopback")
 	} else {
-		c.PTTProtocol = DefaultPTTProtocol
+		c.CommsLoopback = DefaultCommsLoopback
 	}
 
-	if val := c.v.GetString("ptt.rtpId"); val != "" {
-		c.PTTRtpID = val
+	if c.v.IsSet("comms.trace") {
+		c.CommsTrace = c.v.GetBool("comms.trace")
 	} else {
-		c.PTTRtpID = DefaultPTTRtpID
+		c.CommsTrace = DefaultCommsTrace
 	}
 
-	if val := c.v.GetString("ptt.pttKey"); val != "" {
-		c.PTTPttKey = val
+	if val := strings.ToLower(c.v.GetString("comms.controlSource")); val != "" {
+		c.CommsControlSource = val
 	} else {
-		c.PTTPttKey = DefaultPTTPttKey
+		c.CommsControlSource = DefaultCommsControlSource
 	}
 
-	if c.v.IsSet("ptt.debug") {
-		c.PTTDebug = c.v.GetBool("ptt.debug")
+	if val := c.v.GetInt("comms.playbackBuffer"); val > 0 {
+		c.CommsPlaybackBuffer = val
 	} else {
-		c.PTTDebug = DefaultPTTDebug
+		c.CommsPlaybackBuffer = DefaultCommsPlaybackBuffer
 	}
 
-	if c.v.IsSet("ptt.loopback") {
-		c.PTTLoopback = c.v.GetBool("ptt.loopback")
+	if val := c.v.GetFloat64("comms.micGain"); val > 0 {
+		c.CommsMicGain = float32(val)
 	} else {
-		c.PTTLoopback = DefaultPTTLoopback
+		c.CommsMicGain = DefaultCommsMicGain
 	}
 
-	if c.v.IsSet("ptt.trace") {
-		c.PTTTrace = c.v.GetBool("ptt.trace")
+	// Load nanoPTT configuration
+	if c.v.IsSet("comms.nanoPTT.enable") {
+		c.CommsNanoPTTEnable = c.v.GetBool("comms.nanoPTT.enable")
 	} else {
-		c.PTTTrace = DefaultPTTTrace
+		c.CommsNanoPTTEnable = DefaultCommsNanoPTTEnable
 	}
 
-	if val := c.v.GetString("ptt.pttDevice"); val != "" {
-		c.PTTPttDevice = val
+	if val := c.v.GetString("comms.nanoPTT.devicePath"); val != "" {
+		c.CommsNanoPTTDevicePath = val
 	} else {
-		c.PTTPttDevice = DefaultPTTPttDevice
+		c.CommsNanoPTTDevicePath = DefaultCommsNanoPTTDevicePath
 	}
 
-	if val := c.v.GetString("ptt.pttDeviceName"); val != "" {
-		c.PTTPttDeviceName = val
+	if val := c.v.GetString("comms.nanoPTT.deviceName"); val != "" {
+		c.CommsNanoPTTDeviceName = val
 	} else {
-		c.PTTPttDeviceName = DefaultPTTPttDeviceName
+		c.CommsNanoPTTDeviceName = DefaultCommsNanoPTTDeviceName
 	}
 
-	if val := strings.ToLower(c.v.GetString("ptt.controlSource")); val != "" {
-		c.PTTControlSource = val
+	// Load bluetoothPtt configuration
+	if c.v.IsSet("comms.bluetoothPtt.enable") {
+		c.CommsBluetoothPttEnable = c.v.GetBool("comms.bluetoothPtt.enable")
 	} else {
-		c.PTTControlSource = DefaultPTTControlSource
+		c.CommsBluetoothPttEnable = DefaultCommsBluetoothPttEnable
 	}
 
-	if val := c.v.GetString("ptt.audioDeviceHint"); val != "" {
-		c.PTTAudioDeviceHint = val
+	if val := c.v.GetString("comms.bluetoothPtt.BluetoothAudioDeviceHint"); val != "" {
+		c.CommsBluetoothPttBluetoothAudioDeviceHint = val
 	} else {
-		c.PTTAudioDeviceHint = DefaultPTTAudioDeviceHint
+		c.CommsBluetoothPttBluetoothAudioDeviceHint = DefaultCommsBluetoothPttBluetoothAudioDeviceHint
 	}
 
-	if val := c.v.GetString("ptt.inputDevice"); val != "" {
-		c.PTTInputDevice = val
+	if val := c.v.GetString("comms.bluetoothPtt.BluetoothInputDevice"); val != "" {
+		c.CommsBluetoothPttBluetoothInputDevice = val
 	} else {
-		c.PTTInputDevice = DefaultPTTInputDevice
+		c.CommsBluetoothPttBluetoothInputDevice = DefaultCommsBluetoothPttBluetoothInputDevice
 	}
 
-	if val := c.v.GetString("ptt.outputDevice"); val != "" {
-		c.PTTOutputDevice = val
+	if val := c.v.GetString("comms.bluetoothPtt.BluetoothOutputDevice"); val != "" {
+		c.CommsBluetoothPttBluetoothOutputDevice = val
 	} else {
-		c.PTTOutputDevice = DefaultPTTOutputDevice
-	}
-
-	if val := c.v.GetInt("ptt.playbackBuffer"); val > 0 {
-		c.PTTPlaybackBuffer = val
-	} else {
-		c.PTTPlaybackBuffer = DefaultPTTPlaybackBuffer
-	}
-
-	if val := c.v.GetFloat64("ptt.micGain"); val > 0 {
-		c.PTTMicGain = float32(val)
-	} else {
-		c.PTTMicGain = DefaultPTTMicGain
+		c.CommsBluetoothPttBluetoothOutputDevice = DefaultCommsBluetoothPttBluetoothOutputDevice
 	}
 
 	// Load BLOS configuration
@@ -444,142 +430,126 @@ func (c *Config) GetAlfredDataTypeAddressReservation() bool {
 	return c.AlfredDataTypeAddressReserv
 }
 
-// GetPTTEnable returns whether PTT (Push-to-Talk) is enabled.
-func (c *Config) GetPTTEnable() bool {
+// GetCommsEnable returns whether the comms subsystem is enabled.
+func (c *Config) GetCommsEnable() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.PTTEnable
+	return c.CommsEnable
 }
 
-// GetPTTMcastAddr returns the PTT multicast address.
-func (c *Config) GetPTTMcastAddr() string {
+// GetCommsProtocol returns the comms transport protocol (e.g. rtp).
+func (c *Config) GetCommsProtocol() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.PTTMcastAddr
+	return c.CommsProtocol
 }
 
-// GetPTTMcastPort returns the PTT multicast port.
-func (c *Config) GetPTTMcastPort() int {
+// GetCommsDebug returns whether comms debug mode is enabled.
+func (c *Config) GetCommsDebug() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.PTTMcastPort
+	return c.CommsDebug
 }
 
-// GetPTTProtocol returns the PTT protocol (udp or rtp).
-func (c *Config) GetPTTProtocol() string {
+// GetCommsLoopback returns whether comms loopback mode is enabled.
+func (c *Config) GetCommsLoopback() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.PTTProtocol
+	return c.CommsLoopback
 }
 
-// GetPTTRtpID returns the RTP identifier used to derive SSRC.
-func (c *Config) GetPTTRtpID() string {
+// GetCommsTrace returns whether comms trace mode is enabled.
+func (c *Config) GetCommsTrace() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.PTTRtpID
+	return c.CommsTrace
 }
 
-// GetPTTPttKey returns the PTT key configuration.
-func (c *Config) GetPTTPttKey() string {
+// GetCommsControlSource returns the comms control event source backend.
+func (c *Config) GetCommsControlSource() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.PTTPttKey
+	return c.CommsControlSource
 }
 
-// GetPTTDebug returns whether PTT debug mode is enabled.
-func (c *Config) GetPTTDebug() bool {
+// GetCommsPlaybackBuffer returns the playback buffer depth for comms audio.
+func (c *Config) GetCommsPlaybackBuffer() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.PTTDebug
+	return c.CommsPlaybackBuffer
 }
 
-// GetPTTLoopback returns whether PTT loopback mode is enabled.
-func (c *Config) GetPTTLoopback() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.PTTLoopback
-}
-
-// GetPTTTrace returns whether PTT trace mode is enabled.
-func (c *Config) GetPTTTrace() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.PTTTrace
-}
-
-// GetPTTPttDevice returns the PTT device path.
-func (c *Config) GetPTTPttDevice() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.PTTPttDevice
-}
-
-// GetPTTPttDeviceName returns the PTT device name.
-func (c *Config) GetPTTPttDeviceName() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.PTTPttDeviceName
-}
-
-// GetPTTControlSource returns the PTT control event source backend.
-func (c *Config) GetPTTControlSource() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.PTTControlSource
-}
-
-// GetPTTAudioDeviceHint returns a shared matcher for selecting both mic and speaker devices.
-func (c *Config) GetPTTAudioDeviceHint() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.PTTAudioDeviceHint
-}
-
-// GetPTTInputDevice returns the audio input device name or index.
-func (c *Config) GetPTTInputDevice() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.PTTInputDevice
-}
-
-// GetPTTOutputDevice returns the audio output device name or index.
-func (c *Config) GetPTTOutputDevice() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.PTTOutputDevice
-}
-
-// GetPTTPlaybackBuffer returns the playback buffer depth for PTT audio.
-func (c *Config) GetPTTPlaybackBuffer() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.PTTPlaybackBuffer
-}
-
-// GetPTTMicGain returns the microphone gain multiplier applied during PTT transmission.
+// GetCommsMicGain returns the microphone gain multiplier applied during transmission.
 // Values greater than 1.0 amplify; values between 0 and 1.0 attenuate. Zero or negative
 // values fall back to 1.0 (unity gain).
-func (c *Config) GetPTTMicGain() float32 {
+func (c *Config) GetCommsMicGain() float32 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.PTTMicGain
+	return c.CommsMicGain
+}
+
+// GetCommsNanoPTTEnable returns whether the nanoPTT hardware button is enabled.
+func (c *Config) GetCommsNanoPTTEnable() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsNanoPTTEnable
+}
+
+// GetCommsNanoPTTDevicePath returns the nanoPTT device path glob.
+func (c *Config) GetCommsNanoPTTDevicePath() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsNanoPTTDevicePath
+}
+
+// GetCommsNanoPTTDeviceName returns the nanoPTT device name hint.
+func (c *Config) GetCommsNanoPTTDeviceName() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsNanoPTTDeviceName
+}
+
+// GetCommsBluetoothPttEnable returns whether the Bluetooth PTT source is enabled.
+func (c *Config) GetCommsBluetoothPttEnable() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsBluetoothPttEnable
+}
+
+// GetCommsBluetoothPttBluetoothAudioDeviceHint returns a shared matcher for selecting both mic and speaker devices.
+func (c *Config) GetCommsBluetoothPttBluetoothAudioDeviceHint() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsBluetoothPttBluetoothAudioDeviceHint
+}
+
+// GetCommsBluetoothPttBluetoothInputDevice returns the Bluetooth audio input device name or index.
+func (c *Config) GetCommsBluetoothPttBluetoothInputDevice() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsBluetoothPttBluetoothInputDevice
+}
+
+// GetCommsBluetoothPttBluetoothOutputDevice returns the Bluetooth audio output device name or index.
+func (c *Config) GetCommsBluetoothPttBluetoothOutputDevice() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsBluetoothPttBluetoothOutputDevice
 }
 
 // GetEnableGNSS returns whether GNSS is enabled.
