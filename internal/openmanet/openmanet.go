@@ -16,7 +16,6 @@ import (
 	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/openmanet/server"
-	"github.com/openmanet/openmanetd/internal/ptt"
 	"github.com/openmanet/openmanetd/internal/util/logger"
 	"github.com/rs/zerolog"
 )
@@ -33,30 +32,34 @@ func Start() {
 
 	banner.Print()
 
-	ptt := ptt.NewPTT(ptt.PTTConfig{
-		Interrupt:       c,
-		Log:             logger.GetLogger("ptt"),
-		Enable:          cfg.GetPTTEnable(),
-		Iface:           cfg.GetMeshNetInterface(),
-		McastAddr:       cfg.GetPTTMcastAddr(),
-		McastPort:       cfg.GetPTTMcastPort(),
-		Protocol:        cfg.GetPTTProtocol(),
-		RtpID:           cfg.GetPTTRtpID(),
-		PTTKey:          cfg.GetPTTPttKey(),
-		Debug:           cfg.GetPTTDebug(),
-		Loopback:        cfg.GetPTTLoopback(),
-		Trace:           cfg.GetPTTTrace(),
-		PTTDeviceGlob:   cfg.GetPTTPttDevice(),
-		PTTDeviceName:   cfg.GetPTTPttDeviceName(),
-		ControlSource:   cfg.GetPTTControlSource(),
-		AudioDeviceHint: cfg.GetPTTAudioDeviceHint(),
-		InputDevice:     cfg.GetPTTInputDevice(),
-		OutputDevice:    cfg.GetPTTOutputDevice(),
-		PlaybackDepth:   cfg.GetPTTPlaybackBuffer(),
-		MicGain:         cfg.GetPTTMicGain(),
-	})
+	/* 	ptt := ptt.NewPTT(ptt.PTTConfig{
+	   		Interrupt:       c,
+	   		Log:             logger.GetLogger("ptt"),
+	   		Enable:          cfg.GetPTTEnable(),
+	   		Iface:           cfg.GetMeshNetInterface(),
+	   		McastAddr:       cfg.GetPTTMcastAddr(),
+	   		McastPort:       cfg.GetPTTMcastPort(),
+	   		Protocol:        cfg.GetPTTProtocol(),
+	   		RtpID:           cfg.GetPTTRtpID(),
+	   		PTTKey:          cfg.GetPTTPttKey(),
+	   		Debug:           cfg.GetPTTDebug(),
+	   		Loopback:        cfg.GetPTTLoopback(),
+	   		Trace:           cfg.GetPTTTrace(),
+	   		PTTDeviceGlob:   cfg.GetPTTPttDevice(),
+	   		PTTDeviceName:   cfg.GetPTTPttDeviceName(),
+	   		ControlSource:   cfg.GetPTTControlSource(),
+	   		AudioDeviceHint: cfg.GetPTTAudioDeviceHint(),
+	   		InputDevice:     cfg.GetPTTInputDevice(),
+	   		OutputDevice:    cfg.GetPTTOutputDevice(),
+	   		PlaybackDepth:   cfg.GetPTTPlaybackBuffer(),
+	   		MicGain:         cfg.GetPTTMicGain(),
+	   	})
 
-	go ptt.Start()
+	   	go ptt.Start() */
+
+	// startComms will block until the comms module is ready, so it must be started before the management workers.
+	// The comms module is broken out here based on build tags.
+	startComms(cfg, c)
 
 	// Init nl80211 wirelsss client
 	wirelessCfg, err := mgmt.NewWirelessConfig()
