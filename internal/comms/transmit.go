@@ -1,5 +1,3 @@
-//go:build !omd_omit_comms
-
 package comms
 
 import (

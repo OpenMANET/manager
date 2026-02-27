@@ -1,5 +1,3 @@
-//go:build !omd_omit_comms
-
 package comms
 
 // This file uses CGo to temporarily suppress ALSA diagnostic noise that is

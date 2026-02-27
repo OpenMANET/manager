@@ -47,10 +47,6 @@ sqlc-gen: ## Generate sqlc code
 build: fmt vet buf sqlc-gen ## Build manager binary.
 	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -o bin/openmanetd main.go
 
-.PHONY: build-without-comms
-build-without-comms: fmt vet buf sqlc-gen ## Build manager binary without comms.
-	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -tags omd_omit_comms -o bin/openmanetd main.go
-
 .PHONY: run
 run: fmt vet buf sqlc-gen ## Run a controller from your host.
 	go run ./main.go
