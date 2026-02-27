@@ -31,6 +31,13 @@
     }
   },
   "gopls": {
-    "ui.semanticTokens": true
+    "ui.semanticTokens": true,
+    "buildFlags": [
+      "-tags=omd_comms"
+    ]
   },
+  "go.buildFlags": [
+    "-tags=omd_comms"
+  ],
+  "go.testTags": "omd_comms"
 }

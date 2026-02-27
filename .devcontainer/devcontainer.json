@@ -115,7 +115,17 @@
           "editor.codeActionsOnSave": {
             "source.organizeImports": "always"
           }
-        }
+        },
+        "gopls": {
+          "ui.semanticTokens": true,
+          "buildFlags": [
+            "-tags=omd_omit_comms"
+          ]
+        },
+        "go.buildFlags": [
+          "-tags=omd_omit_comms"
+        ],
+        "go.testTags": "omd_omit_comms"
       },
       "extensions": [
         "shd101wyy.markdown-preview-enhanced",
