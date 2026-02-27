@@ -124,7 +124,7 @@ func (cfg *CommsConfig) applyDefaults() {
 	}
 
 	if cfg.McastAddr == "" {
-		cfg.McastAddr = config.GetMulticastGroupAddresses()[0]
+		cfg.McastAddr = config.GetMulticastTalkGroupAddresses()[0]
 	}
 
 	if cfg.McastPort == 0 {
