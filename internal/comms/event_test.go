@@ -28,12 +28,12 @@ func TestEvdevSource_PTTToggle(t *testing.T) {
 	}
 }
 
-func TestNewEvdevSource_NonNil(t *testing.T) {
+func TestNewNanoPTTSource_NonNil(t *testing.T) {
 	var dev *evdev.InputDevice
 
-	src := NewEvdevSource(dev, "any", zerolog.Nop())
+	src := NewNanoPTTSource(dev, "any", zerolog.Nop())
 	if src == nil {
-		t.Error("NewEvdevSource should not return nil")
+		t.Error("NewNanoPTTSource should not return nil")
 	}
 }
 
@@ -42,8 +42,8 @@ func TestNormalizeControlSource(t *testing.T) {
 		{"cm108", "cm108"},
 		{"CM108", "cm108"},
 		{"  cm108  ", "cm108"},
-		{"evdev", "evdev"},
-		{"EVDEV", "evdev"},
+		{"nanoptt", "nanoptt"},
+		{"NANOPTT", "nanoptt"},
 		{"bluealsa_xevent", "bluealsa_xevent"},
 		{"BLUEALSA_XEVENT", "bluealsa_xevent"},
 		{"", "cm108"},

@@ -138,47 +138,7 @@ func TestGetAlfredMode(t *testing.T) {
 	}
 }
 
-func TestGetPTTMcastPort(t *testing.T) {
-	tests := []struct {
-		setValue *int
-		name     string
-		want     int
-	}{
-		{
-			name:     "returns configured port",
-			setValue: intPtr(8080),
-			want:     8080,
-		},
-		{
-			name:     "returns default when zero",
-			setValue: intPtr(0),
-			want:     DefaultPTTMcastPort,
-		},
-		{
-			name:     "returns default when not set",
-			setValue: nil,
-			want:     DefaultPTTMcastPort,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			v := viper.New()
-			if tt.setValue != nil {
-				v.Set("ptt.mcastPort", *tt.setValue)
-			}
-
-			cfg := New(v)
-
-			got := cfg.GetPTTMcastPort()
-			if got != tt.want {
-				t.Errorf("GetPTTMcastPort() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGetPTTProtocol(t *testing.T) {
+func TestGetCommsProtocol(t *testing.T) {
 	tests := []struct {
 		name     string
 		setValue *string
@@ -192,7 +152,7 @@ func TestGetPTTProtocol(t *testing.T) {
 		{
 			name:     "returns default when not set",
 			setValue: nil,
-			want:     DefaultPTTProtocol,
+			want:     DefaultCommsProtocol,
 		},
 	}
 
@@ -200,55 +160,20 @@ func TestGetPTTProtocol(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("ptt.protocol", *tt.setValue)
+				v.Set("comms.protocol", *tt.setValue)
 			}
 
 			cfg := New(v)
 
-			got := cfg.GetPTTProtocol()
+			got := cfg.GetCommsProtocol()
 			if got != tt.want {
-				t.Errorf("GetPTTProtocol() = %v, want %v", got, tt.want)
+				t.Errorf("GetCommsProtocol() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestGetPTTRtpID(t *testing.T) {
-	tests := []struct {
-		name     string
-		setValue *string
-		want     string
-	}{
-		{
-			name:     "returns configured rtpId",
-			setValue: strPtr("atak-device-id"),
-			want:     "atak-device-id",
-		},
-		{
-			name:     "returns default when not set",
-			setValue: nil,
-			want:     DefaultPTTRtpID,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			v := viper.New()
-			if tt.setValue != nil {
-				v.Set("ptt.rtpId", *tt.setValue)
-			}
-
-			cfg := New(v)
-
-			got := cfg.GetPTTRtpID()
-			if got != tt.want {
-				t.Errorf("GetPTTRtpID() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGetPTTEnable(t *testing.T) {
+func TestGetCommsEnable(t *testing.T) {
 	tests := []struct {
 		setValue *bool
 		name     string
@@ -267,7 +192,7 @@ func TestGetPTTEnable(t *testing.T) {
 		{
 			name:     "returns default when not set",
 			setValue: nil,
-			want:     DefaultPTTEnable,
+			want:     DefaultCommsEnable,
 		},
 	}
 
@@ -275,14 +200,14 @@ func TestGetPTTEnable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("ptt.enable", *tt.setValue)
+				v.Set("comms.enable", *tt.setValue)
 			}
 
 			cfg := New(v)
 
-			got := cfg.GetPTTEnable()
+			got := cfg.GetCommsEnable()
 			if got != tt.want {
-				t.Errorf("GetPTTEnable() = %v, want %v", got, tt.want)
+				t.Errorf("GetCommsEnable() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -323,41 +248,6 @@ func TestGetAlfredDataTypeGateway(t *testing.T) {
 			got := cfg.GetAlfredDataTypeGateway()
 			if got != tt.want {
 				t.Errorf("GetAlfredDataTypeGateway() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGetPTTMcastAddr(t *testing.T) {
-	tests := []struct {
-		name     string
-		setValue *string
-		want     string
-	}{
-		{
-			name:     "returns configured address",
-			setValue: strPtr("224.0.0.2"),
-			want:     "224.0.0.2",
-		},
-		{
-			name:     "returns default when empty",
-			setValue: strPtr(""),
-			want:     DefaultPTTMcastAddr,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			v := viper.New()
-			if tt.setValue != nil {
-				v.Set("ptt.mcastAddr", *tt.setValue)
-			}
-
-			cfg := New(v)
-
-			got := cfg.GetPTTMcastAddr()
-			if got != tt.want {
-				t.Errorf("GetPTTMcastAddr() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -628,76 +518,7 @@ func TestGetAlfredDataTypeAddressReservation(t *testing.T) {
 	}
 }
 
-func TestGetPTTPttKey(t *testing.T) {
-	tests := []struct {
-		name     string
-		setValue *string
-		want     string
-	}{
-		{
-			name:     "returns configured key",
-			setValue: strPtr("space"),
-			want:     "space",
-		},
-		{
-			name:     "returns default when empty",
-			setValue: strPtr(""),
-			want:     DefaultPTTPttKey,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			v := viper.New()
-			if tt.setValue != nil {
-				v.Set("ptt.pttKey", *tt.setValue)
-			}
-
-			cfg := New(v)
-
-			got := cfg.GetPTTPttKey()
-			if got != tt.want {
-				t.Errorf("GetPTTPttKey() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGetPTTControlSource(t *testing.T) {
-	tests := []struct {
-		name     string
-		setValue *string
-		want     string
-	}{
-		{
-			name:     "returns configured source",
-			setValue: strPtr("bluetooth"),
-			want:     "bluetooth",
-		},
-		{
-			name:     "returns default when empty",
-			setValue: strPtr(""),
-			want:     DefaultPTTControlSource,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			v := viper.New()
-			if tt.setValue != nil {
-				v.Set("ptt.controlSource", *tt.setValue)
-			}
-
-			cfg := New(v)
-			got := cfg.GetPTTControlSource()
-			if got != tt.want {
-				t.Errorf("GetPTTControlSource() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGetPTTDebug(t *testing.T) {
+func TestGetCommsDebug(t *testing.T) {
 	tests := []struct {
 		setValue *bool
 		name     string
@@ -716,7 +537,7 @@ func TestGetPTTDebug(t *testing.T) {
 		{
 			name:     "returns default when not set",
 			setValue: nil,
-			want:     DefaultPTTDebug,
+			want:     DefaultCommsDebug,
 		},
 	}
 
@@ -724,20 +545,20 @@ func TestGetPTTDebug(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("ptt.debug", *tt.setValue)
+				v.Set("comms.debug", *tt.setValue)
 			}
 
 			cfg := New(v)
 
-			got := cfg.GetPTTDebug()
+			got := cfg.GetCommsDebug()
 			if got != tt.want {
-				t.Errorf("GetPTTDebug() = %v, want %v", got, tt.want)
+				t.Errorf("GetCommsDebug() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestGetPTTLoopback(t *testing.T) {
+func TestGetCommsLoopback(t *testing.T) {
 	tests := []struct {
 		setValue *bool
 		name     string
@@ -756,7 +577,7 @@ func TestGetPTTLoopback(t *testing.T) {
 		{
 			name:     "returns default when not set",
 			setValue: nil,
-			want:     DefaultPTTLoopback,
+			want:     DefaultCommsLoopback,
 		},
 	}
 
@@ -764,20 +585,20 @@ func TestGetPTTLoopback(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("ptt.loopback", *tt.setValue)
+				v.Set("comms.loopback", *tt.setValue)
 			}
 
 			cfg := New(v)
 
-			got := cfg.GetPTTLoopback()
+			got := cfg.GetCommsLoopback()
 			if got != tt.want {
-				t.Errorf("GetPTTLoopback() = %v, want %v", got, tt.want)
+				t.Errorf("GetCommsLoopback() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestGetPTTTrace(t *testing.T) {
+func TestGetCommsTrace(t *testing.T) {
 	tests := []struct {
 		setValue *bool
 		name     string
@@ -796,7 +617,7 @@ func TestGetPTTTrace(t *testing.T) {
 		{
 			name:     "returns default when not set",
 			setValue: nil,
-			want:     DefaultPTTTrace,
+			want:     DefaultCommsTrace,
 		},
 	}
 
@@ -804,34 +625,34 @@ func TestGetPTTTrace(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("ptt.trace", *tt.setValue)
+				v.Set("comms.trace", *tt.setValue)
 			}
 
 			cfg := New(v)
 
-			got := cfg.GetPTTTrace()
+			got := cfg.GetCommsTrace()
 			if got != tt.want {
-				t.Errorf("GetPTTTrace() = %v, want %v", got, tt.want)
+				t.Errorf("GetCommsTrace() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestGetPTTPttDevice(t *testing.T) {
+func TestGetCommsNanoPTTDevicePath(t *testing.T) {
 	tests := []struct {
 		name     string
 		setValue *string
 		want     string
 	}{
 		{
-			name:     "returns configured device",
+			name:     "returns configured device path",
 			setValue: strPtr("/dev/hidraw1/*"),
 			want:     "/dev/hidraw1/*",
 		},
 		{
 			name:     "returns default when empty",
 			setValue: strPtr(""),
-			want:     DefaultPTTPttDevice,
+			want:     DefaultCommsNanoPTTDevicePath,
 		},
 	}
 
@@ -839,20 +660,20 @@ func TestGetPTTPttDevice(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("ptt.pttDevice", *tt.setValue)
+				v.Set("comms.nanoPTT.devicePath", *tt.setValue)
 			}
 
 			cfg := New(v)
 
-			got := cfg.GetPTTPttDevice()
+			got := cfg.GetCommsNanoPTTDevicePath()
 			if got != tt.want {
-				t.Errorf("GetPTTPttDevice() = %v, want %v", got, tt.want)
+				t.Errorf("GetCommsNanoPTTDevicePath() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestGetPTTPttDeviceName(t *testing.T) {
+func TestGetCommsNanoPTTDeviceName(t *testing.T) {
 	tests := []struct {
 		name     string
 		setValue *string
@@ -860,13 +681,13 @@ func TestGetPTTPttDeviceName(t *testing.T) {
 	}{
 		{
 			name:     "returns configured device name",
-			setValue: strPtr("Custom PTT Device"),
-			want:     "Custom PTT Device",
+			setValue: strPtr("Custom NanoPTT Device"),
+			want:     "Custom NanoPTT Device",
 		},
 		{
 			name:     "returns default when empty",
 			setValue: strPtr(""),
-			want:     DefaultPTTPttDeviceName,
+			want:     DefaultCommsNanoPTTDeviceName,
 		},
 	}
 
@@ -874,20 +695,20 @@ func TestGetPTTPttDeviceName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("ptt.pttDeviceName", *tt.setValue)
+				v.Set("comms.nanoPTT.deviceName", *tt.setValue)
 			}
 
 			cfg := New(v)
 
-			got := cfg.GetPTTPttDeviceName()
+			got := cfg.GetCommsNanoPTTDeviceName()
 			if got != tt.want {
-				t.Errorf("GetPTTPttDeviceName() = %v, want %v", got, tt.want)
+				t.Errorf("GetCommsNanoPTTDeviceName() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestGetPTTControlSource(t *testing.T) {
+func TestGetCommsControlSource(t *testing.T) {
 	tests := []struct {
 		name     string
 		setValue *string
@@ -901,7 +722,7 @@ func TestGetPTTControlSource(t *testing.T) {
 		{
 			name:     "returns default when empty",
 			setValue: strPtr(""),
-			want:     DefaultPTTControlSource,
+			want:     DefaultCommsControlSource,
 		},
 	}
 
@@ -909,20 +730,20 @@ func TestGetPTTControlSource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("ptt.controlSource", *tt.setValue)
+				v.Set("comms.controlSource", *tt.setValue)
 			}
 
 			cfg := New(v)
 
-			got := cfg.GetPTTControlSource()
+			got := cfg.GetCommsControlSource()
 			if got != tt.want {
-				t.Errorf("GetPTTControlSource() = %v, want %v", got, tt.want)
+				t.Errorf("GetCommsControlSource() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestGetPTTAudioDeviceHint(t *testing.T) {
+func TestGetCommsBluetoothPttBluetoothAudioDeviceHint(t *testing.T) {
 	tests := []struct {
 		name     string
 		setValue *string
@@ -936,7 +757,7 @@ func TestGetPTTAudioDeviceHint(t *testing.T) {
 		{
 			name:     "returns default when empty",
 			setValue: strPtr(""),
-			want:     DefaultPTTAudioDeviceHint,
+			want:     DefaultCommsBluetoothPttBluetoothAudioDeviceHint,
 		},
 	}
 
@@ -944,20 +765,20 @@ func TestGetPTTAudioDeviceHint(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("ptt.audioDeviceHint", *tt.setValue)
+				v.Set("comms.bluetoothPtt.BluetoothAudioDeviceHint", *tt.setValue)
 			}
 
 			cfg := New(v)
 
-			got := cfg.GetPTTAudioDeviceHint()
+			got := cfg.GetCommsBluetoothPttBluetoothAudioDeviceHint()
 			if got != tt.want {
-				t.Errorf("GetPTTAudioDeviceHint() = %v, want %v", got, tt.want)
+				t.Errorf("GetCommsBluetoothPttBluetoothAudioDeviceHint() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestGetPTTMicGain(t *testing.T) {
+func TestGetCommsMicGain(t *testing.T) {
 	tests := []struct {
 		name     string
 		setValue *float64
@@ -971,17 +792,17 @@ func TestGetPTTMicGain(t *testing.T) {
 		{
 			name:     "returns default when not set",
 			setValue: nil,
-			want:     DefaultPTTMicGain,
+			want:     DefaultCommsMicGain,
 		},
 		{
 			name:     "returns default when zero",
 			setValue: float64Ptr(0),
-			want:     DefaultPTTMicGain,
+			want:     DefaultCommsMicGain,
 		},
 		{
 			name:     "returns default when negative",
 			setValue: float64Ptr(-1.0),
-			want:     DefaultPTTMicGain,
+			want:     DefaultCommsMicGain,
 		},
 	}
 
@@ -989,14 +810,134 @@ func TestGetPTTMicGain(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("ptt.micGain", *tt.setValue)
+				v.Set("comms.micGain", *tt.setValue)
 			}
 
 			cfg := New(v)
 
-			got := cfg.GetPTTMicGain()
+			got := cfg.GetCommsMicGain()
 			if got != tt.want {
-				t.Errorf("GetPTTMicGain() = %v, want %v", got, tt.want)
+				t.Errorf("GetCommsMicGain() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetCommsNanoPTTEnable(t *testing.T) {
+	tests := []struct {
+		setValue *bool
+		name     string
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultCommsNanoPTTEnable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("comms.nanoPTT.enable", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetCommsNanoPTTEnable()
+			if got != tt.want {
+				t.Errorf("GetCommsNanoPTTEnable() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetCommsBluetoothPttEnable(t *testing.T) {
+	tests := []struct {
+		setValue *bool
+		name     string
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultCommsBluetoothPttEnable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("comms.bluetoothPtt.enable", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetCommsBluetoothPttEnable()
+			if got != tt.want {
+				t.Errorf("GetCommsBluetoothPttEnable() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetCommsPlaybackBuffer(t *testing.T) {
+	tests := []struct {
+		setValue *int
+		name     string
+		want     int
+	}{
+		{
+			name:     "returns configured buffer",
+			setValue: intPtr(4),
+			want:     4,
+		},
+		{
+			name:     "returns default when zero",
+			setValue: intPtr(0),
+			want:     DefaultCommsPlaybackBuffer,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultCommsPlaybackBuffer,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("comms.playbackBuffer", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetCommsPlaybackBuffer()
+			if got != tt.want {
+				t.Errorf("GetCommsPlaybackBuffer() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -1006,7 +947,7 @@ func TestConfigReload(t *testing.T) {
 	v := viper.New()
 	v.Set("meshNetInterface", "eth0")
 	v.Set("gatewayMode", true)
-	v.Set("ptt.mcastPort", 8080)
+	v.Set("comms.playbackBuffer", 4)
 
 	cfg := New(v)
 
@@ -1019,14 +960,14 @@ func TestConfigReload(t *testing.T) {
 		t.Errorf("Initial GetGatewayMode() = %v, want true", got)
 	}
 
-	if got := cfg.GetPTTMcastPort(); got != 8080 {
-		t.Errorf("Initial GetPTTMcastPort() = %v, want 8080", got)
+	if got := cfg.GetCommsPlaybackBuffer(); got != 4 {
+		t.Errorf("Initial GetCommsPlaybackBuffer() = %v, want 4", got)
 	}
 
 	// Change configuration values
 	v.Set("meshNetInterface", "wlan0")
 	v.Set("gatewayMode", false)
-	v.Set("ptt.mcastPort", 9090)
+	v.Set("comms.playbackBuffer", 8)
 
 	// Manually trigger reload (simulating config file change)
 	cfg.reload()
@@ -1040,8 +981,8 @@ func TestConfigReload(t *testing.T) {
 		t.Errorf("After reload GetGatewayMode() = %v, want false", got)
 	}
 
-	if got := cfg.GetPTTMcastPort(); got != 9090 {
-		t.Errorf("After reload GetPTTMcastPort() = %v, want 9090", got)
+	if got := cfg.GetCommsPlaybackBuffer(); got != 8 {
+		t.Errorf("After reload GetCommsPlaybackBuffer() = %v, want 8", got)
 	}
 }
 

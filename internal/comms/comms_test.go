@@ -227,24 +227,24 @@ func TestApplyDefaults_AllEmptyGetsDefaults(t *testing.T) {
 		t.Errorf("CommKey: got %q, want %q", cfg.CommKey, defaultKey)
 	}
 
-	if cfg.CommDeviceGlob != defaultCommDevice {
-		t.Errorf("CommDeviceGlob: got %q, want %q", cfg.CommDeviceGlob, defaultCommDevice)
+	if cfg.NanoPTTDevicePath != defaultCommDevice {
+		t.Errorf("NanoPTTDevicePath: got %q, want %q", cfg.NanoPTTDevicePath, defaultCommDevice)
 	}
 
-	if cfg.CommDeviceName != defaultCommName {
-		t.Errorf("CommDeviceName: got %q, want %q", cfg.CommDeviceName, defaultCommName)
+	if cfg.NanoPTTDeviceName != defaultCommName {
+		t.Errorf("NanoPTTDeviceName: got %q, want %q", cfg.NanoPTTDeviceName, defaultCommName)
 	}
 }
 
 func TestApplyDefaults_ExistingValuesPreserved(t *testing.T) {
 	cfg := &CommsConfig{
-		Iface:          "eth0",
-		McastAddr:      "239.1.2.3",
-		McastPort:      9999,
-		CommKey:        "42",
-		CommDeviceGlob: "/dev/custom/*",
-		CommDeviceName: "MyDevice",
-		RtpID:          "explicit-id",
+		Iface:             "eth0",
+		McastAddr:         "239.1.2.3",
+		McastPort:         9999,
+		CommKey:           "42",
+		NanoPTTDevicePath: "/dev/custom/*",
+		NanoPTTDeviceName: "MyDevice",
+		RtpID:             "explicit-id",
 	}
 	cfg.applyDefaults()
 
@@ -264,12 +264,12 @@ func TestApplyDefaults_ExistingValuesPreserved(t *testing.T) {
 		t.Errorf("CommKey overwritten; got %q", cfg.CommKey)
 	}
 
-	if cfg.CommDeviceGlob != "/dev/custom/*" {
-		t.Errorf("CommDeviceGlob overwritten; got %q", cfg.CommDeviceGlob)
+	if cfg.NanoPTTDevicePath != "/dev/custom/*" {
+		t.Errorf("NanoPTTDevicePath overwritten; got %q", cfg.NanoPTTDevicePath)
 	}
 
-	if cfg.CommDeviceName != "MyDevice" {
-		t.Errorf("CommDeviceName overwritten; got %q", cfg.CommDeviceName)
+	if cfg.NanoPTTDeviceName != "MyDevice" {
+		t.Errorf("NanoPTTDeviceName overwritten; got %q", cfg.NanoPTTDeviceName)
 	}
 
 	if cfg.RtpID != "explicit-id" {
@@ -291,33 +291,33 @@ func TestApplyDefaults_RtpIDFallsBackToHostname(t *testing.T) {
 	}
 }
 
-func TestApplyDefaults_AudioDeviceHintPropagates(t *testing.T) {
-	cfg := &CommsConfig{AudioDeviceHint: "usb-audio"}
+func TestApplyDefaults_BluetoothAudioDeviceHintPropagates(t *testing.T) {
+	cfg := &CommsConfig{BluetoothAudioDeviceHint: "usb-audio"}
 	cfg.applyDefaults()
 
-	if cfg.InputDevice != "usb-audio" {
-		t.Errorf("InputDevice: got %q, want %q", cfg.InputDevice, "usb-audio")
+	if cfg.BluetoothInputDevice != "usb-audio" {
+		t.Errorf("BluetoothInputDevice: got %q, want %q", cfg.BluetoothInputDevice, "usb-audio")
 	}
 
-	if cfg.OutputDevice != "usb-audio" {
-		t.Errorf("OutputDevice: got %q, want %q", cfg.OutputDevice, "usb-audio")
+	if cfg.BluetoothOutputDevice != "usb-audio" {
+		t.Errorf("BluetoothOutputDevice: got %q, want %q", cfg.BluetoothOutputDevice, "usb-audio")
 	}
 }
 
-func TestApplyDefaults_AudioDeviceHintDoesNotOverrideExplicit(t *testing.T) {
+func TestApplyDefaults_BluetoothAudioDeviceHintDoesNotOverrideExplicit(t *testing.T) {
 	cfg := &CommsConfig{
-		AudioDeviceHint: "usb-audio",
-		InputDevice:     "hw:0",
-		OutputDevice:    "hw:1",
+		BluetoothAudioDeviceHint: "usb-audio",
+		BluetoothInputDevice:     "hw:0",
+		BluetoothOutputDevice:    "hw:1",
 	}
 	cfg.applyDefaults()
 
-	if cfg.InputDevice != "hw:0" {
-		t.Errorf("InputDevice overwritten; got %q", cfg.InputDevice)
+	if cfg.BluetoothInputDevice != "hw:0" {
+		t.Errorf("BluetoothInputDevice overwritten; got %q", cfg.BluetoothInputDevice)
 	}
 
-	if cfg.OutputDevice != "hw:1" {
-		t.Errorf("OutputDevice overwritten; got %q", cfg.OutputDevice)
+	if cfg.BluetoothOutputDevice != "hw:1" {
+		t.Errorf("BluetoothOutputDevice overwritten; got %q", cfg.BluetoothOutputDevice)
 	}
 }
 

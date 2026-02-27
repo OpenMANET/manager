@@ -109,15 +109,15 @@ CommsConfig
 ├── McastPort       int                 e.g. 5007
 ├── RtpID           string              → SSRC seed (default: hostname)
 │
-├── InputDevice     string              PortAudio device name/index
-├── OutputDevice    string
-├── AudioDeviceHint string              fills both if neither is set
+├── BluetoothInputDevice     string              PortAudio device name/index
+├── BluetoothOutputDevice    string
+├── BluetoothAudioDeviceHint string              fills both if neither is set
 ├── PlaybackDepth   int                 channel buffer depth (default 10)
 ├── MicGain         float32             per-sample gain (default 1.0)
 │
 ├── CommKey         string              "any" | decimal EV_KEY code (evdev only)
-├── CommDeviceGlob  string              evdev glob, e.g. "/dev/hidraw0/*"
-├── CommDeviceName  string              exact evdev device name to match
+├── NanoPTTDevicePath  string              evdev glob, e.g. "/dev/hidraw0/*"
+├── NanoPTTDeviceName  string              exact evdev device name to match
 ├── ControlSource   string              "cm108" (default) | "evdev"
 │
 ├── Debug, Loopback, Trace  bool
@@ -186,7 +186,7 @@ Start()
   │
   ├─ 2. applyDefaults()
   │     fills empty fields with package-level constants
-  │     AudioDeviceHint propagates to Input/OutputDevice when both empty
+  │     BluetoothAudioDeviceHint propagates to Input/BluetoothOutputDevice when both empty
   │
   ├─ 3. [if controlSource == "cm108"]
   │     detectAndSetALSACard()
@@ -195,7 +195,7 @@ Start()
   │
   ├─ 4. Set log level
   │     Trace → TraceLevel; Debug → DebugLevel
-  │     [if Debug] logInputDeviceList()
+  │     [if Debug] logBluetoothInputDeviceList()
   │
   ├─ 5. buildCodec()
   │     newOpusEncoder() — 48 kHz, mono, VoIP, 32 kbps, complexity=10
@@ -228,8 +228,8 @@ Start()
   │     Register SIGTERM goroutine → portaudio.Terminate() + os.Exit(0)
   │
   ├─11. buildAudio(rt)
-  │     resolveAudioDevice(OutputDevice)  → *portaudio.DeviceInfo
-  │     resolveAudioDevice(InputDevice)   → *portaudio.DeviceInfo
+  │     resolveAudioDevice(BluetoothOutputDevice)  → *portaudio.DeviceInfo
+  │     resolveAudioDevice(BluetoothInputDevice)   → *portaudio.DeviceInfo
   │     portaudio.OpenStream(output, playback callback) → playbackStream
   │     openBroadcastStreamOn(inDev, rt) → broadcastStream
   │     Wire rt.reopenBroadcast = func(){ reopenBroadcastStream(rt, inDev) }
@@ -863,7 +863,7 @@ dependency is hidden behind one of the interfaces listed in §10.
 
 | File | Tests |
 |---|---|
-| `comms_test.go` | `NewComms`, `applyDefaults`, `applyDefaults` AudioDeviceHint propagation |
+| `comms_test.go` | `NewComms`, `applyDefaults`, `applyDefaults` BluetoothAudioDeviceHint propagation |
 | `receive_test.go` | `receiveLoop`, `playoutLoop`, `decodeAndQueue`, `decodeAndQueuePLC` |
 | `transmit_test.go` | `beginTransmission`, `endTransmission`, `isBroadcasting`, `drainPlaybackBuffer`, `Run` dispatch |
 | `rtp_test.go` | `ssrcFromID`, `pionRTPSession.send`, `parseIncomingRTP` |

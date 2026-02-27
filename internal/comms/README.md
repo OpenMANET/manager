@@ -209,8 +209,8 @@ unchanged.
 
 ### `evdev` backend
 
-The input device is selected by matching `CommDeviceName` against devices
-discovered via the `CommDeviceGlob` pattern.
+The input device is selected by matching `NanoPTTDeviceName` against devices
+discovered via the `NanoPTTDevicePath` pattern.
 
 - If `commKey` is `any`, any key press emits `PTTToggle`.
 - Otherwise the key code must match the decimal `EV_KEY` code.
@@ -266,12 +266,12 @@ ptt:
   debug: true
   trace: false
   loopback: true
-  pttDevice: /dev/hidraw0/*    # glob for evdev device enumeration (CommDeviceGlob)
-  pttDeviceName: AllInOneCable # exact evdev device name (CommDeviceName)
+  pttDevice: /dev/hidraw0/*    # glob for evdev device enumeration (NanoPTTDevicePath)
+  pttDeviceName: AllInOneCable # exact evdev device name (NanoPTTDeviceName)
   controlSource: cm108         # cm108 (default) or evdev
-  audioDeviceHint: ""          # optional shared substring for both input/output (e.g. "CM108")
-  inputDevice: ""              # optional; device name substring or index for capture
-  outputDevice: ""             # optional; device name substring or index for playback
+  BluetoothAudioDeviceHint: ""          # optional shared substring for both input/output (e.g. "CM108")
+  BluetoothInputDevice: ""              # optional; device name substring or index for capture
+  BluetoothOutputDevice: ""             # optional; device name substring or index for playback
   playbackBuffer: 10           # decoded-audio channel depth (default 10 = ~200 ms)
   micGain: 1.0                 # float32; >1 amplifies, <1 attenuates
 ```

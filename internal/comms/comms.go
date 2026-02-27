@@ -65,50 +65,54 @@ type CommsRuntime struct {
 // Allocate one with NewComms and call Start to begin operation.
 // All exported fields must be set before Start is called.
 type CommsConfig struct {
-	Log             zerolog.Logger
-	Interrupt       chan os.Signal
-	runtime         *CommsRuntime
-	ControlSource   string
-	CommKey         string // "any" or decimal EV_KEY code
-	Iface           string
-	RtpID           string // node identifier used to derive RTP SSRC (defaults to hostname)
-	InputDevice     string
-	OutputDevice    string
-	AudioDeviceHint string
-	CommDeviceName  string
-	McastAddr       string
-	CommDeviceGlob  string
-	PlaybackDepth   int
-	McastPort       int
-	MicGain         float32
-	Debug           bool
-	Loopback        bool
-	Trace           bool
-	Enable          bool
+	Log                      zerolog.Logger
+	Interrupt                chan os.Signal
+	runtime                  *CommsRuntime
+	ControlSource            string
+	CommKey                  string // "any" or decimal EV_KEY code
+	Iface                    string
+	RtpID                    string // node identifier used to derive RTP SSRC (defaults to hostname)
+	BluetoothInputDevice     string
+	BluetoothOutputDevice    string
+	BluetoothAudioDeviceHint string
+	EnableNanoPTT            bool
+	NanoPTTDeviceName        string
+	McastAddr                string
+	NanoPTTDevicePath        string
+	PlaybackDepth            int
+	McastPort                int
+	MicGain                  float32
+	Debug                    bool
+	Loopback                 bool
+	Trace                    bool
+	Enable                   bool
+	EnableBluetoothPtt       bool
 }
 
 // NewComms copies cfg and returns a pointer ready for Start.
 func NewComms(cfg CommsConfig) *CommsConfig {
 	return &CommsConfig{
-		Log:             cfg.Log,
-		Interrupt:       cfg.Interrupt,
-		Enable:          cfg.Enable,
-		Iface:           cfg.Iface,
-		McastAddr:       cfg.McastAddr,
-		McastPort:       cfg.McastPort,
-		CommKey:         cfg.CommKey,
-		RtpID:           cfg.RtpID,
-		Debug:           cfg.Debug,
-		Loopback:        cfg.Loopback,
-		Trace:           cfg.Trace,
-		CommDeviceGlob:  cfg.CommDeviceGlob,
-		CommDeviceName:  cfg.CommDeviceName,
-		ControlSource:   cfg.ControlSource,
-		AudioDeviceHint: cfg.AudioDeviceHint,
-		InputDevice:     cfg.InputDevice,
-		OutputDevice:    cfg.OutputDevice,
-		PlaybackDepth:   cfg.PlaybackDepth,
-		MicGain:         cfg.MicGain,
+		Log:                      cfg.Log,
+		Interrupt:                cfg.Interrupt,
+		Enable:                   cfg.Enable,
+		Iface:                    cfg.Iface,
+		McastAddr:                cfg.McastAddr,
+		McastPort:                cfg.McastPort,
+		CommKey:                  cfg.CommKey,
+		RtpID:                    cfg.RtpID,
+		Debug:                    cfg.Debug,
+		Loopback:                 cfg.Loopback,
+		Trace:                    cfg.Trace,
+		ControlSource:            cfg.ControlSource,
+		MicGain:                  cfg.MicGain,
+		EnableNanoPTT:            cfg.EnableNanoPTT,
+		NanoPTTDevicePath:        cfg.NanoPTTDevicePath,
+		NanoPTTDeviceName:        cfg.NanoPTTDeviceName,
+		EnableBluetoothPtt:       cfg.EnableBluetoothPtt,
+		BluetoothAudioDeviceHint: cfg.BluetoothAudioDeviceHint,
+		BluetoothInputDevice:     cfg.BluetoothInputDevice,
+		BluetoothOutputDevice:    cfg.BluetoothOutputDevice,
+		PlaybackDepth:            cfg.PlaybackDepth,
 	}
 }
 
@@ -131,12 +135,12 @@ func (cfg *CommsConfig) applyDefaults() {
 		cfg.CommKey = defaultKey
 	}
 
-	if cfg.CommDeviceGlob == "" {
-		cfg.CommDeviceGlob = defaultCommDevice
+	if cfg.NanoPTTDevicePath == "" {
+		cfg.NanoPTTDevicePath = defaultCommDevice
 	}
 
-	if cfg.CommDeviceName == "" {
-		cfg.CommDeviceName = defaultCommName
+	if cfg.NanoPTTDeviceName == "" {
+		cfg.NanoPTTDeviceName = defaultCommName
 	}
 
 	cfg.ControlSource = normalizeControlSource(cfg.ControlSource)
@@ -147,13 +151,13 @@ func (cfg *CommsConfig) applyDefaults() {
 		}
 	}
 
-	if cfg.AudioDeviceHint != "" {
-		if cfg.InputDevice == "" {
-			cfg.InputDevice = cfg.AudioDeviceHint
+	if cfg.BluetoothAudioDeviceHint != "" {
+		if cfg.BluetoothInputDevice == "" {
+			cfg.BluetoothInputDevice = cfg.BluetoothAudioDeviceHint
 		}
 
-		if cfg.OutputDevice == "" {
-			cfg.OutputDevice = cfg.AudioDeviceHint
+		if cfg.BluetoothOutputDevice == "" {
+			cfg.BluetoothOutputDevice = cfg.BluetoothAudioDeviceHint
 		}
 	}
 }
@@ -249,12 +253,12 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 	inDev *portaudio.DeviceInfo,
 	err error,
 ) {
-	outDev, err := resolveAudioDevice(cfg.OutputDevice, false)
+	outDev, err := resolveAudioDevice(cfg.BluetoothOutputDevice, false)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	inDev, err = resolveAudioDevice(cfg.InputDevice, true)
+	inDev, err = resolveAudioDevice(cfg.BluetoothInputDevice, true)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -385,7 +389,7 @@ func (cfg *CommsConfig) buildEventSource() (EventSource, error) {
 
 		cfg.Log.Info().Msgf("comms: PTT on evdev device: %s", dev.Name)
 
-		return NewEvdevSource(dev, cfg.CommKey, cfg.Log), nil
+		return NewNanoPTTSource(dev, cfg.CommKey, cfg.Log), nil
 	}
 }
 
@@ -490,7 +494,7 @@ func (cfg *CommsConfig) Start() {
 	cfg.Log.Info().Msgf(
 		"comms: starting iface=%s mcast=%s:%d key=%s debug=%t trace=%t loopback=%t device=%s ctrl=%s hint=%s",
 		cfg.Iface, cfg.McastAddr, cfg.McastPort, cfg.CommKey,
-		cfg.Debug, cfg.Trace, cfg.Loopback, cfg.CommDeviceName, cfg.ControlSource, cfg.AudioDeviceHint,
+		cfg.Debug, cfg.Trace, cfg.Loopback, cfg.NanoPTTDeviceName, cfg.ControlSource, cfg.BluetoothAudioDeviceHint,
 	)
 
 	// ── codec ──────────────────────────────────────────────────────────────
