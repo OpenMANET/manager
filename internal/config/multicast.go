@@ -49,6 +49,19 @@ func GetMulticastGroupAddresses() []string {
 	return result
 }
 
+// GetMulticastTalkGroupAddresses returns a copy of the multicast talk group addresses slice.
+// It creates a new slice and copies the contents of the internal multicastTalkGroupAddresses
+// slice into it, ensuring the caller cannot modify the internal state.
+//
+// Returns:
+//   - []string: A copy of the multicast talk group addresses.
+func GetMulticastTalkGroupAddresses() []string {
+	result := make([]string, len(multicastTalkGroupAddresses))
+	copy(result, multicastTalkGroupAddresses)
+
+	return result
+}
+
 // GetMulticastGroupSet returns a set of all multicast group addresses as a map
 // where keys are address strings and values are booleans set to true.
 // The returned set is a combination of the base multicastGroupSet and any

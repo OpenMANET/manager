@@ -210,3 +210,85 @@ func TestGetMulticastGroupSetConsistencyWithAddresses(t *testing.T) {
 		}
 	}
 }
+func TestGetMulticastTalkGroupAddresses(t *testing.T) {
+	result := GetMulticastTalkGroupAddresses()
+
+	expectedAddresses := []string{
+		"225.41.1.1",
+		"225.41.1.2",
+		"225.41.1.3",
+		"225.41.1.4",
+		"225.41.1.5",
+	}
+
+	if len(result) != len(expectedAddresses) {
+		t.Errorf("expected %d addresses, got %d", len(expectedAddresses), len(result))
+	}
+
+	for _, addr := range expectedAddresses {
+		if !slices.Contains(result, addr) {
+			t.Errorf("expected address %s not found in result", addr)
+		}
+	}
+}
+
+func TestGetMulticastTalkGroupAddressesNotNil(t *testing.T) {
+	result := GetMulticastTalkGroupAddresses()
+
+	if result == nil {
+		t.Error("expected non-nil result, got nil")
+	}
+}
+
+func TestGetMulticastTalkGroupAddressesLength(t *testing.T) {
+	result := GetMulticastTalkGroupAddresses()
+	expected := len(multicastTalkGroupAddresses)
+
+	if len(result) != expected {
+		t.Errorf("expected length %d, got %d", expected, len(result))
+	}
+}
+
+func TestGetMulticastTalkGroupAddressesImmutability(t *testing.T) {
+	result1 := GetMulticastTalkGroupAddresses()
+	result1[0] = "1.2.3.4"
+	result2 := GetMulticastTalkGroupAddresses()
+
+	if result2[0] == "1.2.3.4" {
+		t.Error("modifying returned slice should not affect subsequent calls")
+	}
+}
+
+func TestGetMulticastTalkGroupAddressesNoDuplicates(t *testing.T) {
+	result := GetMulticastTalkGroupAddresses()
+	seen := make(map[string]bool)
+
+	for _, addr := range result {
+		if seen[addr] {
+			t.Errorf("duplicate address found: %s", addr)
+		}
+
+		seen[addr] = true
+	}
+}
+
+func TestGetMulticastTalkGroupAddressesDoesNotContainGroupAddresses(t *testing.T) {
+	result := GetMulticastTalkGroupAddresses()
+
+	for _, addr := range []string{ATAKSAAddress, ATAKChatAddress, MDNSAddress} {
+		if slices.Contains(result, addr) {
+			t.Errorf("talk group addresses should not contain group address %s", addr)
+		}
+	}
+}
+
+func TestGetMulticastTalkGroupAddressesMatchesSource(t *testing.T) {
+	result := GetMulticastTalkGroupAddresses()
+
+	for _, addr := range multicastTalkGroupAddresses {
+		if !slices.Contains(result, addr) {
+			t.Errorf("expected talk group address %s not found in result", addr)
+		}
+	}
+}
+
