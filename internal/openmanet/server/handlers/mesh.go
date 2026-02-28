@@ -12,8 +12,17 @@ import (
 )
 
 type MeshService struct {
-	Log  zerolog.Logger
-	Wifi *mgmt.WirelessConfig
+	Log           zerolog.Logger
+	Wifi          mgmt.WirelessProvider
+	ParseBatHosts func(string) (*batmanadv.BatHosts, error)
+}
+
+func (m *MeshService) parseBatHosts(path string) (*batmanadv.BatHosts, error) {
+	if m.ParseBatHosts != nil {
+		return m.ParseBatHosts(path)
+	}
+
+	return batmanadv.ParseBatHostsFile(path)
 }
 
 func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*serviceproto.ListMeshNeighborsResponse, error) {
@@ -24,7 +33,7 @@ func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*s
 	m.Log.Debug().Msg("ListMeshNeighbors Request Received")
 
 	// Get batman-adv hosts file
-	batHosts, err := batmanadv.ParseBatHostsFile(batmanadv.BatHostsFilePath)
+	batHosts, err := m.parseBatHosts(batmanadv.BatHostsFilePath)
 	if err != nil {
 		m.Log.Error().Err(err).Msg("Failed to parse batman-adv hosts file")
 

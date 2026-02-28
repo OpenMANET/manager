@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   test:
@@ -46,7 +46,31 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           files: ./coverage.out
+          flags: unittests
           fail_ci_if_error: false
-          report_type: coverage
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  integration_test:
+    name: "Integration tests"
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          submodules: "recursive"
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+
+      - name: Install Dependencies
+        run: sudo apt update && sudo apt install -y build-essential libnl-3-dev libnl-genl-3-dev libgps-dev libcap-dev pkg-config libopus-dev libopusfile-dev portaudio19-dev batctl net-tools alfred
+
+      - name: Compile Alfred Go Bindings
+        run: make alfred
+
+      - name: Run integration tests
+        run: make integration-test

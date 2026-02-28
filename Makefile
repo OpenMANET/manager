@@ -63,6 +63,10 @@ test: fmt vet buf sqlc-gen ## Run tests.
 test-race: fmt vet buf sqlc-gen ## Run tests with race detector.
 	go test -race -timeout 120s ./... -coverprofile=coverage.out -covermode=atomic
 
+.PHONY: integration-test
+integration-test: fmt vet ## Run integration tests (no hardware required).
+	go test -tags integration -timeout 60s ./internal/openmanet/server/handlers/...
+
 .PHONY: lint
 lint: ## Run linters.
 	$(GOBIN)/golangci-lint run --timeout 5m

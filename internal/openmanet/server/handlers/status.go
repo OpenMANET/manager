@@ -15,10 +15,19 @@ import (
 )
 
 type StatusService struct {
-	Cfg  *config.Config
-	Log  zerolog.Logger
-	Wifi *mgmt.WirelessConfig
-	GPS  *gpsd.GPSService
+	Cfg        *config.Config
+	Log        zerolog.Logger
+	Wifi       mgmt.WirelessProvider
+	GPS        *gpsd.GPSService
+	GetMeshCfg func(string) (*batmanadv.MeshConfig, error)
+}
+
+func (s *StatusService) getMeshCfg(iface string) (*batmanadv.MeshConfig, error) {
+	if s.GetMeshCfg != nil {
+		return s.GetMeshCfg(iface)
+	}
+
+	return batmanadv.GetMeshConfig(iface)
 }
 
 func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*serviceproto.GetServiceStatusResponse, error) {
@@ -60,7 +69,7 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 
 	numMeshInterfaces = int32(len(meshInterfaces))
 
-	meshCfg, err := batmanadv.GetMeshConfig(s.Cfg.GetAlfredBatInterface())
+	meshCfg, err := s.getMeshCfg(s.Cfg.GetAlfredBatInterface())
 	if err != nil {
 		s.Log.Error().Err(err).Msg("Error getting mesh config")
 
