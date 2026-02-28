@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -482,6 +483,13 @@ func UpdateMulticastEndpoint(addr string, port int) error {
 func (cfg *CommsConfig) Start() {
 	if !cfg.Enable {
 		cfg.Log.Info().Msg("comms: functionality disabled; not starting")
+
+		return
+	}
+
+	// Voice comms is not supported on MIPS due to lack of audio hardware
+	if runtime.GOARCH == "mipsle" {
+		cfg.Log.Error().Msg("comms: running on MIPS; audio quality may be poor due to lack of hardware FPU")
 
 		return
 	}
