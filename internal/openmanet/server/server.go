@@ -55,6 +55,11 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		GPS:  cfg.GPS,
 	}))
 
+	api.Handle(services.NewCommsServiceHandler(&handlers.CommsService{
+		Cfg: cfg.Cfg,
+		Log: cfg.Log,
+	}))
+
 	p := new(http.Protocols)
 	p.SetHTTP1(true)
 	// Use h2c so we can serve HTTP/2 without TLS.

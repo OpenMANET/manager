@@ -42,7 +42,7 @@ const (
 // StatusServiceClient is a client for the openmanet.service.v1.StatusService service.
 type StatusServiceClient interface {
 	// Retrieves the current status of the OpenMANET service.
-	GetServiceStatus(context.Context, *emptypb.Empty) (*v1.ServiceStatusResponse, error)
+	GetServiceStatus(context.Context, *emptypb.Empty) (*v1.GetServiceStatusResponse, error)
 }
 
 // NewStatusServiceClient constructs a client for the openmanet.service.v1.StatusService service. By
@@ -56,7 +56,7 @@ func NewStatusServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 	baseURL = strings.TrimRight(baseURL, "/")
 	statusServiceMethods := v1.File_openmanet_service_v1_status_proto.Services().ByName("StatusService").Methods()
 	return &statusServiceClient{
-		getServiceStatus: connect.NewClient[emptypb.Empty, v1.ServiceStatusResponse](
+		getServiceStatus: connect.NewClient[emptypb.Empty, v1.GetServiceStatusResponse](
 			httpClient,
 			baseURL+StatusServiceGetServiceStatusProcedure,
 			connect.WithSchema(statusServiceMethods.ByName("GetServiceStatus")),
@@ -67,11 +67,11 @@ func NewStatusServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // statusServiceClient implements StatusServiceClient.
 type statusServiceClient struct {
-	getServiceStatus *connect.Client[emptypb.Empty, v1.ServiceStatusResponse]
+	getServiceStatus *connect.Client[emptypb.Empty, v1.GetServiceStatusResponse]
 }
 
 // GetServiceStatus calls openmanet.service.v1.StatusService.GetServiceStatus.
-func (c *statusServiceClient) GetServiceStatus(ctx context.Context, req *emptypb.Empty) (*v1.ServiceStatusResponse, error) {
+func (c *statusServiceClient) GetServiceStatus(ctx context.Context, req *emptypb.Empty) (*v1.GetServiceStatusResponse, error) {
 	response, err := c.getServiceStatus.CallUnary(ctx, connect.NewRequest(req))
 	if response != nil {
 		return response.Msg, err
@@ -82,7 +82,7 @@ func (c *statusServiceClient) GetServiceStatus(ctx context.Context, req *emptypb
 // StatusServiceHandler is an implementation of the openmanet.service.v1.StatusService service.
 type StatusServiceHandler interface {
 	// Retrieves the current status of the OpenMANET service.
-	GetServiceStatus(context.Context, *emptypb.Empty) (*v1.ServiceStatusResponse, error)
+	GetServiceStatus(context.Context, *emptypb.Empty) (*v1.GetServiceStatusResponse, error)
 }
 
 // NewStatusServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -111,6 +111,6 @@ func NewStatusServiceHandler(svc StatusServiceHandler, opts ...connect.HandlerOp
 // UnimplementedStatusServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedStatusServiceHandler struct{}
 
-func (UnimplementedStatusServiceHandler) GetServiceStatus(context.Context, *emptypb.Empty) (*v1.ServiceStatusResponse, error) {
+func (UnimplementedStatusServiceHandler) GetServiceStatus(context.Context, *emptypb.Empty) (*v1.GetServiceStatusResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.service.v1.StatusService.GetServiceStatus is not implemented"))
 }
