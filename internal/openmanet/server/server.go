@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"time"
 
+	"connectrpc.com/connect"
 	connectcors "connectrpc.com/cors"
+	"connectrpc.com/validate"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database/models"
@@ -31,34 +33,37 @@ type APIServer struct {
 }
 
 func NewAPIServer(cfg APIServer) *APIServer {
-	api := http.NewServeMux()
+	var (
+		api                 = http.NewServeMux()
+		validateInterceptor = validate.NewInterceptor()
+	)
 
 	api.Handle(services.NewNodeServiceHandler(&handlers.NodeService{
 		DB:  cfg.DB,
 		Log: cfg.Log,
-	}))
+	}, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(services.NewInterfaceServiceHandler(&handlers.InterfaceService{
 		Log:  cfg.Log,
 		Wifi: cfg.Wifi,
-	}))
+	}, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(services.NewMeshNeighborServiceHandler(&handlers.MeshService{
 		Log:  cfg.Log,
 		Wifi: cfg.Wifi,
-	}))
+	}, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(services.NewStatusServiceHandler(&handlers.StatusService{
 		Cfg:  cfg.Cfg,
 		Log:  cfg.Log,
 		Wifi: cfg.Wifi,
 		GPS:  cfg.GPS,
-	}))
+	}, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(services.NewCommsServiceHandler(&handlers.CommsService{
 		Cfg: cfg.Cfg,
 		Log: cfg.Log,
-	}))
+	}, connect.WithInterceptors(validateInterceptor)))
 
 	p := new(http.Protocols)
 	p.SetHTTP1(true)

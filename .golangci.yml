@@ -86,6 +86,7 @@ linters:
           - gocognit
           - nestif
           - goconst
+          - noctx
         path: "_test\\.go$"
     paths:
       - third_party$

@@ -12,7 +12,7 @@ import (
 
 type InterfaceService struct {
 	Log  zerolog.Logger
-	Wifi *mgmt.WirelessConfig
+	Wifi mgmt.WirelessProvider
 }
 
 func (w *InterfaceService) GetWirelessInterface(_ context.Context, req *serviceproto.GetWirelessInterfaceRequest) (*serviceproto.GetWirelessInterfaceResponse, error) {
