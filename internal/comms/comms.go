@@ -29,10 +29,11 @@ const (
 	packetLossPerc    int    = 30
 	defaultKey        string = "any"
 	defaultIface      string = "br-ahwlan"
-	defaultPort       int    = 5007
 	defaultCommDevice string = "/dev/hidraw0/*"
 	defaultCommName   string = "AllInOneCable"
 	defaultCtrlSrc    string = "cm108"
+
+	DefaultCommsPort int = 5007
 )
 
 // activeConfig holds the CommsConfig most recently started via Start().
@@ -68,20 +69,20 @@ type CommsConfig struct {
 	Log                      zerolog.Logger
 	Interrupt                chan os.Signal
 	runtime                  *CommsRuntime
-	ControlSource            string
-	CommKey                  string // "any" or decimal EV_KEY code
+	RtpID                    string
+	CommKey                  string
 	Iface                    string
-	RtpID                    string // node identifier used to derive RTP SSRC (defaults to hostname)
+	NanoPTTDevicePath        string
 	BluetoothInputDevice     string
 	BluetoothOutputDevice    string
 	BluetoothAudioDeviceHint string
-	EnableNanoPTT            bool
+	ControlSource            string
 	NanoPTTDeviceName        string
 	McastAddr                string
-	NanoPTTDevicePath        string
-	PlaybackDepth            int
 	McastPort                int
+	PlaybackDepth            int
 	MicGain                  float32
+	EnableNanoPTT            bool
 	Debug                    bool
 	Loopback                 bool
 	Trace                    bool
@@ -128,7 +129,7 @@ func (cfg *CommsConfig) applyDefaults() {
 	}
 
 	if cfg.McastPort == 0 {
-		cfg.McastPort = defaultPort
+		cfg.McastPort = DefaultCommsPort
 	}
 
 	if cfg.CommKey == "" {
@@ -416,6 +417,17 @@ func (cfg *CommsConfig) replaceNetwork(
 }
 
 // ─── UpdateMulticastEndpoint ──────────────────────────────────────────────────
+
+// GetActiveMulticastAddr returns the current multicast group address in use by the
+// live comms subsystem. Returns an empty string if comms has not been started.
+func GetActiveMulticastAddr() string {
+	cfg := activeConfig.Load()
+	if cfg == nil {
+		return ""
+	}
+
+	return cfg.McastAddr
+}
 
 // UpdateMulticastEndpoint changes the multicast group address and UDP port
 // used by the live comms subsystem at runtime. It is safe to call concurrently

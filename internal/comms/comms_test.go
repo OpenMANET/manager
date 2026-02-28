@@ -219,8 +219,8 @@ func TestApplyDefaults_AllEmptyGetsDefaults(t *testing.T) {
 		t.Error("McastAddr should be non-empty after applyDefaults")
 	}
 
-	if cfg.McastPort != defaultPort {
-		t.Errorf("McastPort: got %d, want %d", cfg.McastPort, defaultPort)
+	if cfg.McastPort != DefaultCommsPort {
+		t.Errorf("McastPort: got %d, want %d", cfg.McastPort, DefaultCommsPort)
 	}
 
 	if cfg.CommKey != defaultKey {
@@ -432,5 +432,65 @@ func TestUpdateMulticastEndpoint_PortTooLarge(t *testing.T) {
 
 	if err := UpdateMulticastEndpoint("239.1.2.3", 65536); err == nil {
 		t.Error("expected error for port > 65535")
+	}
+}
+
+// ─── GetMulticastAddr tests ───────────────────────────────────────────────────
+
+func TestGetActiveMulticastAddr_NotStarted(t *testing.T) {
+	// Ensure no active config is set.
+	activeConfig.Store(nil)
+
+	if got := GetActiveMulticastAddr(); got != "" {
+		t.Errorf("expected empty string when comms not started, got %q", got)
+	}
+}
+
+func TestGetActiveMulticastAddr_ReturnsConfiguredAddr(t *testing.T) {
+	const want = "239.1.2.3"
+
+	cfg := &CommsConfig{
+		Log:       zerolog.Nop(),
+		McastAddr: want,
+	}
+	cfg.runtime = &CommsRuntime{
+		sender:   newSwappableSender(&mockWriter{}),
+		receiver: newSwappableReceiver(newMockReader()),
+	}
+
+	activeConfig.Store(cfg)
+	t.Cleanup(func() { activeConfig.Store(nil) })
+
+	if got := GetActiveMulticastAddr(); got != want {
+		t.Errorf("GetActiveMulticastAddr() = %q, want %q", got, want)
+	}
+}
+
+func TestGetActiveMulticastAddr_ReflectsUpdate(t *testing.T) {
+	const (
+		initial = "239.0.0.1"
+		updated = "239.9.9.9"
+	)
+
+	cfg := &CommsConfig{
+		Log:       zerolog.Nop(),
+		McastAddr: initial,
+	}
+	cfg.runtime = &CommsRuntime{
+		sender:   newSwappableSender(&mockWriter{}),
+		receiver: newSwappableReceiver(newMockReader()),
+	}
+
+	activeConfig.Store(cfg)
+	t.Cleanup(func() { activeConfig.Store(nil) })
+
+	if got := GetActiveMulticastAddr(); got != initial {
+		t.Errorf("before update: GetActiveMulticastAddr() = %q, want %q", got, initial)
+	}
+
+	cfg.McastAddr = updated
+
+	if got := GetActiveMulticastAddr(); got != updated {
+		t.Errorf("after update: GetActiveMulticastAddr() = %q, want %q", got, updated)
 	}
 }
