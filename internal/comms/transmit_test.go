@@ -299,6 +299,7 @@ func TestRun_PTTDownStartsTransmission(t *testing.T) {
 
 	evCh := make(chan PTTEvent, 1)
 	evCh <- PTTDown
+
 	close(evCh)
 
 	cfg.Run(context.Background(), rt, &mockEventSource{ch: evCh})
@@ -317,7 +318,9 @@ func TestRun_PTTUpStopsTransmission(t *testing.T) {
 
 	evCh := make(chan PTTEvent, 2)
 	evCh <- PTTDown
+
 	evCh <- PTTUp
+
 	close(evCh)
 
 	cfg.Run(context.Background(), rt, &mockEventSource{ch: evCh})
@@ -340,7 +343,9 @@ func TestRun_PTTToggleFlips(t *testing.T) {
 
 	evCh := make(chan PTTEvent, 2)
 	evCh <- PTTToggle // → beginTransmission
+
 	evCh <- PTTToggle // → endTransmission
+
 	close(evCh)
 
 	cfg.Run(context.Background(), rt, &mockEventSource{ch: evCh})

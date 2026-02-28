@@ -21,7 +21,7 @@ func newReceiveRuntime() *CommsRuntime {
 
 // waitForFrame blocks until at least one frame appears in rt.playbackBuffer or
 // the deadline is reached.
-func waitForFrame(rt *CommsRuntime, timeout time.Duration) ([]float32, bool) {
+func waitForFrame(rt *CommsRuntime, timeout time.Duration) ([]float32, bool) { //nolint:unparam
 	select {
 	case f := <-rt.playbackBuffer:
 		return f, true
@@ -38,6 +38,7 @@ func TestPlayoutLoop_DeliversReadyFrame(t *testing.T) {
 	jb.push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -63,6 +64,7 @@ func TestPlayoutLoop_EmitsPLCOnSkippedMissing(t *testing.T) {
 	jb.push(3, []byte{3}) // len=2 >= maxDepth/2=2, expected=1 missing → skipped
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -84,6 +86,7 @@ func TestPlayoutLoop_EmitsPLCOnConceal(t *testing.T) {
 	jb.popReady() // started=true, expected=1, lastPush set to now
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -102,6 +105,7 @@ func TestPlayoutLoop_EmitsNothingWhenBroadcasting(t *testing.T) {
 	jb.push(0, []byte{0}) // satisfies prebuffer
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
@@ -125,6 +129,7 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 	localAddr := &net.UDPAddr{IP: localIP}
 
 	var pkts []mockPacket
+
 	for i := 0; i < jitterPrebufferPackets+1; i++ {
 		raw := makeRTPBytes(t, uint16(i))
 		pkts = append(pkts, mockPacket{data: raw, src: localAddr})
@@ -144,6 +149,7 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 
 	go func() {
 		defer close(done)
+
 		cfg.receiveLoop(ctx, rt)
 	}()
 
@@ -191,6 +197,7 @@ func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 
 	go func() {
 		defer close(done)
+
 		cfg.receiveLoop(ctx, rt)
 	}()
 
@@ -234,8 +241,10 @@ func TestDecodeAndQueue_DecoderError(t *testing.T) {
 
 func TestDecodeAndQueue_BufferFull_DoesNotPanic(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
+
 	buf := make(chan []float32, 2)
 	buf <- []float32{0}
+
 	buf <- []float32{0}
 
 	rt := &CommsRuntime{

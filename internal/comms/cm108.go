@@ -124,7 +124,7 @@ func newCM108SourceWithOpener(opener HIDOpener, log zerolog.Logger) EventSource 
 // PTTDown when GPIO3 transitions LOW→HIGH and PTTUp when it transitions
 // HIGH→LOW. The channel is closed when ctx is canceled or the device becomes
 // unreadable.
-func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent {
+func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent { //nolint:gocognit
 	ch := make(chan PTTEvent, 4)
 
 	go func() {
@@ -154,6 +154,7 @@ func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent {
 		// When the context is canceled, close the device so that any
 		// in-flight dev.Read unblocks immediately and returns an error.
 		stop := context.AfterFunc(ctx, closeDevice)
+
 		defer func() {
 			stop()        // cancel AfterFunc if we exit before ctx is done
 			closeDevice() // ensure device is closed on all other exit paths
