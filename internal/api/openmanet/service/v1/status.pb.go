@@ -177,7 +177,7 @@ func (x *Position) GetSatellitesInView() int32 {
 	return 0
 }
 
-type ServiceStatusResponse struct {
+type GetServiceStatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The current status of the OpenMANET service.
 	Status        *ServiceStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
@@ -185,20 +185,20 @@ type ServiceStatusResponse struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ServiceStatusResponse) Reset() {
-	*x = ServiceStatusResponse{}
+func (x *GetServiceStatusResponse) Reset() {
+	*x = GetServiceStatusResponse{}
 	mi := &file_openmanet_service_v1_status_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ServiceStatusResponse) String() string {
+func (x *GetServiceStatusResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ServiceStatusResponse) ProtoMessage() {}
+func (*GetServiceStatusResponse) ProtoMessage() {}
 
-func (x *ServiceStatusResponse) ProtoReflect() protoreflect.Message {
+func (x *GetServiceStatusResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_openmanet_service_v1_status_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -210,12 +210,12 @@ func (x *ServiceStatusResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ServiceStatusResponse.ProtoReflect.Descriptor instead.
-func (*ServiceStatusResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetServiceStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetServiceStatusResponse) Descriptor() ([]byte, []int) {
 	return file_openmanet_service_v1_status_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *ServiceStatusResponse) GetStatus() *ServiceStatus {
+func (x *GetServiceStatusResponse) GetStatus() *ServiceStatus {
 	if x != nil {
 		return x.Status
 	}
@@ -237,11 +237,11 @@ const file_openmanet_service_v1_status_proto_rawDesc = "" +
 	"\blatitude\x18\x01 \x01(\x01R\blatitude\x12\x1c\n" +
 	"\tlongitude\x18\x02 \x01(\x01R\tlongitude\x12\x1a\n" +
 	"\baltitude\x18\x03 \x01(\x02R\baltitude\x12,\n" +
-	"\x12satellites_in_view\x18\x04 \x01(\x05R\x10satellitesInView\"T\n" +
-	"\x15ServiceStatusResponse\x12;\n" +
-	"\x06status\x18\x01 \x01(\v2#.openmanet.service.v1.ServiceStatusR\x06status2h\n" +
-	"\rStatusService\x12W\n" +
-	"\x10GetServiceStatus\x12\x16.google.protobuf.Empty\x1a+.openmanet.service.v1.ServiceStatusResponseB\xe6\x01\n" +
+	"\x12satellites_in_view\x18\x04 \x01(\x05R\x10satellitesInView\"W\n" +
+	"\x18GetServiceStatusResponse\x12;\n" +
+	"\x06status\x18\x01 \x01(\v2#.openmanet.service.v1.ServiceStatusR\x06status2k\n" +
+	"\rStatusService\x12Z\n" +
+	"\x10GetServiceStatus\x12\x16.google.protobuf.Empty\x1a..openmanet.service.v1.GetServiceStatusResponseB\xe6\x01\n" +
 	"\x18com.openmanet.service.v1B\vStatusProtoP\x01ZKgithub.com/openmanet/openmanetd/internal/api/openmanet/service/v1;servicev1\xa2\x02\x03OSX\xaa\x02\x14Openmanet.Service.V1\xca\x02\x14Openmanet\\Service\\V1\xe2\x02 Openmanet\\Service\\V1\\GPBMetadata\xea\x02\x16Openmanet::Service::V1b\x06proto3"
 
 var (
@@ -258,16 +258,16 @@ func file_openmanet_service_v1_status_proto_rawDescGZIP() []byte {
 
 var file_openmanet_service_v1_status_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_openmanet_service_v1_status_proto_goTypes = []any{
-	(*ServiceStatus)(nil),         // 0: openmanet.service.v1.ServiceStatus
-	(*Position)(nil),              // 1: openmanet.service.v1.Position
-	(*ServiceStatusResponse)(nil), // 2: openmanet.service.v1.ServiceStatusResponse
-	(*emptypb.Empty)(nil),         // 3: google.protobuf.Empty
+	(*ServiceStatus)(nil),            // 0: openmanet.service.v1.ServiceStatus
+	(*Position)(nil),                 // 1: openmanet.service.v1.Position
+	(*GetServiceStatusResponse)(nil), // 2: openmanet.service.v1.GetServiceStatusResponse
+	(*emptypb.Empty)(nil),            // 3: google.protobuf.Empty
 }
 var file_openmanet_service_v1_status_proto_depIdxs = []int32{
 	1, // 0: openmanet.service.v1.ServiceStatus.position:type_name -> openmanet.service.v1.Position
-	0, // 1: openmanet.service.v1.ServiceStatusResponse.status:type_name -> openmanet.service.v1.ServiceStatus
+	0, // 1: openmanet.service.v1.GetServiceStatusResponse.status:type_name -> openmanet.service.v1.ServiceStatus
 	3, // 2: openmanet.service.v1.StatusService.GetServiceStatus:input_type -> google.protobuf.Empty
-	2, // 3: openmanet.service.v1.StatusService.GetServiceStatus:output_type -> openmanet.service.v1.ServiceStatusResponse
+	2, // 3: openmanet.service.v1.StatusService.GetServiceStatus:output_type -> openmanet.service.v1.GetServiceStatusResponse
 	3, // [3:4] is the sub-list for method output_type
 	2, // [2:3] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name

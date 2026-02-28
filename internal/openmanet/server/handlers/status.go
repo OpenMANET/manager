@@ -21,7 +21,7 @@ type StatusService struct {
 	GPS  *gpsd.GPSService
 }
 
-func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*serviceproto.ServiceStatusResponse, error) {
+func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*serviceproto.GetServiceStatusResponse, error) {
 	var (
 		meshConnected      bool
 		isMeshGateway      bool
@@ -72,7 +72,7 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 	position := s.GPS.GetPosition()
 
 	// For now, just return a static status
-	return &serviceproto.ServiceStatusResponse{
+	return &serviceproto.GetServiceStatusResponse{
 		Status: &serviceproto.ServiceStatus{
 			IsConnected:          meshConnected,
 			ConnectedNeighbors:   connectedNeighbors,
