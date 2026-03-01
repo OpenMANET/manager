@@ -59,6 +59,7 @@ type CommsRuntime struct {
 	beepBufferStop  []float32
 	recordMutex     sync.Mutex
 	broadcasting    bool
+	lastRemoteRx    atomic.Int64 // UnixNano of last received remote RTP packet
 }
 
 // ─── CommsConfig ──────────────────────────────────────────────────────────────

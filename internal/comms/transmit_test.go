@@ -242,6 +242,57 @@ func TestBeginTransmission_StartFailureReopenAlsoFails(t *testing.T) {
 	}
 }
 
+// ─── Half-duplex tests ────────────────────────────────────────────────────────
+
+func TestBeginTransmission_BlockedWhenReceivingRemote(t *testing.T) {
+	stream := &mockStream{}
+	rt := newTestRuntime(stream)
+	// Simulate a packet that arrived just now from a remote peer.
+	rt.lastRemoteRx.Store(time.Now().UnixNano())
+
+	cfg := newSilentComms()
+	cfg.beginTransmission(rt)
+
+	if stream.startCalls != 0 {
+		t.Errorf("Start called %d times, want 0 (channel busy)", stream.startCalls)
+	}
+
+	if cfg.isBroadcasting(rt) {
+		t.Error("should not be broadcasting while actively receiving remote audio")
+	}
+}
+
+func TestBeginTransmission_AllowedWhenRxStale(t *testing.T) {
+	stream := &mockStream{}
+	rt := newTestRuntime(stream)
+	// Store a timestamp well beyond rxActiveThreshold.
+	rt.lastRemoteRx.Store(time.Now().Add(-(rxActiveThreshold + time.Second)).UnixNano())
+
+	cfg := newSilentComms()
+	cfg.beginTransmission(rt)
+
+	if stream.startCalls != 1 {
+		t.Errorf("Start called %d times, want 1 (rx is stale)", stream.startCalls)
+	}
+
+	if !cfg.isBroadcasting(rt) {
+		t.Error("should be broadcasting when last rx is older than rxActiveThreshold")
+	}
+}
+
+func TestBeginTransmission_AllowedWhenNeverReceived(t *testing.T) {
+	stream := &mockStream{}
+	rt := newTestRuntime(stream)
+	// lastRemoteRx is zero — never received a packet.
+
+	cfg := newSilentComms()
+	cfg.beginTransmission(rt)
+
+	if stream.startCalls != 1 {
+		t.Errorf("Start called %d times, want 1 (never received)", stream.startCalls)
+	}
+}
+
 // ─── Run event-loop tests ─────────────────────────────────────────────────────
 
 func TestRun_ExitsOnContextCancel(t *testing.T) {

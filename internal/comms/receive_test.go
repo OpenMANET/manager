@@ -274,3 +274,74 @@ func TestDecodeAndQueuePLC_ZeroReturnDropsFrame(t *testing.T) {
 		t.Errorf("expected empty buffer when decoder returns 0; got %d frames", len(buf))
 	}
 }
+
+// ─── isReceivingRemote tests ──────────────────────────────────────────────────
+
+func TestIsReceivingRemote_FalseWhenNeverReceived(t *testing.T) {
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+	rt := &CommsRuntime{}
+
+	if cfg.isReceivingRemote(rt) {
+		t.Error("expected false when no packet has ever been received")
+	}
+}
+
+func TestIsReceivingRemote_TrueWhenRecent(t *testing.T) {
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+	rt := &CommsRuntime{}
+	rt.lastRemoteRx.Store(time.Now().UnixNano())
+
+	if !cfg.isReceivingRemote(rt) {
+		t.Error("expected true when a packet was just received")
+	}
+}
+
+func TestIsReceivingRemote_FalseWhenStale(t *testing.T) {
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+	rt := &CommsRuntime{}
+	// Store a timestamp older than rxActiveThreshold.
+	rt.lastRemoteRx.Store(time.Now().Add(-(rxActiveThreshold + time.Second)).UnixNano())
+
+	if cfg.isReceivingRemote(rt) {
+		t.Error("expected false when last received packet is older than rxActiveThreshold")
+	}
+}
+
+func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
+	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
+
+	raw := makeRTPBytes(t, 0)
+	reader := newMockReader(mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
+	rt := &CommsRuntime{
+		playbackBuffer: make(chan []float32, 32),
+		decoder:        &mockDecoder{returnN: int(rtpFrameSamples)},
+		receiver:       newSwappableReceiver(reader),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		cfg.receiveLoop(ctx, rt)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if reader.remaining() == 0 {
+			break
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	cancel()
+	rt.receiver.Close()
+
+	<-done
+
+	if rt.lastRemoteRx.Load() == 0 {
+		t.Error("expected lastRemoteRx to be set after receiving a remote packet")
+	}
+}

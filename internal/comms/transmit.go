@@ -37,7 +37,17 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 
 		return
 	}
+	rt.recordMutex.Unlock()
 
+	// Half-duplex: refuse to transmit while the channel is actively receiving
+	// audio from a remote peer.
+	if cfg.isReceivingRemote(rt) {
+		cfg.Log.Debug().Msg("PTTDown ignored; channel busy (receiving remote audio)")
+
+		return
+	}
+
+	rt.recordMutex.Lock()
 	rt.broadcasting = true
 	rt.recordMutex.Unlock()
 
