@@ -2,6 +2,7 @@ package comms
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync/atomic"
 	"time"
@@ -52,7 +53,16 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, rt *CommsRuntime) {
 			case <-ctx.Done():
 				return
 			default:
-				cfg.Log.Error().Err(err).Msg("comms: recv error")
+				// When UpdateMulticastEndpoint swaps the receiver, the old
+				// socket is closed which unblocks this ReadFromUDP with a
+				// "use of closed network connection" error. This is expected
+				// and the next iteration will read from the new socket, so
+				// log at Debug rather than Error.
+				if errors.Is(err, net.ErrClosed) {
+					cfg.Log.Debug().Err(err).Msg("comms: recv socket swapped")
+				} else {
+					cfg.Log.Error().Err(err).Msg("comms: recv error")
+				}
 
 				continue
 			}
