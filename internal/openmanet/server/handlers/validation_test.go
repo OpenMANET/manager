@@ -78,26 +78,3 @@ func TestValidation_JoinTalkGroupRequest_ValidTalkgroups(t *testing.T) {
 		})
 	}
 }
-
-// ── TalkGroup ─────────────────────────────────────────────────────────────────
-
-func TestValidation_TalkGroup_TalkgroupTooLarge(t *testing.T) {
-	v := newValidator(t)
-
-	err := v.Validate(&serviceproto.TalkGroup{Talkgroup: 11})
-	assert.Error(t, err, "talkgroup > 10 must fail validation")
-}
-
-func TestValidation_TalkGroup_TalkgroupNegative(t *testing.T) {
-	v := newValidator(t)
-
-	err := v.Validate(&serviceproto.TalkGroup{Talkgroup: -1})
-	assert.Error(t, err, "negative talkgroup must fail validation")
-}
-
-func TestValidation_TalkGroup_ValidTalkgroup(t *testing.T) {
-	v := newValidator(t)
-
-	err := v.Validate(&serviceproto.TalkGroup{Talkgroup: 5})
-	assert.NoError(t, err)
-}
