@@ -6,6 +6,24 @@ import (
 	"time"
 )
 
+// rxActiveThreshold is the window after the last received remote RTP packet
+// during which the channel is considered "actively receiving". Transmission
+// is blocked while receiving is active (half-duplex enforcement).
+const rxActiveThreshold time.Duration = 400 * time.Millisecond
+
+// isReceivingRemote returns true when a valid RTP packet was received from a
+// remote peer within the last rxActiveThreshold. This is the receive-side
+// component of half-duplex: transmission must not begin while the channel is
+// actively carrying incoming audio.
+func (cfg *CommsConfig) isReceivingRemote(rt *CommsRuntime) bool {
+	last := rt.lastRemoteRx.Load()
+	if last == 0 {
+		return false
+	}
+
+	return time.Since(time.Unix(0, last)) < rxActiveThreshold
+}
+
 // ─── Receive path ─────────────────────────────────────────────────────────────
 
 // receiveLoop reads datagrams from rt.receiver, parses them as RTP packets
@@ -77,6 +95,9 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, rt *CommsRuntime) {
 		// Copy payload before releasing buf to the next read.
 		payload := make([]byte, len(pkt.Payload))
 		copy(payload, pkt.Payload)
+
+		// Record the arrival time for half-duplex enforcement.
+		rt.lastRemoteRx.Store(time.Now().UnixNano())
 
 		jitter.push(pkt.SequenceNumber, payload)
 	}
