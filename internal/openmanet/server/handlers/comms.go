@@ -38,17 +38,13 @@ func (c *CommsService) GetCommsStatus(_ context.Context, _ *emptypb.Empty) (*ser
 
 	availableTalkGroups := config.GetMulticastTalkGroups()
 
-	talkGroupProtos := make([]*serviceproto.TalkGroup, len(availableTalkGroups))
+	talkGroupProtos := make([]int32, len(availableTalkGroups))
 	for i, tg := range availableTalkGroups {
-		talkGroupProtos[i] = &serviceproto.TalkGroup{
-			Talkgroup: int32(tg.Port),
-		}
+		talkGroupProtos[i] = int32(tg.Port)
 	}
 
 	return &serviceproto.GetCommsStatusResponse{
-		ActiveTalkgroup: &serviceproto.TalkGroup{
-			Talkgroup: int32(comms.GetActiveMulticastPort()),
-		},
+		ActiveTalkgroup:     int32(comms.GetActiveMulticastPort()),
 		AvailableTalkgroups: talkGroupProtos,
 	}, nil
 }
