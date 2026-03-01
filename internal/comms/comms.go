@@ -36,10 +36,10 @@ const (
 
 	DefaultCommsPort int = 5007
 
-	// encBufSize is the maximum Opus encode output buffer. 1500 bytes matches
+	// encBufSize is the maximum Opus encode output buffer. 1450 bytes matches
 	// the UDP MTU and is far larger than typical Opus output (~80–160 B at
-	// 32 kbps). Previously 4000.
-	encBufSize = 1500
+	// 32 kbps).
+	encBufSize = 1450
 )
 
 // ─── Buffer pools ─────────────────────────────────────────────────────────────
