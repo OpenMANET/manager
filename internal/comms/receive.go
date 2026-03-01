@@ -92,14 +92,14 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, rt *CommsRuntime) {
 				Msg("comms: RTP packet received")
 		}
 
-		// Copy payload before releasing buf to the next read.
-		payload := make([]byte, len(pkt.Payload))
-		copy(payload, pkt.Payload)
-
 		// Record the arrival time for half-duplex enforcement.
 		rt.lastRemoteRx.Store(time.Now().UnixNano())
 
-		jitter.push(pkt.SequenceNumber, payload)
+		// Pass the pion payload directly to the jitter buffer; push()
+		// performs its own defensive copy so a separate copy here is
+		// unnecessary — the receive buffer (buf) is reused on the next
+		// iteration anyway.
+		jitter.push(pkt.SequenceNumber, pkt.Payload)
 	}
 }
 
@@ -121,27 +121,18 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 			continue
 		}
 
-		payload, ready, skipped := jitter.popReady()
-		if skipped {
-			if cfg.Trace {
-				cfg.Log.Trace().Msg("comms: jitter buffer skipped missing packet → PLC")
-			}
-
-			cfg.decodeAndQueuePLC(rt)
-
-			continue
-		}
-
-		if ready {
+		payload, conceal := jitter.popOrConceal(100 * time.Millisecond)
+		if payload != nil {
 			cfg.decodeAndQueue(rt, payload)
 
 			continue
 		}
 
-		if jitter.shouldConceal(100 * time.Millisecond) {
-			// Advance the playout cursor before generating PLC so the late
-			// original (if it arrives) is treated as stale.
-			jitter.advancePast()
+		if conceal {
+			if cfg.Trace {
+				cfg.Log.Trace().Msg("comms: jitter buffer gap → PLC")
+			}
+
 			cfg.decodeAndQueuePLC(rt)
 		}
 	}
@@ -150,19 +141,25 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 // decodeAndQueue decodes an Opus payload into float32 PCM and queues it to
 // rt.playbackBuffer. Frames are silently dropped when the buffer is full.
 func (cfg *CommsConfig) decodeAndQueue(rt *CommsRuntime, payload []byte) {
-	pcm := make([]int16, frameSize)
+	pcmPtr := int16Pool.Get().(*[]int16) //nolint:forcetypeassert
+	pcm := *pcmPtr
 
 	n, err := rt.decoder.Decode(payload, pcm)
 	if err != nil {
+		int16Pool.Put(pcmPtr)
 		cfg.Log.Debug().Err(err).Msg("comms: opus decode error")
 
 		return
 	}
 
-	out := make([]float32, n)
+	outPtr := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
+	out := (*outPtr)[:n]
+
 	for i := 0; i < n; i++ {
 		out[i] = float32(pcm[i]) / 32768
 	}
+
+	int16Pool.Put(pcmPtr)
 
 	select {
 	case rt.playbackBuffer <- out:
@@ -170,6 +167,7 @@ func (cfg *CommsConfig) decodeAndQueue(rt *CommsRuntime, payload []byte) {
 			cfg.Log.Trace().Msgf("comms: queued %d samples (depth=%d)", n, len(rt.playbackBuffer))
 		}
 	default:
+		returnFloat32(out)
 		cfg.Log.Warn().Msg("comms: playback buffer full; dropping packet")
 	}
 }
@@ -177,17 +175,24 @@ func (cfg *CommsConfig) decodeAndQueue(rt *CommsRuntime, payload []byte) {
 // decodeAndQueuePLC generates a Packet Loss Concealment frame via the Opus
 // decoder (nil data) and queues it to rt.playbackBuffer.
 func (cfg *CommsConfig) decodeAndQueuePLC(rt *CommsRuntime) {
-	pcm := make([]int16, frameSize)
+	pcmPtr := int16Pool.Get().(*[]int16) //nolint:forcetypeassert
+	pcm := *pcmPtr                       //nolint:forcetypeassert
 
 	n, err := rt.decoder.Decode(nil, pcm)
 	if err != nil || n <= 0 {
+		int16Pool.Put(pcmPtr)
+
 		return
 	}
 
-	out := make([]float32, n)
+	outPtr := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
+	out := (*outPtr)[:n]
+
 	for i := 0; i < n; i++ {
 		out[i] = float32(pcm[i]) / 32768
 	}
+
+	int16Pool.Put(pcmPtr)
 
 	select {
 	case rt.playbackBuffer <- out:
@@ -195,6 +200,7 @@ func (cfg *CommsConfig) decodeAndQueuePLC(rt *CommsRuntime) {
 			cfg.Log.Trace().Msgf("comms: queued PLC %d samples (depth=%d)", n, len(rt.playbackBuffer))
 		}
 	default:
+		returnFloat32(out)
 		cfg.Log.Warn().Msg("comms: playback buffer full; dropping PLC frame")
 	}
 }

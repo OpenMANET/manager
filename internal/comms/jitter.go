@@ -10,12 +10,22 @@ const (
 	jitterMaxDepth         = 24
 )
 
+// jitterSlot is one entry in the fixed-size ring buffer.
+type jitterSlot struct {
+	payload []byte
+	seq     uint16
+	valid   bool
+}
+
 // rtpJitterBuffer is a sequence-number-ordered buffer for RTP audio payloads.
 // It provides prebuffering, late-packet dropping, and gap detection for PLC.
-// Keys are RTP uint16 sequence numbers using wrap-around safe comparison.
+//
+// Internally, frames are stored in a fixed-size circular array indexed by
+// (seq % maxDepth), eliminating all map allocations on the hot path.
 type rtpJitterBuffer struct {
 	lastPush  time.Time
-	frames    map[uint16][]byte
+	slots     [jitterMaxDepth]jitterSlot
+	count     int // number of valid slots
 	prebuffer int
 	maxDepth  int
 	mu        sync.Mutex
@@ -26,7 +36,6 @@ type rtpJitterBuffer struct {
 
 func newRTPJitterBuffer(prebuffer, maxDepth int) *rtpJitterBuffer {
 	return &rtpJitterBuffer{
-		frames:    make(map[uint16][]byte),
 		prebuffer: prebuffer,
 		maxDepth:  maxDepth,
 	}
@@ -43,6 +52,11 @@ func (jb *rtpJitterBuffer) push(seq uint16, payload []byte) bool {
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
 
+	return jb.pushLocked(seq, payload)
+}
+
+// pushLocked is the internal push implementation; caller must hold jb.mu.
+func (jb *rtpJitterBuffer) pushLocked(seq uint16, payload []byte) bool {
 	if !jb.init {
 		jb.expected = seq
 		jb.init = true
@@ -53,17 +67,30 @@ func (jb *rtpJitterBuffer) push(seq uint16, payload []byte) bool {
 		return false
 	}
 
-	if _, exists := jb.frames[seq]; exists {
+	idx := int(seq) % jb.maxDepth
+	slot := &jb.slots[idx]
+
+	// Duplicate: same seq already stored in this slot.
+	if slot.valid && slot.seq == seq {
 		return false
 	}
 
-	if len(jb.frames) >= jb.maxDepth {
+	if jb.count >= jb.maxDepth && !slot.valid {
 		return false
+	}
+
+	// Overwrite a stale slot.
+	if slot.valid && slot.seq != seq {
+		jb.count--
 	}
 
 	copied := make([]byte, len(payload))
 	copy(copied, payload)
-	jb.frames[seq] = copied
+
+	slot.seq = seq
+	slot.payload = copied
+	slot.valid = true
+	jb.count++
 	jb.lastPush = time.Now()
 
 	return true
@@ -77,28 +104,39 @@ func (jb *rtpJitterBuffer) popReady() (payload []byte, ready bool, skippedMissin
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
 
+	return jb.popReadyLocked()
+}
+
+// popReadyLocked is the internal pop implementation; caller must hold jb.mu.
+func (jb *rtpJitterBuffer) popReadyLocked() (payload []byte, ready bool, skippedMissing bool) {
 	if !jb.init {
 		return nil, false, false
 	}
 
 	if !jb.started {
-		if len(jb.frames) < jb.prebuffer {
+		if jb.count < jb.prebuffer {
 			return nil, false, false
 		}
 
 		jb.started = true
 	}
 
-	if payload, ok := jb.frames[jb.expected]; ok {
-		delete(jb.frames, jb.expected)
+	idx := int(jb.expected) % jb.maxDepth
+	slot := &jb.slots[idx]
+
+	if slot.valid && slot.seq == jb.expected {
+		p := slot.payload
+		slot.payload = nil
+		slot.valid = false
+		jb.count--
 
 		jb.expected++
 
-		return payload, true, false
+		return p, true, false
 	}
 
 	// If we've buffered a lot and still don't have the expected packet, skip it.
-	if len(jb.frames) >= jb.maxDepth/2 {
+	if jb.count >= jb.maxDepth/2 {
 		jb.expected++
 
 		return nil, false, true
@@ -113,6 +151,11 @@ func (jb *rtpJitterBuffer) shouldConceal(recentWindow time.Duration) bool {
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
 
+	return jb.shouldConcealLocked(recentWindow)
+}
+
+// shouldConcealLocked is the lock-free internal implementation.
+func (jb *rtpJitterBuffer) shouldConcealLocked(recentWindow time.Duration) bool {
 	if !jb.started || jb.lastPush.IsZero() {
 		return false
 	}
@@ -121,13 +164,56 @@ func (jb *rtpJitterBuffer) shouldConceal(recentWindow time.Duration) bool {
 }
 
 // advancePast discards the current expected sequence number and advances the
-// playout cursor by one. Call this after emitting a PLC frame so that the
-// late original packet (if it arrives later) is treated as stale and dropped,
-// maintaining the invariant of exactly one frame produced per playout tick.
+// playout cursor by one.
 func (jb *rtpJitterBuffer) advancePast() {
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
 
-	delete(jb.frames, jb.expected)
+	jb.advancePastLocked()
+}
+
+// advancePastLocked is the lock-free internal implementation.
+func (jb *rtpJitterBuffer) advancePastLocked() {
+	idx := int(jb.expected) % jb.maxDepth
+	slot := &jb.slots[idx]
+
+	if slot.valid && slot.seq == jb.expected {
+		slot.payload = nil
+		slot.valid = false
+		jb.count--
+	}
+
 	jb.expected++
+}
+
+// popOrConceal performs the full playout-tick logic under a single lock
+// acquisition, eliminating the 3-lock-per-tick pattern previously used by
+// playoutLoop (popReady + shouldConceal + advancePast).
+//
+// Returns:
+//   - payload != nil: an in-order frame was available.
+//   - conceal == true: no frame was available but the stream is active and PLC
+//     should be applied. The playout cursor has already been advanced.
+//   - both nil/false: no frame available and no concealment needed.
+func (jb *rtpJitterBuffer) popOrConceal(recentWindow time.Duration) (payload []byte, conceal bool) { //nolint:unparam
+	jb.mu.Lock()
+	defer jb.mu.Unlock()
+
+	p, ready, skipped := jb.popReadyLocked()
+	if ready {
+		return p, false
+	}
+
+	if skipped {
+		return nil, true // caller should emit PLC
+	}
+
+	// Buffer empty — check if concealment is warranted.
+	if jb.shouldConcealLocked(recentWindow) {
+		jb.advancePastLocked()
+
+		return nil, true
+	}
+
+	return nil, false
 }

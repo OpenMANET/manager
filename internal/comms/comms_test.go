@@ -109,9 +109,10 @@ func TestReceiveLoop_DiscardsDuringBroadcast(t *testing.T) {
 	rt := &CommsRuntime{
 		playbackBuffer: make(chan []float32, 8),
 		decoder:        &mockDecoder{},
-		broadcasting:   true,
 		receiver:       newSwappableReceiver(reader),
 	}
+	rt.broadcasting.Store(true)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 

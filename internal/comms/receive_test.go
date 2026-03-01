@@ -99,7 +99,7 @@ func TestPlayoutLoop_EmitsPLCOnConceal(t *testing.T) {
 
 func TestPlayoutLoop_EmitsNothingWhenBroadcasting(t *testing.T) {
 	rt := newReceiveRuntime()
-	rt.broadcasting = true // isBroadcasting will return true
+	rt.broadcasting.Store(true) // isBroadcasting will return true
 
 	jb := newRTPJitterBuffer(1, 10)
 	jb.push(0, []byte{0}) // satisfies prebuffer
