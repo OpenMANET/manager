@@ -78,16 +78,16 @@ func (x *GetCommsStatusResponse) GetAvailableTalkgroups() []*TalkGroup {
 	return nil
 }
 
-// TalkGroup represents a communication group that uses multicast networking
-// to facilitate group communications between multiple participants.
-// It encapsulates the necessary network addressing information required
-// to join and communicate within a specific talk group.
+// TalkGroup represents a logical grouping for multicast communication.
+// It maps a talk group number to a specific multicast address and port,
+// enabling group-based messaging within the OpenMANET network.
+//
+// Talk group numbers are constrained to the range [0, 10], where each
+// value corresponds to a unique multicast address and port combination.
 type TalkGroup struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The multicast address of the talkgroup.
-	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	// The port number used for the talkgroup communication.
-	Port          int32 `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	// The talk group number, which corresponds to a specific multicast address and port.
+	Talkgroup     int32 `protobuf:"varint,1,opt,name=talkgroup,proto3" json:"talkgroup,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -122,16 +122,9 @@ func (*TalkGroup) Descriptor() ([]byte, []int) {
 	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *TalkGroup) GetAddress() string {
+func (x *TalkGroup) GetTalkgroup() int32 {
 	if x != nil {
-		return x.Address
-	}
-	return ""
-}
-
-func (x *TalkGroup) GetPort() int32 {
-	if x != nil {
-		return x.Port
+		return x.Talkgroup
 	}
 	return 0
 }
@@ -139,22 +132,20 @@ func (x *TalkGroup) GetPort() int32 {
 // JoinTalkGroupRequest is the request message for joining a multicast talk group.
 //
 // A talk group represents a multicast communication channel identified by an
-// IPv4 multicast address. Clients send this request to subscribe to and
-// participate in a specific talk group's communications.
-//
-// The address field must be a valid IPv4 multicast address within the range
-// 224.0.0.0 to 239.255.255.255, as defined by RFC 5771. Addresses outside
-// this range will be rejected with a validation error.
+// IPv4 multicast address and a UDP port number. All talk groups share the same
+// multicast address and are distinguished by port, so switching groups only
+// requires rebinding sockets (no IGMP leave/join overhead).
 //
 // Example:
 //
 //	JoinTalkGroupRequest{
-//	  address: "239.255.0.1"
+//	  talkgroup: 1
 //	}
 type JoinTalkGroupRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The multicast address of the talkgroup to join.
-	Address       string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	// The talk group number to join. This corresponds to a specific multicast
+	// address and port.
+	Talkgroup     int32 `protobuf:"varint,1,opt,name=talkgroup,proto3" json:"talkgroup,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -189,11 +180,11 @@ func (*JoinTalkGroupRequest) Descriptor() ([]byte, []int) {
 	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *JoinTalkGroupRequest) GetAddress() string {
+func (x *JoinTalkGroupRequest) GetTalkgroup() int32 {
 	if x != nil {
-		return x.Address
+		return x.Talkgroup
 	}
-	return ""
+	return 0
 }
 
 // *
@@ -271,14 +262,13 @@ const file_openmanet_service_v1_comms_proto_rawDesc = "" +
 	" openmanet/service/v1/comms.proto\x12\x14openmanet.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xb8\x01\n" +
 	"\x16GetCommsStatusResponse\x12J\n" +
 	"\x10active_talkgroup\x18\x01 \x01(\v2\x1f.openmanet.service.v1.TalkGroupR\x0factiveTalkgroup\x12R\n" +
-	"\x14available_talkgroups\x18\x02 \x03(\v2\x1f.openmanet.service.v1.TalkGroupR\x13availableTalkgroups\"\xba\x02\n" +
-	"\tTalkGroup\x12\x98\x02\n" +
-	"\aaddress\x18\x01 \x01(\tB\xfd\x01\xbaH\xf9\x01\xba\x01\xf5\x01\n" +
-	"\x0eipv4.multicast\x12Bmust be a valid IPv4 multicast address (224.0.0.0-239.255.255.255)\x1a\x9e\x01this.matches('^(22[4-9]|23[0-9])\\\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')R\aaddress\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\"\xb1\x02\n" +
-	"\x14JoinTalkGroupRequest\x12\x98\x02\n" +
-	"\aaddress\x18\x01 \x01(\tB\xfd\x01\xbaH\xf9\x01\xba\x01\xf5\x01\n" +
-	"\x0eipv4.multicast\x12Bmust be a valid IPv4 multicast address (224.0.0.0-239.255.255.255)\x1a\x9e\x01this.matches('^(22[4-9]|23[0-9])\\\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$')R\aaddress\"K\n" +
+	"\x14available_talkgroups\x18\x02 \x03(\v2\x1f.openmanet.service.v1.TalkGroupR\x13availableTalkgroups\">\n" +
+	"\tTalkGroup\x121\n" +
+	"\ttalkgroup\x18\x01 \x01(\x05B\x13\xbaH\x10\x1a\x0e@\x01@\x03@\x05@\a@\t\x18\n" +
+	"(\x00R\ttalkgroup\"I\n" +
+	"\x14JoinTalkGroupRequest\x121\n" +
+	"\ttalkgroup\x18\x01 \x01(\x05B\x13\xbaH\x10\x1a\x0e@\x01@\x03@\x05@\a@\t\x18\n" +
+	"(\x00R\ttalkgroup\"K\n" +
 	"\x15JoinTalkGroupResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage2\xd0\x01\n" +

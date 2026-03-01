@@ -37,7 +37,7 @@ func TestGetCommsStatus_Enabled(t *testing.T) {
 
 	// All available talk groups must use the default port.
 	for _, tg := range resp.GetAvailableTalkgroups() {
-		assert.Greater(t, tg.GetPort(), int32(0), "talk group port must be positive")
+		assert.Greater(t, tg.GetTalkgroup(), int32(0), "talk group port must be positive")
 	}
 }
 

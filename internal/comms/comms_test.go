@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
 )
 
@@ -220,8 +221,8 @@ func TestApplyDefaults_AllEmptyGetsDefaults(t *testing.T) {
 		t.Error("McastAddr should be non-empty after applyDefaults")
 	}
 
-	if cfg.McastPort != DefaultCommsPort {
-		t.Errorf("McastPort: got %d, want %d", cfg.McastPort, DefaultCommsPort)
+	if cfg.McastPort != config.DefaultTalkGroupPort {
+		t.Errorf("McastPort: got %d, want %d", cfg.McastPort, config.DefaultTalkGroupPort)
 	}
 
 	if cfg.CommKey != defaultKey {

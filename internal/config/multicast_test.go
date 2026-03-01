@@ -13,11 +13,7 @@ func TestGetMulticastGroupAddresses(t *testing.T) {
 		ATAKSAAddress,
 		ATAKChatAddress,
 		MDNSAddress,
-		"225.41.1.1",
-		"225.41.1.2",
-		"225.41.1.3",
-		"225.41.1.4",
-		"225.41.1.5",
+		TalkGroupMcastAddr,
 	}
 
 	if len(result) != len(expectedAddresses) {
@@ -33,7 +29,7 @@ func TestGetMulticastGroupAddresses(t *testing.T) {
 
 func TestGetMulticastGroupAddressesLength(t *testing.T) {
 	result := GetMulticastGroupAddresses()
-	expected := len(multicastGroupAddresses) + len(multicastTalkGroupAddresses)
+	expected := len(multicastGroupAddresses)
 
 	if len(result) != expected {
 		t.Errorf("expected length %d, got %d", expected, len(result))
@@ -54,11 +50,7 @@ func TestGetMulticastGroupSet(t *testing.T) {
 		ATAKSAAddress,
 		ATAKChatAddress,
 		MDNSAddress,
-		"225.41.1.1",
-		"225.41.1.2",
-		"225.41.1.3",
-		"225.41.1.4",
-		"225.41.1.5",
+		TalkGroupMcastAddr,
 	}
 
 	if len(result) != len(expectedAddresses) {
@@ -112,7 +104,7 @@ func TestGetMulticastGroupSetImmutability(t *testing.T) {
 
 func TestGetMulticastGroupSetSize(t *testing.T) {
 	result := GetMulticastGroupSet()
-	expected := len(multicastGroupSet) + len(multicastTalkGroupAddresses)
+	expected := len(multicastGroupSet)
 
 	if len(result) != expected {
 		t.Errorf("expected set size %d, got %d", expected, len(result))
@@ -170,10 +162,8 @@ func TestGetMulticastGroupSetContainsMDNS(t *testing.T) {
 func TestGetMulticastGroupSetContainsTalkGroups(t *testing.T) {
 	result := GetMulticastGroupSet()
 
-	for _, addr := range multicastTalkGroupAddresses {
-		if !result[addr] {
-			t.Errorf("expected talk group address %s in result set", addr)
-		}
+	if !result[TalkGroupMcastAddr] {
+		t.Errorf("expected talk group address %s in result set", TalkGroupMcastAddr)
 	}
 }
 
@@ -213,21 +203,34 @@ func TestGetMulticastGroupSetConsistencyWithAddresses(t *testing.T) {
 func TestGetMulticastTalkGroupAddresses(t *testing.T) {
 	result := GetMulticastTalkGroupAddresses()
 
-	expectedAddresses := []string{
-		"225.41.1.1",
-		"225.41.1.2",
-		"225.41.1.3",
-		"225.41.1.4",
-		"225.41.1.5",
+	// All entries should be the shared talk group address.
+	for _, addr := range result {
+		if addr != TalkGroupMcastAddr {
+			t.Errorf("expected %s, got %s", TalkGroupMcastAddr, addr)
+		}
 	}
 
-	if len(result) != len(expectedAddresses) {
-		t.Errorf("expected %d addresses, got %d", len(expectedAddresses), len(result))
+	if len(result) != len(multicastTalkGroupPorts) {
+		t.Errorf("expected %d addresses, got %d", len(multicastTalkGroupPorts), len(result))
+	}
+}
+
+func TestGetMulticastTalkGroups(t *testing.T) {
+	groups := GetMulticastTalkGroups()
+
+	expectedPorts := multicastTalkGroupPorts
+
+	if len(groups) != len(expectedPorts) {
+		t.Errorf("expected %d talk groups, got %d", len(expectedPorts), len(groups))
 	}
 
-	for _, addr := range expectedAddresses {
-		if !slices.Contains(result, addr) {
-			t.Errorf("expected address %s not found in result", addr)
+	for i, tg := range groups {
+		if tg.Address != TalkGroupMcastAddr {
+			t.Errorf("talk group %d: address = %s, want %s", i, tg.Address, TalkGroupMcastAddr)
+		}
+
+		if tg.Port != expectedPorts[i] {
+			t.Errorf("talk group %d: port = %d, want %d", i, tg.Port, expectedPorts[i])
 		}
 	}
 }
@@ -242,7 +245,7 @@ func TestGetMulticastTalkGroupAddressesNotNil(t *testing.T) {
 
 func TestGetMulticastTalkGroupAddressesLength(t *testing.T) {
 	result := GetMulticastTalkGroupAddresses()
-	expected := len(multicastTalkGroupAddresses)
+	expected := len(multicastTalkGroupPorts)
 
 	if len(result) != expected {
 		t.Errorf("expected length %d, got %d", expected, len(result))
@@ -259,25 +262,24 @@ func TestGetMulticastTalkGroupAddressesImmutability(t *testing.T) {
 	}
 }
 
-func TestGetMulticastTalkGroupAddressesNoDuplicates(t *testing.T) {
+func TestGetMulticastTalkGroupAddressesNoDuplicateValues(t *testing.T) {
+	// All entries share the same address (TalkGroupMcastAddr); verify they
+	// are indeed uniform.
 	result := GetMulticastTalkGroupAddresses()
-	seen := make(map[string]bool)
 
 	for _, addr := range result {
-		if seen[addr] {
-			t.Errorf("duplicate address found: %s", addr)
+		if addr != TalkGroupMcastAddr {
+			t.Errorf("unexpected address %s; all should be %s", addr, TalkGroupMcastAddr)
 		}
-
-		seen[addr] = true
 	}
 }
 
-func TestGetMulticastTalkGroupAddressesDoesNotContainGroupAddresses(t *testing.T) {
+func TestGetMulticastTalkGroupAddressesDoesNotContainNonTGAddresses(t *testing.T) {
 	result := GetMulticastTalkGroupAddresses()
 
-	for _, addr := range []string{ATAKSAAddress, ATAKChatAddress, MDNSAddress} {
-		if slices.Contains(result, addr) {
-			t.Errorf("talk group addresses should not contain group address %s", addr)
+	for _, addr := range result {
+		if addr == ATAKSAAddress || addr == ATAKChatAddress || addr == MDNSAddress {
+			t.Errorf("talk group addresses should not contain non-TG address %s", addr)
 		}
 	}
 }
@@ -285,9 +287,88 @@ func TestGetMulticastTalkGroupAddressesDoesNotContainGroupAddresses(t *testing.T
 func TestGetMulticastTalkGroupAddressesMatchesSource(t *testing.T) {
 	result := GetMulticastTalkGroupAddresses()
 
-	for _, addr := range multicastTalkGroupAddresses {
-		if !slices.Contains(result, addr) {
-			t.Errorf("expected talk group address %s not found in result", addr)
+	if len(result) != len(multicastTalkGroupPorts) {
+		t.Errorf("expected %d entries, got %d", len(multicastTalkGroupPorts), len(result))
+	}
+}
+
+// ─── TalkGroupPort tests ──────────────────────────────────────────────────────
+
+func TestTalkGroupPort_Channel1(t *testing.T) {
+	port, err := TalkGroupPort(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if port != 38801 {
+		t.Errorf("TalkGroupPort(1) = %d, want 38801", port)
+	}
+}
+
+func TestTalkGroupPort_Channel2(t *testing.T) {
+	port, err := TalkGroupPort(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if port != 38803 {
+		t.Errorf("TalkGroupPort(2) = %d, want 38803", port)
+	}
+}
+
+func TestTalkGroupPort_Channel5(t *testing.T) {
+	port, err := TalkGroupPort(5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if port != 38809 {
+		t.Errorf("TalkGroupPort(5) = %d, want 38809", port)
+	}
+}
+
+func TestTalkGroupPort_MaxChannel(t *testing.T) {
+	port, err := TalkGroupPort(32)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if port != 38863 {
+		t.Errorf("TalkGroupPort(32) = %d, want 38863", port)
+	}
+}
+
+func TestTalkGroupPort_Zero(t *testing.T) {
+	_, err := TalkGroupPort(0)
+	if err == nil {
+		t.Error("expected error for channel 0")
+	}
+}
+
+func TestTalkGroupPort_Negative(t *testing.T) {
+	_, err := TalkGroupPort(-1)
+	if err == nil {
+		t.Error("expected error for negative channel")
+	}
+}
+
+func TestTalkGroupPort_TooLarge(t *testing.T) {
+	_, err := TalkGroupPort(33)
+	if err == nil {
+		t.Error("expected error for channel > 32")
+	}
+}
+
+func TestTalkGroupPort_ConsistentWithPreconfigured(t *testing.T) {
+	// The preconfigured multicastTalkGroupPorts should match TalkGroupPort(1..N).
+	for i, want := range multicastTalkGroupPorts {
+		got, err := TalkGroupPort(i + 1)
+		if err != nil {
+			t.Fatalf("channel %d: %v", i+1, err)
+		}
+
+		if got != want {
+			t.Errorf("channel %d: TalkGroupPort = %d, preconfigured = %d", i+1, got, want)
 		}
 	}
 }
