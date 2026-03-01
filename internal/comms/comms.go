@@ -265,20 +265,9 @@ func listenRTPReceiver(addr *net.UDPAddr) (*net.UDPConn, error) {
 // RTP is on McastPort; RTCP is on McastPort+1 (standard RTP port-pairing).
 //
 // When skipMulticastJoin is true the receiver socket is still created but
-// joinMulticastGroup is not called. This is used by UpdateMulticastEndpoint
-// when only the port changes: the kernel already receives traffic for the
-// multicast group so there is no need for an IGMP leave/join cycle.
+// buildNetwork opens the RTP UDP sender/receiver and an RTCP sender.
+// RTP is on McastPort; RTCP is on McastPort+1 (standard RTP port-pairing).
 func (cfg *CommsConfig) buildNetwork() (
-	rtpSend PacketWriter,
-	rtpRecv PacketReader,
-	rtcpSend PacketWriter,
-	localIP string,
-	err error,
-) {
-	return cfg.buildNetworkOpt(false)
-}
-
-func (cfg *CommsConfig) buildNetworkOpt(skipMulticastJoin bool) (
 	rtpSend PacketWriter,
 	rtpRecv PacketReader,
 	rtcpSend PacketWriter,
@@ -318,13 +307,11 @@ func (cfg *CommsConfig) buildNetworkOpt(skipMulticastJoin bool) (
 		return nil, nil, nil, "", fmt.Errorf("set RTP read buffer: %w", err)
 	}
 
-	if !skipMulticastJoin {
-		if err := joinMulticastGroup(ifi, recvConn, net.ParseIP(cfg.McastAddr)); err != nil {
-			_ = sendConn.Close()
-			_ = recvConn.Close()
+	if err := joinMulticastGroup(ifi, recvConn, net.ParseIP(cfg.McastAddr)); err != nil {
+		_ = sendConn.Close()
+		_ = recvConn.Close()
 
-			return nil, nil, nil, "", err
-		}
+		return nil, nil, nil, "", err
 	}
 
 	// ── RTCP sender ────────────────────────────────────────────────────────
@@ -592,12 +579,7 @@ func UpdateMulticastEndpoint(addr string, port int) error {
 	oldAddr, oldPort := cfg.McastAddr, cfg.McastPort
 	cfg.McastAddr, cfg.McastPort = addr, port
 
-	// When only the port changes, the kernel already receives traffic for the
-	// multicast group, so we can skip the IGMP leave/join cycle. This makes
-	// port-based talk-group switching near-instantaneous.
-	skipJoin := addr == oldAddr
-
-	newSender, newReceiver, newRTCPSender, newLocalIP, err := cfg.buildNetworkOpt(skipJoin)
+	newSender, newReceiver, newRTCPSender, newLocalIP, err := cfg.buildNetwork()
 	if err != nil {
 		cfg.McastAddr, cfg.McastPort = oldAddr, oldPort
 
