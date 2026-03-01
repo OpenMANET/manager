@@ -495,3 +495,39 @@ func TestGetActiveMulticastAddr_ReflectsUpdate(t *testing.T) {
 		t.Errorf("after update: GetActiveMulticastAddr() = %q, want %q", got, updated)
 	}
 }
+
+// ─── listenRTPReceiver (SO_REUSEPORT) tests ───────────────────────────────────
+
+// TestListenRTPReceiver_ReusePort verifies that two sockets can be bound to the
+// same port simultaneously — the invariant that makes UpdateMulticastEndpoint
+// safe when the port does not change.
+func TestListenRTPReceiver_ReusePort(t *testing.T) {
+	first, err := listenRTPReceiver(&net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	if err != nil {
+		t.Fatalf("first listen: %v", err)
+	}
+	defer first.Close() //nolint:errcheck
+
+	port := first.LocalAddr().(*net.UDPAddr).Port
+
+	second, err := listenRTPReceiver(&net.UDPAddr{IP: net.IPv4zero, Port: port})
+	if err != nil {
+		t.Fatalf("second listen on same port %d: %v (SO_REUSEPORT not working)", port, err)
+	}
+
+	defer second.Close() //nolint:errcheck
+}
+
+// TestListenRTPReceiver_ReturnType verifies that listenRTPReceiver returns a
+// *net.UDPConn (required by joinMulticastGroup).
+func TestListenRTPReceiver_ReturnType(t *testing.T) {
+	conn, err := listenRTPReceiver(&net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close() //nolint:errcheck
+
+	if conn == nil {
+		t.Fatal("expected non-nil *net.UDPConn")
+	}
+}

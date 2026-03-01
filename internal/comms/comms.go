@@ -228,6 +228,37 @@ func (cfg *CommsConfig) buildCodec() (AudioEncoder, AudioDecoder, error) {
 
 // ─── buildNetwork ─────────────────────────────────────────────────────────────
 
+// listenRTPReceiver opens a UDP socket bound to addr with SO_REUSEPORT enabled.
+//
+// SO_REUSEPORT lets a second socket bind to the same port while the current
+// receiver is still open. This is required for UpdateMulticastEndpoint when
+// the port does not change: buildNetwork must be able to acquire the new socket
+// before replaceNetwork closes the old one, preserving the invariant that the
+// subsystem is never without a functional receive socket on error.
+func listenRTPReceiver(addr *net.UDPAddr) (*net.UDPConn, error) {
+	lc := net.ListenConfig{
+		Control: func(_, _ string, c syscall.RawConn) error {
+			return c.Control(func(fd uintptr) {
+				_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEPORT, 1)
+			})
+		},
+	}
+
+	pc, err := lc.ListenPacket(context.Background(), "udp4", addr.String())
+	if err != nil {
+		return nil, err
+	}
+
+	conn, ok := pc.(*net.UDPConn)
+	if !ok {
+		_ = pc.Close()
+
+		return nil, errors.New("listenRTPReceiver: unexpected PacketConn type")
+	}
+
+	return conn, nil
+}
+
 // buildNetwork opens the RTP UDP sender/receiver and an RTCP sender.
 // RTP is on McastPort; RTCP is on McastPort+1 (standard RTP port-pairing).
 func (cfg *CommsConfig) buildNetwork() (
@@ -254,7 +285,9 @@ func (cfg *CommsConfig) buildNetwork() (
 	}
 
 	// ── RTP receiver ───────────────────────────────────────────────────────
-	recvConn, listenErr := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: cfg.McastPort})
+	// SO_REUSEPORT is set so that UpdateMulticastEndpoint can open a replacement
+	// socket on the same port while the current one is still running.
+	recvConn, listenErr := listenRTPReceiver(&net.UDPAddr{IP: net.IPv4zero, Port: cfg.McastPort})
 	if listenErr != nil {
 		_ = sendConn.Close()
 
@@ -491,9 +524,9 @@ func GetActiveMulticastAddr() string {
 // used by the live comms subsystem at runtime. It is safe to call concurrently
 // with the send/receive path.
 //
-// A new pair of UDP sockets is established before the swap so the subsystem is
-// never left without functional sockets on error. On error the old sockets are
-// kept unchanged.
+// The new sockets are opened (with SO_REUSEPORT on the receiver) before the
+// swap, so the subsystem is never left without functional sockets on error.
+// On error the old sockets are kept unchanged.
 func UpdateMulticastEndpoint(addr string, port int) error {
 	cfg := activeConfig.Load()
 	if cfg == nil || cfg.runtime == nil {
