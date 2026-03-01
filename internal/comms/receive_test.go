@@ -97,6 +97,41 @@ func TestPlayoutLoop_EmitsPLCOnConceal(t *testing.T) {
 	}
 }
 
+func TestPlayoutLoop_BackpressureSkipsTick(t *testing.T) {
+	// Use a small buffer (cap=4); fill 3 of 4 slots (75%) before starting
+	// the playout loop. The loop should refrain from pushing more frames.
+	rt := &CommsRuntime{
+		playbackBuffer: make(chan []float32, 4),
+		decoder:        &mockDecoder{returnN: int(rtpFrameSamples)},
+	}
+
+	// Pre-fill to 75% capacity.
+	for i := 0; i < 3; i++ {
+		rt.playbackBuffer <- make([]float32, rtpFrameSamples)
+	}
+
+	jb := newRTPJitterBuffer(1, 10)
+	jb.push(0, []byte{0xAA}) // satisfies prebuffer
+
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	go cfg.playoutLoop(ctx, jb, rt)
+
+	// Let several ticks fire while the buffer stays at 75%.
+	time.Sleep(80 * time.Millisecond)
+	cancel()
+
+	// The buffer should still hold exactly the 3 frames we pre-loaded.
+	// The jitter buffer frame should NOT have been popped because
+	// backpressure prevented it.
+	if len(rt.playbackBuffer) != 3 {
+		t.Errorf("expected backpressure to hold buffer at 3; got %d", len(rt.playbackBuffer))
+	}
+}
+
 func TestPlayoutLoop_EmitsNothingWhenBroadcasting(t *testing.T) {
 	rt := newReceiveRuntime()
 	rt.broadcasting.Store(true) // isBroadcasting will return true
@@ -343,5 +378,33 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 
 	if rt.lastRemoteRx.Load() == 0 {
 		t.Error("expected lastRemoteRx to be set after receiving a remote packet")
+	}
+}
+
+// ─── logPlaybackDrop tests ────────────────────────────────────────────────────
+
+func TestLogPlaybackDrop_FirstDropAlwaysLogs(t *testing.T) {
+	// Verify the counter increments on every call and the function
+	// does not panic with a nop logger.
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+	rt := &CommsRuntime{}
+
+	logPlaybackDrop(&rt.playbackDrops, cfg, "test drop")
+
+	if got := rt.playbackDrops.Load(); got != 1 {
+		t.Errorf("expected drop counter = 1; got %d", got)
+	}
+}
+
+func TestLogPlaybackDrop_CounterIncrements(t *testing.T) {
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+	rt := &CommsRuntime{}
+
+	for i := 0; i < 150; i++ {
+		logPlaybackDrop(&rt.playbackDrops, cfg, "test drop")
+	}
+
+	if got := rt.playbackDrops.Load(); got != 150 {
+		t.Errorf("expected drop counter = 150; got %d", got)
 	}
 }

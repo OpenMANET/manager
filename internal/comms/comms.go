@@ -105,6 +105,7 @@ type CommsRuntime struct {
 	beepBufferStop  []float32
 	broadcasting    atomic.Bool
 	lastRemoteRx    atomic.Int64 // UnixNano of last received remote RTP packet
+	playbackDrops   atomic.Int64 // cumulative count of dropped playback frames
 }
 
 // ─── CommsConfig ──────────────────────────────────────────────────────────────
@@ -614,7 +615,7 @@ func (cfg *CommsConfig) Start() {
 	}
 
 	// ── playback buffer + beep tones ───────────────────────────────────────
-	playbackDepth := 10
+	playbackDepth := 50
 	if cfg.PlaybackDepth > 0 {
 		playbackDepth = cfg.PlaybackDepth
 	}
