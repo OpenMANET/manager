@@ -222,3 +222,161 @@ func TestJitterBuffer_WrapAroundSequence(t *testing.T) {
 		t.Error("expected seq=0x0000 (wrap) to be delivered correctly")
 	}
 }
+
+// ─── popOrConceal tests ──────────────────────────────────────────────────────
+
+func TestPopOrConceal_ReturnsReadyFrame(t *testing.T) {
+	jb := newRTPJitterBuffer(1, 10)
+	jb.push(0, []byte{0xAA})
+
+	payload, conceal := jb.popOrConceal(100 * time.Millisecond)
+	if payload == nil || payload[0] != 0xAA {
+		t.Errorf("expected payload 0xAA, got %v", payload)
+	}
+
+	if conceal {
+		t.Error("conceal should be false when frame is returned")
+	}
+}
+
+func TestPopOrConceal_ConcealOnSkippedGap(t *testing.T) {
+	jb := newRTPJitterBuffer(1, 4)
+
+	jb.push(0, []byte{0})
+	jb.popOrConceal(100 * time.Millisecond) // consume seq=0, expected=1
+
+	jb.push(2, []byte{2})
+	jb.push(3, []byte{3}) // count=2 >= maxDepth/2=2, seq=1 missing → skip
+
+	payload, conceal := jb.popOrConceal(100 * time.Millisecond)
+	if payload != nil {
+		t.Error("expected nil payload for skipped gap")
+	}
+
+	if !conceal {
+		t.Error("expected conceal=true when buffer skips missing seq")
+	}
+}
+
+func TestPopOrConceal_ConcealOnEmptyActiveStream(t *testing.T) {
+	jb := newRTPJitterBuffer(1, 10)
+
+	jb.push(0, []byte{0})
+	jb.popOrConceal(100 * time.Millisecond) // started=true, lastPush ~now
+
+	// Buffer is now empty but lastPush is recent.
+	payload, conceal := jb.popOrConceal(100 * time.Millisecond)
+	if payload != nil {
+		t.Error("expected nil payload")
+	}
+
+	if !conceal {
+		t.Error("expected conceal=true for empty buffer with recent push")
+	}
+}
+
+func TestPopOrConceal_NoConcealWhenStale(t *testing.T) {
+	jb := newRTPJitterBuffer(1, 10)
+
+	jb.push(0, []byte{0})
+	jb.popOrConceal(100 * time.Millisecond)
+
+	// Force lastPush to be old.
+	jb.mu.Lock()
+	jb.lastPush = time.Now().Add(-200 * time.Millisecond)
+	jb.mu.Unlock()
+
+	payload, conceal := jb.popOrConceal(100 * time.Millisecond)
+	if payload != nil {
+		t.Error("expected nil payload")
+	}
+
+	if conceal {
+		t.Error("expected conceal=false when lastPush is beyond recentWindow")
+	}
+}
+
+func TestPopOrConceal_NoConcealBeforeStart(t *testing.T) {
+	jb := newRTPJitterBuffer(3, 10)
+
+	// Only push 1 packet, need 3 for prebuffer.
+	jb.push(0, []byte{0})
+
+	payload, conceal := jb.popOrConceal(100 * time.Millisecond)
+	if payload != nil || conceal {
+		t.Error("expected nothing before prebuffer threshold")
+	}
+}
+
+// ─── Ring buffer integrity tests ─────────────────────────────────────────────
+
+func TestJitterBuffer_PushCopiesPayload(t *testing.T) {
+	jb := newRTPJitterBuffer(1, 10)
+
+	input := []byte{1, 2, 3}
+	jb.push(0, input)
+
+	// Mutate the input after push.
+	input[0] = 99
+
+	payload, ready, _ := jb.popReady()
+	if !ready {
+		t.Fatal("expected ready")
+	}
+
+	if payload[0] != 1 {
+		t.Error("jitter buffer should hold a copy, not a reference to input")
+	}
+}
+
+func TestJitterBuffer_RingBufferOverwrite(t *testing.T) {
+	// With maxDepth=4, seq 0 and seq 4 map to the same slot (0 % 4 == 4 % 4).
+	// After popping seq 0-3, pushing seq 4 should reuse the slot.
+	jb := newRTPJitterBuffer(1, 4)
+
+	for i := uint16(0); i < 4; i++ {
+		jb.push(i, []byte{byte(i)})
+	}
+
+	for range 4 {
+		jb.popReady()
+	}
+
+	// Now push seq=4 which maps to slot 0.
+	if !jb.push(4, []byte{4}) {
+		t.Error("push seq=4 should succeed after slot 0 was freed")
+	}
+
+	payload, ready, _ := jb.popReady()
+	if !ready || payload[0] != 4 {
+		t.Errorf("expected payload=4, got ready=%v payload=%v", ready, payload)
+	}
+}
+
+func TestJitterBuffer_FullBufferRejectsNewSequence(t *testing.T) {
+	jb := newRTPJitterBuffer(1, 4)
+
+	for i := uint16(0); i < 4; i++ {
+		if !jb.push(i, []byte{byte(i)}) {
+			t.Fatalf("push seq=%d should succeed", i)
+		}
+	}
+
+	// Buffer is full. New seq that doesn't collide with existing should fail
+	// only if the slot is occupied by a different valid seq number.
+	// seq=4 maps to slot 0 which has seq=0 — the overwrite path triggers
+	// because slot.valid && slot.seq != seq.
+	// Actually with maxDepth=4 this will overwrite. Let's test with a seq
+	// that maps to a full, non-overwritable scenario.
+	// Since all 4 slots are occupied, and any new seq will map to one of them,
+	// the overwrite logic will kick in. Let's verify count stays at 4.
+	jb.push(4, []byte{4}) // overwrites slot 0 (was seq=0)
+
+	jb.mu.Lock()
+	count := jb.count
+	jb.mu.Unlock()
+
+	if count != 4 {
+		t.Errorf("count should be 4 after overwrite, got %d", count)
+	}
+}

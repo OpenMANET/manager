@@ -71,6 +71,10 @@ integration-test: fmt vet ## Run integration tests (no hardware required).
 lint: ## Run linters.
 	$(GOBIN)/golangci-lint run --timeout 5m
 
+.PHONY: bench-comms
+bench-comms: ## Run performance benchmarks on the comms package.
+	go test ./internal/comms/ -bench=. -benchmem -count=3 -run=^$$ -timeout 120s
+
 .PHONY: sysroot-pack
 sysroot-pack:
 	@tar cf - $(SYSROOT_DIR) -P | pv -s $[$(du -sk $(SYSROOT_DIR) | awk '{print $1}') * 1024] | pbzip2 > $(SYSROOT_ARCHIVE)

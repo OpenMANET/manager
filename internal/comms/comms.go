@@ -35,7 +35,53 @@ const (
 	defaultCtrlSrc    string = "cm108"
 
 	DefaultCommsPort int = 5007
+
+	// encBufSize is the maximum Opus encode output buffer. 1500 bytes matches
+	// the UDP MTU and is far larger than typical Opus output (~80–160 B at
+	// 32 kbps). Previously 4000.
+	encBufSize = 1500
 )
+
+// ─── Buffer pools ─────────────────────────────────────────────────────────────
+//
+// Hot-path audio callbacks and the playout loop allocate fixed-size slices
+// every 20 ms. Pooling them eliminates per-frame GC pressure.
+
+var (
+	int16Pool = sync.Pool{ //nolint:gochecknoglobals
+		New: func() any {
+			s := make([]int16, frameSize)
+
+			return &s
+		},
+	}
+	float32Pool = sync.Pool{ //nolint:gochecknoglobals
+		New: func() any {
+			s := make([]float32, frameSize)
+
+			return &s
+		},
+	}
+	encBufPool = sync.Pool{ //nolint:gochecknoglobals
+		New: func() any {
+			s := make([]byte, encBufSize)
+
+			return &s
+		},
+	}
+)
+
+// returnFloat32 returns a pooled []float32 slice to float32Pool.
+// Non-pooled slices (e.g. beep buffers) are silently ignored because their
+// capacity will differ from frameSize.
+func returnFloat32(s []float32) {
+	if cap(s) != frameSize {
+		return // not from the pool (beep buffers, etc.)
+	}
+
+	sp := &s
+	float32Pool.Put(sp)
+}
 
 // activeConfig holds the CommsConfig most recently started via Start().
 // UpdateMulticastEndpoint reads it so callers need not pass the config explicitly.
@@ -57,8 +103,7 @@ type CommsRuntime struct {
 	reopenBroadcast func() error
 	beepBufferStart []float32
 	beepBufferStop  []float32
-	recordMutex     sync.Mutex
-	broadcasting    bool
+	broadcasting    atomic.Bool
 	lastRemoteRx    atomic.Int64 // UnixNano of last received remote RTP packet
 }
 
@@ -281,6 +326,7 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 		select {
 		case data := <-rt.playbackBuffer:
 			copy(out, data)
+			returnFloat32(data)
 		default:
 			for i := range out {
 				out[i] = 0
@@ -319,7 +365,9 @@ func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *C
 			gain = 1.0
 		}
 
-		pcm := make([]int16, len(in))
+		pcmPtr := int16Pool.Get().(*[]int16) //nolint:forcetypeassert
+		pcm := (*pcmPtr)[:len(in)]
+
 		for i, v := range in {
 			v *= gain
 			if v > 1.0 {
@@ -331,16 +379,24 @@ func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *C
 			pcm[i] = int16(v * 32767)
 		}
 
-		buf := make([]byte, 4000)
+		bufPtr := encBufPool.Get().(*[]byte) //nolint:forcetypeassert
+		buf := *bufPtr
 
 		n, encErr := rt.encoder.Encode(pcm, buf)
+
+		int16Pool.Put(pcmPtr)
+
 		if encErr != nil {
+			encBufPool.Put(bufPtr)
+
 			return
 		}
 
 		if sendErr := rt.rtpSess.send(buf[:n]); sendErr != nil {
 			cfg.Log.Debug().Err(sendErr).Msg("comms: RTP send failed in broadcast callback")
 		}
+
+		encBufPool.Put(bufPtr)
 
 		if cfg.Trace {
 			cfg.Log.Trace().Int("encoded_bytes", n).Msg("comms: multicast packet sent")

@@ -45,6 +45,7 @@ func newDB(t *testing.T) *sql.DB {
 
 func newQueries(t *testing.T) *models.Queries {
 	t.Helper()
+
 	return models.New(newDB(t))
 }
 

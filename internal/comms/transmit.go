@@ -8,10 +8,7 @@ import (
 // ─── Transmission state ───────────────────────────────────────────────────────
 
 func (cfg *CommsConfig) isBroadcasting(rt *CommsRuntime) bool {
-	rt.recordMutex.Lock()
-	defer rt.recordMutex.Unlock()
-
-	return rt.broadcasting
+	return rt.broadcasting.Load()
 }
 
 func (cfg *CommsConfig) drainPlaybackBuffer(rt *CommsRuntime) {
@@ -30,14 +27,11 @@ func (cfg *CommsConfig) drainPlaybackBuffer(rt *CommsRuntime) {
 // If the broadcast stream is nil or fails to start, rt.reopenBroadcast is
 // called to rebuild it using the input device that was resolved at startup.
 func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
-	rt.recordMutex.Lock()
-	if rt.broadcasting {
+	if rt.broadcasting.Load() {
 		cfg.Log.Debug().Msg("PTTDown ignored; already broadcasting")
-		rt.recordMutex.Unlock()
 
 		return
 	}
-	rt.recordMutex.Unlock()
 
 	// Half-duplex: refuse to transmit while the channel is actively receiving
 	// audio from a remote peer.
@@ -47,9 +41,7 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 		return
 	}
 
-	rt.recordMutex.Lock()
-	rt.broadcasting = true
-	rt.recordMutex.Unlock()
+	rt.broadcasting.Store(true)
 
 	cfg.Log.Debug().Msg("Begin transmission: playing start tone and starting mic stream")
 	cfg.drainPlaybackBuffer(rt)
@@ -64,9 +56,7 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 		if rt.reopenBroadcast != nil {
 			if err := rt.reopenBroadcast(); err != nil {
 				cfg.Log.Error().Err(err).Msg("Failed to reopen mic stream")
-				rt.recordMutex.Lock()
-				rt.broadcasting = false
-				rt.recordMutex.Unlock()
+				rt.broadcasting.Store(false)
 
 				return
 			}
@@ -75,9 +65,7 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 
 	if rt.broadcastStream == nil {
 		cfg.Log.Error().Msg("Mic stream still nil after reopen attempt")
-		rt.recordMutex.Lock()
-		rt.broadcasting = false
-		rt.recordMutex.Unlock()
+		rt.broadcasting.Store(false)
 
 		return
 	}
@@ -88,9 +76,7 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 		if rt.reopenBroadcast != nil {
 			if reErr := rt.reopenBroadcast(); reErr != nil {
 				cfg.Log.Error().Err(reErr).Msg("Failed to reopen mic stream")
-				rt.recordMutex.Lock()
-				rt.broadcasting = false
-				rt.recordMutex.Unlock()
+				rt.broadcasting.Store(false)
 
 				return
 			}
@@ -98,9 +84,7 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 
 		if err := rt.broadcastStream.Start(); err != nil {
 			cfg.Log.Error().Err(err).Msg("Failed to start mic stream after reopen")
-			rt.recordMutex.Lock()
-			rt.broadcasting = false
-			rt.recordMutex.Unlock()
+			rt.broadcasting.Store(false)
 
 			return
 		}
@@ -111,14 +95,11 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 
 // endTransmission stops the mic capture stream and plays the stop-tone.
 func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
-	rt.recordMutex.Lock()
-	if !rt.broadcasting {
+	if !rt.broadcasting.Load() {
 		cfg.Log.Debug().Msg("PTTUp ignored; mic already idle")
-		rt.recordMutex.Unlock()
 
 		return
 	}
-	rt.recordMutex.Unlock()
 
 	cfg.Log.Debug().Msg("End transmission: stopping mic stream and playing stop tone")
 
@@ -134,9 +115,7 @@ func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 
 	rt.playbackBuffer <- rt.beepBufferStop
 
-	rt.recordMutex.Lock()
-	rt.broadcasting = false
-	rt.recordMutex.Unlock()
+	rt.broadcasting.Store(false)
 }
 
 // Run is the main event loop. It starts the receive goroutine and the event
