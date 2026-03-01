@@ -3,6 +3,7 @@ package comms
 import (
 	"context"
 	"net"
+	"sync/atomic"
 	"time"
 )
 
@@ -106,6 +107,10 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, rt *CommsRuntime) {
 // playoutLoop drives the RTP jitter buffer at a 20 ms tick rate.
 // It pops ready frames, applies PLC for missing frames, and queues decoded
 // PCM to rt.playbackBuffer. Exits when ctx is canceled.
+//
+// Backpressure: when the playback buffer is ≥75% full the tick is skipped,
+// allowing the PortAudio callback (hardware clock) to drain before more
+// frames are produced. The jitter buffer absorbs the delay.
 func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer, rt *CommsRuntime) {
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
@@ -118,6 +123,12 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 		}
 
 		if cfg.isBroadcasting(rt) {
+			continue
+		}
+
+		// Backpressure: skip this tick when the playback channel is
+		// nearly full so the hardware clock can catch up.
+		if len(rt.playbackBuffer) >= cap(rt.playbackBuffer)*3/4 {
 			continue
 		}
 
@@ -168,7 +179,7 @@ func (cfg *CommsConfig) decodeAndQueue(rt *CommsRuntime, payload []byte) {
 		}
 	default:
 		returnFloat32(out)
-		cfg.Log.Warn().Msg("comms: playback buffer full; dropping packet")
+		logPlaybackDrop(&rt.playbackDrops, cfg, "comms: playback buffer full; dropping packet")
 	}
 }
 
@@ -201,7 +212,25 @@ func (cfg *CommsConfig) decodeAndQueuePLC(rt *CommsRuntime) {
 		}
 	default:
 		returnFloat32(out)
-		cfg.Log.Warn().Msg("comms: playback buffer full; dropping PLC frame")
+		logPlaybackDrop(&rt.playbackDrops, cfg, "comms: playback buffer full; dropping PLC frame")
+	}
+}
+
+// playbackDropLogInterval controls how often repeated playback-buffer-full
+// warnings are emitted. The first drop always logs; subsequent drops log
+// once every playbackDropLogInterval occurrences.
+const playbackDropLogInterval = 50
+
+// logPlaybackDrop increments the drop counter and emits a Warn log on the
+// first drop and then every playbackDropLogInterval drops thereafter. All
+// other drops are recorded at Debug level so the counter remains accurate
+// without flooding logs.
+func logPlaybackDrop(counter *atomic.Int64, cfg *CommsConfig, msg string) {
+	n := counter.Add(1)
+	if n == 1 || n%playbackDropLogInterval == 0 {
+		cfg.Log.Warn().Int64("total_drops", n).Msg(msg)
+	} else if cfg.Debug {
+		cfg.Log.Debug().Int64("total_drops", n).Msg(msg)
 	}
 }
 
