@@ -65,7 +65,7 @@ test-race: fmt vet buf sqlc-gen ## Run tests with race detector.
 
 .PHONY: integration-test
 integration-test: fmt vet ## Run integration tests (no hardware required).
-	go test -tags integration -timeout 60s ./internal/openmanet/server/handlers/...
+	go test -tags integration -timeout 60s ./internal/openmanet/server/handlers/... -coverprofile=coverage.out -covermode=atomic
 
 .PHONY: lint
 lint: ## Run linters.
