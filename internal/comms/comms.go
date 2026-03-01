@@ -246,7 +246,7 @@ func listenRTPReceiver(addr *net.UDPAddr) (*net.UDPConn, error) {
 
 	pc, err := lc.ListenPacket(context.Background(), "udp4", addr.String())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w", err)
 	}
 
 	conn, ok := pc.(*net.UDPConn)
