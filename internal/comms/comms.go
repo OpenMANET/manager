@@ -264,9 +264,7 @@ func listenRTPReceiver(addr *net.UDPAddr) (*net.UDPConn, error) {
 // buildNetwork opens the RTP UDP sender/receiver and an RTCP sender.
 // RTP is on McastPort; RTCP is on McastPort+1 (standard RTP port-pairing).
 //
-// When skipMulticastJoin is true the receiver socket is still created but
-// buildNetwork opens the RTP UDP sender/receiver and an RTCP sender.
-// RTP is on McastPort; RTCP is on McastPort+1 (standard RTP port-pairing).
+
 func (cfg *CommsConfig) buildNetwork() (
 	rtpSend PacketWriter,
 	rtpRecv PacketReader,

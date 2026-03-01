@@ -59,7 +59,8 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, rt *CommsRuntime) {
 				// and the next iteration will read from the new socket, so
 				// log at Debug rather than Error.
 				if errors.Is(err, net.ErrClosed) {
-					cfg.Log.Debug().Err(err).Msg("comms: recv socket swapped")
+					cfg.Log.Debug().Msg("comms: recv socket swapped; resetting jitter buffer")
+					jitter.reset()
 				} else {
 					cfg.Log.Error().Err(err).Msg("comms: recv error")
 				}
