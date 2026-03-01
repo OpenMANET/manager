@@ -34,8 +34,6 @@ const (
 	defaultCommName   string = "AllInOneCable"
 	defaultCtrlSrc    string = "cm108"
 
-	DefaultCommsPort int = 5007
-
 	// encBufSize is the maximum Opus encode output buffer. 1450 bytes matches
 	// the UDP MTU and is far larger than typical Opus output (~80–160 B at
 	// 32 kbps).
@@ -174,11 +172,13 @@ func (cfg *CommsConfig) applyDefaults() {
 	}
 
 	if cfg.McastAddr == "" {
-		cfg.McastAddr = config.GetMulticastTalkGroupAddresses()[0]
+		tgs := config.GetMulticastTalkGroups()
+		cfg.McastAddr = tgs[0].Address
+		cfg.McastPort = tgs[0].Port
 	}
 
 	if cfg.McastPort == 0 {
-		cfg.McastPort = DefaultCommsPort
+		cfg.McastPort = config.DefaultTalkGroupPort
 	}
 
 	if cfg.CommKey == "" {
@@ -263,7 +263,22 @@ func listenRTPReceiver(addr *net.UDPAddr) (*net.UDPConn, error) {
 
 // buildNetwork opens the RTP UDP sender/receiver and an RTCP sender.
 // RTP is on McastPort; RTCP is on McastPort+1 (standard RTP port-pairing).
+//
+// When skipMulticastJoin is true the receiver socket is still created but
+// joinMulticastGroup is not called. This is used by UpdateMulticastEndpoint
+// when only the port changes: the kernel already receives traffic for the
+// multicast group so there is no need for an IGMP leave/join cycle.
 func (cfg *CommsConfig) buildNetwork() (
+	rtpSend PacketWriter,
+	rtpRecv PacketReader,
+	rtcpSend PacketWriter,
+	localIP string,
+	err error,
+) {
+	return cfg.buildNetworkOpt(false)
+}
+
+func (cfg *CommsConfig) buildNetworkOpt(skipMulticastJoin bool) (
 	rtpSend PacketWriter,
 	rtpRecv PacketReader,
 	rtcpSend PacketWriter,
@@ -303,11 +318,13 @@ func (cfg *CommsConfig) buildNetwork() (
 		return nil, nil, nil, "", fmt.Errorf("set RTP read buffer: %w", err)
 	}
 
-	if err := joinMulticastGroup(ifi, recvConn, net.ParseIP(cfg.McastAddr)); err != nil {
-		_ = sendConn.Close()
-		_ = recvConn.Close()
+	if !skipMulticastJoin {
+		if err := joinMulticastGroup(ifi, recvConn, net.ParseIP(cfg.McastAddr)); err != nil {
+			_ = sendConn.Close()
+			_ = recvConn.Close()
 
-		return nil, nil, nil, "", err
+			return nil, nil, nil, "", err
+		}
 	}
 
 	// ── RTCP sender ────────────────────────────────────────────────────────
@@ -533,6 +550,17 @@ func GetActiveMulticastAddr() string {
 	return cfg.McastAddr
 }
 
+// GetActiveMulticastPort returns the current UDP port in use by the live comms
+// subsystem. Returns 0 if comms has not been started.
+func GetActiveMulticastPort() int {
+	cfg := activeConfig.Load()
+	if cfg == nil {
+		return 0
+	}
+
+	return cfg.McastPort
+}
+
 // UpdateMulticastEndpoint changes the multicast group address and UDP port
 // used by the live comms subsystem at runtime. It is safe to call concurrently
 // with the send/receive path.
@@ -564,7 +592,12 @@ func UpdateMulticastEndpoint(addr string, port int) error {
 	oldAddr, oldPort := cfg.McastAddr, cfg.McastPort
 	cfg.McastAddr, cfg.McastPort = addr, port
 
-	newSender, newReceiver, newRTCPSender, newLocalIP, err := cfg.buildNetwork()
+	// When only the port changes, the kernel already receives traffic for the
+	// multicast group, so we can skip the IGMP leave/join cycle. This makes
+	// port-based talk-group switching near-instantaneous.
+	skipJoin := addr == oldAddr
+
+	newSender, newReceiver, newRTCPSender, newLocalIP, err := cfg.buildNetworkOpt(skipJoin)
 	if err != nil {
 		cfg.McastAddr, cfg.McastPort = oldAddr, oldPort
 

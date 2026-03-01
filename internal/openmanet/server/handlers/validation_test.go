@@ -1,6 +1,7 @@
 package handlers_test
 
 import (
+	"fmt"
 	"testing"
 
 	"buf.build/go/protovalidate"
@@ -53,58 +54,50 @@ func TestValidation_GetWirelessInterfaceRequest_ValidName(t *testing.T) {
 
 // ── JoinTalkGroupRequest ──────────────────────────────────────────────────────
 
-func TestValidation_JoinTalkGroupRequest_NonMulticastAddress(t *testing.T) {
+func TestValidation_JoinTalkGroupRequest_TalkgroupTooLarge(t *testing.T) {
 	v := newValidator(t)
 
-	cases := []struct {
-		name    string
-		address string
-	}{
-		{"unicast", "10.0.0.1"},
-		{"broadcast", "255.255.255.255"},
-		{"ipv6 multicast", "ff02::1"},
-		{"empty", ""},
-		{"non-ip string", "not-an-ip"},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := v.Validate(&serviceproto.JoinTalkGroupRequest{Address: tc.address})
-			assert.Error(t, err, "address %q must fail validation", tc.address)
-		})
-	}
+	err := v.Validate(&serviceproto.JoinTalkGroupRequest{Talkgroup: 11})
+	assert.Error(t, err, "talkgroup > 10 must fail validation")
 }
 
-func TestValidation_JoinTalkGroupRequest_ValidMulticastAddresses(t *testing.T) {
+func TestValidation_JoinTalkGroupRequest_TalkgroupNegative(t *testing.T) {
 	v := newValidator(t)
 
-	cases := []string{
-		"224.0.0.1",
-		"224.5.23.1",
-		"239.255.255.255",
-		"239.1.2.3",
-	}
+	err := v.Validate(&serviceproto.JoinTalkGroupRequest{Talkgroup: -1})
+	assert.Error(t, err, "negative talkgroup must fail validation")
+}
 
-	for _, addr := range cases {
-		t.Run(addr, func(t *testing.T) {
-			err := v.Validate(&serviceproto.JoinTalkGroupRequest{Address: addr})
-			assert.NoError(t, err, "address %q must pass validation", addr)
+func TestValidation_JoinTalkGroupRequest_ValidTalkgroups(t *testing.T) {
+	v := newValidator(t)
+
+	for _, tg := range []int32{0, 1, 5, 10} {
+		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
+			err := v.Validate(&serviceproto.JoinTalkGroupRequest{Talkgroup: tg})
+			assert.NoError(t, err, "talkgroup %d must pass validation", tg)
 		})
 	}
 }
 
 // ── TalkGroup ─────────────────────────────────────────────────────────────────
 
-func TestValidation_TalkGroup_InvalidAddress(t *testing.T) {
+func TestValidation_TalkGroup_TalkgroupTooLarge(t *testing.T) {
 	v := newValidator(t)
 
-	err := v.Validate(&serviceproto.TalkGroup{Address: "192.168.1.1", Port: 5007})
-	assert.Error(t, err, "unicast address in TalkGroup must fail validation")
+	err := v.Validate(&serviceproto.TalkGroup{Talkgroup: 11})
+	assert.Error(t, err, "talkgroup > 10 must fail validation")
 }
 
-func TestValidation_TalkGroup_ValidMulticastAddress(t *testing.T) {
+func TestValidation_TalkGroup_TalkgroupNegative(t *testing.T) {
 	v := newValidator(t)
 
-	err := v.Validate(&serviceproto.TalkGroup{Address: "239.0.0.1", Port: 5007})
+	err := v.Validate(&serviceproto.TalkGroup{Talkgroup: -1})
+	assert.Error(t, err, "negative talkgroup must fail validation")
+}
+
+func TestValidation_TalkGroup_ValidTalkgroup(t *testing.T) {
+	v := newValidator(t)
+
+	err := v.Validate(&serviceproto.TalkGroup{Talkgroup: 5})
 	assert.NoError(t, err)
 }

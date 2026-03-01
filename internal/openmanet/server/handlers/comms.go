@@ -36,20 +36,18 @@ func (c *CommsService) GetCommsStatus(_ context.Context, _ *emptypb.Empty) (*ser
 		return nil, errors.New("comms module not enabled")
 	}
 
-	availableTalkGroups := config.GetMulticastTalkGroupAddresses()
+	availableTalkGroups := config.GetMulticastTalkGroups()
 
 	talkGroupProtos := make([]*serviceproto.TalkGroup, len(availableTalkGroups))
-	for i, addr := range availableTalkGroups {
+	for i, tg := range availableTalkGroups {
 		talkGroupProtos[i] = &serviceproto.TalkGroup{
-			Address: addr,
-			Port:    int32(comms.DefaultCommsPort),
+			Talkgroup: int32(tg.Port),
 		}
 	}
 
 	return &serviceproto.GetCommsStatusResponse{
 		ActiveTalkgroup: &serviceproto.TalkGroup{
-			Address: comms.GetActiveMulticastAddr(),
-			Port:    int32(comms.DefaultCommsPort),
+			Talkgroup: int32(comms.GetActiveMulticastPort()),
 		},
 		AvailableTalkgroups: talkGroupProtos,
 	}, nil
@@ -65,7 +63,17 @@ func (c *CommsService) JoinTalkGroup(_ context.Context, req *serviceproto.JoinTa
 		return nil, errors.New("comms module not enabled")
 	}
 
-	err := comms.UpdateMulticastEndpoint(req.GetAddress(), comms.DefaultCommsPort)
+	talkgroup := int(req.GetTalkgroup())
+	if talkgroup == 0 {
+		talkgroup = config.DefaultTalkGroupPort
+	}
+
+	mCastPort, err := config.TalkGroupPort(talkgroup)
+	if err != nil {
+		return nil, err
+	}
+
+	err = comms.UpdateMulticastEndpoint(config.TalkGroupMcastAddr, mCastPort)
 	if err != nil {
 		return nil, err
 	}

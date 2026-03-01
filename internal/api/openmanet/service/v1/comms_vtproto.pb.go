@@ -54,8 +54,7 @@ func (m *TalkGroup) CloneVT() *TalkGroup {
 		return (*TalkGroup)(nil)
 	}
 	r := new(TalkGroup)
-	r.Address = m.Address
-	r.Port = m.Port
+	r.Talkgroup = m.Talkgroup
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -72,7 +71,7 @@ func (m *JoinTalkGroupRequest) CloneVT() *JoinTalkGroupRequest {
 		return (*JoinTalkGroupRequest)(nil)
 	}
 	r := new(JoinTalkGroupRequest)
-	r.Address = m.Address
+	r.Talkgroup = m.Talkgroup
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -144,10 +143,7 @@ func (this *TalkGroup) EqualVT(that *TalkGroup) bool {
 	} else if this == nil || that == nil {
 		return false
 	}
-	if this.Address != that.Address {
-		return false
-	}
-	if this.Port != that.Port {
+	if this.Talkgroup != that.Talkgroup {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -166,7 +162,7 @@ func (this *JoinTalkGroupRequest) EqualVT(that *JoinTalkGroupRequest) bool {
 	} else if this == nil || that == nil {
 		return false
 	}
-	if this.Address != that.Address {
+	if this.Talkgroup != that.Talkgroup {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -418,17 +414,10 @@ func (m *TalkGroup) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if m.Port != 0 {
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Port))
+	if m.Talkgroup != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Talkgroup))
 		i--
-		dAtA[i] = 0x10
-	}
-	if len(m.Address) > 0 {
-		i -= len(m.Address)
-		copy(dAtA[i:], m.Address)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Address)))
-		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
@@ -463,12 +452,10 @@ func (m *JoinTalkGroupRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) 
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if len(m.Address) > 0 {
-		i -= len(m.Address)
-		copy(dAtA[i:], m.Address)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Address)))
+	if m.Talkgroup != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Talkgroup))
 		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
@@ -608,17 +595,10 @@ func (m *TalkGroup) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if m.Port != 0 {
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Port))
+	if m.Talkgroup != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Talkgroup))
 		i--
-		dAtA[i] = 0x10
-	}
-	if len(m.Address) > 0 {
-		i -= len(m.Address)
-		copy(dAtA[i:], m.Address)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Address)))
-		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
@@ -653,12 +633,10 @@ func (m *JoinTalkGroupRequest) MarshalToSizedBufferVTStrict(dAtA []byte) (int, e
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if len(m.Address) > 0 {
-		i -= len(m.Address)
-		copy(dAtA[i:], m.Address)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Address)))
+	if m.Talkgroup != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Talkgroup))
 		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
@@ -739,12 +717,8 @@ func (m *TalkGroup) SizeVT() (n int) {
 	}
 	var l int
 	_ = l
-	l = len(m.Address)
-	if l > 0 {
-		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
-	}
-	if m.Port != 0 {
-		n += 1 + protohelpers.SizeOfVarint(uint64(m.Port))
+	if m.Talkgroup != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.Talkgroup))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -756,9 +730,8 @@ func (m *JoinTalkGroupRequest) SizeVT() (n int) {
 	}
 	var l int
 	_ = l
-	l = len(m.Address)
-	if l > 0 {
-		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	if m.Talkgroup != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.Talkgroup))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -932,42 +905,10 @@ func (m *TalkGroup) UnmarshalVT(dAtA []byte) error {
 		}
 		switch fieldNum {
 		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Address", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Address = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 2:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Port", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Talkgroup", wireType)
 			}
-			m.Port = 0
+			m.Talkgroup = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -977,7 +918,7 @@ func (m *TalkGroup) UnmarshalVT(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Port |= int32(b&0x7F) << shift
+				m.Talkgroup |= int32(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -1034,10 +975,10 @@ func (m *JoinTalkGroupRequest) UnmarshalVT(dAtA []byte) error {
 		}
 		switch fieldNum {
 		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Address", wireType)
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Talkgroup", wireType)
 			}
-			var stringLen uint64
+			m.Talkgroup = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -1047,24 +988,11 @@ func (m *JoinTalkGroupRequest) UnmarshalVT(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.Talkgroup |= int32(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Address = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -1341,46 +1269,10 @@ func (m *TalkGroup) UnmarshalVTUnsafe(dAtA []byte) error {
 		}
 		switch fieldNum {
 		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Address", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			var stringValue string
-			if intStringLen > 0 {
-				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
-			}
-			m.Address = stringValue
-			iNdEx = postIndex
-		case 2:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Port", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Talkgroup", wireType)
 			}
-			m.Port = 0
+			m.Talkgroup = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -1390,7 +1282,7 @@ func (m *TalkGroup) UnmarshalVTUnsafe(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Port |= int32(b&0x7F) << shift
+				m.Talkgroup |= int32(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -1447,10 +1339,10 @@ func (m *JoinTalkGroupRequest) UnmarshalVTUnsafe(dAtA []byte) error {
 		}
 		switch fieldNum {
 		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Address", wireType)
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Talkgroup", wireType)
 			}
-			var stringLen uint64
+			m.Talkgroup = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -1460,28 +1352,11 @@ func (m *JoinTalkGroupRequest) UnmarshalVTUnsafe(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.Talkgroup |= int32(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			var stringValue string
-			if intStringLen > 0 {
-				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
-			}
-			m.Address = stringValue
-			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
