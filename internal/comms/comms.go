@@ -98,6 +98,7 @@ type CommsRuntime struct {
 	broadcastStream AudioStream
 	playbackBuffer  chan []float32
 	sender          *swappableSender
+	rtcpSender      *swappableSender
 	receiver        *swappableReceiver
 	rtpSess         rtpSender
 	reopenBroadcast func() error
@@ -488,22 +489,33 @@ func (cfg *CommsConfig) buildEventSource() (EventSource, error) {
 
 // ─── replaceNetwork ───────────────────────────────────────────────────────────
 
-// replaceNetwork atomically swaps the sender, receiver, and local IP stored in
-// a running CommsRuntime, then closes the old sockets. Closing the old receiver
-// unblocks any in-flight ReadFromUDP in receiveLoop.
+// replaceNetwork atomically swaps the sender, receiver, RTCP sender, and
+// local IP stored in a running CommsRuntime, then closes the old sockets.
+// Closing the old receiver unblocks any in-flight ReadFromUDP in receiveLoop.
 func (cfg *CommsConfig) replaceNetwork(
 	rt *CommsRuntime,
 	newSender PacketWriter,
 	newReceiver PacketReader,
+	newRTCPSender PacketWriter,
 	newLocalIP string,
 ) {
 	oldReceiver := rt.receiver.swap(newReceiver)
 	oldSender := rt.sender.swap(newSender)
+
+	var oldRTCP PacketWriter
+	if rt.rtcpSender != nil && newRTCPSender != nil {
+		oldRTCP = rt.rtcpSender.swap(newRTCPSender)
+	}
+
 	rt.localIP.Store(newLocalIP)
 
 	_ = oldReceiver.Close()
 
 	if c, ok := oldSender.(interface{ Close() error }); ok {
+		_ = c.Close()
+	}
+
+	if c, ok := oldRTCP.(interface{ Close() error }); ok {
 		_ = c.Close()
 	}
 }
@@ -552,14 +564,14 @@ func UpdateMulticastEndpoint(addr string, port int) error {
 	oldAddr, oldPort := cfg.McastAddr, cfg.McastPort
 	cfg.McastAddr, cfg.McastPort = addr, port
 
-	newSender, newReceiver, _, newLocalIP, err := cfg.buildNetwork()
+	newSender, newReceiver, newRTCPSender, newLocalIP, err := cfg.buildNetwork()
 	if err != nil {
 		cfg.McastAddr, cfg.McastPort = oldAddr, oldPort
 
 		return fmt.Errorf("comms: failed to establish %s:%d: %w", addr, port, err)
 	}
 
-	cfg.replaceNetwork(rt, newSender, newReceiver, newLocalIP)
+	cfg.replaceNetwork(rt, newSender, newReceiver, newRTCPSender, newLocalIP)
 
 	cfg.Log.Info().Msgf("comms: multicast endpoint updated %s:%d → %s:%d",
 		oldAddr, oldPort, addr, port)
@@ -636,13 +648,20 @@ func (cfg *CommsConfig) Start() {
 		cfg.Log.Fatal().Err(netErr).Msg("comms: failed to set up network")
 	}
 
+	// ── swappable transports ────────────────────────────────────────────────
+	// Wrap the raw connections before handing them to the RTP session so that
+	// UpdateMulticastEndpoint can swap the underlying sockets without leaving
+	// the pion interceptor chain holding a stale (closed) connection.
+	sender := newSwappableSender(rawSender)
+	rtcpSender := newSwappableSender(rawRTCPSender)
+
 	// ── RTP session (pion) ─────────────────────────────────────────────────
 	rtpID := cfg.RtpID
 	if rtpID == "" {
 		rtpID = localIP
 	}
 
-	sess, sessErr := newPionRTPSession(ssrcFromID(rtpID), rawSender, rawRTCPSender, cfg.Log)
+	sess, sessErr := newPionRTPSession(ssrcFromID(rtpID), sender, rtcpSender, cfg.Log)
 	if sessErr != nil {
 		cfg.Log.Fatal().Err(sessErr).Msg("comms: failed to create RTP session")
 	}
@@ -651,7 +670,8 @@ func (cfg *CommsConfig) Start() {
 	rt := &CommsRuntime{
 		encoder:         enc,
 		decoder:         dec,
-		sender:          newSwappableSender(rawSender),
+		sender:          sender,
+		rtcpSender:      rtcpSender,
 		receiver:        newSwappableReceiver(rawReceiver),
 		rtpSess:         sess,
 		playbackBuffer:  playbackBuf,

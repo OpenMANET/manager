@@ -327,14 +327,16 @@ func TestApplyDefaults_BluetoothAudioDeviceHintDoesNotOverrideExplicit(t *testin
 func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {
 	oldSender := &mockClosingWriter{}
 	oldReceiver := &trackingReader{}
+	oldRTCP := &mockClosingWriter{}
 
 	rt := &CommsRuntime{
-		sender:   newSwappableSender(oldSender),
-		receiver: newSwappableReceiver(oldReceiver),
+		sender:     newSwappableSender(oldSender),
+		rtcpSender: newSwappableSender(oldRTCP),
+		receiver:   newSwappableReceiver(oldReceiver),
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	cfg.replaceNetwork(rt, &mockWriter{}, newMockReader(), "10.0.0.1")
+	cfg.replaceNetwork(rt, &mockWriter{}, newMockReader(), &mockWriter{}, "10.0.0.1")
 
 	if !oldSender.closeCalled {
 		t.Error("old sender Close() should have been called")
@@ -343,16 +345,21 @@ func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {
 	if !oldReceiver.closed {
 		t.Error("old receiver Close() should have been called")
 	}
+
+	if !oldRTCP.closeCalled {
+		t.Error("old RTCP sender Close() should have been called")
+	}
 }
 
 func TestReplaceNetwork_StoresNewLocalIP(t *testing.T) {
 	rt := &CommsRuntime{
-		sender:   newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
+		sender:     newSwappableSender(&mockWriter{}),
+		rtcpSender: newSwappableSender(&mockWriter{}),
+		receiver:   newSwappableReceiver(newMockReader()),
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	cfg.replaceNetwork(rt, &mockWriter{}, newMockReader(), "10.0.0.2")
+	cfg.replaceNetwork(rt, &mockWriter{}, newMockReader(), &mockWriter{}, "10.0.0.2")
 
 	v, ok := rt.localIP.Load().(string)
 	if !ok || v != "10.0.0.2" {
@@ -364,12 +371,13 @@ func TestReplaceNetwork_NewWriterReceivesSubsequentWrites(t *testing.T) {
 	newSender := &mockWriter{}
 
 	rt := &CommsRuntime{
-		sender:   newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
+		sender:     newSwappableSender(&mockWriter{}),
+		rtcpSender: newSwappableSender(&mockWriter{}),
+		receiver:   newSwappableReceiver(newMockReader()),
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	cfg.replaceNetwork(rt, newSender, newMockReader(), "10.0.0.3")
+	cfg.replaceNetwork(rt, newSender, newMockReader(), &mockWriter{}, "10.0.0.3")
 
 	if _, err := rt.sender.Write([]byte{1, 2, 3}); err != nil {
 		t.Fatal(err)
