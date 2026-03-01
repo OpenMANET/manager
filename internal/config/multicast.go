@@ -18,7 +18,7 @@ const (
 	// TalkGroupMcastAddr is the single multicast address shared by all talk groups.
 	// Individual talk groups are distinguished by port number, which avoids
 	// IGMP leave/join overhead when switching channels at runtime.
-	TalkGroupMcastAddr string = "225.41.1.1"
+	TalkGroupMcastAddr string = "239.192.41.1"
 
 	// 38801-38864 are reserved for talk groups; channels 1-32 map to ports
 	// in this range. The default talk group (channel 1) uses port 38801.
