@@ -40,11 +40,29 @@ func (c *CommsService) GetCommsStatus(_ context.Context, _ *emptypb.Empty) (*ser
 
 	talkGroupProtos := make([]int32, len(availableTalkGroups))
 	for i, tg := range availableTalkGroups {
-		talkGroupProtos[i] = int32(tg.Port)
+		channel, err := config.TalkGroupChannel(tg.Port)
+		if err != nil {
+			return nil, err
+		}
+
+		talkGroupProtos[i] = int32(channel)
+	}
+
+	activeTalkGroupPort := comms.GetActiveMulticastPort()
+
+	var activeTalkGroupChannel int32
+
+	if activeTalkGroupPort != 0 {
+		ch, err := config.TalkGroupChannel(activeTalkGroupPort)
+		if err != nil {
+			return nil, err
+		}
+
+		activeTalkGroupChannel = int32(ch)
 	}
 
 	return &serviceproto.GetCommsStatusResponse{
-		ActiveTalkgroup:     int32(comms.GetActiveMulticastPort()),
+		ActiveTalkgroup:     activeTalkGroupChannel,
 		AvailableTalkgroups: talkGroupProtos,
 	}, nil
 }
@@ -61,7 +79,7 @@ func (c *CommsService) JoinTalkGroup(_ context.Context, req *serviceproto.JoinTa
 
 	talkgroup := int(req.GetTalkgroup())
 	if talkgroup == 0 {
-		talkgroup = config.DefaultTalkGroupPort
+		talkgroup = 1 // default to channel 1
 	}
 
 	mCastPort, err := config.TalkGroupPort(talkgroup)

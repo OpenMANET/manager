@@ -32,12 +32,14 @@ func TestGetCommsStatus_Enabled(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
-	// The comms singleton is not started in tests, so the active address is "".
-	assert.NotNil(t, resp.GetActiveTalkgroup())
+	// The comms singleton is not started in tests, so the active talkgroup is 0.
+	assert.Equal(t, int32(0), resp.GetActiveTalkgroup())
 
-	// All available talk groups must use the default port.
+	// Available talkgroups should be 1-based channel numbers, all positive.
+	require.NotEmpty(t, resp.GetAvailableTalkgroups())
+
 	for _, tg := range resp.GetAvailableTalkgroups() {
-		assert.Greater(t, tg, int32(0), "talk group port must be positive")
+		assert.Greater(t, tg, int32(0), "available talkgroup channel must be positive")
 	}
 }
 

@@ -4,6 +4,7 @@ package handlers_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -173,7 +174,7 @@ func TestIntegration_JoinTalkGroup_Disabled(t *testing.T) {
 		connect.WithGRPCWeb(),
 	)
 
-	_, err := client.JoinTalkGroup(context.Background(), &serviceproto.JoinTalkGroupRequest{Address: "239.1.2.3"})
+	_, err := client.JoinTalkGroup(context.Background(), &serviceproto.JoinTalkGroupRequest{Talkgroup: 1})
 	require.Error(t, err)
 }
 
@@ -218,35 +219,51 @@ func TestIntegration_Validation_GetWirelessInterface_EmptyName(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
 }
 
-func TestIntegration_Validation_JoinTalkGroup_NonMulticastAddress(t *testing.T) {
+func TestIntegration_Validation_JoinTalkGroup_TalkgroupTooLarge(t *testing.T) {
 	srv := newTestServer(t)
 	client := services.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
 
-	cases := []string{"10.0.0.1", "255.255.255.255", "", "not-an-ip"}
-	for _, addr := range cases {
-		t.Run(addr, func(t *testing.T) {
-			_, err := client.JoinTalkGroup(context.Background(), &serviceproto.JoinTalkGroupRequest{Address: addr})
+	for _, tg := range []int32{11, 50, 100} {
+		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
+			_, err := client.JoinTalkGroup(context.Background(), &serviceproto.JoinTalkGroupRequest{Talkgroup: tg})
 			require.Error(t, err)
 
 			var connectErr *connect.Error
 			require.ErrorAs(t, err, &connectErr)
 			assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code(),
-				"address %q must be rejected with InvalidArgument", addr)
+				"talkgroup %d must be rejected with InvalidArgument", tg)
 		})
 	}
 }
 
-func TestIntegration_Validation_JoinTalkGroup_ValidMulticastAddress(t *testing.T) {
+func TestIntegration_Validation_JoinTalkGroup_TalkgroupNegative(t *testing.T) {
 	srv := newTestServer(t)
 	client := services.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
 
-	// Valid multicast address passes validation; comms module is disabled so the
-	// handler returns an error, but it must NOT be InvalidArgument.
-	_, err := client.JoinTalkGroup(context.Background(), &serviceproto.JoinTalkGroupRequest{Address: "239.1.2.3"})
+	_, err := client.JoinTalkGroup(context.Background(), &serviceproto.JoinTalkGroupRequest{Talkgroup: -1})
 	require.Error(t, err)
 
 	var connectErr *connect.Error
 	require.ErrorAs(t, err, &connectErr)
-	assert.NotEqual(t, connect.CodeInvalidArgument, connectErr.Code(),
-		"valid multicast address must not be rejected by the validator")
+	assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code(),
+		"negative talkgroup must be rejected with InvalidArgument")
+}
+
+func TestIntegration_Validation_JoinTalkGroup_ValidTalkgroup(t *testing.T) {
+	srv := newTestServer(t)
+	client := services.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	// Valid talkgroup passes validation; comms module is disabled so the handler
+	// returns an error, but it must NOT be InvalidArgument.
+	for _, tg := range []int32{0, 1, 5, 10} {
+		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
+			_, err := client.JoinTalkGroup(context.Background(), &serviceproto.JoinTalkGroupRequest{Talkgroup: tg})
+			require.Error(t, err)
+
+			var connectErr *connect.Error
+			require.ErrorAs(t, err, &connectErr)
+			assert.NotEqual(t, connect.CodeInvalidArgument, connectErr.Code(),
+				"valid talkgroup %d must not be rejected by the validator", tg)
+		})
+	}
 }

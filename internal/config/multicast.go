@@ -112,6 +112,23 @@ func TalkGroupPort(channel int) (int, error) {
 	return DefaultTalkGroupPort + (channel-1)*talkGroupPortStride, nil
 }
 
+// TalkGroupChannel maps a UDP port back to its 1-based channel number.
+// It is the inverse of TalkGroupPort.
+// Returns an error if the port does not correspond to a valid talk group.
+func TalkGroupChannel(port int) (int, error) {
+	offset := port - DefaultTalkGroupPort
+	if offset < 0 || offset%talkGroupPortStride != 0 {
+		return 0, fmt.Errorf("port %d is not a valid talk group port", port)
+	}
+
+	channel := offset/talkGroupPortStride + 1
+	if channel > talkGroupMaxChannel {
+		return 0, fmt.Errorf("port %d is not a valid talk group port", port)
+	}
+
+	return channel, nil
+}
+
 // GetMulticastGroupSet returns a set of all multicast group addresses as a map
 // where keys are address strings and values are booleans set to true.
 // The returned map is a copy and can be safely modified without affecting the

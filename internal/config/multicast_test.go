@@ -372,3 +372,121 @@ func TestTalkGroupPort_ConsistentWithPreconfigured(t *testing.T) {
 		}
 	}
 }
+
+// ─── TalkGroupChannel tests ───────────────────────────────────────────────────
+
+func TestTalkGroupChannel_Port38801(t *testing.T) {
+	ch, err := TalkGroupChannel(38801)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ch != 1 {
+		t.Errorf("TalkGroupChannel(38801) = %d, want 1", ch)
+	}
+}
+
+func TestTalkGroupChannel_Port38803(t *testing.T) {
+	ch, err := TalkGroupChannel(38803)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ch != 2 {
+		t.Errorf("TalkGroupChannel(38803) = %d, want 2", ch)
+	}
+}
+
+func TestTalkGroupChannel_Port38809(t *testing.T) {
+	ch, err := TalkGroupChannel(38809)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ch != 5 {
+		t.Errorf("TalkGroupChannel(38809) = %d, want 5", ch)
+	}
+}
+
+func TestTalkGroupChannel_MaxPort(t *testing.T) {
+	ch, err := TalkGroupChannel(38863)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ch != 32 {
+		t.Errorf("TalkGroupChannel(38863) = %d, want 32", ch)
+	}
+}
+
+func TestTalkGroupChannel_OddPort(t *testing.T) {
+	// Ports that aren't on a stride-2 boundary are invalid.
+	_, err := TalkGroupChannel(38802)
+	if err == nil {
+		t.Error("expected error for odd port 38802")
+	}
+}
+
+func TestTalkGroupChannel_BelowBase(t *testing.T) {
+	_, err := TalkGroupChannel(38800)
+	if err == nil {
+		t.Error("expected error for port below base (38800)")
+	}
+}
+
+func TestTalkGroupChannel_Zero(t *testing.T) {
+	_, err := TalkGroupChannel(0)
+	if err == nil {
+		t.Error("expected error for port 0")
+	}
+}
+
+func TestTalkGroupChannel_Negative(t *testing.T) {
+	_, err := TalkGroupChannel(-1)
+	if err == nil {
+		t.Error("expected error for negative port")
+	}
+}
+
+func TestTalkGroupChannel_BeyondMaxChannel(t *testing.T) {
+	// Channel 33 would be port 38801 + 32*2 = 38865.
+	_, err := TalkGroupChannel(38865)
+	if err == nil {
+		t.Error("expected error for port beyond max channel")
+	}
+}
+
+func TestTalkGroupChannel_RoundTrip(t *testing.T) {
+	// TalkGroupChannel(TalkGroupPort(n)) == n for all valid channels.
+	for ch := 1; ch <= talkGroupMaxChannel; ch++ {
+		port, err := TalkGroupPort(ch)
+		if err != nil {
+			t.Fatalf("TalkGroupPort(%d): %v", ch, err)
+		}
+
+		got, err := TalkGroupChannel(port)
+		if err != nil {
+			t.Fatalf("TalkGroupChannel(%d): %v", port, err)
+		}
+
+		if got != ch {
+			t.Errorf("round-trip channel %d: got %d", ch, got)
+		}
+	}
+}
+
+func TestTalkGroupChannel_ConsistentWithPreconfigured(t *testing.T) {
+	// Each preconfigured port should map to its 1-based index.
+	for i, port := range multicastTalkGroupPorts {
+		wantCh := i + 1
+
+		got, err := TalkGroupChannel(port)
+		if err != nil {
+			t.Fatalf("port %d: %v", port, err)
+		}
+
+		if got != wantCh {
+			t.Errorf("TalkGroupChannel(%d) = %d, want %d", port, got, wantCh)
+		}
+	}
+}
