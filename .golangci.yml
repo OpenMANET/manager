@@ -87,6 +87,8 @@ linters:
           - nestif
           - goconst
           - noctx
+          - forcetypeassert
+          - staticcheck
         path: "_test\\.go$"
     paths:
       - third_party$
