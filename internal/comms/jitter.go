@@ -217,3 +217,21 @@ func (jb *rtpJitterBuffer) popOrConceal(recentWindow time.Duration) (payload []b
 
 	return nil, false
 }
+
+// reset clears all buffered state so the jitter buffer can be reused for a
+// new RTP stream (e.g. after a talk-group switch). The next push will
+// re-initialise the expected sequence number from the first arriving packet.
+func (jb *rtpJitterBuffer) reset() {
+	jb.mu.Lock()
+	defer jb.mu.Unlock()
+
+	for i := range jb.slots {
+		jb.slots[i] = jitterSlot{}
+	}
+
+	jb.count = 0
+	jb.expected = 0
+	jb.init = false
+	jb.started = false
+	jb.lastPush = time.Time{}
+}
