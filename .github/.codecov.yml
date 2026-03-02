@@ -1,0 +1,24 @@
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"
+  # Commit status https://docs.codecov.io/docs/commit-status are used
+  # to block PR based on coverage threshold.
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 0%
+    patch:
+      default:
+        informational: true
+
+ignore:
+  # Configure what to ignore.
+  - "internal/api/openmanet"
+  - "internal/alfred"
+
+comment:
+  layout: "diff, flags, files"
+  behavior: default
+  require_changes: false
