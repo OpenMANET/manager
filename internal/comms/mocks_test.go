@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 )
 
 // ─── mockStream ───────────────────────────────────────────────────────────────
@@ -240,3 +241,24 @@ func (m *mockRTPSender) send(payload []byte) error {
 
 	return nil
 }
+
+// safeCountingReader satisfies PacketReader. Every ReadFromUDP call returns
+// immediately with a dummy byte, making it safe for concurrent race-detector
+// tests that need a non-blocking reader.
+type safeCountingReader struct {
+	calls atomic.Int64
+}
+
+func (r *safeCountingReader) ReadFromUDP(b []byte) (int, *net.UDPAddr, error) {
+	r.calls.Add(1)
+
+	if len(b) > 0 {
+		b[0] = 0xAB
+	}
+
+	return 1, &net.UDPAddr{}, nil
+}
+
+func (r *safeCountingReader) Close() error { return nil }
+
+func (r *safeCountingReader) count() int64 { return r.calls.Load() }

@@ -52,6 +52,19 @@ func (s *swappableSender) swap(newW PacketWriter) PacketWriter {
 	return old
 }
 
+// Close closes the current underlying PacketWriter if it implements io.Closer.
+func (s *swappableSender) Close() error {
+	s.mu.RLock()
+	impl := s.impl
+	s.mu.RUnlock()
+
+	if c, ok := impl.(interface{ Close() error }); ok {
+		return c.Close()
+	}
+
+	return nil
+}
+
 // swappableReceiver wraps a PacketReader so it can be atomically replaced at
 // runtime without races with the blocking receive loop.
 //

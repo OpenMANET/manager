@@ -85,6 +85,48 @@ func returnFloat32(s []float32) {
 // UpdateMulticastEndpoint reads it so callers need not pass the config explicitly.
 var activeConfig atomic.Pointer[CommsConfig] //nolint:gochecknoglobals
 
+// ─── McastPortConfig / McastPortState ────────────────────────────────────────
+
+// McastPortConfig describes a single multicast endpoint that the comms
+// subsystem listens and/or transmits on. Ports with Send=false will not open
+// an RTP/RTCP sender; ports with Receive=false will not open an RTP receiver
+// socket.
+type McastPortConfig struct {
+	Address string
+	Port    int
+	Send    bool
+	Receive bool
+}
+
+// McastPortState is a read-only snapshot of the runtime direction-toggle state
+// for a single port. Returned by GetTalkGroupStates.
+type McastPortState struct {
+	Address        string
+	Port           int
+	SendEnabled    bool
+	ReceiveEnabled bool
+}
+
+// ─── portChannel ─────────────────────────────────────────────────────────────
+
+// portChannel holds all live resources for one McastPortConfig entry.
+// sendEnabled and receiveEnabled are atomic bools that can be toggled at
+// runtime via EnableTalkGroupSend / EnableTalkGroupReceive without restarting any goroutine
+// or socket.
+type portChannel struct {
+	cfg            McastPortConfig
+	sendEnabled    atomic.Bool
+	receiveEnabled atomic.Bool
+	sender         *swappableSender   // nil when cfg.Send == false
+	rtcpSend       *swappableSender   // nil when cfg.Send == false
+	receiver       *swappableReceiver // nil when cfg.Receive == false
+	rtpSess        rtpSender          // nil when cfg.Send == false
+	playbackBuffer chan []float32     // allocated by buildAudio; only set when cfg.Receive == true
+	playbackStream AudioStream        // allocated by buildAudio; only set when cfg.Receive == true
+	lastRemoteRx   atomic.Int64       // UnixNano of last received remote RTP packet
+	playbackDrops  atomic.Int64       // cumulative count of dropped playback frames
+}
+
 // ─── CommsRuntime ─────────────────────────────────────────────────────────────
 
 // CommsRuntime holds live resources allocated by Start. All audio/network
@@ -94,17 +136,11 @@ type CommsRuntime struct {
 	localIP         atomic.Value // string
 	encoder         AudioEncoder
 	broadcastStream AudioStream
-	playbackBuffer  chan []float32
-	sender          *swappableSender
-	rtcpSender      *swappableSender
-	receiver        *swappableReceiver
-	rtpSess         rtpSender
+	ports           []*portChannel
 	reopenBroadcast func() error
 	beepBufferStart []float32
 	beepBufferStop  []float32
 	broadcasting    atomic.Bool
-	lastRemoteRx    atomic.Int64 // UnixNano of last received remote RTP packet
-	playbackDrops   atomic.Int64 // cumulative count of dropped playback frames
 }
 
 // ─── CommsConfig ──────────────────────────────────────────────────────────────
@@ -125,8 +161,7 @@ type CommsConfig struct {
 	BluetoothAudioDeviceHint string
 	ControlSource            string
 	NanoPTTDeviceName        string
-	McastAddr                string
-	McastPort                int
+	McastPorts               []McastPortConfig
 	PlaybackDepth            int
 	MicGain                  float32
 	EnableNanoPTT            bool
@@ -139,13 +174,15 @@ type CommsConfig struct {
 
 // NewComms copies cfg and returns a pointer ready for Start.
 func NewComms(cfg CommsConfig) *CommsConfig {
+	mcastPorts := make([]McastPortConfig, len(cfg.McastPorts))
+	copy(mcastPorts, cfg.McastPorts)
+
 	return &CommsConfig{
 		Log:                      cfg.Log,
 		Interrupt:                cfg.Interrupt,
 		Enable:                   cfg.Enable,
 		Iface:                    cfg.Iface,
-		McastAddr:                cfg.McastAddr,
-		McastPort:                cfg.McastPort,
+		McastPorts:               mcastPorts,
 		CommKey:                  cfg.CommKey,
 		RtpID:                    cfg.RtpID,
 		Debug:                    cfg.Debug,
@@ -171,14 +208,14 @@ func (cfg *CommsConfig) applyDefaults() {
 		cfg.Iface = defaultIface
 	}
 
-	if cfg.McastAddr == "" {
+	if len(cfg.McastPorts) == 0 {
 		tgs := config.GetMulticastTalkGroups()
-		cfg.McastAddr = tgs[0].Address
-		cfg.McastPort = tgs[0].Port
-	}
-
-	if cfg.McastPort == 0 {
-		cfg.McastPort = config.DefaultTalkGroupPort
+		cfg.McastPorts = []McastPortConfig{{
+			Address: tgs[0].Address,
+			Port:    tgs[0].Port,
+			Send:    true,
+			Receive: true,
+		}}
 	}
 
 	if cfg.CommKey == "" {
@@ -234,9 +271,8 @@ func (cfg *CommsConfig) buildCodec() (AudioEncoder, AudioDecoder, error) {
 //
 // SO_REUSEPORT lets a second socket bind to the same port while the current
 // receiver is still open. This is required for UpdateMulticastEndpoint when
-// the port does not change: buildNetwork must be able to acquire the new socket
-// before replaceNetwork closes the old one, preserving the invariant that the
-// subsystem is never without a functional receive socket on error.
+// the port does not change: buildSinglePortChannel must be able to acquire
+// the new socket before the old one is closed.
 func listenRTPReceiver(addr *net.UDPAddr) (*net.UDPConn, error) {
 	lc := net.ListenConfig{
 		Control: func(_, _ string, c syscall.RawConn) error {
@@ -261,94 +297,192 @@ func listenRTPReceiver(addr *net.UDPAddr) (*net.UDPConn, error) {
 	return conn, nil
 }
 
-// buildNetwork opens the RTP UDP sender/receiver and an RTCP sender.
-// RTP is on McastPort; RTCP is on McastPort+1 (standard RTP port-pairing).
-//
-
-func (cfg *CommsConfig) buildNetwork() (
-	rtpSend PacketWriter,
-	rtpRecv PacketReader,
-	rtcpSend PacketWriter,
+// buildSinglePortChannel opens all sockets and creates the RTP session for one
+// McastPortConfig entry. Directions (Send / Receive) are reflected by which
+// fields are populated: a Send=false port has nil sender/rtcpSend/rtpSess; a
+// Receive=false port has nil receiver. The atomic direction flags are
+// initialised from mpc.Send / mpc.Receive so the hot paths can read them
+// without locking.
+func (cfg *CommsConfig) buildSinglePortChannel(
+	mpc McastPortConfig,
 	localIP string,
-	err error,
-) {
+	ifi *net.Interface,
+	ssrc uint32,
+) (*portChannel, error) {
+	pc := &portChannel{cfg: mpc}
+	pc.sendEnabled.Store(mpc.Send)
+	pc.receiveEnabled.Store(mpc.Receive)
+
+	if mpc.Send {
+		// ── RTP sender ─────────────────────────────────────────────────
+		dst := &net.UDPAddr{IP: net.ParseIP(mpc.Address), Port: mpc.Port}
+		src := &net.UDPAddr{IP: net.ParseIP(localIP), Port: 0}
+
+		sendConn, err := net.DialUDP("udp4", src, dst)
+		if err != nil {
+			return nil, fmt.Errorf("dial RTP sender %s:%d: %w", mpc.Address, mpc.Port, err)
+		}
+
+		// ── RTCP sender ────────────────────────────────────────────────
+		rtcpDst := &net.UDPAddr{IP: net.ParseIP(mpc.Address), Port: mpc.Port + 1}
+		rtcpSrc := &net.UDPAddr{IP: net.ParseIP(localIP), Port: 0}
+
+		rtcpConn, err := net.DialUDP("udp4", rtcpSrc, rtcpDst)
+		if err != nil {
+			_ = sendConn.Close()
+
+			return nil, fmt.Errorf("dial RTCP sender %s:%d: %w", mpc.Address, mpc.Port+1, err)
+		}
+
+		sender := newSwappableSender(sendConn)
+		rtcpSend := newSwappableSender(rtcpConn)
+
+		sess, err := newPionRTPSession(ssrc, sender, rtcpSend, cfg.Log)
+		if err != nil {
+			_ = sendConn.Close()
+			_ = rtcpConn.Close()
+
+			return nil, fmt.Errorf("pion RTP session for %s:%d: %w", mpc.Address, mpc.Port, err)
+		}
+
+		pc.sender = sender
+		pc.rtcpSend = rtcpSend
+		pc.rtpSess = sess
+
+		cfg.Log.Debug().Msgf("comms: RTP sender %s:%d  RTCP %s:%d", mpc.Address, mpc.Port, mpc.Address, mpc.Port+1)
+	}
+
+	if mpc.Receive {
+		// ── RTP receiver ────────────────────────────────────────────────
+		// SO_REUSEPORT lets UpdateMulticastEndpoint open a replacement socket
+		// on the same port while the current receiver is still running.
+		recvConn, err := listenRTPReceiver(&net.UDPAddr{IP: net.IPv4zero, Port: mpc.Port})
+		if err != nil {
+			if pc.sender != nil {
+				_ = pc.sender.Close()
+				_ = pc.rtcpSend.Close()
+				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
+					_ = s.close()
+				}
+			}
+
+			return nil, fmt.Errorf("listen RTP receiver %s:%d: %w", mpc.Address, mpc.Port, err)
+		}
+
+		if err := recvConn.SetReadBuffer(65535); err != nil {
+			_ = recvConn.Close()
+
+			if pc.sender != nil {
+				_ = pc.sender.Close()
+				_ = pc.rtcpSend.Close()
+				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
+					_ = s.close()
+				}
+			}
+
+			return nil, fmt.Errorf("set RTP read buffer: %w", err)
+		}
+
+		if err := joinMulticastGroup(ifi, recvConn, net.ParseIP(mpc.Address)); err != nil {
+			_ = recvConn.Close()
+
+			if pc.sender != nil {
+				_ = pc.sender.Close()
+				_ = pc.rtcpSend.Close()
+				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
+					_ = s.close()
+				}
+			}
+
+			return nil, err
+		}
+
+		pc.receiver = newSwappableReceiver(recvConn)
+
+		cfg.Log.Debug().Msgf("comms: RTP receiver port %d", mpc.Port)
+	}
+
+	return pc, nil
+}
+
+// buildNetwork opens sockets for every McastPortConfig entry and returns the
+// assembled portChannel slice plus the local IP address of cfg.Iface.
+//
+// The SSRC used for all Send-enabled ports is derived from cfg.RtpID (or
+// localIP as fallback), keeping transmissions from this node identifiable
+// across talk groups.
+func (cfg *CommsConfig) buildNetwork() ([]*portChannel, string, error) {
 	localIP, ifi, err := getIfaceIPv4(cfg.Iface)
 	if err != nil {
-		return nil, nil, nil, "", err
+		return nil, "", err
 	}
 
 	cfg.Log.Debug().Msgf("comms: interface %s localIP %s", cfg.Iface, localIP)
 
-	// ── RTP sender (unicast dial to multicast dst) ──────────────────────────
-	dst := &net.UDPAddr{IP: net.ParseIP(cfg.McastAddr), Port: cfg.McastPort}
-	src := &net.UDPAddr{IP: net.ParseIP(localIP), Port: 0}
-
-	sendConn, dialErr := net.DialUDP("udp4", src, dst)
-	if dialErr != nil {
-		return nil, nil, nil, "", fmt.Errorf("dial RTP sender: %w", dialErr)
+	rtpID := cfg.RtpID
+	if rtpID == "" {
+		rtpID = localIP
 	}
 
-	// ── RTP receiver ───────────────────────────────────────────────────────
-	// SO_REUSEPORT is set so that UpdateMulticastEndpoint can open a replacement
-	// socket on the same port while the current one is still running.
-	recvConn, listenErr := listenRTPReceiver(&net.UDPAddr{IP: net.IPv4zero, Port: cfg.McastPort})
-	if listenErr != nil {
-		_ = sendConn.Close()
+	ssrc := ssrcFromID(rtpID)
 
-		return nil, nil, nil, "", fmt.Errorf("listen RTP receiver: %w", listenErr)
+	ports := make([]*portChannel, 0, len(cfg.McastPorts))
+
+	for _, mpc := range cfg.McastPorts {
+		pc, err := cfg.buildSinglePortChannel(mpc, localIP, ifi, ssrc)
+		if err != nil {
+			// Clean up already-built channels before propagating the error.
+			for _, built := range ports {
+				if built.receiver != nil {
+					_ = built.receiver.Close()
+				}
+
+				if built.sender != nil {
+					_ = built.sender.Close()
+					_ = built.rtcpSend.Close()
+				}
+
+				if s, ok := built.rtpSess.(*pionRTPSession); ok && built.rtpSess != nil {
+					_ = s.close()
+				}
+			}
+
+			return nil, "", err
+		}
+
+		ports = append(ports, pc)
 	}
 
-	if err := recvConn.SetReadBuffer(65535); err != nil {
-		_ = sendConn.Close()
-		_ = recvConn.Close()
-
-		return nil, nil, nil, "", fmt.Errorf("set RTP read buffer: %w", err)
-	}
-
-	if err := joinMulticastGroup(ifi, recvConn, net.ParseIP(cfg.McastAddr)); err != nil {
-		_ = sendConn.Close()
-		_ = recvConn.Close()
-
-		return nil, nil, nil, "", err
-	}
-
-	// ── RTCP sender ────────────────────────────────────────────────────────
-	rtcpDst := &net.UDPAddr{IP: net.ParseIP(cfg.McastAddr), Port: cfg.McastPort + 1}
-	rtcpSrc := &net.UDPAddr{IP: net.ParseIP(localIP), Port: 0}
-
-	rtcpConn, rtcpErr := net.DialUDP("udp4", rtcpSrc, rtcpDst)
-	if rtcpErr != nil {
-		_ = sendConn.Close()
-		_ = recvConn.Close()
-
-		return nil, nil, nil, "", fmt.Errorf("dial RTCP sender: %w", rtcpErr)
-	}
-
-	cfg.Log.Debug().Msgf("comms: RTP %s:%d  RTCP %s:%d",
-		cfg.McastAddr, cfg.McastPort, cfg.McastAddr, cfg.McastPort+1)
-
-	return sendConn, recvConn, rtcpConn, localIP, nil
+	return ports, localIP, nil
 }
 
 // ─── buildAudio ───────────────────────────────────────────────────────────────
 
+// buildAudio resolves PortAudio devices, opens a dedicated playback stream for
+// every Receive-capable port (storing it in portChannel.playbackStream), and
+// opens the shared broadcast capture stream. Per-port playback streams are
+// accessible via rt.ports after this call returns.
 func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
-	playback AudioStream,
 	broadcast AudioStream,
 	inDev *portaudio.DeviceInfo,
 	err error,
 ) {
 	outDev, err := resolveAudioDevice(cfg.BluetoothOutputDevice, false)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	inDev, err = resolveAudioDevice(cfg.BluetoothInputDevice, true)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	cfg.Log.Info().Msgf("comms: audio in=%s out=%s", inDev.Name, outDev.Name)
+
+	playbackDepth := 50
+	if cfg.PlaybackDepth > 0 {
+		playbackDepth = cfg.PlaybackDepth
+	}
 
 	playbackParams := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
@@ -359,33 +493,77 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 		FramesPerBuffer: frameSize,
 	}
 
-	rawPlayback, err := portaudio.OpenStream(playbackParams, func(_, out []float32) {
-		select {
-		case data := <-rt.playbackBuffer:
-			copy(out, data)
-			returnFloat32(data)
-		default:
-			for i := range out {
-				out[i] = 0
-			}
+	// Open a dedicated playback stream for every Receive-capable port.
+	for _, pc := range rt.ports {
+		if !pc.cfg.Receive {
+			continue
 		}
-	})
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("open playback stream: %w", err)
+
+		pc.playbackBuffer = make(chan []float32, playbackDepth)
+
+		pcRef := pc // capture for callback closure
+
+		rawPlayback, openErr := portaudio.OpenStream(playbackParams, func(_, out []float32) {
+			select {
+			case data := <-pcRef.playbackBuffer:
+				copy(out, data)
+				returnFloat32(data)
+			default:
+				for i := range out {
+					out[i] = 0
+				}
+			}
+		})
+		if openErr != nil {
+			// Close already-opened per-port streams before propagating error.
+			for _, built := range rt.ports {
+				if built.playbackStream != nil {
+					_ = built.playbackStream.Close()
+					built.playbackStream = nil
+				}
+			}
+
+			return nil, nil, fmt.Errorf("open playback stream for port %d: %w", pc.cfg.Port, openErr)
+		}
+
+		pc.playbackStream = &portaudioStream{rawPlayback}
 	}
 
 	broadcast, err = cfg.openBroadcastStreamOn(inDev, rt)
 	if err != nil {
-		_ = rawPlayback.Close()
+		for _, pc := range rt.ports {
+			if pc.playbackStream != nil {
+				_ = pc.playbackStream.Close()
+				pc.playbackStream = nil
+			}
+		}
 
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	return &portaudioStream{rawPlayback}, broadcast, inDev, nil
+	return broadcast, inDev, nil
+}
+
+// sendToAllPorts sends an encoded RTP payload to every port where sendEnabled
+// is true and an rtpSess is configured. Send errors are logged at Debug level
+// and do not abort remaining ports.
+func (cfg *CommsConfig) sendToAllPorts(rt *CommsRuntime, payload []byte) {
+	for _, pc := range rt.ports {
+		if !pc.sendEnabled.Load() || pc.rtpSess == nil {
+			continue
+		}
+
+		if err := pc.rtpSess.send(payload); err != nil {
+			cfg.Log.Debug().Err(err).
+				Str("addr", pc.cfg.Address).
+				Int("port", pc.cfg.Port).
+				Msg("comms: RTP send failed")
+		}
+	}
 }
 
 // openBroadcastStreamOn creates a PortAudio capture stream that encodes mic
-// audio via Opus and transmits it as RTP using rt.rtpSess.
+// audio via Opus and transmits it as RTP to all send-enabled ports via sendToAllPorts.
 func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *CommsRuntime) (AudioStream, error) {
 	inParams := portaudio.StreamParameters{
 		Input: portaudio.StreamDeviceParameters{
@@ -429,9 +607,7 @@ func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *C
 			return
 		}
 
-		if sendErr := rt.rtpSess.send(buf[:n]); sendErr != nil {
-			cfg.Log.Debug().Err(sendErr).Msg("comms: RTP send failed in broadcast callback")
-		}
+		cfg.sendToAllPorts(rt, buf[:n])
 
 		encBufPool.Put(bufPtr)
 
@@ -491,72 +667,84 @@ func (cfg *CommsConfig) buildEventSource() (EventSource, error) {
 
 // ─── replaceNetwork ───────────────────────────────────────────────────────────
 
-// replaceNetwork atomically swaps the sender, receiver, RTCP sender, and
-// local IP stored in a running CommsRuntime, then closes the old sockets.
-// Closing the old receiver unblocks any in-flight ReadFromUDP in receiveLoop.
+// replaceNetwork atomically swaps the packet-level I/O connections for the
+// port at index portIdx and closes the old connections. newSender,
+// newRTCPSender, or newReceiver may be nil when that direction is not
+// applicable to the port. Closing the old receiver unblocks any in-flight
+// ReadFromUDP in receiveLoop.
 func (cfg *CommsConfig) replaceNetwork(
 	rt *CommsRuntime,
+	portIdx int,
 	newSender PacketWriter,
-	newReceiver PacketReader,
 	newRTCPSender PacketWriter,
+	newReceiver PacketReader,
 	newLocalIP string,
 ) {
-	oldReceiver := rt.receiver.swap(newReceiver)
-	oldSender := rt.sender.swap(newSender)
+	pc := rt.ports[portIdx]
 
-	var oldRTCP PacketWriter
-	if rt.rtcpSender != nil && newRTCPSender != nil {
-		oldRTCP = rt.rtcpSender.swap(newRTCPSender)
+	if pc.receiver != nil && newReceiver != nil {
+		old := pc.receiver.swap(newReceiver)
+		_ = old.Close()
+	}
+
+	if pc.sender != nil && newSender != nil {
+		old := pc.sender.swap(newSender)
+		if c, ok := old.(interface{ Close() error }); ok {
+			_ = c.Close()
+		}
+	}
+
+	if pc.rtcpSend != nil && newRTCPSender != nil {
+		old := pc.rtcpSend.swap(newRTCPSender)
+		if c, ok := old.(interface{ Close() error }); ok {
+			_ = c.Close()
+		}
 	}
 
 	rt.localIP.Store(newLocalIP)
-
-	_ = oldReceiver.Close()
-
-	if c, ok := oldSender.(interface{ Close() error }); ok {
-		_ = c.Close()
-	}
-
-	if c, ok := oldRTCP.(interface{ Close() error }); ok {
-		_ = c.Close()
-	}
 }
 
 // ─── UpdateMulticastEndpoint ──────────────────────────────────────────────────
 
-// GetActiveMulticastAddr returns the current multicast group address in use by the
-// live comms subsystem. Returns an empty string if comms has not been started.
+// GetActiveMulticastAddr returns the multicast group address of the first
+// configured port in the live comms subsystem. Returns an empty string if
+// comms has not been started or no ports are configured.
 func GetActiveMulticastAddr() string {
 	cfg := activeConfig.Load()
-	if cfg == nil {
+	if cfg == nil || len(cfg.McastPorts) == 0 {
 		return ""
 	}
 
-	return cfg.McastAddr
+	return cfg.McastPorts[0].Address
 }
 
-// GetActiveMulticastPort returns the current UDP port in use by the live comms
-// subsystem. Returns 0 if comms has not been started.
+// GetActiveMulticastPort returns the UDP port of the first configured port in
+// the live comms subsystem. Returns 0 if comms has not been started or no
+// ports are configured.
 func GetActiveMulticastPort() int {
 	cfg := activeConfig.Load()
-	if cfg == nil {
+	if cfg == nil || len(cfg.McastPorts) == 0 {
 		return 0
 	}
 
-	return cfg.McastPort
+	return cfg.McastPorts[0].Port
 }
 
 // UpdateMulticastEndpoint changes the multicast group address and UDP port
-// used by the live comms subsystem at runtime. It is safe to call concurrently
-// with the send/receive path.
+// used by the live comms subsystem at runtime. It is only supported when
+// exactly one McastPort is configured; use EnableTalkGroupSend / EnableTalkGroupReceive for
+// multi-port control.
 //
-// The new sockets are opened (with SO_REUSEPORT on the receiver) before the
-// swap, so the subsystem is never left without functional sockets on error.
-// On error the old sockets are kept unchanged.
+// New sockets are opened before the swap, so the subsystem is never left
+// without functional sockets on error.
 func UpdateMulticastEndpoint(addr string, port int) error {
 	cfg := activeConfig.Load()
 	if cfg == nil || cfg.runtime == nil {
 		return errors.New("comms: subsystem is not running")
+	}
+
+	if len(cfg.McastPorts) > 1 {
+		return errors.New("comms: UpdateMulticastEndpoint is not supported when more than one McastPort is configured")
 	}
 
 	rt := cfg.runtime
@@ -574,25 +762,163 @@ func UpdateMulticastEndpoint(addr string, port int) error {
 		return fmt.Errorf("comms: port %d is out of range [1, 65535]", port)
 	}
 
-	oldAddr, oldPort := cfg.McastAddr, cfg.McastPort
-	cfg.McastAddr, cfg.McastPort = addr, port
-
-	newSender, newReceiver, newRTCPSender, newLocalIP, err := cfg.buildNetwork()
+	localIP, ifi, err := getIfaceIPv4(cfg.Iface)
 	if err != nil {
-		cfg.McastAddr, cfg.McastPort = oldAddr, oldPort
-
-		return fmt.Errorf("comms: failed to establish %s:%d: %w", addr, port, err)
+		return fmt.Errorf("comms: failed to get interface IP: %w", err)
 	}
 
-	cfg.replaceNetwork(rt, newSender, newReceiver, newRTCPSender, newLocalIP)
+	oldMPC := cfg.McastPorts[0]
+
+	// Open new raw sockets for the destination. Keep variables typed as
+	// *net.UDPConn so nil comparisons work correctly.
+	var sendConn, rtcpConn, recvConn *net.UDPConn
+
+	if oldMPC.Send {
+		dst := &net.UDPAddr{IP: net.ParseIP(addr), Port: port}
+		src := &net.UDPAddr{IP: net.ParseIP(localIP), Port: 0}
+
+		sendConn, err = net.DialUDP("udp4", src, dst)
+		if err != nil {
+			return fmt.Errorf("comms: dial RTP sender %s:%d: %w", addr, port, err)
+		}
+
+		rtcpDst := &net.UDPAddr{IP: net.ParseIP(addr), Port: port + 1}
+		rtcpSrc := &net.UDPAddr{IP: net.ParseIP(localIP), Port: 0}
+
+		rtcpConn, err = net.DialUDP("udp4", rtcpSrc, rtcpDst)
+		if err != nil {
+			_ = sendConn.Close()
+
+			return fmt.Errorf("comms: dial RTCP sender %s:%d: %w", addr, port+1, err)
+		}
+	}
+
+	if oldMPC.Receive {
+		recvConn, err = listenRTPReceiver(&net.UDPAddr{IP: net.IPv4zero, Port: port})
+		if err != nil {
+			if sendConn != nil {
+				_ = sendConn.Close()
+				_ = rtcpConn.Close()
+			}
+
+			return fmt.Errorf("comms: listen on port %d: %w", port, err)
+		}
+
+		if setErr := recvConn.SetReadBuffer(65535); setErr != nil {
+			_ = recvConn.Close()
+
+			if sendConn != nil {
+				_ = sendConn.Close()
+				_ = rtcpConn.Close()
+			}
+
+			return fmt.Errorf("comms: set read buffer: %w", setErr)
+		}
+
+		if joinErr := joinMulticastGroup(ifi, recvConn, net.ParseIP(addr)); joinErr != nil {
+			_ = recvConn.Close()
+
+			if sendConn != nil {
+				_ = sendConn.Close()
+				_ = rtcpConn.Close()
+			}
+
+			return joinErr
+		}
+	}
+
+	// Swap the raw connections into the live swappable wrappers. Interface
+	// conversions are only done when the connection is non-nil so we never
+	// pass a typed-nil PacketWriter/PacketReader (which would not compare == nil).
+	var newSend, newRTCP PacketWriter
+	var newRecv PacketReader
+
+	if sendConn != nil {
+		newSend = sendConn
+		newRTCP = rtcpConn
+	}
+
+	if recvConn != nil {
+		newRecv = recvConn
+	}
+
+	cfg.replaceNetwork(rt, 0, newSend, newRTCP, newRecv, localIP)
+
+	cfg.McastPorts[0] = McastPortConfig{
+		Address: addr,
+		Port:    port,
+		Send:    oldMPC.Send,
+		Receive: oldMPC.Receive,
+	}
 
 	cfg.Log.Info().Msgf("comms: multicast endpoint updated %s:%d → %s:%d",
-		oldAddr, oldPort, addr, port)
+		oldMPC.Address, oldMPC.Port, addr, port)
 
 	return nil
 }
 
 // ─── Start ────────────────────────────────────────────────────────────────────
+
+// EnableTalkGroupSend enables or disables RTP transmission on the port at the given
+// zero-based index. It is safe to call concurrently with the send path.
+// Returns an error when comms is not running or portIdx is out of range.
+func EnableTalkGroupSend(portIdx int, enabled bool) error {
+	cfg := activeConfig.Load()
+	if cfg == nil || cfg.runtime == nil {
+		return errors.New("comms: subsystem is not running")
+	}
+
+	rt := cfg.runtime
+	if portIdx < 0 || portIdx >= len(rt.ports) {
+		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(rt.ports))
+	}
+
+	rt.ports[portIdx].sendEnabled.Store(enabled)
+
+	return nil
+}
+
+// EnableTalkGroupReceive enables or disables RTP reception on the port at the given
+// zero-based index. It is safe to call concurrently with the receive path.
+// Returns an error when comms is not running or portIdx is out of range.
+func EnableTalkGroupReceive(portIdx int, enabled bool) error {
+	cfg := activeConfig.Load()
+	if cfg == nil || cfg.runtime == nil {
+		return errors.New("comms: subsystem is not running")
+	}
+
+	rt := cfg.runtime
+	if portIdx < 0 || portIdx >= len(rt.ports) {
+		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(rt.ports))
+	}
+
+	rt.ports[portIdx].receiveEnabled.Store(enabled)
+
+	return nil
+}
+
+// GetTalkGroupStates returns a snapshot of the runtime direction-toggle state for
+// all configured ports. Returns an error when comms is not running.
+func GetTalkGroupStates() ([]McastPortState, error) {
+	cfg := activeConfig.Load()
+	if cfg == nil || cfg.runtime == nil {
+		return nil, errors.New("comms: subsystem is not running")
+	}
+
+	rt := cfg.runtime
+	states := make([]McastPortState, len(rt.ports))
+
+	for i, pc := range rt.ports {
+		states[i] = McastPortState{
+			Address:        pc.cfg.Address,
+			Port:           pc.cfg.Port,
+			SendEnabled:    pc.sendEnabled.Load(),
+			ReceiveEnabled: pc.receiveEnabled.Load(),
+		}
+	}
+
+	return states, nil
+}
 
 // Start initializes all comms subsystems and blocks until an OS interrupt is
 // received. Returns immediately if Enable is false.
@@ -628,8 +954,8 @@ func (cfg *CommsConfig) Start() {
 	}
 
 	cfg.Log.Info().Msgf(
-		"comms: starting iface=%s mcast=%s:%d key=%s debug=%t trace=%t loopback=%t device=%s ctrl=%s hint=%s",
-		cfg.Iface, cfg.McastAddr, cfg.McastPort, cfg.CommKey,
+		"comms: starting iface=%s ports=%d key=%s debug=%t trace=%t loopback=%t device=%s ctrl=%s hint=%s",
+		cfg.Iface, len(cfg.McastPorts), cfg.CommKey,
 		cfg.Debug, cfg.Trace, cfg.Loopback, cfg.NanoPTTDeviceName, cfg.ControlSource, cfg.BluetoothAudioDeviceHint,
 	)
 
@@ -639,14 +965,7 @@ func (cfg *CommsConfig) Start() {
 		cfg.Log.Fatal().Err(err).Msg("comms: failed to build Opus codec")
 	}
 
-	// ── playback buffer + beep tones ───────────────────────────────────────
-	playbackDepth := 50
-	if cfg.PlaybackDepth > 0 {
-		playbackDepth = cfg.PlaybackDepth
-	}
-
-	playbackBuf := make(chan []float32, playbackDepth)
-
+	// ── beep tones ─────────────────────────────────────────────────────────
 	beepStart := make([]float32, frameSize)
 	beepStop := make([]float32, frameSize)
 
@@ -656,46 +975,35 @@ func (cfg *CommsConfig) Start() {
 	}
 
 	// ── network ────────────────────────────────────────────────────────────
-	rawSender, rawReceiver, rawRTCPSender, localIP, netErr := cfg.buildNetwork()
+	ports, localIP, netErr := cfg.buildNetwork()
 	if netErr != nil {
 		cfg.Log.Fatal().Err(netErr).Msg("comms: failed to set up network")
-	}
-
-	// ── swappable transports ────────────────────────────────────────────────
-	// Wrap the raw connections before handing them to the RTP session so that
-	// UpdateMulticastEndpoint can swap the underlying sockets without leaving
-	// the pion interceptor chain holding a stale (closed) connection.
-	sender := newSwappableSender(rawSender)
-	rtcpSender := newSwappableSender(rawRTCPSender)
-
-	// ── RTP session (pion) ─────────────────────────────────────────────────
-	rtpID := cfg.RtpID
-	if rtpID == "" {
-		rtpID = localIP
-	}
-
-	sess, sessErr := newPionRTPSession(ssrcFromID(rtpID), sender, rtcpSender, cfg.Log)
-	if sessErr != nil {
-		cfg.Log.Fatal().Err(sessErr).Msg("comms: failed to create RTP session")
 	}
 
 	// ── assemble runtime ───────────────────────────────────────────────────
 	rt := &CommsRuntime{
 		encoder:         enc,
 		decoder:         dec,
-		sender:          sender,
-		rtcpSender:      rtcpSender,
-		receiver:        newSwappableReceiver(rawReceiver),
-		rtpSess:         sess,
-		playbackBuffer:  playbackBuf,
+		ports:           ports,
 		beepBufferStart: beepStart,
 		beepBufferStop:  beepStop,
 	}
 
 	rt.localIP.Store(localIP)
 
-	defer rt.receiver.Close()
-	defer sess.close() //nolint:errcheck
+	defer func() {
+		for _, pc := range rt.ports {
+			if pc.receiver != nil {
+				_ = pc.receiver.Close()
+			}
+
+			if pc.rtpSess != nil {
+				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
+					_ = s.close()
+				}
+			}
+		}
+	}()
 
 	cfg.runtime = rt
 	activeConfig.Store(cfg)
@@ -720,7 +1028,7 @@ func (cfg *CommsConfig) Start() {
 		os.Exit(0)
 	}()
 
-	playbackStream, broadcastStream, inDev, audioErr := cfg.buildAudio(rt)
+	broadcastStream, inDev, audioErr := cfg.buildAudio(rt)
 	if audioErr != nil {
 		cfg.Log.Fatal().Err(audioErr).Msg("comms: failed to build audio streams")
 	}
@@ -728,13 +1036,20 @@ func (cfg *CommsConfig) Start() {
 	rt.broadcastStream = broadcastStream
 	rt.reopenBroadcast = func() error { return cfg.reopenBroadcastStream(rt, inDev) }
 
-	if err := playbackStream.Start(); err != nil {
-		cfg.Log.Fatal().Err(err).Msg("comms: failed to start playback stream")
+	for _, pc := range rt.ports {
+		if pc.playbackStream != nil {
+			if startErr := pc.playbackStream.Start(); startErr != nil {
+				cfg.Log.Fatal().Err(startErr).Msg("comms: failed to start playback stream")
+			}
+
+			defer func(s AudioStream) {
+				_ = s.Stop()
+				_ = s.Close()
+			}(pc.playbackStream)
+		}
 	}
 
-	defer func() { _ = playbackStream.Stop() }()
-	defer playbackStream.Close() //nolint:errcheck
-	defer broadcastStream.Close()
+	defer broadcastStream.Close() //nolint:errcheck
 
 	// ── event source ───────────────────────────────────────────────────────
 	src, srcErr := cfg.buildEventSource()

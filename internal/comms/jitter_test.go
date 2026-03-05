@@ -380,3 +380,82 @@ func TestJitterBuffer_FullBufferRejectsNewSequence(t *testing.T) {
 		t.Errorf("count should be 4 after overwrite, got %d", count)
 	}
 }
+
+// ─── reset() tests ───────────────────────────────────────────────────────────
+
+// TestJitterBuffer_Reset_ClearsState verifies that reset() zeros all internal
+// state so the jitter buffer behaves as if freshly constructed.
+func TestJitterBuffer_Reset_ClearsState(t *testing.T) {
+	jb := newRTPJitterBuffer(1, 10)
+
+	// Advance to started state.
+	jb.push(0, []byte{0})
+	jb.popReady() // started=true, expected=1
+
+	jb.reset()
+
+	// After reset: no frame should be ready regardless of sequence.
+	jb.mu.Lock()
+	count := jb.count
+	init := jb.init
+	started := jb.started
+	jb.mu.Unlock()
+
+	if count != 0 {
+		t.Errorf("count after reset: got %d, want 0", count)
+	}
+
+	if init {
+		t.Error("init should be false after reset")
+	}
+
+	if started {
+		t.Error("started should be false after reset")
+	}
+
+	// A push starting at any sequence number must be accepted as a fresh stream.
+	if !jb.push(99, []byte{0x99}) {
+		t.Error("push to any seq should succeed on a reset buffer")
+	}
+
+	// One push satisfies prebuffer=1; frame must be ready.
+	_, ready, _ := jb.popReady()
+	if !ready {
+		t.Error("expected ready after first push on reset buffer with prebuffer=1")
+	}
+}
+
+// TestJitterBuffer_Reset_PrebufferRestartsAfterReset verifies that after reset
+// the prebuffer threshold must be satisfied again before popReady returns frames.
+func TestJitterBuffer_Reset_PrebufferRestartsAfterReset(t *testing.T) {
+	jb := newRTPJitterBuffer(3, 10) // need 3 pushes before started
+
+	// Satisfy prebuffer and advance to started.
+	for i := uint16(0); i < 3; i++ {
+		jb.push(i, []byte{byte(i)})
+	}
+
+	_, ready, _ := jb.popReady()
+	if !ready {
+		t.Fatal("expected started after 3 pushes with prebuffer=3")
+	}
+
+	jb.reset()
+
+	// After reset, a single push must NOT trigger delivery.
+	jb.push(50, []byte{50})
+
+	_, ready, _ = jb.popReady()
+	if ready {
+		t.Error("expected not-ready after only 1 push on reset buffer with prebuffer=3")
+	}
+
+	// Two more pushes reach the threshold; delivery must resume.
+	jb.push(51, []byte{51})
+	jb.push(52, []byte{52})
+
+	_, ready, _ = jb.popReady()
+	if !ready {
+		t.Error("expected ready after 3 pushes on reset buffer")
+	}
+}

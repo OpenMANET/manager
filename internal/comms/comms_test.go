@@ -35,11 +35,16 @@ func makeRTPBytes(t *testing.T, _ uint16) []byte {
 
 func TestReceiveLoop_ExitsOnContextCancel(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	reader := newMockReader()
+	pc := &portChannel{
+		cfg:      McastPortConfig{Send: true, Receive: true},
+		receiver: newSwappableReceiver(newMockReader()),
+	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+	pc.playbackBuffer = make(chan []float32, 8)
 	rt := &CommsRuntime{
-		playbackBuffer: make(chan []float32, 8),
-		decoder:        &mockDecoder{},
-		receiver:       newSwappableReceiver(reader),
+		ports:   []*portChannel{pc},
+		decoder: &mockDecoder{},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -49,7 +54,7 @@ func TestReceiveLoop_ExitsOnContextCancel(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		cfg.receiveLoop(ctx, rt)
+		cfg.receiveLoop(ctx, pc, rt)
 	}()
 
 	select {
@@ -70,10 +75,16 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 	}
 
 	reader := newMockReader(pkts...)
+	pc := &portChannel{
+		cfg:      McastPortConfig{Send: true, Receive: true},
+		receiver: newSwappableReceiver(reader),
+	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+	pc.playbackBuffer = make(chan []float32, 32)
 	rt := &CommsRuntime{
-		playbackBuffer: make(chan []float32, 32),
-		decoder:        &mockDecoder{returnN: int(rtpFrameSamples)},
-		receiver:       newSwappableReceiver(reader),
+		ports:   []*portChannel{pc},
+		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -81,7 +92,7 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		cfg.receiveLoop(ctx, rt)
+		cfg.receiveLoop(ctx, pc, rt)
 	}()
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -94,7 +105,7 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 	}
 
 	cancel()
-	rt.receiver.Close() // unblocks ReadFromUDP in mockReader
+	pc.receiver.Close() // unblocks ReadFromUDP in mockReader
 
 	select {
 	case <-done:
@@ -103,14 +114,24 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 	}
 }
 
-func TestReceiveLoop_DiscardsDuringBroadcast(t *testing.T) {
+// TestPlayoutLoop_SuppressedDuringBroadcastOnSendPort verifies that the playout
+// loop (spawned by receiveLoop) suppresses output while broadcasting on a
+// send-capable port. Receive-only ports are not suppressed; that behaviour is
+// covered by TestPlayoutLoop_ReceiveOnlyPortNotSuppressedDuringBroadcast.
+func TestPlayoutLoop_SuppressedDuringBroadcastOnSendPort(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
 	raw := makeRTPBytes(t, 0)
 	reader := newMockReader(mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
+	pc := &portChannel{
+		cfg:      McastPortConfig{Send: true, Receive: true},
+		receiver: newSwappableReceiver(reader),
+	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+	pc.playbackBuffer = make(chan []float32, 8)
 	rt := &CommsRuntime{
-		playbackBuffer: make(chan []float32, 8),
-		decoder:        &mockDecoder{},
-		receiver:       newSwappableReceiver(reader),
+		ports:   []*portChannel{pc},
+		decoder: &mockDecoder{},
 	}
 	rt.broadcasting.Store(true)
 
@@ -120,12 +141,12 @@ func TestReceiveLoop_DiscardsDuringBroadcast(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		cfg.receiveLoop(ctx, rt)
+		cfg.receiveLoop(ctx, pc, rt)
 	}()
 
 	time.Sleep(50 * time.Millisecond)
 	cancel()
-	rt.receiver.Close() // unblocks ReadFromUDP in mockReader
+	pc.receiver.Close() // unblocks ReadFromUDP in mockReader
 
 	select {
 	case <-done:
@@ -133,17 +154,19 @@ func TestReceiveLoop_DiscardsDuringBroadcast(t *testing.T) {
 		t.Fatal("receiveLoop did not exit")
 	}
 
-	if len(rt.playbackBuffer) != 0 {
-		t.Errorf("playback buffer should be empty during broadcast; got %d frames", len(rt.playbackBuffer))
+	if len(pc.playbackBuffer) != 0 {
+		t.Errorf("playback buffer should be empty during broadcast; got %d frames", len(pc.playbackBuffer))
 	}
 }
 
 func TestDecodeAndQueue(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	buf := make(chan []float32, 4)
+	pc := &portChannel{}
+	pc.playbackBuffer = buf
 	dec := &mockDecoder{fillValue: 42, returnN: 4}
-	rt := &CommsRuntime{playbackBuffer: buf, decoder: dec}
-	cfg.decodeAndQueue(rt, []byte{1, 2, 3})
+	rt := &CommsRuntime{decoder: dec}
+	cfg.decodeAndQueue(pc, rt, []byte{1, 2, 3})
 
 	if len(buf) != 1 {
 		t.Fatalf("expected 1 frame; got %d", len(buf))
@@ -172,9 +195,11 @@ func TestDecodeAndQueue(t *testing.T) {
 func TestDecodeAndQueuePLC(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	buf := make(chan []float32, 4)
+	pc := &portChannel{}
+	pc.playbackBuffer = buf
 	dec := &mockDecoder{fillValue: 10, returnN: 4}
-	rt := &CommsRuntime{playbackBuffer: buf, decoder: dec}
-	cfg.decodeAndQueuePLC(rt)
+	rt := &CommsRuntime{decoder: dec}
+	cfg.decodeAndQueuePLC(pc, rt)
 
 	if len(buf) != 1 {
 		t.Fatalf("expected 1 PLC frame; got %d", len(buf))
@@ -189,18 +214,18 @@ func TestUpdateMulticastEndpoint_InactiveError(t *testing.T) {
 }
 
 func TestNewComms_Defaults(t *testing.T) {
-	// NewComms is a copy constructor; defaults (McastPort, PlaybackDepth, etc.)
+	// NewComms is a copy constructor; defaults (McastPorts, PlaybackDepth, etc.)
 	// are applied lazily in Start(). Verify NewComms returns a non-nil value and
 	// that the supplied log is preserved.
 	log := zerolog.Nop()
 
-	cfg := NewComms(CommsConfig{Log: log, McastPort: 5004})
+	cfg := NewComms(CommsConfig{Log: log, McastPorts: []McastPortConfig{{Port: 5004, Send: true, Receive: true}}})
 	if cfg == nil {
 		t.Fatal("NewComms returned nil")
 	}
 
-	if cfg.McastPort != 5004 {
-		t.Errorf("McastPort: got %d, want 5004", cfg.McastPort)
+	if cfg.McastPorts[0].Port != 5004 {
+		t.Errorf("McastPorts[0].Port: got %d, want 5004", cfg.McastPorts[0].Port)
 	}
 }
 
@@ -217,12 +242,12 @@ func TestApplyDefaults_AllEmptyGetsDefaults(t *testing.T) {
 		t.Errorf("Iface: got %q, want %q", cfg.Iface, defaultIface)
 	}
 
-	if cfg.McastAddr == "" {
-		t.Error("McastAddr should be non-empty after applyDefaults")
+	if cfg.McastPorts[0].Address == "" {
+		t.Error("McastPorts[0].Address should be non-empty after applyDefaults")
 	}
 
-	if cfg.McastPort != config.DefaultTalkGroupPort {
-		t.Errorf("McastPort: got %d, want %d", cfg.McastPort, config.DefaultTalkGroupPort)
+	if cfg.McastPorts[0].Port != config.DefaultTalkGroupPort {
+		t.Errorf("McastPorts[0].Port: got %d, want %d", cfg.McastPorts[0].Port, config.DefaultTalkGroupPort)
 	}
 
 	if cfg.CommKey != defaultKey {
@@ -240,9 +265,13 @@ func TestApplyDefaults_AllEmptyGetsDefaults(t *testing.T) {
 
 func TestApplyDefaults_ExistingValuesPreserved(t *testing.T) {
 	cfg := &CommsConfig{
-		Iface:             "eth0",
-		McastAddr:         "239.1.2.3",
-		McastPort:         9999,
+		Iface: "eth0",
+		McastPorts: []McastPortConfig{{
+			Address: "239.1.2.3",
+			Port:    9999,
+			Send:    true,
+			Receive: true,
+		}},
 		CommKey:           "42",
 		NanoPTTDevicePath: "/dev/custom/*",
 		NanoPTTDeviceName: "MyDevice",
@@ -254,12 +283,12 @@ func TestApplyDefaults_ExistingValuesPreserved(t *testing.T) {
 		t.Errorf("Iface overwritten; got %q", cfg.Iface)
 	}
 
-	if cfg.McastAddr != "239.1.2.3" {
-		t.Errorf("McastAddr overwritten; got %q", cfg.McastAddr)
+	if cfg.McastPorts[0].Address != "239.1.2.3" {
+		t.Errorf("McastPorts[0].Address overwritten; got %q", cfg.McastPorts[0].Address)
 	}
 
-	if cfg.McastPort != 9999 {
-		t.Errorf("McastPort overwritten; got %d", cfg.McastPort)
+	if cfg.McastPorts[0].Port != 9999 {
+		t.Errorf("McastPorts[0].Port overwritten; got %d", cfg.McastPorts[0].Port)
 	}
 
 	if cfg.CommKey != "42" {
@@ -330,14 +359,17 @@ func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {
 	oldReceiver := &trackingReader{}
 	oldRTCP := &mockClosingWriter{}
 
+	pc := &portChannel{
+		sender:   newSwappableSender(oldSender),
+		rtcpSend: newSwappableSender(oldRTCP),
+		receiver: newSwappableReceiver(oldReceiver),
+	}
 	rt := &CommsRuntime{
-		sender:     newSwappableSender(oldSender),
-		rtcpSender: newSwappableSender(oldRTCP),
-		receiver:   newSwappableReceiver(oldReceiver),
+		ports: []*portChannel{pc},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	cfg.replaceNetwork(rt, &mockWriter{}, newMockReader(), &mockWriter{}, "10.0.0.1")
+	cfg.replaceNetwork(rt, 0, &mockWriter{}, &mockWriter{}, newMockReader(), "10.0.0.1")
 
 	if !oldSender.closeCalled {
 		t.Error("old sender Close() should have been called")
@@ -353,14 +385,17 @@ func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {
 }
 
 func TestReplaceNetwork_StoresNewLocalIP(t *testing.T) {
+	pc := &portChannel{
+		sender:   newSwappableSender(&mockWriter{}),
+		rtcpSend: newSwappableSender(&mockWriter{}),
+		receiver: newSwappableReceiver(newMockReader()),
+	}
 	rt := &CommsRuntime{
-		sender:     newSwappableSender(&mockWriter{}),
-		rtcpSender: newSwappableSender(&mockWriter{}),
-		receiver:   newSwappableReceiver(newMockReader()),
+		ports: []*portChannel{pc},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	cfg.replaceNetwork(rt, &mockWriter{}, newMockReader(), &mockWriter{}, "10.0.0.2")
+	cfg.replaceNetwork(rt, 0, &mockWriter{}, &mockWriter{}, newMockReader(), "10.0.0.2")
 
 	v, ok := rt.localIP.Load().(string)
 	if !ok || v != "10.0.0.2" {
@@ -371,16 +406,19 @@ func TestReplaceNetwork_StoresNewLocalIP(t *testing.T) {
 func TestReplaceNetwork_NewWriterReceivesSubsequentWrites(t *testing.T) {
 	newSender := &mockWriter{}
 
+	pc := &portChannel{
+		sender:   newSwappableSender(&mockWriter{}),
+		rtcpSend: newSwappableSender(&mockWriter{}),
+		receiver: newSwappableReceiver(newMockReader()),
+	}
 	rt := &CommsRuntime{
-		sender:     newSwappableSender(&mockWriter{}),
-		rtcpSender: newSwappableSender(&mockWriter{}),
-		receiver:   newSwappableReceiver(newMockReader()),
+		ports: []*portChannel{pc},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	cfg.replaceNetwork(rt, newSender, newMockReader(), &mockWriter{}, "10.0.0.3")
+	cfg.replaceNetwork(rt, 0, newSender, &mockWriter{}, newMockReader(), "10.0.0.3")
 
-	if _, err := rt.sender.Write([]byte{1, 2, 3}); err != nil {
+	if _, err := pc.sender.Write([]byte{1, 2, 3}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -395,10 +433,19 @@ func TestReplaceNetwork_NewWriterReceivesSubsequentWrites(t *testing.T) {
 func setupActiveConfig(t *testing.T) {
 	t.Helper()
 
-	cfg := &CommsConfig{Log: zerolog.Nop()}
-	cfg.runtime = &CommsRuntime{
+	pc := &portChannel{
+		cfg:      McastPortConfig{Address: "239.0.0.1", Port: 5004, Send: true, Receive: true},
 		sender:   newSwappableSender(&mockWriter{}),
 		receiver: newSwappableReceiver(newMockReader()),
+	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+	cfg := &CommsConfig{
+		Log:        zerolog.Nop(),
+		McastPorts: []McastPortConfig{pc.cfg},
+	}
+	cfg.runtime = &CommsRuntime{
+		ports: []*portChannel{pc},
 	}
 
 	activeConfig.Store(cfg)
@@ -460,12 +507,16 @@ func TestGetActiveMulticastAddr_ReturnsConfiguredAddr(t *testing.T) {
 	const want = "239.1.2.3"
 
 	cfg := &CommsConfig{
-		Log:       zerolog.Nop(),
-		McastAddr: want,
+		Log:        zerolog.Nop(),
+		McastPorts: []McastPortConfig{{Address: want, Port: 5004, Send: true, Receive: true}},
 	}
-	cfg.runtime = &CommsRuntime{
+	pc := &portChannel{
+		cfg:      cfg.McastPorts[0],
 		sender:   newSwappableSender(&mockWriter{}),
 		receiver: newSwappableReceiver(newMockReader()),
+	}
+	cfg.runtime = &CommsRuntime{
+		ports: []*portChannel{pc},
 	}
 
 	activeConfig.Store(cfg)
@@ -483,12 +534,16 @@ func TestGetActiveMulticastAddr_ReflectsUpdate(t *testing.T) {
 	)
 
 	cfg := &CommsConfig{
-		Log:       zerolog.Nop(),
-		McastAddr: initial,
+		Log:        zerolog.Nop(),
+		McastPorts: []McastPortConfig{{Address: initial, Port: 5004, Send: true, Receive: true}},
 	}
-	cfg.runtime = &CommsRuntime{
+	pc := &portChannel{
+		cfg:      cfg.McastPorts[0],
 		sender:   newSwappableSender(&mockWriter{}),
 		receiver: newSwappableReceiver(newMockReader()),
+	}
+	cfg.runtime = &CommsRuntime{
+		ports: []*portChannel{pc},
 	}
 
 	activeConfig.Store(cfg)
@@ -498,7 +553,7 @@ func TestGetActiveMulticastAddr_ReflectsUpdate(t *testing.T) {
 		t.Errorf("before update: GetActiveMulticastAddr() = %q, want %q", got, initial)
 	}
 
-	cfg.McastAddr = updated
+	cfg.McastPorts[0] = McastPortConfig{Address: updated, Port: 5004, Send: true, Receive: true}
 
 	if got := GetActiveMulticastAddr(); got != updated {
 		t.Errorf("after update: GetActiveMulticastAddr() = %q, want %q", got, updated)
@@ -506,6 +561,70 @@ func TestGetActiveMulticastAddr_ReflectsUpdate(t *testing.T) {
 }
 
 // ─── listenRTPReceiver (SO_REUSEPORT) tests ───────────────────────────────────
+
+// ─── GetActiveMulticastPort tests ───────────────────────────────────────────
+
+func TestGetActiveMulticastPort_NotStarted(t *testing.T) {
+	activeConfig.Store(nil)
+
+	if got := GetActiveMulticastPort(); got != 0 {
+		t.Errorf("expected 0 when comms not started, got %d", got)
+	}
+}
+
+func TestGetActiveMulticastPort_ReturnsConfiguredPort(t *testing.T) {
+	const want = 5004
+
+	cfg := &CommsConfig{
+		Log:        zerolog.Nop(),
+		McastPorts: []McastPortConfig{{Address: "239.1.2.3", Port: want, Send: true, Receive: true}},
+	}
+	pc := &portChannel{
+		cfg:      cfg.McastPorts[0],
+		sender:   newSwappableSender(&mockWriter{}),
+		receiver: newSwappableReceiver(newMockReader()),
+	}
+	cfg.runtime = &CommsRuntime{
+		ports: []*portChannel{pc},
+	}
+
+	activeConfig.Store(cfg)
+	t.Cleanup(func() { activeConfig.Store(nil) })
+
+	if got := GetActiveMulticastPort(); got != want {
+		t.Errorf("GetActiveMulticastPort() = %d, want %d", got, want)
+	}
+}
+
+// ─── UpdateMulticastEndpoint multi-port tests ─────────────────────────────────
+
+func TestUpdateMulticastEndpoint_MultiplePortsError(t *testing.T) {
+	pc0 := &portChannel{
+		cfg:      McastPortConfig{Address: "239.0.0.1", Port: 5004, Send: true, Receive: true},
+		sender:   newSwappableSender(&mockWriter{}),
+		receiver: newSwappableReceiver(newMockReader()),
+	}
+	pc1 := &portChannel{
+		cfg:      McastPortConfig{Address: "239.0.0.2", Port: 5006, Send: true, Receive: true},
+		sender:   newSwappableSender(&mockWriter{}),
+		receiver: newSwappableReceiver(newMockReader()),
+	}
+
+	cfg := &CommsConfig{
+		Log:        zerolog.Nop(),
+		McastPorts: []McastPortConfig{pc0.cfg, pc1.cfg},
+	}
+	cfg.runtime = &CommsRuntime{
+		ports: []*portChannel{pc0, pc1},
+	}
+
+	activeConfig.Store(cfg)
+	t.Cleanup(func() { activeConfig.Store(nil) })
+
+	if err := UpdateMulticastEndpoint("239.1.2.3", 5004); err == nil {
+		t.Error("expected error when more than one McastPort is configured")
+	}
+}
 
 // TestListenRTPReceiver_ReusePort verifies that two sockets can be bound to the
 // same port simultaneously — the invariant that makes UpdateMulticastEndpoint
