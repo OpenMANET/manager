@@ -197,7 +197,8 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 		ports:   []*portChannel{pc},
 		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
 	}
-	rt.localIP.Store(localIP.String())
+	s := localIP.String()
+	rt.localIP.Store(&s)
 
 	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: false}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -428,6 +429,7 @@ func TestLogPlaybackDrop_FirstDropAlwaysLogs(t *testing.T) {
 	// Verify the counter increments on every call and the function
 	// does not panic with a nop logger.
 	cfg := &CommsConfig{Log: zerolog.Nop()}
+
 	var counter atomic.Int64
 
 	logPlaybackDrop(&counter, cfg, "test drop")
@@ -439,6 +441,7 @@ func TestLogPlaybackDrop_FirstDropAlwaysLogs(t *testing.T) {
 
 func TestLogPlaybackDrop_CounterIncrements(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
+
 	var counter atomic.Int64
 
 	for i := 0; i < 150; i++ {
@@ -480,6 +483,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 	// reader1 holds a burst of packets that will fill the jitter buffer, then
 	// it will block until explicitly closed (simulating the old socket).
 	var pkts1 []mockPacket
+
 	for i := 0; i < jitterPrebufferPackets+2; i++ {
 		raw := makeRTPBytes(t, uint16(i))
 		pkts1 = append(pkts1, mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
@@ -489,6 +493,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 
 	// reader2 holds fresh packets that arrive after the swap.
 	var pkts2 []mockPacket
+
 	for i := 0; i < jitterPrebufferPackets+2; i++ {
 		raw := makeRTPBytes(t, uint16(i))
 		pkts2 = append(pkts2, mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
@@ -514,6 +519,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 
 	go func() {
 		defer close(done)
+
 		cfg.receiveLoop(ctx, pc, rt)
 	}()
 
@@ -523,6 +529,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 		if reader1.remaining() == 0 {
 			break
 		}
+
 		time.Sleep(5 * time.Millisecond)
 	}
 
@@ -547,6 +554,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 		if reader2.remaining() == 0 {
 			break
 		}
+
 		time.Sleep(5 * time.Millisecond)
 	}
 

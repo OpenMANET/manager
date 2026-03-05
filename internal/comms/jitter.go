@@ -8,6 +8,11 @@ import (
 const (
 	jitterPrebufferPackets = 3
 	jitterMaxDepth         = 24
+
+	// maxOpusPayloadSize is the RFC 6716 §3.2.1 maximum encoded frame size.
+	// Payload pool buffers are sized to this capacity to eliminate per-packet
+	// heap allocations in the jitter buffer hot path.
+	maxOpusPayloadSize = 1275
 )
 
 // jitterSlot is one entry in the fixed-size ring buffer.
@@ -23,22 +28,31 @@ type jitterSlot struct {
 // Internally, frames are stored in a fixed-size circular array indexed by
 // (seq % maxDepth), eliminating all map allocations on the hot path.
 type rtpJitterBuffer struct {
-	lastPush  time.Time
-	slots     [jitterMaxDepth]jitterSlot
-	count     int // number of valid slots
-	prebuffer int
-	maxDepth  int
-	mu        sync.Mutex
-	expected  uint16
-	init      bool
-	started   bool
+	lastPush    time.Time
+	payloadPool sync.Pool
+	slots       [jitterMaxDepth]jitterSlot
+	count       int // number of valid slots
+	prebuffer   int
+	maxDepth    int
+	mu          sync.Mutex
+	expected    uint16
+	init        bool
+	started     bool
 }
 
 func newRTPJitterBuffer(prebuffer, maxDepth int) *rtpJitterBuffer {
-	return &rtpJitterBuffer{
+	jb := &rtpJitterBuffer{
 		prebuffer: prebuffer,
 		maxDepth:  maxDepth,
 	}
+
+	jb.payloadPool.New = func() any {
+		s := make([]byte, maxOpusPayloadSize)
+
+		return &s
+	}
+
+	return jb
 }
 
 // seqLess compares RTP sequence numbers with uint16 wrap-around awareness.
@@ -79,16 +93,18 @@ func (jb *rtpJitterBuffer) pushLocked(seq uint16, payload []byte) bool {
 		return false
 	}
 
-	// Overwrite a stale slot.
+	// Overwrite a stale slot, returning its buffer to the pool first.
 	if slot.valid && slot.seq != seq {
+		jb.releasePayload(slot.payload)
 		jb.count--
 	}
 
-	copied := make([]byte, len(payload))
-	copy(copied, payload)
+	bufPtr := jb.payloadPool.Get().(*[]byte) //nolint:forcetypeassert
+	buf := (*bufPtr)[:len(payload)]
+	copy(buf, payload)
 
 	slot.seq = seq
-	slot.payload = copied
+	slot.payload = buf
 	slot.valid = true
 	jb.count++
 	jb.lastPush = time.Now()
@@ -178,6 +194,7 @@ func (jb *rtpJitterBuffer) advancePastLocked() {
 	slot := &jb.slots[idx]
 
 	if slot.valid && slot.seq == jb.expected {
+		jb.releasePayload(slot.payload)
 		slot.payload = nil
 		slot.valid = false
 		jb.count--
@@ -226,6 +243,10 @@ func (jb *rtpJitterBuffer) reset() {
 	defer jb.mu.Unlock()
 
 	for i := range jb.slots {
+		if jb.slots[i].valid {
+			jb.releasePayload(jb.slots[i].payload)
+		}
+
 		jb.slots[i] = jitterSlot{}
 	}
 
@@ -234,4 +255,16 @@ func (jb *rtpJitterBuffer) reset() {
 	jb.init = false
 	jb.started = false
 	jb.lastPush = time.Time{}
+}
+
+// releasePayload returns a jitter-buffer payload slice back to the pool.
+// Only pool-allocated slices (cap == maxOpusPayloadSize) are accepted;
+// anything else (test slices, nil) is silently ignored.
+func (jb *rtpJitterBuffer) releasePayload(p []byte) {
+	if cap(p) != maxOpusPayloadSize {
+		return
+	}
+
+	full := p[:cap(p)]
+	jb.payloadPool.Put(&full)
 }

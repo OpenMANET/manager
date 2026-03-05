@@ -114,17 +114,18 @@ type McastPortState struct {
 // runtime via EnableTalkGroupSend / EnableTalkGroupReceive without restarting any goroutine
 // or socket.
 type portChannel struct {
-	cfg            McastPortConfig
-	sendEnabled    atomic.Bool
-	receiveEnabled atomic.Bool
-	sender         *swappableSender   // nil when cfg.Send == false
-	rtcpSend       *swappableSender   // nil when cfg.Send == false
-	receiver       *swappableReceiver // nil when cfg.Receive == false
-	rtpSess        rtpSender          // nil when cfg.Send == false
-	playbackBuffer chan []float32     // allocated by buildAudio; only set when cfg.Receive == true
-	playbackStream AudioStream        // allocated by buildAudio; only set when cfg.Receive == true
-	lastRemoteRx   atomic.Int64       // UnixNano of last received remote RTP packet
-	playbackDrops  atomic.Int64       // cumulative count of dropped playback frames
+	rtpSess               rtpSender
+	playbackStream        AudioStream
+	sender                *swappableSender
+	rtcpSend              *swappableSender
+	receiver              *swappableReceiver
+	playbackBuffer        chan []float32
+	cfg                   McastPortConfig
+	playbackHighWaterMark int
+	lastRemoteRx          atomic.Int64
+	playbackDrops         atomic.Int64
+	sendEnabled           atomic.Bool
+	receiveEnabled        atomic.Bool
 }
 
 // ─── CommsRuntime ─────────────────────────────────────────────────────────────
@@ -133,7 +134,7 @@ type portChannel struct {
 // fields are interfaces so that unit tests can inject fakes without hardware.
 type CommsRuntime struct {
 	decoder         AudioDecoder
-	localIP         atomic.Value // string
+	localIP         atomic.Pointer[string]
 	encoder         AudioEncoder
 	broadcastStream AudioStream
 	ports           []*portChannel
@@ -301,9 +302,9 @@ func listenRTPReceiver(addr *net.UDPAddr) (*net.UDPConn, error) {
 // McastPortConfig entry. Directions (Send / Receive) are reflected by which
 // fields are populated: a Send=false port has nil sender/rtcpSend/rtpSess; a
 // Receive=false port has nil receiver. The atomic direction flags are
-// initialised from mpc.Send / mpc.Receive so the hot paths can read them
+// initialized from mpc.Send / mpc.Receive so the hot paths can read them
 // without locking.
-func (cfg *CommsConfig) buildSinglePortChannel(
+func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 	mpc McastPortConfig,
 	localIP string,
 	ifi *net.Interface,
@@ -352,7 +353,7 @@ func (cfg *CommsConfig) buildSinglePortChannel(
 		cfg.Log.Debug().Msgf("comms: RTP sender %s:%d  RTCP %s:%d", mpc.Address, mpc.Port, mpc.Address, mpc.Port+1)
 	}
 
-	if mpc.Receive {
+	if mpc.Receive { //nolint:nestif
 		// ── RTP receiver ────────────────────────────────────────────────
 		// SO_REUSEPORT lets UpdateMulticastEndpoint open a replacement socket
 		// on the same port while the current receiver is still running.
@@ -360,6 +361,7 @@ func (cfg *CommsConfig) buildSinglePortChannel(
 		if err != nil {
 			if pc.sender != nil {
 				_ = pc.sender.Close()
+
 				_ = pc.rtcpSend.Close()
 				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
 					_ = s.close()
@@ -374,6 +376,7 @@ func (cfg *CommsConfig) buildSinglePortChannel(
 
 			if pc.sender != nil {
 				_ = pc.sender.Close()
+
 				_ = pc.rtcpSend.Close()
 				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
 					_ = s.close()
@@ -388,6 +391,7 @@ func (cfg *CommsConfig) buildSinglePortChannel(
 
 			if pc.sender != nil {
 				_ = pc.sender.Close()
+
 				_ = pc.rtcpSend.Close()
 				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
 					_ = s.close()
@@ -500,6 +504,7 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 		}
 
 		pc.playbackBuffer = make(chan []float32, playbackDepth)
+		pc.playbackHighWaterMark = cap(pc.playbackBuffer) * 3 / 4
 
 		pcRef := pc // capture for callback closure
 
@@ -667,20 +672,18 @@ func (cfg *CommsConfig) buildEventSource() (EventSource, error) {
 
 // ─── replaceNetwork ───────────────────────────────────────────────────────────
 
-// replaceNetwork atomically swaps the packet-level I/O connections for the
-// port at index portIdx and closes the old connections. newSender,
-// newRTCPSender, or newReceiver may be nil when that direction is not
-// applicable to the port. Closing the old receiver unblocks any in-flight
-// ReadFromUDP in receiveLoop.
+// replaceNetwork atomically swaps the packet-level I/O connections for port 0
+// and closes the old connections. newSender, newRTCPSender, or newReceiver may
+// be nil when that direction is not applicable to the port. Closing the old
+// receiver unblocks any in-flight ReadFromUDP in receiveLoop.
 func (cfg *CommsConfig) replaceNetwork(
 	rt *CommsRuntime,
-	portIdx int,
 	newSender PacketWriter,
 	newRTCPSender PacketWriter,
 	newReceiver PacketReader,
 	newLocalIP string,
 ) {
-	pc := rt.ports[portIdx]
+	pc := rt.ports[0]
 
 	if pc.receiver != nil && newReceiver != nil {
 		old := pc.receiver.swap(newReceiver)
@@ -701,7 +704,7 @@ func (cfg *CommsConfig) replaceNetwork(
 		}
 	}
 
-	rt.localIP.Store(newLocalIP)
+	rt.localIP.Store(&newLocalIP)
 }
 
 // ─── UpdateMulticastEndpoint ──────────────────────────────────────────────────
@@ -737,7 +740,7 @@ func GetActiveMulticastPort() int {
 //
 // New sockets are opened before the swap, so the subsystem is never left
 // without functional sockets on error.
-func UpdateMulticastEndpoint(addr string, port int) error {
+func UpdateMulticastEndpoint(addr string, port int) error { //nolint:gocognit
 	cfg := activeConfig.Load()
 	if cfg == nil || cfg.runtime == nil {
 		return errors.New("comms: subsystem is not running")
@@ -793,7 +796,7 @@ func UpdateMulticastEndpoint(addr string, port int) error {
 		}
 	}
 
-	if oldMPC.Receive {
+	if oldMPC.Receive { //nolint:nestif
 		recvConn, err = listenRTPReceiver(&net.UDPAddr{IP: net.IPv4zero, Port: port})
 		if err != nil {
 			if sendConn != nil {
@@ -830,8 +833,10 @@ func UpdateMulticastEndpoint(addr string, port int) error {
 	// Swap the raw connections into the live swappable wrappers. Interface
 	// conversions are only done when the connection is non-nil so we never
 	// pass a typed-nil PacketWriter/PacketReader (which would not compare == nil).
-	var newSend, newRTCP PacketWriter
-	var newRecv PacketReader
+	var (
+		newSend, newRTCP PacketWriter
+		newRecv          PacketReader
+	)
 
 	if sendConn != nil {
 		newSend = sendConn
@@ -842,7 +847,7 @@ func UpdateMulticastEndpoint(addr string, port int) error {
 		newRecv = recvConn
 	}
 
-	cfg.replaceNetwork(rt, 0, newSend, newRTCP, newRecv, localIP)
+	cfg.replaceNetwork(rt, newSend, newRTCP, newRecv, localIP)
 
 	cfg.McastPorts[0] = McastPortConfig{
 		Address: addr,
@@ -989,7 +994,7 @@ func (cfg *CommsConfig) Start() {
 		beepBufferStop:  beepStop,
 	}
 
-	rt.localIP.Store(localIP)
+	rt.localIP.Store(&localIP)
 
 	defer func() {
 		for _, pc := range rt.ports {

@@ -304,8 +304,10 @@ func TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan struct{})
+
 	go func() {
 		defer close(done)
+
 		cfg.receiveLoop(ctx, pc, rt)
 	}()
 
@@ -335,11 +337,14 @@ func TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled(t *testing.T) {
 
 func TestDrainPlaybackBuffer_MultiPort(t *testing.T) {
 	pc0 := &portChannel{}
+
 	pc0.playbackBuffer = make(chan []float32, 4)
 	pc0.playbackBuffer <- []float32{1}
+
 	pc0.playbackBuffer <- []float32{2}
 
 	pc1 := &portChannel{}
+
 	pc1.playbackBuffer = make(chan []float32, 4)
 	pc1.playbackBuffer <- []float32{3}
 

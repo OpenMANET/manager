@@ -89,6 +89,7 @@ linters:
           - noctx
           - forcetypeassert
           - staticcheck
+          - unparam
         path: "_test\\.go$"
     paths:
       - third_party$

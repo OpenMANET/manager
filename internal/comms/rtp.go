@@ -19,7 +19,22 @@ const (
 	rtpClockRate       = uint32(48000)
 	rtpFrameSamples    = uint32(960) // 20 ms at 48 kHz
 	rtpMTU             = uint16(1400)
+
+	// rtpBufSize is the pool buffer capacity for RTP packet serialization.
+	// Must be >= rtpMTU + maximum RTP header size (~60 bytes for 15 CSRCs).
+	rtpBufSize = 1500
 )
+
+// rtpMarshalPool pools serialization buffers for the baseRTPWriter hot path,
+// eliminating both the pionrtp.Packet struct allocation and the Marshal()
+// output slice allocation that would otherwise occur on every RTP send.
+var rtpMarshalPool = sync.Pool{ //nolint:gochecknoglobals
+	New: func() any {
+		s := make([]byte, rtpBufSize)
+
+		return &s
+	},
+}
 
 // rtpSender is the interface the broadcast PortAudio callback uses to ship an
 // encoded Opus frame over the network. Backed by pionRTPSession in production;
@@ -118,17 +133,32 @@ func newPionRTPSession(
 		MimeType:    "audio/opus",
 	}
 
-	// baseRTPWriter marshals a pion.Packet and writes it to the UDP transport.
+	// baseRTPWriter serializes the RTP header + payload into a pooled buffer
+	// and writes it to the UDP transport. MarshalPacketTo avoids both the
+	// Packet struct allocation and the output slice allocation from Marshal().
 	baseRTPWriter := interceptor.RTPWriterFunc(
 		func(header *pionrtp.Header, payload []byte, _ interceptor.Attributes) (int, error) {
-			pkt := &pionrtp.Packet{Header: *header, Payload: payload}
+			var pkt pionrtp.Packet
 
-			data, marshalErr := pkt.Marshal()
+			pkt.Header = *header
+			pkt.Payload = payload
+
+			size := pkt.MarshalSize()
+			bufPtr := rtpMarshalPool.Get().(*[]byte) //nolint:forcetypeassert
+			buf := (*bufPtr)[:size]
+
+			n, marshalErr := pkt.MarshalTo(buf)
 			if marshalErr != nil {
-				return 0, fmt.Errorf("rtp.Packet.Marshal: %w", marshalErr)
+				rtpMarshalPool.Put(bufPtr)
+
+				return 0, fmt.Errorf("rtp.Packet.MarshalTo: %w", marshalErr)
 			}
 
-			return rtpTransport.Write(data)
+			wrote, writeErr := rtpTransport.Write(buf[:n])
+
+			rtpMarshalPool.Put(bufPtr)
+
+			return wrote, writeErr
 		},
 	)
 

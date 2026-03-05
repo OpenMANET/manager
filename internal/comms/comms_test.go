@@ -116,7 +116,7 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 
 // TestPlayoutLoop_SuppressedDuringBroadcastOnSendPort verifies that the playout
 // loop (spawned by receiveLoop) suppresses output while broadcasting on a
-// send-capable port. Receive-only ports are not suppressed; that behaviour is
+// send-capable port. Receive-only ports are not suppressed; that behavior is
 // covered by TestPlayoutLoop_ReceiveOnlyPortNotSuppressedDuringBroadcast.
 func TestPlayoutLoop_SuppressedDuringBroadcastOnSendPort(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
@@ -369,7 +369,7 @@ func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	cfg.replaceNetwork(rt, 0, &mockWriter{}, &mockWriter{}, newMockReader(), "10.0.0.1")
+	cfg.replaceNetwork(rt, &mockWriter{}, &mockWriter{}, newMockReader(), "10.0.0.1")
 
 	if !oldSender.closeCalled {
 		t.Error("old sender Close() should have been called")
@@ -395,10 +395,10 @@ func TestReplaceNetwork_StoresNewLocalIP(t *testing.T) {
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	cfg.replaceNetwork(rt, 0, &mockWriter{}, &mockWriter{}, newMockReader(), "10.0.0.2")
+	cfg.replaceNetwork(rt, &mockWriter{}, &mockWriter{}, newMockReader(), "10.0.0.2")
 
-	v, ok := rt.localIP.Load().(string)
-	if !ok || v != "10.0.0.2" {
+	v, ok := rt.localIP.Load(), rt.localIP.Load() != nil
+	if !ok || *v != "10.0.0.2" {
 		t.Errorf("localIP: got %v, want 10.0.0.2", rt.localIP.Load())
 	}
 }
@@ -416,7 +416,7 @@ func TestReplaceNetwork_NewWriterReceivesSubsequentWrites(t *testing.T) {
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	cfg.replaceNetwork(rt, 0, newSender, &mockWriter{}, newMockReader(), "10.0.0.3")
+	cfg.replaceNetwork(rt, newSender, &mockWriter{}, newMockReader(), "10.0.0.3")
 
 	if _, err := pc.sender.Write([]byte{1, 2, 3}); err != nil {
 		t.Fatal(err)
