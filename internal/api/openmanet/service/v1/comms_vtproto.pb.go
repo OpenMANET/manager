@@ -59,7 +59,7 @@ func (m *TalkGroupState) CloneVT() *TalkGroupState {
 		return (*TalkGroupState)(nil)
 	}
 	r := new(TalkGroupState)
-	r.Channel = m.Channel
+	r.Talkgroup = m.Talkgroup
 	r.Address = m.Address
 	r.Port = m.Port
 	r.SendEnabled = m.SendEnabled
@@ -133,6 +133,8 @@ func (m *SetSendTalkGroupResponse) CloneVT() *SetSendTalkGroupResponse {
 		return (*SetSendTalkGroupResponse)(nil)
 	}
 	r := new(SetSendTalkGroupResponse)
+	r.Success = m.Success
+	r.Message = m.Message
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -167,6 +169,8 @@ func (m *SetReceiveTalkGroupResponse) CloneVT() *SetReceiveTalkGroupResponse {
 		return (*SetReceiveTalkGroupResponse)(nil)
 	}
 	r := new(SetReceiveTalkGroupResponse)
+	r.Success = m.Success
+	r.Message = m.Message
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -229,7 +233,7 @@ func (this *TalkGroupState) EqualVT(that *TalkGroupState) bool {
 	} else if this == nil || that == nil {
 		return false
 	}
-	if this.Channel != that.Channel {
+	if this.Talkgroup != that.Talkgroup {
 		return false
 	}
 	if this.Address != that.Address {
@@ -323,6 +327,12 @@ func (this *SetSendTalkGroupResponse) EqualVT(that *SetSendTalkGroupResponse) bo
 	} else if this == nil || that == nil {
 		return false
 	}
+	if this.Success != that.Success {
+		return false
+	}
+	if this.Message != that.Message {
+		return false
+	}
 	return string(this.unknownFields) == string(that.unknownFields)
 }
 
@@ -359,6 +369,12 @@ func (this *SetReceiveTalkGroupResponse) EqualVT(that *SetReceiveTalkGroupRespon
 	if this == that {
 		return true
 	} else if this == nil || that == nil {
+		return false
+	}
+	if this.Success != that.Success {
+		return false
+	}
+	if this.Message != that.Message {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -712,8 +728,8 @@ func (m *TalkGroupState) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x12
 	}
-	if m.Channel != 0 {
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Channel))
+	if m.Talkgroup != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Talkgroup))
 		i--
 		dAtA[i] = 0x8
 	}
@@ -886,6 +902,23 @@ func (m *SetSendTalkGroupResponse) MarshalToSizedBufferVT(dAtA []byte) (int, err
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.Message) > 0 {
+		i -= len(m.Message)
+		copy(dAtA[i:], m.Message)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Message)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Success {
+		i--
+		if m.Success {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x8
+	}
 	return len(dAtA) - i, nil
 }
 
@@ -966,6 +999,23 @@ func (m *SetReceiveTalkGroupResponse) MarshalToSizedBufferVT(dAtA []byte) (int, 
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.Message) > 0 {
+		i -= len(m.Message)
+		copy(dAtA[i:], m.Message)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Message)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Success {
+		i--
+		if m.Success {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
@@ -1103,8 +1153,8 @@ func (m *TalkGroupState) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) 
 		i--
 		dAtA[i] = 0x12
 	}
-	if m.Channel != 0 {
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Channel))
+	if m.Talkgroup != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Talkgroup))
 		i--
 		dAtA[i] = 0x8
 	}
@@ -1277,6 +1327,23 @@ func (m *SetSendTalkGroupResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (in
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.Message) > 0 {
+		i -= len(m.Message)
+		copy(dAtA[i:], m.Message)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Message)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Success {
+		i--
+		if m.Success {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x8
+	}
 	return len(dAtA) - i, nil
 }
 
@@ -1358,6 +1425,23 @@ func (m *SetReceiveTalkGroupResponse) MarshalToSizedBufferVTStrict(dAtA []byte) 
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.Message) > 0 {
+		i -= len(m.Message)
+		copy(dAtA[i:], m.Message)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Message)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Success {
+		i--
+		if m.Success {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x8
+	}
 	return len(dAtA) - i, nil
 }
 
@@ -1393,8 +1477,8 @@ func (m *TalkGroupState) SizeVT() (n int) {
 	}
 	var l int
 	_ = l
-	if m.Channel != 0 {
-		n += 1 + protohelpers.SizeOfVarint(uint64(m.Channel))
+	if m.Talkgroup != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.Talkgroup))
 	}
 	l = len(m.Address)
 	if l > 0 {
@@ -1465,6 +1549,13 @@ func (m *SetSendTalkGroupResponse) SizeVT() (n int) {
 	}
 	var l int
 	_ = l
+	if m.Success {
+		n += 2
+	}
+	l = len(m.Message)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -1491,6 +1582,13 @@ func (m *SetReceiveTalkGroupResponse) SizeVT() (n int) {
 	}
 	var l int
 	_ = l
+	if m.Success {
+		n += 2
+	}
+	l = len(m.Message)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -1706,9 +1804,9 @@ func (m *TalkGroupState) UnmarshalVT(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Channel", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Talkgroup", wireType)
 			}
-			m.Channel = 0
+			m.Talkgroup = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -1718,7 +1816,7 @@ func (m *TalkGroupState) UnmarshalVT(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Channel |= int32(b&0x7F) << shift
+				m.Talkgroup |= int32(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -2128,6 +2226,58 @@ func (m *SetSendTalkGroupResponse) UnmarshalVT(dAtA []byte) error {
 			return fmt.Errorf("proto: SetSendTalkGroupResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Success", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Success = bool(v != 0)
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Message", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Message = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -2269,6 +2419,58 @@ func (m *SetReceiveTalkGroupResponse) UnmarshalVT(dAtA []byte) error {
 			return fmt.Errorf("proto: SetReceiveTalkGroupResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Success", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Success = bool(v != 0)
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Message", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Message = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -2502,9 +2704,9 @@ func (m *TalkGroupState) UnmarshalVTUnsafe(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Channel", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Talkgroup", wireType)
 			}
-			m.Channel = 0
+			m.Talkgroup = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -2514,7 +2716,7 @@ func (m *TalkGroupState) UnmarshalVTUnsafe(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Channel |= int32(b&0x7F) << shift
+				m.Talkgroup |= int32(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -2932,6 +3134,62 @@ func (m *SetSendTalkGroupResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 			return fmt.Errorf("proto: SetSendTalkGroupResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Success", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Success = bool(v != 0)
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Message", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.Message = stringValue
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -3073,6 +3331,62 @@ func (m *SetReceiveTalkGroupResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 			return fmt.Errorf("proto: SetReceiveTalkGroupResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Success", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Success = bool(v != 0)
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Message", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.Message = stringValue
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

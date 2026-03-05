@@ -78,3 +78,55 @@ func TestValidation_JoinTalkGroupRequest_ValidTalkgroups(t *testing.T) {
 		})
 	}
 }
+
+// ── SetSendTalkGroupRequest ───────────────────────────────────────────────────
+
+func TestValidation_SetSendTalkGroupRequest_OutOfRange(t *testing.T) {
+	v := newValidator(t)
+
+	for _, tg := range []int32{0, -1, 33, 100} {
+		tg := tg
+		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
+			err := v.Validate(&serviceproto.SetSendTalkGroupRequest{Talkgroup: tg})
+			assert.Error(t, err, "talkgroup %d is out of range [1,32] and must fail validation", tg)
+		})
+	}
+}
+
+func TestValidation_SetSendTalkGroupRequest_ValidTalkgroups(t *testing.T) {
+	v := newValidator(t)
+
+	for _, tg := range []int32{1, 16, 32} {
+		tg := tg
+		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
+			err := v.Validate(&serviceproto.SetSendTalkGroupRequest{Talkgroup: tg})
+			assert.NoError(t, err, "talkgroup %d must pass validation", tg)
+		})
+	}
+}
+
+// ── SetReceiveTalkGroupRequest ────────────────────────────────────────────────
+
+func TestValidation_SetReceiveTalkGroupRequest_OutOfRange(t *testing.T) {
+	v := newValidator(t)
+
+	for _, tg := range []int32{0, -1, 33, 100} {
+		tg := tg
+		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
+			err := v.Validate(&serviceproto.SetReceiveTalkGroupRequest{Talkgroup: tg})
+			assert.Error(t, err, "talkgroup %d is out of range [1,32] and must fail validation", tg)
+		})
+	}
+}
+
+func TestValidation_SetReceiveTalkGroupRequest_ValidTalkgroups(t *testing.T) {
+	v := newValidator(t)
+
+	for _, tg := range []int32{1, 16, 32} {
+		tg := tg
+		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
+			err := v.Validate(&serviceproto.SetReceiveTalkGroupRequest{Talkgroup: tg})
+			assert.NoError(t, err, "talkgroup %d must pass validation", tg)
+		})
+	}
+}
