@@ -22,26 +22,21 @@ const (
 )
 
 type ManagementConfig struct {
-	Log          zerolog.Logger
-	DB           *models.Queries
-	InteruptChan chan os.Signal
-
-	GPS *gpsd.GPSService
-
-	uciOpenMANETConfig *network.UCIOpenMANETConfigReader
-	uciDHCPConfig      *network.UCIDHCPConfigReader
-	uciNetworkConfig   *network.UCINetworkConfigReader
-
-	boardConfigInfo *board.Board
-	IFace           string
-	AlfredMode      string
-	BatInterface    string
-	SocketPath      string
-	WirelessConfig  *WirelessConfig
-
-	gatewayWorkerSendInterval time.Duration
-	gatewayWorkerRecvInterval time.Duration
-
+	Log                                     zerolog.Logger
+	DB                                      *models.Queries
+	InteruptChan                            chan os.Signal
+	GPS                                     *gpsd.GPSService
+	uciOpenMANETConfig                      *network.UCIOpenMANETConfigReader
+	uciDHCPConfig                           *network.UCIDHCPConfigReader
+	uciNetworkConfig                        *network.UCINetworkConfigReader
+	boardConfigInfo                         *board.Board
+	WirelessConfig                          *WirelessConfig
+	BatInterface                            string
+	AlfredMode                              string
+	SocketPath                              string
+	IFace                                   string
+	gatewayWorkerSendInterval               time.Duration
+	gatewayWorkerRecvInterval               time.Duration
 	addressReservationWorkerReserveInterval time.Duration
 	GatewayMode                             bool
 	GatewayDataType                         bool
