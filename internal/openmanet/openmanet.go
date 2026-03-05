@@ -114,16 +114,16 @@ func Start() {
 
 	// Start API Server
 	apiServer := server.APIServer{
-		Cfg:  cfg,
-		Log:  logger.GetLogger("api"),
-		DB:   db,
-		GPS:  gps,
+		Cfg: cfg,
+		Log: logger.GetLogger("api"),
+		DB:  db,
+		GPS: gps,
 	}
 
 	if manager != nil {
 		apiServer.Wifi = manager.WirelessConfig
 	}
-	
+
 	api := server.NewAPIServer(apiServer)
 
 	log.Info().Msg("OpenMANETd API Server starting on port 8087")
