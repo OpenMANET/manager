@@ -23,12 +23,13 @@ import (
 
 func Start() {
 	var (
-		ctx    = context.Background()
-		banner = figure.NewFigure("OpenMANET", "big", true)
-		c      = make(chan os.Signal, 1)
-		cfg    = config.New(nil)
-		log    = logger.InitLogging(ctx)
-		gps    *gpsd.GPSService
+		ctx     = context.Background()
+		banner  = figure.NewFigure("OpenMANET", "big", true)
+		c       = make(chan os.Signal, 1)
+		cfg     = config.New(nil)
+		log     = logger.InitLogging(ctx)
+		gps     *gpsd.GPSService
+		manager *mgmt.ManagementConfig
 	)
 
 	banner.Print()
@@ -55,12 +56,6 @@ func Start() {
 
 	go comms.Start()
 
-	// Init nl80211 wirelsss client
-	wirelessCfg, err := mgmt.NewWirelessConfig()
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to initialize wireless configuration")
-	}
-
 	// Establish database connection
 	db, err := database.NewConnection(ctx, logger.GetLogger("database"), cfg.GetDBFile())
 	if err != nil {
@@ -84,8 +79,6 @@ func Start() {
 
 	// Initialize and start management module
 	if cfg.GetAlfredEnable() {
-		var manager *mgmt.ManagementConfig
-
 		manager, err = mgmt.NewManager(mgmt.ManagementConfig{
 			InteruptChan:               c,
 			Log:                        logger.GetLogger("mgmt"),
@@ -120,13 +113,18 @@ func Start() {
 	}
 
 	// Start API Server
-	api := server.NewAPIServer(server.APIServer{
+	apiServer := server.APIServer{
 		Cfg:  cfg,
-		Wifi: mgmt.WirelessConfig,
 		Log:  logger.GetLogger("api"),
 		DB:   db,
 		GPS:  gps,
-	})
+	}
+
+	if manager != nil {
+		apiServer.Wifi = manager.WirelessConfig
+	}
+	
+	api := server.NewAPIServer(apiServer)
 
 	log.Info().Msg("OpenMANETd API Server starting on port 8087")
 
