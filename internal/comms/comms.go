@@ -211,12 +211,15 @@ func (cfg *CommsConfig) applyDefaults() {
 
 	if len(cfg.McastPorts) == 0 {
 		tgs := config.GetMulticastTalkGroups()
-		cfg.McastPorts = []McastPortConfig{{
-			Address: tgs[0].Address,
-			Port:    tgs[0].Port,
-			Send:    true,
-			Receive: true,
-		}}
+		cfg.McastPorts = make([]McastPortConfig, len(tgs))
+		for i, tg := range tgs {
+			cfg.McastPorts[i] = McastPortConfig{
+				Address: tg.Address,
+				Port:    tg.Port,
+				Send:    i == 0,
+				Receive: i == 0,
+			}
+		}
 	}
 
 	if cfg.CommKey == "" {
