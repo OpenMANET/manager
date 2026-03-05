@@ -140,7 +140,7 @@ func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 // canceled.
 func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src EventSource) {
 	for _, pc := range rt.ports {
-		if pc.cfg.Receive {
+		if pc.receiver != nil {
 			go cfg.receiveLoop(ctx, pc, rt)
 		}
 	}

@@ -164,7 +164,7 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 		}
 
 		// Half-duplex: suppress playback on send-capable ports while broadcasting.
-		if cfg.isBroadcasting(rt) && pc.cfg.Send {
+		if cfg.isBroadcasting(rt) && pc.sendEnabled.Load() {
 			continue
 		}
 

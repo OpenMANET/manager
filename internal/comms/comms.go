@@ -91,11 +91,18 @@ var activeConfig atomic.Pointer[CommsConfig] //nolint:gochecknoglobals
 // subsystem listens and/or transmits on. Ports with Send=false will not open
 // an RTP/RTCP sender; ports with Receive=false will not open an RTP receiver
 // socket.
+//
+// InitSendEnabled and InitReceiveEnabled seed the runtime atomic flags that
+// EnableTalkGroupSend / EnableTalkGroupReceive toggle at runtime. When nil
+// the values fall back to Send and Receive respectively, preserving backward
+// compatibility for any caller that constructs McastPortConfig directly.
 type McastPortConfig struct {
-	Address string
-	Port    int
-	Send    bool
-	Receive bool
+	InitSendEnabled    *bool
+	InitReceiveEnabled *bool
+	Address            string
+	Port               int
+	Send               bool
+	Receive            bool
 }
 
 // McastPortState is a read-only snapshot of the runtime direction-toggle state
@@ -212,12 +219,19 @@ func (cfg *CommsConfig) applyDefaults() {
 	if len(cfg.McastPorts) == 0 {
 		tgs := config.GetMulticastTalkGroups()
 		cfg.McastPorts = make([]McastPortConfig, len(tgs))
+
 		for i, tg := range tgs {
+			// Open sockets for every talk group so that EnableTalkGroupSend /
+			// EnableTalkGroupReceive can activate any port at runtime without
+			// a restart. Only port 0 is active on first startup.
+			active := i == 0
 			cfg.McastPorts[i] = McastPortConfig{
-				Address: tg.Address,
-				Port:    tg.Port,
-				Send:    i == 0,
-				Receive: i == 0,
+				Address:            tg.Address,
+				Port:               tg.Port,
+				Send:               true,
+				Receive:            true,
+				InitSendEnabled:    &active,
+				InitReceiveEnabled: &active,
 			}
 		}
 	}
@@ -301,12 +315,22 @@ func listenRTPReceiver(addr *net.UDPAddr) (*net.UDPConn, error) {
 	return conn, nil
 }
 
+// boolPtrVal dereferences p when non-nil; otherwise returns fallback.
+// Used to distinguish "not set" from false in McastPortConfig.Init* fields.
+func boolPtrVal(p *bool, fallback bool) bool {
+	if p != nil {
+		return *p
+	}
+
+	return fallback
+}
+
 // buildSinglePortChannel opens all sockets and creates the RTP session for one
 // McastPortConfig entry. Directions (Send / Receive) are reflected by which
 // fields are populated: a Send=false port has nil sender/rtcpSend/rtpSess; a
-// Receive=false port has nil receiver. The atomic direction flags are
-// initialized from mpc.Send / mpc.Receive so the hot paths can read them
-// without locking.
+// Receive=false port has nil receiver. The runtime atomic direction flags are
+// initialized from mpc.InitSendEnabled / InitReceiveEnabled (falling back to
+// mpc.Send / Receive) so the hot paths can read them without locking.
 func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 	mpc McastPortConfig,
 	localIP string,
@@ -314,8 +338,8 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 	ssrc uint32,
 ) (*portChannel, error) {
 	pc := &portChannel{cfg: mpc}
-	pc.sendEnabled.Store(mpc.Send)
-	pc.receiveEnabled.Store(mpc.Receive)
+	pc.sendEnabled.Store(boolPtrVal(mpc.InitSendEnabled, mpc.Send))
+	pc.receiveEnabled.Store(boolPtrVal(mpc.InitReceiveEnabled, mpc.Receive))
 
 	if mpc.Send {
 		// ── RTP sender ─────────────────────────────────────────────────
@@ -500,9 +524,12 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 		FramesPerBuffer: frameSize,
 	}
 
-	// Open a dedicated playback stream for every Receive-capable port.
+	// Open a dedicated playback stream for every port that has an open
+	// receiver socket, regardless of its initial receiveEnabled state.
+	// This ensures that EnableTalkGroupReceive can activate any port at
+	// runtime without needing a restart.
 	for _, pc := range rt.ports {
-		if !pc.cfg.Receive {
+		if pc.receiver == nil {
 			continue
 		}
 
