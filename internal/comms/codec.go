@@ -15,6 +15,9 @@ type AudioEncoder interface {
 // Passing nil data triggers Opus Packet Loss Concealment (PLC).
 type AudioDecoder interface {
 	Decode(data []byte, pcm []int16) (int, error)
+	// DecodeFloat32 decodes directly into float32 PCM, skipping the int16
+	// intermediate stage. Passing nil data triggers Opus PLC.
+	DecodeFloat32(data []byte, pcm []float32) (int, error)
 }
 
 // ─── Opus implementation ──────────────────────────────────────────────────────
@@ -40,6 +43,23 @@ func (o *opusDecoder) Decode(data []byte, pcm []int16) (int, error) {
 	n, err := o.dec.Decode(data, pcm)
 	if err != nil {
 		return 0, fmt.Errorf("opus decode: %w", err)
+	}
+
+	return n, nil
+}
+
+func (o *opusDecoder) DecodeFloat32(data []byte, pcm []float32) (int, error) {
+	if data == nil {
+		if err := o.dec.DecodePLCFloat32(pcm); err != nil {
+			return 0, fmt.Errorf("opus plc float32: %w", err)
+		}
+
+		return len(pcm), nil
+	}
+
+	n, err := o.dec.DecodeFloat32(data, pcm)
+	if err != nil {
+		return 0, fmt.Errorf("opus decode float32: %w", err)
 	}
 
 	return n, nil

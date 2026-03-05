@@ -438,7 +438,7 @@ func TestBeginTransmission_NilStreamAndNilReopen(t *testing.T) {
 
 // TestEndTransmission_QueuesStopBeepToAllPorts verifies that endTransmission
 // queues beepBufferStop to every configured port, mirroring the multi-port
-// start-beep behaviour tested by TestBeginTransmission_BeepSentToAllPorts.
+// start-beep behavior tested by TestBeginTransmission_BeepSentToAllPorts.
 func TestEndTransmission_QueuesStopBeepToAllPorts(t *testing.T) {
 	pc0 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
 	pc0.playbackBuffer = make(chan []float32, 16)

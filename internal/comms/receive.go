@@ -40,11 +40,20 @@ func (cfg *CommsConfig) isReceivingRemote(rt *CommsRuntime) bool {
 //
 // The loop discards packets from our own IP (loopback prevention) unless
 // cfg.Loopback is true, and skips queuing frames when pc.receiveEnabled is false.
-func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *CommsRuntime) {
+func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *CommsRuntime) { //nolint:gocognit
 	buf := make([]byte, 1500)
 	jitter := newRTPJitterBuffer(jitterPrebufferPackets, jitterMaxDepth)
 
 	go cfg.playoutLoop(ctx, jitter, pc, rt)
+
+	// cachedLocalIP caches the parsed form of rt.localIP so that the loopback
+	// filter can use a byte-level net.IP.Equal comparison instead of calling
+	// src.IP.String() (which allocates) on every received packet. The cached
+	// value is refreshed only when the string changes (i.e. on endpoint swap).
+	var (
+		cachedLocalIPStr string
+		cachedLocalIP    net.IP
+	)
 
 	for {
 		select {
@@ -75,14 +84,14 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 			}
 		}
 
-		var localIP string
-		if v := rt.localIP.Load(); v != nil {
-			if s, ok := v.(string); ok {
-				localIP = s
+		if p := rt.localIP.Load(); p != nil {
+			if s := *p; s != cachedLocalIPStr {
+				cachedLocalIPStr = s
+				cachedLocalIP = net.ParseIP(s)
 			}
 		}
 
-		loopbackDrop := !cfg.Loopback && (src.IP.IsLoopback() || src.IP.String() == localIP)
+		loopbackDrop := !cfg.Loopback && (src.IP.IsLoopback() || src.IP.Equal(cachedLocalIP))
 
 		if loopbackDrop {
 			if cfg.Trace {
@@ -140,6 +149,13 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 
+	// Use the pre-computed high-water mark when available; fall back to
+	// computing it here for portChannels built outside of buildAudio (tests).
+	hwm := pc.playbackHighWaterMark
+	if hwm == 0 {
+		hwm = cap(pc.playbackBuffer) * 3 / 4
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -159,13 +175,14 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 
 		// Backpressure: skip this tick when the playback channel is
 		// nearly full so the hardware clock can catch up.
-		if len(pc.playbackBuffer) >= cap(pc.playbackBuffer)*3/4 {
+		if len(pc.playbackBuffer) >= hwm {
 			continue
 		}
 
 		payload, conceal := jitter.popOrConceal(100 * time.Millisecond)
 		if payload != nil {
 			cfg.decodeAndQueue(pc, rt, payload)
+			jitter.releasePayload(payload)
 
 			continue
 		}
@@ -180,28 +197,23 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 	}
 }
 
-// decodeAndQueue decodes an Opus payload into float32 PCM and queues it to
-// pc.playbackBuffer. Frames are silently dropped when the buffer is full.
+// decodeAndQueue decodes an Opus payload directly into a pooled float32 PCM
+// buffer and queues it to pc.playbackBuffer. Frames are silently dropped when
+// the buffer is full. The caller must call jitter.releasePayload on the payload
+// after this function returns.
 func (cfg *CommsConfig) decodeAndQueue(pc *portChannel, rt *CommsRuntime, payload []byte) {
-	pcmPtr := int16Pool.Get().(*[]int16) //nolint:forcetypeassert
-	pcm := *pcmPtr
+	outPtr := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
+	out := *outPtr
 
-	n, err := rt.decoder.Decode(payload, pcm)
+	n, err := rt.decoder.DecodeFloat32(payload, out)
 	if err != nil {
-		int16Pool.Put(pcmPtr)
+		returnFloat32(out)
 		cfg.Log.Debug().Err(err).Msg("comms: opus decode error")
 
 		return
 	}
 
-	outPtr := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
-	out := (*outPtr)[:n]
-
-	for i := 0; i < n; i++ {
-		out[i] = float32(pcm[i]) / 32768
-	}
-
-	int16Pool.Put(pcmPtr)
+	out = out[:n]
 
 	select {
 	case pc.playbackBuffer <- out:
@@ -215,26 +227,19 @@ func (cfg *CommsConfig) decodeAndQueue(pc *portChannel, rt *CommsRuntime, payloa
 }
 
 // decodeAndQueuePLC generates a Packet Loss Concealment frame via the Opus
-// decoder (nil data) and queues it to pc.playbackBuffer.
+// decoder (nil payload) and queues it to pc.playbackBuffer.
 func (cfg *CommsConfig) decodeAndQueuePLC(pc *portChannel, rt *CommsRuntime) {
-	pcmPtr := int16Pool.Get().(*[]int16) //nolint:forcetypeassert
-	pcm := *pcmPtr                       //nolint:forcetypeassert
+	outPtr := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
+	out := *outPtr
 
-	n, err := rt.decoder.Decode(nil, pcm)
+	n, err := rt.decoder.DecodeFloat32(nil, out)
 	if err != nil || n <= 0 {
-		int16Pool.Put(pcmPtr)
+		returnFloat32(out)
 
 		return
 	}
 
-	outPtr := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
-	out := (*outPtr)[:n]
-
-	for i := 0; i < n; i++ {
-		out[i] = float32(pcm[i]) / 32768
-	}
-
-	int16Pool.Put(pcmPtr)
+	out = out[:n]
 
 	select {
 	case pc.playbackBuffer <- out:

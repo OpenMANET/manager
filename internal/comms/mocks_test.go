@@ -65,6 +65,24 @@ func (m *mockDecoder) Decode(_ []byte, pcm []int16) (int, error) {
 	return len(pcm), nil
 }
 
+func (m *mockDecoder) DecodeFloat32(_ []byte, pcm []float32) (int, error) {
+	if m.decodeErr != nil {
+		return 0, m.decodeErr
+	}
+
+	fv := float32(m.fillValue) / 32768
+
+	for i := range pcm {
+		pcm[i] = fv
+	}
+
+	if m.returnN > 0 || m.forceN {
+		return m.returnN, nil
+	}
+
+	return len(pcm), nil
+}
+
 // ─── mockEncoder ─────────────────────────────────────────────────────────────
 
 // ─── mockWriter ──────────────────────────────────────────────────────────────
