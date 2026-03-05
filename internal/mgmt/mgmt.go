@@ -22,20 +22,26 @@ const (
 )
 
 type ManagementConfig struct {
-	Log                                     zerolog.Logger
-	DB                                      *models.Queries
-	InteruptChan                            chan os.Signal
-	GPS                                     *gpsd.GPSService
-	uciOpenMANETConfig                      *network.UCIOpenMANETConfigReader
-	uciDHCPConfig                           *network.UCIDHCPConfigReader
-	uciNetworkConfig                        *network.UCINetworkConfigReader
-	boardConfigInfo                         *board.Board
-	BatInterface                            string
-	AlfredMode                              string
-	SocketPath                              string
-	IFace                                   string
-	gatewayWorkerSendInterval               time.Duration
-	gatewayWorkerRecvInterval               time.Duration
+	Log          zerolog.Logger
+	DB           *models.Queries
+	InteruptChan chan os.Signal
+
+	GPS *gpsd.GPSService
+
+	uciOpenMANETConfig *network.UCIOpenMANETConfigReader
+	uciDHCPConfig      *network.UCIDHCPConfigReader
+	uciNetworkConfig   *network.UCINetworkConfigReader
+
+	boardConfigInfo *board.Board
+	IFace           string
+	AlfredMode      string
+	BatInterface    string
+	SocketPath      string
+	WirelessConfig  *WirelessConfig
+
+	gatewayWorkerSendInterval time.Duration
+	gatewayWorkerRecvInterval time.Duration
+
 	addressReservationWorkerReserveInterval time.Duration
 	GatewayMode                             bool
 	GatewayDataType                         bool
@@ -50,6 +56,12 @@ func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
 		cfg.Log.Error().Err(err).Msg("Failed to load board configuration")
 	}
 
+	// Init nl80211 wirelsss client
+	wirelessConfig, err := NewWirelessConfig()
+	if err != nil {
+		cfg.Log.Error().Err(err).Msg("Failed to load wireless configuration")
+	}
+
 	return &ManagementConfig{
 		Log:                        cfg.Log,
 		AlfredMode:                 cfg.AlfredMode,
@@ -60,6 +72,7 @@ func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
 		NodeDataType:               cfg.NodeDataType,
 		PositionDataType:           cfg.PositionDataType,
 		AddressReservationDataType: cfg.AddressReservationDataType,
+		WirelessConfig:             wirelessConfig,
 		InteruptChan:               cfg.InteruptChan,
 		GatewayMode:                cfg.GatewayMode,
 		DB:                         cfg.DB,
@@ -78,6 +91,10 @@ func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
 }
 
 func (m *ManagementConfig) Start() {
+	if err := m.setTransportInterfaceMTU(); err != nil {
+		m.Log.Error().Err(err).Msg("Failed to set MTU for transport interface")
+	}
+
 	client, err := alfred.NewClient(alfred.WithSocketPath(m.SocketPath))
 	if err != nil {
 		m.Log.Fatal().Err(err).Msg("Failed to create Alfred client")
