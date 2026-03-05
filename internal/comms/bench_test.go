@@ -195,9 +195,10 @@ func BenchmarkInt16ToFloat32(b *testing.B) {
 
 func BenchmarkDecodeAndQueue(b *testing.B) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
+	pc := &portChannel{}
+	pc.playbackBuffer = make(chan []float32, 64)
 	rt := &CommsRuntime{
-		playbackBuffer: make(chan []float32, 64),
-		decoder:        &mockDecoder{returnN: frameSize},
+		decoder: &mockDecoder{returnN: frameSize},
 	}
 
 	payload := make([]byte, 100)
@@ -206,10 +207,10 @@ func BenchmarkDecodeAndQueue(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		cfg.decodeAndQueue(rt, payload)
+		cfg.decodeAndQueue(pc, rt, payload)
 		// Drain the buffer to avoid backpressure.
 		select {
-		case <-rt.playbackBuffer:
+		case <-pc.playbackBuffer:
 		default:
 		}
 	}

@@ -14,31 +14,37 @@ import (
 const rxActiveThreshold time.Duration = 400 * time.Millisecond
 
 // isReceivingRemote returns true when a valid RTP packet was received from a
-// remote peer within the last rxActiveThreshold. This is the receive-side
-// component of half-duplex: transmission must not begin while the channel is
-// actively carrying incoming audio.
+// remote peer within the last rxActiveThreshold on any send-enabled port.
+// This is the receive-side component of half-duplex: transmission must not
+// begin while a shared send+receive channel is actively carrying incoming audio.
 func (cfg *CommsConfig) isReceivingRemote(rt *CommsRuntime) bool {
-	last := rt.lastRemoteRx.Load()
-	if last == 0 {
-		return false
+	for _, pc := range rt.ports {
+		if !pc.sendEnabled.Load() {
+			continue
+		}
+
+		last := pc.lastRemoteRx.Load()
+		if last != 0 && time.Since(time.Unix(0, last)) < rxActiveThreshold {
+			return true
+		}
 	}
 
-	return time.Since(time.Unix(0, last)) < rxActiveThreshold
+	return false
 }
 
 // ─── Receive path ─────────────────────────────────────────────────────────────
 
-// receiveLoop reads datagrams from rt.receiver, parses them as RTP packets
+// receiveLoop reads datagrams from pc.receiver, parses them as RTP packets
 // using pion/rtp, and pushes the payloads into the jitter buffer. A companion
 // playoutLoop goroutine drains the jitter buffer at 20 ms intervals.
 //
 // The loop discards packets from our own IP (loopback prevention) unless
-// cfg.Loopback is true.
-func (cfg *CommsConfig) receiveLoop(ctx context.Context, rt *CommsRuntime) {
+// cfg.Loopback is true, and skips queuing frames when pc.receiveEnabled is false.
+func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *CommsRuntime) {
 	buf := make([]byte, 1500)
 	jitter := newRTPJitterBuffer(jitterPrebufferPackets, jitterMaxDepth)
 
-	go cfg.playoutLoop(ctx, jitter, rt)
+	go cfg.playoutLoop(ctx, jitter, pc, rt)
 
 	for {
 		select {
@@ -47,7 +53,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, rt *CommsRuntime) {
 		default:
 		}
 
-		n, src, err := rt.receiver.ReadFromUDP(buf)
+		n, src, err := pc.receiver.ReadFromUDP(buf)
 		if err != nil {
 			select {
 			case <-ctx.Done():
@@ -104,8 +110,13 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, rt *CommsRuntime) {
 				Msg("comms: RTP packet received")
 		}
 
+		// Skip payload delivery when receive is disabled at runtime.
+		if !pc.receiveEnabled.Load() {
+			continue
+		}
+
 		// Record the arrival time for half-duplex enforcement.
-		rt.lastRemoteRx.Store(time.Now().UnixNano())
+		pc.lastRemoteRx.Store(time.Now().UnixNano())
 
 		// Pass the pion payload directly to the jitter buffer; push()
 		// performs its own defensive copy so a separate copy here is
@@ -117,12 +128,15 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, rt *CommsRuntime) {
 
 // playoutLoop drives the RTP jitter buffer at a 20 ms tick rate.
 // It pops ready frames, applies PLC for missing frames, and queues decoded
-// PCM to rt.playbackBuffer. Exits when ctx is canceled.
+// PCM to pc.playbackBuffer. Exits when ctx is canceled.
+//
+// Half-duplex: on send-capable ports playback is suppressed while broadcasting
+// to prevent local echo. Receive-only ports always play back.
 //
 // Backpressure: when the playback buffer is ≥75% full the tick is skipped,
 // allowing the PortAudio callback (hardware clock) to drain before more
 // frames are produced. The jitter buffer absorbs the delay.
-func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer, rt *CommsRuntime) {
+func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer, pc *portChannel, rt *CommsRuntime) {
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -133,19 +147,25 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 		case <-ticker.C:
 		}
 
-		if cfg.isBroadcasting(rt) {
+		// Half-duplex: suppress playback on send-capable ports while broadcasting.
+		if cfg.isBroadcasting(rt) && pc.cfg.Send {
+			continue
+		}
+
+		// Skip if receive has been disabled at runtime.
+		if !pc.receiveEnabled.Load() {
 			continue
 		}
 
 		// Backpressure: skip this tick when the playback channel is
 		// nearly full so the hardware clock can catch up.
-		if len(rt.playbackBuffer) >= cap(rt.playbackBuffer)*3/4 {
+		if len(pc.playbackBuffer) >= cap(pc.playbackBuffer)*3/4 {
 			continue
 		}
 
 		payload, conceal := jitter.popOrConceal(100 * time.Millisecond)
 		if payload != nil {
-			cfg.decodeAndQueue(rt, payload)
+			cfg.decodeAndQueue(pc, rt, payload)
 
 			continue
 		}
@@ -155,14 +175,14 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 				cfg.Log.Trace().Msg("comms: jitter buffer gap → PLC")
 			}
 
-			cfg.decodeAndQueuePLC(rt)
+			cfg.decodeAndQueuePLC(pc, rt)
 		}
 	}
 }
 
 // decodeAndQueue decodes an Opus payload into float32 PCM and queues it to
-// rt.playbackBuffer. Frames are silently dropped when the buffer is full.
-func (cfg *CommsConfig) decodeAndQueue(rt *CommsRuntime, payload []byte) {
+// pc.playbackBuffer. Frames are silently dropped when the buffer is full.
+func (cfg *CommsConfig) decodeAndQueue(pc *portChannel, rt *CommsRuntime, payload []byte) {
 	pcmPtr := int16Pool.Get().(*[]int16) //nolint:forcetypeassert
 	pcm := *pcmPtr
 
@@ -184,19 +204,19 @@ func (cfg *CommsConfig) decodeAndQueue(rt *CommsRuntime, payload []byte) {
 	int16Pool.Put(pcmPtr)
 
 	select {
-	case rt.playbackBuffer <- out:
+	case pc.playbackBuffer <- out:
 		if cfg.Trace {
-			cfg.Log.Trace().Msgf("comms: queued %d samples (depth=%d)", n, len(rt.playbackBuffer))
+			cfg.Log.Trace().Msgf("comms: queued %d samples (depth=%d)", n, len(pc.playbackBuffer))
 		}
 	default:
 		returnFloat32(out)
-		logPlaybackDrop(&rt.playbackDrops, cfg, "comms: playback buffer full; dropping packet")
+		logPlaybackDrop(&pc.playbackDrops, cfg, "comms: playback buffer full; dropping packet")
 	}
 }
 
 // decodeAndQueuePLC generates a Packet Loss Concealment frame via the Opus
-// decoder (nil data) and queues it to rt.playbackBuffer.
-func (cfg *CommsConfig) decodeAndQueuePLC(rt *CommsRuntime) {
+// decoder (nil data) and queues it to pc.playbackBuffer.
+func (cfg *CommsConfig) decodeAndQueuePLC(pc *portChannel, rt *CommsRuntime) {
 	pcmPtr := int16Pool.Get().(*[]int16) //nolint:forcetypeassert
 	pcm := *pcmPtr                       //nolint:forcetypeassert
 
@@ -217,13 +237,13 @@ func (cfg *CommsConfig) decodeAndQueuePLC(rt *CommsRuntime) {
 	int16Pool.Put(pcmPtr)
 
 	select {
-	case rt.playbackBuffer <- out:
+	case pc.playbackBuffer <- out:
 		if cfg.Trace {
-			cfg.Log.Trace().Msgf("comms: queued PLC %d samples (depth=%d)", n, len(rt.playbackBuffer))
+			cfg.Log.Trace().Msgf("comms: queued PLC %d samples (depth=%d)", n, len(pc.playbackBuffer))
 		}
 	default:
 		returnFloat32(out)
-		logPlaybackDrop(&rt.playbackDrops, cfg, "comms: playback buffer full; dropping PLC frame")
+		logPlaybackDrop(&pc.playbackDrops, cfg, "comms: playback buffer full; dropping PLC frame")
 	}
 }
 

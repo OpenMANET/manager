@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/stretchr/testify/assert"
@@ -41,6 +42,9 @@ func TestGetCommsStatus_Enabled(t *testing.T) {
 	for _, tg := range resp.GetAvailableTalkgroups() {
 		assert.Greater(t, tg, int32(0), "available talkgroup channel must be positive")
 	}
+
+	// talkgroup_states is best-effort: empty (or nil) when comms is not running.
+	assert.Empty(t, resp.GetTalkgroupStates())
 }
 
 func TestJoinTalkGroup_Disabled(t *testing.T) {
@@ -59,4 +63,48 @@ func TestJoinTalkGroup_InactiveComms(t *testing.T) {
 	// Either an error (singleton inactive) or success – we accept both but the
 	// important thing is the handler propagates whatever UpdateMulticastEndpoint returns.
 	_ = err // result is environment-dependent; just verify no panic
+}
+
+func TestSetSendTalkGroup_Disabled(t *testing.T) {
+	svc := newCommsService(false)
+
+	_, err := svc.SetSendTalkGroup(context.Background(), &serviceproto.SetSendTalkGroupRequest{
+		Talkgroup: 1,
+		Enabled:   true,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not enabled")
+}
+
+func TestSetSendTalkGroup_NotRunning(t *testing.T) {
+	// comms enabled but singleton never started → GetTalkGroupStates returns an error.
+	svc := newCommsService(true)
+
+	_, err := svc.SetSendTalkGroup(context.Background(), &serviceproto.SetSendTalkGroupRequest{
+		Talkgroup: 1,
+		Enabled:   true,
+	})
+	require.Error(t, err)
+}
+
+func TestSetReceiveTalkGroup_Disabled(t *testing.T) {
+	svc := newCommsService(false)
+
+	_, err := svc.SetReceiveTalkGroup(context.Background(), &serviceproto.SetReceiveTalkGroupRequest{
+		Talkgroup: 1,
+		Enabled:   false,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not enabled")
+}
+
+func TestSetReceiveTalkGroup_NotRunning(t *testing.T) {
+	// comms enabled but singleton never started → GetTalkGroupStates returns an error.
+	svc := newCommsService(true)
+
+	_, err := svc.SetReceiveTalkGroup(context.Background(), &serviceproto.SetReceiveTalkGroupRequest{
+		Talkgroup: 1,
+		Enabled:   false,
+	})
+	require.Error(t, err)
 }

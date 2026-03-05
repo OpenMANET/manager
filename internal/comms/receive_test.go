@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,18 +13,26 @@ import (
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-func newReceiveRuntime() *CommsRuntime {
-	return &CommsRuntime{
-		playbackBuffer: make(chan []float32, 32),
-		decoder:        &mockDecoder{returnN: int(rtpFrameSamples)},
+func newReceiveRuntime() (*CommsRuntime, *portChannel) {
+	pc := &portChannel{
+		cfg: McastPortConfig{Send: true, Receive: true},
 	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+	pc.playbackBuffer = make(chan []float32, 32)
+	rt := &CommsRuntime{
+		ports:   []*portChannel{pc},
+		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
+	}
+
+	return rt, pc
 }
 
-// waitForFrame blocks until at least one frame appears in rt.playbackBuffer or
+// waitForFrame blocks until at least one frame appears in buf or
 // the deadline is reached.
-func waitForFrame(rt *CommsRuntime, timeout time.Duration) ([]float32, bool) { //nolint:unparam
+func waitForFrame(buf chan []float32, timeout time.Duration) ([]float32, bool) { //nolint:unparam
 	select {
-	case f := <-rt.playbackBuffer:
+	case f := <-buf:
 		return f, true
 	case <-time.After(timeout):
 		return nil, false
@@ -33,7 +42,7 @@ func waitForFrame(rt *CommsRuntime, timeout time.Duration) ([]float32, bool) { /
 // ─── playoutLoop tests ────────────────────────────────────────────────────────
 
 func TestPlayoutLoop_DeliversReadyFrame(t *testing.T) {
-	rt := newReceiveRuntime()
+	rt, pc := newReceiveRuntime()
 	jb := newRTPJitterBuffer(1, 10) // prebuffer=1: first push triggers start
 	jb.push(0, []byte{0xAA, 0xBB})
 
@@ -42,9 +51,9 @@ func TestPlayoutLoop_DeliversReadyFrame(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	go cfg.playoutLoop(ctx, jb, rt)
+	go cfg.playoutLoop(ctx, jb, pc, rt)
 
-	if _, ok := waitForFrame(rt, 200*time.Millisecond); !ok {
+	if _, ok := waitForFrame(pc.playbackBuffer, 200*time.Millisecond); !ok {
 		t.Error("expected a decoded frame in playbackBuffer within 200 ms")
 	}
 }
@@ -54,7 +63,7 @@ func TestPlayoutLoop_EmitsPLCOnSkippedMissing(t *testing.T) {
 	// Push seq=0 first to set up expected=0 and pass the prebuffer=1 threshold,
 	// then pop it. Now expected=1. Push seq=2 and seq=3 (missing seq=1 with
 	// len >= maxDepth/2) so popReady returns skipped=true → PLC must be emitted.
-	rt := newReceiveRuntime()
+	rt, pc := newReceiveRuntime()
 	jb := newRTPJitterBuffer(1, 4)
 
 	jb.push(0, []byte{0})
@@ -68,9 +77,9 @@ func TestPlayoutLoop_EmitsPLCOnSkippedMissing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	go cfg.playoutLoop(ctx, jb, rt)
+	go cfg.playoutLoop(ctx, jb, pc, rt)
 
-	if _, ok := waitForFrame(rt, 200*time.Millisecond); !ok {
+	if _, ok := waitForFrame(pc.playbackBuffer, 200*time.Millisecond); !ok {
 		t.Error("expected a PLC frame when jitter buffer skips missing seq")
 	}
 }
@@ -79,7 +88,7 @@ func TestPlayoutLoop_EmitsPLCOnConceal(t *testing.T) {
 	// Push+pop one frame to set started=true and record a recent lastPush
 	// timestamp. The jitter buffer is then empty, so shouldConceal fires on
 	// the next 20 ms tick and decodeAndQueuePLC is called.
-	rt := newReceiveRuntime()
+	rt, pc := newReceiveRuntime()
 	jb := newRTPJitterBuffer(1, 10)
 
 	jb.push(0, []byte{0})
@@ -90,9 +99,9 @@ func TestPlayoutLoop_EmitsPLCOnConceal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	go cfg.playoutLoop(ctx, jb, rt)
+	go cfg.playoutLoop(ctx, jb, pc, rt)
 
-	if _, ok := waitForFrame(rt, 300*time.Millisecond); !ok {
+	if _, ok := waitForFrame(pc.playbackBuffer, 300*time.Millisecond); !ok {
 		t.Error("expected a PLC concealment frame while stream is active but empty")
 	}
 }
@@ -100,14 +109,20 @@ func TestPlayoutLoop_EmitsPLCOnConceal(t *testing.T) {
 func TestPlayoutLoop_BackpressureSkipsTick(t *testing.T) {
 	// Use a small buffer (cap=4); fill 3 of 4 slots (75%) before starting
 	// the playout loop. The loop should refrain from pushing more frames.
+	pc := &portChannel{
+		cfg: McastPortConfig{Send: true, Receive: true},
+	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+	pc.playbackBuffer = make(chan []float32, 4)
 	rt := &CommsRuntime{
-		playbackBuffer: make(chan []float32, 4),
-		decoder:        &mockDecoder{returnN: int(rtpFrameSamples)},
+		ports:   []*portChannel{pc},
+		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
 	}
 
 	// Pre-fill to 75% capacity.
 	for i := 0; i < 3; i++ {
-		rt.playbackBuffer <- make([]float32, rtpFrameSamples)
+		pc.playbackBuffer <- make([]float32, rtpFrameSamples)
 	}
 
 	jb := newRTPJitterBuffer(1, 10)
@@ -118,7 +133,7 @@ func TestPlayoutLoop_BackpressureSkipsTick(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	go cfg.playoutLoop(ctx, jb, rt)
+	go cfg.playoutLoop(ctx, jb, pc, rt)
 
 	// Let several ticks fire while the buffer stays at 75%.
 	time.Sleep(80 * time.Millisecond)
@@ -127,14 +142,14 @@ func TestPlayoutLoop_BackpressureSkipsTick(t *testing.T) {
 	// The buffer should still hold exactly the 3 frames we pre-loaded.
 	// The jitter buffer frame should NOT have been popped because
 	// backpressure prevented it.
-	if len(rt.playbackBuffer) != 3 {
-		t.Errorf("expected backpressure to hold buffer at 3; got %d", len(rt.playbackBuffer))
+	if len(pc.playbackBuffer) != 3 {
+		t.Errorf("expected backpressure to hold buffer at 3; got %d", len(pc.playbackBuffer))
 	}
 }
 
 func TestPlayoutLoop_EmitsNothingWhenBroadcasting(t *testing.T) {
-	rt := newReceiveRuntime()
-	rt.broadcasting.Store(true) // isBroadcasting will return true
+	rt, pc := newReceiveRuntime()
+	rt.broadcasting.Store(true) // isBroadcasting will return true; pc.cfg.Send=true → suppress
 
 	jb := newRTPJitterBuffer(1, 10)
 	jb.push(0, []byte{0}) // satisfies prebuffer
@@ -144,15 +159,15 @@ func TestPlayoutLoop_EmitsNothingWhenBroadcasting(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	go cfg.playoutLoop(ctx, jb, rt)
+	go cfg.playoutLoop(ctx, jb, pc, rt)
 
 	// Let the loop tick several times.
 	time.Sleep(80 * time.Millisecond)
 	cancel()
 
-	if len(rt.playbackBuffer) != 0 {
+	if len(pc.playbackBuffer) != 0 {
 		t.Errorf("playback buffer should stay empty while broadcasting; got %d frames",
-			len(rt.playbackBuffer))
+			len(pc.playbackBuffer))
 	}
 }
 
@@ -171,10 +186,16 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 	}
 
 	reader := newMockReader(pkts...)
+	pc := &portChannel{
+		cfg:      McastPortConfig{Send: true, Receive: true},
+		receiver: newSwappableReceiver(reader),
+	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+	pc.playbackBuffer = make(chan []float32, 16)
 	rt := &CommsRuntime{
-		playbackBuffer: make(chan []float32, 16),
-		decoder:        &mockDecoder{returnN: int(rtpFrameSamples)},
-		receiver:       newSwappableReceiver(reader),
+		ports:   []*portChannel{pc},
+		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
 	}
 	rt.localIP.Store(localIP.String())
 
@@ -185,7 +206,7 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		cfg.receiveLoop(ctx, rt)
+		cfg.receiveLoop(ctx, pc, rt)
 	}()
 
 	// Wait for all queued packets to be consumed.
@@ -201,7 +222,7 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 	time.Sleep(60 * time.Millisecond) // allow one playout tick
 
 	cancel()
-	rt.receiver.Close()
+	pc.receiver.Close()
 
 	select {
 	case <-done:
@@ -209,9 +230,9 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 		t.Fatal("receiveLoop did not exit")
 	}
 
-	if len(rt.playbackBuffer) != 0 {
+	if len(pc.playbackBuffer) != 0 {
 		t.Errorf("own packets should be dropped; got %d frames in buffer",
-			len(rt.playbackBuffer))
+			len(pc.playbackBuffer))
 	}
 }
 
@@ -220,10 +241,16 @@ func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 	garbled := mockPacket{data: []byte{0xFF, 0x00, 0x01}, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}}
 	reader := newMockReader(garbled)
 
+	pc := &portChannel{
+		cfg:      McastPortConfig{Send: true, Receive: true},
+		receiver: newSwappableReceiver(reader),
+	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+	pc.playbackBuffer = make(chan []float32, 8)
 	rt := &CommsRuntime{
-		playbackBuffer: make(chan []float32, 8),
-		decoder:        &mockDecoder{},
-		receiver:       newSwappableReceiver(reader),
+		ports:   []*portChannel{pc},
+		decoder: &mockDecoder{},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
@@ -233,7 +260,7 @@ func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		cfg.receiveLoop(ctx, rt)
+		cfg.receiveLoop(ctx, pc, rt)
 	}()
 
 	// Wait for the garbled packet to be consumed.
@@ -248,7 +275,7 @@ func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 
 	// The loop survived; cancel and ensure clean shutdown.
 	cancel()
-	rt.receiver.Close()
+	pc.receiver.Close()
 
 	select {
 	case <-done:
@@ -262,12 +289,13 @@ func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 func TestDecodeAndQueue_DecoderError(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	buf := make(chan []float32, 4)
+	pc := &portChannel{}
+	pc.playbackBuffer = buf
 	rt := &CommsRuntime{
-		playbackBuffer: buf,
-		decoder:        &mockDecoder{decodeErr: errors.New("bad decode")},
+		decoder: &mockDecoder{decodeErr: errors.New("bad decode")},
 	}
 
-	cfg.decodeAndQueue(rt, []byte{1, 2, 3})
+	cfg.decodeAndQueue(pc, rt, []byte{1, 2, 3})
 
 	if len(buf) != 0 {
 		t.Errorf("expected empty buffer on decode error; got %d frames", len(buf))
@@ -282,13 +310,14 @@ func TestDecodeAndQueue_BufferFull_DoesNotPanic(t *testing.T) {
 
 	buf <- []float32{0}
 
+	pc := &portChannel{}
+	pc.playbackBuffer = buf
 	rt := &CommsRuntime{
-		playbackBuffer: buf,
-		decoder:        &mockDecoder{returnN: 4},
+		decoder: &mockDecoder{returnN: 4},
 	}
 
 	// Must not block or panic when the buffer is full.
-	cfg.decodeAndQueue(rt, []byte{1, 2, 3})
+	cfg.decodeAndQueue(pc, rt, []byte{1, 2, 3})
 
 	if len(buf) != 2 {
 		t.Errorf("buffer depth changed unexpectedly; got %d", len(buf))
@@ -298,12 +327,13 @@ func TestDecodeAndQueue_BufferFull_DoesNotPanic(t *testing.T) {
 func TestDecodeAndQueuePLC_ZeroReturnDropsFrame(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	buf := make(chan []float32, 4)
+	pc := &portChannel{}
+	pc.playbackBuffer = buf
 	rt := &CommsRuntime{
-		playbackBuffer: buf,
-		decoder:        &mockDecoder{returnN: 0, forceN: true},
+		decoder: &mockDecoder{returnN: 0, forceN: true},
 	}
 
-	cfg.decodeAndQueuePLC(rt)
+	cfg.decodeAndQueuePLC(pc, rt)
 
 	if len(buf) != 0 {
 		t.Errorf("expected empty buffer when decoder returns 0; got %d frames", len(buf))
@@ -314,6 +344,7 @@ func TestDecodeAndQueuePLC_ZeroReturnDropsFrame(t *testing.T) {
 
 func TestIsReceivingRemote_FalseWhenNeverReceived(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
+	// rt has no ports → isReceivingRemote always returns false.
 	rt := &CommsRuntime{}
 
 	if cfg.isReceivingRemote(rt) {
@@ -323,8 +354,10 @@ func TestIsReceivingRemote_FalseWhenNeverReceived(t *testing.T) {
 
 func TestIsReceivingRemote_TrueWhenRecent(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	rt := &CommsRuntime{}
-	rt.lastRemoteRx.Store(time.Now().UnixNano())
+	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc.sendEnabled.Store(true)
+	pc.lastRemoteRx.Store(time.Now().UnixNano())
+	rt := &CommsRuntime{ports: []*portChannel{pc}}
 
 	if !cfg.isReceivingRemote(rt) {
 		t.Error("expected true when a packet was just received")
@@ -333,9 +366,11 @@ func TestIsReceivingRemote_TrueWhenRecent(t *testing.T) {
 
 func TestIsReceivingRemote_FalseWhenStale(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	rt := &CommsRuntime{}
+	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc.sendEnabled.Store(true)
 	// Store a timestamp older than rxActiveThreshold.
-	rt.lastRemoteRx.Store(time.Now().Add(-(rxActiveThreshold + time.Second)).UnixNano())
+	pc.lastRemoteRx.Store(time.Now().Add(-(rxActiveThreshold + time.Second)).UnixNano())
+	rt := &CommsRuntime{ports: []*portChannel{pc}}
 
 	if cfg.isReceivingRemote(rt) {
 		t.Error("expected false when last received packet is older than rxActiveThreshold")
@@ -347,10 +382,16 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 
 	raw := makeRTPBytes(t, 0)
 	reader := newMockReader(mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
+	pc := &portChannel{
+		cfg:      McastPortConfig{Send: true, Receive: true},
+		receiver: newSwappableReceiver(reader),
+	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+	pc.playbackBuffer = make(chan []float32, 32)
 	rt := &CommsRuntime{
-		playbackBuffer: make(chan []float32, 32),
-		decoder:        &mockDecoder{returnN: int(rtpFrameSamples)},
-		receiver:       newSwappableReceiver(reader),
+		ports:   []*portChannel{pc},
+		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -359,7 +400,7 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		cfg.receiveLoop(ctx, rt)
+		cfg.receiveLoop(ctx, pc, rt)
 	}()
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -372,11 +413,11 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 	}
 
 	cancel()
-	rt.receiver.Close()
+	pc.receiver.Close()
 
 	<-done
 
-	if rt.lastRemoteRx.Load() == 0 {
+	if pc.lastRemoteRx.Load() == 0 {
 		t.Error("expected lastRemoteRx to be set after receiving a remote packet")
 	}
 }
@@ -387,24 +428,141 @@ func TestLogPlaybackDrop_FirstDropAlwaysLogs(t *testing.T) {
 	// Verify the counter increments on every call and the function
 	// does not panic with a nop logger.
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	rt := &CommsRuntime{}
+	var counter atomic.Int64
 
-	logPlaybackDrop(&rt.playbackDrops, cfg, "test drop")
+	logPlaybackDrop(&counter, cfg, "test drop")
 
-	if got := rt.playbackDrops.Load(); got != 1 {
+	if got := counter.Load(); got != 1 {
 		t.Errorf("expected drop counter = 1; got %d", got)
 	}
 }
 
 func TestLogPlaybackDrop_CounterIncrements(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	rt := &CommsRuntime{}
+	var counter atomic.Int64
 
 	for i := 0; i < 150; i++ {
-		logPlaybackDrop(&rt.playbackDrops, cfg, "test drop")
+		logPlaybackDrop(&counter, cfg, "test drop")
 	}
 
-	if got := rt.playbackDrops.Load(); got != 150 {
+	if got := counter.Load(); got != 150 {
 		t.Errorf("expected drop counter = 150; got %d", got)
+	}
+}
+
+// ─── receiveLoop socket-swap recovery tests ───────────────────────────────────
+
+// netErrClosedReader wraps a mockReader and translates any read error to
+// net.ErrClosed, matching the error that real *net.UDPConn.ReadFromUDP returns
+// after the connection is closed. This allows receiveLoop's socket-swap path
+// (errors.Is(err, net.ErrClosed) → jitter.reset()) to be exercised in tests.
+type netErrClosedReader struct {
+	*mockReader
+}
+
+func (r *netErrClosedReader) ReadFromUDP(b []byte) (int, *net.UDPAddr, error) {
+	n, addr, err := r.mockReader.ReadFromUDP(b)
+	if err != nil {
+		return 0, nil, net.ErrClosed
+	}
+
+	return n, addr, nil
+}
+
+// TestReceiveLoop_SocketSwapResetsJitter simulates an UpdateMulticastEndpoint
+// mid-stream socket swap. The old reader is closed (returning net.ErrClosed),
+// and a new reader with fresh packets is swapped in. The test verifies that the
+// loop recovers and delivers frames from the new reader, proving the jitter
+// buffer was reset and the loop continued correctly.
+func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
+	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
+
+	// reader1 holds a burst of packets that will fill the jitter buffer, then
+	// it will block until explicitly closed (simulating the old socket).
+	var pkts1 []mockPacket
+	for i := 0; i < jitterPrebufferPackets+2; i++ {
+		raw := makeRTPBytes(t, uint16(i))
+		pkts1 = append(pkts1, mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
+	}
+
+	reader1 := &netErrClosedReader{newMockReader(pkts1...)}
+
+	// reader2 holds fresh packets that arrive after the swap.
+	var pkts2 []mockPacket
+	for i := 0; i < jitterPrebufferPackets+2; i++ {
+		raw := makeRTPBytes(t, uint16(i))
+		pkts2 = append(pkts2, mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
+	}
+
+	reader2 := newMockReader(pkts2...)
+
+	pc := &portChannel{
+		cfg:      McastPortConfig{Send: true, Receive: true},
+		receiver: newSwappableReceiver(reader1),
+	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+	pc.playbackBuffer = make(chan []float32, 64)
+
+	rt := &CommsRuntime{
+		ports:   []*portChannel{pc},
+		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		cfg.receiveLoop(ctx, pc, rt)
+	}()
+
+	// Wait for reader1 to be exhausted.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if reader1.remaining() == 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if reader1.remaining() != 0 {
+		t.Fatal("timed out waiting for reader1 to be exhausted")
+	}
+
+	// Drain any frames already queued from reader1.
+	for len(pc.playbackBuffer) > 0 {
+		<-pc.playbackBuffer
+	}
+
+	// Swap in reader2 then close reader1 to unblock the stale ReadFromUDP.
+	// receiveLoop will get net.ErrClosed, call jitter.reset(), then pick up
+	// reader2 on the next iteration.
+	pc.receiver.swap(reader2)
+	reader1.Close()
+
+	// Wait for reader2 packets to be delivered to receiveLoop.
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if reader2.remaining() == 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	cancel()
+	pc.receiver.Close()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("receiveLoop did not exit after context cancel")
+	}
+
+	// Verify reader2 was fully consumed, proving the loop recovered after the
+	// socket swap and the jitter buffer was reset.
+	if reader2.remaining() != 0 {
+		t.Errorf("receiveLoop did not consume reader2 packets after socket swap; %d remaining",
+			reader2.remaining())
 	}
 }

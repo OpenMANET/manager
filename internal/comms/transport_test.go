@@ -177,3 +177,44 @@ func TestSwappableReceiver_CloseUnblocksRead(t *testing.T) {
 		t.Error("Close should unblock ReadFromUDP")
 	}
 }
+
+// TestSwappableReceiver_ConcurrentSwapAndRead verifies that simultaneous
+// ReadFromUDP calls and swap calls do not produce a data race under the
+// race detector. The pattern mirrors TestSwappableSender_ConcurrentWritesAndSwap.
+func TestSwappableReceiver_ConcurrentSwapAndRead(t *testing.T) {
+	r1 := &safeCountingReader{}
+	r2 := &safeCountingReader{}
+	sr := newSwappableReceiver(r1)
+
+	const (
+		readers   = 10
+		readsEach = 50
+	)
+
+	var wg sync.WaitGroup
+
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			buf := make([]byte, 10)
+
+			for j := 0; j < readsEach; j++ {
+				_, _, _ = sr.ReadFromUDP(buf)
+			}
+		}()
+	}
+
+	// Swap in the middle of concurrent reads.
+	time.Sleep(1 * time.Millisecond)
+	sr.swap(r2)
+
+	wg.Wait()
+
+	total := r1.count() + r2.count()
+	if total != readers*readsEach {
+		t.Errorf("total reads = %d; want %d", total, readers*readsEach)
+	}
+}

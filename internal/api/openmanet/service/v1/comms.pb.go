@@ -30,8 +30,11 @@ type GetCommsStatusResponse struct {
 	ActiveTalkgroup int32 `protobuf:"varint,1,opt,name=active_talkgroup,json=activeTalkgroup,proto3" json:"active_talkgroup,omitempty"`
 	// Available talkgroups that the node can join.
 	AvailableTalkgroups []int32 `protobuf:"varint,2,rep,packed,name=available_talkgroups,json=availableTalkgroups,proto3" json:"available_talkgroups,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Per-port direction state for all configured talkgroups. Empty when the
+	// comms subsystem is not running.
+	TalkgroupStates []*TalkGroupState `protobuf:"bytes,3,rep,name=talkgroup_states,json=talkgroupStates,proto3" json:"talkgroup_states,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetCommsStatusResponse) Reset() {
@@ -78,6 +81,96 @@ func (x *GetCommsStatusResponse) GetAvailableTalkgroups() []int32 {
 	return nil
 }
 
+func (x *GetCommsStatusResponse) GetTalkgroupStates() []*TalkGroupState {
+	if x != nil {
+		return x.TalkgroupStates
+	}
+	return nil
+}
+
+// TalkGroupState is a read-only snapshot of the runtime send/receive direction
+// toggles for a single configured talkgroup port.
+type TalkGroupState struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 1-based channel number identifying this talkgroup.
+	Channel int32 `protobuf:"varint,1,opt,name=channel,proto3" json:"channel,omitempty"`
+	// Multicast address for this talkgroup.
+	Address string `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
+	// UDP port for this talkgroup.
+	Port int32 `protobuf:"varint,3,opt,name=port,proto3" json:"port,omitempty"`
+	// Whether RTP transmission is currently enabled on this talkgroup.
+	SendEnabled bool `protobuf:"varint,4,opt,name=send_enabled,json=sendEnabled,proto3" json:"send_enabled,omitempty"`
+	// Whether RTP reception is currently enabled on this talkgroup.
+	ReceiveEnabled bool `protobuf:"varint,5,opt,name=receive_enabled,json=receiveEnabled,proto3" json:"receive_enabled,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *TalkGroupState) Reset() {
+	*x = TalkGroupState{}
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TalkGroupState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TalkGroupState) ProtoMessage() {}
+
+func (x *TalkGroupState) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TalkGroupState.ProtoReflect.Descriptor instead.
+func (*TalkGroupState) Descriptor() ([]byte, []int) {
+	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *TalkGroupState) GetChannel() int32 {
+	if x != nil {
+		return x.Channel
+	}
+	return 0
+}
+
+func (x *TalkGroupState) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *TalkGroupState) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *TalkGroupState) GetSendEnabled() bool {
+	if x != nil {
+		return x.SendEnabled
+	}
+	return false
+}
+
+func (x *TalkGroupState) GetReceiveEnabled() bool {
+	if x != nil {
+		return x.ReceiveEnabled
+	}
+	return false
+}
+
 // JoinTalkGroupRequest is the request message for joining a multicast talk group.
 //
 // A talk group represents a multicast communication channel identified by an
@@ -101,7 +194,7 @@ type JoinTalkGroupRequest struct {
 
 func (x *JoinTalkGroupRequest) Reset() {
 	*x = JoinTalkGroupRequest{}
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[1]
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -113,7 +206,7 @@ func (x *JoinTalkGroupRequest) String() string {
 func (*JoinTalkGroupRequest) ProtoMessage() {}
 
 func (x *JoinTalkGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[1]
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -126,7 +219,7 @@ func (x *JoinTalkGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinTalkGroupRequest.ProtoReflect.Descriptor instead.
 func (*JoinTalkGroupRequest) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{1}
+	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *JoinTalkGroupRequest) GetTalkgroup() int32 {
@@ -162,7 +255,7 @@ type JoinTalkGroupResponse struct {
 
 func (x *JoinTalkGroupResponse) Reset() {
 	*x = JoinTalkGroupResponse{}
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[2]
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -174,7 +267,7 @@ func (x *JoinTalkGroupResponse) String() string {
 func (*JoinTalkGroupResponse) ProtoMessage() {}
 
 func (x *JoinTalkGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[2]
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -187,7 +280,7 @@ func (x *JoinTalkGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinTalkGroupResponse.ProtoReflect.Descriptor instead.
 func (*JoinTalkGroupResponse) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{2}
+	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *JoinTalkGroupResponse) GetSuccess() bool {
@@ -204,23 +297,228 @@ func (x *JoinTalkGroupResponse) GetMessage() string {
 	return ""
 }
 
+// SetSendTalkGroupRequest enables or disables RTP transmission on the talkgroup
+// identified by its 1-based channel number.
+type SetSendTalkGroupRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The 1-based channel number of the talkgroup to configure.
+	Talkgroup int32 `protobuf:"varint,1,opt,name=talkgroup,proto3" json:"talkgroup,omitempty"`
+	// Whether RTP transmission should be enabled on this talkgroup.
+	Enabled       bool `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetSendTalkGroupRequest) Reset() {
+	*x = SetSendTalkGroupRequest{}
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetSendTalkGroupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetSendTalkGroupRequest) ProtoMessage() {}
+
+func (x *SetSendTalkGroupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetSendTalkGroupRequest.ProtoReflect.Descriptor instead.
+func (*SetSendTalkGroupRequest) Descriptor() ([]byte, []int) {
+	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *SetSendTalkGroupRequest) GetTalkgroup() int32 {
+	if x != nil {
+		return x.Talkgroup
+	}
+	return 0
+}
+
+func (x *SetSendTalkGroupRequest) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+// SetSendTalkGroupResponse is returned after a SetSendTalkGroup request.
+type SetSendTalkGroupResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetSendTalkGroupResponse) Reset() {
+	*x = SetSendTalkGroupResponse{}
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetSendTalkGroupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetSendTalkGroupResponse) ProtoMessage() {}
+
+func (x *SetSendTalkGroupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetSendTalkGroupResponse.ProtoReflect.Descriptor instead.
+func (*SetSendTalkGroupResponse) Descriptor() ([]byte, []int) {
+	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{5}
+}
+
+// SetReceiveTalkGroupRequest enables or disables RTP reception on the talkgroup
+// identified by its 1-based channel number.
+type SetReceiveTalkGroupRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The 1-based channel number of the talkgroup to configure.
+	Talkgroup int32 `protobuf:"varint,1,opt,name=talkgroup,proto3" json:"talkgroup,omitempty"`
+	// Whether RTP reception should be enabled on this talkgroup.
+	Enabled       bool `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetReceiveTalkGroupRequest) Reset() {
+	*x = SetReceiveTalkGroupRequest{}
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetReceiveTalkGroupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetReceiveTalkGroupRequest) ProtoMessage() {}
+
+func (x *SetReceiveTalkGroupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetReceiveTalkGroupRequest.ProtoReflect.Descriptor instead.
+func (*SetReceiveTalkGroupRequest) Descriptor() ([]byte, []int) {
+	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *SetReceiveTalkGroupRequest) GetTalkgroup() int32 {
+	if x != nil {
+		return x.Talkgroup
+	}
+	return 0
+}
+
+func (x *SetReceiveTalkGroupRequest) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+// SetReceiveTalkGroupResponse is returned after a SetReceiveTalkGroup request.
+type SetReceiveTalkGroupResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetReceiveTalkGroupResponse) Reset() {
+	*x = SetReceiveTalkGroupResponse{}
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetReceiveTalkGroupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetReceiveTalkGroupResponse) ProtoMessage() {}
+
+func (x *SetReceiveTalkGroupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetReceiveTalkGroupResponse.ProtoReflect.Descriptor instead.
+func (*SetReceiveTalkGroupResponse) Descriptor() ([]byte, []int) {
+	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{7}
+}
+
 var File_openmanet_service_v1_comms_proto protoreflect.FileDescriptor
 
 const file_openmanet_service_v1_comms_proto_rawDesc = "" +
 	"\n" +
-	" openmanet/service/v1/comms.proto\x12\x14openmanet.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1bgoogle/protobuf/empty.proto\"v\n" +
+	" openmanet/service/v1/comms.proto\x12\x14openmanet.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xc7\x01\n" +
 	"\x16GetCommsStatusResponse\x12)\n" +
 	"\x10active_talkgroup\x18\x01 \x01(\x05R\x0factiveTalkgroup\x121\n" +
-	"\x14available_talkgroups\x18\x02 \x03(\x05R\x13availableTalkgroups\"I\n" +
+	"\x14available_talkgroups\x18\x02 \x03(\x05R\x13availableTalkgroups\x12O\n" +
+	"\x10talkgroup_states\x18\x03 \x03(\v2$.openmanet.service.v1.TalkGroupStateR\x0ftalkgroupStates\"\xa4\x01\n" +
+	"\x0eTalkGroupState\x12\x18\n" +
+	"\achannel\x18\x01 \x01(\x05R\achannel\x12\x18\n" +
+	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x12\n" +
+	"\x04port\x18\x03 \x01(\x05R\x04port\x12!\n" +
+	"\fsend_enabled\x18\x04 \x01(\bR\vsendEnabled\x12'\n" +
+	"\x0freceive_enabled\x18\x05 \x01(\bR\x0ereceiveEnabled\"I\n" +
 	"\x14JoinTalkGroupRequest\x121\n" +
 	"\ttalkgroup\x18\x01 \x01(\x05B\x13\xbaH\x10\x1a\x0e@\x01@\x03@\x05@\a@\t\x18\n" +
 	"(\x00R\ttalkgroup\"K\n" +
 	"\x15JoinTalkGroupResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage2\xd0\x01\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"b\n" +
+	"\x17SetSendTalkGroupRequest\x12-\n" +
+	"\ttalkgroup\x18\x01 \x01(\x05B\x0f\xbaH\f\x1a\n" +
+	"@\x01@\x03@\x05\x18 (\x01R\ttalkgroup\x12\x18\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\"\x1a\n" +
+	"\x18SetSendTalkGroupResponse\"e\n" +
+	"\x1aSetReceiveTalkGroupRequest\x12-\n" +
+	"\ttalkgroup\x18\x01 \x01(\x05B\x0f\xbaH\f\x1a\n" +
+	"@\x01@\x03@\x05\x18 (\x01R\ttalkgroup\x12\x18\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\"\x1d\n" +
+	"\x1bSetReceiveTalkGroupResponse2\xbf\x03\n" +
 	"\fCommsService\x12V\n" +
 	"\x0eGetCommsStatus\x12\x16.google.protobuf.Empty\x1a,.openmanet.service.v1.GetCommsStatusResponse\x12h\n" +
-	"\rJoinTalkGroup\x12*.openmanet.service.v1.JoinTalkGroupRequest\x1a+.openmanet.service.v1.JoinTalkGroupResponseB\xe5\x01\n" +
+	"\rJoinTalkGroup\x12*.openmanet.service.v1.JoinTalkGroupRequest\x1a+.openmanet.service.v1.JoinTalkGroupResponse\x12q\n" +
+	"\x10SetSendTalkGroup\x12-.openmanet.service.v1.SetSendTalkGroupRequest\x1a..openmanet.service.v1.SetSendTalkGroupResponse\x12z\n" +
+	"\x13SetReceiveTalkGroup\x120.openmanet.service.v1.SetReceiveTalkGroupRequest\x1a1.openmanet.service.v1.SetReceiveTalkGroupResponseB\xe5\x01\n" +
 	"\x18com.openmanet.service.v1B\n" +
 	"CommsProtoP\x01ZKgithub.com/openmanet/openmanetd/internal/api/openmanet/service/v1;servicev1\xa2\x02\x03OSX\xaa\x02\x14Openmanet.Service.V1\xca\x02\x14Openmanet\\Service\\V1\xe2\x02 Openmanet\\Service\\V1\\GPBMetadata\xea\x02\x16Openmanet::Service::V1b\x06proto3"
 
@@ -236,23 +534,33 @@ func file_openmanet_service_v1_comms_proto_rawDescGZIP() []byte {
 	return file_openmanet_service_v1_comms_proto_rawDescData
 }
 
-var file_openmanet_service_v1_comms_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_openmanet_service_v1_comms_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_openmanet_service_v1_comms_proto_goTypes = []any{
-	(*GetCommsStatusResponse)(nil), // 0: openmanet.service.v1.GetCommsStatusResponse
-	(*JoinTalkGroupRequest)(nil),   // 1: openmanet.service.v1.JoinTalkGroupRequest
-	(*JoinTalkGroupResponse)(nil),  // 2: openmanet.service.v1.JoinTalkGroupResponse
-	(*emptypb.Empty)(nil),          // 3: google.protobuf.Empty
+	(*GetCommsStatusResponse)(nil),      // 0: openmanet.service.v1.GetCommsStatusResponse
+	(*TalkGroupState)(nil),              // 1: openmanet.service.v1.TalkGroupState
+	(*JoinTalkGroupRequest)(nil),        // 2: openmanet.service.v1.JoinTalkGroupRequest
+	(*JoinTalkGroupResponse)(nil),       // 3: openmanet.service.v1.JoinTalkGroupResponse
+	(*SetSendTalkGroupRequest)(nil),     // 4: openmanet.service.v1.SetSendTalkGroupRequest
+	(*SetSendTalkGroupResponse)(nil),    // 5: openmanet.service.v1.SetSendTalkGroupResponse
+	(*SetReceiveTalkGroupRequest)(nil),  // 6: openmanet.service.v1.SetReceiveTalkGroupRequest
+	(*SetReceiveTalkGroupResponse)(nil), // 7: openmanet.service.v1.SetReceiveTalkGroupResponse
+	(*emptypb.Empty)(nil),               // 8: google.protobuf.Empty
 }
 var file_openmanet_service_v1_comms_proto_depIdxs = []int32{
-	3, // 0: openmanet.service.v1.CommsService.GetCommsStatus:input_type -> google.protobuf.Empty
-	1, // 1: openmanet.service.v1.CommsService.JoinTalkGroup:input_type -> openmanet.service.v1.JoinTalkGroupRequest
-	0, // 2: openmanet.service.v1.CommsService.GetCommsStatus:output_type -> openmanet.service.v1.GetCommsStatusResponse
-	2, // 3: openmanet.service.v1.CommsService.JoinTalkGroup:output_type -> openmanet.service.v1.JoinTalkGroupResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: openmanet.service.v1.GetCommsStatusResponse.talkgroup_states:type_name -> openmanet.service.v1.TalkGroupState
+	8, // 1: openmanet.service.v1.CommsService.GetCommsStatus:input_type -> google.protobuf.Empty
+	2, // 2: openmanet.service.v1.CommsService.JoinTalkGroup:input_type -> openmanet.service.v1.JoinTalkGroupRequest
+	4, // 3: openmanet.service.v1.CommsService.SetSendTalkGroup:input_type -> openmanet.service.v1.SetSendTalkGroupRequest
+	6, // 4: openmanet.service.v1.CommsService.SetReceiveTalkGroup:input_type -> openmanet.service.v1.SetReceiveTalkGroupRequest
+	0, // 5: openmanet.service.v1.CommsService.GetCommsStatus:output_type -> openmanet.service.v1.GetCommsStatusResponse
+	3, // 6: openmanet.service.v1.CommsService.JoinTalkGroup:output_type -> openmanet.service.v1.JoinTalkGroupResponse
+	5, // 7: openmanet.service.v1.CommsService.SetSendTalkGroup:output_type -> openmanet.service.v1.SetSendTalkGroupResponse
+	7, // 8: openmanet.service.v1.CommsService.SetReceiveTalkGroup:output_type -> openmanet.service.v1.SetReceiveTalkGroupResponse
+	5, // [5:9] is the sub-list for method output_type
+	1, // [1:5] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_openmanet_service_v1_comms_proto_init() }
@@ -266,7 +574,7 @@ func file_openmanet_service_v1_comms_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_service_v1_comms_proto_rawDesc), len(file_openmanet_service_v1_comms_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

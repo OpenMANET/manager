@@ -12,11 +12,20 @@ func (cfg *CommsConfig) isBroadcasting(rt *CommsRuntime) bool {
 }
 
 func (cfg *CommsConfig) drainPlaybackBuffer(rt *CommsRuntime) {
-	for {
-		select {
-		case <-rt.playbackBuffer:
-		default:
-			return
+	for _, pc := range rt.ports {
+		buf := pc.playbackBuffer
+		if buf == nil {
+			continue
+		}
+
+		// Drain this port's buffer non-blockingly via a labeled break.
+	drain:
+		for {
+			select {
+			case <-buf:
+			default:
+				break drain
+			}
 		}
 	}
 }
@@ -46,7 +55,11 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 	cfg.Log.Debug().Msg("Begin transmission: playing start tone and starting mic stream")
 	cfg.drainPlaybackBuffer(rt)
 
-	rt.playbackBuffer <- rt.beepBufferStart
+	for _, pc := range rt.ports {
+		if pc.playbackBuffer != nil {
+			pc.playbackBuffer <- rt.beepBufferStart
+		}
+	}
 
 	time.Sleep(200 * time.Millisecond)
 
@@ -113,15 +126,24 @@ func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 
 	cfg.drainPlaybackBuffer(rt)
 
-	rt.playbackBuffer <- rt.beepBufferStop
+	for _, pc := range rt.ports {
+		if pc.playbackBuffer != nil {
+			pc.playbackBuffer <- rt.beepBufferStop
+		}
+	}
 
 	rt.broadcasting.Store(false)
 }
 
-// Run is the main event loop. It starts the receive goroutine and the event
-// source and blocks until ctx is canceled.
+// Run is the main event loop. It starts a receiveLoop goroutine for every
+// Receive-capable port and then blocks, dispatching PTT events until ctx is
+// canceled.
 func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src EventSource) {
-	go cfg.receiveLoop(ctx, rt)
+	for _, pc := range rt.ports {
+		if pc.cfg.Receive {
+			go cfg.receiveLoop(ctx, pc, rt)
+		}
+	}
 
 	events := src.Events(ctx)
 
