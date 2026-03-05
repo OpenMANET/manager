@@ -116,7 +116,7 @@ func buildTalkGroupStates() []*serviceproto.TalkGroupState {
 		}
 
 		result = append(result, &serviceproto.TalkGroupState{
-			Channel:        int32(ch),
+			Talkgroup:      int32(ch),
 			Address:        s.Address,
 			Port:           int32(s.Port),
 			SendEnabled:    s.SendEnabled,
@@ -158,14 +158,22 @@ func (c *CommsService) SetSendTalkGroup(_ context.Context, req *serviceproto.Set
 
 	portIdx, err := talkGroupPortIdx(int(req.GetTalkgroup()))
 	if err != nil {
-		return nil, err
+		return &serviceproto.SetSendTalkGroupResponse{
+			Success: false,
+			Message: err.Error(),
+		}, err
 	}
 
 	if err := comms.EnableTalkGroupSend(portIdx, req.GetEnabled()); err != nil {
-		return nil, err
+		return &serviceproto.SetSendTalkGroupResponse{
+			Success: false,
+			Message: err.Error(),
+		}, err
 	}
 
-	return &serviceproto.SetSendTalkGroupResponse{}, nil
+	return &serviceproto.SetSendTalkGroupResponse{
+		Success: true,
+	}, nil
 }
 
 // SetReceiveTalkGroup enables or disables RTP reception on the talkgroup
@@ -177,12 +185,20 @@ func (c *CommsService) SetReceiveTalkGroup(_ context.Context, req *serviceproto.
 
 	portIdx, err := talkGroupPortIdx(int(req.GetTalkgroup()))
 	if err != nil {
-		return nil, err
+		return &serviceproto.SetReceiveTalkGroupResponse{
+			Success: false,
+			Message: err.Error(),
+		}, err
 	}
 
 	if err := comms.EnableTalkGroupReceive(portIdx, req.GetEnabled()); err != nil {
-		return nil, err
+		return &serviceproto.SetReceiveTalkGroupResponse{
+			Success: false,
+			Message: err.Error(),
+		}, err
 	}
 
-	return &serviceproto.SetReceiveTalkGroupResponse{}, nil
+	return &serviceproto.SetReceiveTalkGroupResponse{
+		Success: true,
+	}, nil
 }

@@ -84,6 +84,28 @@ func newTestServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
+// newTestServerEnabled is like newTestServer but with CommsEnable: true so that
+// the comms handler proceeds past the "not enabled" guard. The comms runtime is
+// not started, so operations that require the live subsystem will return
+// {Success: false} response bodies rather than gRPC errors.
+func newTestServerEnabled(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	validateInterceptor := validate.NewInterceptor()
+	handlerOpt := connect.WithInterceptors(validateInterceptor)
+
+	mux := http.NewServeMux()
+	mux.Handle(services.NewCommsServiceHandler(&handlers.CommsService{
+		Cfg: &config.Config{CommsEnable: true},
+		Log: zerolog.Nop(),
+	}, handlerOpt))
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	return srv
+}
+
 // ── NodeService ───────────────────────────────────────────────────────────────
 
 func TestIntegration_ListNodes_Empty(t *testing.T) {
@@ -178,6 +200,92 @@ func TestIntegration_JoinTalkGroup_Disabled(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestIntegration_SetSendTalkGroup_Disabled(t *testing.T) {
+	srv := newTestServer(t)
+	client := services.NewCommsServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	_, err := client.SetSendTalkGroup(context.Background(), &serviceproto.SetSendTalkGroupRequest{
+		Talkgroup: 1,
+		Enabled:   true,
+	})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	if assert.ErrorAs(t, err, &connectErr) {
+		assert.Contains(t, connectErr.Message(), "not enabled")
+	}
+}
+
+func TestIntegration_SetSendTalkGroup_NotRunning(t *testing.T) {
+	srv := newTestServerEnabled(t)
+	client := services.NewCommsServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	// Comms is enabled but the runtime is not started, so talkGroupPortIdx
+	// fails and the error is propagated as a gRPC error (not InvalidArgument).
+	_, err := client.SetSendTalkGroup(context.Background(), &serviceproto.SetSendTalkGroupRequest{
+		Talkgroup: 1,
+		Enabled:   true,
+	})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	if assert.ErrorAs(t, err, &connectErr) {
+		assert.NotEqual(t, connect.CodeInvalidArgument, connectErr.Code(),
+			"subsystem-not-running must not look like a validation error")
+	}
+}
+
+func TestIntegration_SetReceiveTalkGroup_Disabled(t *testing.T) {
+	srv := newTestServer(t)
+	client := services.NewCommsServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	_, err := client.SetReceiveTalkGroup(context.Background(), &serviceproto.SetReceiveTalkGroupRequest{
+		Talkgroup: 1,
+		Enabled:   true,
+	})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	if assert.ErrorAs(t, err, &connectErr) {
+		assert.Contains(t, connectErr.Message(), "not enabled")
+	}
+}
+
+func TestIntegration_SetReceiveTalkGroup_NotRunning(t *testing.T) {
+	srv := newTestServerEnabled(t)
+	client := services.NewCommsServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	// Comms is enabled but the runtime is not started, so talkGroupPortIdx
+	// fails and the error is propagated as a gRPC error (not InvalidArgument).
+	_, err := client.SetReceiveTalkGroup(context.Background(), &serviceproto.SetReceiveTalkGroupRequest{
+		Talkgroup: 1,
+		Enabled:   true,
+	})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	if assert.ErrorAs(t, err, &connectErr) {
+		assert.NotEqual(t, connect.CodeInvalidArgument, connectErr.Code(),
+			"subsystem-not-running must not look like a validation error")
+	}
+}
+
 // ── Validation (interceptor enforcement over HTTP) ────────────────────────────
 
 func TestIntegration_Validation_GetNode_EmptyHostname(t *testing.T) {
@@ -258,6 +366,81 @@ func TestIntegration_Validation_JoinTalkGroup_ValidTalkgroup(t *testing.T) {
 	for _, tg := range []int32{0, 1, 5, 10} {
 		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
 			_, err := client.JoinTalkGroup(context.Background(), &serviceproto.JoinTalkGroupRequest{Talkgroup: tg})
+			require.Error(t, err)
+
+			var connectErr *connect.Error
+			require.ErrorAs(t, err, &connectErr)
+			assert.NotEqual(t, connect.CodeInvalidArgument, connectErr.Code(),
+				"valid talkgroup %d must not be rejected by the validator", tg)
+		})
+	}
+}
+
+func TestIntegration_Validation_SetSendTalkGroup_OutOfRange(t *testing.T) {
+	srv := newTestServer(t)
+	client := services.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	// talkgroup field is gte:1 lte:32; values outside that range must be rejected.
+	for _, tg := range []int32{0, -1, 33, 100} {
+		tg := tg
+		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
+			_, err := client.SetSendTalkGroup(context.Background(), &serviceproto.SetSendTalkGroupRequest{Talkgroup: tg})
+			require.Error(t, err)
+
+			var connectErr *connect.Error
+			require.ErrorAs(t, err, &connectErr)
+			assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code(),
+				"talkgroup %d must be rejected with InvalidArgument", tg)
+		})
+	}
+}
+
+func TestIntegration_Validation_SetSendTalkGroup_ValidTalkgroup(t *testing.T) {
+	srv := newTestServer(t)
+	client := services.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	// Valid talkgroup passes validation; comms is disabled so the handler returns
+	// a gRPC error, but it must NOT be InvalidArgument.
+	for _, tg := range []int32{1, 16, 32} {
+		tg := tg
+		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
+			_, err := client.SetSendTalkGroup(context.Background(), &serviceproto.SetSendTalkGroupRequest{Talkgroup: tg})
+			require.Error(t, err)
+
+			var connectErr *connect.Error
+			require.ErrorAs(t, err, &connectErr)
+			assert.NotEqual(t, connect.CodeInvalidArgument, connectErr.Code(),
+				"valid talkgroup %d must not be rejected by the validator", tg)
+		})
+	}
+}
+
+func TestIntegration_Validation_SetReceiveTalkGroup_OutOfRange(t *testing.T) {
+	srv := newTestServer(t)
+	client := services.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	for _, tg := range []int32{0, -1, 33, 100} {
+		tg := tg
+		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
+			_, err := client.SetReceiveTalkGroup(context.Background(), &serviceproto.SetReceiveTalkGroupRequest{Talkgroup: tg})
+			require.Error(t, err)
+
+			var connectErr *connect.Error
+			require.ErrorAs(t, err, &connectErr)
+			assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code(),
+				"talkgroup %d must be rejected with InvalidArgument", tg)
+		})
+	}
+}
+
+func TestIntegration_Validation_SetReceiveTalkGroup_ValidTalkgroup(t *testing.T) {
+	srv := newTestServer(t)
+	client := services.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	for _, tg := range []int32{1, 16, 32} {
+		tg := tg
+		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
+			_, err := client.SetReceiveTalkGroup(context.Background(), &serviceproto.SetReceiveTalkGroupRequest{Talkgroup: tg})
 			require.Error(t, err)
 
 			var connectErr *connect.Error

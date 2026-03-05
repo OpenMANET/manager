@@ -92,8 +92,8 @@ func (x *GetCommsStatusResponse) GetTalkgroupStates() []*TalkGroupState {
 // toggles for a single configured talkgroup port.
 type TalkGroupState struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 1-based channel number identifying this talkgroup.
-	Channel int32 `protobuf:"varint,1,opt,name=channel,proto3" json:"channel,omitempty"`
+	// 1-based talkgroup number identifying this talkgroup.
+	Talkgroup int32 `protobuf:"varint,1,opt,name=talkgroup,proto3" json:"talkgroup,omitempty"`
 	// Multicast address for this talkgroup.
 	Address string `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
 	// UDP port for this talkgroup.
@@ -136,9 +136,9 @@ func (*TalkGroupState) Descriptor() ([]byte, []int) {
 	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *TalkGroupState) GetChannel() int32 {
+func (x *TalkGroupState) GetTalkgroup() int32 {
 	if x != nil {
-		return x.Channel
+		return x.Talkgroup
 	}
 	return 0
 }
@@ -355,7 +355,11 @@ func (x *SetSendTalkGroupRequest) GetEnabled() bool {
 
 // SetSendTalkGroupResponse is returned after a SetSendTalkGroup request.
 type SetSendTalkGroupResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Indicates whether the request to join the talkgroup was successful.
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// Optional message providing additional information about the join operation.
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -388,6 +392,20 @@ func (x *SetSendTalkGroupResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SetSendTalkGroupResponse.ProtoReflect.Descriptor instead.
 func (*SetSendTalkGroupResponse) Descriptor() ([]byte, []int) {
 	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SetSendTalkGroupResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *SetSendTalkGroupResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
 }
 
 // SetReceiveTalkGroupRequest enables or disables RTP reception on the talkgroup
@@ -448,7 +466,11 @@ func (x *SetReceiveTalkGroupRequest) GetEnabled() bool {
 
 // SetReceiveTalkGroupResponse is returned after a SetReceiveTalkGroup request.
 type SetReceiveTalkGroupResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Indicates whether the request to join the talkgroup was successful.
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// Optional message providing additional information about the join operation.
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -483,6 +505,20 @@ func (*SetReceiveTalkGroupResponse) Descriptor() ([]byte, []int) {
 	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{7}
 }
 
+func (x *SetReceiveTalkGroupResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *SetReceiveTalkGroupResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 var File_openmanet_service_v1_comms_proto protoreflect.FileDescriptor
 
 const file_openmanet_service_v1_comms_proto_rawDesc = "" +
@@ -491,9 +527,9 @@ const file_openmanet_service_v1_comms_proto_rawDesc = "" +
 	"\x16GetCommsStatusResponse\x12)\n" +
 	"\x10active_talkgroup\x18\x01 \x01(\x05R\x0factiveTalkgroup\x121\n" +
 	"\x14available_talkgroups\x18\x02 \x03(\x05R\x13availableTalkgroups\x12O\n" +
-	"\x10talkgroup_states\x18\x03 \x03(\v2$.openmanet.service.v1.TalkGroupStateR\x0ftalkgroupStates\"\xa4\x01\n" +
-	"\x0eTalkGroupState\x12\x18\n" +
-	"\achannel\x18\x01 \x01(\x05R\achannel\x12\x18\n" +
+	"\x10talkgroup_states\x18\x03 \x03(\v2$.openmanet.service.v1.TalkGroupStateR\x0ftalkgroupStates\"\xa8\x01\n" +
+	"\x0eTalkGroupState\x12\x1c\n" +
+	"\ttalkgroup\x18\x01 \x01(\x05R\ttalkgroup\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\x05R\x04port\x12!\n" +
 	"\fsend_enabled\x18\x04 \x01(\bR\vsendEnabled\x12'\n" +
@@ -503,17 +539,19 @@ const file_openmanet_service_v1_comms_proto_rawDesc = "" +
 	"(\x00R\ttalkgroup\"K\n" +
 	"\x15JoinTalkGroupResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"b\n" +
-	"\x17SetSendTalkGroupRequest\x12-\n" +
-	"\ttalkgroup\x18\x01 \x01(\x05B\x0f\xbaH\f\x1a\n" +
-	"@\x01@\x03@\x05\x18 (\x01R\ttalkgroup\x12\x18\n" +
-	"\aenabled\x18\x02 \x01(\bR\aenabled\"\x1a\n" +
-	"\x18SetSendTalkGroupResponse\"e\n" +
-	"\x1aSetReceiveTalkGroupRequest\x12-\n" +
-	"\ttalkgroup\x18\x01 \x01(\x05B\x0f\xbaH\f\x1a\n" +
-	"@\x01@\x03@\x05\x18 (\x01R\ttalkgroup\x12\x18\n" +
-	"\aenabled\x18\x02 \x01(\bR\aenabled\"\x1d\n" +
-	"\x1bSetReceiveTalkGroupResponse2\xbf\x03\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"f\n" +
+	"\x17SetSendTalkGroupRequest\x121\n" +
+	"\ttalkgroup\x18\x01 \x01(\x05B\x13\xbaH\x10\x1a\x0e@\x01@\x03@\x05@\a@\t\x18 (\x01R\ttalkgroup\x12\x18\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\"N\n" +
+	"\x18SetSendTalkGroupResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"i\n" +
+	"\x1aSetReceiveTalkGroupRequest\x121\n" +
+	"\ttalkgroup\x18\x01 \x01(\x05B\x13\xbaH\x10\x1a\x0e@\x01@\x03@\x05@\a@\t\x18 (\x01R\ttalkgroup\x12\x18\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\"Q\n" +
+	"\x1bSetReceiveTalkGroupResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage2\xbf\x03\n" +
 	"\fCommsService\x12V\n" +
 	"\x0eGetCommsStatus\x12\x16.google.protobuf.Empty\x1a,.openmanet.service.v1.GetCommsStatusResponse\x12h\n" +
 	"\rJoinTalkGroup\x12*.openmanet.service.v1.JoinTalkGroupRequest\x1a+.openmanet.service.v1.JoinTalkGroupResponse\x12q\n" +
