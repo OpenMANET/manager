@@ -206,13 +206,6 @@ func TestDecodeAndQueuePLC(t *testing.T) {
 	}
 }
 
-func TestUpdateMulticastEndpoint_InactiveError(t *testing.T) {
-	err := UpdateMulticastEndpoint("239.1.2.3", 5004)
-	if err == nil {
-		t.Error("expected error when not running")
-	}
-}
-
 func TestNewComms_Defaults(t *testing.T) {
 	// NewComms is a copy constructor; defaults (McastPorts, PlaybackDepth, etc.)
 	// are applied lazily in Start(). Verify NewComms returns a non-nil value and
@@ -452,46 +445,6 @@ func setupActiveConfig(t *testing.T) {
 	t.Cleanup(func() { activeConfig.Store(nil) })
 }
 
-func TestUpdateMulticastEndpoint_InvalidIP(t *testing.T) {
-	setupActiveConfig(t)
-
-	if err := UpdateMulticastEndpoint("not-an-ip", 5004); err == nil {
-		t.Error("expected error for invalid IP string")
-	}
-}
-
-func TestUpdateMulticastEndpoint_IPv6Address(t *testing.T) {
-	setupActiveConfig(t)
-
-	if err := UpdateMulticastEndpoint("ff02::1", 5004); err == nil {
-		t.Error("expected error for IPv6 multicast address (only IPv4 supported)")
-	}
-}
-
-func TestUpdateMulticastEndpoint_NonMulticastIP(t *testing.T) {
-	setupActiveConfig(t)
-
-	if err := UpdateMulticastEndpoint("10.0.0.1", 5004); err == nil {
-		t.Error("expected error for non-multicast IP")
-	}
-}
-
-func TestUpdateMulticastEndpoint_PortZero(t *testing.T) {
-	setupActiveConfig(t)
-
-	if err := UpdateMulticastEndpoint("239.1.2.3", 0); err == nil {
-		t.Error("expected error for port 0")
-	}
-}
-
-func TestUpdateMulticastEndpoint_PortTooLarge(t *testing.T) {
-	setupActiveConfig(t)
-
-	if err := UpdateMulticastEndpoint("239.1.2.3", 65536); err == nil {
-		t.Error("expected error for port > 65535")
-	}
-}
-
 // ─── GetMulticastAddr tests ───────────────────────────────────────────────────
 
 func TestGetActiveMulticastAddr_NotStarted(t *testing.T) {
@@ -593,36 +546,6 @@ func TestGetActiveMulticastPort_ReturnsConfiguredPort(t *testing.T) {
 
 	if got := GetActiveMulticastPort(); got != want {
 		t.Errorf("GetActiveMulticastPort() = %d, want %d", got, want)
-	}
-}
-
-// ─── UpdateMulticastEndpoint multi-port tests ─────────────────────────────────
-
-func TestUpdateMulticastEndpoint_MultiplePortsError(t *testing.T) {
-	pc0 := &portChannel{
-		cfg:      McastPortConfig{Address: "239.0.0.1", Port: 5004, Send: true, Receive: true},
-		sender:   newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
-	}
-	pc1 := &portChannel{
-		cfg:      McastPortConfig{Address: "239.0.0.2", Port: 5006, Send: true, Receive: true},
-		sender:   newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
-	}
-
-	cfg := &CommsConfig{
-		Log:        zerolog.Nop(),
-		McastPorts: []McastPortConfig{pc0.cfg, pc1.cfg},
-	}
-	cfg.runtime = &CommsRuntime{
-		ports: []*portChannel{pc0, pc1},
-	}
-
-	activeConfig.Store(cfg)
-	t.Cleanup(func() { activeConfig.Store(nil) })
-
-	if err := UpdateMulticastEndpoint("239.1.2.3", 5004); err == nil {
-		t.Error("expected error when more than one McastPort is configured")
 	}
 }
 
