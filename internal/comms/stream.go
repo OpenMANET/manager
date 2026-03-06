@@ -20,6 +20,8 @@ type portaudioStream struct {
 	s *portaudio.Stream
 }
 
+// Start begins audio processing on the underlying PortAudio stream.
+// It returns an error wrapping the PortAudio failure if the stream cannot be started.
 func (p *portaudioStream) Start() error {
 	if err := p.s.Start(); err != nil {
 		return fmt.Errorf("portaudio stream start: %w", err)
@@ -28,6 +30,9 @@ func (p *portaudioStream) Start() error {
 	return nil
 }
 
+// Stop halts audio processing on the underlying PortAudio stream, flushing
+// any pending buffers. It returns an error wrapping the PortAudio failure if
+// the stream cannot be stopped.
 func (p *portaudioStream) Stop() error {
 	if err := p.s.Stop(); err != nil {
 		return fmt.Errorf("portaudio stream stop: %w", err)
@@ -36,4 +41,6 @@ func (p *portaudioStream) Stop() error {
 	return nil
 }
 
+// Close releases all resources associated with the underlying PortAudio stream.
+// The stream must not be used after Close returns.
 func (p *portaudioStream) Close() error { return p.s.Close() }

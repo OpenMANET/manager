@@ -609,15 +609,24 @@ func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *C
 		FramesPerBuffer: frameSize,
 	}
 
+	// PortAudio calls this callback every 20 ms with a frameSize (960-sample)
+	// float32 buffer captured from the input device. The callback runs on a
+	// real-time audio thread, so it must not block or allocate on the heap.
 	stream, err := portaudio.OpenStream(inParams, func(in []float32) {
+		// Default gain to unity if the caller left MicGain unset or zero.
 		gain := cfg.MicGain
 		if gain <= 0 {
 			gain = 1.0
 		}
 
+		// Borrow a pooled int16 slice for the PCM conversion. Using a pool
+		// avoids a per-frame heap allocation on the audio hot path.
 		pcmPtr := int16Pool.Get().(*[]int16) //nolint:forcetypeassert
 		pcm := (*pcmPtr)[:len(in)]
 
+		// Convert float32 samples [-1.0, 1.0] → int16 [-32767, 32767].
+		// MicGain is applied first; the result is hard-clipped to the legal
+		// float range before scaling to prevent int16 overflow.
 		for i, v := range in {
 			v *= gain
 			if v > 1.0 {
@@ -629,9 +638,12 @@ func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *C
 			pcm[i] = int16(v * 32767)
 		}
 
+		// Borrow a pooled output buffer for the Opus encoder.
 		bufPtr := encBufPool.Get().(*[]byte) //nolint:forcetypeassert
 		buf := *bufPtr
 
+		// Encode the int16 PCM frame to Opus. The PCM pool slice is returned
+		// immediately after encoding because it is no longer needed.
 		n, encErr := rt.encoder.Encode(pcm, buf)
 
 		int16Pool.Put(pcmPtr)
@@ -642,6 +654,7 @@ func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *C
 			return
 		}
 
+		// Transmit the encoded Opus payload as RTP to every send-enabled port.
 		cfg.sendToAllPorts(rt, buf[:n])
 
 		encBufPool.Put(bufPtr)
@@ -680,6 +693,16 @@ func (cfg *CommsConfig) reopenBroadcastStream(rt *CommsRuntime, inDev *portaudio
 
 // ─── buildEventSource ─────────────────────────────────────────────────────────
 
+// buildEventSource constructs the PTT EventSource defined by cfg.ControlSource.
+//
+// Two backends are supported:
+//   - "cm108" (defaultCtrlSrc): reads PTT state directly from a CM108-compatible
+//     USB audio/HID dongle via its HID interrupt endpoint.
+//   - anything else (default): searches for a matching evdev input device via
+//     findCommDevice and wraps it in a NanoPTT source that decodes PTT events
+//     using cfg.CommKey.
+//
+// Returns an error only in the default branch when no matching evdev device is found.
 func (cfg *CommsConfig) buildEventSource() (EventSource, error) {
 	switch cfg.ControlSource {
 	case defaultCtrlSrc:
