@@ -37,9 +37,6 @@ const (
 	// CommsServiceGetCommsStatusProcedure is the fully-qualified name of the CommsService's
 	// GetCommsStatus RPC.
 	CommsServiceGetCommsStatusProcedure = "/openmanet.service.v1.CommsService/GetCommsStatus"
-	// CommsServiceJoinTalkGroupProcedure is the fully-qualified name of the CommsService's
-	// JoinTalkGroup RPC.
-	CommsServiceJoinTalkGroupProcedure = "/openmanet.service.v1.CommsService/JoinTalkGroup"
 	// CommsServiceSetSendTalkGroupProcedure is the fully-qualified name of the CommsService's
 	// SetSendTalkGroup RPC.
 	CommsServiceSetSendTalkGroupProcedure = "/openmanet.service.v1.CommsService/SetSendTalkGroup"
@@ -52,8 +49,6 @@ const (
 type CommsServiceClient interface {
 	// Retrieves the current communication status of the OpenMANET service.
 	GetCommsStatus(context.Context, *emptypb.Empty) (*v1.GetCommsStatusResponse, error)
-	// Joins the specified talkgroup for communication.
-	JoinTalkGroup(context.Context, *v1.JoinTalkGroupRequest) (*v1.JoinTalkGroupResponse, error)
 	// Enables or disables RTP transmission on the specified talkgroup.
 	SetSendTalkGroup(context.Context, *v1.SetSendTalkGroupRequest) (*v1.SetSendTalkGroupResponse, error)
 	// Enables or disables RTP reception on the specified talkgroup.
@@ -77,12 +72,6 @@ func NewCommsServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(commsServiceMethods.ByName("GetCommsStatus")),
 			connect.WithClientOptions(opts...),
 		),
-		joinTalkGroup: connect.NewClient[v1.JoinTalkGroupRequest, v1.JoinTalkGroupResponse](
-			httpClient,
-			baseURL+CommsServiceJoinTalkGroupProcedure,
-			connect.WithSchema(commsServiceMethods.ByName("JoinTalkGroup")),
-			connect.WithClientOptions(opts...),
-		),
 		setSendTalkGroup: connect.NewClient[v1.SetSendTalkGroupRequest, v1.SetSendTalkGroupResponse](
 			httpClient,
 			baseURL+CommsServiceSetSendTalkGroupProcedure,
@@ -101,7 +90,6 @@ func NewCommsServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 // commsServiceClient implements CommsServiceClient.
 type commsServiceClient struct {
 	getCommsStatus      *connect.Client[emptypb.Empty, v1.GetCommsStatusResponse]
-	joinTalkGroup       *connect.Client[v1.JoinTalkGroupRequest, v1.JoinTalkGroupResponse]
 	setSendTalkGroup    *connect.Client[v1.SetSendTalkGroupRequest, v1.SetSendTalkGroupResponse]
 	setReceiveTalkGroup *connect.Client[v1.SetReceiveTalkGroupRequest, v1.SetReceiveTalkGroupResponse]
 }
@@ -109,15 +97,6 @@ type commsServiceClient struct {
 // GetCommsStatus calls openmanet.service.v1.CommsService.GetCommsStatus.
 func (c *commsServiceClient) GetCommsStatus(ctx context.Context, req *emptypb.Empty) (*v1.GetCommsStatusResponse, error) {
 	response, err := c.getCommsStatus.CallUnary(ctx, connect.NewRequest(req))
-	if response != nil {
-		return response.Msg, err
-	}
-	return nil, err
-}
-
-// JoinTalkGroup calls openmanet.service.v1.CommsService.JoinTalkGroup.
-func (c *commsServiceClient) JoinTalkGroup(ctx context.Context, req *v1.JoinTalkGroupRequest) (*v1.JoinTalkGroupResponse, error) {
-	response, err := c.joinTalkGroup.CallUnary(ctx, connect.NewRequest(req))
 	if response != nil {
 		return response.Msg, err
 	}
@@ -146,8 +125,6 @@ func (c *commsServiceClient) SetReceiveTalkGroup(ctx context.Context, req *v1.Se
 type CommsServiceHandler interface {
 	// Retrieves the current communication status of the OpenMANET service.
 	GetCommsStatus(context.Context, *emptypb.Empty) (*v1.GetCommsStatusResponse, error)
-	// Joins the specified talkgroup for communication.
-	JoinTalkGroup(context.Context, *v1.JoinTalkGroupRequest) (*v1.JoinTalkGroupResponse, error)
 	// Enables or disables RTP transmission on the specified talkgroup.
 	SetSendTalkGroup(context.Context, *v1.SetSendTalkGroupRequest) (*v1.SetSendTalkGroupResponse, error)
 	// Enables or disables RTP reception on the specified talkgroup.
@@ -167,12 +144,6 @@ func NewCommsServiceHandler(svc CommsServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(commsServiceMethods.ByName("GetCommsStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
-	commsServiceJoinTalkGroupHandler := connect.NewUnaryHandlerSimple(
-		CommsServiceJoinTalkGroupProcedure,
-		svc.JoinTalkGroup,
-		connect.WithSchema(commsServiceMethods.ByName("JoinTalkGroup")),
-		connect.WithHandlerOptions(opts...),
-	)
 	commsServiceSetSendTalkGroupHandler := connect.NewUnaryHandlerSimple(
 		CommsServiceSetSendTalkGroupProcedure,
 		svc.SetSendTalkGroup,
@@ -189,8 +160,6 @@ func NewCommsServiceHandler(svc CommsServiceHandler, opts ...connect.HandlerOpti
 		switch r.URL.Path {
 		case CommsServiceGetCommsStatusProcedure:
 			commsServiceGetCommsStatusHandler.ServeHTTP(w, r)
-		case CommsServiceJoinTalkGroupProcedure:
-			commsServiceJoinTalkGroupHandler.ServeHTTP(w, r)
 		case CommsServiceSetSendTalkGroupProcedure:
 			commsServiceSetSendTalkGroupHandler.ServeHTTP(w, r)
 		case CommsServiceSetReceiveTalkGroupProcedure:
@@ -206,10 +175,6 @@ type UnimplementedCommsServiceHandler struct{}
 
 func (UnimplementedCommsServiceHandler) GetCommsStatus(context.Context, *emptypb.Empty) (*v1.GetCommsStatusResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.service.v1.CommsService.GetCommsStatus is not implemented"))
-}
-
-func (UnimplementedCommsServiceHandler) JoinTalkGroup(context.Context, *v1.JoinTalkGroupRequest) (*v1.JoinTalkGroupResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.service.v1.CommsService.JoinTalkGroup is not implemented"))
 }
 
 func (UnimplementedCommsServiceHandler) SetSendTalkGroup(context.Context, *v1.SetSendTalkGroupRequest) (*v1.SetSendTalkGroupResponse, error) {
