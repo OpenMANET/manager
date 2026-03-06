@@ -171,132 +171,6 @@ func (x *TalkGroupState) GetReceiveEnabled() bool {
 	return false
 }
 
-// JoinTalkGroupRequest is the request message for joining a multicast talk group.
-//
-// A talk group represents a multicast communication channel identified by an
-// IPv4 multicast address and a UDP port number. All talk groups share the same
-// multicast address and are distinguished by port, so switching groups only
-// requires rebinding sockets (no IGMP leave/join overhead).
-//
-// Example:
-//
-//	JoinTalkGroupRequest{
-//	  talkgroup: 1
-//	}
-type JoinTalkGroupRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// The talk group number to join. This corresponds to a specific multicast
-	// address and port.
-	Talkgroup     int32 `protobuf:"varint,1,opt,name=talkgroup,proto3" json:"talkgroup,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *JoinTalkGroupRequest) Reset() {
-	*x = JoinTalkGroupRequest{}
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *JoinTalkGroupRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*JoinTalkGroupRequest) ProtoMessage() {}
-
-func (x *JoinTalkGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use JoinTalkGroupRequest.ProtoReflect.Descriptor instead.
-func (*JoinTalkGroupRequest) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *JoinTalkGroupRequest) GetTalkgroup() int32 {
-	if x != nil {
-		return x.Talkgroup
-	}
-	return 0
-}
-
-// *
-// JoinTalkGroupResponse is the response message returned after a request
-// to join a talk group has been processed.
-//
-// Fields:
-//
-//   - success: A boolean flag indicating whether the request to join the
-//     talk group was successful. A value of `true` means the
-//     operation succeeded, while `false` indicates a failure.
-//
-//   - message: An optional human-readable string providing additional
-//     context or information about the join operation. This may
-//     include error details if the operation was unsuccessful,
-//     or a confirmation message if successful.
-type JoinTalkGroupResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Indicates whether the request to join the talkgroup was successful.
-	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// Optional message providing additional information about the join operation.
-	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *JoinTalkGroupResponse) Reset() {
-	*x = JoinTalkGroupResponse{}
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *JoinTalkGroupResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*JoinTalkGroupResponse) ProtoMessage() {}
-
-func (x *JoinTalkGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use JoinTalkGroupResponse.ProtoReflect.Descriptor instead.
-func (*JoinTalkGroupResponse) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *JoinTalkGroupResponse) GetSuccess() bool {
-	if x != nil {
-		return x.Success
-	}
-	return false
-}
-
-func (x *JoinTalkGroupResponse) GetMessage() string {
-	if x != nil {
-		return x.Message
-	}
-	return ""
-}
-
 // SetSendTalkGroupRequest enables or disables RTP transmission on the talkgroup
 // identified by its 1-based channel number.
 type SetSendTalkGroupRequest struct {
@@ -311,7 +185,7 @@ type SetSendTalkGroupRequest struct {
 
 func (x *SetSendTalkGroupRequest) Reset() {
 	*x = SetSendTalkGroupRequest{}
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[4]
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -323,7 +197,7 @@ func (x *SetSendTalkGroupRequest) String() string {
 func (*SetSendTalkGroupRequest) ProtoMessage() {}
 
 func (x *SetSendTalkGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[4]
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -336,7 +210,7 @@ func (x *SetSendTalkGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSendTalkGroupRequest.ProtoReflect.Descriptor instead.
 func (*SetSendTalkGroupRequest) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{4}
+	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *SetSendTalkGroupRequest) GetTalkgroup() int32 {
@@ -366,7 +240,7 @@ type SetSendTalkGroupResponse struct {
 
 func (x *SetSendTalkGroupResponse) Reset() {
 	*x = SetSendTalkGroupResponse{}
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[5]
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -378,7 +252,7 @@ func (x *SetSendTalkGroupResponse) String() string {
 func (*SetSendTalkGroupResponse) ProtoMessage() {}
 
 func (x *SetSendTalkGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[5]
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -391,7 +265,7 @@ func (x *SetSendTalkGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSendTalkGroupResponse.ProtoReflect.Descriptor instead.
 func (*SetSendTalkGroupResponse) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{5}
+	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *SetSendTalkGroupResponse) GetSuccess() bool {
@@ -422,7 +296,7 @@ type SetReceiveTalkGroupRequest struct {
 
 func (x *SetReceiveTalkGroupRequest) Reset() {
 	*x = SetReceiveTalkGroupRequest{}
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[6]
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -434,7 +308,7 @@ func (x *SetReceiveTalkGroupRequest) String() string {
 func (*SetReceiveTalkGroupRequest) ProtoMessage() {}
 
 func (x *SetReceiveTalkGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[6]
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -447,7 +321,7 @@ func (x *SetReceiveTalkGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetReceiveTalkGroupRequest.ProtoReflect.Descriptor instead.
 func (*SetReceiveTalkGroupRequest) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{6}
+	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SetReceiveTalkGroupRequest) GetTalkgroup() int32 {
@@ -477,7 +351,7 @@ type SetReceiveTalkGroupResponse struct {
 
 func (x *SetReceiveTalkGroupResponse) Reset() {
 	*x = SetReceiveTalkGroupResponse{}
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[7]
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -489,7 +363,7 @@ func (x *SetReceiveTalkGroupResponse) String() string {
 func (*SetReceiveTalkGroupResponse) ProtoMessage() {}
 
 func (x *SetReceiveTalkGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_comms_proto_msgTypes[7]
+	mi := &file_openmanet_service_v1_comms_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -502,7 +376,7 @@ func (x *SetReceiveTalkGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetReceiveTalkGroupResponse.ProtoReflect.Descriptor instead.
 func (*SetReceiveTalkGroupResponse) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{7}
+	return file_openmanet_service_v1_comms_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SetReceiveTalkGroupResponse) GetSuccess() bool {
@@ -533,13 +407,7 @@ const file_openmanet_service_v1_comms_proto_rawDesc = "" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\x05R\x04port\x12!\n" +
 	"\fsend_enabled\x18\x04 \x01(\bR\vsendEnabled\x12'\n" +
-	"\x0freceive_enabled\x18\x05 \x01(\bR\x0ereceiveEnabled\"I\n" +
-	"\x14JoinTalkGroupRequest\x121\n" +
-	"\ttalkgroup\x18\x01 \x01(\x05B\x13\xbaH\x10\x1a\x0e@\x01@\x03@\x05@\a@\t\x18\n" +
-	"(\x00R\ttalkgroup\"K\n" +
-	"\x15JoinTalkGroupResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"f\n" +
+	"\x0freceive_enabled\x18\x05 \x01(\bR\x0ereceiveEnabled\"f\n" +
 	"\x17SetSendTalkGroupRequest\x121\n" +
 	"\ttalkgroup\x18\x01 \x01(\x05B\x13\xbaH\x10\x1a\x0e@\x01@\x03@\x05@\a@\t\x18 (\x01R\ttalkgroup\x12\x18\n" +
 	"\aenabled\x18\x02 \x01(\bR\aenabled\"N\n" +
@@ -551,10 +419,9 @@ const file_openmanet_service_v1_comms_proto_rawDesc = "" +
 	"\aenabled\x18\x02 \x01(\bR\aenabled\"Q\n" +
 	"\x1bSetReceiveTalkGroupResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage2\xbf\x03\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage2\xd5\x02\n" +
 	"\fCommsService\x12V\n" +
-	"\x0eGetCommsStatus\x12\x16.google.protobuf.Empty\x1a,.openmanet.service.v1.GetCommsStatusResponse\x12h\n" +
-	"\rJoinTalkGroup\x12*.openmanet.service.v1.JoinTalkGroupRequest\x1a+.openmanet.service.v1.JoinTalkGroupResponse\x12q\n" +
+	"\x0eGetCommsStatus\x12\x16.google.protobuf.Empty\x1a,.openmanet.service.v1.GetCommsStatusResponse\x12q\n" +
 	"\x10SetSendTalkGroup\x12-.openmanet.service.v1.SetSendTalkGroupRequest\x1a..openmanet.service.v1.SetSendTalkGroupResponse\x12z\n" +
 	"\x13SetReceiveTalkGroup\x120.openmanet.service.v1.SetReceiveTalkGroupRequest\x1a1.openmanet.service.v1.SetReceiveTalkGroupResponseB\xe5\x01\n" +
 	"\x18com.openmanet.service.v1B\n" +
@@ -572,30 +439,26 @@ func file_openmanet_service_v1_comms_proto_rawDescGZIP() []byte {
 	return file_openmanet_service_v1_comms_proto_rawDescData
 }
 
-var file_openmanet_service_v1_comms_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_openmanet_service_v1_comms_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_openmanet_service_v1_comms_proto_goTypes = []any{
 	(*GetCommsStatusResponse)(nil),      // 0: openmanet.service.v1.GetCommsStatusResponse
 	(*TalkGroupState)(nil),              // 1: openmanet.service.v1.TalkGroupState
-	(*JoinTalkGroupRequest)(nil),        // 2: openmanet.service.v1.JoinTalkGroupRequest
-	(*JoinTalkGroupResponse)(nil),       // 3: openmanet.service.v1.JoinTalkGroupResponse
-	(*SetSendTalkGroupRequest)(nil),     // 4: openmanet.service.v1.SetSendTalkGroupRequest
-	(*SetSendTalkGroupResponse)(nil),    // 5: openmanet.service.v1.SetSendTalkGroupResponse
-	(*SetReceiveTalkGroupRequest)(nil),  // 6: openmanet.service.v1.SetReceiveTalkGroupRequest
-	(*SetReceiveTalkGroupResponse)(nil), // 7: openmanet.service.v1.SetReceiveTalkGroupResponse
-	(*emptypb.Empty)(nil),               // 8: google.protobuf.Empty
+	(*SetSendTalkGroupRequest)(nil),     // 2: openmanet.service.v1.SetSendTalkGroupRequest
+	(*SetSendTalkGroupResponse)(nil),    // 3: openmanet.service.v1.SetSendTalkGroupResponse
+	(*SetReceiveTalkGroupRequest)(nil),  // 4: openmanet.service.v1.SetReceiveTalkGroupRequest
+	(*SetReceiveTalkGroupResponse)(nil), // 5: openmanet.service.v1.SetReceiveTalkGroupResponse
+	(*emptypb.Empty)(nil),               // 6: google.protobuf.Empty
 }
 var file_openmanet_service_v1_comms_proto_depIdxs = []int32{
 	1, // 0: openmanet.service.v1.GetCommsStatusResponse.talkgroup_states:type_name -> openmanet.service.v1.TalkGroupState
-	8, // 1: openmanet.service.v1.CommsService.GetCommsStatus:input_type -> google.protobuf.Empty
-	2, // 2: openmanet.service.v1.CommsService.JoinTalkGroup:input_type -> openmanet.service.v1.JoinTalkGroupRequest
-	4, // 3: openmanet.service.v1.CommsService.SetSendTalkGroup:input_type -> openmanet.service.v1.SetSendTalkGroupRequest
-	6, // 4: openmanet.service.v1.CommsService.SetReceiveTalkGroup:input_type -> openmanet.service.v1.SetReceiveTalkGroupRequest
-	0, // 5: openmanet.service.v1.CommsService.GetCommsStatus:output_type -> openmanet.service.v1.GetCommsStatusResponse
-	3, // 6: openmanet.service.v1.CommsService.JoinTalkGroup:output_type -> openmanet.service.v1.JoinTalkGroupResponse
-	5, // 7: openmanet.service.v1.CommsService.SetSendTalkGroup:output_type -> openmanet.service.v1.SetSendTalkGroupResponse
-	7, // 8: openmanet.service.v1.CommsService.SetReceiveTalkGroup:output_type -> openmanet.service.v1.SetReceiveTalkGroupResponse
-	5, // [5:9] is the sub-list for method output_type
-	1, // [1:5] is the sub-list for method input_type
+	6, // 1: openmanet.service.v1.CommsService.GetCommsStatus:input_type -> google.protobuf.Empty
+	2, // 2: openmanet.service.v1.CommsService.SetSendTalkGroup:input_type -> openmanet.service.v1.SetSendTalkGroupRequest
+	4, // 3: openmanet.service.v1.CommsService.SetReceiveTalkGroup:input_type -> openmanet.service.v1.SetReceiveTalkGroupRequest
+	0, // 4: openmanet.service.v1.CommsService.GetCommsStatus:output_type -> openmanet.service.v1.GetCommsStatusResponse
+	3, // 5: openmanet.service.v1.CommsService.SetSendTalkGroup:output_type -> openmanet.service.v1.SetSendTalkGroupResponse
+	5, // 6: openmanet.service.v1.CommsService.SetReceiveTalkGroup:output_type -> openmanet.service.v1.SetReceiveTalkGroupResponse
+	4, // [4:7] is the sub-list for method output_type
+	1, // [1:4] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
@@ -612,7 +475,7 @@ func file_openmanet_service_v1_comms_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_service_v1_comms_proto_rawDesc), len(file_openmanet_service_v1_comms_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -47,24 +47,6 @@ func TestGetCommsStatus_Enabled(t *testing.T) {
 	assert.Empty(t, resp.GetTalkgroupStates())
 }
 
-func TestJoinTalkGroup_Disabled(t *testing.T) {
-	svc := newCommsService(false)
-
-	_, err := svc.JoinTalkGroup(context.Background(), nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not enabled")
-}
-
-func TestJoinTalkGroup_InactiveComms(t *testing.T) {
-	// comms singleton has never been started, UpdateMulticastEndpoint returns an error.
-	svc := newCommsService(true)
-
-	_, err := svc.JoinTalkGroup(context.Background(), nil)
-	// Either an error (singleton inactive) or success – we accept both but the
-	// important thing is the handler propagates whatever UpdateMulticastEndpoint returns.
-	_ = err // result is environment-dependent; just verify no panic
-}
-
 func TestSetSendTalkGroup_Disabled(t *testing.T) {
 	svc := newCommsService(false)
 

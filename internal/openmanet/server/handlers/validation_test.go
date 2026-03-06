@@ -52,33 +52,6 @@ func TestValidation_GetWirelessInterfaceRequest_ValidName(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// ── JoinTalkGroupRequest ──────────────────────────────────────────────────────
-
-func TestValidation_JoinTalkGroupRequest_TalkgroupTooLarge(t *testing.T) {
-	v := newValidator(t)
-
-	err := v.Validate(&serviceproto.JoinTalkGroupRequest{Talkgroup: 11})
-	assert.Error(t, err, "talkgroup > 10 must fail validation")
-}
-
-func TestValidation_JoinTalkGroupRequest_TalkgroupNegative(t *testing.T) {
-	v := newValidator(t)
-
-	err := v.Validate(&serviceproto.JoinTalkGroupRequest{Talkgroup: -1})
-	assert.Error(t, err, "negative talkgroup must fail validation")
-}
-
-func TestValidation_JoinTalkGroupRequest_ValidTalkgroups(t *testing.T) {
-	v := newValidator(t)
-
-	for _, tg := range []int32{0, 1, 5, 10} {
-		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
-			err := v.Validate(&serviceproto.JoinTalkGroupRequest{Talkgroup: tg})
-			assert.NoError(t, err, "talkgroup %d must pass validation", tg)
-		})
-	}
-}
-
 // ── SetSendTalkGroupRequest ───────────────────────────────────────────────────
 
 func TestValidation_SetSendTalkGroupRequest_OutOfRange(t *testing.T) {
