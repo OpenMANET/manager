@@ -23,6 +23,9 @@ const (
 	// rtpBufSize is the pool buffer capacity for RTP packet serialization.
 	// Must be >= rtpMTU + maximum RTP header size (~60 bytes for 15 CSRCs).
 	rtpBufSize = 1500
+
+	// streamMIMETypeOpus is the MIME type for Opus audio streams, used in StreamInfo.
+	streamMIMETypeOpus = "audio/opus"
 )
 
 // rtpMarshalPool pools serialization buffers for the baseRTPWriter hot path,
@@ -130,7 +133,7 @@ func newPionRTPSession(
 		SSRC:        ssrc,
 		PayloadType: rtpPayloadTypeOpus,
 		ClockRate:   rtpClockRate,
-		MimeType:    "audio/opus",
+		MimeType:    streamMIMETypeOpus,
 	}
 
 	// baseRTPWriter serializes the RTP header + payload into a pooled buffer
