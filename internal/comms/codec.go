@@ -26,6 +26,10 @@ type opusEncoder struct {
 	enc *opus.Encoder
 }
 
+// Encode encodes a frame of PCM int16 samples into the output buffer data and
+// returns the number of bytes written. The length of pcm must match the
+// configured frame size (sampleRate × frameDuration × channels). data must be
+// large enough to hold the encoded output.
 func (o *opusEncoder) Encode(pcm []int16, data []byte) (int, error) {
 	n, err := o.enc.Encode(pcm, data)
 	if err != nil {
@@ -39,6 +43,9 @@ type opusDecoder struct {
 	dec *opus.Decoder
 }
 
+// Decode decodes an Opus-encoded packet into PCM int16 samples and returns the
+// number of samples written per channel. Passing nil data triggers Opus Packet
+// Loss Concealment (PLC), filling pcm with a synthesised replacement frame.
 func (o *opusDecoder) Decode(data []byte, pcm []int16) (int, error) {
 	n, err := o.dec.Decode(data, pcm)
 	if err != nil {
@@ -48,6 +55,11 @@ func (o *opusDecoder) Decode(data []byte, pcm []int16) (int, error) {
 	return n, nil
 }
 
+// DecodeFloat32 decodes an Opus-encoded packet directly into float32 PCM
+// samples, skipping the int16 intermediate stage, and returns the number of
+// samples written per channel. Passing nil data triggers Opus Packet Loss
+// Concealment (PLC) via DecodePLCFloat32, filling pcm with a synthesised
+// replacement frame and returning len(pcm) as the sample count.
 func (o *opusDecoder) DecodeFloat32(data []byte, pcm []float32) (int, error) {
 	if data == nil {
 		if err := o.dec.DecodePLCFloat32(pcm); err != nil {
@@ -65,7 +77,29 @@ func (o *opusDecoder) DecodeFloat32(data []byte, pcm []float32) (int, error) {
 	return n, nil
 }
 
-// newOpusEncoder creates an Opus encoder configured for low-latency voice.
+// newOpusEncoder creates and configures a new Opus audio encoder optimized for
+// voice over IP (VoIP) applications.
+//
+// The encoder is configured with the following settings:
+//   - Sample rate: [sampleRate] Hz
+//   - Channels: [channels]
+//   - Application: opus.AppVoIP for voice optimization
+//   - Bitrate: [targetBitrate] bps
+//   - Complexity: [encoderComplexity] (higher values = better quality, more CPU usage)
+//   - In-Band FEC: disabled (no forward error correction)
+//   - Packet Loss Percentage: [packetLossPerc]%
+//   - DTX: disabled (discontinuous transmission)
+//
+// Returns an AudioEncoder interface wrapping the configured Opus encoder,
+// or an error if the encoder could not be created or configured.
+//
+// Possible errors:
+//   - "opus encoder": failed to create the base Opus encoder
+//   - "opus SetBitrate": failed to set the target bitrate
+//   - "opus SetComplexity": failed to set the encoder complexity
+//   - "opus SetInBandFEC": failed to disable in-band FEC
+//   - "opus SetPacketLossPerc": failed to set the packet loss percentage
+//   - "opus SetDTX": failed to disable discontinuous transmission
 func newOpusEncoder() (AudioEncoder, error) {
 	enc, err := opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
 	if err != nil {
@@ -95,7 +129,9 @@ func newOpusEncoder() (AudioEncoder, error) {
 	return &opusEncoder{enc: enc}, nil
 }
 
-// newOpusDecoder creates an Opus decoder for 48 kHz mono.
+// newOpusDecoder creates an Opus decoder configured for [sampleRate] Hz and
+// [channels] channels. Returns an AudioDecoder interface wrapping the decoder,
+// or an error if the underlying opus.Decoder could not be constructed.
 func newOpusDecoder() (AudioDecoder, error) {
 	dec, err := opus.NewDecoder(sampleRate, channels)
 	if err != nil {
