@@ -422,29 +422,6 @@ func TestReplaceNetwork_NewWriterReceivesSubsequentWrites(t *testing.T) {
 
 // ─── UpdateMulticastEndpoint validation tests ─────────────────────────────────
 
-// setupActiveConfig injects a minimal fake activeConfig and restores nil on cleanup.
-func setupActiveConfig(t *testing.T) {
-	t.Helper()
-
-	pc := &portChannel{
-		cfg:      McastPortConfig{Address: "239.0.0.1", Port: 5004, Send: true, Receive: true},
-		sender:   newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
-	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
-	cfg := &CommsConfig{
-		Log:        zerolog.Nop(),
-		McastPorts: []McastPortConfig{pc.cfg},
-	}
-	cfg.runtime = &CommsRuntime{
-		ports: []*portChannel{pc},
-	}
-
-	activeConfig.Store(cfg)
-	t.Cleanup(func() { activeConfig.Store(nil) })
-}
-
 // ─── GetMulticastAddr tests ───────────────────────────────────────────────────
 
 func TestGetActiveMulticastAddr_NotStarted(t *testing.T) {

@@ -45,7 +45,7 @@ type opusDecoder struct {
 
 // Decode decodes an Opus-encoded packet into PCM int16 samples and returns the
 // number of samples written per channel. Passing nil data triggers Opus Packet
-// Loss Concealment (PLC), filling pcm with a synthesised replacement frame.
+// Loss Concealment (PLC), filling pcm with a synthesized replacement frame.
 func (o *opusDecoder) Decode(data []byte, pcm []int16) (int, error) {
 	n, err := o.dec.Decode(data, pcm)
 	if err != nil {
@@ -58,7 +58,7 @@ func (o *opusDecoder) Decode(data []byte, pcm []int16) (int, error) {
 // DecodeFloat32 decodes an Opus-encoded packet directly into float32 PCM
 // samples, skipping the int16 intermediate stage, and returns the number of
 // samples written per channel. Passing nil data triggers Opus Packet Loss
-// Concealment (PLC) via DecodePLCFloat32, filling pcm with a synthesised
+// Concealment (PLC) via DecodePLCFloat32, filling pcm with a synthesized
 // replacement frame and returning len(pcm) as the sample count.
 func (o *opusDecoder) DecodeFloat32(data []byte, pcm []float32) (int, error) {
 	if data == nil {
