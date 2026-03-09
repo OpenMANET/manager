@@ -16,7 +16,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.34
 	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875
 	github.com/mdlayher/wifi v0.7.2
-	github.com/openmanet/go-alfred v0.0.0-202404291200151-8f3f3f4e2f4e
+	github.com/openmanet/go-alfred v0.0.0-20240429120015-8f3f3f4e2f4e
 	github.com/pion/interceptor v0.1.44
 	github.com/pion/rtcp v1.2.16
 	github.com/pion/rtp v1.10.1
