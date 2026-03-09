@@ -13,10 +13,16 @@ coverage:
       default:
         informational: true
 
+parsers:
+  go:
+    partials_as_hits: true
+
 ignore:
   # Configure what to ignore.
   - "internal/api/openmanet"
   - "internal/alfred"
+  - "cmd"
+  - "main.go"
 
 comment:
   layout: "diff, flags, files"

@@ -62,6 +62,7 @@ jobs:
         with:
           files: ./coverage.out
           fail_ci_if_error: false
+          report_type: coverage
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
