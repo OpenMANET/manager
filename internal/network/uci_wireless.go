@@ -275,7 +275,7 @@ func GetWirelessDeviceByName(name string) (*UCIWirelessDevice, error) {
 
 // GetWirelessDeviceByNameWithReader loads and returns the UCI wireless device configuration by
 // name using the provided reader.
-func GetWirelessDeviceByNameWithReader(name string, reader ConfigReader) (*UCIWirelessDevice, error) {
+func GetWirelessDeviceByNameWithReader(name string, reader ConfigReader) (*UCIWirelessDevice, error) { //nolint:gocyclo
 	config := &UCIWirelessDevice{}
 
 	if values, ok := reader.Get(wirelessConfigName, name, "type"); ok && len(values) > 0 {
