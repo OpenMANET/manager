@@ -63,16 +63,14 @@ type roipSource struct {
 	log            zerolog.Logger
 	opener         HIDOpener
 	openMonitor    func() (<-chan []float32, func(), error)
-	cosGPIOMask    byte
-	voxThreshold   float32
-	voxHoldTime    time.Duration
-	maxTXDuration  time.Duration
 	isReceiving    func() bool
 	isBroadcasting func() bool
-	// setTap/clearTap wire the broadcast stream tap used by voxLoop in ACTIVE
-	// state.  No-ops in unit tests.
-	setTap   func(chan []float32)
-	clearTap func()
+	setTap         func(chan []float32)
+	clearTap       func()
+	voxHoldTime    time.Duration
+	maxTXDuration  time.Duration
+	voxThreshold   float32
+	cosGPIOMask    byte
 }
 
 // NewROIPSource constructs a production roipSource backed by the real HIDAPI
@@ -313,7 +311,6 @@ func (s *roipSource) voxLoop(ctx context.Context, ch chan<- PTTEvent) { //nolint
 
 	for {
 		// ── IDLE: open the monitor stream and wait for VOX onset ──────────
-
 		monitorCh, closeMonitor, err := s.openMonitor()
 		if err != nil {
 			s.log.Error().Err(err).Msg("ROIP: failed to open VOX monitor stream; retrying")
@@ -352,6 +349,7 @@ func (s *roipSource) voxLoop(ctx context.Context, ch chan<- PTTEvent) { //nolint
 
 					if onsetCount >= roipVOXOnsetFrames {
 						triggered = true
+
 						break idleLoop
 					}
 				} else {

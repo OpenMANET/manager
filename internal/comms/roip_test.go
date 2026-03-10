@@ -224,6 +224,7 @@ func TestROIPSource_COS_HalfDuplex_EmitsAfterReceivingClears(t *testing.T) {
 
 	// Clear receiving flag first, then queue a new COS HIGH.
 	receivingFlag = false
+
 	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true)) // should now emit PTTDown
 
 	select {
@@ -246,6 +247,7 @@ func TestROIPSource_COS_ContextCancel_ClosesChannel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := src.Events(ctx)
+
 	cancel()
 
 	select {

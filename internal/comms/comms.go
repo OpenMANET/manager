@@ -142,18 +142,15 @@ type portChannel struct {
 // fields are interfaces so that unit tests can inject fakes without hardware.
 type CommsRuntime struct {
 	decoder         AudioDecoder
-	localIP         atomic.Pointer[string]
 	encoder         AudioEncoder
 	broadcastStream AudioStream
-	ports           []*portChannel
+	localIP         atomic.Pointer[string]
 	reopenBroadcast func() error
+	broadcastTap    atomic.Pointer[chan []float32]
+	ports           []*portChannel
 	beepBufferStart []float32
 	beepBufferStop  []float32
 	broadcasting    atomic.Bool
-	// broadcastTap, when non-nil, receives copies of every raw input frame
-	// captured by the broadcast stream. Used by the ROIP VOX detector to
-	// monitor energy during transmission without a separate PortAudio stream.
-	broadcastTap atomic.Pointer[chan []float32]
 }
 
 // ─── CommsConfig ──────────────────────────────────────────────────────────────
@@ -165,42 +162,29 @@ type CommsConfig struct {
 	Log                      zerolog.Logger
 	Interrupt                chan os.Signal
 	runtime                  *CommsRuntime
-	RtpID                    string
+	NanoPTTDevicePath        string
 	CommKey                  string
 	Iface                    string
-	NanoPTTDevicePath        string
+	ROIPInputDevice          string
 	BluetoothInputDevice     string
 	BluetoothOutputDevice    string
 	BluetoothAudioDeviceHint string
 	ControlSource            string
 	NanoPTTDeviceName        string
+	RtpID                    string
 	McastPorts               []McastPortConfig
+	ROIPVOXHoldTime          time.Duration
+	ROIPMaxTXDuration        time.Duration
 	PlaybackDepth            int
 	MicGain                  float32
-	// ROIPCOSGPIOMask selects the CM108 IR1 GPIO bit used as COS (Carrier-Operated
-	// Squelch) input from the bridged radio. Set to 0 to disable COS and rely
-	// solely on VOX. Defaults to 0x01 (GPIO1) when ControlSource is "roip".
-	ROIPCOSGPIOMask byte
-	// ROIPVOXThreshold is the RMS energy level (0.0–1.0) above which the ROIP
-	// source considers the radio active. Set to 0 to disable VOX. Defaults to
-	// 0.02 when ControlSource is "roip" and COS is unavailable.
-	ROIPVOXThreshold float32
-	// ROIPVOXHoldTime is the minimum duration of audio silence in the broadcast
-	// stream after which the ROIP VOX path emits PTTUp. Defaults to 500 ms.
-	ROIPVOXHoldTime time.Duration
-	// ROIPMaxTXDuration is the safety ceiling on a single ROIP transmission.
-	// PTTUp is emitted unconditionally after this duration. Defaults to 60 s.
-	ROIPMaxTXDuration time.Duration
-	// ROIPInputDevice is the PortAudio device hint used to open the VOX monitor
-	// stream. Defaults to BluetoothInputDevice (which itself defaults to the
-	// system default input device).
-	ROIPInputDevice    string
-	EnableNanoPTT      bool
-	Debug              bool
-	Loopback           bool
-	Trace              bool
-	Enable             bool
-	EnableBluetoothPtt bool
+	ROIPVOXThreshold         float32
+	ROIPCOSGPIOMask          byte
+	EnableNanoPTT            bool
+	Debug                    bool
+	Loopback                 bool
+	Trace                    bool
+	Enable                   bool
+	EnableBluetoothPtt       bool
 }
 
 // NewComms copies cfg and returns a pointer ready for Start.
@@ -669,6 +653,7 @@ func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *C
 			fp := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
 			f := (*fp)[:frameSize]
 			copy(f, in)
+
 			select {
 			case *tapPtr <- f:
 			default:
