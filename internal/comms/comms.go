@@ -961,9 +961,9 @@ func (cfg *CommsConfig) Start() {
 	}
 
 	cfg.Log.Info().Msgf(
-		"comms: starting iface=%s ports=%d key=%s debug=%t trace=%t loopback=%t device=%s ctrl=%s hint=%s",
+		"comms: starting iface=%s talkgroups=%d key=%s debug=%t trace=%t loopback=%t device=%s",
 		cfg.Iface, len(cfg.McastPorts), cfg.CommKey,
-		cfg.Debug, cfg.Trace, cfg.Loopback, cfg.NanoPTTDeviceName, cfg.ControlSource, cfg.BluetoothAudioDeviceHint,
+		cfg.Debug, cfg.Trace, cfg.Loopback, cfg.ControlSource,
 	)
 
 	// ── codec ──────────────────────────────────────────────────────────────
