@@ -1,0 +1,54 @@
+{
+  "phy": "phy1",
+  "ssid": "halowmesh",
+  "bssid": "00:0A:52:0B:7D:AE",
+  "country": "US",
+  "mode": "Mesh Point",
+  "channel": 8,
+  "center_chan1": 8,
+  "frequency": 2447,
+  "frequency_offset": 0,
+  "txpower": 17,
+  "txpower_offset": 0,
+  "quality": 60,
+  "quality_max": 70,
+  "signal": -50,
+  "noise": -77,
+  "bitrate": 51300,
+  "encryption": {
+    "enabled": true,
+    "wpa": [
+      3
+    ],
+    "authentication": [
+      "sae"
+    ],
+    "ciphers": [
+      "ccmp"
+    ]
+  },
+  "htmodes": [
+    "HT20",
+    "HT40",
+    "HE20",
+    "HE40"
+  ],
+  "hwmodes": [
+    "b",
+    "g",
+    "n",
+    "ax"
+  ],
+  "hwmodes_text": "ax/b/g/n",
+  "hwmode": "n",
+  "htmode": "HT20",
+  "hardware": {
+    "id": [
+      5315,
+      30982,
+      5315,
+      30982
+    ],
+    "name": "MediaTek MT7916AN"
+  }
+}

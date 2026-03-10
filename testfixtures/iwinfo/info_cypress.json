@@ -1,0 +1,50 @@
+{
+  "phy": "phy3",
+  "ssid": "",
+  "bssid": "2C:CF:67:BB:10:04",
+  "country": "",
+  "mode": "Client",
+  "channel": 34,
+  "center_chan1": 34,
+  "frequency": 5170,
+  "frequency_offset": 0,
+  "txpower": 0,
+  "txpower_offset": 0,
+  "quality": 0,
+  "quality_max": 70,
+  "signal": 0,
+  "noise": 0,
+  "bitrate": 0,
+  "encryption": {
+    "enabled": false,
+    "wpa": [],
+    "authentication": [],
+    "ciphers": []
+  },
+  "htmodes": [
+    "HT20",
+    "HT40",
+    "VHT20",
+    "VHT40",
+    "VHT80"
+  ],
+  "hwmodes": [
+    "a",
+    "b",
+    "g",
+    "n",
+    "ac"
+  ],
+  "hwmodes_text": "ac/b/g/n",
+  "hwmode": "ac",
+  "htmode": "HT20",
+  "hardware": {
+    "id": [
+      720,
+      43430,
+      0,
+      0
+    ],
+    "name": "Cypress CYW43455"
+  }
+}
