@@ -46,6 +46,9 @@ func TestNormalizeControlSource(t *testing.T) {
 		{"NANOPTT", "nanoptt"},
 		{"bluealsa_xevent", "bluealsa_xevent"},
 		{"BLUEALSA_XEVENT", "bluealsa_xevent"},
+		{"roip", "roip"},
+		{"ROIP", "roip"},
+		{"  roip  ", "roip"},
 		{"", "cm108"},
 		{"unknown", "cm108"},
 	}

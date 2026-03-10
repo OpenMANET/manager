@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/gordonklaus/portaudio"
 	"github.com/rs/zerolog"
@@ -149,6 +150,10 @@ type CommsRuntime struct {
 	beepBufferStart []float32
 	beepBufferStop  []float32
 	broadcasting    atomic.Bool
+	// broadcastTap, when non-nil, receives copies of every raw input frame
+	// captured by the broadcast stream. Used by the ROIP VOX detector to
+	// monitor energy during transmission without a separate PortAudio stream.
+	broadcastTap atomic.Pointer[chan []float32]
 }
 
 // ─── CommsConfig ──────────────────────────────────────────────────────────────
@@ -172,12 +177,30 @@ type CommsConfig struct {
 	McastPorts               []McastPortConfig
 	PlaybackDepth            int
 	MicGain                  float32
-	EnableNanoPTT            bool
-	Debug                    bool
-	Loopback                 bool
-	Trace                    bool
-	Enable                   bool
-	EnableBluetoothPtt       bool
+	// ROIPCOSGPIOMask selects the CM108 IR1 GPIO bit used as COS (Carrier-Operated
+	// Squelch) input from the bridged radio. Set to 0 to disable COS and rely
+	// solely on VOX. Defaults to 0x01 (GPIO1) when ControlSource is "roip".
+	ROIPCOSGPIOMask byte
+	// ROIPVOXThreshold is the RMS energy level (0.0–1.0) above which the ROIP
+	// source considers the radio active. Set to 0 to disable VOX. Defaults to
+	// 0.02 when ControlSource is "roip" and COS is unavailable.
+	ROIPVOXThreshold float32
+	// ROIPVOXHoldTime is the minimum duration of audio silence in the broadcast
+	// stream after which the ROIP VOX path emits PTTUp. Defaults to 500 ms.
+	ROIPVOXHoldTime time.Duration
+	// ROIPMaxTXDuration is the safety ceiling on a single ROIP transmission.
+	// PTTUp is emitted unconditionally after this duration. Defaults to 60 s.
+	ROIPMaxTXDuration time.Duration
+	// ROIPInputDevice is the PortAudio device hint used to open the VOX monitor
+	// stream. Defaults to BluetoothInputDevice (which itself defaults to the
+	// system default input device).
+	ROIPInputDevice    string
+	EnableNanoPTT      bool
+	Debug              bool
+	Loopback           bool
+	Trace              bool
+	Enable             bool
+	EnableBluetoothPtt bool
 }
 
 // NewComms copies cfg and returns a pointer ready for Start.
@@ -206,6 +229,11 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		BluetoothInputDevice:     cfg.BluetoothInputDevice,
 		BluetoothOutputDevice:    cfg.BluetoothOutputDevice,
 		PlaybackDepth:            cfg.PlaybackDepth,
+		ROIPCOSGPIOMask:          cfg.ROIPCOSGPIOMask,
+		ROIPVOXThreshold:         cfg.ROIPVOXThreshold,
+		ROIPVOXHoldTime:          cfg.ROIPVOXHoldTime,
+		ROIPMaxTXDuration:        cfg.ROIPMaxTXDuration,
+		ROIPInputDevice:          cfg.ROIPInputDevice,
 	}
 }
 
@@ -249,6 +277,27 @@ func (cfg *CommsConfig) applyDefaults() {
 	}
 
 	cfg.ControlSource = normalizeControlSource(cfg.ControlSource)
+
+	// Apply ROIP-specific defaults after ControlSource is normalised.
+	if cfg.ControlSource == "roip" {
+		if cfg.ROIPCOSGPIOMask == 0 && cfg.ROIPVOXThreshold == 0 {
+			// Neither explicitly configured: default to COS-primary, VOX fallback.
+			cfg.ROIPCOSGPIOMask = roipDefaultCOSMask
+			cfg.ROIPVOXThreshold = roipDefaultVOXThresh
+		}
+
+		if cfg.ROIPVOXThreshold > 0 && cfg.ROIPVOXHoldTime == 0 {
+			cfg.ROIPVOXHoldTime = roipDefaultVOXHold
+		}
+
+		if cfg.ROIPMaxTXDuration == 0 {
+			cfg.ROIPMaxTXDuration = roipDefaultMaxTX
+		}
+
+		if cfg.ROIPInputDevice == "" {
+			cfg.ROIPInputDevice = cfg.BluetoothInputDevice
+		}
+	}
 
 	if cfg.RtpID == "" {
 		if hostname, err := os.Hostname(); err == nil && hostname != "" {
@@ -613,6 +662,20 @@ func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *C
 	// float32 buffer captured from the input device. The callback runs on a
 	// real-time audio thread, so it must not block or allocate on the heap.
 	stream, err := portaudio.OpenStream(inParams, func(in []float32) {
+		// Optional tap for ROIP VOX energy monitoring. When set, a copy of the
+		// raw input frame is pushed non-blockingly so the VOX loop can detect
+		// silence during transmission without a separate PortAudio stream.
+		if tapPtr := rt.broadcastTap.Load(); tapPtr != nil {
+			fp := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
+			f := (*fp)[:frameSize]
+			copy(f, in)
+			select {
+			case *tapPtr <- f:
+			default:
+				returnFloat32(f)
+			}
+		}
+
 		// Default gain to unity if the caller left MicGain unset or zero.
 		gain := cfg.MicGain
 		if gain <= 0 {
@@ -695,21 +758,36 @@ func (cfg *CommsConfig) reopenBroadcastStream(rt *CommsRuntime, inDev *portaudio
 
 // buildEventSource constructs the PTT EventSource defined by cfg.ControlSource.
 //
-// Two backends are supported:
+// Three backends are supported:
 //   - "cm108" (defaultCtrlSrc): reads PTT state directly from a CM108-compatible
 //     USB audio/HID dongle via its HID interrupt endpoint.
+//   - "roip": ROIP bridge mode — automatic TX/RX on the same CM108 hardware
+//     using COS GPIO detection with VOX (audio energy) as fallback.
 //   - anything else (default): searches for a matching evdev input device via
 //     findCommDevice and wraps it in a NanoPTT source that decodes PTT events
 //     using cfg.CommKey.
 //
 // Returns an error only in the default branch when no matching evdev device is found.
-func (cfg *CommsConfig) buildEventSource() (EventSource, error) {
+func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) {
 	switch cfg.ControlSource {
 	case defaultCtrlSrc:
 		cfg.Log.Info().Msgf("comms: PTT on CM108 HID dongle (VID=0x%04X PID=0x%04X)",
 			cm108VendorID, cm108ProductID)
 
 		return NewCM108Source(cfg.Log), nil
+
+	case "roip":
+		cfg.Log.Info().Msgf(
+			"comms: ROIP bridge on CM108 (VID=0x%04X PID=0x%04X) COSmask=0x%02X VOX=%.3f hold=%s",
+			cm108VendorID, cm108ProductID, cfg.ROIPCOSGPIOMask, cfg.ROIPVOXThreshold, cfg.ROIPVOXHoldTime,
+		)
+
+		isReceiving := func() bool { return cfg.isReceivingRemote(rt) }
+		isBroadcasting := func() bool { return rt.broadcasting.Load() }
+		setTap := func(ch chan []float32) { rt.broadcastTap.Store(&ch) }
+		clearTap := func() { rt.broadcastTap.Store(nil) }
+
+		return NewROIPSource(cfg, isReceiving, isBroadcasting, setTap, clearTap, cfg.Log), nil
 
 	default:
 		dev := cfg.findCommDevice()
@@ -867,7 +945,7 @@ func (cfg *CommsConfig) Start() {
 
 	cfg.applyDefaults()
 
-	if cfg.ControlSource == defaultCtrlSrc {
+	if cfg.ControlSource == defaultCtrlSrc || cfg.ControlSource == "roip" {
 		detectAndSetALSACard(cfg.Log)
 	}
 
@@ -981,7 +1059,7 @@ func (cfg *CommsConfig) Start() {
 	defer broadcastStream.Close() //nolint:errcheck
 
 	// ── event source ───────────────────────────────────────────────────────
-	src, srcErr := cfg.buildEventSource()
+	src, srcErr := cfg.buildEventSource(rt)
 	if srcErr != nil {
 		cfg.Log.Fatal().Err(srcErr).Msg("comms: failed to build event source")
 	}
