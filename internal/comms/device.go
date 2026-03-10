@@ -24,6 +24,8 @@ func normalizeControlSource(src string) string {
 		return "bluealsa_xevent"
 	case defaultControlSourceNanoPTT:
 		return defaultControlSourceNanoPTT
+	case "roip":
+		return "roip"
 	default:
 		return defaultControlSourceCM108
 	}
