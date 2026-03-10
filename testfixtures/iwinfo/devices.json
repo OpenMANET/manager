@@ -1,0 +1,7 @@
+{
+  "devices": [
+    "phy1-mesh0",
+    "wlan-10-04",
+    "wlan0"
+  ]
+}
