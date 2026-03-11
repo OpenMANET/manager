@@ -332,7 +332,7 @@ func TestROIPSource_VOX_BelowThreshold_NoEvent(t *testing.T) {
 
 	src := newROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
-		roipDefaultVOXThresh, roipDefaultVOXHold, roipDefaultMaxTX,
+		roipDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
@@ -353,7 +353,7 @@ func TestROIPSource_VOX_OnsetThreshold_PTTDown(t *testing.T) {
 
 	src := newROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
-		roipDefaultVOXThresh, roipDefaultVOXHold, roipDefaultMaxTX,
+		roipDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
@@ -383,7 +383,7 @@ func TestROIPSource_VOX_NonConsecutiveFrames_ResetsOnsetCounter(t *testing.T) {
 
 	src := newROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
-		roipDefaultVOXThresh, roipDefaultVOXHold, roipDefaultMaxTX,
+		roipDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
@@ -404,7 +404,7 @@ func TestROIPSource_VOX_HalfDuplex_SuppressesWhileReceiving(t *testing.T) {
 
 	src := newROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
-		roipDefaultVOXThresh, roipDefaultVOXHold, roipDefaultMaxTX,
+		roipDefaultVOXHold,
 		func() bool { return true }, // network always receiving
 		neverBroadcasting,
 		zerolog.Nop(),
@@ -429,7 +429,7 @@ func TestROIPSource_VOX_TailHold_NoEarlyPTTUp(t *testing.T) {
 
 	src := newROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
-		roipDefaultVOXThresh, holdTime, roipDefaultMaxTX,
+		holdTime,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
@@ -466,7 +466,7 @@ func TestROIPSource_VOX_PTTUpAfterHoldTime(t *testing.T) {
 
 	src := newROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
-		roipDefaultVOXThresh, holdTime, roipDefaultMaxTX,
+		holdTime,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
@@ -500,7 +500,7 @@ func TestROIPSource_VOX_PTTUpWhenReceivingWhileActive(t *testing.T) {
 
 	src := newROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
-		roipDefaultVOXThresh, holdTime, roipDefaultMaxTX,
+		holdTime,
 		isReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
@@ -538,7 +538,7 @@ func TestROIPSource_VOX_ContextCancel_ClosesChannel(t *testing.T) {
 
 	src := newROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
-		roipDefaultVOXThresh, roipDefaultVOXHold, roipDefaultMaxTX,
+		roipDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 

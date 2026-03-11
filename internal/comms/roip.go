@@ -128,9 +128,7 @@ func newROIPSourceWithOpener(
 // pre-filled frame channel without real hardware.
 func newROIPSourceWithMonitor(
 	openMonitorFn func() (<-chan []float32, func(), error),
-	voxThreshold float32,
 	voxHoldTime time.Duration,
-	maxTXDuration time.Duration,
 	isReceiving, isBroadcasting func() bool,
 	log zerolog.Logger,
 ) EventSource {
@@ -138,9 +136,9 @@ func newROIPSourceWithMonitor(
 		log:            log,
 		opener:         nil, // cosGPIOMask==0; opener never called
 		cosGPIOMask:    0,
-		voxThreshold:   voxThreshold,
+		voxThreshold:   roipDefaultVOXThresh,
 		voxHoldTime:    voxHoldTime,
-		maxTXDuration:  maxTXDuration,
+		maxTXDuration:  roipDefaultMaxTX,
 		isReceiving:    isReceiving,
 		isBroadcasting: isBroadcasting,
 		setTap:         func(_ chan []float32) {},
@@ -303,68 +301,18 @@ func (s *roipSource) cosLoop(ctx context.Context, dev HIDDevice, ch chan<- PTTEv
 //
 // Half-duplex: PTTDown is suppressed when isReceiving() is true.  If the
 // network begins receiving during ACTIVE state, PTTUp is emitted immediately.
-func (s *roipSource) voxLoop(ctx context.Context, ch chan<- PTTEvent) { //nolint:gocognit,cyclop
+func (s *roipSource) voxLoop(ctx context.Context, ch chan<- PTTEvent) {
 	maxTX := s.maxTXDuration
 	if maxTX <= 0 {
 		maxTX = roipDefaultMaxTX
 	}
 
 	for {
-		// ── IDLE: open the monitor stream and wait for VOX onset ──────────
-		monitorCh, closeMonitor, err := s.openMonitor()
-		if err != nil {
-			s.log.Error().Err(err).Msg("ROIP: failed to open VOX monitor stream; retrying")
-
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(2 * time.Second):
-				continue
-			}
+		if !s.voxIdle(ctx) {
+			return
 		}
 
-		onsetCount := 0
-		triggered := false
-
-	idleLoop:
-		for {
-			select {
-			case <-ctx.Done():
-				closeMonitor()
-
-				return
-
-			case frame, ok := <-monitorCh:
-				if !ok {
-					closeMonitor()
-
-					return
-				}
-
-				energy := rmsEnergy(frame)
-				returnFloat32(frame)
-
-				if energy >= s.voxThreshold && !s.isReceiving() {
-					onsetCount++
-
-					if onsetCount >= roipVOXOnsetFrames {
-						triggered = true
-
-						break idleLoop
-					}
-				} else {
-					onsetCount = 0
-				}
-			}
-		}
-
-		if !triggered {
-			continue
-		}
-
-		// ── Transition: close monitor, open broadcast tap, emit PTTDown ───
-
-		closeMonitor()
+		// ── Transition: open broadcast tap, emit PTTDown ───────────────────
 
 		tapCh := make(chan []float32, roipMonitorBufFrames)
 		s.setTap(tapCh)
@@ -379,71 +327,9 @@ func (s *roipSource) voxLoop(ctx context.Context, ch chan<- PTTEvent) { //nolint
 
 		s.log.Debug().Msg("ROIP: VOX onset → PTTDown")
 
-		// ── ACTIVE: monitor broadcast tap for silence or half-duplex RX ───
-
-		// Safety ceiling: always emit PTTUp after maxTX regardless of energy.
-		txDeadline := time.NewTimer(maxTX)
-		holdTimer := time.NewTimer(s.voxHoldTime)
-
-	activeLoop:
-		for { //nolint:wsl
-			select {
-			case <-ctx.Done():
-				txDeadline.Stop()
-				holdTimer.Stop()
-				s.clearTap()
-
-				return
-
-			case <-txDeadline.C:
-				s.log.Debug().Msg("ROIP: max TX duration reached → PTTUp")
-				holdTimer.Stop()
-
-				break activeLoop
-
-			case <-holdTimer.C:
-				// voxHoldTime of silence in the broadcast tap → PTTUp.
-				s.log.Debug().Msg("ROIP: VOX silence hold expired → PTTUp")
-				txDeadline.Stop()
-
-				break activeLoop
-
-			case frame, ok := <-tapCh:
-				if !ok {
-					txDeadline.Stop()
-					holdTimer.Stop()
-
-					break activeLoop
-				}
-
-				energy := rmsEnergy(frame)
-				returnFloat32(frame)
-
-				if energy >= s.voxThreshold {
-					// Radio still transmitting: reset the silence hold timer.
-					if !holdTimer.Stop() {
-						select {
-						case <-holdTimer.C:
-						default:
-						}
-					}
-
-					holdTimer.Reset(s.voxHoldTime)
-				}
-
-			case <-time.After(roipVOXPollInterval):
-				// Poll isReceiving() periodically even when no tap frames arrive.
-				if s.isReceiving() {
-					s.log.Debug().Msg("ROIP: network RX started → PTTUp (half-duplex)")
-					txDeadline.Stop()
-					holdTimer.Stop()
-
-					break activeLoop
-				}
-			}
+		if !s.voxActive(ctx, tapCh, maxTX) {
+			return
 		}
-
-		s.clearTap()
 
 		select {
 		case ch <- PTTUp:
@@ -464,6 +350,126 @@ func (s *roipSource) voxLoop(ctx context.Context, ch chan<- PTTEvent) { //nolint
 		}
 
 		// Loop back to IDLE.
+	}
+}
+
+// voxIdle runs the IDLE phase of voxLoop. It opens the monitor stream,
+// accumulates VOX onset frames, and closes the monitor before returning.
+// Returns true when onset is confirmed (PTTDown should fire),
+// or false when ctx is canceled or the monitor channel closes unexpectedly.
+func (s *roipSource) voxIdle(ctx context.Context) bool {
+	for {
+		monitorCh, closeMonitor, err := s.openMonitor()
+		if err != nil {
+			s.log.Error().Err(err).Msg("ROIP: failed to open VOX monitor stream; retrying")
+
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(2 * time.Second):
+				continue
+			}
+		}
+
+		onsetCount := 0
+
+		for {
+			select {
+			case <-ctx.Done():
+				closeMonitor()
+
+				return false
+
+			case frame, ok := <-monitorCh:
+				if !ok {
+					closeMonitor()
+
+					return false
+				}
+
+				energy := rmsEnergy(frame)
+				returnFloat32(frame)
+
+				if energy >= s.voxThreshold && !s.isReceiving() {
+					onsetCount++
+
+					if onsetCount >= roipVOXOnsetFrames {
+						closeMonitor()
+
+						return true
+					}
+				} else {
+					onsetCount = 0
+				}
+			}
+		}
+	}
+}
+
+// voxActive runs the ACTIVE phase of voxLoop. It monitors the broadcast tap
+// channel for silence or half-duplex RX, enforcing the maxTX deadline.
+// Calls clearTap() before returning.
+// Returns true when PTTUp should be emitted, false when ctx is canceled.
+func (s *roipSource) voxActive(ctx context.Context, tapCh <-chan []float32, maxTX time.Duration) bool {
+	txDeadline := time.NewTimer(maxTX)
+	holdTimer := time.NewTimer(s.voxHoldTime)
+
+	defer s.clearTap()
+
+	for {
+		select {
+		case <-ctx.Done():
+			txDeadline.Stop()
+			holdTimer.Stop()
+
+			return false
+
+		case <-txDeadline.C:
+			s.log.Debug().Msg("ROIP: max TX duration reached → PTTUp")
+			holdTimer.Stop()
+
+			return true
+
+		case <-holdTimer.C:
+			// voxHoldTime of silence in the broadcast tap → PTTUp.
+			s.log.Debug().Msg("ROIP: VOX silence hold expired → PTTUp")
+			txDeadline.Stop()
+
+			return true
+
+		case frame, ok := <-tapCh:
+			if !ok {
+				txDeadline.Stop()
+				holdTimer.Stop()
+
+				return true
+			}
+
+			energy := rmsEnergy(frame)
+			returnFloat32(frame)
+
+			if energy >= s.voxThreshold {
+				// Radio still transmitting: reset the silence hold timer.
+				if !holdTimer.Stop() {
+					select {
+					case <-holdTimer.C:
+					default:
+					}
+				}
+
+				holdTimer.Reset(s.voxHoldTime)
+			}
+
+		case <-time.After(roipVOXPollInterval):
+			// Poll isReceiving() periodically even when no tap frames arrive.
+			if s.isReceiving() {
+				s.log.Debug().Msg("ROIP: network RX started → PTTUp (half-duplex)")
+				txDeadline.Stop()
+				holdTimer.Stop()
+
+				return true
+			}
+		}
 	}
 }
 

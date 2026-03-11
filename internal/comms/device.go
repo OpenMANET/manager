@@ -14,6 +14,7 @@ import (
 const (
 	defaultControlSourceCM108   = "cm108"
 	defaultControlSourceNanoPTT = "nanoptt"
+	controlSourceROIP           = "roip"
 )
 
 // normalizeControlSource maps raw config strings to canonical control source names.
@@ -24,8 +25,8 @@ func normalizeControlSource(src string) string {
 		return "bluealsa_xevent"
 	case defaultControlSourceNanoPTT:
 		return defaultControlSourceNanoPTT
-	case "roip":
-		return "roip"
+	case controlSourceROIP:
+		return controlSourceROIP
 	default:
 		return defaultControlSourceCM108
 	}
