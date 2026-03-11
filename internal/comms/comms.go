@@ -263,7 +263,7 @@ func (cfg *CommsConfig) applyDefaults() {
 	cfg.ControlSource = normalizeControlSource(cfg.ControlSource)
 
 	// Apply ROIP-specific defaults after ControlSource is normalised.
-	if cfg.ControlSource == "roip" {
+	if cfg.ControlSource == controlSourceROIP {
 		if cfg.ROIPCOSGPIOMask == 0 && cfg.ROIPVOXThreshold == 0 {
 			// Neither explicitly configured: default to COS-primary, VOX fallback.
 			cfg.ROIPCOSGPIOMask = roipDefaultCOSMask
@@ -761,7 +761,7 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 
 		return NewCM108Source(cfg.Log), nil
 
-	case "roip":
+	case controlSourceROIP:
 		cfg.Log.Info().Msgf(
 			"comms: ROIP bridge on CM108 (VID=0x%04X PID=0x%04X) COSmask=0x%02X VOX=%.3f hold=%s",
 			cm108VendorID, cm108ProductID, cfg.ROIPCOSGPIOMask, cfg.ROIPVOXThreshold, cfg.ROIPVOXHoldTime,
@@ -930,7 +930,7 @@ func (cfg *CommsConfig) Start() {
 
 	cfg.applyDefaults()
 
-	if cfg.ControlSource == defaultCtrlSrc || cfg.ControlSource == "roip" {
+	if cfg.ControlSource == defaultCtrlSrc || cfg.ControlSource == controlSourceROIP {
 		detectAndSetALSACard(cfg.Log)
 	}
 

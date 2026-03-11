@@ -69,7 +69,6 @@ func (h HardwareInfo) GetName() string { return h.Name }
 // as returned by `ubus call iwinfo info '{"device":"<iface>"}'`.
 // Numeric fields that are unavailable on the device are reported as zero.
 type InterfaceInfo struct {
-	Hardware        HardwareInfo   `json:"hardware"`
 	SSID            string         `json:"ssid"`
 	BSSID           string         `json:"bssid"`
 	Country         string         `json:"country"`
@@ -78,9 +77,10 @@ type InterfaceInfo struct {
 	HTMode          string         `json:"htmode"`
 	HWMode          string         `json:"hwmode"`
 	HWModesText     string         `json:"hwmodes_text"`
-	Encryption      EncryptionInfo `json:"encryption"`
+	Hardware        HardwareInfo   `json:"hardware"`
 	HWModes         []string       `json:"hwmodes"`
 	HTModes         []string       `json:"htmodes"`
+	Encryption      EncryptionInfo `json:"encryption"`
 	CenterChan1     int            `json:"center_chan1"`
 	QualityMax      int            `json:"quality_max"`
 	Signal          int            `json:"signal"`
