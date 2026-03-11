@@ -1,6 +1,7 @@
 package mgmt
 
 import (
+	"context"
 	"os"
 	"time"
 
@@ -88,6 +89,10 @@ func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
 func (m *ManagementConfig) Start() {
 	if err := m.setTransportInterfaceMTU(); err != nil {
 		m.Log.Error().Err(err).Msg("Failed to set MTU for transport interface")
+	}
+
+	if err := m.setupBatMesh1Interface(context.Background()); err != nil {
+		m.Log.Error().Err(err).Msg("Failed to setup batmesh1 interface")
 	}
 
 	client, err := alfred.NewClient(alfred.WithSocketPath(m.SocketPath))
