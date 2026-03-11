@@ -11,6 +11,7 @@ import (
 config openmanet 'config'
 	option dhcpconfigured '0'
 	option BLOSconfigured '0'
+	option batmesh1configured '0'
 	option config '/etc/openmanet/config.yml'
 */
 
@@ -20,9 +21,10 @@ const (
 
 // UCIOpenMANET represents the OpenMANET UCI configuration.
 type UCIOpenMANET struct {
-	DHCPConfigured string `uci:"option dhcpconfigured"`
-	BLOSConfigured string `uci:"option BLOSconfigured"`
-	Config         string `uci:"option config"`
+	DHCPConfigured     string `uci:"option dhcpconfigured"`
+	BLOSConfigured     string `uci:"option BLOSconfigured"`
+	BatMesh1Configured string `uci:"option batmesh1configured"`
+	Config             string `uci:"option config"`
 }
 
 // OpenMANETConfigReader defines an interface for reading OpenMANET UCI configuration values.
@@ -108,6 +110,10 @@ func GetOpenMANETConfigWithReader(reader OpenMANETConfigReader) (*UCIOpenMANET, 
 		config.BLOSConfigured = values[0]
 	}
 
+	if values, ok := reader.Get(openmanetdConfigName, "config", "batmesh1configured"); ok && len(values) > 0 {
+		config.BatMesh1Configured = values[0]
+	}
+
 	if values, ok := reader.Get(openmanetdConfigName, "config", "config"); ok && len(values) > 0 {
 		config.Config = values[0]
 	}
@@ -153,6 +159,12 @@ func SetOpenMANETConfigWithReader(config *UCIOpenMANET, reader OpenMANETConfigRe
 	if config.BLOSConfigured != "" {
 		if err := reader.SetType(openmanetdConfigName, "config", "BLOSconfigured", uci.TypeOption, config.BLOSConfigured); err != nil {
 			return fmt.Errorf("failed to set BLOSconfigured: %w", err)
+		}
+	}
+
+	if config.BatMesh1Configured != "" {
+		if err := reader.SetType(openmanetdConfigName, "config", "batmesh1configured", uci.TypeOption, config.BatMesh1Configured); err != nil {
+			return fmt.Errorf("failed to set batmesh1configured: %w", err)
 		}
 	}
 
@@ -358,6 +370,105 @@ func ClearBLOSConfiguredWithReader(reader OpenMANETConfigReader) error {
 
 	if err := reader.SetType(openmanetdConfigName, "config", "BLOSconfigured", uci.TypeOption, "0"); err != nil {
 		return fmt.Errorf("failed to clear BLOSconfigured: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
+	}
+
+	return nil
+}
+
+// IsBatMesh1Configured checks if batman-adv mesh1 has been configured.
+//
+// Returns:
+//   - true if BatMesh1 is configured (batmesh1configured == '1'), false otherwise
+//   - An error if the configuration cannot be read
+//
+// Example:
+//
+//	configured, err := IsBatMesh1Configured()
+//	if err != nil {
+//	    log.Fatalf("Failed to check BatMesh1 status: %v", err)
+//	}
+//	if !configured {
+//	    // Run BatMesh1 configuration
+//	}
+func IsBatMesh1Configured() (bool, error) {
+	return IsBatMesh1ConfiguredWithReader(NewUCIOpenMANETConfigReader())
+}
+
+// IsBatMesh1ConfiguredWithReader checks if batman-adv mesh1 has been configured using the provided reader.
+func IsBatMesh1ConfiguredWithReader(reader OpenMANETConfigReader) (bool, error) {
+	config, err := GetOpenMANETConfigWithReader(reader)
+	if err != nil {
+		return false, err
+	}
+
+	// Parse the batmesh1configured value
+	if config.BatMesh1Configured == "0" || config.BatMesh1Configured == "" {
+		return false, nil
+	}
+
+	configured, err := strconv.Atoi(config.BatMesh1Configured)
+	if err != nil {
+		return false, fmt.Errorf("invalid batmesh1configured value: %w", err)
+	}
+
+	return configured == 1, nil
+}
+
+// SetBatMesh1Configured marks batman-adv mesh1 as configured.
+//
+// This sets the 'batmesh1configured' option to '1'.
+//
+// Example:
+//
+//	err := SetBatMesh1Configured()
+//	if err != nil {
+//	    log.Fatalf("Failed to mark BatMesh1 as configured: %v", err)
+//	}
+func SetBatMesh1Configured() error {
+	return SetBatMesh1ConfiguredWithReader(NewUCIOpenMANETConfigReader())
+}
+
+// SetBatMesh1ConfiguredWithReader marks batman-adv mesh1 as configured using the provided reader.
+func SetBatMesh1ConfiguredWithReader(reader OpenMANETConfigReader) error {
+	// Ensure the section exists
+	_ = reader.AddSection(openmanetdConfigName, "config", "openmanet")
+
+	if err := reader.SetType(openmanetdConfigName, "config", "batmesh1configured", uci.TypeOption, "1"); err != nil {
+		return fmt.Errorf("failed to set batmesh1configured: %w", err)
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("failed to commit OpenMANET config: %w", err)
+	}
+
+	return nil
+}
+
+// ClearBatMesh1Configured marks batman-adv mesh1 as not configured.
+//
+// This sets the 'batmesh1configured' option to '0'.
+//
+// Example:
+//
+//	err := ClearBatMesh1Configured()
+//	if err != nil {
+//	    log.Fatalf("Failed to clear BatMesh1 configured flag: %v", err)
+//	}
+func ClearBatMesh1Configured() error {
+	return ClearBatMesh1ConfiguredWithReader(NewUCIOpenMANETConfigReader())
+}
+
+// ClearBatMesh1ConfiguredWithReader marks batman-adv mesh1 as not configured using the provided reader.
+func ClearBatMesh1ConfiguredWithReader(reader OpenMANETConfigReader) error {
+	// Ensure the section exists
+	_ = reader.AddSection(openmanetdConfigName, "config", "openmanet")
+
+	if err := reader.SetType(openmanetdConfigName, "config", "batmesh1configured", uci.TypeOption, "0"); err != nil {
+		return fmt.Errorf("failed to clear batmesh1configured: %w", err)
 	}
 
 	if err := reader.Commit(); err != nil {

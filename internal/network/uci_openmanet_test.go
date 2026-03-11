@@ -928,3 +928,238 @@ func TestCompleteWorkflowWithBLOS(t *testing.T) {
 		t.Error("Expected DHCP to still be configured")
 	}
 }
+
+// ========== BatMesh1 Configuration Tests ==========
+
+func TestIsBatMesh1ConfiguredWithReader(t *testing.T) {
+	tests := []struct {
+		name               string
+		batMesh1Configured string
+		expected           bool
+		expectError        bool
+	}{
+		{
+			name:               "configured",
+			batMesh1Configured: "1",
+			expected:           true,
+			expectError:        false,
+		},
+		{
+			name:               "not configured",
+			batMesh1Configured: "0",
+			expected:           false,
+			expectError:        false,
+		},
+		{
+			name:               "empty",
+			batMesh1Configured: "",
+			expected:           false,
+			expectError:        false,
+		},
+		{
+			name:               "invalid value",
+			batMesh1Configured: "invalid",
+			expected:           false,
+			expectError:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newMockOpenMANETConfigReader()
+			if tt.batMesh1Configured != "" {
+				_ = mock.AddSection("openmanetd", "config", "openmanet")
+				_ = mock.SetType("openmanetd", "config", "batmesh1configured", uci.TypeOption, tt.batMesh1Configured)
+			}
+
+			configured, err := IsBatMesh1ConfiguredWithReader(mock)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error, got nil")
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("IsBatMesh1ConfiguredWithReader failed: %v", err)
+			}
+
+			if configured != tt.expected {
+				t.Errorf("Expected %v, got %v", tt.expected, configured)
+			}
+		})
+	}
+}
+
+func TestSetBatMesh1ConfiguredWithReader(t *testing.T) {
+	mock := newMockOpenMANETConfigReader()
+
+	err := SetBatMesh1ConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("SetBatMesh1ConfiguredWithReader failed: %v", err)
+	}
+
+	values, ok := mock.Get("openmanetd", "config", "batmesh1configured")
+	if !ok || len(values) == 0 || values[0] != "1" {
+		t.Errorf("Expected batmesh1configured=1, got %v", values)
+	}
+
+	// Verify using IsBatMesh1Configured
+	configured, err := IsBatMesh1ConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("IsBatMesh1ConfiguredWithReader failed: %v", err)
+	}
+
+	if !configured {
+		t.Error("Expected BatMesh1 to be configured")
+	}
+}
+
+func TestClearBatMesh1ConfiguredWithReader(t *testing.T) {
+	mock := newMockOpenMANETConfigReader()
+	_ = mock.AddSection("openmanetd", "config", "openmanet")
+	_ = mock.SetType("openmanetd", "config", "batmesh1configured", uci.TypeOption, "1")
+
+	err := ClearBatMesh1ConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("ClearBatMesh1ConfiguredWithReader failed: %v", err)
+	}
+
+	values, ok := mock.Get("openmanetd", "config", "batmesh1configured")
+	if !ok || len(values) == 0 || values[0] != "0" {
+		t.Errorf("Expected batmesh1configured=0, got %v", values)
+	}
+
+	// Verify using IsBatMesh1Configured
+	configured, err := IsBatMesh1ConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("IsBatMesh1ConfiguredWithReader failed: %v", err)
+	}
+
+	if configured {
+		t.Error("Expected BatMesh1 to not be configured")
+	}
+}
+
+func TestSetBatMesh1ConfiguredWithReader_ErrorHandling(t *testing.T) {
+	mock := &mockOpenMANETConfigReaderWithErrors{}
+
+	err := SetBatMesh1ConfiguredWithReader(mock)
+	if err == nil {
+		t.Error("Expected error from SetBatMesh1ConfiguredWithReader")
+	}
+}
+
+func TestClearBatMesh1ConfiguredWithReader_ErrorHandling(t *testing.T) {
+	mock := &mockOpenMANETConfigReaderWithErrors{}
+
+	err := ClearBatMesh1ConfiguredWithReader(mock)
+	if err == nil {
+		t.Error("Expected error from ClearBatMesh1ConfiguredWithReader")
+	}
+}
+
+func TestSetBatMesh1Configured_UpdatesExistingValue(t *testing.T) {
+	mock := newMockOpenMANETConfigReader()
+
+	// Start with value set to 0
+	_ = mock.AddSection("openmanetd", "config", "openmanet")
+	_ = mock.SetType("openmanetd", "config", "batmesh1configured", uci.TypeOption, "0")
+
+	configured, _ := IsBatMesh1ConfiguredWithReader(mock)
+	if configured {
+		t.Error("Expected initial state to be not configured")
+	}
+
+	// Set to configured
+	err := SetBatMesh1ConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("SetBatMesh1ConfiguredWithReader failed: %v", err)
+	}
+
+	configured, _ = IsBatMesh1ConfiguredWithReader(mock)
+	if !configured {
+		t.Error("Expected state to be configured after SetBatMesh1Configured")
+	}
+
+	// Clear configured state
+	err = ClearBatMesh1ConfiguredWithReader(mock)
+	if err != nil {
+		t.Fatalf("ClearBatMesh1ConfiguredWithReader failed: %v", err)
+	}
+
+	configured, _ = IsBatMesh1ConfiguredWithReader(mock)
+	if configured {
+		t.Error("Expected state to be not configured after ClearBatMesh1Configured")
+	}
+}
+
+func TestGetOpenMANETConfigWithReader_IncludesBatMesh1(t *testing.T) {
+	mock := newMockOpenMANETConfigReader()
+	_ = mock.AddSection("openmanetd", "config", "openmanet")
+	_ = mock.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "1")
+	_ = mock.SetType("openmanetd", "config", "BLOSconfigured", uci.TypeOption, "1")
+	_ = mock.SetType("openmanetd", "config", "batmesh1configured", uci.TypeOption, "1")
+	_ = mock.SetType("openmanetd", "config", "config", uci.TypeOption, testOpenMANETConfigPath)
+
+	config, err := GetOpenMANETConfigWithReader(mock)
+	if err != nil {
+		t.Fatalf("GetOpenMANETConfigWithReader failed: %v", err)
+	}
+
+	if config.DHCPConfigured != "1" {
+		t.Errorf("Expected DHCPConfigured=1, got %s", config.DHCPConfigured)
+	}
+
+	if config.BLOSConfigured != "1" {
+		t.Errorf("Expected BLOSConfigured=1, got %s", config.BLOSConfigured)
+	}
+
+	if config.BatMesh1Configured != "1" {
+		t.Errorf("Expected BatMesh1Configured=1, got %s", config.BatMesh1Configured)
+	}
+
+	if config.Config != testOpenMANETConfigPath {
+		t.Errorf("Expected Config=%s, got %s", testOpenMANETConfigPath, config.Config)
+	}
+}
+
+func TestSetOpenMANETConfigWithReader_IncludesBatMesh1(t *testing.T) {
+	mock := newMockOpenMANETConfigReader()
+
+	config := &UCIOpenMANET{
+		DHCPConfigured:     "1",
+		BLOSConfigured:     "1",
+		BatMesh1Configured: "1",
+		Config:             "/custom/path/config.yml",
+	}
+
+	err := SetOpenMANETConfigWithReader(config, mock)
+	if err != nil {
+		t.Fatalf("SetOpenMANETConfigWithReader failed: %v", err)
+	}
+
+	// Verify the values were set
+	readConfig, err := GetOpenMANETConfigWithReader(mock)
+	if err != nil {
+		t.Fatalf("GetOpenMANETConfigWithReader failed: %v", err)
+	}
+
+	if readConfig.DHCPConfigured != "1" {
+		t.Errorf("Expected DHCPConfigured=1, got %s", readConfig.DHCPConfigured)
+	}
+
+	if readConfig.BLOSConfigured != "1" {
+		t.Errorf("Expected BLOSConfigured=1, got %s", readConfig.BLOSConfigured)
+	}
+
+	if readConfig.BatMesh1Configured != "1" {
+		t.Errorf("Expected BatMesh1Configured=1, got %s", readConfig.BatMesh1Configured)
+	}
+
+	if readConfig.Config != "/custom/path/config.yml" {
+		t.Errorf("Expected Config=/custom/path/config.yml, got %s", readConfig.Config)
+	}
+}
