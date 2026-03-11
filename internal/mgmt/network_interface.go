@@ -8,6 +8,15 @@ const (
 	defaultMeshInterfaceMTU = 1532
 )
 
+// setTransportInterfaceMTU sets the MTU (Maximum Transmission Unit) for all
+// wireless mesh interfaces defined in the WirelessConfig. It retrieves the list
+// of mesh interfaces and attempts to set each interface's MTU to
+// defaultMeshInterfaceMTU. If setting the MTU for a particular interface fails,
+// the error is logged and the process continues with the remaining interfaces.
+// A successful MTU update is also logged at the Info level.
+//
+// Returns an error if the mesh interfaces cannot be retrieved from WirelessConfig,
+// otherwise returns nil even if individual interface MTU updates fail.
 func (m *ManagementConfig) setTransportInterfaceMTU() error {
 	wirelessInterfaces, err := m.WirelessConfig.GetMeshInterfaces()
 	if err != nil {
