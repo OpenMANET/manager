@@ -52,6 +52,14 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 
 	rt.broadcasting.Store(true)
 
+	// Web mode: the browser provides its own audio I/O and UI feedback,
+	// so skip beep tones, playback drain, and PortAudio stream management.
+	if rt.webBridge != nil {
+		cfg.Log.Debug().Msg("Begin web transmission")
+
+		return
+	}
+
 	cfg.Log.Debug().Msg("Begin transmission: playing start tone and starting mic stream")
 	cfg.drainPlaybackBuffer(rt)
 
@@ -110,6 +118,14 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 	if !rt.broadcasting.Load() {
 		cfg.Log.Debug().Msg("PTTUp ignored; mic already idle")
+
+		return
+	}
+
+	// Web mode: skip PortAudio stream management and beep tones.
+	if rt.webBridge != nil {
+		cfg.Log.Debug().Msg("End web transmission")
+		rt.broadcasting.Store(false)
 
 		return
 	}

@@ -181,6 +181,17 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 
 		payload, conceal := jitter.popOrConceal(100 * time.Millisecond)
 		if payload != nil {
+			// Web mode: forward raw Opus to the web client instead of
+			// decoding to PCM and queueing to the PortAudio playback buffer.
+			if rt.webBridge != nil {
+				cp := make([]byte, len(payload))
+				copy(cp, payload)
+				rt.webBridge.PushRxFrame(cp)
+				jitter.releasePayload(payload)
+
+				continue
+			}
+
 			cfg.decodeAndQueue(pc, rt, payload)
 			jitter.releasePayload(payload)
 

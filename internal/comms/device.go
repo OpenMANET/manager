@@ -15,6 +15,7 @@ const (
 	defaultControlSourceCM108   = "cm108"
 	defaultControlSourceNanoPTT = "nanoptt"
 	controlSourceROIP           = "roip"
+	controlSourceWeb            = "web"
 )
 
 // normalizeControlSource maps raw config strings to canonical control source names.
@@ -27,6 +28,8 @@ func normalizeControlSource(src string) string {
 		return defaultControlSourceNanoPTT
 	case controlSourceROIP:
 		return controlSourceROIP
+	case controlSourceWeb:
+		return controlSourceWeb
 	default:
 		return defaultControlSourceCM108
 	}

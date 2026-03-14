@@ -481,3 +481,70 @@ func TestEndTransmission_QueuesStopBeepToAllPorts(t *testing.T) {
 		}
 	}
 }
+
+// ─── Web-mode tests ────────────────────────────────────────────────────────
+
+func TestBeginTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
+	stream := &mockStream{}
+	rt := newTestRuntime(stream)
+	rt.webBridge = &WebAudioBridge{} // non-nil activates web mode
+
+	cfg := newSilentComms()
+	cfg.beginTransmission(rt)
+
+	if !cfg.isBroadcasting(rt) {
+		t.Error("should be broadcasting in web mode")
+	}
+
+	if stream.startCalls != 0 {
+		t.Errorf("Start called %d times, want 0 in web mode", stream.startCalls)
+	}
+
+	// No beep should be queued.
+	select {
+	case <-rt.ports[0].playbackBuffer:
+		t.Error("unexpected beep in playback buffer in web mode")
+	default:
+	}
+}
+
+func TestEndTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
+	stream := &mockStream{}
+	rt := newTestRuntime(stream)
+	rt.webBridge = &WebAudioBridge{}
+
+	cfg := newSilentComms()
+
+	// Begin first so broadcasting is true.
+	rt.broadcasting.Store(true)
+	cfg.endTransmission(rt)
+
+	if cfg.isBroadcasting(rt) {
+		t.Error("should not be broadcasting after endTransmission in web mode")
+	}
+
+	if stream.stopCalls != 0 {
+		t.Errorf("Stop called %d times, want 0 in web mode", stream.stopCalls)
+	}
+
+	// No beep should be queued.
+	select {
+	case <-rt.ports[0].playbackBuffer:
+		t.Error("unexpected beep in playback buffer in web mode")
+	default:
+	}
+}
+
+func TestBeginTransmission_WebMode_HalfDuplexStillWorks(t *testing.T) {
+	rt := newTestRuntime(&mockStream{})
+	rt.webBridge = &WebAudioBridge{}
+	// Simulate active remote reception.
+	rt.ports[0].lastRemoteRx.Store(time.Now().UnixNano())
+
+	cfg := newSilentComms()
+	cfg.beginTransmission(rt)
+
+	if cfg.isBroadcasting(rt) {
+		t.Error("should not be broadcasting while receiving remote audio, even in web mode")
+	}
+}

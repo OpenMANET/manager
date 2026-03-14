@@ -574,3 +574,65 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 			reader2.remaining())
 	}
 }
+
+// ─── Web-mode playout tests ─────────────────────────────────────────────────
+
+func TestPlayoutLoop_WebMode_ForwardsRawOpus(t *testing.T) {
+	cfg := newSilentComms()
+	rt, pc := newReceiveRuntime()
+
+	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
+	rt.webBridge = bridge
+
+	jb := newRTPJitterBuffer(1, 10)
+	jb.push(0, []byte{0xAA, 0xBB, 0xCC})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	go cfg.playoutLoop(ctx, jb, pc, rt)
+
+	// The raw Opus bytes should arrive on the bridge's RX channel.
+	select {
+	case frame := <-bridge.RxFrames():
+		if len(frame) != 3 || frame[0] != 0xAA || frame[1] != 0xBB || frame[2] != 0xCC {
+			t.Errorf("unexpected frame data: %v", frame)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Error("timed out waiting for raw Opus frame on web bridge")
+	}
+
+	// Nothing should appear in the PortAudio playback buffer.
+	select {
+	case <-pc.playbackBuffer:
+		t.Error("unexpected frame in PortAudio playback buffer in web mode")
+	default:
+	}
+}
+
+func TestPlayoutLoop_WebMode_SkipsWhenBroadcasting(t *testing.T) {
+	cfg := newSilentComms()
+	rt, pc := newReceiveRuntime()
+
+	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
+	rt.webBridge = bridge
+	rt.broadcasting.Store(true)
+
+	jb := newRTPJitterBuffer(1, 10)
+	jb.push(0, []byte{0x01})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	go cfg.playoutLoop(ctx, jb, pc, rt)
+
+	// Let the loop tick several times.
+	time.Sleep(80 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-bridge.RxFrames():
+		t.Error("bridge should not receive frames while broadcasting")
+	default:
+	}
+}

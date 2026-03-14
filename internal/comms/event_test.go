@@ -49,6 +49,9 @@ func TestNormalizeControlSource(t *testing.T) {
 		{"roip", "roip"},
 		{"ROIP", "roip"},
 		{"  roip  ", "roip"},
+		{"web", "web"},
+		{"WEB", "web"},
+		{"  web  ", "web"},
 		{"", "cm108"},
 		{"unknown", "cm108"},
 	}

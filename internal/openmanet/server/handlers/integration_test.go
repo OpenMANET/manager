@@ -78,6 +78,10 @@ func newTestServer(t *testing.T) *httptest.Server {
 		Log: zerolog.Nop(),
 	}, handlerOpt))
 
+	mux.Handle(services.NewWebCommsServiceHandler(&handlers.WebCommsService{
+		Log: zerolog.Nop(),
+	}, handlerOpt))
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
@@ -415,4 +419,57 @@ func TestIntegration_Validation_SetReceiveTalkGroup_ValidTalkgroup(t *testing.T)
 				"valid talkgroup %d must not be rejected by the validator", tg)
 		})
 	}
+}
+
+// ── WebCommsService ───────────────────────────────────────────────────────
+
+func TestIntegration_SendPTTEvent_WebNotActive(t *testing.T) {
+	srv := newTestServer(t)
+	client := services.NewWebCommsServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	_, err := client.SendPTTEvent(context.Background(), &serviceproto.SendPTTEventRequest{Event: 0})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	if assert.ErrorAs(t, err, &connectErr) {
+		assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
+		assert.Contains(t, connectErr.Message(), "web control source not active")
+	}
+}
+
+func TestIntegration_StreamAudioRx_WebNotActive(t *testing.T) {
+	srv := newTestServer(t)
+	client := services.NewWebCommsServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	stream, err := client.StreamAudioRx(context.Background(), &serviceproto.StreamAudioRxRequest{})
+	// connect-go may return the error on the stream.Receive call rather than
+	// on the initial call, depending on the protocol.
+	if err != nil {
+		var connectErr *connect.Error
+		if assert.ErrorAs(t, err, &connectErr) {
+			assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
+		}
+
+		return
+	}
+
+	// If the initial call succeeded, the error surfaces on the first Receive.
+	ok := stream.Receive()
+	assert.False(t, ok)
+	require.Error(t, stream.Err())
+
+	var connectErr *connect.Error
+	if assert.ErrorAs(t, stream.Err(), &connectErr) {
+		assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
+	}
+
+	require.NoError(t, stream.Close())
 }
