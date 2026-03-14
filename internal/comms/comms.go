@@ -144,6 +144,8 @@ type CommsRuntime struct {
 	decoder         AudioDecoder
 	encoder         AudioEncoder
 	broadcastStream AudioStream
+	webBridge       *WebAudioBridge
+	webEvtSrc       *webEventSource
 	localIP         atomic.Pointer[string]
 	reopenBroadcast func() error
 	broadcastTap    atomic.Pointer[chan []float32]
@@ -774,6 +776,14 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 
 		return NewROIPSource(cfg, isReceiving, isBroadcasting, setTap, clearTap, cfg.Log), nil
 
+	case controlSourceWeb:
+		cfg.Log.Info().Msg("comms: PTT via web RPC")
+
+		ws := NewWebEventSource(cfg.Log)
+		rt.webEvtSrc = ws
+
+		return ws, nil
+
 	default:
 		dev := cfg.findCommDevice()
 		if dev == nil {
@@ -912,6 +922,80 @@ func GetTalkGroupStates() ([]McastPortState, error) {
 	return states, nil
 }
 
+// GetWebEventSource returns the webEventSource created when ControlSource is
+// "web". Returns nil when comms is not running or a different control source
+// is active.
+func GetWebEventSource() *webEventSource {
+	cfg := activeConfig.Load()
+	if cfg == nil || cfg.runtime == nil {
+		return nil
+	}
+
+	return cfg.runtime.webEvtSrc
+}
+
+// GetWebAudioBridge returns the WebAudioBridge created when ControlSource is
+// "web". Returns nil when comms is not running or a different control source
+// is active.
+func GetWebAudioBridge() *WebAudioBridge {
+	cfg := activeConfig.Load()
+	if cfg == nil || cfg.runtime == nil {
+		return nil
+	}
+
+	return cfg.runtime.webBridge
+}
+
+// startHardwareAudio initializes PortAudio, opens broadcast and playback
+// streams, and returns a cleanup function that stops and closes them.
+func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) func() {
+	silenceALSAProbeNoise()
+
+	err := portaudio.Initialize()
+
+	restoreALSAErrorHandler()
+
+	if err != nil {
+		cfg.Log.Fatal().Err(err).Msg("comms: failed to initialize PortAudio")
+	}
+
+	go func() {
+		<-cfg.Interrupt
+		cfg.Log.Info().Msg("comms: received shutdown signal, cleaning up PortAudio")
+
+		_ = portaudio.Terminate()
+
+		os.Exit(0)
+	}()
+
+	broadcastStream, inDev, audioErr := cfg.buildAudio(rt)
+	if audioErr != nil {
+		cfg.Log.Fatal().Err(audioErr).Msg("comms: failed to build audio streams")
+	}
+
+	rt.broadcastStream = broadcastStream
+	rt.reopenBroadcast = func() error { return cfg.reopenBroadcastStream(rt, inDev) }
+
+	for _, pc := range rt.ports {
+		if pc.playbackStream != nil {
+			if startErr := pc.playbackStream.Start(); startErr != nil {
+				cfg.Log.Fatal().Err(startErr).Msg("comms: failed to start playback stream")
+			}
+		}
+	}
+
+	return func() {
+		for _, pc := range rt.ports {
+			if pc.playbackStream != nil {
+				_ = pc.playbackStream.Stop()
+				_ = pc.playbackStream.Close()
+			}
+		}
+
+		_ = broadcastStream.Close()
+	}
+}
+
 // Start initializes all comms subsystems and blocks until an OS interrupt is
 // received. Returns immediately if Enable is false.
 func (cfg *CommsConfig) Start() {
@@ -930,8 +1014,10 @@ func (cfg *CommsConfig) Start() {
 
 	cfg.applyDefaults()
 
-	if cfg.ControlSource == defaultCtrlSrc || cfg.ControlSource == controlSourceROIP {
-		detectAndSetALSACard(cfg.Log)
+	if cfg.ControlSource != controlSourceWeb {
+		if cfg.ControlSource == defaultCtrlSrc || cfg.ControlSource == controlSourceROIP {
+			detectAndSetALSACard(cfg.Log)
+		}
 	}
 
 	switch {
@@ -941,7 +1027,7 @@ func (cfg *CommsConfig) Start() {
 		cfg.Log = cfg.Log.Level(zerolog.DebugLevel)
 	}
 
-	if cfg.Debug {
+	if cfg.Debug && cfg.ControlSource != controlSourceWeb {
 		cfg.logInputDeviceList()
 	}
 
@@ -1000,53 +1086,19 @@ func (cfg *CommsConfig) Start() {
 	cfg.runtime = rt
 	activeConfig.Store(cfg)
 
-	// ── PortAudio ──────────────────────────────────────────────────────────
-	silenceALSAProbeNoise()
-
-	err = portaudio.Initialize()
-
-	restoreALSAErrorHandler()
-
-	if err != nil {
-		cfg.Log.Fatal().Err(err).Msg("comms: failed to initialize PortAudio")
-	}
-
-	go func() {
-		<-cfg.Interrupt
-		cfg.Log.Info().Msg("comms: received shutdown signal, cleaning up PortAudio")
-
-		_ = portaudio.Terminate()
-
-		os.Exit(0)
-	}()
-
-	broadcastStream, inDev, audioErr := cfg.buildAudio(rt)
-	if audioErr != nil {
-		cfg.Log.Fatal().Err(audioErr).Msg("comms: failed to build audio streams")
-	}
-
-	rt.broadcastStream = broadcastStream
-	rt.reopenBroadcast = func() error { return cfg.reopenBroadcastStream(rt, inDev) }
-
-	for _, pc := range rt.ports {
-		if pc.playbackStream != nil {
-			if startErr := pc.playbackStream.Start(); startErr != nil {
-				cfg.Log.Fatal().Err(startErr).Msg("comms: failed to start playback stream")
-			}
-
-			defer func(s AudioStream) {
-				_ = s.Stop()
-				_ = s.Close()
-			}(pc.playbackStream)
-		}
-	}
-
-	defer broadcastStream.Close() //nolint:errcheck
-
 	// ── event source ───────────────────────────────────────────────────────
 	src, srcErr := cfg.buildEventSource(rt)
 	if srcErr != nil {
 		cfg.Log.Fatal().Err(srcErr).Msg("comms: failed to build event source")
+	}
+
+	// ── audio I/O ─────────────────────────────────────────────────────────
+	if cfg.ControlSource == controlSourceWeb {
+		// Web mode: skip PortAudio entirely; the browser provides audio I/O.
+		rt.webBridge = NewWebAudioBridge(cfg, rt, cfg.Log)
+	} else {
+		cleanup := cfg.startHardwareAudio(rt)
+		defer cleanup()
 	}
 
 	// ── run loop ───────────────────────────────────────────────────────────

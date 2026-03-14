@@ -65,6 +65,10 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Log: cfg.Log,
 	}, connect.WithInterceptors(validateInterceptor)))
 
+	api.Handle(services.NewWebCommsServiceHandler(&handlers.WebCommsService{
+		Log: cfg.Log,
+	}, connect.WithInterceptors(validateInterceptor)))
+
 	p := new(http.Protocols)
 	p.SetHTTP1(true)
 	// Use h2c so we can serve HTTP/2 without TLS.
@@ -73,8 +77,9 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Addr:         serverAddress,
 		Handler:      withCORS(api),
 		Protocols:    p,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		ReadTimeout: 30 * time.Second,
+		// WriteTimeout is intentionally omitted to support long-lived
+		// streaming RPCs (e.g. WebCommsService audio streams).
 		ErrorLog:     logger.StandardLogger(cfg.Log),
 	}
 
