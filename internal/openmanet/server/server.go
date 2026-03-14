@@ -74,13 +74,13 @@ func NewAPIServer(cfg APIServer) *APIServer {
 	// Use h2c so we can serve HTTP/2 without TLS.
 	p.SetUnencryptedHTTP2(true)
 	server := http.Server{
-		Addr:         serverAddress,
-		Handler:      withCORS(api),
-		Protocols:    p,
+		Addr:        serverAddress,
+		Handler:     withCORS(api),
+		Protocols:   p,
 		ReadTimeout: 30 * time.Second,
 		// WriteTimeout is intentionally omitted to support long-lived
 		// streaming RPCs (e.g. WebCommsService audio streams).
-		ErrorLog:     logger.StandardLogger(cfg.Log),
+		ErrorLog: logger.StandardLogger(cfg.Log),
 	}
 
 	return &APIServer{
