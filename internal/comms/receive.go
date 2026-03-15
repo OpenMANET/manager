@@ -173,6 +173,22 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 			continue
 		}
 
+		// Web mode: forward raw Opus to the web client instead of
+		// decoding to PCM and queueing to the PortAudio playback buffer.
+		// Backpressure and PLC are skipped because PortAudio is not active
+		// and Opus PLC produces PCM which cannot be forwarded as-is.
+		if rt.webBridge != nil {
+			payload, _ := jitter.popOrConceal(100 * time.Millisecond)
+			if payload != nil {
+				cp := make([]byte, len(payload))
+				copy(cp, payload)
+				rt.webBridge.PushRxFrame(cp)
+				jitter.releasePayload(payload)
+			}
+
+			continue
+		}
+
 		// Backpressure: skip this tick when the playback channel is
 		// nearly full so the hardware clock can catch up.
 		if len(pc.playbackBuffer) >= hwm {
@@ -181,17 +197,6 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 
 		payload, conceal := jitter.popOrConceal(100 * time.Millisecond)
 		if payload != nil {
-			// Web mode: forward raw Opus to the web client instead of
-			// decoding to PCM and queueing to the PortAudio playback buffer.
-			if rt.webBridge != nil {
-				cp := make([]byte, len(payload))
-				copy(cp, payload)
-				rt.webBridge.PushRxFrame(cp)
-				jitter.releasePayload(payload)
-
-				continue
-			}
-
 			cfg.decodeAndQueue(pc, rt, payload)
 			jitter.releasePayload(payload)
 
