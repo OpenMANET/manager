@@ -610,6 +610,82 @@ func TestPlayoutLoop_WebMode_ForwardsRawOpus(t *testing.T) {
 	}
 }
 
+// TestPlayoutLoop_WebMode_NilPlaybackBuffer reproduces the production web
+// mode condition where startHardwareAudio is skipped and playbackBuffer is
+// nil. Prior to the fix, hwm computed to 0 and the backpressure check
+// (len(nil) >= 0) blocked every tick.
+func TestPlayoutLoop_WebMode_NilPlaybackBuffer(t *testing.T) {
+	cfg := newSilentComms()
+
+	// Mirror production web mode: no playbackBuffer, no decoder needed.
+	pc := &portChannel{
+		cfg: McastPortConfig{Send: true, Receive: true},
+	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+	// playbackBuffer intentionally left nil
+
+	rt := &CommsRuntime{ports: []*portChannel{pc}}
+
+	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
+	rt.webBridge = bridge
+
+	jb := newRTPJitterBuffer(1, 10)
+	jb.push(0, []byte{0xDE, 0xAD})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	go cfg.playoutLoop(ctx, jb, pc, rt)
+
+	select {
+	case frame := <-bridge.RxFrames():
+		if len(frame) != 2 || frame[0] != 0xDE || frame[1] != 0xAD {
+			t.Errorf("unexpected frame data: %v", frame)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out: web bridge did not receive frame with nil playbackBuffer")
+	}
+}
+
+// TestPlayoutLoop_WebMode_MultipleFrames verifies that a sequence of
+// frames is streamed through the web bridge in order.
+func TestPlayoutLoop_WebMode_MultipleFrames(t *testing.T) {
+	cfg := newSilentComms()
+
+	pc := &portChannel{
+		cfg: McastPortConfig{Send: true, Receive: true},
+	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+
+	rt := &CommsRuntime{ports: []*portChannel{pc}}
+
+	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
+	rt.webBridge = bridge
+
+	jb := newRTPJitterBuffer(1, 10)
+	for i := 0; i < 5; i++ {
+		jb.push(uint16(i), []byte{byte(i)})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go cfg.playoutLoop(ctx, jb, pc, rt)
+
+	for i := 0; i < 5; i++ {
+		select {
+		case frame := <-bridge.RxFrames():
+			if len(frame) != 1 || frame[0] != byte(i) {
+				t.Errorf("frame %d: got %v, want [%d]", i, frame, i)
+			}
+		case <-time.After(500 * time.Millisecond):
+			t.Fatalf("timed out waiting for frame %d", i)
+		}
+	}
+}
+
 func TestPlayoutLoop_WebMode_SkipsWhenBroadcasting(t *testing.T) {
 	cfg := newSilentComms()
 	rt, pc := newReceiveRuntime()
