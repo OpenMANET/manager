@@ -66,6 +66,8 @@ func (s *WebCommsService) StreamAudioTx(_ context.Context, stream *connect.Clien
 		return nil, err
 	}
 
+	s.Log.Debug().Uint32("frames_received", count).Msg("Received audio frames from web client")
+
 	return &serviceproto.StreamAudioTxResponse{FramesReceived: count}, nil
 }
 
@@ -97,6 +99,8 @@ func (s *WebCommsService) StreamAudioRx(ctx context.Context, _ *serviceproto.Str
 			}); err != nil {
 				return err
 			}
+
+			s.Log.Debug().Uint32("seq", seq).Msg("Sent audio frame to web client")
 		}
 	}
 }
