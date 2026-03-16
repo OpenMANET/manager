@@ -309,6 +309,145 @@ func BenchmarkDecodeAndQueue_Real(b *testing.B) {
 	}
 }
 
+// ─── Backpressure drain benchmark ────────────────────────────────────────────
+
+// BenchmarkBackpressureDrain measures the cost of draining the oldest frame from
+// a nearly-full playback channel to make room for a new frame. This is the hot
+// path introduced by the drain-instead-of-skip backpressure fix.
+func BenchmarkBackpressureDrain(b *testing.B) {
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+	pc := &portChannel{}
+	pc.playbackBuffer = make(chan []float32, 16)
+	rt := &CommsRuntime{
+		decoder: &mockDecoder{returnN: frameSize},
+	}
+
+	hwm := cap(pc.playbackBuffer) * 3 / 4 // 12
+	payload := make([]byte, 100)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		// Fill to high-water mark.
+		for len(pc.playbackBuffer) < hwm {
+			pc.playbackBuffer <- make([]float32, frameSize)
+		}
+
+		// Drain oldest to make room (mirrors the new backpressure path).
+		for len(pc.playbackBuffer) >= hwm {
+			select {
+			case old := <-pc.playbackBuffer:
+				returnFloat32(old)
+			default:
+			}
+		}
+
+		// Decode and queue a new frame.
+		cfg.decodeAndQueue(pc, rt, payload)
+
+		// Drain the buffer for the next iteration.
+		for len(pc.playbackBuffer) > 0 {
+			select {
+			case f := <-pc.playbackBuffer:
+				returnFloat32(f)
+			default:
+			}
+		}
+	}
+}
+
+// ─── PLC decode benchmark ───────────────────────────────────────────────────
+
+// BenchmarkDecodeAndQueuePLC measures the PLC decode path using the real Opus
+// decoder. This covers Changes 3 and 5 where PLC frames are generated on
+// decode errors and during consecutive loss bursts.
+func BenchmarkDecodeAndQueuePLC(b *testing.B) {
+	enc, err := newOpusEncoder()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	dec, err := newOpusDecoder()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// Feed the decoder one real frame first so PLC has state to work with.
+	pcm := make([]int16, frameSize)
+	for i := range pcm {
+		pcm[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate)) * 16000)
+	}
+
+	encBuf := make([]byte, 1500)
+
+	n, err := enc.Encode(pcm, encBuf)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	warmup := make([]float32, frameSize)
+	if _, err := dec.DecodeFloat32(encBuf[:n], warmup); err != nil {
+		b.Fatal(err)
+	}
+
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+	pc := &portChannel{}
+	pc.playbackBuffer = make(chan []float32, 64)
+	rt := &CommsRuntime{decoder: dec}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		cfg.decodeAndQueuePLC(pc, rt)
+
+		select {
+		case f := <-pc.playbackBuffer:
+			returnFloat32(f)
+		default:
+		}
+	}
+}
+
+// ─── Burst loss conceal benchmark ───────────────────────────────────────────
+
+// BenchmarkPopOrConceal_BurstLoss simulates a burst loss scenario: frames are
+// pushed and consumed, then the buffer is left empty while the stream is still
+// active (recent lastPush). Repeated popOrConceal calls exercise the
+// shouldConceal path, measuring conceal decision throughput during burst loss.
+func BenchmarkPopOrConceal_BurstLoss(b *testing.B) {
+	payload := make([]byte, 100)
+	jb := newRTPJitterBuffer(1, jitterMaxDepth)
+
+	// Push and pop one frame to start the buffer and set lastPush.
+	jb.push(0, payload)
+
+	if p, _, _ := jb.popReady(); p != nil {
+		jb.releasePayload(p)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		// Refresh lastPush to keep shouldConceal returning true.
+		jb.push(1, payload)
+
+		if p, _, _ := jb.popReady(); p != nil {
+			jb.releasePayload(p)
+		}
+
+		// Simulate 5 consecutive conceal decisions on empty buffer.
+		for range 5 {
+			p, _ := jb.popOrConceal(100 * time.Millisecond)
+			if p != nil {
+				jb.releasePayload(p)
+			}
+		}
+	}
+}
+
 // ─── popOrConceal benchmark ──────────────────────────────────────────────────
 
 // BenchmarkPopOrConceal measures steady-state popOrConceal with a warmed pool.

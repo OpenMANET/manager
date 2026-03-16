@@ -131,7 +131,11 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 		// performs its own defensive copy so a separate copy here is
 		// unnecessary — the receive buffer (buf) is reused on the next
 		// iteration anyway.
-		jitter.push(pkt.SequenceNumber, pkt.Payload)
+		if !jitter.push(pkt.SequenceNumber, pkt.Payload) {
+			if n := jitter.overflows.Load(); n > 0 && n%50 == 0 {
+				cfg.Log.Warn().Int64("total_overflows", n).Msg("comms: jitter buffer overflow")
+			}
+		}
 	}
 }
 
@@ -155,6 +159,13 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 	if hwm == 0 {
 		hwm = cap(pc.playbackBuffer) * 3 / 4
 	}
+
+	// Track consecutive PLC frames to cap robotic artifacts during burst
+	// loss. After maxConsecutivePLC frames (100 ms on a mesh), silence is
+	// emitted instead of increasingly degraded PLC output.
+	var consecutivePLC int
+
+	const maxConsecutivePLC = 5
 
 	for {
 		select {
@@ -189,10 +200,17 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 			continue
 		}
 
-		// Backpressure: skip this tick when the playback channel is
-		// nearly full so the hardware clock can catch up.
-		if len(pc.playbackBuffer) >= hwm {
-			continue
+		// Backpressure: drain the oldest frame(s) when the playback
+		// channel is nearly full rather than skipping this tick. This
+		// keeps the 20 ms playout cadence intact and prevents the
+		// jitter buffer from drifting out of sync with the hardware
+		// clock.
+		for len(pc.playbackBuffer) >= hwm {
+			select {
+			case old := <-pc.playbackBuffer:
+				returnFloat32(old)
+			default:
+			}
 		}
 
 		payload, conceal := jitter.popOrConceal(100 * time.Millisecond)
@@ -200,16 +218,30 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 			cfg.decodeAndQueue(pc, rt, payload)
 			jitter.releasePayload(payload)
 
+			consecutivePLC = 0
+
 			continue
 		}
 
 		if conceal {
-			if cfg.Trace {
-				cfg.Log.Trace().Msg("comms: jitter buffer gap → PLC")
-			}
-
-			cfg.decodeAndQueuePLC(pc, rt)
+			consecutivePLC++
+			cfg.emitConcealFrame(pc, rt, consecutivePLC, maxConsecutivePLC)
 		}
+	}
+}
+
+// emitConcealFrame emits either a PLC or silence frame depending on how many
+// consecutive concealment frames have been produced. This caps robotic PLC
+// artifacts during burst loss on the mesh.
+func (cfg *CommsConfig) emitConcealFrame(pc *portChannel, rt *CommsRuntime, consecutive, max int) {
+	if consecutive <= max {
+		if cfg.Trace {
+			cfg.Log.Trace().Msg("comms: jitter buffer gap → PLC")
+		}
+
+		cfg.decodeAndQueuePLC(pc, rt)
+	} else {
+		cfg.decodeAndQueueSilence(pc)
 	}
 }
 
@@ -223,10 +255,14 @@ func (cfg *CommsConfig) decodeAndQueue(pc *portChannel, rt *CommsRuntime, payloa
 
 	n, err := rt.decoder.DecodeFloat32(payload, out)
 	if err != nil {
-		returnFloat32(out)
-		cfg.Log.Debug().Err(err).Msg("comms: opus decode error")
+		cfg.Log.Debug().Err(err).Msg("comms: opus decode error; falling back to PLC")
 
-		return
+		n, err = rt.decoder.DecodeFloat32(nil, out)
+		if err != nil || n <= 0 {
+			returnFloat32(out)
+
+			return
+		}
 	}
 
 	out = out[:n]
@@ -265,6 +301,24 @@ func (cfg *CommsConfig) decodeAndQueuePLC(pc *portChannel, rt *CommsRuntime) {
 	default:
 		returnFloat32(out)
 		logPlaybackDrop(&pc.playbackDrops, cfg, "comms: playback buffer full; dropping PLC frame")
+	}
+}
+
+// decodeAndQueueSilence queues a zeroed float32 frame to pc.playbackBuffer.
+// Used after maxConsecutivePLC frames to replace degraded PLC output with
+// clean silence during sustained burst loss.
+func (cfg *CommsConfig) decodeAndQueueSilence(pc *portChannel) {
+	outPtr := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
+	out := (*outPtr)[:frameSize]
+
+	for i := range out {
+		out[i] = 0
+	}
+
+	select {
+	case pc.playbackBuffer <- out:
+	default:
+		returnFloat32(out)
 	}
 }
 

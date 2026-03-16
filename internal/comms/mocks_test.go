@@ -47,6 +47,10 @@ type mockDecoder struct {
 	returnN   int
 	fillValue int16
 	forceN    bool
+	// plcOK makes DecodeFloat32 succeed when payload is nil (PLC) even if
+	// decodeErr is set. This allows testing the PLC-fallback-on-decode-error
+	// path introduced in Change 3.
+	plcOK bool
 }
 
 func (m *mockDecoder) Decode(_ []byte, pcm []int16) (int, error) {
@@ -65,8 +69,8 @@ func (m *mockDecoder) Decode(_ []byte, pcm []int16) (int, error) {
 	return len(pcm), nil
 }
 
-func (m *mockDecoder) DecodeFloat32(_ []byte, pcm []float32) (int, error) {
-	if m.decodeErr != nil {
+func (m *mockDecoder) DecodeFloat32(payload []byte, pcm []float32) (int, error) {
+	if m.decodeErr != nil && !(m.plcOK && payload == nil) {
 		return 0, m.decodeErr
 	}
 
@@ -132,9 +136,9 @@ func (m *safeMockWriter) count() int {
 // mockClosingWriter adds a Close() method to mockWriter for testing the
 // "close old sender if it implements io.Closer" swap path.
 type mockClosingWriter struct {
+	closeErr error
 	mockWriter
 	closeCalled bool
-	closeErr    error
 }
 
 func (m *mockClosingWriter) Close() error {
@@ -168,15 +172,15 @@ func (r *trackingReader) Close() error {
 // ─── mockPacket / mockReader ──────────────────────────────────────────────────
 
 type mockPacket struct {
-	data []byte
 	src  *net.UDPAddr
+	data []byte
 }
 
 // mockReader satisfies PacketReader. Pre-loaded packets are returned one per
 // call; when the queue is empty it blocks until Close is called.
 type mockReader struct {
-	packets []mockPacket
 	closed  chan struct{}
+	packets []mockPacket
 	once    sync.Once
 	mu      sync.Mutex
 }

@@ -28,7 +28,7 @@ const (
 	frameSize         int    = 960 // 20 ms at 48 kHz
 	targetBitrate     int    = 32000
 	encoderComplexity int    = 10
-	packetLossPerc    int    = 30
+	packetLossPerc    int    = 20
 	defaultKey        string = "any"
 	defaultIface      string = "br-ahwlan"
 	defaultCommDevice string = "/dev/hidraw0/*"
@@ -545,7 +545,7 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 
 	cfg.Log.Info().Msgf("comms: audio in=%s out=%s", inDev.Name, outDev.Name)
 
-	playbackDepth := 50
+	playbackDepth := 20
 	if cfg.PlaybackDepth > 0 {
 		playbackDepth = cfg.PlaybackDepth
 	}

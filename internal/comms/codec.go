@@ -114,7 +114,7 @@ func newOpusEncoder() (AudioEncoder, error) {
 		return nil, fmt.Errorf("opus SetComplexity: %w", err)
 	}
 
-	if err := enc.SetInBandFEC(false); err != nil {
+	if err := enc.SetInBandFEC(true); err != nil {
 		return nil, fmt.Errorf("opus SetInBandFEC: %w", err)
 	}
 
