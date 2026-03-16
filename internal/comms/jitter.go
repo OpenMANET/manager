@@ -2,6 +2,7 @@ package comms
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -28,10 +29,11 @@ type jitterSlot struct {
 // Internally, frames are stored in a fixed-size circular array indexed by
 // (seq % maxDepth), eliminating all map allocations on the hot path.
 type rtpJitterBuffer struct {
-	lastPush    time.Time
 	payloadPool sync.Pool
+	lastPush    time.Time
 	slots       [jitterMaxDepth]jitterSlot
-	count       int // number of valid slots
+	overflows   atomic.Int64
+	count       int
 	prebuffer   int
 	maxDepth    int
 	mu          sync.Mutex
@@ -66,7 +68,12 @@ func (jb *rtpJitterBuffer) push(seq uint16, payload []byte) bool {
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
 
-	return jb.pushLocked(seq, payload)
+	ok := jb.pushLocked(seq, payload)
+	if !ok && jb.count >= jb.maxDepth {
+		jb.overflows.Add(1)
+	}
+
+	return ok
 }
 
 // pushLocked is the internal push implementation; caller must hold jb.mu.

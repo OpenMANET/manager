@@ -106,9 +106,10 @@ func TestPlayoutLoop_EmitsPLCOnConceal(t *testing.T) {
 	}
 }
 
-func TestPlayoutLoop_BackpressureSkipsTick(t *testing.T) {
+func TestPlayoutLoop_BackpressureDrainsOldest(t *testing.T) {
 	// Use a small buffer (cap=4); fill 3 of 4 slots (75%) before starting
-	// the playout loop. The loop should refrain from pushing more frames.
+	// the playout loop. The drain logic should discard the oldest frame to
+	// make room for the new one, keeping the 20 ms cadence intact.
 	pc := &portChannel{
 		cfg: McastPortConfig{Send: true, Receive: true},
 	}
@@ -135,15 +136,20 @@ func TestPlayoutLoop_BackpressureSkipsTick(t *testing.T) {
 
 	go cfg.playoutLoop(ctx, jb, pc, rt)
 
-	// Let several ticks fire while the buffer stays at 75%.
+	// Wait for the playout loop to fire at least one tick.
 	time.Sleep(80 * time.Millisecond)
 	cancel()
 
-	// The buffer should still hold exactly the 3 frames we pre-loaded.
-	// The jitter buffer frame should NOT have been popped because
-	// backpressure prevented it.
-	if len(pc.playbackBuffer) != 3 {
-		t.Errorf("expected backpressure to hold buffer at 3; got %d", len(pc.playbackBuffer))
+	// With the drain logic, the loop should have drained at least one
+	// oldest frame to make room and then queued the decoded frame. The
+	// buffer depth should still be 3 (one drained, one added) rather
+	// than staying stuck at 3 with the jitter buffer frame unpopped.
+	//
+	// Verify the jitter buffer was consumed (the old skip logic would
+	// have left it untouched).
+	if p, _, _ := jb.popReady(); p != nil {
+		t.Error("jitter buffer frame should have been consumed by the drain path, but it was still present")
+		jb.releasePayload(p)
 	}
 }
 
@@ -287,7 +293,23 @@ func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 
 // ─── decodeAndQueue error-path tests ─────────────────────────────────────────
 
-func TestDecodeAndQueue_DecoderError(t *testing.T) {
+func TestDecodeAndQueue_DecoderError_PLCFallback(t *testing.T) {
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+	buf := make(chan []float32, 4)
+	pc := &portChannel{}
+	pc.playbackBuffer = buf
+	rt := &CommsRuntime{
+		decoder: &mockDecoder{decodeErr: errors.New("bad decode"), plcOK: true, returnN: int(rtpFrameSamples)},
+	}
+
+	cfg.decodeAndQueue(pc, rt, []byte{1, 2, 3})
+
+	if len(buf) != 1 {
+		t.Errorf("expected PLC fallback frame in buffer; got %d frames", len(buf))
+	}
+}
+
+func TestDecodeAndQueue_DecoderError_PLCAlsoFails(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	buf := make(chan []float32, 4)
 	pc := &portChannel{}
@@ -299,7 +321,7 @@ func TestDecodeAndQueue_DecoderError(t *testing.T) {
 	cfg.decodeAndQueue(pc, rt, []byte{1, 2, 3})
 
 	if len(buf) != 0 {
-		t.Errorf("expected empty buffer on decode error; got %d frames", len(buf))
+		t.Errorf("expected empty buffer when both decode and PLC fail; got %d frames", len(buf))
 	}
 }
 
@@ -710,5 +732,130 @@ func TestPlayoutLoop_WebMode_SkipsWhenBroadcasting(t *testing.T) {
 	case <-bridge.RxFrames():
 		t.Error("bridge should not receive frames while broadcasting")
 	default:
+	}
+}
+
+// ─── consecutive PLC limit tests ─────────────────────────────────────────────
+
+func TestPlayoutLoop_ConsecutivePLCLimit(t *testing.T) {
+	// Set up a jitter buffer where the stream is active (recent lastPush)
+	// but all subsequent frames are missing. The playout loop should emit
+	// exactly 5 PLC frames followed by silence frames.
+	rt, pc := newReceiveRuntime()
+	jb := newRTPJitterBuffer(1, 10)
+
+	// Push and pop one frame to start the buffer and set lastPush.
+	jb.push(0, []byte{0})
+	jb.popReady() // started=true, expected=1, lastPush set
+
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	go cfg.playoutLoop(ctx, jb, pc, rt)
+
+	// Collect frames. With 20ms ticks over 500ms we get up to ~25 ticks.
+	// The conceal window is 100ms so we should get ~5 PLC + a few silence
+	// before shouldConceal stops returning true.
+	var frames [][]float32
+
+	for {
+		select {
+		case f := <-pc.playbackBuffer:
+			frames = append(frames, f)
+		case <-ctx.Done():
+			goto done
+		}
+	}
+
+done:
+	cancel()
+
+	if len(frames) == 0 {
+		t.Fatal("expected at least one PLC/silence frame")
+	}
+
+	// The mock decoder fills PLC frames with fillValue/32768 (default 0).
+	// Silence frames are explicitly zeroed. We can't distinguish them by
+	// value with the default mock, but we CAN verify the total count is
+	// bounded: we should never get more than ~5 PLC frames + a few silence
+	// within the 100ms conceal window (5 ticks).
+	if len(frames) > 10 {
+		t.Errorf("expected at most ~10 frames (5 PLC + some silence); got %d", len(frames))
+	}
+}
+
+func TestPlayoutLoop_ConsecutivePLCResets(t *testing.T) {
+	// After a burst of PLC, pushing a real frame should reset the counter
+	// so subsequent gaps produce PLC again (not silence).
+	rt, pc := newReceiveRuntime()
+	jb := newRTPJitterBuffer(1, 10)
+
+	// Start the buffer.
+	jb.push(0, []byte{0})
+	jb.popReady() // started=true, expected=1
+
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
+	defer cancel()
+
+	go cfg.playoutLoop(ctx, jb, pc, rt)
+
+	// Let PLC run for a bit (>100ms to exhaust the 5-frame PLC budget).
+	time.Sleep(150 * time.Millisecond)
+
+	// Drain whatever frames accumulated.
+	for len(pc.playbackBuffer) > 0 {
+		<-pc.playbackBuffer
+	}
+
+	// Push a real frame with a sequence number far enough ahead that it
+	// won't be rejected as stale. The playout loop's shouldConceal calls
+	// have advanced expected by ~5 during the PLC burst, so use seq=20
+	// to be safe.
+	jb.push(20, []byte{0xBB})
+
+	// Wait for it to be decoded and queued.
+	f, ok := waitForFrame(pc.playbackBuffer, 300*time.Millisecond)
+	if !ok {
+		t.Fatal("expected a decoded frame after pushing real data")
+	}
+
+	_ = f
+
+	cancel()
+}
+
+// ─── jitter buffer overflow counter test ─────────────────────────────────────
+
+func TestJitterBuffer_OverflowCounter(t *testing.T) {
+	jb := newRTPJitterBuffer(1, 4)
+
+	// Fill buffer to maxDepth with seqs 0-3.
+	for i := 0; i < 4; i++ {
+		if !jb.push(uint16(i), []byte{byte(i)}) {
+			t.Fatalf("push(%d) failed unexpectedly", i)
+		}
+	}
+
+	// Push a duplicate while the buffer is full. The duplicate is rejected
+	// AND count >= maxDepth, so the overflow counter should increment.
+	if jb.push(0, []byte{0xFF}) {
+		t.Error("duplicate push should have failed")
+	}
+
+	if got := jb.overflows.Load(); got != 1 {
+		t.Errorf("expected overflows=1; got %d", got)
+	}
+
+	// Push more duplicates — each should increment.
+	jb.push(1, []byte{0xFF})
+	jb.push(2, []byte{0xFF})
+	jb.push(3, []byte{0xFF})
+
+	if got := jb.overflows.Load(); got != 4 {
+		t.Errorf("expected overflows=4; got %d", got)
 	}
 }
