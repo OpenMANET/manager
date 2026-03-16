@@ -40,6 +40,14 @@ func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*s
 		return nil, err
 	}
 
+	// Get batman-adv neighbors for last_seen and throughput
+	batNeighbors, err := batmanadv.GetMeshNeighbors()
+	if err != nil {
+		m.Log.Warn().Err(err).Msg("Failed to get batman-adv neighbors, last_seen and throughput will be unavailable")
+
+		batNeighbors = nil
+	}
+
 	// Get mesh wifi interfaces
 	meshInterfaces, err := m.Wifi.GetMeshInterfaces()
 	if err != nil {
@@ -58,15 +66,22 @@ func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*s
 		}
 
 		// Map connected stations to batman-adv hosts to get hostnames
-		// TODO: Get last seen from batman-adv neighbors and change throughput to batman-adv metric
 		for _, station := range connectedStations {
-			protoNeighbors = append(protoNeighbors, &serviceproto.MeshNeighbor{
+			neighbor := &serviceproto.MeshNeighbor{
 				Neighbor:        batHosts.GetHostByMAC(station.HardwareAddr.String()),
 				HardwareAddress: station.HardwareAddr.String(),
 				SignalStrength:  int32(station.SignalAverage),
 				Signal:          int32(station.Signal),
 				Throughput:      int32(station.TransmitBitrate),
-			})
+			}
+
+			// Enrich with batman-adv neighbor data if available
+			if batNeighbor := batNeighbors.FindByNeighAddress(station.HardwareAddr.String()); batNeighbor != nil {
+				neighbor.LastSeen = int64(batNeighbor.LastSeenMsecs)
+				neighbor.Throughput = int32(batNeighbor.Throughput)
+			}
+
+			protoNeighbors = append(protoNeighbors, neighbor)
 		}
 	}
 
