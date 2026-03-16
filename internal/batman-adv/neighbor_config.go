@@ -17,6 +17,12 @@ type Neighbor struct {
 
 type Neighbors []Neighbor
 
+// GetMeshNeighbors retrieves the current mesh network neighbors from the batman-adv
+// routing protocol by executing the `batctl nj` command and parsing its JSON output.
+//
+// It returns a pointer to a [Neighbors] struct containing the list of discovered
+// mesh neighbors, or an error if the command execution fails or the output cannot
+// be parsed as valid JSON.
 func GetMeshNeighbors() (*Neighbors, error) {
 	cmd := exec.Command("batctl", "nj") //nolint:noctx // no context needed for short-lived local command
 
@@ -40,11 +46,13 @@ func (ns *Neighbors) FindByNeighAddress(mac string) *Neighbor {
 	if ns == nil {
 		return nil
 	}
+
 	for i := range *ns {
 		if strings.EqualFold((*ns)[i].NeighAddress, mac) {
 			return &(*ns)[i]
 		}
 	}
+
 	return nil
 }
 
@@ -61,6 +69,7 @@ func (ns *Neighbors) FilterByInterface(ifname string) Neighbors {
 			filtered = append(filtered, n)
 		}
 	}
+
 	return filtered
 }
 
@@ -69,6 +78,7 @@ func (ns *Neighbors) Count() int {
 	if ns == nil {
 		return 0
 	}
+
 	return len(*ns)
 }
 
@@ -82,10 +92,12 @@ func (ns *Neighbors) GetNeighAddresses() []string {
 	if ns == nil {
 		return []string{}
 	}
+
 	addresses := make([]string, len(*ns))
 	for i, n := range *ns {
 		addresses[i] = n.NeighAddress
 	}
+
 	return addresses
 }
 
@@ -94,6 +106,7 @@ func (ns *Neighbors) GetInterfaces() []string {
 	if ns == nil {
 		return []string{}
 	}
+
 	ifaceMap := make(map[string]bool)
 	for _, n := range *ns {
 		ifaceMap[n.HardIfname] = true
@@ -103,7 +116,9 @@ func (ns *Neighbors) GetInterfaces() []string {
 	for iface := range ifaceMap {
 		interfaces = append(interfaces, iface)
 	}
+
 	sort.Strings(interfaces)
+
 	return interfaces
 }
 
@@ -122,6 +137,7 @@ func (ns *Neighbors) GetHighestThroughput() *Neighbor {
 			best = &(*ns)[i]
 		}
 	}
+
 	return best
 }
 
@@ -130,6 +146,7 @@ func (ns *Neighbors) SortByThroughput() {
 	if ns == nil {
 		return
 	}
+
 	sort.Slice(*ns, func(i, j int) bool {
 		return (*ns)[i].Throughput > (*ns)[j].Throughput
 	})
@@ -140,6 +157,7 @@ func (ns *Neighbors) SortByLastSeen() {
 	if ns == nil {
 		return
 	}
+
 	sort.Slice(*ns, func(i, j int) bool {
 		return (*ns)[i].LastSeenMsecs < (*ns)[j].LastSeenMsecs
 	})
@@ -150,9 +168,11 @@ func (ns *Neighbors) String() string {
 	if ns == nil {
 		return "[]"
 	}
+
 	data, err := json.MarshalIndent(ns, "", "  ")
 	if err != nil {
 		return "[]"
 	}
+
 	return string(data)
 }
