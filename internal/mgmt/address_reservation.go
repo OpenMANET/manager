@@ -176,51 +176,59 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded() { //nolint:gocogni
 	}
 }
 
-func (arw *AddressReservationWorker) cleanUpInterfaces() error { //nolint:gocognit
+func (arw *AddressReservationWorker) cleanUpInterfaces() error {
 	meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
 	if err != nil {
 		return fmt.Errorf("%w", err)
 	}
 
-	if meshCfg.IsGatewayMode() {
+	return arw.cleanUpInterfacesWithDeps(meshCfg.IsGatewayMode(), arw.Config.uciNetworkConfig, arw.Config.uciDHCPConfig, network.ReloadNetwork)
+}
+
+func (arw *AddressReservationWorker) cleanUpInterfacesWithDeps(
+	isGateway bool,
+	networkReader network.ConfigReader,
+	dhcpReader network.DHCPConfigReader,
+	reloadFn func(context.Context) error,
+) error { //nolint:gocognit
+	if isGateway {
 		arw.Config.Log.Info().Msg("Mesh gateway mode enabled, skipping interface cleanup")
 
 		return nil
 	}
 
 	// Clean up 'lan' network sections if they exist
-	if network.NetworkSectionExistsWithReader("lan", arw.Config.uciNetworkConfig) {
+	if network.NetworkSectionExistsWithReader("lan", networkReader) {
 		arw.Config.Log.Info().Msg("Removing 'lan' network section")
 
-		err = network.DeleteNetworkConfigWithReader("lan", arw.Config.uciNetworkConfig)
+		err := network.DeleteNetworkConfigWithReader("lan", networkReader)
 		if err != nil {
 			return fmt.Errorf("error deleting 'lan' network section: %w", err)
 		}
 	}
 
 	// Commit network changes
-	if err = arw.Config.uciNetworkConfig.Commit(); err != nil {
+	if err := networkReader.Commit(); err != nil {
 		return fmt.Errorf("error committing network config: %w", err)
 	}
 
 	// Clean up DHCP sections if they exist
-	if network.DHCPSectionExistsWithReader("lan", arw.Config.uciDHCPConfig) {
+	if network.DHCPSectionExistsWithReader("lan", dhcpReader) {
 		arw.Config.Log.Info().Msg("Removing 'lan' DHCP section")
 
-		err = network.DeleteDHCPConfigWithReader("lan", arw.Config.uciDHCPConfig)
+		err := network.DeleteDHCPConfigWithReader("lan", dhcpReader)
 		if err != nil {
 			return fmt.Errorf("error deleting 'lan' DHCP section: %w", err)
 		}
 	}
 
 	// Commit DHCP changes
-	if err = arw.Config.uciDHCPConfig.Commit(); err != nil {
+	if err := dhcpReader.Commit(); err != nil {
 		return fmt.Errorf("error committing DHCP config: %w", err)
 	}
 
 	// Reload network to apply changes
-	err = network.ReloadNetwork(context.Background())
-	if err != nil {
+	if err := reloadFn(context.Background()); err != nil {
 		return fmt.Errorf("error reloading network configuration: %w", err)
 	}
 

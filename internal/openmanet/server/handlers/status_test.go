@@ -112,3 +112,78 @@ func TestGetServiceStatus_Position(t *testing.T) {
 	assert.Equal(t, float64(0), pos.GetLatitude())
 	assert.Equal(t, float64(0), pos.GetLongitude())
 }
+
+func TestGetServiceStatus_MultipleInterfaces(t *testing.T) {
+	// The current implementation breaks after the first interface with stations,
+	// so ConnectedNeighbors only counts stations from the first connected interface.
+	mesh0 := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
+	mesh1 := makeInterface("mesh1", wifi.InterfaceTypeMeshPoint)
+	mesh2 := makeInterface("mesh2", wifi.InterfaceTypeMeshPoint)
+
+	station := makeStation("aa:bb:cc:dd:ee:ff", -65)
+
+	fw := &fakeWireless{
+		meshInterfaces: []*wifi.Interface{mesh0, mesh1, mesh2},
+		stationInfo:    []*wifi.StationInfo{station},
+	}
+	svc := newStatusService(fw, stubMeshCfg(false))
+
+	resp, err := svc.GetServiceStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	status := resp.GetStatus()
+	assert.True(t, status.GetIsConnected())
+	assert.Equal(t, int32(1), status.GetConnectedNeighbors(), "only counts first interface due to break")
+	assert.Equal(t, int32(3), status.GetActiveMeshInterfaces(), "counts all interfaces")
+}
+
+func TestGetServiceStatus_StationInfoError(t *testing.T) {
+	meshIface := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
+	fw := &fakeWireless{
+		meshInterfaces: []*wifi.Interface{meshIface},
+		stationInfoErr: errors.New("netlink station query failed"),
+	}
+	svc := newStatusService(fw, stubMeshCfg(false))
+
+	_, err := svc.GetServiceStatus(context.Background(), &emptypb.Empty{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mesh0")
+}
+
+func TestGetServiceStatus_GatewayAndConnected(t *testing.T) {
+	meshIface := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
+	station := makeStation("aa:bb:cc:dd:ee:ff", -60)
+
+	fw := &fakeWireless{
+		meshInterfaces: []*wifi.Interface{meshIface},
+		stationInfo:    []*wifi.StationInfo{station},
+	}
+	svc := newStatusService(fw, stubMeshCfg(true))
+
+	resp, err := svc.GetServiceStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	status := resp.GetStatus()
+	assert.True(t, status.GetIsConnected())
+	assert.True(t, status.GetIsMeshGateway())
+	assert.Equal(t, int32(1), status.GetConnectedNeighbors())
+}
+
+func TestGetServiceStatus_InterfacesButNoStations(t *testing.T) {
+	mesh0 := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
+	mesh1 := makeInterface("mesh1", wifi.InterfaceTypeMeshPoint)
+
+	fw := &fakeWireless{
+		meshInterfaces: []*wifi.Interface{mesh0, mesh1},
+		stationInfo:    nil,
+	}
+	svc := newStatusService(fw, stubMeshCfg(false))
+
+	resp, err := svc.GetServiceStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	status := resp.GetStatus()
+	assert.False(t, status.GetIsConnected())
+	assert.Equal(t, int32(0), status.GetConnectedNeighbors())
+	assert.Equal(t, int32(2), status.GetActiveMeshInterfaces())
+}

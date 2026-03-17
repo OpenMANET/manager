@@ -118,3 +118,68 @@ func TestListMeshNeighbors_BatHostsError(t *testing.T) {
 	_, err := svc.ListMeshNeighbors(context.Background(), &emptypb.Empty{})
 	require.Error(t, err)
 }
+
+func TestListMeshNeighbors_MultipleInterfaces(t *testing.T) {
+	mesh0 := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
+	mesh1 := makeInterface("mesh1", wifi.InterfaceTypeMeshPoint)
+
+	fw := &fakeWireless{
+		meshInterfaces: []*wifi.Interface{mesh0, mesh1},
+		stationInfoByIface: map[string][]*wifi.StationInfo{
+			"mesh0": {makeStation("9c:ef:d5:f9:80:4d", -65)},
+			"mesh1": {makeStation("11:22:33:44:55:66", -70)},
+		},
+	}
+	svc := newMeshService(fw, func(_ string) (*batmanadv.BatHosts, error) {
+		return batmanadv.ParseBatHostsFile(fixtureBatHostsPath())
+	})
+
+	resp, err := svc.ListMeshNeighbors(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	assert.Len(t, resp.GetNeighbors(), 2, "should include stations from both interfaces")
+}
+
+func TestListMeshNeighbors_UnknownMAC(t *testing.T) {
+	meshIface := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
+	// Use a MAC that is NOT in the bat-hosts fixture.
+	station := makeStation("ff:ff:ff:ff:ff:ff", -50)
+
+	fw := &fakeWireless{
+		meshInterfaces: []*wifi.Interface{meshIface},
+		stationInfo:    []*wifi.StationInfo{station},
+	}
+	svc := newMeshService(fw, func(_ string) (*batmanadv.BatHosts, error) {
+		return batmanadv.ParseBatHostsFile(fixtureBatHostsPath())
+	})
+
+	resp, err := svc.ListMeshNeighbors(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetNeighbors(), 1)
+
+	// Unknown MAC results in empty hostname, not an error.
+	assert.Equal(t, "", resp.GetNeighbors()[0].GetNeighbor())
+	assert.Equal(t, "ff:ff:ff:ff:ff:ff", resp.GetNeighbors()[0].GetHardwareAddress())
+}
+
+func TestListMeshNeighbors_FieldMapping(t *testing.T) {
+	meshIface := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
+	station := makeStation("9c:ef:d5:f9:80:4d", -65)
+
+	fw := &fakeWireless{
+		meshInterfaces: []*wifi.Interface{meshIface},
+		stationInfo:    []*wifi.StationInfo{station},
+	}
+	svc := newMeshService(fw, func(_ string) (*batmanadv.BatHosts, error) {
+		return batmanadv.ParseBatHostsFile(fixtureBatHostsPath())
+	})
+
+	resp, err := svc.ListMeshNeighbors(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetNeighbors(), 1)
+
+	n := resp.GetNeighbors()[0]
+	assert.Equal(t, int32(-65), n.GetSignalStrength(), "SignalAverage maps to SignalStrength")
+	assert.Equal(t, int32(-65), n.GetSignal(), "Signal maps to Signal")
+	assert.Equal(t, int32(54000), n.GetThroughput(), "TransmitBitrate maps to Throughput (no batman-adv enrichment)")
+	assert.Equal(t, "9c:ef:d5:f9:80:4d", n.GetHardwareAddress(), "HardwareAddr maps to HardwareAddress")
+}

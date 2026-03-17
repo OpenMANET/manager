@@ -20,8 +20,9 @@ type fakeWireless struct {
 	meshInterfaces    []*wifi.Interface
 	meshInterfacesErr error
 
-	stationInfo    []*wifi.StationInfo
-	stationInfoErr error
+	stationInfo        []*wifi.StationInfo
+	stationInfoByIface map[string][]*wifi.StationInfo // per-interface station info
+	stationInfoErr     error
 }
 
 func (f *fakeWireless) Interfaces() ([]*wifi.Interface, error) {
@@ -32,7 +33,13 @@ func (f *fakeWireless) GetMeshInterfaces() ([]*wifi.Interface, error) {
 	return f.meshInterfaces, f.meshInterfacesErr
 }
 
-func (f *fakeWireless) StationInfo(_ *wifi.Interface) ([]*wifi.StationInfo, error) {
+func (f *fakeWireless) StationInfo(iface *wifi.Interface) ([]*wifi.StationInfo, error) {
+	if f.stationInfoByIface != nil {
+		if stations, ok := f.stationInfoByIface[iface.Name]; ok {
+			return stations, f.stationInfoErr
+		}
+	}
+
 	return f.stationInfo, f.stationInfoErr
 }
 
