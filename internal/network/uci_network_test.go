@@ -2344,3 +2344,87 @@ func TestDeviceConfiguration_RealWorldExample(t *testing.T) {
 		t.Errorf("Expected 2 devices after deletion, got %d", len(allDevices))
 	}
 }
+
+func TestRemovePort(t *testing.T) {
+	tests := []struct {
+		name          string
+		initialPorts  []string
+		portToRemove  string
+		expectedPorts []string
+		expectedFound bool
+	}{
+		{
+			name:          "remove from empty list",
+			initialPorts:  []string{},
+			portToRemove:  "eth0",
+			expectedPorts: []string{},
+			expectedFound: false,
+		},
+		{
+			name:          "remove from nil list",
+			initialPorts:  nil,
+			portToRemove:  "eth0",
+			expectedPorts: nil,
+			expectedFound: false,
+		},
+		{
+			name:          "remove non-existent port",
+			initialPorts:  []string{"eth0", "eth1", "bat0"},
+			portToRemove:  "wlan0",
+			expectedPorts: []string{"eth0", "eth1", "bat0"},
+			expectedFound: false,
+		},
+		{
+			name:          "remove from single-element list",
+			initialPorts:  []string{"bat0"},
+			portToRemove:  "bat0",
+			expectedPorts: []string{},
+			expectedFound: true,
+		},
+		{
+			name:          "remove first element",
+			initialPorts:  []string{"eth0", "eth1", "bat0"},
+			portToRemove:  "eth0",
+			expectedPorts: []string{"eth1", "bat0"},
+			expectedFound: true,
+		},
+		{
+			name:          "remove middle element",
+			initialPorts:  []string{"eth0", "eth1", "bat0"},
+			portToRemove:  "eth1",
+			expectedPorts: []string{"eth0", "bat0"},
+			expectedFound: true,
+		},
+		{
+			name:          "remove last element",
+			initialPorts:  []string{"eth0", "eth1", "bat0"},
+			portToRemove:  "bat0",
+			expectedPorts: []string{"eth0", "eth1"},
+			expectedFound: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Make a copy of the initial ports to avoid mutation across subtests
+			var ports []string
+			if tt.initialPorts != nil {
+				ports = make([]string, len(tt.initialPorts))
+				copy(ports, tt.initialPorts)
+			}
+
+			device := &UCIDevice{
+				Ports: ports,
+			}
+
+			found := device.RemovePort(tt.portToRemove)
+			if found != tt.expectedFound {
+				t.Errorf("RemovePort(%q) returned %v, want %v", tt.portToRemove, found, tt.expectedFound)
+			}
+
+			if !reflect.DeepEqual(device.Ports, tt.expectedPorts) {
+				t.Errorf("After RemovePort(%q), Ports = %v, want %v", tt.portToRemove, device.Ports, tt.expectedPorts)
+			}
+		})
+	}
+}

@@ -288,6 +288,212 @@ func TestUpdateSatelliteInfo_ZeroValues(t *testing.T) {
 	}
 }
 
+func TestUpdatePosition_Mode0_InvalidFix(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+		position: PositionReport{
+			Latitude:  10.0,
+			Longitude: 20.0,
+			Valid:     false,
+		},
+	}
+
+	tpv := TPVReport{
+		Class: "TPV",
+		Mode:  0, // No fix
+		Lat:   37.7749,
+		Lon:   -122.4194,
+		Alt:   100.0,
+	}
+
+	gps.updatePosition(tpv)
+
+	// Position should NOT be updated for mode 0
+	if gps.IsValid() {
+		t.Error("Expected position to remain invalid for mode 0")
+	}
+
+	if gps.GetLatitude() != 10.0 {
+		t.Errorf("Expected latitude to remain 10.0, got %f", gps.GetLatitude())
+	}
+}
+
+func TestUpdatePosition_Mode1_InvalidFix(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+		position: PositionReport{
+			Latitude:  10.0,
+			Longitude: 20.0,
+			Valid:     false,
+		},
+	}
+
+	tpv := TPVReport{
+		Class: "TPV",
+		Mode:  1, // No fix
+		Lat:   37.7749,
+		Lon:   -122.4194,
+		Alt:   100.0,
+	}
+
+	gps.updatePosition(tpv)
+
+	// Position should NOT be updated for mode 1
+	if gps.IsValid() {
+		t.Error("Expected position to remain invalid for mode 1")
+	}
+
+	if gps.GetLatitude() != 10.0 {
+		t.Errorf("Expected latitude to remain 10.0, got %f", gps.GetLatitude())
+	}
+}
+
+func TestUpdatePosition_Mode2_2DFix(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	tpv := TPVReport{
+		Class: "TPV",
+		Mode:  2, // 2D fix
+		Time:  time.Now().UTC().Format(time.RFC3339),
+		Lat:   51.5074,
+		Lon:   -0.1278,
+		Alt:   0.0, // Altitude may be zero in 2D fix
+		Speed: 3.0,
+		Track: 270.0,
+	}
+
+	gps.updatePosition(tpv)
+
+	// Wait for async goroutine
+	time.Sleep(10 * time.Millisecond)
+
+	if !gps.IsValid() {
+		t.Error("Expected valid position for mode 2 (2D fix)")
+	}
+
+	if gps.GetMode() != 2 {
+		t.Errorf("Expected mode 2, got %d", gps.GetMode())
+	}
+
+	if gps.GetLatitude() != 51.5074 {
+		t.Errorf("Expected latitude 51.5074, got %f", gps.GetLatitude())
+	}
+
+	if gps.GetLongitude() != -0.1278 {
+		t.Errorf("Expected longitude -0.1278, got %f", gps.GetLongitude())
+	}
+}
+
+func TestUpdatePosition_WithAllErrorEstimates(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	tpv := TPVReport{
+		Class:    "TPV",
+		Mode:     3,
+		Time:     time.Now().UTC().Format(time.RFC3339),
+		Lat:      40.7128,
+		Lon:      -74.0060,
+		Alt:      10.0,
+		Speed:    2.5,
+		Track:    180.0,
+		Climb:    -0.5,
+		GeoidSep: -33.5,
+		EPH:      5.2,
+		EPX:      3.1,
+		EPY:      4.3,
+		EPV:      8.7,
+		DGPSAge:  2.5,
+		DGPSSta:  120,
+	}
+
+	gps.updatePosition(tpv)
+
+	// Wait for async goroutine
+	time.Sleep(10 * time.Millisecond)
+
+	pos := gps.GetPosition()
+	if !pos.Valid {
+		t.Fatal("Expected valid position")
+	}
+
+	if pos.GeoidSeparation != -33.5 {
+		t.Errorf("Expected geoid separation -33.5, got %f", pos.GeoidSeparation)
+	}
+
+	if pos.EPH != 5.2 {
+		t.Errorf("Expected EPH 5.2, got %f", pos.EPH)
+	}
+
+	if pos.EPX != 3.1 {
+		t.Errorf("Expected EPX 3.1, got %f", pos.EPX)
+	}
+
+	if pos.EPY != 4.3 {
+		t.Errorf("Expected EPY 4.3, got %f", pos.EPY)
+	}
+
+	if pos.EPV != 8.7 {
+		t.Errorf("Expected EPV 8.7, got %f", pos.EPV)
+	}
+
+	if pos.Climb != -0.5 {
+		t.Errorf("Expected climb -0.5, got %f", pos.Climb)
+	}
+
+	if pos.DGPSAge != 2.5 {
+		t.Errorf("Expected DGPS age 2.5, got %f", pos.DGPSAge)
+	}
+
+	if pos.DGPSStation != 120 {
+		t.Errorf("Expected DGPS station 120, got %d", pos.DGPSStation)
+	}
+}
+
+func TestUpdateSatelliteInfo_NegativeValues(t *testing.T) {
+	log := zerolog.Nop()
+	gps := &GPSService{
+		Log: log,
+		mu:  sync.RWMutex{},
+	}
+
+	// Set initial values
+	gps.position = PositionReport{
+		Valid:          true,
+		SatellitesUsed: 8,
+		HDOP:           1.5,
+	}
+
+	// Create a SKY report with negative values (invalid)
+	skyReport := SKYReport{
+		Class: "SKY",
+		HDOP:  -1.0, // Negative HDOP should not update (condition is > 0)
+		USat:  -3,   // Negative satellite count should not update (condition is > 0)
+	}
+
+	gps.updateSatelliteInfo(skyReport)
+
+	pos := gps.GetPosition()
+	if pos.SatellitesUsed != 8 {
+		t.Errorf("Expected satellites to remain 8, got %d", pos.SatellitesUsed)
+	}
+
+	if pos.HDOP != 1.5 {
+		t.Errorf("Expected HDOP to remain 1.5, got %f", pos.HDOP)
+	}
+}
+
 func TestUpdatePosition_PreservesSatelliteData(t *testing.T) {
 	log := zerolog.Nop()
 	gps := &GPSService{

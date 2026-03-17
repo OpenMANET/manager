@@ -1568,6 +1568,147 @@ func TestAddNetworkToZoneWithReader(t *testing.T) {
 	}
 }
 
+// TestSetFirewallRuleWithReader_WithSrcIP verifies that the SrcIP field is correctly
+// written when setting a firewall rule.
+func TestSetFirewallRuleWithReader_WithSrcIP(t *testing.T) {
+	reader := &mockConfigReader{
+		data: make(map[string]map[string]map[string][]string),
+	}
+
+	config := &UCIFirewallRule{
+		Name:   "Block-IP",
+		Src:    "wan",
+		Proto:  "tcp",
+		SrcIP:  "10.0.0.5",
+		Target: "DROP",
+		Family: "ipv4",
+	}
+
+	err := SetFirewallRuleWithReader("Block-IP", config, reader)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("expected Commit to be called")
+	}
+
+	// Verify src_ip was set correctly
+	srcIPFound := false
+
+	for _, call := range reader.setTypeCalls {
+		if call.option == "src_ip" {
+			srcIPFound = true
+
+			if len(call.values) != 1 || call.values[0] != "10.0.0.5" {
+				t.Errorf("expected src_ip value [10.0.0.5], got %v", call.values)
+			}
+
+			if call.typ != uci.TypeOption {
+				t.Errorf("expected src_ip type TypeOption, got %v", call.typ)
+			}
+		}
+	}
+
+	if !srcIPFound {
+		t.Error("expected src_ip to be set in SetType calls")
+	}
+
+	// Verify the value is readable back from the mock data
+	values, ok := reader.Get(firewallConfigName, "Block-IP", "src_ip")
+	if !ok {
+		t.Error("expected src_ip to be readable from mock data")
+	}
+
+	if len(values) != 1 || values[0] != "10.0.0.5" {
+		t.Errorf("expected src_ip [10.0.0.5], got %v", values)
+	}
+}
+
+// TestAddNetworkToZoneWithReader_GetZoneError tests the error path when
+// GetFirewallZoneWithReader fails. This is triggered when the zone exists
+// (name option is present) but the reader returns unexpected data, exercising
+// the zone-does-not-exist guard in AddNetworkToZoneWithReader.
+func TestAddNetworkToZoneWithReader_GetZoneError(t *testing.T) {
+	// Zone does not exist (no "name" option) so FirewallZoneExistsWithReader returns false
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"firewall": {
+				"broken_zone": {
+					// No "name" option means FirewallZoneExistsWithReader returns false
+					"input": {"ACCEPT"},
+				},
+			},
+		},
+	}
+
+	err := AddNetworkToZoneWithReader("broken_zone", "test_net", reader)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !contains(err.Error(), "does not exist") {
+		t.Errorf("expected error about zone not existing, got: %v", err)
+	}
+
+	// Also test with completely empty data
+	reader2 := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{},
+	}
+
+	err = AddNetworkToZoneWithReader("missing_zone", "test_net", reader2)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !contains(err.Error(), "does not exist") {
+		t.Errorf("expected error about zone not existing, got: %v", err)
+	}
+}
+
+// TestGetFirewallZoneWithReader_EmptyNetworkList tests a zone that has no network option,
+// verifying that the Network field remains nil.
+func TestGetFirewallZoneWithReader_EmptyNetworkList(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"firewall": {
+				"isolated": {
+					"name":    {"isolated"},
+					"input":   {"DROP"},
+					"output":  {"DROP"},
+					"forward": {"DROP"},
+					// No "network" option
+				},
+			},
+		},
+	}
+
+	got, err := GetFirewallZoneWithReader("isolated", reader)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got.Name != "isolated" {
+		t.Errorf("expected name 'isolated', got %q", got.Name)
+	}
+
+	if got.Input != "DROP" {
+		t.Errorf("expected input 'DROP', got %q", got.Input)
+	}
+
+	if got.Network != nil {
+		t.Errorf("expected nil network list, got %v", got.Network)
+	}
+
+	if got.Masq != "" {
+		t.Errorf("expected empty masq, got %q", got.Masq)
+	}
+
+	if got.MtuFix != "" {
+		t.Errorf("expected empty mtu_fix, got %q", got.MtuFix)
+	}
+}
+
 func TestAddNetworkToZoneWithReader_SetTypeError(t *testing.T) {
 	reader := &mockConfigReader{
 		data: map[string]map[string]map[string][]string{

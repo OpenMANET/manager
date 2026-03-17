@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"connectrpc.com/connect"
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/rs/zerolog"
@@ -50,4 +51,35 @@ func TestSendPTTEvent_InvalidEventType(t *testing.T) {
 	_, err := svc.SendPTTEvent(context.Background(), &serviceproto.SendPTTEventRequest{Event: 3})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "web control source not active")
+}
+
+func TestSendPTTEvent_AllEventTypes_WebSourceNotActive(t *testing.T) {
+	svc := newWebCommsService()
+
+	tests := []struct {
+		name  string
+		event int32
+	}{
+		{"PTTDown", 0},
+		{"PTTUp", 1},
+		{"PTTToggle", 2},
+		{"InvalidEvent_99", 99},
+		{"InvalidEvent_Negative", -1},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := svc.SendPTTEvent(context.Background(), &serviceproto.SendPTTEventRequest{Event: tt.event})
+			require.Error(t, err)
+			// The nil web source check runs before event validation, so all
+			// events (valid and invalid) return FailedPrecondition.
+			assert.Contains(t, err.Error(), "web control source not active")
+
+			var connectErr *connect.Error
+			if assert.ErrorAs(t, err, &connectErr) {
+				assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
+			}
+		})
+	}
 }
