@@ -195,5 +195,8 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 
 	m.Log.Info().Msg("batmesh1 interface configuration complete")
 
+	// Reload the UCI config to apply changes and ensure the new interface is active.
+	_ = network.ForceReloadConfig(ctx)
+
 	return nil
 }
