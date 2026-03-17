@@ -34,7 +34,7 @@ func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client
 	}
 }
 
-func (arw *AddressReservationWorker) ReserveAddressIfNeeded() { //nolint:gocognit
+func (arw *AddressReservationWorker) ReserveAddressIfNeeded(ctx context.Context) { //nolint:gocognit
 	var (
 		ticker             = time.NewTicker(arw.reserveInterval)
 		ipConflictDetected = false
@@ -53,7 +53,7 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded() { //nolint:gocogni
 				continue
 			}
 
-			nodes, err := arw.Config.DB.ListMeshNodes(context.Background())
+			nodes, err := arw.Config.DB.ListMeshNodes(ctx)
 			if err != nil {
 				arw.Config.Log.Error().Err(err).Msg("Error listing mesh nodes from database")
 

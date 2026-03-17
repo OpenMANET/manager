@@ -41,17 +41,19 @@ type UCINetwork struct {
 // UCIDevice represents a UCI network device configuration (config device).
 // Devices can be physical interfaces, bridges, VLANs, or other virtual devices.
 type UCIDevice struct {
-	Name    string   `uci:"option name"`
-	Type    string   `uci:"option type"`
-	MacAddr string   `uci:"option macaddr"`
-	Ifname  string   `uci:"option ifname"`
-	RxPause string   `uci:"option rxpause"`
-	TxPause string   `uci:"option txpause"`
-	AutoNeg string   `uci:"option autoneg"`
-	Speed   string   `uci:"option speed"`
-	Duplex  string   `uci:"option duplex"`
-	Table   string   `uci:"option table"`
-	Ports   []string `uci:"list ports"`
+	Name             string   `uci:"option name"`
+	Type             string   `uci:"option type"`
+	MacAddr          string   `uci:"option macaddr"`
+	Ifname           string   `uci:"option ifname"`
+	RxPause          string   `uci:"option rxpause"`
+	TxPause          string   `uci:"option txpause"`
+	AutoNeg          string   `uci:"option autoneg"`
+	Speed            string   `uci:"option speed"`
+	Duplex           string   `uci:"option duplex"`
+	Table            string   `uci:"option table"`
+	IgmpSnooping     string   `uci:"option igmp_snooping"`
+	MulticastQuerier string   `uci:"option multicast_querier"`
+	Ports            []string `uci:"list ports"`
 }
 
 // RemovePort removes a port from the Ports list if it exists.
@@ -857,6 +859,14 @@ func loadDeviceFromSection(section string, reader ConfigReader) (*UCIDevice, err
 		device.Table = values[0]
 	}
 
+	if values, ok := reader.Get(networkConfigName, section, "igmp_snooping"); ok && len(values) > 0 {
+		device.IgmpSnooping = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, section, "multicast_querier"); ok && len(values) > 0 {
+		device.MulticastQuerier = values[0]
+	}
+
 	return device, nil
 }
 
@@ -991,6 +1001,18 @@ func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigRead
 	if device.Table != "" {
 		if err := reader.SetType(networkConfigName, section, "table", uci.TypeOption, device.Table); err != nil {
 			return fmt.Errorf("failed to set device table: %w", err)
+		}
+	}
+
+	if device.IgmpSnooping != "" {
+		if err := reader.SetType(networkConfigName, section, "igmp_snooping", uci.TypeOption, device.IgmpSnooping); err != nil {
+			return fmt.Errorf("failed to set device igmp_snooping: %w", err)
+		}
+	}
+
+	if device.MulticastQuerier != "" {
+		if err := reader.SetType(networkConfigName, section, "multicast_querier", uci.TypeOption, device.MulticastQuerier); err != nil {
+			return fmt.Errorf("failed to set device multicast_querier: %w", err)
 		}
 	}
 
