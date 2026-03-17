@@ -155,28 +155,103 @@ func setupMockDHCPData(m *mockDHCPConfigReader) {
 }
 
 func TestGetDnsmasqConfigWithReader(t *testing.T) {
-	mock := newMockDHCPConfigReader()
-	setupMockDnsmasqData(mock)
-
-	config, err := GetDnsmasqConfigWithReader(mock)
-	if err != nil {
-		t.Fatalf("GetDnsmasqConfigWithReader failed: %v", err)
+	tests := []struct {
+		name     string
+		setup    func(*mockDHCPConfigReader)
+		expected UCIDnsmasq
+	}{
+		{
+			name:  "all fields present",
+			setup: setupMockDnsmasqData,
+			expected: UCIDnsmasq{
+				DomainNeeded:    "1",
+				LocaliseQueries: "1",
+				RebindLocalhost: "1",
+				Local:           "/lan/",
+				Domain:          "lan",
+				ExpandHosts:     "1",
+				CacheSize:       "1000",
+				Authoritative:   "1",
+				ReadEthers:      "1",
+				LocalService:    "1",
+				EdnsPacketMax:   "1232",
+			},
+		},
+		{
+			name:     "empty section returns zero-value config",
+			setup:    func(m *mockDHCPConfigReader) {},
+			expected: UCIDnsmasq{},
+		},
+		{
+			name: "partial fields",
+			setup: func(m *mockDHCPConfigReader) {
+				_ = m.AddSection("dhcp", "dnsmasq", "dnsmasq")
+				_ = m.SetType("dhcp", "dnsmasq", "domainneeded", uci.TypeOption, "1")
+				_ = m.SetType("dhcp", "dnsmasq", "domain", uci.TypeOption, "mesh")
+				_ = m.SetType("dhcp", "dnsmasq", "cachesize", uci.TypeOption, "500")
+			},
+			expected: UCIDnsmasq{
+				DomainNeeded: "1",
+				Domain:       "mesh",
+				CacheSize:    "500",
+			},
+		},
 	}
 
-	if config.DomainNeeded != "1" {
-		t.Errorf("Expected DomainNeeded=1, got %s", config.DomainNeeded)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newMockDHCPConfigReader()
+			tt.setup(mock)
 
-	if config.Domain != "lan" {
-		t.Errorf("Expected Domain=lan, got %s", config.Domain)
-	}
+			config, err := GetDnsmasqConfigWithReader(mock)
+			if err != nil {
+				t.Fatalf("GetDnsmasqConfigWithReader failed: %v", err)
+			}
 
-	if config.CacheSize != "1000" {
-		t.Errorf("Expected CacheSize=1000, got %s", config.CacheSize)
-	}
+			if config.DomainNeeded != tt.expected.DomainNeeded {
+				t.Errorf("DomainNeeded = %q, want %q", config.DomainNeeded, tt.expected.DomainNeeded)
+			}
 
-	if config.EdnsPacketMax != "1232" {
-		t.Errorf("Expected EdnsPacketMax=1232, got %s", config.EdnsPacketMax)
+			if config.LocaliseQueries != tt.expected.LocaliseQueries {
+				t.Errorf("LocaliseQueries = %q, want %q", config.LocaliseQueries, tt.expected.LocaliseQueries)
+			}
+
+			if config.RebindLocalhost != tt.expected.RebindLocalhost {
+				t.Errorf("RebindLocalhost = %q, want %q", config.RebindLocalhost, tt.expected.RebindLocalhost)
+			}
+
+			if config.Local != tt.expected.Local {
+				t.Errorf("Local = %q, want %q", config.Local, tt.expected.Local)
+			}
+
+			if config.Domain != tt.expected.Domain {
+				t.Errorf("Domain = %q, want %q", config.Domain, tt.expected.Domain)
+			}
+
+			if config.ExpandHosts != tt.expected.ExpandHosts {
+				t.Errorf("ExpandHosts = %q, want %q", config.ExpandHosts, tt.expected.ExpandHosts)
+			}
+
+			if config.CacheSize != tt.expected.CacheSize {
+				t.Errorf("CacheSize = %q, want %q", config.CacheSize, tt.expected.CacheSize)
+			}
+
+			if config.Authoritative != tt.expected.Authoritative {
+				t.Errorf("Authoritative = %q, want %q", config.Authoritative, tt.expected.Authoritative)
+			}
+
+			if config.ReadEthers != tt.expected.ReadEthers {
+				t.Errorf("ReadEthers = %q, want %q", config.ReadEthers, tt.expected.ReadEthers)
+			}
+
+			if config.LocalService != tt.expected.LocalService {
+				t.Errorf("LocalService = %q, want %q", config.LocalService, tt.expected.LocalService)
+			}
+
+			if config.EdnsPacketMax != tt.expected.EdnsPacketMax {
+				t.Errorf("EdnsPacketMax = %q, want %q", config.EdnsPacketMax, tt.expected.EdnsPacketMax)
+			}
+		})
 	}
 }
 

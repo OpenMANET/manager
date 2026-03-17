@@ -15,6 +15,13 @@ import (
 	"github.com/openmanet/openmanetd/internal/network"
 )
 
+// alfredClient abstracts the alfred.Client methods used by management workers,
+// allowing tests to inject a fake implementation.
+type alfredClient interface {
+	Set(dataType uint8, version uint8, payload []byte) error
+	Request(dataType uint8) ([]alfred.Record, error)
+}
+
 const (
 	NodeDataType        uint8 = uint8(proto.DataType_DATA_TYPE_NODE)
 	NodeDataTypeVersion uint8 = 1
@@ -48,91 +55,109 @@ func (ndw *NodeDataWorker) StartSend() { //nolint:gocognit
 		case <-ndw.ShutdownChan:
 			return
 		case <-ticker.C:
-			configured, err := network.IsDHCPConfiguredWithReader(ndw.Config.uciOpenMANETConfig)
-			if err != nil {
-				ndw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
-
-				continue
-			}
-
-			if !configured {
-				ndw.Config.Log.Debug().Msg("Static Address & DHCP not configured, skipping node data send")
-
-				continue
-			}
-
-			// Get interface information
-			iface := network.GetInterfaceByName(ndw.Config.IFace)
-
-			hostname, err := os.Hostname()
-			if err != nil {
-				ndw.Config.Log.Error().Err(err).Msg("Error getting hostname")
-
-				hostname = "unknown"
-			}
-
-			// if ndw.Config.IFace is prefixed with "br-", remove the prefix because dhcp and network config is tied to the physical interface
-			normalizedIface := ndw.Config.IFace
-			if after, ok := strings.CutPrefix(ndw.Config.IFace, "br-"); ok {
-				normalizedIface = after
-			}
-
-			// Get DHCP info from UCI
-			dhcp, err := network.GetDHCPConfigWithReader(normalizedIface, ndw.Config.uciDHCPConfig)
-			if err != nil {
-				ndw.Config.Log.Error().Err(err).Msg("Error getting DHCP configuration")
-
-				continue
-			}
-
-			nodeData := proto.Node{
-				Mac:          iface.MAC,
-				Hostname:     hostname,
-				Ipaddr:       iface.IP[0].IP.String(),
-				UciDhcpStart: dhcp.Start,
-				UciDhcpLimit: dhcp.Limit,
-			}
-
-			// Get position data if GPS is available
-			if ndw.Config.GPS != nil {
-				positionReport := ndw.Config.GPS.GetPosition()
-				if positionReport.Mode <= 1 {
-					ndw.Config.Log.Debug().Msg("No valid GPS position available")
-				}
-
-				if positionReport.Mode > 1 {
-					ndw.Config.Log.Debug().
-						Float64("lat", positionReport.Latitude).
-						Float64("lon", positionReport.Longitude).
-						Float64("alt", positionReport.Altitude).
-						Uint8("mode", uint8(positionReport.Mode)).
-						Msg("Current GPS position")
-
-					nodeData.Position = &proto.Position{
-						Latitude:  positionReport.Latitude,
-						Longitude: positionReport.Longitude,
-						Altitude:  float32(positionReport.Altitude),
-					}
-				}
-			} else {
-				ndw.Config.Log.Debug().Msg("GPS service not available")
-			}
-
-			var nodeDataBytes []byte
-
-			nodeDataBytes, err = nodeData.MarshalVT()
-			if err != nil {
-				ndw.Config.Log.Error().Err(err).Msg("Error marshaling node data")
-
-				continue
-			}
-
-			err = ndw.Client.Set(NodeDataType, NodeDataTypeVersion, nodeDataBytes)
-			if err != nil {
-				ndw.Config.Log.Error().Err(err).Msg("Error sending node data")
+			if err := ndw.sendNodeDataOnce(ndw.Client); err != nil {
+				ndw.Config.Log.Error().Err(err).Msg("Error in node data send tick")
 			}
 		}
 	}
+}
+
+// sendNodeDataOnce performs a single iteration of the node data send logic.
+// It checks DHCP configuration, gathers interface/hostname/GPS data, and
+// publishes the result via the provided alfred client.
+func (ndw *NodeDataWorker) sendNodeDataOnce(client alfredClient) error {
+	return ndw.sendNodeDataOnceWithDeps(client, ndw.Config.uciOpenMANETConfig, ndw.Config.uciDHCPConfig,
+		network.GetInterfaceByName, os.Hostname)
+}
+
+// sendNodeDataOnceWithDeps is the dependency-injectable version of sendNodeDataOnce.
+func (ndw *NodeDataWorker) sendNodeDataOnceWithDeps(
+	client alfredClient,
+	openMANETReader network.OpenMANETConfigReader,
+	dhcpReader network.DHCPConfigReader,
+	getIface func(string) network.NetworkInterface,
+	getHostname func() (string, error),
+) error {
+	configured, err := network.IsDHCPConfiguredWithReader(openMANETReader)
+	if err != nil {
+		return fmt.Errorf("check DHCP configuration: %w", err)
+	}
+
+	if !configured {
+		ndw.Config.Log.Debug().Msg("Static Address & DHCP not configured, skipping node data send")
+
+		return nil
+	}
+
+	// Get interface information
+	iface := getIface(ndw.Config.IFace)
+
+	hostname, err := getHostname()
+	if err != nil {
+		ndw.Config.Log.Error().Err(err).Msg("Error getting hostname")
+
+		hostname = "unknown"
+	}
+
+	// if ndw.Config.IFace is prefixed with "br-", remove the prefix because dhcp and network config is tied to the physical interface
+	normalizedIface := ndw.Config.IFace
+	if after, ok := strings.CutPrefix(ndw.Config.IFace, "br-"); ok {
+		normalizedIface = after
+	}
+
+	// Get DHCP info from UCI
+	dhcp, err := network.GetDHCPConfigWithReader(normalizedIface, dhcpReader)
+	if err != nil {
+		return fmt.Errorf("get DHCP configuration: %w", err)
+	}
+
+	if len(iface.IP) == 0 {
+		return fmt.Errorf("interface %s has no IP address", ndw.Config.IFace)
+	}
+
+	nodeData := proto.Node{
+		Mac:          iface.MAC,
+		Hostname:     hostname,
+		Ipaddr:       iface.IP[0].IP.String(),
+		UciDhcpStart: dhcp.Start,
+		UciDhcpLimit: dhcp.Limit,
+	}
+
+	// Get position data if GPS is available
+	if ndw.Config.GPS != nil {
+		positionReport := ndw.Config.GPS.GetPosition()
+		if positionReport.Mode <= 1 {
+			ndw.Config.Log.Debug().Msg("No valid GPS position available")
+		}
+
+		if positionReport.Mode > 1 {
+			ndw.Config.Log.Debug().
+				Float64("lat", positionReport.Latitude).
+				Float64("lon", positionReport.Longitude).
+				Float64("alt", positionReport.Altitude).
+				Uint8("mode", uint8(positionReport.Mode)).
+				Msg("Current GPS position")
+
+			nodeData.Position = &proto.Position{
+				Latitude:  positionReport.Latitude,
+				Longitude: positionReport.Longitude,
+				Altitude:  float32(positionReport.Altitude),
+			}
+		}
+	} else {
+		ndw.Config.Log.Debug().Msg("GPS service not available")
+	}
+
+	nodeDataBytes, err := nodeData.MarshalVT()
+	if err != nil {
+		return fmt.Errorf("marshal node data: %w", err)
+	}
+
+	if err := client.Set(NodeDataType, NodeDataTypeVersion, nodeDataBytes); err != nil {
+		return fmt.Errorf("send node data: %w", err)
+	}
+
+	return nil
 }
 
 func (ndw *NodeDataWorker) StartReceive() { //nolint:gocognit
@@ -144,36 +169,49 @@ func (ndw *NodeDataWorker) StartReceive() { //nolint:gocognit
 		case <-ndw.ShutdownChan:
 			return
 		case <-ticker.C:
-			record, err := ndw.Client.Request(NodeDataType)
-			if err != nil { //nolint:nestif
-				ndw.Config.Log.Error().Err(err).Msg("Error receiving node data")
-			} else {
-				for _, rec := range record {
-					var nodeData proto.Node
-
-					err = nodeData.UnmarshalVT(rec.Data)
-					if err != nil {
-						ndw.Config.Log.Error().Err(err).Msg("Error unmarshaling node data")
-					} else {
-						hostname, err := os.Hostname()
-						if err != nil {
-							ndw.Config.Log.Error().Err(err).Msg("Error getting hostname")
-						}
-						// ignore our own node data
-						if nodeData.Hostname == hostname {
-							continue
-						}
-
-						ndw.Config.Log.Debug().Msgf("Received node data: %+v", &nodeData)
-
-						if err := ndw.RecordNodeData(&nodeData); err != nil {
-							ndw.Config.Log.Error().Err(err).Msg("Error recording node data")
-						}
-					}
-				}
+			if err := ndw.receiveNodeDataOnce(ndw.Client, os.Hostname); err != nil {
+				ndw.Config.Log.Error().Err(err).Msg("Error in node data receive tick")
 			}
 		}
 	}
+}
+
+// receiveNodeDataOnce performs a single iteration of the node data receive logic.
+// It requests node data records from the alfred client, filters out records for the
+// local hostname, and persists the rest to the database.
+func (ndw *NodeDataWorker) receiveNodeDataOnce(client alfredClient, getHostname func() (string, error)) error {
+	records, err := client.Request(NodeDataType)
+	if err != nil {
+		return fmt.Errorf("request node data: %w", err)
+	}
+
+	hostname, err := getHostname()
+	if err != nil {
+		ndw.Config.Log.Error().Err(err).Msg("Error getting hostname")
+	}
+
+	for _, rec := range records {
+		var nodeData proto.Node
+
+		if err := nodeData.UnmarshalVT(rec.Data); err != nil {
+			ndw.Config.Log.Error().Err(err).Msg("Error unmarshaling node data")
+
+			continue
+		}
+
+		// ignore our own node data
+		if nodeData.Hostname == hostname {
+			continue
+		}
+
+		ndw.Config.Log.Debug().Msgf("Received node data: %+v", &nodeData)
+
+		if err := ndw.RecordNodeData(&nodeData); err != nil {
+			ndw.Config.Log.Error().Err(err).Msg("Error recording node data")
+		}
+	}
+
+	return nil
 }
 
 // RecordNodeData persists node information to the database by creating or updating

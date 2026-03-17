@@ -559,3 +559,195 @@ func TestListenRTPReceiver_ReturnType(t *testing.T) {
 		t.Fatal("expected non-nil *net.UDPConn")
 	}
 }
+
+// ─── boolPtrVal tests ────────────────────────────────────────────────────────
+
+func TestBoolPtrVal(t *testing.T) {
+	trueVal := true
+	falseVal := false
+
+	tests := []struct {
+		name     string
+		p        *bool
+		fallback bool
+		want     bool
+	}{
+		{"nil pointer, fallback true", nil, true, true},
+		{"nil pointer, fallback false", nil, false, false},
+		{"non-nil true, fallback false", &trueVal, false, true},
+		{"non-nil false, fallback true", &falseVal, true, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := boolPtrVal(tt.p, tt.fallback)
+			if got != tt.want {
+				t.Errorf("boolPtrVal() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// ─── applyDefaults ROIP tests ────────────────────────────────────────────────
+
+func TestApplyDefaults_ROIPDefaults(t *testing.T) {
+	cfg := &CommsConfig{ControlSource: "roip"}
+	cfg.applyDefaults()
+
+	if cfg.ROIPCOSGPIOMask != roipDefaultCOSMask {
+		t.Errorf("ROIPCOSGPIOMask: got %d, want %d", cfg.ROIPCOSGPIOMask, roipDefaultCOSMask)
+	}
+
+	if cfg.ROIPVOXThreshold != roipDefaultVOXThresh {
+		t.Errorf("ROIPVOXThreshold: got %f, want %f", cfg.ROIPVOXThreshold, roipDefaultVOXThresh)
+	}
+
+	if cfg.ROIPVOXHoldTime != roipDefaultVOXHold {
+		t.Errorf("ROIPVOXHoldTime: got %v, want %v", cfg.ROIPVOXHoldTime, roipDefaultVOXHold)
+	}
+
+	if cfg.ROIPMaxTXDuration != roipDefaultMaxTX {
+		t.Errorf("ROIPMaxTXDuration: got %v, want %v", cfg.ROIPMaxTXDuration, roipDefaultMaxTX)
+	}
+}
+
+func TestApplyDefaults_ROIPInputDeviceFallsBackToBluetooth(t *testing.T) {
+	cfg := &CommsConfig{
+		ControlSource:        "roip",
+		BluetoothInputDevice: "hw:1",
+	}
+	cfg.applyDefaults()
+
+	if cfg.ROIPInputDevice != "hw:1" {
+		t.Errorf("ROIPInputDevice: got %q, want %q", cfg.ROIPInputDevice, "hw:1")
+	}
+}
+
+func TestApplyDefaults_ROIPExplicitValuesPreserved(t *testing.T) {
+	cfg := &CommsConfig{
+		ControlSource:     "roip",
+		ROIPCOSGPIOMask:   0x04,
+		ROIPVOXThreshold:  0.5,
+		ROIPVOXHoldTime:   2 * time.Second,
+		ROIPMaxTXDuration: 30 * time.Second,
+		ROIPInputDevice:   "hw:2",
+	}
+	cfg.applyDefaults()
+
+	if cfg.ROIPCOSGPIOMask != 0x04 {
+		t.Errorf("ROIPCOSGPIOMask overwritten; got %d", cfg.ROIPCOSGPIOMask)
+	}
+
+	if cfg.ROIPVOXThreshold != 0.5 {
+		t.Errorf("ROIPVOXThreshold overwritten; got %f", cfg.ROIPVOXThreshold)
+	}
+
+	if cfg.ROIPVOXHoldTime != 2*time.Second {
+		t.Errorf("ROIPVOXHoldTime overwritten; got %v", cfg.ROIPVOXHoldTime)
+	}
+
+	if cfg.ROIPMaxTXDuration != 30*time.Second {
+		t.Errorf("ROIPMaxTXDuration overwritten; got %v", cfg.ROIPMaxTXDuration)
+	}
+
+	if cfg.ROIPInputDevice != "hw:2" {
+		t.Errorf("ROIPInputDevice overwritten; got %q", cfg.ROIPInputDevice)
+	}
+}
+
+// ─── EnableTalkGroupSend / Receive / GetTalkGroupStates tests ────────────────
+
+func setupActiveConfigWithPorts(t *testing.T, n int) *CommsConfig {
+	t.Helper()
+
+	ports := make([]*portChannel, n)
+	mcastPorts := make([]McastPortConfig, n)
+
+	for i := 0; i < n; i++ {
+		ports[i] = &portChannel{
+			cfg: McastPortConfig{Address: "239.0.0.1", Port: 5004 + i*2},
+		}
+		ports[i].sendEnabled.Store(true)
+		ports[i].receiveEnabled.Store(true)
+		mcastPorts[i] = ports[i].cfg
+	}
+
+	cfg := &CommsConfig{
+		Log:        zerolog.Nop(),
+		McastPorts: mcastPorts,
+		runtime:    &CommsRuntime{ports: ports},
+	}
+
+	activeConfig.Store(cfg)
+	t.Cleanup(func() { activeConfig.Store(nil) })
+
+	return cfg
+}
+
+func TestEnableTalkGroupSend_TogglesState(t *testing.T) {
+	cfg := setupActiveConfigWithPorts(t, 2)
+
+	if err := EnableTalkGroupSend(1, false); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.runtime.ports[1].sendEnabled.Load() {
+		t.Error("send should be disabled")
+	}
+
+	if err := EnableTalkGroupSend(1, true); err != nil {
+		t.Fatal(err)
+	}
+
+	if !cfg.runtime.ports[1].sendEnabled.Load() {
+		t.Error("send should be enabled")
+	}
+}
+
+func TestEnableTalkGroupReceive_TogglesState(t *testing.T) {
+	cfg := setupActiveConfigWithPorts(t, 1)
+
+	if err := EnableTalkGroupReceive(0, false); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.runtime.ports[0].receiveEnabled.Load() {
+		t.Error("receive should be disabled")
+	}
+}
+
+// ─── GetWebEventSource / GetWebAudioBridge tests ─────────────────────────────
+
+func TestGetWebEventSource_NotRunning(t *testing.T) {
+	activeConfig.Store(nil)
+
+	if got := GetWebEventSource(); got != nil {
+		t.Errorf("expected nil when not running, got %v", got)
+	}
+}
+
+func TestGetWebAudioBridge_NotRunning(t *testing.T) {
+	activeConfig.Store(nil)
+
+	if got := GetWebAudioBridge(); got != nil {
+		t.Errorf("expected nil when not running, got %v", got)
+	}
+}
+
+func TestGetWebEventSource_ReturnsNilWhenNoWebSource(t *testing.T) {
+	cfg := setupActiveConfigWithPorts(t, 1)
+	cfg.runtime.webEvtSrc = nil
+
+	if got := GetWebEventSource(); got != nil {
+		t.Errorf("expected nil when web source not configured, got %v", got)
+	}
+}
+
+func TestGetWebAudioBridge_ReturnsNilWhenNoBridge(t *testing.T) {
+	cfg := setupActiveConfigWithPorts(t, 1)
+	cfg.runtime.webBridge = nil
+
+	if got := GetWebAudioBridge(); got != nil {
+		t.Errorf("expected nil when bridge not configured, got %v", got)
+	}
+}
