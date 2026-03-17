@@ -11,7 +11,6 @@ import (
 // Default configuration values
 const (
 	DefaultMeshNetInterface                          string  = "br-ahwlan"
-	DefaultGatewayMode                               bool    = false
 	DefaultDBFile                                    string  = "/etc/openmanetd/openmanetd.db"
 	DefaultAlfredMode                                string  = "primary"
 	DefaultAlfredBatInterface                        string  = "bat0"
@@ -66,7 +65,6 @@ type Config struct {
 	mu                                        sync.RWMutex
 	AlfredDataTypeNode                        bool
 	CommsEnable                               bool
-	GatewayMode                               bool
 	AlfredDataTypeGateway                     bool
 	AlfredEnable                              bool
 	AlfredDataTypePosition                    bool
@@ -119,12 +117,6 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.MeshNetInterface = val
 	} else {
 		c.MeshNetInterface = DefaultMeshNetInterface
-	}
-
-	if c.v.IsSet("gatewayMode") {
-		c.GatewayMode = c.v.GetBool("gatewayMode")
-	} else {
-		c.GatewayMode = DefaultGatewayMode
 	}
 
 	if val := c.v.GetString("dbFile"); val != "" {
@@ -340,14 +332,6 @@ func (c *Config) GetMeshNetInterface() string {
 	defer c.mu.RUnlock()
 
 	return c.MeshNetInterface
-}
-
-// GetGatewayMode returns whether gateway mode is enabled.
-func (c *Config) GetGatewayMode() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.GatewayMode
 }
 
 // GetDBFile returns the database file path.
