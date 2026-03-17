@@ -58,46 +58,6 @@ func TestGetMeshNetInterface(t *testing.T) {
 	}
 }
 
-func TestGetGatewayMode(t *testing.T) {
-	tests := []struct {
-		setValue *bool
-		name     string
-		want     bool
-	}{
-		{
-			name:     "returns true when set to true",
-			setValue: boolPtr(true),
-			want:     true,
-		},
-		{
-			name:     "returns false when set to false",
-			setValue: boolPtr(false),
-			want:     false,
-		},
-		{
-			name:     "returns default when not set",
-			setValue: nil,
-			want:     DefaultGatewayMode,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			v := viper.New()
-			if tt.setValue != nil {
-				v.Set("gatewayMode", *tt.setValue)
-			}
-
-			cfg := New(v)
-
-			got := cfg.GetGatewayMode()
-			if got != tt.want {
-				t.Errorf("GetGatewayMode() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestGetAlfredMode(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -956,17 +916,12 @@ func TestConfigReload(t *testing.T) {
 		t.Errorf("Initial GetMeshNetInterface() = %v, want eth0", got)
 	}
 
-	if got := cfg.GetGatewayMode(); got != true {
-		t.Errorf("Initial GetGatewayMode() = %v, want true", got)
-	}
-
 	if got := cfg.GetCommsPlaybackBuffer(); got != 4 {
 		t.Errorf("Initial GetCommsPlaybackBuffer() = %v, want 4", got)
 	}
 
 	// Change configuration values
 	v.Set("meshNetInterface", "wlan0")
-	v.Set("gatewayMode", false)
 	v.Set("comms.playbackBuffer", 8)
 
 	// Manually trigger reload (simulating config file change)
@@ -975,10 +930,6 @@ func TestConfigReload(t *testing.T) {
 	// Check updated values
 	if got := cfg.GetMeshNetInterface(); got != "wlan0" {
 		t.Errorf("After reload GetMeshNetInterface() = %v, want wlan0", got)
-	}
-
-	if got := cfg.GetGatewayMode(); got != false {
-		t.Errorf("After reload GetGatewayMode() = %v, want false", got)
 	}
 
 	if got := cfg.GetCommsPlaybackBuffer(); got != 8 {
