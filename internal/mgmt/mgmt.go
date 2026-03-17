@@ -39,7 +39,6 @@ type ManagementConfig struct {
 	gatewayWorkerSendInterval               time.Duration
 	gatewayWorkerRecvInterval               time.Duration
 	addressReservationWorkerReserveInterval time.Duration
-	GatewayMode                             bool
 	GatewayDataType                         bool
 	NodeDataType                            bool
 	PositionDataType                        bool
@@ -70,7 +69,6 @@ func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
 		AddressReservationDataType: cfg.AddressReservationDataType,
 		WirelessConfig:             wirelessConfig,
 		InteruptChan:               cfg.InteruptChan,
-		GatewayMode:                cfg.GatewayMode,
 		DB:                         cfg.DB,
 		GPS:                        cfg.GPS,
 
@@ -86,12 +84,16 @@ func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
 	}, nil
 }
 
-func (m *ManagementConfig) Start() {
+func (m *ManagementConfig) Start(ctx context.Context) {
 	if err := m.setTransportInterfaceMTU(); err != nil {
 		m.Log.Error().Err(err).Msg("Failed to set MTU for transport interface")
 	}
 
-	if err := m.setupBatMesh1Interface(context.Background()); err != nil {
+	if err := m.configureDeviceMulticast(ctx); err != nil {
+		m.Log.Error().Err(err).Msg("Failed to configure device multicast settings")
+	}
+
+	if err := m.setupBatMesh1Interface(ctx); err != nil {
 		m.Log.Error().Err(err).Msg("Failed to setup batmesh1 interface")
 	}
 
@@ -104,7 +106,7 @@ func (m *ManagementConfig) Start() {
 
 	if m.AddressReservationDataType {
 		addressReservationWorker := NewAddressReservationWorker(m, client, m.InteruptChan)
-		go addressReservationWorker.ReserveAddressIfNeeded()
+		go addressReservationWorker.ReserveAddressIfNeeded(ctx)
 	}
 
 	if m.NodeDataType {

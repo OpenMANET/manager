@@ -1697,17 +1697,19 @@ func TestGetDeviceByNameWithReader_AllOptions(t *testing.T) {
 		data: map[string]map[string]map[string][]string{
 			"network": {
 				"__anon__1": {
-					"name":    {"test-device"},
-					"type":    {testBridgeType},
-					"macaddr": {"00:11:22:33:44:55"},
-					"ifname":  {"eth0"},
-					"ports":   {"eth0", "eth1"},
-					"rxpause": {"1"},
-					"txpause": {"1"},
-					"autoneg": {"1"},
-					"speed":   {"1000"},
-					"duplex":  {"1"},
-					"table":   {"10"},
+					"name":              {"test-device"},
+					"type":              {testBridgeType},
+					"macaddr":           {"00:11:22:33:44:55"},
+					"ifname":            {"eth0"},
+					"ports":             {"eth0", "eth1"},
+					"rxpause":           {"1"},
+					"txpause":           {"1"},
+					"autoneg":           {"1"},
+					"speed":             {"1000"},
+					"duplex":            {"1"},
+					"table":             {"10"},
+					"igmp_snooping":     {"1"},
+					"multicast_querier": {"1"},
 				},
 			},
 		},
@@ -1741,6 +1743,8 @@ func TestGetDeviceByNameWithReader_AllOptions(t *testing.T) {
 		{"Speed", device.Speed, "1000"},
 		{"Duplex", device.Duplex, "1"},
 		{"Table", device.Table, "10"},
+		{"IgmpSnooping", device.IgmpSnooping, "1"},
+		{"MulticastQuerier", device.MulticastQuerier, "1"},
 	}
 
 	for _, tt := range tests {
@@ -1880,17 +1884,19 @@ func TestSetDeviceConfigWithReader_AllFields(t *testing.T) {
 	}
 
 	device := &UCIDevice{
-		Name:    "full-device",
-		Type:    testBridgeType,
-		MacAddr: "11:22:33:44:55:66",
-		Ifname:  "eth0",
-		Ports:   []string{"eth2", "eth3"},
-		RxPause: "1",
-		TxPause: "1",
-		AutoNeg: "1",
-		Speed:   "1000",
-		Duplex:  "1",
-		Table:   "20",
+		Name:             "full-device",
+		Type:             testBridgeType,
+		MacAddr:          "11:22:33:44:55:66",
+		Ifname:           "eth0",
+		Ports:            []string{"eth2", "eth3"},
+		RxPause:          "1",
+		TxPause:          "1",
+		AutoNeg:          "1",
+		Speed:            "1000",
+		Duplex:           "1",
+		Table:            "20",
+		IgmpSnooping:     "1",
+		MulticastQuerier: "0",
 	}
 
 	err := SetDeviceConfigWithReader("full-device", device, mock)
@@ -1946,6 +1952,14 @@ func TestSetDeviceConfigWithReader_AllFields(t *testing.T) {
 
 	if readDevice.Table != device.Table {
 		t.Errorf("Table: got %v, expected %v", readDevice.Table, device.Table)
+	}
+
+	if readDevice.IgmpSnooping != device.IgmpSnooping {
+		t.Errorf("IgmpSnooping: got %v, expected %v", readDevice.IgmpSnooping, device.IgmpSnooping)
+	}
+
+	if readDevice.MulticastQuerier != device.MulticastQuerier {
+		t.Errorf("MulticastQuerier: got %v, expected %v", readDevice.MulticastQuerier, device.MulticastQuerier)
 	}
 }
 

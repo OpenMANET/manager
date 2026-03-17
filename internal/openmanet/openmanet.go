@@ -83,7 +83,6 @@ func Start() {
 			InteruptChan:               c,
 			Log:                        logger.GetLogger("mgmt"),
 			GPS:                        gps,
-			GatewayMode:                cfg.GetGatewayMode(),
 			AlfredMode:                 cfg.GetAlfredMode(),
 			IFace:                      cfg.GetMeshNetInterface(),
 			BatInterface:               cfg.GetAlfredBatInterface(),
@@ -98,7 +97,7 @@ func Start() {
 			log.Fatal().Err(err).Msg("Failed to initialize management workers")
 		}
 
-		manager.Start()
+		manager.Start(ctx)
 	} else {
 		log.Info().Msg("Alfred integration disabled; skipping management workers")
 	}
