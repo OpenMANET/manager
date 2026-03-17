@@ -3,6 +3,7 @@ package blos
 import (
 	"context"
 	"errors"
+	"net"
 	"time"
 
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
@@ -17,16 +18,17 @@ import (
 )
 
 type BLOS struct {
-	Config *config.Config
-	Logger zerolog.Logger
-
+	Logger             zerolog.Logger
 	ctx                context.Context //nolint:containedctx
 	uciOpenManetConfig network.OpenMANETConfigReader
 	uciNetworkConfig   network.ConfigReader
 	uciFirewallConfig  firewall.ConfigReader
 	interfaceManager   InterfaceManager
+	Config             *config.Config
 	statusWorker       *StatusWorker
-	lastSyncedPeerIPs  map[string]bool // Track peer IPs from last sync to detect changes
+	lastSyncedPeerIPs  map[string]bool
+	mcastJoiner        multicastJoiner
+	multicastConns     []*net.UDPConn
 }
 
 func NewBLOS(cfg *config.Config, logger zerolog.Logger) (*BLOS, error) {
@@ -81,7 +83,7 @@ func NewBLOS(cfg *config.Config, logger zerolog.Logger) (*BLOS, error) {
 // (Running or Starting). If the tunnel requires authentication, it returns an error.
 // Then it sequentially configures the tunnel interface, VxLAN interface, and Batman
 // interface, and creates VxLAN multicast peers. Returns an error if any step fails.
-func (r *BLOS) configureInterfaces(ctx context.Context) error {
+func (r *BLOS) configureInterfaces(ctx context.Context) error { //nolint:gocognit
 	// Implementation of interface configuration would go here
 	tunnelStatus, err := local.Status(ctx)
 	if err != nil {
@@ -165,6 +167,14 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error {
 			return err
 		}
 
+		// Join multicast groups on the mesh interface so batman-adv forwards
+		// multicast traffic across the VXLAN link to BLOS peers.
+		if err := r.joinMulticastGroupsOnInterface(r.Config.MeshNetInterface); err != nil {
+			r.Logger.Error().Err(err).Msg("Failed to join multicast groups on mesh interface")
+
+			return err
+		}
+
 		r.Logger.Debug().Msg("BLOS interfaces configured successfully")
 	}
 
@@ -198,9 +208,17 @@ func (r *BLOS) GetStatus() *ipnstate.Status {
 	return r.statusWorker.GetStatus()
 }
 
-// Stop stops the BLOS worker processes.
+// Stop stops the BLOS worker processes and closes any open multicast sockets.
 func (r *BLOS) Stop() {
 	if r.statusWorker != nil {
 		r.statusWorker.Stop()
 	}
+
+	for _, c := range r.multicastConns {
+		if err := c.Close(); err != nil {
+			r.Logger.Debug().Err(err).Msg("Error closing multicast socket during shutdown")
+		}
+	}
+
+	r.multicastConns = nil
 }

@@ -107,7 +107,8 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 	}
 
 	if !supportedHardwareFound {
-		return fmt.Errorf("no supported hardware (MT7915 or MT7916) found for batmesh1 configuration")
+		m.Log.Warn().Msg("No supported MediaTek hardware (MT7915 or MT7916) found for batmesh1 configuration")
+		return nil
 	}
 
 	// Step 3: find mesh credentials from an existing mesh wifi-iface.

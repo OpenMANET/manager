@@ -388,24 +388,6 @@ func TestSetupBatMesh1Interface_IwinfoError(t *testing.T) {
 	}
 }
 
-func TestSetupBatMesh1Interface_NoSupportedHardware(t *testing.T) {
-	m := newTestManagementConfig()
-	openmanet := newFakeOpenMANETReader()
-	openmanet.seedBatMesh1Configured("0")
-
-	wireless := newFakeWirelessReader()
-	iw := makeIwinfoWithHardware("wlan0", "Broadcom BCM4366")
-
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw)
-	if err == nil {
-		t.Fatal("expected error when no supported hardware found")
-	}
-
-	if !strings.Contains(err.Error(), "no supported hardware") {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
 func TestSetupBatMesh1Interface_HardwareMatch_MT7915(t *testing.T) {
 	m := newTestManagementConfig()
 	openmanet := newFakeOpenMANETReader()
