@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"connectrpc.com/connect"
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
@@ -95,4 +96,109 @@ func TestGetNode_NotFound(t *testing.T) {
 
 	_, err := svc.GetNode(context.Background(), &serviceproto.GetNodeRequest{Hostname: "ghost"})
 	require.Error(t, err)
+}
+
+func TestListNodes_PositionFields(t *testing.T) {
+	svc, db := newNodeService(t)
+	ctx := context.Background()
+
+	_, err := db.CreateMeshNode(ctx, models.CreateMeshNodeParams{
+		MacAddr:   "aa:bb:cc:dd:ee:01",
+		Hostname:  "positioned-node",
+		IpAddr:    "10.0.0.10",
+		Latitude:  sql.NullFloat64{Float64: 51.5074, Valid: true},
+		Longitude: sql.NullFloat64{Float64: -0.1278, Valid: true},
+		Altitude:  sql.NullFloat64{Float64: 100.5, Valid: true},
+	})
+	require.NoError(t, err)
+
+	resp, err := svc.ListNodes(ctx, &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetNodes(), 1)
+
+	pos := resp.GetNodes()[0].GetPosition()
+	require.NotNil(t, pos)
+	assert.InDelta(t, 51.5074, pos.GetLatitude(), 0.0001)
+	assert.InDelta(t, -0.1278, pos.GetLongitude(), 0.0001)
+	assert.InDelta(t, 100.5, float64(pos.GetAltitude()), 0.1)
+}
+
+func TestListNodes_NullPosition(t *testing.T) {
+	svc, db := newNodeService(t)
+	ctx := context.Background()
+
+	// Insert node with no position data (all NullFloat64 invalid).
+	_, err := db.CreateMeshNode(ctx, models.CreateMeshNodeParams{
+		MacAddr:  "aa:bb:cc:dd:ee:02",
+		Hostname: "no-position-node",
+		IpAddr:   "10.0.0.11",
+	})
+	require.NoError(t, err)
+
+	resp, err := svc.ListNodes(ctx, &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetNodes(), 1)
+
+	// Current implementation always creates a Position{} struct even for null
+	// DB values — position fields will be zero-valued.
+	pos := resp.GetNodes()[0].GetPosition()
+	require.NotNil(t, pos, "Position struct is always created by ListNodes")
+	assert.Equal(t, float64(0), pos.GetLatitude())
+	assert.Equal(t, float64(0), pos.GetLongitude())
+	assert.Equal(t, float32(0), pos.GetAltitude())
+}
+
+func TestGetNode_ConnectErrorCode(t *testing.T) {
+	svc, _ := newNodeService(t)
+
+	_, err := svc.GetNode(context.Background(), &serviceproto.GetNodeRequest{Hostname: "nonexistent"})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeInternal, connectErr.Code())
+}
+
+func TestGetNode_PositionNotReturned(t *testing.T) {
+	svc, db := newNodeService(t)
+	ctx := context.Background()
+
+	_, err := db.CreateMeshNode(ctx, models.CreateMeshNodeParams{
+		MacAddr:   "aa:bb:cc:dd:ee:03",
+		Hostname:  "has-position",
+		IpAddr:    "10.0.0.12",
+		Latitude:  sql.NullFloat64{Float64: 40.7128, Valid: true},
+		Longitude: sql.NullFloat64{Float64: -74.0060, Valid: true},
+		Altitude:  sql.NullFloat64{Float64: 10.0, Valid: true},
+	})
+	require.NoError(t, err)
+
+	resp, err := svc.GetNode(ctx, &serviceproto.GetNodeRequest{Hostname: "has-position"})
+	require.NoError(t, err)
+	require.NotNil(t, resp.GetNode())
+
+	// GetNode currently does not populate Position in the response proto.
+	assert.Nil(t, resp.GetNode().GetPosition(), "GetNode omits Position field")
+}
+
+func TestListNodes_OrderByHostname(t *testing.T) {
+	svc, db := newNodeService(t)
+	ctx := context.Background()
+
+	for _, n := range []models.CreateMeshNodeParams{
+		{MacAddr: "00:00:00:00:00:03", Hostname: "charlie", IpAddr: "10.0.0.3"},
+		{MacAddr: "00:00:00:00:00:01", Hostname: "alpha", IpAddr: "10.0.0.1"},
+		{MacAddr: "00:00:00:00:00:02", Hostname: "bravo", IpAddr: "10.0.0.2"},
+	} {
+		_, err := db.CreateMeshNode(ctx, n)
+		require.NoError(t, err)
+	}
+
+	resp, err := svc.ListNodes(ctx, &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetNodes(), 3)
+
+	assert.Equal(t, "alpha", resp.GetNodes()[0].GetHostname())
+	assert.Equal(t, "bravo", resp.GetNodes()[1].GetHostname())
+	assert.Equal(t, "charlie", resp.GetNodes()[2].GetHostname())
 }

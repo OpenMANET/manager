@@ -98,3 +98,41 @@ func TestGetWirelessInterface_Error(t *testing.T) {
 	_, err := svc.GetWirelessInterface(context.Background(), &serviceproto.GetWirelessInterfaceRequest{Name: "wlan0"})
 	require.Error(t, err)
 }
+
+func TestGetWirelessInterface_FieldMapping(t *testing.T) {
+	iface := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
+	svc := newInterfaceService(&fakeWireless{interfaces: []*wifi.Interface{iface}})
+
+	resp, err := svc.GetWirelessInterface(context.Background(), &serviceproto.GetWirelessInterfaceRequest{Name: "mesh0"})
+	require.NoError(t, err)
+	require.NotNil(t, resp.GetInterface())
+
+	wi := resp.GetInterface()
+	assert.Equal(t, int32(1), wi.GetIndex())
+	assert.Equal(t, "mesh0", wi.GetName())
+	assert.Equal(t, "aa:bb:cc:dd:ee:ff", wi.GetHardwareAddress())
+	assert.Equal(t, int32(0), wi.GetPhy())
+	assert.Equal(t, int32(1), wi.GetDevice())
+	assert.Equal(t, "mesh point", wi.GetInterfaceType())
+	assert.Equal(t, int32(2412), wi.GetFrequency())
+	assert.Equal(t, int32(20), wi.GetChannelWidth())
+}
+
+func TestListWirelessInterfaces_FieldMapping(t *testing.T) {
+	iface := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
+	svc := newInterfaceService(&fakeWireless{meshInterfaces: []*wifi.Interface{iface}})
+
+	resp, err := svc.ListWirelessInterfaces(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetInterfaces(), 1)
+
+	wi := resp.GetInterfaces()[0]
+	assert.Equal(t, int32(1), wi.GetIndex())
+	assert.Equal(t, "mesh0", wi.GetName())
+	assert.Equal(t, "aa:bb:cc:dd:ee:ff", wi.GetHardwareAddress())
+	assert.Equal(t, int32(0), wi.GetPhy())
+	assert.Equal(t, int32(1), wi.GetDevice())
+	assert.Equal(t, "mesh point", wi.GetInterfaceType())
+	assert.Equal(t, int32(2412), wi.GetFrequency())
+	assert.Equal(t, int32(20), wi.GetChannelWidth())
+}

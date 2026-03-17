@@ -75,6 +75,11 @@ lint: ## Run linters.
 bench-comms: ## Run performance benchmarks on the comms package.
 	go test ./internal/comms/ -bench=. -benchmem -count=3 -run=^$$ -timeout 120s
 
+.PHONY: fuzz
+fuzz: ## Run fuzz tests for 30 seconds each.
+	go test ./internal/security/... -fuzz=Fuzz -fuzztime=30s -run=^$$
+	go test ./internal/comms/... -fuzz=Fuzz -fuzztime=30s -run=^$$
+
 .PHONY: sysroot-pack
 sysroot-pack:
 	@tar cf - $(SYSROOT_DIR) -P | pv -s $[$(du -sk $(SYSROOT_DIR) | awk '{print $1}') * 1024] | pbzip2 > $(SYSROOT_ARCHIVE)

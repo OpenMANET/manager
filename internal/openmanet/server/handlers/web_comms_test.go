@@ -40,3 +40,14 @@ func TestStreamAudioRx_BridgeNotActive(t *testing.T) {
 	// construct outside of a real HTTP connection.
 	_ = svc
 }
+
+func TestSendPTTEvent_InvalidEventType(t *testing.T) {
+	svc := newWebCommsService()
+
+	// Event type 3 is invalid (valid: 0, 1, 2). However, the nil web source
+	// check happens before event validation, so this returns
+	// CodeFailedPrecondition rather than CodeInvalidArgument.
+	_, err := svc.SendPTTEvent(context.Background(), &serviceproto.SendPTTEventRequest{Event: 3})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "web control source not active")
+}
