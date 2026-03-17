@@ -13,8 +13,8 @@ import (
 func TestContainsString(t *testing.T) {
 	tests := []struct {
 		name   string
-		items  []string
 		target string
+		items  []string
 		want   bool
 	}{
 		{
@@ -114,9 +114,9 @@ func TestUpdateTailscalePreferences_OverwritesExisting(t *testing.T) {
 
 func TestHasPeerChanges(t *testing.T) {
 	tests := []struct {
-		name          string
 		lastSynced    map[string]bool
 		activePeerIPs map[string]bool
+		name          string
 		wantChanges   bool
 	}{
 		{
