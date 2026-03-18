@@ -108,6 +108,7 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 
 	if !supportedHardwareFound {
 		m.Log.Warn().Msg("No supported MediaTek hardware (MT7915 or MT7916) found for batmesh1 configuration")
+
 		return nil
 	}
 

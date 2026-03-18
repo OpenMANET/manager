@@ -9,6 +9,7 @@ import (
 
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
+	"golang.org/x/net/ipv4"
 )
 
 func makeRTPBytes(t *testing.T, _ uint16) []byte {
@@ -487,6 +488,32 @@ func TestGetActiveMulticastAddr_ReflectsUpdate(t *testing.T) {
 
 	if got := GetActiveMulticastAddr(); got != updated {
 		t.Errorf("after update: GetActiveMulticastAddr() = %q, want %q", got, updated)
+	}
+}
+
+// ─── setMulticastTTL tests ─────────────────────────────────────────────────────
+
+func TestSetMulticastTTL(t *testing.T) {
+	dst := &net.UDPAddr{IP: net.ParseIP("239.0.0.1"), Port: 0}
+	src := &net.UDPAddr{IP: net.IPv4zero, Port: 0}
+
+	conn, err := net.DialUDP("udp4", src, dst)
+	if err != nil {
+		t.Fatalf("DialUDP: %v", err)
+	}
+	defer conn.Close() //nolint:errcheck
+
+	if err := setMulticastTTL(conn, rtpMulticastTTL); err != nil {
+		t.Fatalf("setMulticastTTL: %v", err)
+	}
+
+	got, err := ipv4.NewPacketConn(conn).MulticastTTL()
+	if err != nil {
+		t.Fatalf("MulticastTTL: %v", err)
+	}
+
+	if got != rtpMulticastTTL {
+		t.Errorf("multicast TTL = %d, want %d", got, rtpMulticastTTL)
 	}
 }
 
