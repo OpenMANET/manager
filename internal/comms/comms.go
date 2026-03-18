@@ -16,6 +16,7 @@ import (
 
 	"github.com/gordonklaus/portaudio"
 	"github.com/rs/zerolog"
+	"golang.org/x/net/ipv4"
 
 	"github.com/openmanet/openmanetd/internal/config"
 )
@@ -39,6 +40,11 @@ const (
 	// the UDP MTU and is far larger than typical Opus output (~80–160 B at
 	// 32 kbps).
 	encBufSize = 1450
+
+	// rtpMulticastTTL is the IP TTL set on outgoing RTP/RTCP multicast packets.
+	// A value of 1 restricts packets to the local subnet; increase to allow
+	// traversal across routed multicast hops.
+	rtpMulticastTTL = 1
 )
 
 // ─── Buffer pools ─────────────────────────────────────────────────────────────
@@ -350,6 +356,11 @@ func listenRTPReceiver(addr *net.UDPAddr) (*net.UDPConn, error) {
 	return conn, nil
 }
 
+// setMulticastTTL sets the IP multicast TTL on a UDP socket.
+func setMulticastTTL(conn *net.UDPConn, ttl int) error {
+	return ipv4.NewPacketConn(conn).SetMulticastTTL(ttl)
+}
+
 // boolPtrVal dereferences p when non-nil; otherwise returns fallback.
 // Used to distinguish "not set" from false in McastPortConfig.Init* fields.
 func boolPtrVal(p *bool, fallback bool) bool {
@@ -386,6 +397,12 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 			return nil, fmt.Errorf("dial RTP sender %s:%d: %w", mpc.Address, mpc.Port, err)
 		}
 
+		if err := setMulticastTTL(sendConn, rtpMulticastTTL); err != nil {
+			_ = sendConn.Close()
+
+			return nil, fmt.Errorf("set multicast TTL on RTP sender %s:%d: %w", mpc.Address, mpc.Port, err)
+		}
+
 		// ── RTCP sender ────────────────────────────────────────────────
 		rtcpDst := &net.UDPAddr{IP: net.ParseIP(mpc.Address), Port: mpc.Port + 1}
 		rtcpSrc := &net.UDPAddr{IP: net.ParseIP(localIP), Port: 0}
@@ -395,6 +412,13 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 			_ = sendConn.Close()
 
 			return nil, fmt.Errorf("dial RTCP sender %s:%d: %w", mpc.Address, mpc.Port+1, err)
+		}
+
+		if err := setMulticastTTL(rtcpConn, rtpMulticastTTL); err != nil {
+			_ = sendConn.Close()
+			_ = rtcpConn.Close()
+
+			return nil, fmt.Errorf("set multicast TTL on RTCP sender %s:%d: %w", mpc.Address, mpc.Port+1, err)
 		}
 
 		sender := newSwappableSender(sendConn)
