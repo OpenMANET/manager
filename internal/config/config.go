@@ -14,6 +14,7 @@ const (
 	DefaultDBFile                                    string  = "/etc/openmanetd/openmanetd.db"
 	DefaultAlfredMode                                string  = "primary"
 	DefaultAlfredBatInterface                        string  = "bat0"
+	DefaultBatmanMulticastEnhancementsEnabled        bool    = true
 	DefaultAlfredSocketPath                          string  = "/var/run/alfred.sock"
 	DefaultAlfredEnable                              bool    = true
 	DefaultAlfredDataTypeGateway                     bool    = true
@@ -70,6 +71,7 @@ type Config struct {
 	AlfredDataTypePosition                    bool
 	AlfredDataTypeAddressReserv               bool
 	BLOSEnable                                bool
+	BatmanMulticastEnhancementsEnabled        bool
 	CommsDebug                                bool
 	CommsLoopback                             bool
 	CommsTrace                                bool
@@ -147,6 +149,12 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.GNSSSendAsCoT = c.v.GetBool("gnss.sendAsExternalGNSSSource.sendAsCoT")
 	} else {
 		c.GNSSSendAsCoT = DefaultGNSSSendAsCoT
+	}
+
+	if c.v.IsSet("batman.multicastEnhancementsEnabled") {
+		c.BatmanMulticastEnhancementsEnabled = c.v.GetBool("batman.multicastEnhancementsEnabled")
+	} else {
+		c.BatmanMulticastEnhancementsEnabled = DefaultBatmanMulticastEnhancementsEnabled
 	}
 
 	// Load Alfred configuration
@@ -348,6 +356,22 @@ func (c *Config) GetResetDBOnStart() bool {
 	defer c.mu.RUnlock()
 
 	return c.ResetDBOnStart
+}
+
+// GetEnableBatmanMulticastEnhancements returns whether batman-adv multicast enhancements are enabled.
+func (c *Config) GetEnableBatmanMulticastEnhancements() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.BatmanMulticastEnhancementsEnabled
+}
+
+// GetEnableBLOS returns whether BLOS is enabled.
+func (c *Config) GetEnableBLOS() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.BLOSEnable
 }
 
 // GetAlfredMode returns the Alfred operating mode (primary/secondary).

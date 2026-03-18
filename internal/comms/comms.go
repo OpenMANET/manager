@@ -358,7 +358,11 @@ func listenRTPReceiver(addr *net.UDPAddr) (*net.UDPConn, error) {
 
 // setMulticastTTL sets the IP multicast TTL on a UDP socket.
 func setMulticastTTL(conn *net.UDPConn, ttl int) error {
-	return ipv4.NewPacketConn(conn).SetMulticastTTL(ttl)
+	if err := ipv4.NewPacketConn(conn).SetMulticastTTL(ttl); err != nil {
+		return fmt.Errorf("set multicast TTL: %w", err)
+	}
+
+	return nil
 }
 
 // boolPtrVal dereferences p when non-nil; otherwise returns fallback.
@@ -397,10 +401,10 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 			return nil, fmt.Errorf("dial RTP sender %s:%d: %w", mpc.Address, mpc.Port, err)
 		}
 
-		if err := setMulticastTTL(sendConn, rtpMulticastTTL); err != nil {
+		if errTTL := setMulticastTTL(sendConn, rtpMulticastTTL); errTTL != nil {
 			_ = sendConn.Close()
 
-			return nil, fmt.Errorf("set multicast TTL on RTP sender %s:%d: %w", mpc.Address, mpc.Port, err)
+			return nil, fmt.Errorf("set multicast TTL on RTP sender %s:%d: %w", mpc.Address, mpc.Port, errTTL)
 		}
 
 		// ── RTCP sender ────────────────────────────────────────────────
@@ -414,11 +418,11 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 			return nil, fmt.Errorf("dial RTCP sender %s:%d: %w", mpc.Address, mpc.Port+1, err)
 		}
 
-		if err := setMulticastTTL(rtcpConn, rtpMulticastTTL); err != nil {
+		if errTTL := setMulticastTTL(rtcpConn, rtpMulticastTTL); errTTL != nil {
 			_ = sendConn.Close()
 			_ = rtcpConn.Close()
 
-			return nil, fmt.Errorf("set multicast TTL on RTCP sender %s:%d: %w", mpc.Address, mpc.Port+1, err)
+			return nil, fmt.Errorf("set multicast TTL on RTCP sender %s:%d: %w", mpc.Address, mpc.Port+1, errTTL)
 		}
 
 		sender := newSwappableSender(sendConn)

@@ -6,6 +6,8 @@ gnss:
   sendAsExternalGNSSSource:
     sendAsNMEA: false
     sendAsCoT: false
+batman:
+  multicastEnhancementsEnabled: false
 alfred:
   mode: primary
   batInterface: bat0
