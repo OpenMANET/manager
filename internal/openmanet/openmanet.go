@@ -17,6 +17,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/openmanet/server"
+	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/openmanet/openmanetd/internal/util/logger"
 	"github.com/rs/zerolog"
 )
@@ -34,27 +35,31 @@ func Start() {
 
 	banner.Print()
 
-	comms := comms.NewComms(comms.CommsConfig{
-		Log:                      logger.GetLogger("comms"),
-		Interrupt:                c,
-		Enable:                   cfg.GetCommsEnable(),
-		Iface:                    cfg.GetMeshNetInterface(),
-		Debug:                    cfg.GetCommsDebug(),
-		Loopback:                 cfg.GetCommsLoopback(),
-		Trace:                    cfg.GetCommsTrace(),
-		ControlSource:            cfg.GetCommsControlSource(),
-		MicGain:                  cfg.GetCommsMicGain(),
-		EnableNanoPTT:            cfg.GetCommsNanoPTTEnable(),
-		NanoPTTDevicePath:        cfg.GetCommsNanoPTTDevicePath(),
-		NanoPTTDeviceName:        cfg.GetCommsNanoPTTDeviceName(),
-		EnableBluetoothPtt:       cfg.GetCommsBluetoothPttEnable(),
-		BluetoothAudioDeviceHint: cfg.GetCommsBluetoothPttBluetoothAudioDeviceHint(),
-		BluetoothInputDevice:     cfg.GetCommsBluetoothPttBluetoothInputDevice(),
-		BluetoothOutputDevice:    cfg.GetCommsBluetoothPttBluetoothOutputDevice(),
-		PlaybackDepth:            cfg.GetCommsPlaybackBuffer(),
-	})
+	if board.CommsSupported() {
+		comms := comms.NewComms(comms.CommsConfig{
+			Log:                      logger.GetLogger("comms"),
+			Interrupt:                c,
+			Enable:                   cfg.GetCommsEnable(),
+			Iface:                    cfg.GetMeshNetInterface(),
+			Debug:                    cfg.GetCommsDebug(),
+			Loopback:                 cfg.GetCommsLoopback(),
+			Trace:                    cfg.GetCommsTrace(),
+			ControlSource:            cfg.GetCommsControlSource(),
+			MicGain:                  cfg.GetCommsMicGain(),
+			EnableNanoPTT:            cfg.GetCommsNanoPTTEnable(),
+			NanoPTTDevicePath:        cfg.GetCommsNanoPTTDevicePath(),
+			NanoPTTDeviceName:        cfg.GetCommsNanoPTTDeviceName(),
+			EnableBluetoothPtt:       cfg.GetCommsBluetoothPttEnable(),
+			BluetoothAudioDeviceHint: cfg.GetCommsBluetoothPttBluetoothAudioDeviceHint(),
+			BluetoothInputDevice:     cfg.GetCommsBluetoothPttBluetoothInputDevice(),
+			BluetoothOutputDevice:    cfg.GetCommsBluetoothPttBluetoothOutputDevice(),
+			PlaybackDepth:            cfg.GetCommsPlaybackBuffer(),
+		})
 
-	go comms.Start()
+		go comms.Start()
+	} else {
+		log.Warn().Msg("Current board does not support Comms features; skipping initialization of comms module")
+	}
 
 	// Establish database connection
 	db, err := database.NewConnection(ctx, logger.GetLogger("database"), cfg.GetDBFile())
@@ -69,7 +74,7 @@ func Start() {
 		}
 	}
 
-	if cfg.GetEnableGNSS() {
+	if cfg.GetEnableGNSS() && board.GNSSsupoorted() {
 		// Initialize and start GNSS module
 		gps, err = gpsd.NewGPSService(logger.GetLogger("gps"), cfg)
 		if err != nil {
@@ -127,7 +132,7 @@ func Start() {
 
 	log.Info().Msg("OpenMANETd API Server starting on port 8087")
 
-	if cfg.BLOSEnabled() {
+	if cfg.BLOSEnabled() && board.BLOSsupported() {
 		// Initialize BLOS module
 		_, err := blos.NewBLOS(cfg, logger.GetLogger("blos"))
 		if err != nil {
@@ -145,6 +150,7 @@ func Start() {
 		}
 	}()
 
+	// Block until we receive an interrupt signal, then gracefully shutdown.
 	<-c
 
 	_ = api.Stop(ctx)

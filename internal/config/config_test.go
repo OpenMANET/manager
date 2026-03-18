@@ -1174,3 +1174,83 @@ func TestBLOSEnabled(t *testing.T) {
 		})
 	}
 }
+
+func TestGetEnableBatmanMulticastEnhancements(t *testing.T) {
+	tests := []struct {
+		setValue *bool
+		name     string
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultBatmanMulticastEnhancementsEnabled,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("batman.multicastEnhancementsEnabled", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetEnableBatmanMulticastEnhancements()
+			if got != tt.want {
+				t.Errorf("GetEnableBatmanMulticastEnhancements() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetEnableBLOS(t *testing.T) {
+	tests := []struct {
+		setValue *bool
+		name     string
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultEnableBLOS,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("blos.enable", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetEnableBLOS()
+			if got != tt.want {
+				t.Errorf("GetEnableBLOS() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
