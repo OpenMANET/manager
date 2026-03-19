@@ -25,7 +25,7 @@ require (
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/net v0.52.0
 	golang.org/x/sys v0.42.0
-	google.golang.org/grpc v1.79.2
+	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
 	tailscale.com v1.94.2
 )
