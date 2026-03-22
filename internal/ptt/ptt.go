@@ -60,8 +60,8 @@ type PTTRuntime struct {
 }
 
 type PTTConfig struct {
-	Log      zerolog.Logger
-	Interupt chan os.Signal
+	Log           zerolog.Logger
+	Interupt      chan os.Signal
 
 	// Runtime state - only allocated when PTT is enabled
 	runtime       *PTTRuntime
@@ -70,6 +70,7 @@ type PTTConfig struct {
 	PttKey        string
 	PttDevice     string
 	PttDeviceName string
+	ControlSource string
 	McastPort     int
 	Enable        bool
 	Debug         bool
@@ -89,6 +90,7 @@ func NewPTT(cfg PTTConfig) *PTTConfig {
 		Loopback:      cfg.Loopback,
 		PttDevice:     cfg.PttDevice,
 		PttDeviceName: cfg.PttDeviceName,
+		ControlSource: cfg.ControlSource,
 	}
 }
 
@@ -284,11 +286,20 @@ func (ptt *PTTConfig) Start() {
 
 	go ptt.receiveLoop(ptt.runtime.udpRecvConn)
 
-	// PTT input (kept as-is for now)
-	pttDevice := ptt.findPTTDevice()
-	ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", pttDevice.Name)
-	ptt.Log.Debug().Msgf("Monitoring PTT device %s", pttDevice.Name)
-	go ptt.monitorPTT(pttDevice, ptt.runtime.broadcastStream)
+	controlSource := normalizeControlSource(ptt.ControlSource)
+	switch controlSource {
+	case "bluealsa_xevent":
+		ptt.Log.Info().Msg("Listening for PTT using BlueALSA XEVENT backend")
+		go ptt.monitorBluealsaXEvents()
+	case "bluetooth":
+		ptt.Log.Info().Msg("Listening for PTT using native Bluetooth backend")
+		go ptt.monitorBluetoothPTT()
+	default:
+		pttDevice := ptt.findPTTDevice()
+		ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", pttDevice.Name)
+		ptt.Log.Debug().Msgf("Monitoring PTT device %s", pttDevice.Name)
+		go ptt.monitorPTT(pttDevice, ptt.runtime.broadcastStream)
+	}
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
@@ -27,6 +28,7 @@ const (
 	DefaultPTTLoopback                 bool   = false
 	DefaultPTTPttDevice                string = "/dev/hidraw0/*"
 	DefaultPTTPttDeviceName            string = ""
+	DefaultPTTControlSource            string = "evdev"
 	DefaultResetDBOnStart              bool   = false
 	DefaultEnableGNSS                  bool   = false
 	DefaultGNSSSendAsNMEA              bool   = false
@@ -47,6 +49,7 @@ type Config struct {
 	PTTPttKey                   string
 	PTTPttDevice                string
 	PTTPttDeviceName            string
+	PTTControlSource            string
 	onChangeCallbacks           []func(*Config)
 	PTTMcastPort                int
 	BLOSEnable                  bool
@@ -233,6 +236,12 @@ func (c *Config) reload() {
 		c.PTTPttDeviceName = DefaultPTTPttDeviceName
 	}
 
+	if val := strings.ToLower(c.v.GetString("ptt.controlSource")); val != "" {
+		c.PTTControlSource = val
+	} else {
+		c.PTTControlSource = DefaultPTTControlSource
+	}
+
 	// Load BLOS configuration
 	if c.v.IsSet("blos.enable") {
 		c.BLOSEnable = c.v.GetBool("blos.enable")
@@ -397,6 +406,13 @@ func (c *Config) GetPTTPttDeviceName() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.PTTPttDeviceName
+}
+
+// GetPTTControlSource returns the PTT control source (evdev, bluealsa_xevent, or bluetooth).
+func (c *Config) GetPTTControlSource() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PTTControlSource
 }
 
 // GetEnableGNSS returns whether GNSS is enabled.

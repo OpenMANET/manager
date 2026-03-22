@@ -574,6 +574,40 @@ func TestGetPTTPttKey(t *testing.T) {
 	}
 }
 
+func TestGetPTTControlSource(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured source",
+			setValue: strPtr("bluetooth"),
+			want:     "bluetooth",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultPTTControlSource,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("ptt.controlSource", *tt.setValue)
+			}
+
+			cfg := New(v)
+			got := cfg.GetPTTControlSource()
+			if got != tt.want {
+				t.Errorf("GetPTTControlSource() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetPTTDebug(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -45,6 +45,7 @@ func Start() {
 		Loopback:      cfg.GetPTTLoopback(),
 		PttDevice:     cfg.GetPTTPttDevice(),
 		PttDeviceName: cfg.GetPTTPttDeviceName(),
+		ControlSource: cfg.GetPTTControlSource(),
 	})
 
 	ptt.Start()

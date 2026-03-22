@@ -3,6 +3,7 @@ package ptt
 import (
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/gordonklaus/portaudio"
 	evdev "github.com/gvalkov/golang-evdev"
@@ -44,6 +45,17 @@ func (ptt *PTTConfig) findPTTDevice() *evdev.InputDevice {
 	ptt.Log.Fatal().Msgf("PTT device %q not found", ptt.PttDeviceName)
 
 	return nil
+}
+
+func normalizeControlSource(src string) string {
+	switch strings.ToLower(strings.TrimSpace(src)) {
+	case "bluealsa_xevent":
+		return "bluealsa_xevent"
+	case "bluetooth":
+		return "bluetooth"
+	default:
+		return "evdev"
+	}
 }
 
 func (ptt *PTTConfig) logInputDeviceList() {
