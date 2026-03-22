@@ -16,6 +16,7 @@ ptt:
   mcastAddr: 224.0.0.1
   mcastPort: 5007
   pttKey: any
+  controlSource: bluetooth
   debug: true
   loopback: true
   pttDevice: /dev/hidraw0/*
