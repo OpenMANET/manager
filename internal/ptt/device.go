@@ -10,10 +10,10 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
-func (ptt *PTTConfig) getDeviceByIndex(index int) *portaudio.DeviceInfo {
+func (ptt *PTTConfig) getDefaultOutputDevice() (*portaudio.DeviceInfo, error) {
 	devs, err := portaudio.Devices()
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("portaudio.Devices")
+		return nil, err
 	}
 
 	if ptt.Debug {
@@ -23,28 +23,29 @@ func (ptt *PTTConfig) getDeviceByIndex(index int) *portaudio.DeviceInfo {
 		}
 	}
 
-	if len(devs) <= index {
-		ptt.Log.Fatal().Msgf("Device index %d not found; only %d devices available", index, len(devs))
+	device, err := portaudio.DefaultOutputDevice()
+	if err != nil {
+		return nil, err
 	}
-	return devs[index]
+
+	return device, nil
 }
 
-func (ptt *PTTConfig) findPTTDevice() *evdev.InputDevice {
+func (ptt *PTTConfig) findPTTDevice() (*evdev.InputDevice, error) {
 	devs, err := evdev.ListInputDevices(ptt.PttDevice)
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("evdev.ListInputDevices")
+		return nil, err
 	}
 
 	for _, d := range devs {
 		if d.Name == ptt.PttDeviceName {
 			ptt.Log.Debug().Msgf("Matched PTT device %s (%s)", d.Name, d.Fn)
 
-			return d
+			return d, nil
 		}
 	}
-	ptt.Log.Fatal().Msgf("PTT device %q not found", ptt.PttDeviceName)
 
-	return nil
+	return nil, fmt.Errorf("PTT device %q not found", ptt.PttDeviceName)
 }
 
 func normalizeControlSource(src string) string {

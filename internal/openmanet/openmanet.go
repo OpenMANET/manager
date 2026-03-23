@@ -48,7 +48,7 @@ func Start() {
 		ControlSource: cfg.GetPTTControlSource(),
 	})
 
-	ptt.Start()
+	go ptt.Start()
 
 	// Establish database connection
 	db, err := database.NewConnection(ctx, logger.GetLogger("database"), cfg.GetDBFile())

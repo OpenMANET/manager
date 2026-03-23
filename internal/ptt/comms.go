@@ -97,6 +97,11 @@ func (ptt *PTTConfig) drainPlaybackBuffer() {
 }
 
 func (ptt *PTTConfig) beginTransmission(bcastStream *portaudio.Stream) {
+	if bcastStream == nil {
+		ptt.Log.Warn().Msg("PTT audio input stream is unavailable; ignoring transmit request")
+		return
+	}
+
 	ptt.runtime.recordMutex.Lock()
 	if ptt.runtime.broadcasting {
 		ptt.Log.Debug().Msgf("PTT down ignored; already broadcasting")
@@ -123,6 +128,11 @@ func (ptt *PTTConfig) beginTransmission(bcastStream *portaudio.Stream) {
 }
 
 func (ptt *PTTConfig) endTransmission(bcastStream *portaudio.Stream) {
+	if bcastStream == nil {
+		ptt.Log.Warn().Msg("PTT audio input stream is unavailable; ignoring transmit stop request")
+		return
+	}
+
 	ptt.runtime.recordMutex.Lock()
 
 	if !ptt.runtime.broadcasting {

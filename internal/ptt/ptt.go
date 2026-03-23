@@ -1,12 +1,14 @@
 package ptt
 
 import (
+	"fmt"
 	"math"
 	"net"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/gordonklaus/portaudio"
 	"github.com/hraban/opus"
@@ -29,6 +31,7 @@ const (
 	defaultLoopback      bool   = true
 	defaultPTTDevice     string = "/dev/hidraw0/*"
 	defaultPTTDeviceName string = "AllInOneCable"
+	pttRetryDelay               = 10 * time.Second
 )
 
 // PTTRuntime holds runtime state for an active PTT instance
@@ -60,8 +63,8 @@ type PTTRuntime struct {
 }
 
 type PTTConfig struct {
-	Log           zerolog.Logger
-	Interupt      chan os.Signal
+	Log      zerolog.Logger
+	Interupt chan os.Signal
 
 	// Runtime state - only allocated when PTT is enabled
 	runtime       *PTTRuntime
@@ -100,6 +103,18 @@ func (ptt *PTTConfig) Start() {
 		return
 	}
 
+	for {
+		if err := ptt.startOnce(); err != nil {
+			ptt.Log.Error().Err(err).Msgf("PTT startup failed; retrying in %s", pttRetryDelay)
+			time.Sleep(pttRetryDelay)
+			continue
+		}
+
+		return
+	}
+}
+
+func (ptt *PTTConfig) startOnce() error {
 	// Initialize runtime state only when PTT is enabled
 	ptt.runtime = &PTTRuntime{
 		playbackBuffer:  make(chan []float32, 2),
@@ -148,51 +163,82 @@ func (ptt *PTTConfig) Start() {
 
 	ptt.Log.Info().Msgf("Starting PTT on iface=%s mcast=%s:%d key=%s debug=%t loopback=%t ptt_device=%s", ptt.runtime.ifaceName, ptt.runtime.mcastAddr, ptt.runtime.mcastPort, ptt.runtime.pttKey, ptt.runtime.debugEnabled, ptt.runtime.loopbackAudio, ptt.runtime.pttDeviceName)
 
-	var err error
+	var (
+		err                  error
+		playbackStream       *portaudio.Stream
+		portAudioInitialized bool
+	)
+
+	defer func() {
+		if err == nil {
+			return
+		}
+
+		if ptt.runtime.broadcastStream != nil {
+			_ = ptt.runtime.broadcastStream.Close()
+			ptt.runtime.broadcastStream = nil
+		}
+
+		if playbackStream != nil {
+			_ = playbackStream.Stop()
+			_ = playbackStream.Close()
+		}
+
+		if ptt.runtime.udpSendConn != nil {
+			_ = ptt.runtime.udpSendConn.Close()
+			ptt.runtime.udpSendConn = nil
+		}
+
+		if ptt.runtime.udpRecvConn != nil {
+			_ = ptt.runtime.udpRecvConn.Close()
+			ptt.runtime.udpRecvConn = nil
+		}
+
+		if portAudioInitialized {
+			portaudio.Terminate()
+		}
+	}()
+
 	ptt.runtime.encoder, err = opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to create Opus encoder")
+		return fmt.Errorf("failed to create Opus encoder: %w", err)
 	}
 
 	if err := ptt.runtime.encoder.SetBitrate(targetBitrate); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder bitrate")
+		return fmt.Errorf("failed to set Opus encoder bitrate: %w", err)
 	}
 
 	if err := ptt.runtime.encoder.SetComplexity(encoderComplexity); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder complexity")
+		return fmt.Errorf("failed to set Opus encoder complexity: %w", err)
 	}
 
 	if err := ptt.runtime.encoder.SetInBandFEC(true); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder in-band FEC")
+		return fmt.Errorf("failed to set Opus encoder in-band FEC: %w", err)
 	}
 
 	if err := ptt.runtime.encoder.SetPacketLossPerc(packetLossPerc); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder packet loss percentage")
+		return fmt.Errorf("failed to set Opus encoder packet loss percentage: %w", err)
 	}
 
 	if err := ptt.runtime.encoder.SetDTX(false); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to set Opus encoder DTX")
+		return fmt.Errorf("failed to set Opus encoder DTX: %w", err)
 	}
 
 	ptt.runtime.decoder, err = opus.NewDecoder(sampleRate, channels)
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to create Opus decoder")
+		return fmt.Errorf("failed to create Opus decoder: %w", err)
 	}
 
 	if err := portaudio.Initialize(); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to initialize PortAudio")
+		return fmt.Errorf("failed to initialize PortAudio: %w", err)
 	}
-
-	// handle shutdown
-	go func() {
-		<-ptt.Interupt
-		ptt.Log.Info().Msg("Received shutdown signal, cleaning up PortAudio")
-		portaudio.Terminate()
-		os.Exit(0)
-	}()
+	portAudioInitialized = true
 
 	// playback stream
-	device := ptt.getDeviceByIndex(1)
+	device, err := ptt.getDefaultOutputDevice()
+	if err != nil {
+		return fmt.Errorf("failed to get default output device: %w", err)
+	}
 	params := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
 			Device:   device,
@@ -202,7 +248,7 @@ func (ptt *PTTConfig) Start() {
 		FramesPerBuffer: frameSize,
 	}
 
-	playbackStream, err := portaudio.OpenStream(params, func(_, out []float32) {
+	playbackStream, err = portaudio.OpenStream(params, func(_, out []float32) {
 		select {
 		case data := <-ptt.runtime.playbackBuffer:
 			copy(out, data)
@@ -214,16 +260,20 @@ func (ptt *PTTConfig) Start() {
 		}
 	})
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to open PortAudio stream")
+		return fmt.Errorf("failed to open PortAudio playback stream: %w", err)
 	}
 
 	if err := playbackStream.Start(); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to start playback stream")
+		return fmt.Errorf("failed to start PortAudio playback stream: %w", err)
 	}
 	defer playbackStream.Stop()
 	defer playbackStream.Close()
 
 	// mic stream (opened, not started)
+	if _, err := portaudio.DefaultInputDevice(); err != nil {
+		return fmt.Errorf("failed to get default input device: %w", err)
+	}
+
 	ptt.runtime.broadcastStream, err = portaudio.OpenDefaultStream(channels, 0, float64(sampleRate), frameSize, func(in []float32) {
 		ptt.Log.Debug().Msgf("Mic callback received %d samples", len(in))
 		pcm := make([]int16, len(in))
@@ -239,7 +289,7 @@ func (ptt *PTTConfig) Start() {
 		}
 	})
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to open PortAudio stream")
+		return fmt.Errorf("failed to open PortAudio input stream: %w", err)
 	}
 
 	defer ptt.runtime.broadcastStream.Close()
@@ -253,7 +303,7 @@ func (ptt *PTTConfig) Start() {
 	// networking: bind send to iface IP; listen on :port and join group on iface
 	ifIP, ifi, err := ptt.getIfaceIPv4(ptt.runtime.ifaceName)
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to get interface IPv4")
+		return fmt.Errorf("failed to get interface IPv4: %w", err)
 	}
 
 	ptt.runtime.localIP = ifIP
@@ -265,22 +315,22 @@ func (ptt *PTTConfig) Start() {
 
 	ptt.runtime.udpSendConn, err = net.DialUDP("udp4", src, dst)
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to dial UDP")
+		return fmt.Errorf("failed to dial UDP: %w", err)
 	}
 	ptt.Log.Debug().Msgf("Sender bound to %s -> %s:%d", src.IP.String(), ptt.runtime.mcastAddr, ptt.runtime.mcastPort)
 
 	// receiver on all, then join group on iface
 	ptt.runtime.udpRecvConn, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: ptt.runtime.mcastPort})
 	if err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to listen on UDP")
+		return fmt.Errorf("failed to listen on UDP: %w", err)
 	}
 
 	if err := ptt.runtime.udpRecvConn.SetReadBuffer(65535); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to set UDP read buffer")
+		return fmt.Errorf("failed to set UDP read buffer: %w", err)
 	}
 
 	if err := ptt.joinMulticastGroup(ifi, ptt.runtime.udpRecvConn, net.ParseIP(ptt.runtime.mcastAddr)); err != nil {
-		ptt.Log.Fatal().Err(err).Msg("Failed to join multicast group")
+		return fmt.Errorf("failed to join multicast group: %w", err)
 	}
 	ptt.Log.Debug().Msgf("Joined multicast group %s:%d", ptt.runtime.mcastAddr, ptt.runtime.mcastPort)
 
@@ -295,14 +345,21 @@ func (ptt *PTTConfig) Start() {
 		ptt.Log.Info().Msg("Listening for PTT using native Bluetooth backend")
 		go ptt.monitorBluetoothPTT()
 	default:
-		pttDevice := ptt.findPTTDevice()
+		pttDevice, err := ptt.findPTTDevice()
+		if err != nil {
+			return err
+		}
 		ptt.Log.Info().Msgf("🎙️ Listening for PTT on: %s", pttDevice.Name)
 		ptt.Log.Debug().Msgf("Monitoring PTT device %s", pttDevice.Name)
 		go ptt.monitorPTT(pttDevice, ptt.runtime.broadcastStream)
 	}
 
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	<-c
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(shutdown)
+	<-shutdown
 	ptt.Log.Info().Msg("Exiting PTT service")
+	portaudio.Terminate()
+
+	return nil
 }
