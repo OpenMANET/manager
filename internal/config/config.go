@@ -32,7 +32,6 @@ const (
 	DefaultCommsNanoPTTEnable                        bool    = false
 	DefaultCommsNanoPTTDevicePath                    string  = "/dev/hidraw0/*"
 	DefaultCommsNanoPTTDeviceName                    string  = ""
-	DefaultCommsBluetoothPttEnable                   bool    = false
 	DefaultCommsBluetoothPttBluetoothAudioDeviceHint string  = ""
 	DefaultCommsBluetoothPttBluetoothInputDevice     string  = ""
 	DefaultCommsBluetoothPttBluetoothOutputDevice    string  = ""
@@ -76,7 +75,6 @@ type Config struct {
 	CommsLoopback                             bool
 	CommsTrace                                bool
 	CommsNanoPTTEnable                        bool
-	CommsBluetoothPttEnable                   bool
 	ResetDBOnStart                            bool
 	EnableGNSS                                bool
 	GNSSSendAsNMEA                            bool
@@ -276,12 +274,6 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 	}
 
 	// Load bluetoothPtt configuration
-	if c.v.IsSet("comms.bluetoothPtt.enable") {
-		c.CommsBluetoothPttEnable = c.v.GetBool("comms.bluetoothPtt.enable")
-	} else {
-		c.CommsBluetoothPttEnable = DefaultCommsBluetoothPttEnable
-	}
-
 	if val := c.v.GetString("comms.bluetoothPtt.BluetoothAudioDeviceHint"); val != "" {
 		c.CommsBluetoothPttBluetoothAudioDeviceHint = val
 	} else {
@@ -526,14 +518,6 @@ func (c *Config) GetCommsNanoPTTDeviceName() string {
 	defer c.mu.RUnlock()
 
 	return c.CommsNanoPTTDeviceName
-}
-
-// GetCommsBluetoothPttEnable returns whether the Bluetooth PTT source is enabled.
-func (c *Config) GetCommsBluetoothPttEnable() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.CommsBluetoothPttEnable
 }
 
 // GetCommsBluetoothPttBluetoothAudioDeviceHint returns a shared matcher for selecting both mic and speaker devices.

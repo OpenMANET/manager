@@ -346,6 +346,38 @@ func TestApplyDefaults_BluetoothAudioDeviceHintDoesNotOverrideExplicit(t *testin
 	}
 }
 
+func TestBuildEventSource_BlueALSA(t *testing.T) {
+	cfg := &CommsConfig{
+		ControlSource: controlSourceBlueALSAXEvent,
+		Log:           zerolog.Nop(),
+	}
+
+	src, err := cfg.buildEventSource(&CommsRuntime{})
+	if err != nil {
+		t.Fatalf("buildEventSource() error = %v", err)
+	}
+
+	if _, ok := src.(*blueALSAXEventSource); !ok {
+		t.Fatalf("buildEventSource() = %T, want *blueALSAXEventSource", src)
+	}
+}
+
+func TestBuildEventSource_Bluetooth(t *testing.T) {
+	cfg := &CommsConfig{
+		ControlSource: controlSourceBluetooth,
+		Log:           zerolog.Nop(),
+	}
+
+	src, err := cfg.buildEventSource(&CommsRuntime{})
+	if err != nil {
+		t.Fatalf("buildEventSource() error = %v", err)
+	}
+
+	if _, ok := src.(*bluetoothEventSource); !ok {
+		t.Fatalf("buildEventSource() = %T, want *bluetoothEventSource", src)
+	}
+}
+
 // ─── replaceNetwork tests ─────────────────────────────────────────────────────
 
 func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {

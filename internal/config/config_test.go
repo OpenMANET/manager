@@ -680,6 +680,11 @@ func TestGetCommsControlSource(t *testing.T) {
 			want:     "bluealsa_xevent",
 		},
 		{
+			name:     "returns bluetooth control source",
+			setValue: strPtr("bluetooth"),
+			want:     "bluetooth",
+		},
+		{
 			name:     "returns default when empty",
 			setValue: strPtr(""),
 			want:     DefaultCommsControlSource,
@@ -818,46 +823,6 @@ func TestGetCommsNanoPTTEnable(t *testing.T) {
 			got := cfg.GetCommsNanoPTTEnable()
 			if got != tt.want {
 				t.Errorf("GetCommsNanoPTTEnable() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGetCommsBluetoothPttEnable(t *testing.T) {
-	tests := []struct {
-		setValue *bool
-		name     string
-		want     bool
-	}{
-		{
-			name:     "returns true when enabled",
-			setValue: boolPtr(true),
-			want:     true,
-		},
-		{
-			name:     "returns false when disabled",
-			setValue: boolPtr(false),
-			want:     false,
-		},
-		{
-			name:     "returns default when not set",
-			setValue: nil,
-			want:     DefaultCommsBluetoothPttEnable,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			v := viper.New()
-			if tt.setValue != nil {
-				v.Set("comms.bluetoothPtt.enable", *tt.setValue)
-			}
-
-			cfg := New(v)
-
-			got := cfg.GetCommsBluetoothPttEnable()
-			if got != tt.want {
-				t.Errorf("GetCommsBluetoothPttEnable() = %v, want %v", got, tt.want)
 			}
 		})
 	}

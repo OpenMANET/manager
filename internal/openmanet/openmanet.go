@@ -49,7 +49,6 @@ func Start() {
 			EnableNanoPTT:            cfg.GetCommsNanoPTTEnable(),
 			NanoPTTDevicePath:        cfg.GetCommsNanoPTTDevicePath(),
 			NanoPTTDeviceName:        cfg.GetCommsNanoPTTDeviceName(),
-			EnableBluetoothPtt:       cfg.GetCommsBluetoothPttEnable(),
 			BluetoothAudioDeviceHint: cfg.GetCommsBluetoothPttBluetoothAudioDeviceHint(),
 			BluetoothInputDevice:     cfg.GetCommsBluetoothPttBluetoothInputDevice(),
 			BluetoothOutputDevice:    cfg.GetCommsBluetoothPttBluetoothOutputDevice(),

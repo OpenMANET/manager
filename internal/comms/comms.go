@@ -192,7 +192,6 @@ type CommsConfig struct {
 	Loopback                 bool
 	Trace                    bool
 	Enable                   bool
-	EnableBluetoothPtt       bool
 }
 
 // NewComms copies cfg and returns a pointer ready for Start.
@@ -216,7 +215,6 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		EnableNanoPTT:            cfg.EnableNanoPTT,
 		NanoPTTDevicePath:        cfg.NanoPTTDevicePath,
 		NanoPTTDeviceName:        cfg.NanoPTTDeviceName,
-		EnableBluetoothPtt:       cfg.EnableBluetoothPtt,
 		BluetoothAudioDeviceHint: cfg.BluetoothAudioDeviceHint,
 		BluetoothInputDevice:     cfg.BluetoothInputDevice,
 		BluetoothOutputDevice:    cfg.BluetoothOutputDevice,
@@ -773,9 +771,11 @@ func (cfg *CommsConfig) reopenBroadcastStream(rt *CommsRuntime, inDev *portaudio
 
 // buildEventSource constructs the PTT EventSource defined by cfg.ControlSource.
 //
-// Three backends are supported:
+// Five backends are supported:
 //   - "cm108" (defaultCtrlSrc): reads PTT state directly from a CM108-compatible
 //     USB audio/HID dongle via its HID interrupt endpoint.
+//   - "bluealsa_xevent": monitors BlueALSA DBus signals for headset button events.
+//   - "bluetooth": monitors BlueZ device state and forwards BlueALSA XEVENT presses.
 //   - "roip": ROIP bridge mode — automatic TX/RX on the same CM108 hardware
 //     using COS GPIO detection with VOX (audio energy) as fallback.
 //   - anything else (default): searches for a matching evdev input device via
@@ -803,6 +803,16 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 		clearTap := func() { rt.broadcastTap.Store(nil) }
 
 		return NewROIPSource(cfg, isReceiving, isBroadcasting, setTap, clearTap, cfg.Log), nil
+
+	case controlSourceBlueALSAXEvent:
+		cfg.Log.Info().Msg("comms: PTT via BlueALSA XEVENT DBus monitor")
+
+		return NewBlueALSAXEventSource(cfg.Log), nil
+
+	case controlSourceBluetooth:
+		cfg.Log.Info().Msg("comms: PTT via Bluetooth monitor with BlueALSA XEVENT fallback")
+
+		return NewBluetoothEventSource(cfg.Log), nil
 
 	case controlSourceWeb:
 		cfg.Log.Info().Msg("comms: PTT via web RPC")

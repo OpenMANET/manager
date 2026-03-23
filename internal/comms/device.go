@@ -14,6 +14,8 @@ import (
 const (
 	defaultControlSourceCM108   = "cm108"
 	defaultControlSourceNanoPTT = "nanoptt"
+	controlSourceBlueALSAXEvent = "bluealsa_xevent"
+	controlSourceBluetooth      = "bluetooth"
 	controlSourceROIP           = "roip"
 	controlSourceWeb            = "web"
 )
@@ -22,8 +24,10 @@ const (
 // Unrecognized values (including empty string) default to "cm108".
 func normalizeControlSource(src string) string {
 	switch strings.ToLower(strings.TrimSpace(src)) {
-	case "bluealsa_xevent":
-		return "bluealsa_xevent"
+	case controlSourceBlueALSAXEvent:
+		return controlSourceBlueALSAXEvent
+	case controlSourceBluetooth:
+		return controlSourceBluetooth
 	case defaultControlSourceNanoPTT:
 		return defaultControlSourceNanoPTT
 	case controlSourceROIP:

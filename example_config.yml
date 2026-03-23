@@ -17,6 +17,7 @@ comms:
   debug: true
   trace: false
   loopback: false
+  # cm108, nanoptt, bluealsa_xevent, bluetooth, roip, or web
   controlSource: cm108
   playbackBuffer: 2
   # Microphone gain multiplier (1.0 = unity, 2.0 = +6 dB, 0.5 = -6 dB)
@@ -26,7 +27,6 @@ comms:
     devicePath: /dev/hidraw0/*
     deviceName: Generic AB13X USB Audio
   bluetoothPtt:
-    enable: false
     BluetoothAudioDeviceHint: ""
     BluetoothInputDevice: ""
     BluetoothOutputDevice: ""

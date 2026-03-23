@@ -2,10 +2,12 @@ package comms
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/godbus/dbus/v5"
 	evdev "github.com/gvalkov/golang-evdev"
 	"github.com/rs/zerolog"
 )
@@ -46,6 +48,8 @@ func TestNormalizeControlSource(t *testing.T) {
 		{"NANOPTT", "nanoptt"},
 		{"bluealsa_xevent", "bluealsa_xevent"},
 		{"BLUEALSA_XEVENT", "bluealsa_xevent"},
+		{"bluetooth", "bluetooth"},
+		{"BLUETOOTH", "bluetooth"},
 		{"roip", "roip"},
 		{"ROIP", "roip"},
 		{"  roip  ", "roip"},
@@ -61,6 +65,106 @@ func TestNormalizeControlSource(t *testing.T) {
 			t.Errorf("normalizeControlSource(%q) = %q; want %q", tc.input, got, tc.want)
 		}
 	}
+}
+
+func TestBlueALSAEventName(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  string
+		want string
+		ok   bool
+	}{
+		{name: "colon delimiter", msg: "+XEVENT:PTT_DOWN", want: "PTT_DOWN", ok: true},
+		{name: "equals delimiter", msg: "AT+XEVENT=PTT_UP", want: "PTT_UP", ok: true},
+		{name: "comma delimiter", msg: "+XEVENT,PREV_CH", want: "PREV_CH", ok: true},
+		{name: "missing marker", msg: "garbage", want: "", ok: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := blueALSAEventName(tt.msg)
+			if ok != tt.ok {
+				t.Fatalf("blueALSAEventName(%q) ok = %v, want %v", tt.msg, ok, tt.ok)
+			}
+
+			if got != tt.want {
+				t.Fatalf("blueALSAEventName(%q) = %q, want %q", tt.msg, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBlueALSAPropertyMessages(t *testing.T) {
+	sig := &dbus.Signal{
+		Name: bluezPropertiesChangedSignal,
+		Path: dbus.ObjectPath("/org/bluealsa/hci0/dev_test"),
+		Body: []any{
+			"org.bluealsa.Device1",
+			map[string]dbus.Variant{
+				"ATCommand": dbus.MakeVariant("+XEVENT:PTT_DOWN"),
+				"State":     dbus.MakeVariant("ignored"),
+			},
+		},
+	}
+
+	msgs := blueALSAPropertyMessages(sig)
+	if len(msgs) != 1 {
+		t.Fatalf("blueALSAPropertyMessages() len = %d, want 1", len(msgs))
+	}
+
+	if msgs[0] != "+XEVENT:PTT_DOWN" {
+		t.Fatalf("blueALSAPropertyMessages()[0] = %q, want %q", msgs[0], "+XEVENT:PTT_DOWN")
+	}
+}
+
+func TestBlueALSAXEventSource_ParsesATMessageSignals(t *testing.T) {
+	src := &blueALSAXEventSource{log: zerolog.Nop()}
+	ch := make(chan PTTEvent, 1)
+
+	ok := src.handleSignal(context.Background(), ch, &dbus.Signal{
+		Name: bluealsaATMessageSignal,
+		Body: []any{"+XEVENT:PTT_DOWN"},
+	})
+	if !ok {
+		t.Fatal("handleSignal returned false")
+	}
+
+	select {
+	case ev := <-ch:
+		if ev != PTTDown {
+			t.Fatalf("event = %v, want %v", ev, PTTDown)
+		}
+	default:
+		t.Fatal("expected BlueALSA event to be emitted")
+	}
+}
+
+func TestBluetoothEventSource_ForwardsBlueALSAFallback(t *testing.T) {
+	fallback := &mockEventSource{ch: make(chan PTTEvent, 1)}
+	src := &bluetoothEventSource{
+		log:  zerolog.Nop(),
+		dial: func() (*dbus.Conn, error) { return nil, errors.New("no bluez") },
+		xeventFactory: func(zerolog.Logger) EventSource {
+			return fallback
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ch := src.Events(ctx)
+	fallback.ch <- PTTUp
+
+	select {
+	case ev := <-ch:
+		if ev != PTTUp {
+			t.Fatalf("event = %v, want %v", ev, PTTUp)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for forwarded fallback event")
+	}
+
+	close(fallback.ch)
 }
 
 func TestPTTEvent_Values(t *testing.T) {
