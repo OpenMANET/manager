@@ -13,7 +13,7 @@ require (
 	github.com/gordonklaus/portaudio v0.0.0-20250206071425-98a94950218b
 	github.com/gvalkov/golang-evdev v0.0.0-20220815104727-7e27d6ce89b6
 	github.com/hraban/opus v0.0.0-20230925203106-0188a62cb302
-	github.com/mattn/go-sqlite3 v1.14.34
+	github.com/mattn/go-sqlite3 v1.14.37
 	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875
 	github.com/mdlayher/wifi v0.7.2
 	github.com/openmanet/go-alfred v0.0.0-202404291200151-8f3f3f4e2f4e
