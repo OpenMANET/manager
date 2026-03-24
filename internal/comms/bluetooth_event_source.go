@@ -37,7 +37,9 @@ type bluetoothEventSource struct {
 func NewBlueALSAXEventSource(log zerolog.Logger) EventSource {
 	return &blueALSAXEventSource{
 		log:  log,
-		dial: dbus.ConnectSystemBus,
+		dial: func() (*dbus.Conn, error) {
+			return dbus.ConnectSystemBus()
+		},
 	}
 }
 
@@ -45,7 +47,9 @@ func NewBlueALSAXEventSource(log zerolog.Logger) EventSource {
 func NewBluetoothEventSource(log zerolog.Logger) EventSource {
 	return &bluetoothEventSource{
 		log:           log,
-		dial:          dbus.ConnectSystemBus,
+		dial: func() (*dbus.Conn, error) {
+			return dbus.ConnectSystemBus()
+		},
 		xeventFactory: NewBlueALSAXEventSource,
 	}
 }
