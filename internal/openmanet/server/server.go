@@ -76,7 +76,6 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Cfg:         cfg.Cfg,
 		Log:         cfg.Log,
 		BLOSManager: cfg.BLOSManager,
-		RunCommand:  handlers.DefaultRunCommand,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	p := new(http.Protocols)

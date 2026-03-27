@@ -91,9 +91,6 @@ func newTestServer(t *testing.T) *httptest.Server {
 		Cfg:         &config.Config{BLOSEnable: false},
 		Log:         zerolog.Nop(),
 		BLOSManager: &fakeBLOSManager{},
-		RunCommand: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
-			return nil, nil
-		},
 	}, handlerOpt))
 
 	srv := httptest.NewServer(mux)
@@ -516,9 +513,6 @@ func newBLOSTestServer(t *testing.T) *httptest.Server {
 		Cfg:         cfg,
 		Log:         zerolog.Nop(),
 		BLOSManager: &fakeBLOSManager{},
-		RunCommand: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
-			return nil, nil
-		},
 	}, handlerOpt))
 
 	srv := httptest.NewServer(mux)

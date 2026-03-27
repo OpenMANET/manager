@@ -38,14 +38,13 @@ func setupBLOSTestConfig(t *testing.T, yamlContent string) *config.Config {
 	return config.NewWithoutWatch(v)
 }
 
-func newBLOSService(t *testing.T, cfg *config.Config, mgr *fakeBLOSManager, cmd *fakeRunCommand) *handlers.BLOSService {
+func newBLOSService(t *testing.T, cfg *config.Config, mgr *fakeBLOSManager) *handlers.BLOSService {
 	t.Helper()
 
 	return &handlers.BLOSService{
 		Cfg:         cfg,
 		Log:         zerolog.Nop(),
 		BLOSManager: mgr,
-		RunCommand:  cmd.Run,
 	}
 }
 
@@ -54,7 +53,7 @@ func newBLOSService(t *testing.T, cfg *config.Config, mgr *fakeBLOSManager, cmd 
 func TestGetBLOSStatus_Enabled(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "blos:\n  enable: true\n")
 	mgr := &fakeBLOSManager{running: true}
-	svc := newBLOSService(t, cfg, mgr, &fakeRunCommand{})
+	svc := newBLOSService(t, cfg, mgr)
 
 	resp, err := svc.GetBLOSStatus(context.Background(), &emptypb.Empty{})
 	require.NoError(t, err)
@@ -65,7 +64,7 @@ func TestGetBLOSStatus_Enabled(t *testing.T) {
 func TestGetBLOSStatus_Disabled(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "blos:\n  enable: false\n")
 	mgr := &fakeBLOSManager{running: false}
-	svc := newBLOSService(t, cfg, mgr, &fakeRunCommand{})
+	svc := newBLOSService(t, cfg, mgr)
 
 	resp, err := svc.GetBLOSStatus(context.Background(), &emptypb.Empty{})
 	require.NoError(t, err)
@@ -76,7 +75,7 @@ func TestGetBLOSStatus_Disabled(t *testing.T) {
 func TestGetBLOSStatus_ConfigEnabledButNotRunning(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "blos:\n  enable: true\n")
 	mgr := &fakeBLOSManager{running: false}
-	svc := newBLOSService(t, cfg, mgr, &fakeRunCommand{})
+	svc := newBLOSService(t, cfg, mgr)
 
 	resp, err := svc.GetBLOSStatus(context.Background(), &emptypb.Empty{})
 	require.NoError(t, err)
@@ -89,8 +88,7 @@ func TestGetBLOSStatus_ConfigEnabledButNotRunning(t *testing.T) {
 func TestUpdateBLOSConfig_Enable_Success(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "blos:\n  enable: false\n")
 	mgr := &fakeBLOSManager{}
-	cmd := &fakeRunCommand{}
-	svc := newBLOSService(t, cfg, mgr, cmd)
+	svc := newBLOSService(t, cfg, mgr)
 
 	resp, err := svc.UpdateBLOSConfig(context.Background(), &v1.UpdateBLOSConfigRequest{
 		EnableBlos: true,
@@ -100,25 +98,17 @@ func TestUpdateBLOSConfig_Enable_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
 
-	// Verify tailscale was called correctly
-	calls := cmd.getCalls()
-	require.Len(t, calls, 1)
-	assert.Equal(t, "tailscale", calls[0][0])
-	assert.Contains(t, calls[0], "up")
-	assert.Contains(t, calls[0], "--authkey=tskey-abc123")
+	// Verify ConfigureAndEnable was called
+	assert.Equal(t, 1, mgr.getConfigureAndEnableCalls())
 
 	// Verify config persisted
 	assert.True(t, cfg.BLOSEnabled())
-
-	// Verify manager enabled
-	assert.Equal(t, 1, mgr.getEnableCalls())
 }
 
 func TestUpdateBLOSConfig_Enable_WithLoginServer(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "blos:\n  enable: false\n")
 	mgr := &fakeBLOSManager{}
-	cmd := &fakeRunCommand{}
-	svc := newBLOSService(t, cfg, mgr, cmd)
+	svc := newBLOSService(t, cfg, mgr)
 
 	loginURL := "https://hs.example.com"
 	resp, err := svc.UpdateBLOSConfig(context.Background(), &v1.UpdateBLOSConfigRequest{
@@ -130,16 +120,14 @@ func TestUpdateBLOSConfig_Enable_WithLoginServer(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
 
-	calls := cmd.getCalls()
-	require.Len(t, calls, 1)
-	assert.Contains(t, calls[0], "--login-server=https://hs.example.com")
+	// ConfigureAndEnable handles login server internally
+	assert.Equal(t, 1, mgr.getConfigureAndEnableCalls())
 }
 
 func TestUpdateBLOSConfig_Enable_EmptyAuthKey(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "blos:\n  enable: false\n")
 	mgr := &fakeBLOSManager{}
-	cmd := &fakeRunCommand{}
-	svc := newBLOSService(t, cfg, mgr, cmd)
+	svc := newBLOSService(t, cfg, mgr)
 
 	_, err := svc.UpdateBLOSConfig(context.Background(), &v1.UpdateBLOSConfigRequest{
 		EnableBlos: true,
@@ -150,16 +138,14 @@ func TestUpdateBLOSConfig_Enable_EmptyAuthKey(t *testing.T) {
 	assert.Contains(t, err.Error(), "auth_key is required")
 
 	// Nothing should have been called
-	assert.Equal(t, 0, cmd.callCount())
-	assert.Equal(t, 0, mgr.getEnableCalls())
+	assert.Equal(t, 0, mgr.getConfigureAndEnableCalls())
 	assert.False(t, cfg.BLOSEnabled())
 }
 
 func TestUpdateBLOSConfig_Enable_WhitespaceAuthKey(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "blos:\n  enable: false\n")
 	mgr := &fakeBLOSManager{}
-	cmd := &fakeRunCommand{}
-	svc := newBLOSService(t, cfg, mgr, cmd)
+	svc := newBLOSService(t, cfg, mgr)
 
 	_, err := svc.UpdateBLOSConfig(context.Background(), &v1.UpdateBLOSConfigRequest{
 		EnableBlos: true,
@@ -168,17 +154,15 @@ func TestUpdateBLOSConfig_Enable_WhitespaceAuthKey(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "auth_key is required")
-	assert.Equal(t, 0, cmd.callCount())
+	assert.Equal(t, 0, mgr.getConfigureAndEnableCalls())
 }
 
-func TestUpdateBLOSConfig_Enable_TailscaleFailure(t *testing.T) {
+func TestUpdateBLOSConfig_Enable_ConfigureAndEnableFailure(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "blos:\n  enable: false\n")
-	mgr := &fakeBLOSManager{}
-	cmd := &fakeRunCommand{
-		output: []byte("error: not logged in"),
-		err:    errors.New("exit status 1"),
+	mgr := &fakeBLOSManager{
+		configureAndEnableErr: errors.New("tailscale authentication failed"),
 	}
-	svc := newBLOSService(t, cfg, mgr, cmd)
+	svc := newBLOSService(t, cfg, mgr)
 
 	_, err := svc.UpdateBLOSConfig(context.Background(), &v1.UpdateBLOSConfigRequest{
 		EnableBlos: true,
@@ -186,34 +170,10 @@ func TestUpdateBLOSConfig_Enable_TailscaleFailure(t *testing.T) {
 	})
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "tailscale authentication failed")
+	assert.Contains(t, err.Error(), "failed to enable BLOS")
 
 	// Config should NOT be updated
 	assert.False(t, cfg.BLOSEnabled())
-
-	// Manager should NOT be called
-	assert.Equal(t, 0, mgr.getEnableCalls())
-}
-
-func TestUpdateBLOSConfig_Enable_ManagerEnableFailure(t *testing.T) {
-	cfg := setupBLOSTestConfig(t, "blos:\n  enable: false\n")
-	mgr := &fakeBLOSManager{enableErr: errors.New("not gateway mode")}
-	cmd := &fakeRunCommand{}
-	svc := newBLOSService(t, cfg, mgr, cmd)
-
-	_, err := svc.UpdateBLOSConfig(context.Background(), &v1.UpdateBLOSConfigRequest{
-		EnableBlos: true,
-		AuthKey:    "tskey-abc123",
-	})
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "BLOS module failed to start")
-
-	// Tailscale was called (succeeded)
-	assert.Equal(t, 1, cmd.callCount())
-
-	// Config was persisted (intentional: next restart will retry)
-	assert.True(t, cfg.BLOSEnabled())
 }
 
 // ── UpdateBLOSConfig (disable) ────────────────────────────────────────────────
@@ -221,8 +181,7 @@ func TestUpdateBLOSConfig_Enable_ManagerEnableFailure(t *testing.T) {
 func TestUpdateBLOSConfig_Disable_Success(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "blos:\n  enable: true\n")
 	mgr := &fakeBLOSManager{running: true}
-	cmd := &fakeRunCommand{}
-	svc := newBLOSService(t, cfg, mgr, cmd)
+	svc := newBLOSService(t, cfg, mgr)
 
 	resp, err := svc.UpdateBLOSConfig(context.Background(), &v1.UpdateBLOSConfigRequest{
 		EnableBlos: false,
@@ -238,15 +197,14 @@ func TestUpdateBLOSConfig_Disable_Success(t *testing.T) {
 	// Config should be updated
 	assert.False(t, cfg.BLOSEnabled())
 
-	// No tailscale command needed for disable
-	assert.Equal(t, 0, cmd.callCount())
+	// No ConfigureAndEnable needed for disable
+	assert.Equal(t, 0, mgr.getConfigureAndEnableCalls())
 }
 
 func TestUpdateBLOSConfig_Disable_AlreadyDisabled(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "blos:\n  enable: false\n")
 	mgr := &fakeBLOSManager{running: false}
-	cmd := &fakeRunCommand{}
-	svc := newBLOSService(t, cfg, mgr, cmd)
+	svc := newBLOSService(t, cfg, mgr)
 
 	resp, err := svc.UpdateBLOSConfig(context.Background(), &v1.UpdateBLOSConfigRequest{
 		EnableBlos: false,

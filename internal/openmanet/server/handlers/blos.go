@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -14,22 +13,11 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// DefaultRunCommand executes a system command and returns its combined output.
-func DefaultRunCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
-	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput() //nolint:gosec // args are constructed by the handler
-	if err != nil {
-		return out, fmt.Errorf("command %q: %w", name, err)
-	}
-
-	return out, nil
-}
-
 // BLOSService implements the BLOS ConnectRPC service.
 type BLOSService struct {
 	Cfg         *config.Config
 	Log         zerolog.Logger
 	BLOSManager blos.BLOSLifecycle
-	RunCommand  func(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
 // GetBLOSStatus retrieves the current status of the BLOS subsystem.
@@ -55,8 +43,8 @@ func (b *BLOSService) GetBLOSStatus(_ context.Context, _ *emptypb.Empty) (*v1.Ge
 }
 
 // UpdateBLOSConfig updates the BLOS subsystem configuration. When enabling,
-// it first authenticates with Tailscale, then persists the config change,
-// and finally starts the BLOS module.
+// it first authenticates with Tailscale via the SDK, then persists the config
+// change, and finally starts the BLOS module.
 func (b *BLOSService) UpdateBLOSConfig(ctx context.Context, req *v1.UpdateBLOSConfigRequest) (*v1.UpdateBLOSConfigResponse, error) {
 	if req.EnableBlos {
 		return b.enableBLOS(ctx, req)
@@ -70,41 +58,23 @@ func (b *BLOSService) enableBLOS(ctx context.Context, req *v1.UpdateBLOSConfigRe
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("auth_key is required"))
 	}
 
-	// Run tailscale up with the provided credentials
-	args := []string{"up", "--authkey=" + req.AuthKey}
+	var loginServerURL string
 	if req.LoginServerUrl != nil && *req.LoginServerUrl != "" {
-		args = append(args, "--login-server="+*req.LoginServerUrl)
+		loginServerURL = *req.LoginServerUrl
 	}
 
-	runCmd := b.RunCommand
-	if runCmd == nil {
-		runCmd = DefaultRunCommand
+	b.Log.Info().Msg("Configuring Tailscale and enabling BLOS")
+
+	if err := b.BLOSManager.ConfigureAndEnable(ctx, req.AuthKey, loginServerURL); err != nil {
+		b.Log.Error().Err(err).Msg("Failed to configure and enable BLOS")
+
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to enable BLOS: %w", err))
 	}
-
-	b.Log.Info().Msg("Running tailscale up for BLOS authentication")
-
-	output, err := runCmd(ctx, "tailscale", args...)
-	if err != nil {
-		errMsg := fmt.Sprintf("tailscale authentication failed: %s", string(output))
-		b.Log.Error().Err(err).Str("output", string(output)).Msg("tailscale up failed")
-
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("%s: %w", errMsg, err))
-	}
-
-	b.Log.Info().Msg("Tailscale authentication successful")
 
 	// Persist config change
 	if err := b.Cfg.PersistBLOSConfig(true); err != nil {
-		errMsg := fmt.Sprintf("tailscale authenticated but failed to persist config: %v", err)
+		errMsg := fmt.Sprintf("BLOS enabled but failed to persist config: %v", err)
 		b.Log.Error().Err(err).Msg("Failed to persist BLOS config")
-
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("%s", errMsg))
-	}
-
-	// Start BLOS module
-	if err := b.BLOSManager.Enable(); err != nil {
-		errMsg := fmt.Sprintf("tailscale authenticated and config saved, but BLOS module failed to start: %v", err)
-		b.Log.Error().Err(err).Msg("Failed to enable BLOS module")
 
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("%s", errMsg))
 	}

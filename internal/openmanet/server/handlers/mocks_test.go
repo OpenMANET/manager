@@ -16,11 +16,28 @@ import (
 
 // fakeBLOSManager implements blos.BLOSLifecycle for handler tests.
 type fakeBLOSManager struct {
-	mu           sync.Mutex
-	running      bool
-	enableErr    error
-	enableCalls  int
-	disableCalls int
+	mu                      sync.Mutex
+	running                 bool
+	enableErr               error
+	enableCalls             int
+	configureAndEnableErr   error
+	configureAndEnableCalls int
+	disableCalls            int
+}
+
+func (f *fakeBLOSManager) ConfigureAndEnable(_ context.Context, _ string, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.configureAndEnableCalls++
+
+	if f.configureAndEnableErr != nil {
+		return f.configureAndEnableErr
+	}
+
+	f.running = true
+
+	return nil
 }
 
 func (f *fakeBLOSManager) Enable() error {
@@ -53,11 +70,11 @@ func (f *fakeBLOSManager) IsRunning() bool {
 	return f.running
 }
 
-func (f *fakeBLOSManager) getEnableCalls() int {
+func (f *fakeBLOSManager) getConfigureAndEnableCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	return f.enableCalls
+	return f.configureAndEnableCalls
 }
 
 func (f *fakeBLOSManager) getDisableCalls() int {
@@ -65,43 +82,6 @@ func (f *fakeBLOSManager) getDisableCalls() int {
 	defer f.mu.Unlock()
 
 	return f.disableCalls
-}
-
-// ── fakeRunCommand ─────────────────────────────────────────────────────────────
-
-// fakeRunCommand records calls and returns configured output/errors.
-type fakeRunCommand struct {
-	mu         sync.Mutex
-	output     []byte
-	err        error
-	calledWith [][]string
-}
-
-func (f *fakeRunCommand) Run(_ context.Context, name string, args ...string) ([]byte, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	call := append([]string{name}, args...)
-	f.calledWith = append(f.calledWith, call)
-
-	return f.output, f.err
-}
-
-func (f *fakeRunCommand) getCalls() [][]string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	cp := make([][]string, len(f.calledWith))
-	copy(cp, f.calledWith)
-
-	return cp
-}
-
-func (f *fakeRunCommand) callCount() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	return len(f.calledWith)
 }
 
 // ── fakeWireless ────────────────────────────────────────────────────────────
