@@ -109,6 +109,23 @@ func New(v *viper.Viper) *Config {
 	return c
 }
 
+// NewWithoutWatch creates a new Config instance without starting the file
+// watcher. This is useful for tests where fsnotify would cause race conditions.
+func NewWithoutWatch(v *viper.Viper) *Config {
+	if v == nil {
+		v = viper.GetViper()
+	}
+
+	c := &Config{
+		v:                 v,
+		onChangeCallbacks: make([]func(*Config), 0),
+	}
+
+	c.reload()
+
+	return c
+}
+
 // reload reads all configuration values from viper and updates the Config fields.
 func (c *Config) reload() { //nolint:gocognit,gocyclo
 	c.mu.Lock()

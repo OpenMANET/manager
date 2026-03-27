@@ -9,6 +9,8 @@ import (
 	connectcors "connectrpc.com/cors"
 	"connectrpc.com/validate"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
+	blosconnect "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1/blosv1connect"
+	"github.com/openmanet/openmanetd/internal/blos"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/gpsd"
@@ -24,12 +26,13 @@ const (
 )
 
 type APIServer struct {
-	Cfg       *config.Config
-	Log       zerolog.Logger
-	DB        *models.Queries
-	ApiServer *http.Server
-	Wifi      *mgmt.WirelessConfig
-	GPS       *gpsd.GPSService
+	Cfg         *config.Config
+	Log         zerolog.Logger
+	DB          *models.Queries
+	ApiServer   *http.Server
+	Wifi        *mgmt.WirelessConfig
+	GPS         *gpsd.GPSService
+	BLOSManager blos.BLOSLifecycle
 }
 
 func NewAPIServer(cfg APIServer) *APIServer {
@@ -67,6 +70,13 @@ func NewAPIServer(cfg APIServer) *APIServer {
 
 	api.Handle(services.NewWebCommsServiceHandler(&handlers.WebCommsService{
 		Log: cfg.Log,
+	}, connect.WithInterceptors(validateInterceptor)))
+
+	api.Handle(blosconnect.NewBLOSServiceHandler(&handlers.BLOSService{
+		Cfg:         cfg.Cfg,
+		Log:         cfg.Log,
+		BLOSManager: cfg.BLOSManager,
+		RunCommand:  handlers.DefaultRunCommand,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	p := new(http.Protocols)

@@ -1,14 +1,108 @@
 package handlers_test
 
 import (
+	"context"
 	"database/sql"
 	"net"
+	"sync"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdlayher/wifi"
 	"github.com/openmanet/openmanetd/internal/database/models"
 )
+
+// ── fakeBLOSManager ────────────────────────────────────────────────────────────
+
+// fakeBLOSManager implements blos.BLOSLifecycle for handler tests.
+type fakeBLOSManager struct {
+	mu           sync.Mutex
+	running      bool
+	enableErr    error
+	enableCalls  int
+	disableCalls int
+}
+
+func (f *fakeBLOSManager) Enable() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.enableCalls++
+
+	if f.enableErr != nil {
+		return f.enableErr
+	}
+
+	f.running = true
+
+	return nil
+}
+
+func (f *fakeBLOSManager) Disable() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.disableCalls++
+	f.running = false
+}
+
+func (f *fakeBLOSManager) IsRunning() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.running
+}
+
+func (f *fakeBLOSManager) getEnableCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.enableCalls
+}
+
+func (f *fakeBLOSManager) getDisableCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.disableCalls
+}
+
+// ── fakeRunCommand ─────────────────────────────────────────────────────────────
+
+// fakeRunCommand records calls and returns configured output/errors.
+type fakeRunCommand struct {
+	mu         sync.Mutex
+	output     []byte
+	err        error
+	calledWith [][]string
+}
+
+func (f *fakeRunCommand) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	call := append([]string{name}, args...)
+	f.calledWith = append(f.calledWith, call)
+
+	return f.output, f.err
+}
+
+func (f *fakeRunCommand) getCalls() [][]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	cp := make([][]string, len(f.calledWith))
+	copy(cp, f.calledWith)
+
+	return cp
+}
+
+func (f *fakeRunCommand) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return len(f.calledWith)
+}
 
 // ── fakeWireless ────────────────────────────────────────────────────────────
 

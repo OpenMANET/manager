@@ -7,11 +7,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"connectrpc.com/connect"
 	"connectrpc.com/validate"
 	"github.com/mdlayher/wifi"
+	blosproto "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1"
+	blosconnect "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1/blosv1connect"
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
@@ -19,6 +23,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -80,6 +85,15 @@ func newTestServer(t *testing.T) *httptest.Server {
 
 	mux.Handle(services.NewWebCommsServiceHandler(&handlers.WebCommsService{
 		Log: zerolog.Nop(),
+	}, handlerOpt))
+
+	mux.Handle(blosconnect.NewBLOSServiceHandler(&handlers.BLOSService{
+		Cfg:         &config.Config{BLOSEnable: false},
+		Log:         zerolog.Nop(),
+		BLOSManager: &fakeBLOSManager{},
+		RunCommand: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+			return nil, nil
+		},
 	}, handlerOpt))
 
 	srv := httptest.NewServer(mux)
@@ -472,4 +486,108 @@ func TestIntegration_StreamAudioRx_WebNotActive(t *testing.T) {
 	}
 
 	require.NoError(t, stream.Close())
+}
+
+// ── BLOSService ───────────────────────────────────────────────────────────
+
+// newBLOSTestServer creates a test server with a real Config backed by a temp file.
+func newBLOSTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yml")
+
+	err := os.WriteFile(cfgPath, []byte("blos:\n  enable: false\n"), 0644)
+	require.NoError(t, err)
+
+	v := viper.New()
+	v.SetConfigFile(cfgPath)
+
+	err = v.ReadInConfig()
+	require.NoError(t, err)
+
+	cfg := config.NewWithoutWatch(v)
+
+	validateInterceptor := validate.NewInterceptor()
+	handlerOpt := connect.WithInterceptors(validateInterceptor)
+
+	mux := http.NewServeMux()
+	mux.Handle(blosconnect.NewBLOSServiceHandler(&handlers.BLOSService{
+		Cfg:         cfg,
+		Log:         zerolog.Nop(),
+		BLOSManager: &fakeBLOSManager{},
+		RunCommand: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+			return nil, nil
+		},
+	}, handlerOpt))
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	return srv
+}
+
+func TestIntegration_GetBLOSStatus(t *testing.T) {
+	srv := newBLOSTestServer(t)
+	client := blosconnect.NewBLOSServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	resp, err := client.GetBLOSStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	assert.False(t, resp.BlosEnabled)
+	assert.NotNil(t, resp.Message)
+}
+
+func TestIntegration_UpdateBLOSConfig_Enable(t *testing.T) {
+	srv := newBLOSTestServer(t)
+	client := blosconnect.NewBLOSServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	resp, err := client.UpdateBLOSConfig(context.Background(), &blosproto.UpdateBLOSConfigRequest{
+		EnableBlos: true,
+		AuthKey:    "tskey-test-key",
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Success)
+}
+
+func TestIntegration_UpdateBLOSConfig_EmptyAuthKey(t *testing.T) {
+	srv := newBLOSTestServer(t)
+	client := blosconnect.NewBLOSServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	_, err := client.UpdateBLOSConfig(context.Background(), &blosproto.UpdateBLOSConfigRequest{
+		EnableBlos: true,
+		AuthKey:    "",
+	})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+}
+
+func TestIntegration_UpdateBLOSConfig_Disable(t *testing.T) {
+	srv := newBLOSTestServer(t)
+	client := blosconnect.NewBLOSServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	resp, err := client.UpdateBLOSConfig(context.Background(), &blosproto.UpdateBLOSConfigRequest{
+		EnableBlos: false,
+		AuthKey:    "",
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.Success)
 }

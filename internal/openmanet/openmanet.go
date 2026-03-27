@@ -116,12 +116,16 @@ func Start() {
 		log.Error().Err(err).Msg("Error clearing batman-adv hosts file on startup")
 	}
 
+	// Create BLOS manager (always, so the API handler can use it even if BLOS is currently disabled)
+	blosManager := blos.NewBLOSManager(cfg, logger.GetLogger("blos"))
+
 	// Start API Server
 	apiServer := server.APIServer{
-		Cfg: cfg,
-		Log: logger.GetLogger("api"),
-		DB:  db,
-		GPS: gps,
+		Cfg:         cfg,
+		Log:         logger.GetLogger("api"),
+		DB:          db,
+		GPS:         gps,
+		BLOSManager: blosManager,
 	}
 
 	if manager != nil {
@@ -133,9 +137,7 @@ func Start() {
 	log.Info().Msg("OpenMANETd API Server starting on port 8087")
 
 	if cfg.BLOSEnabled() && board.BLOSsupported() {
-		// Initialize BLOS module
-		_, err := blos.NewBLOS(cfg, logger.GetLogger("blos"))
-		if err != nil {
+		if err := blosManager.Enable(); err != nil {
 			log.Fatal().Err(err).Msg("Failed to initialize BLOS module")
 		}
 	}
@@ -155,6 +157,8 @@ func Start() {
 
 	_ = api.Stop(ctx)
 	_ = database.CloseConnection()
+
+	blosManager.Disable()
 
 	if cfg.GetEnableGNSS() {
 		gps.Close()
