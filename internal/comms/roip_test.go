@@ -3,6 +3,7 @@ package comms
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -206,8 +207,9 @@ func TestROIPSource_COS_HalfDuplex_EmitsAfterReceivingClears(t *testing.T) {
 	mock := newMockHIDDevice()
 	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true)) // HIGH while receiving → suppressed
 
-	receivingFlag := true
-	isReceiving := func() bool { return receivingFlag }
+	var receivingFlag atomic.Bool
+	receivingFlag.Store(true)
+	isReceiving := func() bool { return receivingFlag.Load() }
 
 	src := newROIPSourceWithOpener(
 		openerReturning(mock),
@@ -223,7 +225,7 @@ func TestROIPSource_COS_HalfDuplex_EmitsAfterReceivingClears(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Clear receiving flag first, then queue a new COS HIGH.
-	receivingFlag = false
+	receivingFlag.Store(false)
 
 	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true)) // should now emit PTTDown
 
@@ -493,8 +495,8 @@ func TestROIPSource_VOX_PTTUpWhenReceivingWhileActive(t *testing.T) {
 	frameCh := make(chan []float32, 32)
 	pushLoudFrames(frameCh, roipVOXOnsetFrames+1, loudAmplitude)
 
-	receivingFlag := false
-	isReceiving := func() bool { return receivingFlag }
+	var receivingFlag atomic.Bool
+	isReceiving := func() bool { return receivingFlag.Load() }
 
 	holdTime := 10 * time.Second // long enough that only isReceiving() triggers PTTUp
 
@@ -520,7 +522,7 @@ func TestROIPSource_VOX_PTTUpWhenReceivingWhileActive(t *testing.T) {
 	}
 
 	// Simulate network RX starting.
-	receivingFlag = true
+	receivingFlag.Store(true)
 
 	select {
 	case ev := <-ch:
