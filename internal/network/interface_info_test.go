@@ -71,9 +71,9 @@ func TestClassifyLink_NameHeuristics(t *testing.T) {
 
 func TestClassifyLink_WifiTypes(t *testing.T) {
 	wifiTypes := map[string]wifi.InterfaceType{
-		"wlan0":       wifi.InterfaceTypeMeshPoint,
-		"phy0-mesh0":  wifi.InterfaceTypeMeshPoint,
-		"wlan1":       wifi.InterfaceTypeAP,
+		"wlan0":      wifi.InterfaceTypeMeshPoint,
+		"phy0-mesh0": wifi.InterfaceTypeMeshPoint,
+		"wlan1":      wifi.InterfaceTypeAP,
 	}
 
 	tests := []struct {

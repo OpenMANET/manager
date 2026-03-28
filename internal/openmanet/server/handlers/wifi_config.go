@@ -210,10 +210,10 @@ func (s *WifiConfigService) GetRadioSettings(_ context.Context, req *wificonfigv
 
 	// Populate available options for dropdowns.
 	resp := &wificonfigv1.GetRadioSettingsResponse{
-		Settings:              settings,
-		AvailableChannels:     availableChannelsForBand(band),
-		AvailableBandwidths:   availableBandwidthsForBand(band),
-		AvailableEncryptions:  availableEncryptions(),
+		Settings:             settings,
+		AvailableChannels:    availableChannelsForBand(band),
+		AvailableBandwidths:  availableBandwidthsForBand(band),
+		AvailableEncryptions: availableEncryptions(),
 	}
 
 	return resp, nil
@@ -336,12 +336,12 @@ func (s *WifiConfigService) ListConnectedClients(ctx context.Context, req *wific
 		mac := st.HardwareAddr.String()
 
 		clients = append(clients, &wificonfigv1.ConnectedClient{
-			Hostname:  macToHostname[strings.ToLower(mac)],
+			Hostname:   macToHostname[strings.ToLower(mac)],
 			MacAddress: mac,
-			SignalDbm: int32(st.Signal),
-			RxRateBps: int64(st.ReceiveBitrate),
-			TxRateBps: int64(st.TransmitBitrate),
-			Connected: durationpb.New(st.Connected),
+			SignalDbm:  int32(st.Signal),
+			RxRateBps:  int64(st.ReceiveBitrate),
+			TxRateBps:  int64(st.TransmitBitrate),
+			Connected:  durationpb.New(st.Connected),
 		})
 	}
 
@@ -516,11 +516,11 @@ func (s *WifiConfigService) buildMeshPeerList(
 		hostname := batHosts.GetHostByMAC(mac)
 
 		peer := &wificonfigv1.MeshPeer{
-			Hostname:      hostname,
-			MacAddress:    mac,
-			SignalDbm:     int32(signalByMAC[strings.ToLower(mac)]),
+			Hostname:       hostname,
+			MacAddress:     mac,
+			SignalDbm:      int32(signalByMAC[strings.ToLower(mac)]),
 			ThroughputMbps: float64(n.Throughput) / 10.0, // batman-adv reports in 100kbit/s
-			LastSeen:      durationpb.New(time.Duration(n.LastSeenMsecs) * time.Millisecond),
+			LastSeen:       durationpb.New(time.Duration(n.LastSeenMsecs) * time.Millisecond),
 		}
 
 		peers = append(peers, peer)

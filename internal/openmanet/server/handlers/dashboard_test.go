@@ -159,8 +159,8 @@ type mockQuickActionExecutor struct {
 	openmanetErr error
 }
 
-func (m *mockQuickActionExecutor) Reboot(_ context.Context) error         { return m.rebootErr }
-func (m *mockQuickActionExecutor) RestartNetwork(_ context.Context) error  { return m.networkErr }
+func (m *mockQuickActionExecutor) Reboot(_ context.Context) error            { return m.rebootErr }
+func (m *mockQuickActionExecutor) RestartNetwork(_ context.Context) error    { return m.networkErr }
 func (m *mockQuickActionExecutor) RestartOpenmanetd(_ context.Context) error { return m.openmanetErr }
 
 // --- Tests ---

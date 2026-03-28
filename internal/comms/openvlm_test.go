@@ -375,7 +375,7 @@ func TestOpenVLMSource_ShortReport_SkippedAndContinues(t *testing.T) {
 	// The source should sleep 50 ms then continue processing the queued
 	// valid report and emit PTTDown.
 	mock := newMockHIDDevice()
-	mock.queueReport([]byte{0x00})               // 1-byte short report — skipped
+	mock.queueReport([]byte{0x00})            // 1-byte short report — skipped
 	mock.queueReport(makeOpenVLMReport(true)) // valid HIGH report → PTTDown
 
 	src := newOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())

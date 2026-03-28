@@ -111,12 +111,12 @@ func (s *NetworkInterfaceService) GetDHCPServerConfig(ctx context.Context, _ *em
 
 	return &niv1.GetDHCPServerConfigResponse{
 		Config: &niv1.DHCPServerConfig{
-			InterfaceName:       dhcpCfg.Interface,
-			RangeStart:          rangeStart,
-			RangeEnd:            rangeEnd,
-			LeaseTime:           leaseTime,
+			InterfaceName:        dhcpCfg.Interface,
+			RangeStart:           rangeStart,
+			RangeEnd:             rangeEnd,
+			LeaseTime:            leaseTime,
 			DnsForwardingEnabled: dnsForwarding,
-			ActiveLeaseCount:    activeLeaseCnt,
+			ActiveLeaseCount:     activeLeaseCnt,
 		},
 	}, nil
 }

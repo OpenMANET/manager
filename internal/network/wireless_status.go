@@ -10,15 +10,15 @@ import (
 
 // WirelessRadioStatus holds the runtime state for a single UCI radio device.
 type WirelessRadioStatus struct {
-	Interfaces []WirelessRadioInterface  `json:"interfaces"`
-	Up         bool                      `json:"up"`
-	Disabled   bool                      `json:"disabled"`
+	Interfaces []WirelessRadioInterface `json:"interfaces"`
+	Up         bool                     `json:"up"`
+	Disabled   bool                     `json:"disabled"`
 }
 
 // WirelessRadioInterface represents one interface running on a radio.
 type WirelessRadioInterface struct {
-	Section string `json:"section"`
-	Ifname  string `json:"ifname"`
+	Section string                    `json:"section"`
+	Ifname  string                    `json:"ifname"`
 	Config  WirelessIfaceStatusConfig `json:"config"`
 }
 
