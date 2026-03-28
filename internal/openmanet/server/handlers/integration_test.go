@@ -16,6 +16,8 @@ import (
 	"github.com/mdlayher/wifi"
 	blosproto "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1"
 	blosconnect "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1/blosv1connect"
+	commsv1 "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1"
+	commsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
@@ -78,12 +80,8 @@ func newTestServer(t *testing.T) *httptest.Server {
 		GetMeshCfg: getMeshCfg,
 	}, handlerOpt))
 
-	mux.Handle(services.NewCommsServiceHandler(&handlers.CommsService{
+	mux.Handle(commsconnect.NewCommsServiceHandler(&handlers.CommsService{
 		Cfg: &config.Config{CommsEnable: false},
-		Log: zerolog.Nop(),
-	}, handlerOpt))
-
-	mux.Handle(services.NewWebCommsServiceHandler(&handlers.WebCommsService{
 		Log: zerolog.Nop(),
 	}, handlerOpt))
 
@@ -110,7 +108,7 @@ func newTestServerEnabled(t *testing.T) *httptest.Server {
 	handlerOpt := connect.WithInterceptors(validateInterceptor)
 
 	mux := http.NewServeMux()
-	mux.Handle(services.NewCommsServiceHandler(&handlers.CommsService{
+	mux.Handle(commsconnect.NewCommsServiceHandler(&handlers.CommsService{
 		Cfg: &config.Config{CommsEnable: true},
 		Log: zerolog.Nop(),
 	}, handlerOpt))
@@ -187,7 +185,7 @@ func TestIntegration_GetServiceStatus(t *testing.T) {
 
 func TestIntegration_GetCommsStatus_Disabled(t *testing.T) {
 	srv := newTestServer(t)
-	client := services.NewCommsServiceClient(
+	client := commsconnect.NewCommsServiceClient(
 		http.DefaultClient,
 		srv.URL,
 		connect.WithGRPCWeb(),
@@ -205,13 +203,13 @@ func TestIntegration_GetCommsStatus_Disabled(t *testing.T) {
 
 func TestIntegration_SetSendTalkGroup_Disabled(t *testing.T) {
 	srv := newTestServer(t)
-	client := services.NewCommsServiceClient(
+	client := commsconnect.NewCommsServiceClient(
 		http.DefaultClient,
 		srv.URL,
 		connect.WithGRPCWeb(),
 	)
 
-	_, err := client.SetSendTalkGroup(context.Background(), &serviceproto.SetSendTalkGroupRequest{
+	_, err := client.SetSendTalkGroup(context.Background(), &commsv1.SetSendTalkGroupRequest{
 		Talkgroup: 1,
 		Enabled:   true,
 	})
@@ -225,7 +223,7 @@ func TestIntegration_SetSendTalkGroup_Disabled(t *testing.T) {
 
 func TestIntegration_SetSendTalkGroup_NotRunning(t *testing.T) {
 	srv := newTestServerEnabled(t)
-	client := services.NewCommsServiceClient(
+	client := commsconnect.NewCommsServiceClient(
 		http.DefaultClient,
 		srv.URL,
 		connect.WithGRPCWeb(),
@@ -233,7 +231,7 @@ func TestIntegration_SetSendTalkGroup_NotRunning(t *testing.T) {
 
 	// Comms is enabled but the runtime is not started, so talkGroupPortIdx
 	// fails and the error is propagated as a gRPC error (not InvalidArgument).
-	_, err := client.SetSendTalkGroup(context.Background(), &serviceproto.SetSendTalkGroupRequest{
+	_, err := client.SetSendTalkGroup(context.Background(), &commsv1.SetSendTalkGroupRequest{
 		Talkgroup: 1,
 		Enabled:   true,
 	})
@@ -248,13 +246,13 @@ func TestIntegration_SetSendTalkGroup_NotRunning(t *testing.T) {
 
 func TestIntegration_SetReceiveTalkGroup_Disabled(t *testing.T) {
 	srv := newTestServer(t)
-	client := services.NewCommsServiceClient(
+	client := commsconnect.NewCommsServiceClient(
 		http.DefaultClient,
 		srv.URL,
 		connect.WithGRPCWeb(),
 	)
 
-	_, err := client.SetReceiveTalkGroup(context.Background(), &serviceproto.SetReceiveTalkGroupRequest{
+	_, err := client.SetReceiveTalkGroup(context.Background(), &commsv1.SetReceiveTalkGroupRequest{
 		Talkgroup: 1,
 		Enabled:   true,
 	})
@@ -268,7 +266,7 @@ func TestIntegration_SetReceiveTalkGroup_Disabled(t *testing.T) {
 
 func TestIntegration_SetReceiveTalkGroup_NotRunning(t *testing.T) {
 	srv := newTestServerEnabled(t)
-	client := services.NewCommsServiceClient(
+	client := commsconnect.NewCommsServiceClient(
 		http.DefaultClient,
 		srv.URL,
 		connect.WithGRPCWeb(),
@@ -276,7 +274,7 @@ func TestIntegration_SetReceiveTalkGroup_NotRunning(t *testing.T) {
 
 	// Comms is enabled but the runtime is not started, so talkGroupPortIdx
 	// fails and the error is propagated as a gRPC error (not InvalidArgument).
-	_, err := client.SetReceiveTalkGroup(context.Background(), &serviceproto.SetReceiveTalkGroupRequest{
+	_, err := client.SetReceiveTalkGroup(context.Background(), &commsv1.SetReceiveTalkGroupRequest{
 		Talkgroup: 1,
 		Enabled:   true,
 	})
@@ -342,7 +340,7 @@ func TestIntegration_GetWirelessInterface_ByName(t *testing.T) {
 
 func TestIntegration_GetCommsStatus_Enabled(t *testing.T) {
 	srv := newTestServerEnabled(t)
-	client := services.NewCommsServiceClient(
+	client := commsconnect.NewCommsServiceClient(
 		http.DefaultClient,
 		srv.URL,
 		connect.WithGRPCWeb(),
@@ -359,13 +357,13 @@ func TestIntegration_GetCommsStatus_Enabled(t *testing.T) {
 
 func TestIntegration_Validation_SetSendTalkGroup_OutOfRange(t *testing.T) {
 	srv := newTestServer(t)
-	client := services.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+	client := commsconnect.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
 
 	// talkgroup field is gte:1 lte:32; values outside that range must be rejected.
 	for _, tg := range []int32{0, -1, 33, 100} {
 		tg := tg
 		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
-			_, err := client.SetSendTalkGroup(context.Background(), &serviceproto.SetSendTalkGroupRequest{Talkgroup: tg})
+			_, err := client.SetSendTalkGroup(context.Background(), &commsv1.SetSendTalkGroupRequest{Talkgroup: tg})
 			require.Error(t, err)
 
 			var connectErr *connect.Error
@@ -378,14 +376,14 @@ func TestIntegration_Validation_SetSendTalkGroup_OutOfRange(t *testing.T) {
 
 func TestIntegration_Validation_SetSendTalkGroup_ValidTalkgroup(t *testing.T) {
 	srv := newTestServer(t)
-	client := services.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+	client := commsconnect.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
 
 	// Valid talkgroup passes validation; comms is disabled so the handler returns
 	// a gRPC error, but it must NOT be InvalidArgument.
 	for _, tg := range []int32{1, 16, 32} {
 		tg := tg
 		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
-			_, err := client.SetSendTalkGroup(context.Background(), &serviceproto.SetSendTalkGroupRequest{Talkgroup: tg})
+			_, err := client.SetSendTalkGroup(context.Background(), &commsv1.SetSendTalkGroupRequest{Talkgroup: tg})
 			require.Error(t, err)
 
 			var connectErr *connect.Error
@@ -398,12 +396,12 @@ func TestIntegration_Validation_SetSendTalkGroup_ValidTalkgroup(t *testing.T) {
 
 func TestIntegration_Validation_SetReceiveTalkGroup_OutOfRange(t *testing.T) {
 	srv := newTestServer(t)
-	client := services.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+	client := commsconnect.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
 
 	for _, tg := range []int32{0, -1, 33, 100} {
 		tg := tg
 		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
-			_, err := client.SetReceiveTalkGroup(context.Background(), &serviceproto.SetReceiveTalkGroupRequest{Talkgroup: tg})
+			_, err := client.SetReceiveTalkGroup(context.Background(), &commsv1.SetReceiveTalkGroupRequest{Talkgroup: tg})
 			require.Error(t, err)
 
 			var connectErr *connect.Error
@@ -416,12 +414,12 @@ func TestIntegration_Validation_SetReceiveTalkGroup_OutOfRange(t *testing.T) {
 
 func TestIntegration_Validation_SetReceiveTalkGroup_ValidTalkgroup(t *testing.T) {
 	srv := newTestServer(t)
-	client := services.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+	client := commsconnect.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
 
 	for _, tg := range []int32{1, 16, 32} {
 		tg := tg
 		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
-			_, err := client.SetReceiveTalkGroup(context.Background(), &serviceproto.SetReceiveTalkGroupRequest{Talkgroup: tg})
+			_, err := client.SetReceiveTalkGroup(context.Background(), &commsv1.SetReceiveTalkGroupRequest{Talkgroup: tg})
 			require.Error(t, err)
 
 			var connectErr *connect.Error
@@ -432,17 +430,19 @@ func TestIntegration_Validation_SetReceiveTalkGroup_ValidTalkgroup(t *testing.T)
 	}
 }
 
-// ── WebCommsService ───────────────────────────────────────────────────────
+// ── SendPTTEvent / StreamAudio (via unified CommsService) ─────────────────
+
+// ── SendPTTEvent / StreamAudio ────────────────────────────────────────────
 
 func TestIntegration_SendPTTEvent_WebNotActive(t *testing.T) {
 	srv := newTestServer(t)
-	client := services.NewWebCommsServiceClient(
+	client := commsconnect.NewCommsServiceClient(
 		http.DefaultClient,
 		srv.URL,
 		connect.WithGRPCWeb(),
 	)
 
-	_, err := client.SendPTTEvent(context.Background(), &serviceproto.SendPTTEventRequest{Event: 0})
+	_, err := client.SendPTTEvent(context.Background(), &commsv1.SendPTTEventRequest{Event: 0})
 	require.Error(t, err)
 
 	var connectErr *connect.Error
@@ -454,13 +454,13 @@ func TestIntegration_SendPTTEvent_WebNotActive(t *testing.T) {
 
 func TestIntegration_StreamAudioRx_WebNotActive(t *testing.T) {
 	srv := newTestServer(t)
-	client := services.NewWebCommsServiceClient(
+	client := commsconnect.NewCommsServiceClient(
 		http.DefaultClient,
 		srv.URL,
 		connect.WithGRPCWeb(),
 	)
 
-	stream, err := client.StreamAudioRx(context.Background(), &serviceproto.StreamAudioRxRequest{})
+	stream, err := client.StreamAudioRx(context.Background(), &commsv1.StreamAudioRxRequest{})
 	// connect-go may return the error on the stream.Receive call rather than
 	// on the initial call, depending on the protocol.
 	if err != nil {
@@ -483,6 +483,178 @@ func TestIntegration_StreamAudioRx_WebNotActive(t *testing.T) {
 	}
 
 	require.NoError(t, stream.Close())
+}
+
+// ── GetCommsConfig / UpdateCommsConfig ────────────────────────────────────
+
+// newCommsConfigTestServer creates a test server with a real Config backed by a temp file
+// so that UpdateCommsConfig can persist changes.
+func newCommsConfigTestServer(t *testing.T) (*httptest.Server, *config.Config) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yml")
+
+	err := os.WriteFile(cfgPath, []byte("comms:\n  enable: false\n  controlSource: cm108\n"), 0644)
+	require.NoError(t, err)
+
+	v := viper.New()
+	v.SetConfigFile(cfgPath)
+
+	err = v.ReadInConfig()
+	require.NoError(t, err)
+
+	cfg := config.NewWithoutWatch(v)
+
+	validateInterceptor := validate.NewInterceptor()
+	handlerOpt := connect.WithInterceptors(validateInterceptor)
+
+	mux := http.NewServeMux()
+	mux.Handle(commsconnect.NewCommsServiceHandler(&handlers.CommsService{
+		Cfg: cfg,
+		Log: zerolog.Nop(),
+	}, handlerOpt))
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	return srv, cfg
+}
+
+func TestIntegration_GetCommsConfig(t *testing.T) {
+	srv, _ := newCommsConfigTestServer(t)
+	client := commsconnect.NewCommsServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	resp, err := client.GetCommsConfig(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	assert.False(t, resp.GetCommsEnabled())
+	assert.Equal(t, commsv1.ControlSource_CONTROL_SOURCE_CM108, resp.GetControlSource())
+}
+
+func TestIntegration_UpdateCommsConfig_Enable(t *testing.T) {
+	srv, cfg := newCommsConfigTestServer(t)
+	client := commsconnect.NewCommsServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	_, err := client.UpdateCommsConfig(context.Background(), &commsv1.UpdateCommsConfigRequest{
+		EnableComms:   true,
+		ControlSource: commsv1.ControlSource_CONTROL_SOURCE_WEB,
+	})
+	require.NoError(t, err)
+
+	// Verify persisted in memory
+	assert.True(t, cfg.GetCommsEnable())
+	assert.Equal(t, "web", cfg.GetCommsControlSource())
+
+	// Verify GetCommsConfig reflects the change
+	resp, err := client.GetCommsConfig(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	assert.True(t, resp.GetCommsEnabled())
+	assert.Equal(t, commsv1.ControlSource_CONTROL_SOURCE_WEB, resp.GetControlSource())
+}
+
+func TestIntegration_UpdateCommsConfig_Disable(t *testing.T) {
+	srv, cfg := newCommsConfigTestServer(t)
+	client := commsconnect.NewCommsServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	// First enable
+	_, err := client.UpdateCommsConfig(context.Background(), &commsv1.UpdateCommsConfigRequest{
+		EnableComms:   true,
+		ControlSource: commsv1.ControlSource_CONTROL_SOURCE_NANOPTT,
+	})
+	require.NoError(t, err)
+	assert.True(t, cfg.GetCommsEnable())
+
+	// Then disable
+	_, err = client.UpdateCommsConfig(context.Background(), &commsv1.UpdateCommsConfigRequest{
+		EnableComms:   false,
+		ControlSource: commsv1.ControlSource_CONTROL_SOURCE_CM108,
+	})
+	require.NoError(t, err)
+
+	assert.False(t, cfg.GetCommsEnable())
+	assert.Equal(t, "cm108", cfg.GetCommsControlSource())
+}
+
+func TestIntegration_UpdateCommsConfig_PersistsToFile(t *testing.T) {
+	srv, cfg := newCommsConfigTestServer(t)
+	client := commsconnect.NewCommsServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	_, err := client.UpdateCommsConfig(context.Background(), &commsv1.UpdateCommsConfigRequest{
+		EnableComms:   true,
+		ControlSource: commsv1.ControlSource_CONTROL_SOURCE_NANOPTT,
+	})
+	require.NoError(t, err)
+
+	// Read the actual YAML file to confirm persistence
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "enable: true")
+	assert.Contains(t, content, "controlSource: nanoptt")
+}
+
+func TestIntegration_UpdateCommsConfig_EnableCallsManager(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yml")
+
+	err := os.WriteFile(cfgPath, []byte("comms:\n  enable: false\n  controlSource: cm108\n"), 0644)
+	require.NoError(t, err)
+
+	v := viper.New()
+	v.SetConfigFile(cfgPath)
+
+	err = v.ReadInConfig()
+	require.NoError(t, err)
+
+	cfg := config.NewWithoutWatch(v)
+
+	mgr := &fakeCommsManager{}
+
+	validateInterceptor := validate.NewInterceptor()
+	handlerOpt := connect.WithInterceptors(validateInterceptor)
+
+	mux := http.NewServeMux()
+	mux.Handle(commsconnect.NewCommsServiceHandler(&handlers.CommsService{
+		Cfg:          cfg,
+		Log:          zerolog.Nop(),
+		CommsManager: mgr,
+	}, handlerOpt))
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	client := commsconnect.NewCommsServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	_, err = client.UpdateCommsConfig(context.Background(), &commsv1.UpdateCommsConfigRequest{
+		EnableComms:   true,
+		ControlSource: commsv1.ControlSource_CONTROL_SOURCE_WEB,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, mgr.getEnableCalls())
+	assert.Equal(t, 1, mgr.getDisableCalls())
+	assert.True(t, mgr.IsRunning())
 }
 
 // ── BLOSService ───────────────────────────────────────────────────────────

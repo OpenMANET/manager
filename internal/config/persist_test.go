@@ -213,3 +213,163 @@ blos:
 	assert.Equal(t, 1, strings.Count(content, "enable:"),
 		"should have exactly one enable key under blos")
 }
+
+// ── PersistCommsConfig ────────────────────────────────────────────────────────
+
+func TestPersistCommsConfig_EnableWithControlSource(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `
+comms:
+  enable: false
+  controlSource: cm108
+`)
+
+	require.False(t, cfg.GetCommsEnable())
+	require.Equal(t, "cm108", cfg.GetCommsControlSource())
+
+	err := cfg.PersistCommsConfig(true, "web")
+	require.NoError(t, err)
+
+	assert.True(t, cfg.GetCommsEnable())
+	assert.Equal(t, "web", cfg.GetCommsControlSource())
+
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "enable: true")
+	assert.Contains(t, content, "controlSource: web")
+}
+
+func TestPersistCommsConfig_Disable(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `
+comms:
+  enable: true
+  controlSource: nanoptt
+`)
+
+	err := cfg.PersistCommsConfig(false, "cm108")
+	require.NoError(t, err)
+
+	assert.False(t, cfg.GetCommsEnable())
+	assert.Equal(t, "cm108", cfg.GetCommsControlSource())
+}
+
+func TestPersistCommsConfig_AllControlSources(t *testing.T) {
+	for _, src := range []string{"cm108", "nanoptt", "web"} {
+		src := src
+		t.Run(src, func(t *testing.T) {
+			cfg := setupTestConfigFromYAML(t, `
+comms:
+  enable: false
+  controlSource: cm108
+`)
+			err := cfg.PersistCommsConfig(true, src)
+			require.NoError(t, err)
+			assert.Equal(t, src, cfg.GetCommsControlSource())
+		})
+	}
+}
+
+func TestPersistCommsConfig_CreatesCommsSection(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `
+logLevel: info
+blos:
+  enable: false
+`)
+
+	err := cfg.PersistCommsConfig(true, "web")
+	require.NoError(t, err)
+
+	assert.True(t, cfg.GetCommsEnable())
+	assert.Equal(t, "web", cfg.GetCommsControlSource())
+
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "comms:")
+	assert.Contains(t, content, "enable: true")
+	assert.Contains(t, content, "controlSource: web")
+}
+
+func TestPersistCommsConfig_PreservesOtherKeys(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `logLevel: info
+blos:
+  enable: true
+comms:
+  enable: false
+  controlSource: cm108
+  protocol: rtp
+  debug: true
+`)
+
+	err := cfg.PersistCommsConfig(true, "nanoptt")
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "logLevel: info")
+	assert.Contains(t, content, "protocol: rtp")
+	assert.Contains(t, content, "debug: true")
+	assert.True(t, cfg.GetEnableBLOS(), "BLOS should still be enabled")
+}
+
+func TestPersistCommsConfig_PreservesComments(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `# Main config
+logLevel: info
+comms:
+  # Whether comms is enabled
+  enable: false
+  controlSource: cm108
+`)
+
+	err := cfg.PersistCommsConfig(true, "web")
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "# Main config")
+	assert.Contains(t, content, "# Whether comms is enabled")
+}
+
+func TestPersistCommsConfig_Idempotent(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `
+comms:
+  enable: false
+  controlSource: cm108
+`)
+
+	err := cfg.PersistCommsConfig(true, "web")
+	require.NoError(t, err)
+
+	err = cfg.PersistCommsConfig(true, "web")
+	require.NoError(t, err)
+
+	assert.True(t, cfg.GetCommsEnable())
+	assert.Equal(t, "web", cfg.GetCommsControlSource())
+
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Equal(t, 1, strings.Count(content, "enable:"),
+		"should have exactly one enable key under comms")
+	assert.Equal(t, 1, strings.Count(content, "controlSource:"),
+		"should have exactly one controlSource key under comms")
+}
+
+func TestPersistCommsConfig_NonExistentFile(t *testing.T) {
+	v := viper.New()
+	cfg := &Config{
+		v:                 v,
+		onChangeCallbacks: make([]func(*Config), 0),
+	}
+
+	err := cfg.PersistCommsConfig(true, "cm108")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no config file path configured")
+}

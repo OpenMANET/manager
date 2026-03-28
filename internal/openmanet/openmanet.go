@@ -35,29 +35,14 @@ func Start() {
 
 	banner.Print()
 
-	if board.CommsSupported() {
-		comms := comms.NewComms(comms.CommsConfig{
-			Log:                      logger.GetLogger("comms"),
-			Interrupt:                c,
-			Enable:                   cfg.GetCommsEnable(),
-			Iface:                    cfg.GetMeshNetInterface(),
-			Debug:                    cfg.GetCommsDebug(),
-			Loopback:                 cfg.GetCommsLoopback(),
-			Trace:                    cfg.GetCommsTrace(),
-			ControlSource:            cfg.GetCommsControlSource(),
-			MicGain:                  cfg.GetCommsMicGain(),
-			EnableNanoPTT:            cfg.GetCommsNanoPTTEnable(),
-			NanoPTTDevicePath:        cfg.GetCommsNanoPTTDevicePath(),
-			NanoPTTDeviceName:        cfg.GetCommsNanoPTTDeviceName(),
-			EnableBluetoothPtt:       cfg.GetCommsBluetoothPttEnable(),
-			BluetoothAudioDeviceHint: cfg.GetCommsBluetoothPttBluetoothAudioDeviceHint(),
-			BluetoothInputDevice:     cfg.GetCommsBluetoothPttBluetoothInputDevice(),
-			BluetoothOutputDevice:    cfg.GetCommsBluetoothPttBluetoothOutputDevice(),
-			PlaybackDepth:            cfg.GetCommsPlaybackBuffer(),
-		})
+	// Create Comms manager (always, so the API handler can use it even if comms is currently disabled)
+	commsManager := comms.NewCommsManager(cfg, logger.GetLogger("comms"))
 
-		go comms.Start()
-	} else {
+	if board.CommsSupported() && cfg.GetCommsEnable() {
+		if err := commsManager.Enable(); err != nil {
+			log.Error().Err(err).Msg("Failed to enable comms module")
+		}
+	} else if !board.CommsSupported() {
 		log.Warn().Msg("Current board does not support Comms features; skipping initialization of comms module")
 	}
 
@@ -121,11 +106,12 @@ func Start() {
 
 	// Start API Server
 	apiServer := server.APIServer{
-		Cfg:         cfg,
-		Log:         logger.GetLogger("api"),
-		DB:          db,
-		GPS:         gps,
-		BLOSManager: blosManager,
+		Cfg:          cfg,
+		Log:          logger.GetLogger("api"),
+		DB:           db,
+		GPS:          gps,
+		BLOSManager:  blosManager,
+		CommsManager: commsManager,
 	}
 
 	if manager != nil {
@@ -158,6 +144,7 @@ func Start() {
 	_ = api.Stop(ctx)
 	_ = database.CloseConnection()
 
+	commsManager.Disable()
 	blosManager.Disable()
 
 	if cfg.GetEnableGNSS() {

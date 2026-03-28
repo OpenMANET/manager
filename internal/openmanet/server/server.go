@@ -9,8 +9,10 @@ import (
 	connectcors "connectrpc.com/cors"
 	"connectrpc.com/validate"
 	blosconnect "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1/blosv1connect"
+	commsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
 	"github.com/openmanet/openmanetd/internal/blos"
+	"github.com/openmanet/openmanetd/internal/comms"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/gpsd"
@@ -26,13 +28,14 @@ const (
 )
 
 type APIServer struct {
-	Cfg         *config.Config
-	Log         zerolog.Logger
-	DB          *models.Queries
-	ApiServer   *http.Server
-	Wifi        *mgmt.WirelessConfig
-	GPS         *gpsd.GPSService
-	BLOSManager blos.BLOSLifecycle
+	Cfg          *config.Config
+	Log          zerolog.Logger
+	DB           *models.Queries
+	ApiServer    *http.Server
+	Wifi         *mgmt.WirelessConfig
+	GPS          *gpsd.GPSService
+	BLOSManager  blos.BLOSLifecycle
+	CommsManager comms.CommsLifecycle
 }
 
 func NewAPIServer(cfg APIServer) *APIServer {
@@ -63,13 +66,10 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		GPS:  cfg.GPS,
 	}, connect.WithInterceptors(validateInterceptor)))
 
-	api.Handle(services.NewCommsServiceHandler(&handlers.CommsService{
-		Cfg: cfg.Cfg,
-		Log: cfg.Log,
-	}, connect.WithInterceptors(validateInterceptor)))
-
-	api.Handle(services.NewWebCommsServiceHandler(&handlers.WebCommsService{
-		Log: cfg.Log,
+	api.Handle(commsconnect.NewCommsServiceHandler(&handlers.CommsService{
+		Cfg:          cfg.Cfg,
+		Log:          cfg.Log,
+		CommsManager: cfg.CommsManager,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(blosconnect.NewBLOSServiceHandler(&handlers.BLOSService{
@@ -88,7 +88,7 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Protocols:   p,
 		ReadTimeout: 30 * time.Second,
 		// WriteTimeout is intentionally omitted to support long-lived
-		// streaming RPCs (e.g. WebCommsService audio streams).
+		// streaming RPCs (e.g. CommsService audio streams).
 		ErrorLog: logger.StandardLogger(cfg.Log),
 	}
 

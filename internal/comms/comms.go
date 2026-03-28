@@ -7,7 +7,6 @@ import (
 	"math"
 	"net"
 	"os"
-	"os/signal"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -976,7 +975,7 @@ func GetWebAudioBridge() *WebAudioBridge {
 
 // startHardwareAudio initializes PortAudio, opens broadcast and playback
 // streams, and returns a cleanup function that stops and closes them.
-func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) func() {
+func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) (func(), error) {
 	silenceALSAProbeNoise()
 
 	err := portaudio.Initialize()
@@ -984,21 +983,14 @@ func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) func() {
 	restoreALSAErrorHandler()
 
 	if err != nil {
-		cfg.Log.Fatal().Err(err).Msg("comms: failed to initialize PortAudio")
+		return nil, fmt.Errorf("comms: failed to initialize PortAudio: %w", err)
 	}
-
-	go func() {
-		<-cfg.Interrupt
-		cfg.Log.Info().Msg("comms: received shutdown signal, cleaning up PortAudio")
-
-		_ = portaudio.Terminate()
-
-		os.Exit(0)
-	}()
 
 	broadcastStream, inDev, audioErr := cfg.buildAudio(rt)
 	if audioErr != nil {
-		cfg.Log.Fatal().Err(audioErr).Msg("comms: failed to build audio streams")
+		_ = portaudio.Terminate()
+
+		return nil, fmt.Errorf("comms: failed to build audio streams: %w", audioErr)
 	}
 
 	rt.broadcastStream = broadcastStream
@@ -1007,7 +999,10 @@ func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) func() {
 	for _, pc := range rt.ports {
 		if pc.playbackStream != nil {
 			if startErr := pc.playbackStream.Start(); startErr != nil {
-				cfg.Log.Fatal().Err(startErr).Msg("comms: failed to start playback stream")
+				_ = broadcastStream.Close()
+				_ = portaudio.Terminate()
+
+				return nil, fmt.Errorf("comms: failed to start playback stream: %w", startErr)
 			}
 		}
 	}
@@ -1021,23 +1016,23 @@ func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) func() {
 		}
 
 		_ = broadcastStream.Close()
-	}
+		_ = portaudio.Terminate()
+	}, nil
 }
 
-// Start initializes all comms subsystems and blocks until an OS interrupt is
-// received. Returns immediately if Enable is false.
-func (cfg *CommsConfig) Start() {
+// Start initializes all comms subsystems and blocks until ctx is canceled.
+// Returns nil on clean shutdown, or an error if initialization fails.
+// The caller is responsible for canceling ctx to stop the subsystem.
+func (cfg *CommsConfig) Start(ctx context.Context) error {
 	if !cfg.Enable {
 		cfg.Log.Info().Msg("comms: functionality disabled; not starting")
 
-		return
+		return nil
 	}
 
 	// Voice comms is not supported on MIPS due to lack of audio hardware
 	if runtime.GOARCH == "mipsle" {
-		cfg.Log.Error().Msg("comms: running on MIPS; audio quality may be poor due to lack of hardware FPU")
-
-		return
+		return errors.New("comms: running on MIPS; audio not supported")
 	}
 
 	cfg.applyDefaults()
@@ -1068,7 +1063,7 @@ func (cfg *CommsConfig) Start() {
 	// ── codec ──────────────────────────────────────────────────────────────
 	enc, dec, err := cfg.buildCodec()
 	if err != nil {
-		cfg.Log.Fatal().Err(err).Msg("comms: failed to build Opus codec")
+		return fmt.Errorf("comms: failed to build Opus codec: %w", err)
 	}
 
 	// ── beep tones ─────────────────────────────────────────────────────────
@@ -1083,7 +1078,7 @@ func (cfg *CommsConfig) Start() {
 	// ── network ────────────────────────────────────────────────────────────
 	ports, localIP, netErr := cfg.buildNetwork()
 	if netErr != nil {
-		cfg.Log.Fatal().Err(netErr).Msg("comms: failed to set up network")
+		return fmt.Errorf("comms: failed to set up network: %w", netErr)
 	}
 
 	// ── assemble runtime ───────────────────────────────────────────────────
@@ -1109,6 +1104,10 @@ func (cfg *CommsConfig) Start() {
 				}
 			}
 		}
+
+		cfg.runtime = nil
+
+		activeConfig.Store((*CommsConfig)(nil))
 	}()
 
 	cfg.runtime = rt
@@ -1117,7 +1116,7 @@ func (cfg *CommsConfig) Start() {
 	// ── event source ───────────────────────────────────────────────────────
 	src, srcErr := cfg.buildEventSource(rt)
 	if srcErr != nil {
-		cfg.Log.Fatal().Err(srcErr).Msg("comms: failed to build event source")
+		return fmt.Errorf("comms: failed to build event source: %w", srcErr)
 	}
 
 	// ── audio I/O ─────────────────────────────────────────────────────────
@@ -1125,22 +1124,18 @@ func (cfg *CommsConfig) Start() {
 		// Web mode: skip PortAudio entirely; the browser provides audio I/O.
 		rt.webBridge = NewWebAudioBridge(cfg, rt, cfg.Log)
 	} else {
-		cleanup := cfg.startHardwareAudio(rt)
+		cleanup, hwErr := cfg.startHardwareAudio(rt)
+		if hwErr != nil {
+			return hwErr
+		}
+
 		defer cleanup()
 	}
 
 	// ── run loop ───────────────────────────────────────────────────────────
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-
-	go func() {
-		<-c
-		cfg.Log.Info().Msg("comms: exiting service")
-		cancel()
-	}()
-
 	cfg.Run(ctx, rt, src)
+
+	cfg.Log.Info().Msg("comms: subsystem stopped")
+
+	return nil
 }

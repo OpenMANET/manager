@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"buf.build/go/protovalidate"
+	commsv1 "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1"
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,7 +61,7 @@ func TestValidation_SetSendTalkGroupRequest_OutOfRange(t *testing.T) {
 	for _, tg := range []int32{0, -1, 33, 100} {
 		tg := tg
 		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
-			err := v.Validate(&serviceproto.SetSendTalkGroupRequest{Talkgroup: tg})
+			err := v.Validate(&commsv1.SetSendTalkGroupRequest{Talkgroup: tg})
 			assert.Error(t, err, "talkgroup %d is out of range [1,32] and must fail validation", tg)
 		})
 	}
@@ -72,7 +73,7 @@ func TestValidation_SetSendTalkGroupRequest_ValidTalkgroups(t *testing.T) {
 	for _, tg := range []int32{1, 16, 32} {
 		tg := tg
 		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
-			err := v.Validate(&serviceproto.SetSendTalkGroupRequest{Talkgroup: tg})
+			err := v.Validate(&commsv1.SetSendTalkGroupRequest{Talkgroup: tg})
 			assert.NoError(t, err, "talkgroup %d must pass validation", tg)
 		})
 	}
@@ -86,7 +87,7 @@ func TestValidation_SetReceiveTalkGroupRequest_OutOfRange(t *testing.T) {
 	for _, tg := range []int32{0, -1, 33, 100} {
 		tg := tg
 		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
-			err := v.Validate(&serviceproto.SetReceiveTalkGroupRequest{Talkgroup: tg})
+			err := v.Validate(&commsv1.SetReceiveTalkGroupRequest{Talkgroup: tg})
 			assert.Error(t, err, "talkgroup %d is out of range [1,32] and must fail validation", tg)
 		})
 	}
@@ -98,7 +99,7 @@ func TestValidation_SetReceiveTalkGroupRequest_ValidTalkgroups(t *testing.T) {
 	for _, tg := range []int32{1, 16, 32} {
 		tg := tg
 		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
-			err := v.Validate(&serviceproto.SetReceiveTalkGroupRequest{Talkgroup: tg})
+			err := v.Validate(&commsv1.SetReceiveTalkGroupRequest{Talkgroup: tg})
 			assert.NoError(t, err, "talkgroup %d must pass validation", tg)
 		})
 	}

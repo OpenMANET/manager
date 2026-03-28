@@ -84,6 +84,61 @@ func (f *fakeBLOSManager) getDisableCalls() int {
 	return f.disableCalls
 }
 
+// ── fakeCommsManager ───────────────────────────────────────────────────────────
+
+// fakeCommsManager implements comms.CommsLifecycle for handler tests.
+type fakeCommsManager struct {
+	mu           sync.Mutex
+	running      bool
+	enableErr    error
+	enableCalls  int
+	disableCalls int
+}
+
+func (f *fakeCommsManager) Enable() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.enableCalls++
+
+	if f.enableErr != nil {
+		return f.enableErr
+	}
+
+	f.running = true
+
+	return nil
+}
+
+func (f *fakeCommsManager) Disable() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.disableCalls++
+	f.running = false
+}
+
+func (f *fakeCommsManager) IsRunning() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.running
+}
+
+func (f *fakeCommsManager) getEnableCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.enableCalls
+}
+
+func (f *fakeCommsManager) getDisableCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.disableCalls
+}
+
 // ── fakeWireless ────────────────────────────────────────────────────────────
 
 // fakeWireless implements mgmt.WirelessProvider for use in tests.

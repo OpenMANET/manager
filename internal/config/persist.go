@@ -105,10 +105,16 @@ func findOrCreateMapping(mapping *yaml.Node, key string) *yaml.Node {
 // setScalarValue finds a key in a mapping node and sets its scalar value.
 // If the key doesn't exist, it creates a new entry.
 func setScalarValue(mapping *yaml.Node, key string, value string) {
+	setScalarWithTag(mapping, key, value, "!!bool")
+}
+
+// setScalarWithTag finds a key in a mapping node and sets its scalar value
+// with the given YAML tag. If the key doesn't exist, it creates a new entry.
+func setScalarWithTag(mapping *yaml.Node, key string, value string, tag string) {
 	for i := 0; i < len(mapping.Content)-1; i += 2 {
 		if mapping.Content[i].Value == key {
 			mapping.Content[i+1].Value = value
-			mapping.Content[i+1].Tag = "!!bool"
+			mapping.Content[i+1].Tag = tag
 
 			return
 		}
@@ -122,8 +128,71 @@ func setScalarValue(mapping *yaml.Node, key string, value string) {
 	}
 	valueNode := &yaml.Node{
 		Kind:  yaml.ScalarNode,
-		Tag:   "!!bool",
+		Tag:   tag,
 		Value: value,
 	}
 	mapping.Content = append(mapping.Content, keyNode, valueNode)
+}
+
+// PersistCommsConfig updates the comms.enable and comms.controlSource values
+// in the YAML config file and refreshes the in-memory config state. It
+// preserves comments and key ordering by operating on the yaml.Node tree.
+func (c *Config) PersistCommsConfig(enable bool, controlSource string) error {
+	filePath := c.v.ConfigFileUsed()
+	if filePath == "" {
+		return fmt.Errorf("no config file path configured")
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("reading config file: %w", err)
+	}
+
+	var doc yaml.Node
+
+	err = yaml.Unmarshal(data, &doc)
+	if err != nil {
+		return fmt.Errorf("parsing config file: %w", err)
+	}
+
+	if err = setCommsConfig(&doc, enable, controlSource); err != nil {
+		return fmt.Errorf("updating comms config: %w", err)
+	}
+
+	out, err := yaml.Marshal(&doc)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+
+	//nolint:gosec // config file permissions match the original file
+	err = os.WriteFile(filePath, out, 0644)
+	if err != nil {
+		return fmt.Errorf("writing config file: %w", err)
+	}
+
+	// Update in-memory state immediately without waiting for fsnotify.
+	c.v.Set("comms.enable", enable)
+	c.v.Set("comms.controlSource", controlSource)
+	c.reload()
+
+	return nil
+}
+
+// setCommsConfig finds or creates the comms section in the YAML document and
+// sets the enable and controlSource keys.
+func setCommsConfig(doc *yaml.Node, enable bool, controlSource string) error {
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return fmt.Errorf("unexpected YAML structure: expected document node")
+	}
+
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("unexpected YAML structure: expected mapping node at root")
+	}
+
+	commsMapping := findOrCreateMapping(root, "comms")
+	setScalarValue(commsMapping, "enable", fmt.Sprintf("%t", enable))
+	setScalarWithTag(commsMapping, "controlSource", controlSource, "!!str")
+
+	return nil
 }
