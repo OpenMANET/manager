@@ -31,6 +31,7 @@ type UCIWirelessDevice struct {
 	EnableDynamicPSOffload string `uci:"option enable_dynamic_ps_offload"`
 	EnableTWT              string `uci:"option enable_twt"`
 	BCF                    string `uci:"option bcf"`
+	TxPower                string `uci:"option txpower"`
 }
 
 // UCIWirelessIface represents a UCI wireless interface (wifi-iface section) configuration.
@@ -123,7 +124,7 @@ func GetWirelessMeshPassphraseFromPath(path string) (string, error) {
 			return "", false
 		}
 
-		if strings.ToLower(strings.TrimSpace(section.options["mode"])) != "mesh" {
+		if strings.ToLower(strings.TrimSpace(section.options["mode"])) != "mesh" { //nolint:goconst
 			return "", false
 		}
 
@@ -275,7 +276,7 @@ func GetWirelessDeviceByName(name string) (*UCIWirelessDevice, error) {
 
 // GetWirelessDeviceByNameWithReader loads and returns the UCI wireless device configuration by
 // name using the provided reader.
-func GetWirelessDeviceByNameWithReader(name string, reader ConfigReader) (*UCIWirelessDevice, error) { //nolint:gocyclo
+func GetWirelessDeviceByNameWithReader(name string, reader ConfigReader) (*UCIWirelessDevice, error) { //nolint:gocyclo,gocognit
 	config := &UCIWirelessDevice{}
 
 	if values, ok := reader.Get(wirelessConfigName, name, "type"); ok && len(values) > 0 {
@@ -336,6 +337,10 @@ func GetWirelessDeviceByNameWithReader(name string, reader ConfigReader) (*UCIWi
 
 	if values, ok := reader.Get(wirelessConfigName, name, "bcf"); ok && len(values) > 0 {
 		config.BCF = values[0]
+	}
+
+	if values, ok := reader.Get(wirelessConfigName, name, "txpower"); ok && len(values) > 0 {
+		config.TxPower = values[0]
 	}
 
 	return config, nil
@@ -529,6 +534,12 @@ func SetWirelessDeviceConfigWithReader(section string, config *UCIWirelessDevice
 	if config.BCF != "" {
 		if err := reader.SetType(wirelessConfigName, section, "bcf", uci.TypeOption, config.BCF); err != nil {
 			return fmt.Errorf("failed to set bcf: %w", err)
+		}
+	}
+
+	if config.TxPower != "" {
+		if err := reader.SetType(wirelessConfigName, section, "txpower", uci.TypeOption, config.TxPower); err != nil {
+			return fmt.Errorf("failed to set txpower: %w", err)
 		}
 	}
 

@@ -107,6 +107,7 @@ func newWirelessMockReader() *mockConfigReader {
 					"htmode":       {"HE20"},
 					"country":      {"US"},
 					"cell_density": {"0"},
+					"txpower":      {"20"},
 				},
 				"radio4": {
 					"type":                      {"morse"},
@@ -169,6 +170,7 @@ func TestGetWirelessDeviceByNameWithReader_Radio1(t *testing.T) {
 		HTMode:      "HE20",
 		Country:     "US",
 		CellDensity: "0",
+		TxPower:     "20",
 	}
 
 	got, err := GetWirelessDeviceByNameWithReader("radio1", reader)
@@ -322,6 +324,29 @@ func TestSetWirelessDeviceConfigWithReader_Complete(t *testing.T) {
 
 	if got.HTMode != "HE80" {
 		t.Errorf("HTMode: got %q, want %q", got.HTMode, "HE80")
+	}
+}
+
+func TestSetWirelessDeviceConfigWithReader_TxPower(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	cfg := &UCIWirelessDevice{
+		Band:    "2g",
+		Channel: "6",
+		TxPower: "14",
+	}
+
+	if err := SetWirelessDeviceConfigWithReader("radio5", cfg, reader); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, err := GetWirelessDeviceByNameWithReader("radio5", reader)
+	if err != nil {
+		t.Fatalf("unexpected error reading back config: %v", err)
+	}
+
+	if got.TxPower != "14" {
+		t.Errorf("TxPower: got %q, want %q", got.TxPower, "14")
 	}
 }
 

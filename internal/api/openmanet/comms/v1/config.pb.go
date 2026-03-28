@@ -7,9 +7,9 @@
 package commsv1
 
 import (
+	_ "github.com/openmanet/openmanetd/internal/api/openmanet/common/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	descriptorpb "google.golang.org/protobuf/types/descriptorpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -218,28 +218,11 @@ func (*UpdateCommsConfigResponse) Descriptor() ([]byte, []int) {
 	return file_openmanet_comms_v1_config_proto_rawDescGZIP(), []int{2}
 }
 
-var file_openmanet_comms_v1_config_proto_extTypes = []protoimpl.ExtensionInfo{
-	{
-		ExtendedType:  (*descriptorpb.EnumValueOptions)(nil),
-		ExtensionType: (*string)(nil),
-		Field:         123456789,
-		Name:          "openmanet.comms.v1.string_name",
-		Tag:           "bytes,123456789,opt,name=string_name",
-		Filename:      "openmanet/comms/v1/config.proto",
-	},
-}
-
-// Extension fields to descriptorpb.EnumValueOptions.
-var (
-	// optional string string_name = 123456789;
-	E_StringName = &file_openmanet_comms_v1_config_proto_extTypes[0]
-)
-
 var File_openmanet_comms_v1_config_proto protoreflect.FileDescriptor
 
 const file_openmanet_comms_v1_config_proto_rawDesc = "" +
 	"\n" +
-	"\x1fopenmanet/comms/v1/config.proto\x12\x12openmanet.comms.v1\x1a google/protobuf/descriptor.proto\"\x87\x01\n" +
+	"\x1fopenmanet/comms/v1/config.proto\x12\x12openmanet.comms.v1\x1a!openmanet/common/v1/options.proto\"\x87\x01\n" +
 	"\x16GetCommsConfigResponse\x12#\n" +
 	"\rcomms_enabled\x18\x01 \x01(\bR\fcommsEnabled\x12H\n" +
 	"\x0econtrol_source\x18\x02 \x01(\x0e2!.openmanet.comms.v1.ControlSourceR\rcontrolSource\"\x87\x01\n" +
@@ -250,9 +233,7 @@ const file_openmanet_comms_v1_config_proto_rawDesc = "" +
 	"\rControlSource\x12%\n" +
 	"\x14CONTROL_SOURCE_CM108\x10\x00\x1a\v\xaa\xd1\xf9\xd6\x03\x05cm108\x12)\n" +
 	"\x16CONTROL_SOURCE_NANOPTT\x10\x01\x1a\r\xaa\xd1\xf9\xd6\x03\ananoptt\x12!\n" +
-	"\x12CONTROL_SOURCE_WEB\x10\x02\x1a\t\xaa\xd1\xf9\xd6\x03\x03web:H\n" +
-	"\vstring_name\x12!.google.protobuf.EnumValueOptions\x18\x95\x9a\xef: \x01(\tR\n" +
-	"stringName\x88\x01\x01B\xd8\x01\n" +
+	"\x12CONTROL_SOURCE_WEB\x10\x02\x1a\t\xaa\xd1\xf9\xd6\x03\x03webB\xd8\x01\n" +
 	"\x16com.openmanet.comms.v1B\vConfigProtoP\x01ZGgithub.com/openmanet/openmanetd/internal/api/openmanet/comms/v1;commsv1\xa2\x02\x03OCX\xaa\x02\x12Openmanet.Comms.V1\xca\x02\x12Openmanet\\Comms\\V1\xe2\x02\x1eOpenmanet\\Comms\\V1\\GPBMetadata\xea\x02\x14Openmanet::Comms::V1b\x06proto3"
 
 var (
@@ -270,20 +251,18 @@ func file_openmanet_comms_v1_config_proto_rawDescGZIP() []byte {
 var file_openmanet_comms_v1_config_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_openmanet_comms_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_openmanet_comms_v1_config_proto_goTypes = []any{
-	(ControlSource)(0),                    // 0: openmanet.comms.v1.ControlSource
-	(*GetCommsConfigResponse)(nil),        // 1: openmanet.comms.v1.GetCommsConfigResponse
-	(*UpdateCommsConfigRequest)(nil),      // 2: openmanet.comms.v1.UpdateCommsConfigRequest
-	(*UpdateCommsConfigResponse)(nil),     // 3: openmanet.comms.v1.UpdateCommsConfigResponse
-	(*descriptorpb.EnumValueOptions)(nil), // 4: google.protobuf.EnumValueOptions
+	(ControlSource)(0),                // 0: openmanet.comms.v1.ControlSource
+	(*GetCommsConfigResponse)(nil),    // 1: openmanet.comms.v1.GetCommsConfigResponse
+	(*UpdateCommsConfigRequest)(nil),  // 2: openmanet.comms.v1.UpdateCommsConfigRequest
+	(*UpdateCommsConfigResponse)(nil), // 3: openmanet.comms.v1.UpdateCommsConfigResponse
 }
 var file_openmanet_comms_v1_config_proto_depIdxs = []int32{
 	0, // 0: openmanet.comms.v1.GetCommsConfigResponse.control_source:type_name -> openmanet.comms.v1.ControlSource
 	0, // 1: openmanet.comms.v1.UpdateCommsConfigRequest.control_source:type_name -> openmanet.comms.v1.ControlSource
-	4, // 2: openmanet.comms.v1.string_name:extendee -> google.protobuf.EnumValueOptions
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	2, // [2:3] is the sub-list for extension extendee
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
 	0, // [0:2] is the sub-list for field type_name
 }
 
@@ -299,14 +278,13 @@ func file_openmanet_comms_v1_config_proto_init() {
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_comms_v1_config_proto_rawDesc), len(file_openmanet_comms_v1_config_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   3,
-			NumExtensions: 1,
+			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_openmanet_comms_v1_config_proto_goTypes,
 		DependencyIndexes: file_openmanet_comms_v1_config_proto_depIdxs,
 		EnumInfos:         file_openmanet_comms_v1_config_proto_enumTypes,
 		MessageInfos:      file_openmanet_comms_v1_config_proto_msgTypes,
-		ExtensionInfos:    file_openmanet_comms_v1_config_proto_extTypes,
 	}.Build()
 	File_openmanet_comms_v1_config_proto = out.File
 	file_openmanet_comms_v1_config_proto_goTypes = nil

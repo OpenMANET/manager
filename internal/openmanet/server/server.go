@@ -13,13 +13,16 @@ import (
 	dashboardconnect "github.com/openmanet/openmanetd/internal/api/openmanet/dashboard/v1/dashboardv1connect"
 	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
+	wificonfigconnect "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1/wifi_configv1connect"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/blos"
 	"github.com/openmanet/openmanetd/internal/comms"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/gpsd"
+	"github.com/openmanet/openmanetd/internal/iwinfo"
 	"github.com/openmanet/openmanetd/internal/mgmt"
+	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/openmanet/openmanetd/internal/system"
 	"github.com/openmanet/openmanetd/internal/util/logger"
@@ -104,6 +107,15 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Tailscale:   cfg.Tailscale,
 		Services:    &system.InitDServiceChecker{},
 		Actions:     &system.InitDActionExecutor{},
+	}, connect.WithInterceptors(validateInterceptor)))
+
+	api.Handle(wificonfigconnect.NewWifiConfigServiceHandler(&handlers.WifiConfigService{
+		Log:            cfg.Log,
+		IwinfoClient:   iwinfo.NewClient(),
+		Wifi:           cfg.Wifi,
+		WirelessStatus: network.NewDefaultWirelessStatusProvider(),
+		ConfigReader:   network.NewUCIWirelessConfigReader(),
+		DHCPLeases:     cfg.Leases,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	p := new(http.Protocols)
