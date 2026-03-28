@@ -18,11 +18,14 @@ import (
 	blosconnect "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1/blosv1connect"
 	commsv1 "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1"
 	commsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
+	niv1 "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1"
+	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/gpsd"
+	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
@@ -89,6 +92,30 @@ func newTestServer(t *testing.T) *httptest.Server {
 		Cfg:         &config.Config{BLOSEnable: false},
 		Log:         zerolog.Nop(),
 		BLOSManager: &fakeBLOSManager{},
+	}, handlerOpt))
+
+	mux.Handle(niconnect.NewNetworkInterfaceServiceHandler(&handlers.NetworkInterfaceService{
+		Log: zerolog.Nop(),
+		Interfaces: &fakeInterfaceProvider{
+			infos: []network.NetworkInterfaceInfo{
+				{Name: "br-ahwlan", LinkType: network.LinkTypeBridge, MAC: "C8:3E:A7:00:6C:FF", IP: "10.41.25.72/16", State: network.OperStateUp, RxBytes: 1000, TxBytes: 2000, MTU: 1500},
+			},
+		},
+		DHCP: &fakeDHCPConfigProvider{
+			dhcpCfg:    &network.UCIDHCP{Interface: "ahwlan", Start: "100", Limit: "155", LeaseTime: "12h"},
+			dnsmasqCfg: &network.UCIDnsmasq{Local: "/lan/"},
+			baseIP:     "10.41.0.0",
+			staticHost: []network.UCIStaticHost{
+				{Name: "printer", MAC: "AA:BB:CC:11:22:33", IP: "10.41.0.10"},
+			},
+		},
+		Leases: &fakeLeaseProvider{
+			resp: &network.DHCPLeasesResponse{
+				DHCPLeases: []network.DHCPLease{
+					{Hostname: "laptop", MacAddr: "D4:6D:6D:1A:2B:3C", IPAddr: "10.41.0.101", Expires: 42120},
+				},
+			},
+		},
 	}, handlerOpt))
 
 	srv := httptest.NewServer(mux)
@@ -756,4 +783,52 @@ func TestIntegration_UpdateBLOSConfig_Disable(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
+}
+
+// ── NetworkInterfaceService ───────────────────────────────────────────────────
+
+func TestIntegration_ListNetworkInterfaces(t *testing.T) {
+	srv := newTestServer(t)
+	client := niconnect.NewNetworkInterfaceServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	resp, err := client.ListNetworkInterfaces(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetInterfaces(), 1)
+	assert.Equal(t, "br-ahwlan", resp.GetInterfaces()[0].GetName())
+	assert.Equal(t, niv1.InterfaceType_INTERFACE_TYPE_BRIDGE, resp.GetInterfaces()[0].GetType())
+}
+
+func TestIntegration_GetDHCPServerConfig(t *testing.T) {
+	srv := newTestServer(t)
+	client := niconnect.NewNetworkInterfaceServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	resp, err := client.GetDHCPServerConfig(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	assert.Equal(t, "ahwlan", resp.GetConfig().GetInterfaceName())
+	assert.Equal(t, "10.41.0.100", resp.GetConfig().GetRangeStart())
+	assert.Equal(t, "12h", resp.GetConfig().GetLeaseTime())
+	assert.True(t, resp.GetConfig().GetDnsForwardingEnabled())
+	assert.Equal(t, int32(1), resp.GetConfig().GetActiveLeaseCount())
+}
+
+func TestIntegration_ListActiveDHCPLeases(t *testing.T) {
+	srv := newTestServer(t)
+	client := niconnect.NewNetworkInterfaceServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	resp, err := client.ListActiveDHCPLeases(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetLeases(), 1)
+	assert.Equal(t, "laptop", resp.GetLeases()[0].GetHostname())
+	assert.Equal(t, int32(42120), resp.GetLeases()[0].GetExpiresSeconds())
+}
+
+func TestIntegration_ListStaticDHCPLeases(t *testing.T) {
+	srv := newTestServer(t)
+	client := niconnect.NewNetworkInterfaceServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	resp, err := client.ListStaticDHCPLeases(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetLeases(), 1)
+	assert.Equal(t, "printer", resp.GetLeases()[0].GetHostname())
+	assert.Equal(t, "AA:BB:CC:11:22:33", resp.GetLeases()[0].GetMacAddress())
 }

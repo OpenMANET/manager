@@ -16,6 +16,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/mgmt"
+	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/openmanet/openmanetd/internal/util/logger"
@@ -105,6 +106,8 @@ func Start() {
 	blosManager := blos.NewBLOSManager(cfg, logger.GetLogger("blos"))
 
 	// Start API Server
+	interfaceProvider := &network.NetlinkInterfaceProvider{}
+
 	apiServer := server.APIServer{
 		Cfg:          cfg,
 		Log:          logger.GetLogger("api"),
@@ -112,10 +115,19 @@ func Start() {
 		GPS:          gps,
 		BLOSManager:  blosManager,
 		CommsManager: commsManager,
+		Interfaces:   interfaceProvider,
+		DHCP: &network.UCIDHCPConfigProvider{
+			DHCPReader:    network.NewUCIDHCPConfigReader(),
+			NetworkReader: network.NewUCINetworkConfigReader(),
+		},
+		Leases: &network.UbusLeaseProvider{
+			Executor: &network.DefaultUbusExecutor{},
+		},
 	}
 
 	if manager != nil {
 		apiServer.Wifi = manager.WirelessConfig
+		interfaceProvider.WifiInterfaces = manager.WirelessConfig.Interfaces
 	}
 
 	api := server.NewAPIServer(apiServer)

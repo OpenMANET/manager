@@ -8,6 +8,8 @@ import (
 
 	"github.com/digineo/go-uci/v2"
 	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const testMACAddress = "AA:BB:CC:DD:EE:FF"
@@ -1358,4 +1360,114 @@ func TestDefaultUbusExecutor_Execute(t *testing.T) {
 	// We can't actually run ubus in the test environment.
 	var _ UbusCommandExecutor = &DefaultUbusExecutor{}
 	// The actual execution is tested in integration tests
+}
+
+// ── Static Host Tests ────────────────────────────────────────────────────────
+
+func TestGetStaticHostsWithReader_ReturnsHosts(t *testing.T) {
+	reader := newMockDHCPConfigReader()
+	reader.sections["dhcp"] = map[string]string{
+		"printer": "host",
+		"camera":  "host",
+	}
+
+	reader.data["dhcp"] = map[string]map[string][]string{
+		"printer": {
+			"name": {"printer-office"},
+			"mac":  {"AA:BB:CC:11:22:33"},
+			"ip":   {"10.41.0.10"},
+		},
+		"camera": {
+			"name": {"camera-north"},
+			"mac":  {"AA:BB:CC:44:55:66"},
+			"ip":   {"10.41.0.11"},
+		},
+	}
+
+	hosts, err := GetStaticHostsWithReader(reader)
+	require.NoError(t, err)
+	assert.Len(t, hosts, 2)
+
+	// Build a map for order-independent assertion
+	byName := make(map[string]UCIStaticHost)
+	for _, h := range hosts {
+		byName[h.Name] = h
+	}
+
+	assert.Equal(t, "printer-office", byName["printer-office"].Name)
+	assert.Equal(t, "AA:BB:CC:11:22:33", byName["printer-office"].MAC)
+	assert.Equal(t, "10.41.0.10", byName["printer-office"].IP)
+
+	assert.Equal(t, "camera-north", byName["camera-north"].Name)
+	assert.Equal(t, "AA:BB:CC:44:55:66", byName["camera-north"].MAC)
+	assert.Equal(t, "10.41.0.11", byName["camera-north"].IP)
+}
+
+func TestGetStaticHostsWithReader_Empty(t *testing.T) {
+	reader := newMockDHCPConfigReader()
+
+	hosts, err := GetStaticHostsWithReader(reader)
+	require.NoError(t, err)
+	assert.Empty(t, hosts)
+}
+
+func TestGetStaticHostsWithReader_PartialFields(t *testing.T) {
+	reader := newMockDHCPConfigReader()
+	reader.sections["dhcp"] = map[string]string{
+		"noname": "host",
+	}
+
+	reader.data["dhcp"] = map[string]map[string][]string{
+		"noname": {
+			"mac": {"AA:BB:CC:DD:EE:FF"},
+			"ip":  {"10.41.0.50"},
+		},
+	}
+
+	hosts, err := GetStaticHostsWithReader(reader)
+	require.NoError(t, err)
+	assert.Len(t, hosts, 1)
+	assert.Equal(t, "", hosts[0].Name)
+	assert.Equal(t, "AA:BB:CC:DD:EE:FF", hosts[0].MAC)
+	assert.Equal(t, "10.41.0.50", hosts[0].IP)
+}
+
+func TestGetStaticHostsWithReader_GetSectionsError(t *testing.T) {
+	reader := &mockDHCPConfigReaderWithErrors{}
+
+	_, err := GetStaticHostsWithReader(reader)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "enumerate host sections")
+}
+
+// ── DHCP Range Computation Tests ─────────────────────────────────────────────
+
+func TestComputeDHCPRangeStart(t *testing.T) {
+	ip, err := ComputeDHCPRangeStart("10.41.0.0", 100)
+	require.NoError(t, err)
+	assert.Equal(t, "10.41.0.100", ip)
+}
+
+func TestComputeDHCPRangeEnd(t *testing.T) {
+	ip, err := ComputeDHCPRangeEnd("10.41.0.0", 100, 155)
+	require.NoError(t, err)
+	assert.Equal(t, "10.41.0.254", ip)
+}
+
+func TestComputeDHCPRangeEnd_CrossesOctet(t *testing.T) {
+	ip, err := ComputeDHCPRangeEnd("10.41.0.0", 200, 100)
+	require.NoError(t, err)
+	assert.Equal(t, "10.41.1.43", ip)
+}
+
+func TestComputeDHCPRangeStart_InvalidIP(t *testing.T) {
+	_, err := ComputeDHCPRangeStart("invalid", 100)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid base IP")
+}
+
+func TestComputeDHCPRangeEnd_InvalidIP(t *testing.T) {
+	_, err := ComputeDHCPRangeEnd("invalid", 100, 155)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid base IP")
 }

@@ -791,3 +791,85 @@ func GetCurrentDHCPLeasesWithExecutor(ctx context.Context, executor UbusCommandE
 
 	return &response, nil
 }
+
+// ── Static Host Leases ──────────────────────────────────────────────────────
+
+// UCIStaticHost represents a static DHCP reservation ("host" section in UCI).
+type UCIStaticHost struct {
+	Name string // hostname
+	MAC  string // MAC address
+	IP   string // reserved IP
+}
+
+// GetStaticHosts returns all static DHCP host reservations using the default reader.
+func GetStaticHosts() ([]UCIStaticHost, error) {
+	return GetStaticHostsWithReader(NewUCIDHCPConfigReader())
+}
+
+// GetStaticHostsWithReader returns all static DHCP host reservations from UCI.
+// It enumerates all "host" type sections in the dhcp config.
+func GetStaticHostsWithReader(reader DHCPConfigReader) ([]UCIStaticHost, error) {
+	sections, err := reader.GetSections(dhcpConfigName, "host")
+	if err != nil {
+		return nil, fmt.Errorf("failed to enumerate host sections: %w", err)
+	}
+
+	hosts := make([]UCIStaticHost, 0, len(sections))
+
+	for _, section := range sections {
+		var host UCIStaticHost
+
+		if values, ok := reader.Get(dhcpConfigName, section, "name"); ok && len(values) > 0 {
+			host.Name = values[0]
+		}
+
+		if values, ok := reader.Get(dhcpConfigName, section, "mac"); ok && len(values) > 0 {
+			host.MAC = values[0]
+		}
+
+		if values, ok := reader.Get(dhcpConfigName, section, "ip"); ok && len(values) > 0 {
+			host.IP = values[0]
+		}
+
+		hosts = append(hosts, host)
+	}
+
+	return hosts, nil
+}
+
+// ── DHCP Range End Calculation ──────────────────────────────────────────────
+
+// ComputeDHCPRangeEnd calculates the last IP in a DHCP pool range.
+// Given a base interface IP, a start offset, and a limit, it returns the end IP.
+// For example: base 10.41.0.0, start 100, limit 155 → end 10.41.0.254.
+func ComputeDHCPRangeEnd(baseIP string, start, limit int) (string, error) {
+	ip := net.ParseIP(baseIP).To4()
+	if ip == nil {
+		return "", fmt.Errorf("invalid base IP: %s", baseIP)
+	}
+
+	endOffset := start + limit - 1
+
+	// Convert IP to uint32, add offset, convert back
+	ipVal := uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
+	ipVal += uint32(endOffset)
+
+	result := net.IPv4(byte(ipVal>>24), byte(ipVal>>16), byte(ipVal>>8), byte(ipVal))
+
+	return result.String(), nil
+}
+
+// ComputeDHCPRangeStart calculates the first IP in a DHCP pool range.
+func ComputeDHCPRangeStart(baseIP string, start int) (string, error) {
+	ip := net.ParseIP(baseIP).To4()
+	if ip == nil {
+		return "", fmt.Errorf("invalid base IP: %s", baseIP)
+	}
+
+	ipVal := uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
+	ipVal += uint32(start)
+
+	result := net.IPv4(byte(ipVal>>24), byte(ipVal>>16), byte(ipVal>>8), byte(ipVal))
+
+	return result.String(), nil
+}

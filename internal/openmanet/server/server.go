@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/validate"
 	blosconnect "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1/blosv1connect"
 	commsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
+	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
 	"github.com/openmanet/openmanetd/internal/blos"
 	"github.com/openmanet/openmanetd/internal/comms"
@@ -36,6 +37,9 @@ type APIServer struct {
 	GPS          *gpsd.GPSService
 	BLOSManager  blos.BLOSLifecycle
 	CommsManager comms.CommsLifecycle
+	Interfaces   handlers.InterfaceProvider
+	DHCP         handlers.DHCPConfigProvider
+	Leases       handlers.LeaseProvider
 }
 
 func NewAPIServer(cfg APIServer) *APIServer {
@@ -76,6 +80,13 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Cfg:         cfg.Cfg,
 		Log:         cfg.Log,
 		BLOSManager: cfg.BLOSManager,
+	}, connect.WithInterceptors(validateInterceptor)))
+
+	api.Handle(niconnect.NewNetworkInterfaceServiceHandler(&handlers.NetworkInterfaceService{
+		Log:        cfg.Log,
+		Interfaces: cfg.Interfaces,
+		DHCP:       cfg.DHCP,
+		Leases:     cfg.Leases,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	p := new(http.Protocols)
