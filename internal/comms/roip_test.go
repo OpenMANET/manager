@@ -209,11 +209,10 @@ func TestROIPSource_COS_HalfDuplex_EmitsAfterReceivingClears(t *testing.T) {
 
 	var receivingFlag atomic.Bool
 	receivingFlag.Store(true)
-	isReceiving := func() bool { return receivingFlag.Load() }
 
 	src := newROIPSourceWithOpener(
 		openerReturning(mock),
-		roipDefaultCOSMask, isReceiving, neverBroadcasting, zerolog.Nop(),
+		roipDefaultCOSMask, receivingFlag.Load, neverBroadcasting, zerolog.Nop(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -496,14 +495,13 @@ func TestROIPSource_VOX_PTTUpWhenReceivingWhileActive(t *testing.T) {
 	pushLoudFrames(frameCh, roipVOXOnsetFrames+1, loudAmplitude)
 
 	var receivingFlag atomic.Bool
-	isReceiving := func() bool { return receivingFlag.Load() }
 
 	holdTime := 10 * time.Second // long enough that only isReceiving() triggers PTTUp
 
 	src := newROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
 		holdTime,
-		isReceiving, neverBroadcasting, zerolog.Nop(),
+		receivingFlag.Load, neverBroadcasting, zerolog.Nop(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
