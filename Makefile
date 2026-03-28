@@ -53,6 +53,7 @@ run: fmt vet buf sqlc-gen ## Run a controller from your host.
 
 .PHONY: buf
 buf: ## Generate protobuf code
+	buf format -w proto
 	buf generate
 
 .PHONY: test

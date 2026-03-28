@@ -42,6 +42,8 @@ func protoToControlSource(src commsv1.ControlSource) string {
 		return "nanoptt"
 	case commsv1.ControlSource_CONTROL_SOURCE_WEB:
 		return "web"
+	case commsv1.ControlSource_CONTROL_SOURCE_OPENVLM:
+		return "openvlm"
 	default:
 		return "openvlm"
 	}
@@ -257,7 +259,7 @@ func (c *CommsService) SendPTTEvent(_ context.Context, req *commsv1.SendPTTEvent
 // StreamAudioTx receives a stream of Opus-encoded audio frames from the web
 // client and injects them into the RTP send path. Returns FailedPrecondition
 // when the web audio bridge is not active.
-func (c *CommsService) StreamAudioTx(_ context.Context, stream *connect.ClientStream[commsv1.WebAudioFrame]) (*commsv1.StreamAudioTxResponse, error) {
+func (c *CommsService) StreamAudioTx(_ context.Context, stream *connect.ClientStream[commsv1.StreamAudioTxRequest]) (*commsv1.StreamAudioTxResponse, error) {
 	bridge := comms.GetWebAudioBridge()
 	if bridge == nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("web audio bridge not active"))
@@ -284,7 +286,7 @@ func (c *CommsService) StreamAudioTx(_ context.Context, stream *connect.ClientSt
 // StreamAudioRx streams Opus-encoded audio frames received from the mesh
 // back to the web client. Returns FailedPrecondition when the web audio
 // bridge is not active.
-func (c *CommsService) StreamAudioRx(ctx context.Context, _ *commsv1.StreamAudioRxRequest, stream *connect.ServerStream[commsv1.WebAudioFrame]) error {
+func (c *CommsService) StreamAudioRx(ctx context.Context, _ *commsv1.StreamAudioRxRequest, stream *connect.ServerStream[commsv1.StreamAudioRxResponse]) error {
 	bridge := comms.GetWebAudioBridge()
 	if bridge == nil {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("web audio bridge not active"))
@@ -303,7 +305,7 @@ func (c *CommsService) StreamAudioRx(ctx context.Context, _ *commsv1.StreamAudio
 
 			seq++
 
-			if err := stream.Send(&commsv1.WebAudioFrame{
+			if err := stream.Send(&commsv1.StreamAudioRxResponse{
 				OpusData: opusData,
 				Sequence: seq,
 			}); err != nil {

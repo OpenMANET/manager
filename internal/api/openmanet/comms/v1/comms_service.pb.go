@@ -25,16 +25,16 @@ var File_openmanet_comms_v1_comms_service_proto protoreflect.FileDescriptor
 
 const file_openmanet_comms_v1_comms_service_proto_rawDesc = "" +
 	"\n" +
-	"&openmanet/comms/v1/comms_service.proto\x12\x12openmanet.comms.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fopenmanet/comms/v1/config.proto\x1a\x1eopenmanet/comms/v1/comms.proto\x1a\"openmanet/comms/v1/talkgroup.proto\x1a\x1fopenmanet/comms/v1/status.proto2\xb7\x06\n" +
+	"&openmanet/comms/v1/comms_service.proto\x12\x12openmanet.comms.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1eopenmanet/comms/v1/comms.proto\x1a\x1fopenmanet/comms/v1/config.proto\x1a\x1fopenmanet/comms/v1/status.proto\x1a\"openmanet/comms/v1/talkgroup.proto2\xc6\x06\n" +
 	"\fCommsService\x12T\n" +
 	"\x0eGetCommsConfig\x12\x16.google.protobuf.Empty\x1a*.openmanet.comms.v1.GetCommsConfigResponse\x12p\n" +
 	"\x11UpdateCommsConfig\x12,.openmanet.comms.v1.UpdateCommsConfigRequest\x1a-.openmanet.comms.v1.UpdateCommsConfigResponse\x12T\n" +
 	"\x0eGetCommsStatus\x12\x16.google.protobuf.Empty\x1a*.openmanet.comms.v1.GetCommsStatusResponse\x12m\n" +
 	"\x10SetSendTalkGroup\x12+.openmanet.comms.v1.SetSendTalkGroupRequest\x1a,.openmanet.comms.v1.SetSendTalkGroupResponse\x12v\n" +
 	"\x13SetReceiveTalkGroup\x12..openmanet.comms.v1.SetReceiveTalkGroupRequest\x1a/.openmanet.comms.v1.SetReceiveTalkGroupResponse\x12a\n" +
-	"\fSendPTTEvent\x12'.openmanet.comms.v1.SendPTTEventRequest\x1a(.openmanet.comms.v1.SendPTTEventResponse\x12_\n" +
-	"\rStreamAudioTx\x12!.openmanet.comms.v1.WebAudioFrame\x1a).openmanet.comms.v1.StreamAudioTxResponse(\x01\x12^\n" +
-	"\rStreamAudioRx\x12(.openmanet.comms.v1.StreamAudioRxRequest\x1a!.openmanet.comms.v1.WebAudioFrame0\x01B\xde\x01\n" +
+	"\fSendPTTEvent\x12'.openmanet.comms.v1.SendPTTEventRequest\x1a(.openmanet.comms.v1.SendPTTEventResponse\x12f\n" +
+	"\rStreamAudioTx\x12(.openmanet.comms.v1.StreamAudioTxRequest\x1a).openmanet.comms.v1.StreamAudioTxResponse(\x01\x12f\n" +
+	"\rStreamAudioRx\x12(.openmanet.comms.v1.StreamAudioRxRequest\x1a).openmanet.comms.v1.StreamAudioRxResponse0\x01B\xde\x01\n" +
 	"\x16com.openmanet.comms.v1B\x11CommsServiceProtoP\x01ZGgithub.com/openmanet/openmanetd/internal/api/openmanet/comms/v1;commsv1\xa2\x02\x03OCX\xaa\x02\x12Openmanet.Comms.V1\xca\x02\x12Openmanet\\Comms\\V1\xe2\x02\x1eOpenmanet\\Comms\\V1\\GPBMetadata\xea\x02\x14Openmanet::Comms::V1b\x06proto3"
 
 var file_openmanet_comms_v1_comms_service_proto_goTypes = []any{
@@ -43,7 +43,7 @@ var file_openmanet_comms_v1_comms_service_proto_goTypes = []any{
 	(*SetSendTalkGroupRequest)(nil),     // 2: openmanet.comms.v1.SetSendTalkGroupRequest
 	(*SetReceiveTalkGroupRequest)(nil),  // 3: openmanet.comms.v1.SetReceiveTalkGroupRequest
 	(*SendPTTEventRequest)(nil),         // 4: openmanet.comms.v1.SendPTTEventRequest
-	(*WebAudioFrame)(nil),               // 5: openmanet.comms.v1.WebAudioFrame
+	(*StreamAudioTxRequest)(nil),        // 5: openmanet.comms.v1.StreamAudioTxRequest
 	(*StreamAudioRxRequest)(nil),        // 6: openmanet.comms.v1.StreamAudioRxRequest
 	(*GetCommsConfigResponse)(nil),      // 7: openmanet.comms.v1.GetCommsConfigResponse
 	(*UpdateCommsConfigResponse)(nil),   // 8: openmanet.comms.v1.UpdateCommsConfigResponse
@@ -52,6 +52,7 @@ var file_openmanet_comms_v1_comms_service_proto_goTypes = []any{
 	(*SetReceiveTalkGroupResponse)(nil), // 11: openmanet.comms.v1.SetReceiveTalkGroupResponse
 	(*SendPTTEventResponse)(nil),        // 12: openmanet.comms.v1.SendPTTEventResponse
 	(*StreamAudioTxResponse)(nil),       // 13: openmanet.comms.v1.StreamAudioTxResponse
+	(*StreamAudioRxResponse)(nil),       // 14: openmanet.comms.v1.StreamAudioRxResponse
 }
 var file_openmanet_comms_v1_comms_service_proto_depIdxs = []int32{
 	0,  // 0: openmanet.comms.v1.CommsService.GetCommsConfig:input_type -> google.protobuf.Empty
@@ -60,7 +61,7 @@ var file_openmanet_comms_v1_comms_service_proto_depIdxs = []int32{
 	2,  // 3: openmanet.comms.v1.CommsService.SetSendTalkGroup:input_type -> openmanet.comms.v1.SetSendTalkGroupRequest
 	3,  // 4: openmanet.comms.v1.CommsService.SetReceiveTalkGroup:input_type -> openmanet.comms.v1.SetReceiveTalkGroupRequest
 	4,  // 5: openmanet.comms.v1.CommsService.SendPTTEvent:input_type -> openmanet.comms.v1.SendPTTEventRequest
-	5,  // 6: openmanet.comms.v1.CommsService.StreamAudioTx:input_type -> openmanet.comms.v1.WebAudioFrame
+	5,  // 6: openmanet.comms.v1.CommsService.StreamAudioTx:input_type -> openmanet.comms.v1.StreamAudioTxRequest
 	6,  // 7: openmanet.comms.v1.CommsService.StreamAudioRx:input_type -> openmanet.comms.v1.StreamAudioRxRequest
 	7,  // 8: openmanet.comms.v1.CommsService.GetCommsConfig:output_type -> openmanet.comms.v1.GetCommsConfigResponse
 	8,  // 9: openmanet.comms.v1.CommsService.UpdateCommsConfig:output_type -> openmanet.comms.v1.UpdateCommsConfigResponse
@@ -69,7 +70,7 @@ var file_openmanet_comms_v1_comms_service_proto_depIdxs = []int32{
 	11, // 12: openmanet.comms.v1.CommsService.SetReceiveTalkGroup:output_type -> openmanet.comms.v1.SetReceiveTalkGroupResponse
 	12, // 13: openmanet.comms.v1.CommsService.SendPTTEvent:output_type -> openmanet.comms.v1.SendPTTEventResponse
 	13, // 14: openmanet.comms.v1.CommsService.StreamAudioTx:output_type -> openmanet.comms.v1.StreamAudioTxResponse
-	5,  // 15: openmanet.comms.v1.CommsService.StreamAudioRx:output_type -> openmanet.comms.v1.WebAudioFrame
+	14, // 15: openmanet.comms.v1.CommsService.StreamAudioRx:output_type -> openmanet.comms.v1.StreamAudioRxResponse
 	8,  // [8:16] is the sub-list for method output_type
 	0,  // [0:8] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
@@ -82,10 +83,10 @@ func file_openmanet_comms_v1_comms_service_proto_init() {
 	if File_openmanet_comms_v1_comms_service_proto != nil {
 		return
 	}
-	file_openmanet_comms_v1_config_proto_init()
 	file_openmanet_comms_v1_comms_proto_init()
-	file_openmanet_comms_v1_talkgroup_proto_init()
+	file_openmanet_comms_v1_config_proto_init()
 	file_openmanet_comms_v1_status_proto_init()
+	file_openmanet_comms_v1_talkgroup_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

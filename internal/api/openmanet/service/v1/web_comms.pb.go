@@ -22,6 +22,8 @@ const (
 )
 
 // SendPTTEventRequest carries a PTT state change from the web client.
+//
+// Deprecated: Marked as deprecated in openmanet/service/v1/web_comms.proto.
 type SendPTTEventRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// PTT event type: 0 = PTTDown (begin TX), 1 = PTTUp (end TX),
@@ -69,6 +71,8 @@ func (x *SendPTTEventRequest) GetEvent() int32 {
 }
 
 // SendPTTEventResponse is returned after a SendPTTEvent request.
+//
+// Deprecated: Marked as deprecated in openmanet/service/v1/web_comms.proto.
 type SendPTTEventResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Whether the PTT event was successfully delivered.
@@ -114,9 +118,11 @@ func (x *SendPTTEventResponse) GetSuccess() bool {
 	return false
 }
 
-// WebAudioFrame carries a single Opus-encoded audio frame (48 kHz, mono,
-// 20 ms) between the web client and the server.
-type WebAudioFrame struct {
+// StreamAudioTxRequest carries a single Opus-encoded audio frame (48 kHz,
+// mono, 20 ms) from the web client to the server for mesh transmission.
+//
+// Deprecated: Marked as deprecated in openmanet/service/v1/web_comms.proto.
+type StreamAudioTxRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Raw Opus-encoded frame bytes.
 	OpusData []byte `protobuf:"bytes,1,opt,name=opus_data,json=opusData,proto3" json:"opus_data,omitempty"`
@@ -126,20 +132,20 @@ type WebAudioFrame struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *WebAudioFrame) Reset() {
-	*x = WebAudioFrame{}
+func (x *StreamAudioTxRequest) Reset() {
+	*x = StreamAudioTxRequest{}
 	mi := &file_openmanet_service_v1_web_comms_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *WebAudioFrame) String() string {
+func (x *StreamAudioTxRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*WebAudioFrame) ProtoMessage() {}
+func (*StreamAudioTxRequest) ProtoMessage() {}
 
-func (x *WebAudioFrame) ProtoReflect() protoreflect.Message {
+func (x *StreamAudioTxRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_openmanet_service_v1_web_comms_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -151,19 +157,77 @@ func (x *WebAudioFrame) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use WebAudioFrame.ProtoReflect.Descriptor instead.
-func (*WebAudioFrame) Descriptor() ([]byte, []int) {
+// Deprecated: Use StreamAudioTxRequest.ProtoReflect.Descriptor instead.
+func (*StreamAudioTxRequest) Descriptor() ([]byte, []int) {
 	return file_openmanet_service_v1_web_comms_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *WebAudioFrame) GetOpusData() []byte {
+func (x *StreamAudioTxRequest) GetOpusData() []byte {
 	if x != nil {
 		return x.OpusData
 	}
 	return nil
 }
 
-func (x *WebAudioFrame) GetSequence() uint32 {
+func (x *StreamAudioTxRequest) GetSequence() uint32 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+// StreamAudioRxResponse carries a single Opus-encoded audio frame (48 kHz,
+// mono, 20 ms) from the server to the web client.
+//
+// Deprecated: Marked as deprecated in openmanet/service/v1/web_comms.proto.
+type StreamAudioRxResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Raw Opus-encoded frame bytes.
+	OpusData []byte `protobuf:"bytes,1,opt,name=opus_data,json=opusData,proto3" json:"opus_data,omitempty"`
+	// Monotonic sequence number for ordering and loss detection.
+	Sequence      uint32 `protobuf:"varint,2,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamAudioRxResponse) Reset() {
+	*x = StreamAudioRxResponse{}
+	mi := &file_openmanet_service_v1_web_comms_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamAudioRxResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamAudioRxResponse) ProtoMessage() {}
+
+func (x *StreamAudioRxResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_service_v1_web_comms_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamAudioRxResponse.ProtoReflect.Descriptor instead.
+func (*StreamAudioRxResponse) Descriptor() ([]byte, []int) {
+	return file_openmanet_service_v1_web_comms_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *StreamAudioRxResponse) GetOpusData() []byte {
+	if x != nil {
+		return x.OpusData
+	}
+	return nil
+}
+
+func (x *StreamAudioRxResponse) GetSequence() uint32 {
 	if x != nil {
 		return x.Sequence
 	}
@@ -171,6 +235,8 @@ func (x *WebAudioFrame) GetSequence() uint32 {
 }
 
 // StreamAudioTxResponse is returned when the client closes the TX stream.
+//
+// Deprecated: Marked as deprecated in openmanet/service/v1/web_comms.proto.
 type StreamAudioTxResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Total number of audio frames received from the client.
@@ -181,7 +247,7 @@ type StreamAudioTxResponse struct {
 
 func (x *StreamAudioTxResponse) Reset() {
 	*x = StreamAudioTxResponse{}
-	mi := &file_openmanet_service_v1_web_comms_proto_msgTypes[3]
+	mi := &file_openmanet_service_v1_web_comms_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -193,7 +259,7 @@ func (x *StreamAudioTxResponse) String() string {
 func (*StreamAudioTxResponse) ProtoMessage() {}
 
 func (x *StreamAudioTxResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_web_comms_proto_msgTypes[3]
+	mi := &file_openmanet_service_v1_web_comms_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -206,7 +272,7 @@ func (x *StreamAudioTxResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamAudioTxResponse.ProtoReflect.Descriptor instead.
 func (*StreamAudioTxResponse) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_web_comms_proto_rawDescGZIP(), []int{3}
+	return file_openmanet_service_v1_web_comms_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *StreamAudioTxResponse) GetFramesReceived() uint32 {
@@ -217,6 +283,8 @@ func (x *StreamAudioTxResponse) GetFramesReceived() uint32 {
 }
 
 // StreamAudioRxRequest initiates a server-streaming RX audio session.
+//
+// Deprecated: Marked as deprecated in openmanet/service/v1/web_comms.proto.
 type StreamAudioRxRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -225,7 +293,7 @@ type StreamAudioRxRequest struct {
 
 func (x *StreamAudioRxRequest) Reset() {
 	*x = StreamAudioRxRequest{}
-	mi := &file_openmanet_service_v1_web_comms_proto_msgTypes[4]
+	mi := &file_openmanet_service_v1_web_comms_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -237,7 +305,7 @@ func (x *StreamAudioRxRequest) String() string {
 func (*StreamAudioRxRequest) ProtoMessage() {}
 
 func (x *StreamAudioRxRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_service_v1_web_comms_proto_msgTypes[4]
+	mi := &file_openmanet_service_v1_web_comms_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -250,28 +318,31 @@ func (x *StreamAudioRxRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamAudioRxRequest.ProtoReflect.Descriptor instead.
 func (*StreamAudioRxRequest) Descriptor() ([]byte, []int) {
-	return file_openmanet_service_v1_web_comms_proto_rawDescGZIP(), []int{4}
+	return file_openmanet_service_v1_web_comms_proto_rawDescGZIP(), []int{5}
 }
 
 var File_openmanet_service_v1_web_comms_proto protoreflect.FileDescriptor
 
 const file_openmanet_service_v1_web_comms_proto_rawDesc = "" +
 	"\n" +
-	"$openmanet/service/v1/web_comms.proto\x12\x14openmanet.service.v1\"+\n" +
+	"$openmanet/service/v1/web_comms.proto\x12\x14openmanet.service.v1\"/\n" +
 	"\x13SendPTTEventRequest\x12\x14\n" +
-	"\x05event\x18\x01 \x01(\x05R\x05event\"0\n" +
+	"\x05event\x18\x01 \x01(\x05R\x05event:\x02\x18\x01\"4\n" +
 	"\x14SendPTTEventResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\"H\n" +
-	"\rWebAudioFrame\x12\x1b\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess:\x02\x18\x01\"S\n" +
+	"\x14StreamAudioTxRequest\x12\x1b\n" +
 	"\topus_data\x18\x01 \x01(\fR\bopusData\x12\x1a\n" +
-	"\bsequence\x18\x02 \x01(\rR\bsequence\"@\n" +
+	"\bsequence\x18\x02 \x01(\rR\bsequence:\x02\x18\x01\"T\n" +
+	"\x15StreamAudioRxResponse\x12\x1b\n" +
+	"\topus_data\x18\x01 \x01(\fR\bopusData\x12\x1a\n" +
+	"\bsequence\x18\x02 \x01(\rR\bsequence:\x02\x18\x01\"D\n" +
 	"\x15StreamAudioTxResponse\x12'\n" +
-	"\x0fframes_received\x18\x01 \x01(\rR\x0eframesReceived\"\x16\n" +
-	"\x14StreamAudioRxRequest2\xc1\x02\n" +
+	"\x0fframes_received\x18\x01 \x01(\rR\x0eframesReceived:\x02\x18\x01\"\x1a\n" +
+	"\x14StreamAudioRxRequest:\x02\x18\x012\xd5\x02\n" +
 	"\x0fWebCommsService\x12e\n" +
-	"\fSendPTTEvent\x12).openmanet.service.v1.SendPTTEventRequest\x1a*.openmanet.service.v1.SendPTTEventResponse\x12c\n" +
-	"\rStreamAudioTx\x12#.openmanet.service.v1.WebAudioFrame\x1a+.openmanet.service.v1.StreamAudioTxResponse(\x01\x12b\n" +
-	"\rStreamAudioRx\x12*.openmanet.service.v1.StreamAudioRxRequest\x1a#.openmanet.service.v1.WebAudioFrame0\x01B\xe8\x01\n" +
+	"\fSendPTTEvent\x12).openmanet.service.v1.SendPTTEventRequest\x1a*.openmanet.service.v1.SendPTTEventResponse\x12j\n" +
+	"\rStreamAudioTx\x12*.openmanet.service.v1.StreamAudioTxRequest\x1a+.openmanet.service.v1.StreamAudioTxResponse(\x01\x12j\n" +
+	"\rStreamAudioRx\x12*.openmanet.service.v1.StreamAudioRxRequest\x1a+.openmanet.service.v1.StreamAudioRxResponse0\x01\x1a\x03\x88\x02\x01B\xe8\x01\n" +
 	"\x18com.openmanet.service.v1B\rWebCommsProtoP\x01ZKgithub.com/openmanet/openmanetd/internal/api/openmanet/service/v1;servicev1\xa2\x02\x03OSX\xaa\x02\x14Openmanet.Service.V1\xca\x02\x14Openmanet\\Service\\V1\xe2\x02 Openmanet\\Service\\V1\\GPBMetadata\xea\x02\x16Openmanet::Service::V1b\x06proto3"
 
 var (
@@ -286,21 +357,22 @@ func file_openmanet_service_v1_web_comms_proto_rawDescGZIP() []byte {
 	return file_openmanet_service_v1_web_comms_proto_rawDescData
 }
 
-var file_openmanet_service_v1_web_comms_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_openmanet_service_v1_web_comms_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_openmanet_service_v1_web_comms_proto_goTypes = []any{
 	(*SendPTTEventRequest)(nil),   // 0: openmanet.service.v1.SendPTTEventRequest
 	(*SendPTTEventResponse)(nil),  // 1: openmanet.service.v1.SendPTTEventResponse
-	(*WebAudioFrame)(nil),         // 2: openmanet.service.v1.WebAudioFrame
-	(*StreamAudioTxResponse)(nil), // 3: openmanet.service.v1.StreamAudioTxResponse
-	(*StreamAudioRxRequest)(nil),  // 4: openmanet.service.v1.StreamAudioRxRequest
+	(*StreamAudioTxRequest)(nil),  // 2: openmanet.service.v1.StreamAudioTxRequest
+	(*StreamAudioRxResponse)(nil), // 3: openmanet.service.v1.StreamAudioRxResponse
+	(*StreamAudioTxResponse)(nil), // 4: openmanet.service.v1.StreamAudioTxResponse
+	(*StreamAudioRxRequest)(nil),  // 5: openmanet.service.v1.StreamAudioRxRequest
 }
 var file_openmanet_service_v1_web_comms_proto_depIdxs = []int32{
 	0, // 0: openmanet.service.v1.WebCommsService.SendPTTEvent:input_type -> openmanet.service.v1.SendPTTEventRequest
-	2, // 1: openmanet.service.v1.WebCommsService.StreamAudioTx:input_type -> openmanet.service.v1.WebAudioFrame
-	4, // 2: openmanet.service.v1.WebCommsService.StreamAudioRx:input_type -> openmanet.service.v1.StreamAudioRxRequest
+	2, // 1: openmanet.service.v1.WebCommsService.StreamAudioTx:input_type -> openmanet.service.v1.StreamAudioTxRequest
+	5, // 2: openmanet.service.v1.WebCommsService.StreamAudioRx:input_type -> openmanet.service.v1.StreamAudioRxRequest
 	1, // 3: openmanet.service.v1.WebCommsService.SendPTTEvent:output_type -> openmanet.service.v1.SendPTTEventResponse
-	3, // 4: openmanet.service.v1.WebCommsService.StreamAudioTx:output_type -> openmanet.service.v1.StreamAudioTxResponse
-	2, // 5: openmanet.service.v1.WebCommsService.StreamAudioRx:output_type -> openmanet.service.v1.WebAudioFrame
+	4, // 4: openmanet.service.v1.WebCommsService.StreamAudioTx:output_type -> openmanet.service.v1.StreamAudioTxResponse
+	3, // 5: openmanet.service.v1.WebCommsService.StreamAudioRx:output_type -> openmanet.service.v1.StreamAudioRxResponse
 	3, // [3:6] is the sub-list for method output_type
 	0, // [0:3] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -319,7 +391,7 @@ func file_openmanet_service_v1_web_comms_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_service_v1_web_comms_proto_rawDesc), len(file_openmanet_service_v1_web_comms_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

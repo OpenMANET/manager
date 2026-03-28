@@ -45,16 +45,18 @@ const (
 )
 
 // WebCommsServiceClient is a client for the openmanet.service.v1.WebCommsService service.
+//
+// Deprecated: do not use.
 type WebCommsServiceClient interface {
 	// SendPTTEvent sends a PTT state change from the web client.
 	SendPTTEvent(context.Context, *v1.SendPTTEventRequest) (*v1.SendPTTEventResponse, error)
 	// StreamAudioTx is a client-streaming RPC: the web client streams
 	// Opus-encoded audio frames to the server for transmission to the mesh.
 	// The server returns a summary when the client closes the stream.
-	StreamAudioTx(context.Context) (*connect.ClientStreamForClientSimple[v1.WebAudioFrame, v1.StreamAudioTxResponse], error)
+	StreamAudioTx(context.Context) (*connect.ClientStreamForClientSimple[v1.StreamAudioTxRequest, v1.StreamAudioTxResponse], error)
 	// StreamAudioRx is a server-streaming RPC: the server streams
 	// Opus-encoded audio frames received from the mesh back to the web client.
-	StreamAudioRx(context.Context, *v1.StreamAudioRxRequest) (*connect.ServerStreamForClient[v1.WebAudioFrame], error)
+	StreamAudioRx(context.Context, *v1.StreamAudioRxRequest) (*connect.ServerStreamForClient[v1.StreamAudioRxResponse], error)
 }
 
 // NewWebCommsServiceClient constructs a client for the openmanet.service.v1.WebCommsService
@@ -64,6 +66,8 @@ type WebCommsServiceClient interface {
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
+//
+// Deprecated: do not use.
 func NewWebCommsServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) WebCommsServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	webCommsServiceMethods := v1.File_openmanet_service_v1_web_comms_proto.Services().ByName("WebCommsService").Methods()
@@ -74,13 +78,13 @@ func NewWebCommsServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(webCommsServiceMethods.ByName("SendPTTEvent")),
 			connect.WithClientOptions(opts...),
 		),
-		streamAudioTx: connect.NewClient[v1.WebAudioFrame, v1.StreamAudioTxResponse](
+		streamAudioTx: connect.NewClient[v1.StreamAudioTxRequest, v1.StreamAudioTxResponse](
 			httpClient,
 			baseURL+WebCommsServiceStreamAudioTxProcedure,
 			connect.WithSchema(webCommsServiceMethods.ByName("StreamAudioTx")),
 			connect.WithClientOptions(opts...),
 		),
-		streamAudioRx: connect.NewClient[v1.StreamAudioRxRequest, v1.WebAudioFrame](
+		streamAudioRx: connect.NewClient[v1.StreamAudioRxRequest, v1.StreamAudioRxResponse](
 			httpClient,
 			baseURL+WebCommsServiceStreamAudioRxProcedure,
 			connect.WithSchema(webCommsServiceMethods.ByName("StreamAudioRx")),
@@ -92,8 +96,8 @@ func NewWebCommsServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 // webCommsServiceClient implements WebCommsServiceClient.
 type webCommsServiceClient struct {
 	sendPTTEvent  *connect.Client[v1.SendPTTEventRequest, v1.SendPTTEventResponse]
-	streamAudioTx *connect.Client[v1.WebAudioFrame, v1.StreamAudioTxResponse]
-	streamAudioRx *connect.Client[v1.StreamAudioRxRequest, v1.WebAudioFrame]
+	streamAudioTx *connect.Client[v1.StreamAudioTxRequest, v1.StreamAudioTxResponse]
+	streamAudioRx *connect.Client[v1.StreamAudioRxRequest, v1.StreamAudioRxResponse]
 }
 
 // SendPTTEvent calls openmanet.service.v1.WebCommsService.SendPTTEvent.
@@ -106,26 +110,28 @@ func (c *webCommsServiceClient) SendPTTEvent(ctx context.Context, req *v1.SendPT
 }
 
 // StreamAudioTx calls openmanet.service.v1.WebCommsService.StreamAudioTx.
-func (c *webCommsServiceClient) StreamAudioTx(ctx context.Context) (*connect.ClientStreamForClientSimple[v1.WebAudioFrame, v1.StreamAudioTxResponse], error) {
+func (c *webCommsServiceClient) StreamAudioTx(ctx context.Context) (*connect.ClientStreamForClientSimple[v1.StreamAudioTxRequest, v1.StreamAudioTxResponse], error) {
 	return c.streamAudioTx.CallClientStreamSimple(ctx)
 }
 
 // StreamAudioRx calls openmanet.service.v1.WebCommsService.StreamAudioRx.
-func (c *webCommsServiceClient) StreamAudioRx(ctx context.Context, req *v1.StreamAudioRxRequest) (*connect.ServerStreamForClient[v1.WebAudioFrame], error) {
+func (c *webCommsServiceClient) StreamAudioRx(ctx context.Context, req *v1.StreamAudioRxRequest) (*connect.ServerStreamForClient[v1.StreamAudioRxResponse], error) {
 	return c.streamAudioRx.CallServerStream(ctx, connect.NewRequest(req))
 }
 
 // WebCommsServiceHandler is an implementation of the openmanet.service.v1.WebCommsService service.
+//
+// Deprecated: do not use.
 type WebCommsServiceHandler interface {
 	// SendPTTEvent sends a PTT state change from the web client.
 	SendPTTEvent(context.Context, *v1.SendPTTEventRequest) (*v1.SendPTTEventResponse, error)
 	// StreamAudioTx is a client-streaming RPC: the web client streams
 	// Opus-encoded audio frames to the server for transmission to the mesh.
 	// The server returns a summary when the client closes the stream.
-	StreamAudioTx(context.Context, *connect.ClientStream[v1.WebAudioFrame]) (*v1.StreamAudioTxResponse, error)
+	StreamAudioTx(context.Context, *connect.ClientStream[v1.StreamAudioTxRequest]) (*v1.StreamAudioTxResponse, error)
 	// StreamAudioRx is a server-streaming RPC: the server streams
 	// Opus-encoded audio frames received from the mesh back to the web client.
-	StreamAudioRx(context.Context, *v1.StreamAudioRxRequest, *connect.ServerStream[v1.WebAudioFrame]) error
+	StreamAudioRx(context.Context, *v1.StreamAudioRxRequest, *connect.ServerStream[v1.StreamAudioRxResponse]) error
 }
 
 // NewWebCommsServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -133,6 +139,8 @@ type WebCommsServiceHandler interface {
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
+//
+// Deprecated: do not use.
 func NewWebCommsServiceHandler(svc WebCommsServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	webCommsServiceMethods := v1.File_openmanet_service_v1_web_comms_proto.Services().ByName("WebCommsService").Methods()
 	webCommsServiceSendPTTEventHandler := connect.NewUnaryHandlerSimple(
@@ -174,10 +182,10 @@ func (UnimplementedWebCommsServiceHandler) SendPTTEvent(context.Context, *v1.Sen
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.service.v1.WebCommsService.SendPTTEvent is not implemented"))
 }
 
-func (UnimplementedWebCommsServiceHandler) StreamAudioTx(context.Context, *connect.ClientStream[v1.WebAudioFrame]) (*v1.StreamAudioTxResponse, error) {
+func (UnimplementedWebCommsServiceHandler) StreamAudioTx(context.Context, *connect.ClientStream[v1.StreamAudioTxRequest]) (*v1.StreamAudioTxResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.service.v1.WebCommsService.StreamAudioTx is not implemented"))
 }
 
-func (UnimplementedWebCommsServiceHandler) StreamAudioRx(context.Context, *v1.StreamAudioRxRequest, *connect.ServerStream[v1.WebAudioFrame]) error {
+func (UnimplementedWebCommsServiceHandler) StreamAudioRx(context.Context, *v1.StreamAudioRxRequest, *connect.ServerStream[v1.StreamAudioRxResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.service.v1.WebCommsService.StreamAudioRx is not implemented"))
 }

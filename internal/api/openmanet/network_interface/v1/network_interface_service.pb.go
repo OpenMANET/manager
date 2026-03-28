@@ -25,7 +25,7 @@ var File_openmanet_network_interface_v1_network_interface_service_proto protoref
 
 const file_openmanet_network_interface_v1_network_interface_service_proto_rawDesc = "" +
 	"\n" +
-	">openmanet/network_interface/v1/network_interface_service.proto\x12\x1eopenmanet.network_interface.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a.openmanet/network_interface/v1/interface.proto\x1a)openmanet/network_interface/v1/dhcp.proto2\xd1\x03\n" +
+	">openmanet/network_interface/v1/network_interface_service.proto\x12\x1eopenmanet.network_interface.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a)openmanet/network_interface/v1/dhcp.proto\x1a.openmanet/network_interface/v1/interface.proto2\xd1\x03\n" +
 	"\x17NetworkInterfaceService\x12n\n" +
 	"\x15ListNetworkInterfaces\x12\x16.google.protobuf.Empty\x1a=.openmanet.network_interface.v1.ListNetworkInterfacesResponse\x12j\n" +
 	"\x13GetDHCPServerConfig\x12\x16.google.protobuf.Empty\x1a;.openmanet.network_interface.v1.GetDHCPServerConfigResponse\x12l\n" +
@@ -61,8 +61,8 @@ func file_openmanet_network_interface_v1_network_interface_service_proto_init() 
 	if File_openmanet_network_interface_v1_network_interface_service_proto != nil {
 		return
 	}
-	file_openmanet_network_interface_v1_interface_proto_init()
 	file_openmanet_network_interface_v1_dhcp_proto_init()
+	file_openmanet_network_interface_v1_interface_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -122,7 +122,7 @@ func (c *commsServiceClient) StreamAudioTx(ctx context.Context, opts ...grpc.Cal
 }
 
 type CommsService_StreamAudioTxClient interface {
-	Send(*WebAudioFrame) error
+	Send(*StreamAudioTxRequest) error
 	CloseAndRecv() (*StreamAudioTxResponse, error)
 	grpc.ClientStream
 }
@@ -131,7 +131,7 @@ type commsServiceStreamAudioTxClient struct {
 	grpc.ClientStream
 }
 
-func (x *commsServiceStreamAudioTxClient) Send(m *WebAudioFrame) error {
+func (x *commsServiceStreamAudioTxClient) Send(m *StreamAudioTxRequest) error {
 	return x.ClientStream.SendMsg(m)
 }
 
@@ -162,7 +162,7 @@ func (c *commsServiceClient) StreamAudioRx(ctx context.Context, in *StreamAudioR
 }
 
 type CommsService_StreamAudioRxClient interface {
-	Recv() (*WebAudioFrame, error)
+	Recv() (*StreamAudioRxResponse, error)
 	grpc.ClientStream
 }
 
@@ -170,8 +170,8 @@ type commsServiceStreamAudioRxClient struct {
 	grpc.ClientStream
 }
 
-func (x *commsServiceStreamAudioRxClient) Recv() (*WebAudioFrame, error) {
-	m := new(WebAudioFrame)
+func (x *commsServiceStreamAudioRxClient) Recv() (*StreamAudioRxResponse, error) {
+	m := new(StreamAudioRxResponse)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -359,7 +359,7 @@ func _CommsService_StreamAudioTx_Handler(srv interface{}, stream grpc.ServerStre
 
 type CommsService_StreamAudioTxServer interface {
 	SendAndClose(*StreamAudioTxResponse) error
-	Recv() (*WebAudioFrame, error)
+	Recv() (*StreamAudioTxRequest, error)
 	grpc.ServerStream
 }
 
@@ -371,8 +371,8 @@ func (x *commsServiceStreamAudioTxServer) SendAndClose(m *StreamAudioTxResponse)
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *commsServiceStreamAudioTxServer) Recv() (*WebAudioFrame, error) {
-	m := new(WebAudioFrame)
+func (x *commsServiceStreamAudioTxServer) Recv() (*StreamAudioTxRequest, error) {
+	m := new(StreamAudioTxRequest)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -388,7 +388,7 @@ func _CommsService_StreamAudioRx_Handler(srv interface{}, stream grpc.ServerStre
 }
 
 type CommsService_StreamAudioRxServer interface {
-	Send(*WebAudioFrame) error
+	Send(*StreamAudioRxResponse) error
 	grpc.ServerStream
 }
 
@@ -396,7 +396,7 @@ type commsServiceStreamAudioRxServer struct {
 	grpc.ServerStream
 }
 
-func (x *commsServiceStreamAudioRxServer) Send(m *WebAudioFrame) error {
+func (x *commsServiceStreamAudioRxServer) Send(m *StreamAudioRxResponse) error {
 	return x.ServerStream.SendMsg(m)
 }
 

@@ -25,22 +25,25 @@ const (
 type ControlSource int32
 
 const (
-	ControlSource_CONTROL_SOURCE_OPENVLM ControlSource = 0
-	ControlSource_CONTROL_SOURCE_NANOPTT ControlSource = 1
-	ControlSource_CONTROL_SOURCE_WEB     ControlSource = 2
+	ControlSource_CONTROL_SOURCE_UNSPECIFIED ControlSource = 0
+	ControlSource_CONTROL_SOURCE_OPENVLM     ControlSource = 1
+	ControlSource_CONTROL_SOURCE_NANOPTT     ControlSource = 2
+	ControlSource_CONTROL_SOURCE_WEB         ControlSource = 3
 )
 
 // Enum value maps for ControlSource.
 var (
 	ControlSource_name = map[int32]string{
-		0: "CONTROL_SOURCE_OPENVLM",
-		1: "CONTROL_SOURCE_NANOPTT",
-		2: "CONTROL_SOURCE_WEB",
+		0: "CONTROL_SOURCE_UNSPECIFIED",
+		1: "CONTROL_SOURCE_OPENVLM",
+		2: "CONTROL_SOURCE_NANOPTT",
+		3: "CONTROL_SOURCE_WEB",
 	}
 	ControlSource_value = map[string]int32{
-		"CONTROL_SOURCE_OPENVLM": 0,
-		"CONTROL_SOURCE_NANOPTT": 1,
-		"CONTROL_SOURCE_WEB":     2,
+		"CONTROL_SOURCE_UNSPECIFIED": 0,
+		"CONTROL_SOURCE_OPENVLM":     1,
+		"CONTROL_SOURCE_NANOPTT":     2,
+		"CONTROL_SOURCE_WEB":         3,
 	}
 )
 
@@ -123,7 +126,7 @@ func (x *GetCommsConfigResponse) GetControlSource() ControlSource {
 	if x != nil {
 		return x.ControlSource
 	}
-	return ControlSource_CONTROL_SOURCE_OPENVLM
+	return ControlSource_CONTROL_SOURCE_UNSPECIFIED
 }
 
 // UpdateCommsConfigRequest is used to update the communications configuration.
@@ -178,7 +181,7 @@ func (x *UpdateCommsConfigRequest) GetControlSource() ControlSource {
 	if x != nil {
 		return x.ControlSource
 	}
-	return ControlSource_CONTROL_SOURCE_OPENVLM
+	return ControlSource_CONTROL_SOURCE_UNSPECIFIED
 }
 
 // UpdateCommsConfigResponse is returned after an UpdateCommsConfig request.
@@ -229,11 +232,12 @@ const file_openmanet_comms_v1_config_proto_rawDesc = "" +
 	"\x18UpdateCommsConfigRequest\x12!\n" +
 	"\fenable_comms\x18\x01 \x01(\bR\venableComms\x12H\n" +
 	"\x0econtrol_source\x18\x02 \x01(\x0e2!.openmanet.comms.v1.ControlSourceR\rcontrolSource\"\x1b\n" +
-	"\x19UpdateCommsConfigResponse*\x88\x01\n" +
-	"\rControlSource\x12)\n" +
-	"\x16CONTROL_SOURCE_OPENVLM\x10\x00\x1a\r\xaa\xd1\xf9\xd6\x03\aopenvlm\x12)\n" +
-	"\x16CONTROL_SOURCE_NANOPTT\x10\x01\x1a\r\xaa\xd1\xf9\xd6\x03\ananoptt\x12!\n" +
-	"\x12CONTROL_SOURCE_WEB\x10\x02\x1a\t\xaa\xd1\xf9\xd6\x03\x03webB\xd8\x01\n" +
+	"\x19UpdateCommsConfigResponse*\xa8\x01\n" +
+	"\rControlSource\x12\x1e\n" +
+	"\x1aCONTROL_SOURCE_UNSPECIFIED\x10\x00\x12)\n" +
+	"\x16CONTROL_SOURCE_OPENVLM\x10\x01\x1a\r\xaa\xd1\xf9\xd6\x03\aopenvlm\x12)\n" +
+	"\x16CONTROL_SOURCE_NANOPTT\x10\x02\x1a\r\xaa\xd1\xf9\xd6\x03\ananoptt\x12!\n" +
+	"\x12CONTROL_SOURCE_WEB\x10\x03\x1a\t\xaa\xd1\xf9\xd6\x03\x03webB\xd8\x01\n" +
 	"\x16com.openmanet.comms.v1B\vConfigProtoP\x01ZGgithub.com/openmanet/openmanetd/internal/api/openmanet/comms/v1;commsv1\xa2\x02\x03OCX\xaa\x02\x12Openmanet.Comms.V1\xca\x02\x12Openmanet\\Comms\\V1\xe2\x02\x1eOpenmanet\\Comms\\V1\\GPBMetadata\xea\x02\x14Openmanet::Comms::V1b\x06proto3"
 
 var (

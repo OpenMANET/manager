@@ -77,10 +77,10 @@ type CommsServiceClient interface {
 	// StreamAudioTx is a client-streaming RPC: the web client streams
 	// Opus-encoded audio frames to the server for transmission to the mesh.
 	// The server returns a summary when the client closes the stream.
-	StreamAudioTx(context.Context) (*connect.ClientStreamForClientSimple[v1.WebAudioFrame, v1.StreamAudioTxResponse], error)
+	StreamAudioTx(context.Context) (*connect.ClientStreamForClientSimple[v1.StreamAudioTxRequest, v1.StreamAudioTxResponse], error)
 	// StreamAudioRx is a server-streaming RPC: the server streams
 	// Opus-encoded audio frames received from the mesh back to the web client.
-	StreamAudioRx(context.Context, *v1.StreamAudioRxRequest) (*connect.ServerStreamForClient[v1.WebAudioFrame], error)
+	StreamAudioRx(context.Context, *v1.StreamAudioRxRequest) (*connect.ServerStreamForClient[v1.StreamAudioRxResponse], error)
 }
 
 // NewCommsServiceClient constructs a client for the openmanet.comms.v1.CommsService service. By
@@ -130,13 +130,13 @@ func NewCommsServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(commsServiceMethods.ByName("SendPTTEvent")),
 			connect.WithClientOptions(opts...),
 		),
-		streamAudioTx: connect.NewClient[v1.WebAudioFrame, v1.StreamAudioTxResponse](
+		streamAudioTx: connect.NewClient[v1.StreamAudioTxRequest, v1.StreamAudioTxResponse](
 			httpClient,
 			baseURL+CommsServiceStreamAudioTxProcedure,
 			connect.WithSchema(commsServiceMethods.ByName("StreamAudioTx")),
 			connect.WithClientOptions(opts...),
 		),
-		streamAudioRx: connect.NewClient[v1.StreamAudioRxRequest, v1.WebAudioFrame](
+		streamAudioRx: connect.NewClient[v1.StreamAudioRxRequest, v1.StreamAudioRxResponse](
 			httpClient,
 			baseURL+CommsServiceStreamAudioRxProcedure,
 			connect.WithSchema(commsServiceMethods.ByName("StreamAudioRx")),
@@ -153,8 +153,8 @@ type commsServiceClient struct {
 	setSendTalkGroup    *connect.Client[v1.SetSendTalkGroupRequest, v1.SetSendTalkGroupResponse]
 	setReceiveTalkGroup *connect.Client[v1.SetReceiveTalkGroupRequest, v1.SetReceiveTalkGroupResponse]
 	sendPTTEvent        *connect.Client[v1.SendPTTEventRequest, v1.SendPTTEventResponse]
-	streamAudioTx       *connect.Client[v1.WebAudioFrame, v1.StreamAudioTxResponse]
-	streamAudioRx       *connect.Client[v1.StreamAudioRxRequest, v1.WebAudioFrame]
+	streamAudioTx       *connect.Client[v1.StreamAudioTxRequest, v1.StreamAudioTxResponse]
+	streamAudioRx       *connect.Client[v1.StreamAudioRxRequest, v1.StreamAudioRxResponse]
 }
 
 // GetCommsConfig calls openmanet.comms.v1.CommsService.GetCommsConfig.
@@ -212,12 +212,12 @@ func (c *commsServiceClient) SendPTTEvent(ctx context.Context, req *v1.SendPTTEv
 }
 
 // StreamAudioTx calls openmanet.comms.v1.CommsService.StreamAudioTx.
-func (c *commsServiceClient) StreamAudioTx(ctx context.Context) (*connect.ClientStreamForClientSimple[v1.WebAudioFrame, v1.StreamAudioTxResponse], error) {
+func (c *commsServiceClient) StreamAudioTx(ctx context.Context) (*connect.ClientStreamForClientSimple[v1.StreamAudioTxRequest, v1.StreamAudioTxResponse], error) {
 	return c.streamAudioTx.CallClientStreamSimple(ctx)
 }
 
 // StreamAudioRx calls openmanet.comms.v1.CommsService.StreamAudioRx.
-func (c *commsServiceClient) StreamAudioRx(ctx context.Context, req *v1.StreamAudioRxRequest) (*connect.ServerStreamForClient[v1.WebAudioFrame], error) {
+func (c *commsServiceClient) StreamAudioRx(ctx context.Context, req *v1.StreamAudioRxRequest) (*connect.ServerStreamForClient[v1.StreamAudioRxResponse], error) {
 	return c.streamAudioRx.CallServerStream(ctx, connect.NewRequest(req))
 }
 
@@ -238,10 +238,10 @@ type CommsServiceHandler interface {
 	// StreamAudioTx is a client-streaming RPC: the web client streams
 	// Opus-encoded audio frames to the server for transmission to the mesh.
 	// The server returns a summary when the client closes the stream.
-	StreamAudioTx(context.Context, *connect.ClientStream[v1.WebAudioFrame]) (*v1.StreamAudioTxResponse, error)
+	StreamAudioTx(context.Context, *connect.ClientStream[v1.StreamAudioTxRequest]) (*v1.StreamAudioTxResponse, error)
 	// StreamAudioRx is a server-streaming RPC: the server streams
 	// Opus-encoded audio frames received from the mesh back to the web client.
-	StreamAudioRx(context.Context, *v1.StreamAudioRxRequest, *connect.ServerStream[v1.WebAudioFrame]) error
+	StreamAudioRx(context.Context, *v1.StreamAudioRxRequest, *connect.ServerStream[v1.StreamAudioRxResponse]) error
 }
 
 // NewCommsServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -350,10 +350,10 @@ func (UnimplementedCommsServiceHandler) SendPTTEvent(context.Context, *v1.SendPT
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.comms.v1.CommsService.SendPTTEvent is not implemented"))
 }
 
-func (UnimplementedCommsServiceHandler) StreamAudioTx(context.Context, *connect.ClientStream[v1.WebAudioFrame]) (*v1.StreamAudioTxResponse, error) {
+func (UnimplementedCommsServiceHandler) StreamAudioTx(context.Context, *connect.ClientStream[v1.StreamAudioTxRequest]) (*v1.StreamAudioTxResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.comms.v1.CommsService.StreamAudioTx is not implemented"))
 }
 
-func (UnimplementedCommsServiceHandler) StreamAudioRx(context.Context, *v1.StreamAudioRxRequest, *connect.ServerStream[v1.WebAudioFrame]) error {
+func (UnimplementedCommsServiceHandler) StreamAudioRx(context.Context, *v1.StreamAudioRxRequest, *connect.ServerStream[v1.StreamAudioRxResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.comms.v1.CommsService.StreamAudioRx is not implemented"))
 }

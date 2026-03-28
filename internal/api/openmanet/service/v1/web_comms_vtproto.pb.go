@@ -57,11 +57,11 @@ func (m *SendPTTEventResponse) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
-func (m *WebAudioFrame) CloneVT() *WebAudioFrame {
+func (m *StreamAudioTxRequest) CloneVT() *StreamAudioTxRequest {
 	if m == nil {
-		return (*WebAudioFrame)(nil)
+		return (*StreamAudioTxRequest)(nil)
 	}
-	r := new(WebAudioFrame)
+	r := new(StreamAudioTxRequest)
 	r.Sequence = m.Sequence
 	if rhs := m.OpusData; rhs != nil {
 		tmpBytes := make([]byte, len(rhs))
@@ -75,7 +75,29 @@ func (m *WebAudioFrame) CloneVT() *WebAudioFrame {
 	return r
 }
 
-func (m *WebAudioFrame) CloneMessageVT() proto.Message {
+func (m *StreamAudioTxRequest) CloneMessageVT() proto.Message {
+	return m.CloneVT()
+}
+
+func (m *StreamAudioRxResponse) CloneVT() *StreamAudioRxResponse {
+	if m == nil {
+		return (*StreamAudioRxResponse)(nil)
+	}
+	r := new(StreamAudioRxResponse)
+	r.Sequence = m.Sequence
+	if rhs := m.OpusData; rhs != nil {
+		tmpBytes := make([]byte, len(rhs))
+		copy(tmpBytes, rhs)
+		r.OpusData = tmpBytes
+	}
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = make([]byte, len(m.unknownFields))
+		copy(r.unknownFields, m.unknownFields)
+	}
+	return r
+}
+
+func (m *StreamAudioRxResponse) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
@@ -150,7 +172,7 @@ func (this *SendPTTEventResponse) EqualMessageVT(thatMsg proto.Message) bool {
 	}
 	return this.EqualVT(that)
 }
-func (this *WebAudioFrame) EqualVT(that *WebAudioFrame) bool {
+func (this *StreamAudioTxRequest) EqualVT(that *StreamAudioTxRequest) bool {
 	if this == that {
 		return true
 	} else if this == nil || that == nil {
@@ -165,8 +187,30 @@ func (this *WebAudioFrame) EqualVT(that *WebAudioFrame) bool {
 	return string(this.unknownFields) == string(that.unknownFields)
 }
 
-func (this *WebAudioFrame) EqualMessageVT(thatMsg proto.Message) bool {
-	that, ok := thatMsg.(*WebAudioFrame)
+func (this *StreamAudioTxRequest) EqualMessageVT(thatMsg proto.Message) bool {
+	that, ok := thatMsg.(*StreamAudioTxRequest)
+	if !ok {
+		return false
+	}
+	return this.EqualVT(that)
+}
+func (this *StreamAudioRxResponse) EqualVT(that *StreamAudioRxResponse) bool {
+	if this == that {
+		return true
+	} else if this == nil || that == nil {
+		return false
+	}
+	if string(this.OpusData) != string(that.OpusData) {
+		return false
+	}
+	if this.Sequence != that.Sequence {
+		return false
+	}
+	return string(this.unknownFields) == string(that.unknownFields)
+}
+
+func (this *StreamAudioRxResponse) EqualMessageVT(thatMsg proto.Message) bool {
+	that, ok := thatMsg.(*StreamAudioRxResponse)
 	if !ok {
 		return false
 	}
@@ -216,6 +260,8 @@ const _ = grpc.SupportPackageIsVersion7
 // WebCommsServiceClient is the client API for WebCommsService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Deprecated: Do not use.
 type WebCommsServiceClient interface {
 	// SendPTTEvent sends a PTT state change from the web client.
 	SendPTTEvent(ctx context.Context, in *SendPTTEventRequest, opts ...grpc.CallOption) (*SendPTTEventResponse, error)
@@ -232,6 +278,7 @@ type webCommsServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
+// Deprecated: Do not use.
 func NewWebCommsServiceClient(cc grpc.ClientConnInterface) WebCommsServiceClient {
 	return &webCommsServiceClient{cc}
 }
@@ -255,7 +302,7 @@ func (c *webCommsServiceClient) StreamAudioTx(ctx context.Context, opts ...grpc.
 }
 
 type WebCommsService_StreamAudioTxClient interface {
-	Send(*WebAudioFrame) error
+	Send(*StreamAudioTxRequest) error
 	CloseAndRecv() (*StreamAudioTxResponse, error)
 	grpc.ClientStream
 }
@@ -264,7 +311,7 @@ type webCommsServiceStreamAudioTxClient struct {
 	grpc.ClientStream
 }
 
-func (x *webCommsServiceStreamAudioTxClient) Send(m *WebAudioFrame) error {
+func (x *webCommsServiceStreamAudioTxClient) Send(m *StreamAudioTxRequest) error {
 	return x.ClientStream.SendMsg(m)
 }
 
@@ -295,7 +342,7 @@ func (c *webCommsServiceClient) StreamAudioRx(ctx context.Context, in *StreamAud
 }
 
 type WebCommsService_StreamAudioRxClient interface {
-	Recv() (*WebAudioFrame, error)
+	Recv() (*StreamAudioRxResponse, error)
 	grpc.ClientStream
 }
 
@@ -303,8 +350,8 @@ type webCommsServiceStreamAudioRxClient struct {
 	grpc.ClientStream
 }
 
-func (x *webCommsServiceStreamAudioRxClient) Recv() (*WebAudioFrame, error) {
-	m := new(WebAudioFrame)
+func (x *webCommsServiceStreamAudioRxClient) Recv() (*StreamAudioRxResponse, error) {
+	m := new(StreamAudioRxResponse)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -314,6 +361,8 @@ func (x *webCommsServiceStreamAudioRxClient) Recv() (*WebAudioFrame, error) {
 // WebCommsServiceServer is the server API for WebCommsService service.
 // All implementations must embed UnimplementedWebCommsServiceServer
 // for forward compatibility
+//
+// Deprecated: Do not use.
 type WebCommsServiceServer interface {
 	// SendPTTEvent sends a PTT state change from the web client.
 	SendPTTEvent(context.Context, *SendPTTEventRequest) (*SendPTTEventResponse, error)
@@ -349,6 +398,7 @@ type UnsafeWebCommsServiceServer interface {
 	mustEmbedUnimplementedWebCommsServiceServer()
 }
 
+// Deprecated: Do not use.
 func RegisterWebCommsServiceServer(s grpc.ServiceRegistrar, srv WebCommsServiceServer) {
 	s.RegisterService(&WebCommsService_ServiceDesc, srv)
 }
@@ -377,7 +427,7 @@ func _WebCommsService_StreamAudioTx_Handler(srv interface{}, stream grpc.ServerS
 
 type WebCommsService_StreamAudioTxServer interface {
 	SendAndClose(*StreamAudioTxResponse) error
-	Recv() (*WebAudioFrame, error)
+	Recv() (*StreamAudioTxRequest, error)
 	grpc.ServerStream
 }
 
@@ -389,8 +439,8 @@ func (x *webCommsServiceStreamAudioTxServer) SendAndClose(m *StreamAudioTxRespon
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *webCommsServiceStreamAudioTxServer) Recv() (*WebAudioFrame, error) {
-	m := new(WebAudioFrame)
+func (x *webCommsServiceStreamAudioTxServer) Recv() (*StreamAudioTxRequest, error) {
+	m := new(StreamAudioTxRequest)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -406,7 +456,7 @@ func _WebCommsService_StreamAudioRx_Handler(srv interface{}, stream grpc.ServerS
 }
 
 type WebCommsService_StreamAudioRxServer interface {
-	Send(*WebAudioFrame) error
+	Send(*StreamAudioRxResponse) error
 	grpc.ServerStream
 }
 
@@ -414,7 +464,7 @@ type webCommsServiceStreamAudioRxServer struct {
 	grpc.ServerStream
 }
 
-func (x *webCommsServiceStreamAudioRxServer) Send(m *WebAudioFrame) error {
+func (x *webCommsServiceStreamAudioRxServer) Send(m *StreamAudioRxResponse) error {
 	return x.ServerStream.SendMsg(m)
 }
 
@@ -526,7 +576,7 @@ func (m *SendPTTEventResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) 
 	return len(dAtA) - i, nil
 }
 
-func (m *WebAudioFrame) MarshalVT() (dAtA []byte, err error) {
+func (m *StreamAudioTxRequest) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -539,12 +589,57 @@ func (m *WebAudioFrame) MarshalVT() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *WebAudioFrame) MarshalToVT(dAtA []byte) (int, error) {
+func (m *StreamAudioTxRequest) MarshalToVT(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVT(dAtA[:size])
 }
 
-func (m *WebAudioFrame) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+func (m *StreamAudioTxRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.Sequence != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Sequence))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.OpusData) > 0 {
+		i -= len(m.OpusData)
+		copy(dAtA[i:], m.OpusData)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.OpusData)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *StreamAudioRxResponse) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *StreamAudioRxResponse) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *StreamAudioRxResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -723,7 +818,7 @@ func (m *SendPTTEventResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int, e
 	return len(dAtA) - i, nil
 }
 
-func (m *WebAudioFrame) MarshalVTStrict() (dAtA []byte, err error) {
+func (m *StreamAudioTxRequest) MarshalVTStrict() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -736,12 +831,57 @@ func (m *WebAudioFrame) MarshalVTStrict() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *WebAudioFrame) MarshalToVTStrict(dAtA []byte) (int, error) {
+func (m *StreamAudioTxRequest) MarshalToVTStrict(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVTStrict(dAtA[:size])
 }
 
-func (m *WebAudioFrame) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
+func (m *StreamAudioTxRequest) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.Sequence != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Sequence))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.OpusData) > 0 {
+		i -= len(m.OpusData)
+		copy(dAtA[i:], m.OpusData)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.OpusData)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *StreamAudioRxResponse) MarshalVTStrict() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVTStrict(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *StreamAudioRxResponse) MarshalToVTStrict(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVTStrict(dAtA[:size])
+}
+
+func (m *StreamAudioRxResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -865,7 +1005,24 @@ func (m *SendPTTEventResponse) SizeVT() (n int) {
 	return n
 }
 
-func (m *WebAudioFrame) SizeVT() (n int) {
+func (m *StreamAudioTxRequest) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.OpusData)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.Sequence != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.Sequence))
+	}
+	n += len(m.unknownFields)
+	return n
+}
+
+func (m *StreamAudioRxResponse) SizeVT() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -1046,7 +1203,7 @@ func (m *SendPTTEventResponse) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *WebAudioFrame) UnmarshalVT(dAtA []byte) error {
+func (m *StreamAudioTxRequest) UnmarshalVT(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -1069,10 +1226,114 @@ func (m *WebAudioFrame) UnmarshalVT(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: WebAudioFrame: wiretype end group for non-group")
+			return fmt.Errorf("proto: StreamAudioTxRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: WebAudioFrame: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: StreamAudioTxRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field OpusData", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.OpusData = append(m.OpusData[:0], dAtA[iNdEx:postIndex]...)
+			if m.OpusData == nil {
+				m.OpusData = []byte{}
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Sequence", wireType)
+			}
+			m.Sequence = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Sequence |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *StreamAudioRxResponse) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: StreamAudioRxResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: StreamAudioRxResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -1412,7 +1673,7 @@ func (m *SendPTTEventResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *WebAudioFrame) UnmarshalVTUnsafe(dAtA []byte) error {
+func (m *StreamAudioTxRequest) UnmarshalVTUnsafe(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -1435,10 +1696,111 @@ func (m *WebAudioFrame) UnmarshalVTUnsafe(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: WebAudioFrame: wiretype end group for non-group")
+			return fmt.Errorf("proto: StreamAudioTxRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: WebAudioFrame: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: StreamAudioTxRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field OpusData", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.OpusData = dAtA[iNdEx:postIndex]
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Sequence", wireType)
+			}
+			m.Sequence = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Sequence |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *StreamAudioRxResponse) UnmarshalVTUnsafe(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: StreamAudioRxResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: StreamAudioRxResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
