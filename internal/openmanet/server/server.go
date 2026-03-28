@@ -10,8 +10,10 @@ import (
 	"connectrpc.com/validate"
 	blosconnect "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1/blosv1connect"
 	commsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
+	dashboardconnect "github.com/openmanet/openmanetd/internal/api/openmanet/dashboard/v1/dashboardv1connect"
 	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
+	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/blos"
 	"github.com/openmanet/openmanetd/internal/comms"
 	"github.com/openmanet/openmanetd/internal/config"
@@ -19,6 +21,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
+	"github.com/openmanet/openmanetd/internal/system"
 	"github.com/openmanet/openmanetd/internal/util/logger"
 	"github.com/rs/cors"
 	"github.com/rs/zerolog"
@@ -40,6 +43,7 @@ type APIServer struct {
 	Interfaces   handlers.InterfaceProvider
 	DHCP         handlers.DHCPConfigProvider
 	Leases       handlers.LeaseProvider
+	Tailscale    handlers.TailscaleStatusProvider
 }
 
 func NewAPIServer(cfg APIServer) *APIServer {
@@ -87,6 +91,19 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Interfaces: cfg.Interfaces,
 		DHCP:       cfg.DHCP,
 		Leases:     cfg.Leases,
+	}, connect.WithInterceptors(validateInterceptor)))
+
+	api.Handle(dashboardconnect.NewDashboardServiceHandler(&handlers.DashboardService{
+		Log:         cfg.Log,
+		Board:       &handlers.DefaultBoardProvider{},
+		SysInfo:     &system.LinuxSysInfo{},
+		Firmware:    &system.OpenWrtFirmwareProvider{},
+		Interfaces:  cfg.Interfaces,
+		Wifi:        &handlers.DefaultWifiStationProvider{Wifi: cfg.Wifi},
+		Originators: &batmanadv.BatctlOriginatorProvider{},
+		Tailscale:   cfg.Tailscale,
+		Services:    &system.InitDServiceChecker{},
+		Actions:     &system.InitDActionExecutor{},
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	p := new(http.Protocols)

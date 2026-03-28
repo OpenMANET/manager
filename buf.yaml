@@ -8,6 +8,7 @@ deps:
 lint:
   use:
     - STANDARD
+  rpc_allow_google_protobuf_empty_requests: true
 breaking:
   use:
     - FILE
