@@ -220,11 +220,11 @@ func TestPersistCommsConfig_EnableWithControlSource(t *testing.T) {
 	cfg := setupTestConfigFromYAML(t, `
 comms:
   enable: false
-  controlSource: cm108
+  controlSource: openvlm
 `)
 
 	require.False(t, cfg.GetCommsEnable())
-	require.Equal(t, "cm108", cfg.GetCommsControlSource())
+	require.Equal(t, "openvlm", cfg.GetCommsControlSource())
 
 	err := cfg.PersistCommsConfig(true, "web")
 	require.NoError(t, err)
@@ -247,21 +247,21 @@ comms:
   controlSource: nanoptt
 `)
 
-	err := cfg.PersistCommsConfig(false, "cm108")
+	err := cfg.PersistCommsConfig(false, "openvlm")
 	require.NoError(t, err)
 
 	assert.False(t, cfg.GetCommsEnable())
-	assert.Equal(t, "cm108", cfg.GetCommsControlSource())
+	assert.Equal(t, "openvlm", cfg.GetCommsControlSource())
 }
 
 func TestPersistCommsConfig_AllControlSources(t *testing.T) {
-	for _, src := range []string{"cm108", "nanoptt", "web"} {
+	for _, src := range []string{"openvlm", "nanoptt", "web"} {
 		src := src
 		t.Run(src, func(t *testing.T) {
 			cfg := setupTestConfigFromYAML(t, `
 comms:
   enable: false
-  controlSource: cm108
+  controlSource: openvlm
 `)
 			err := cfg.PersistCommsConfig(true, src)
 			require.NoError(t, err)
@@ -298,7 +298,7 @@ blos:
   enable: true
 comms:
   enable: false
-  controlSource: cm108
+  controlSource: openvlm
   protocol: rtp
   debug: true
 `)
@@ -322,7 +322,7 @@ logLevel: info
 comms:
   # Whether comms is enabled
   enable: false
-  controlSource: cm108
+  controlSource: openvlm
 `)
 
 	err := cfg.PersistCommsConfig(true, "web")
@@ -340,7 +340,7 @@ func TestPersistCommsConfig_Idempotent(t *testing.T) {
 	cfg := setupTestConfigFromYAML(t, `
 comms:
   enable: false
-  controlSource: cm108
+  controlSource: openvlm
 `)
 
 	err := cfg.PersistCommsConfig(true, "web")
@@ -369,7 +369,7 @@ func TestPersistCommsConfig_NonExistentFile(t *testing.T) {
 		onChangeCallbacks: make([]func(*Config), 0),
 	}
 
-	err := cfg.PersistCommsConfig(true, "cm108")
+	err := cfg.PersistCommsConfig(true, "openvlm")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no config file path configured")
 }

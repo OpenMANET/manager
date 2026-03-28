@@ -5,7 +5,7 @@ package comms
 // probes every virtual PCM alias defined in /usr/share/alsa/alsa.conf
 // (cards.pcm.rear, cards.pcm.hdmi, etc.) while enumerating devices. When
 // those aliases are absent from the active sound card's profile (e.g. the
-// CM108 dongle only exposes a basic stereo device) ALSA prints "Unknown PCM"
+// OpenVLM-compatible dongle only exposes a basic stereo device) ALSA prints "Unknown PCM"
 // for every missing alias. These are probe failures, not real errors.
 //
 // silenceALSAProbeNoise() replaces the ALSA error handler with a no-op for

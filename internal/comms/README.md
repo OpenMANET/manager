@@ -23,7 +23,7 @@ import graph).
    - A UDP receiver listens on `0.0.0.0:<port>` and joins the multicast group.
    - A second UDP socket on `<port>+1` carries outbound RTCP Sender Reports.
 4. **PTT control source** (selected by `controlSource`):
-   - `cm108` (default): monitors GPIO3 on a C-Media CM108/CM108B USB HID dongle;
+   - `openvlm` (default): monitors GPIO3 on an OpenVLM (Open Voice Link Module) USB HID dongle;
      GPIO3 HIGH → `PTTDown`, LOW → `PTTUp` (hold-to-talk).
    - `evdev`: monitors a Linux input device; key press → `PTTToggle`
      (press-to-toggle).
@@ -179,9 +179,9 @@ streams that cross the 65 535 → 0 boundary are handled correctly.
 
 ## PTT control handling
 
-### `cm108` backend (default)
+### `openvlm` backend (default)
 
-The CM108/CM108B is a C-Media USB HID audio dongle widely used as a
+The OpenVLM (Open Voice Link Module) is a USB HID audio dongle widely used as a
 push-to-talk controller.  The source maps GPIO3 in the HID report to PTT state:
 
 | IR1 bit 2 (GPIO3) | Transition | PTTEvent emitted |
@@ -200,7 +200,7 @@ Byte 4: IR3
 ```
 
 ALSA card auto-detection runs before `portaudio.Initialize()` when
-`controlSource` is `cm108`: it scans `/proc/asound/card*/usbid` for
+`controlSource` is `openvlm`: it scans `/proc/asound/card*/usbid` for
 `0d8c:013c` and sets `ALSA_CARD` to the matching card number so PortAudio
 selects the correct sound card.  If `ALSA_CARD` is already set, it is left
 unchanged.
@@ -268,8 +268,8 @@ ptt:
   loopback: true
   pttDevice: /dev/hidraw0/*    # glob for evdev device enumeration (NanoPTTDevicePath)
   pttDeviceName: AllInOneCable # exact evdev device name (NanoPTTDeviceName)
-  controlSource: cm108         # cm108 (default) or evdev
-  BluetoothAudioDeviceHint: ""          # optional shared substring for both input/output (e.g. "CM108")
+  controlSource: openvlm         # openvlm (default) or evdev
+  BluetoothAudioDeviceHint: ""          # optional shared substring for both input/output (e.g. "OpenVLM")
   BluetoothInputDevice: ""              # optional; device name substring or index for capture
   BluetoothOutputDevice: ""             # optional; device name substring or index for playback
   playbackBuffer: 10           # decoded-audio channel depth (default 10 = ~200 ms)
@@ -277,7 +277,7 @@ ptt:
 ```
 
 `pttDevice` / `pttDeviceName` are only relevant when `controlSource: evdev`.
-`ALSA_CARD` auto-detection is only performed when `controlSource: cm108`.
+`ALSA_CARD` auto-detection is only performed when `controlSource: openvlm`.
 
 ---
 
@@ -291,7 +291,7 @@ ptt:
 | `rtp.go` | `pionRTPSession` (pion Packetizer + interceptor chain); `ssrcFromID`; `parseIncomingRTP` |
 | `jitter.go` | `rtpJitterBuffer`: sequence-ordered playout buffer with PLC gap detection |
 | `event.go` | `PTTEvent` constants (`PTTDown`, `PTTUp`, `PTTToggle`); `EventSource` interface; `evdevSource` backend |
-| `cm108.go` | `cm108Source`; `HIDDevice`/`HIDOpener` abstractions; `detectAndSetALSACard` |
+| `openvlm.go` | `openvlmSource`; `HIDDevice`/`HIDOpener` abstractions; `detectAndSetALSACard` |
 | `device.go` | `normalizeControlSource`; `resolveAudioDevice`; `findCommDevice`; `getIfaceIPv4`; `joinMulticastGroup` |
 | `codec.go` | `AudioEncoder`/`AudioDecoder` interfaces; Opus encoder/decoder constructors |
 | `stream.go` | `AudioStream` interface; `portaudioStream` wrapper |

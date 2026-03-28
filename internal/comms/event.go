@@ -18,7 +18,7 @@ const (
 )
 
 // EventSource is the single interface that both the evdev backend and the
-// CM108 HID backend must satisfy. It emits PTTEvents on a channel that is
+// OpenVLM HID backend must satisfy. It emits PTTEvents on a channel that is
 // closed when the supplied context is canceled.
 type EventSource interface {
 	Events(ctx context.Context) <-chan PTTEvent

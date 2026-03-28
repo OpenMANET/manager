@@ -39,9 +39,9 @@ func TestNewNanoPTTSource_NonNil(t *testing.T) {
 
 func TestNormalizeControlSource(t *testing.T) {
 	cases := []struct{ input, want string }{
-		{"cm108", "cm108"},
-		{"CM108", "cm108"},
-		{"  cm108  ", "cm108"},
+		{"openvlm", "openvlm"},
+		{"OPENVLM", "openvlm"},
+		{"  openvlm  ", "openvlm"},
 		{"nanoptt", "nanoptt"},
 		{"NANOPTT", "nanoptt"},
 		{"bluealsa_xevent", "bluealsa_xevent"},
@@ -52,8 +52,8 @@ func TestNormalizeControlSource(t *testing.T) {
 		{"web", "web"},
 		{"WEB", "web"},
 		{"  web  ", "web"},
-		{"", "cm108"},
-		{"unknown", "cm108"},
+		{"", "openvlm"},
+		{"unknown", "openvlm"},
 	}
 	for _, tc := range cases {
 		got := normalizeControlSource(tc.input)

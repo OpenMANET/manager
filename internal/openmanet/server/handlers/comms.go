@@ -31,7 +31,7 @@ func controlSourceToProto(src string) commsv1.ControlSource {
 	case "web":
 		return commsv1.ControlSource_CONTROL_SOURCE_WEB
 	default:
-		return commsv1.ControlSource_CONTROL_SOURCE_CM108
+		return commsv1.ControlSource_CONTROL_SOURCE_OPENVLM
 	}
 }
 
@@ -43,7 +43,7 @@ func protoToControlSource(src commsv1.ControlSource) string {
 	case commsv1.ControlSource_CONTROL_SOURCE_WEB:
 		return "web"
 	default:
-		return "cm108"
+		return "openvlm"
 	}
 }
 

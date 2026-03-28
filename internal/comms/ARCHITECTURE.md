@@ -37,7 +37,7 @@ comms/
 ├── rtp.go          pionRTPSession; ssrcFromID; parseIncomingRTP
 ├── jitter.go       rtpJitterBuffer — sequence-ordered playout buffer with PLC
 ├── event.go        PTTEvent type; EventSource interface; evdevSource backend
-├── cm108.go        cm108Source; HIDDevice / HIDOpener abstractions;
+├── openvlm.go      openvlmSource; HIDDevice / HIDOpener abstractions;
 │                   detectAndSetALSACard / detectAndSetALSACardFromRoot
 ├── device.go       normalizeControlSource; resolveAudioDevice;
 │                   findCommDevice; getIfaceIPv4; joinMulticastGroup
@@ -118,7 +118,7 @@ CommsConfig
 ├── CommKey         string              "any" | decimal EV_KEY code (evdev only)
 ├── NanoPTTDevicePath  string              evdev glob, e.g. "/dev/hidraw0/*"
 ├── NanoPTTDeviceName  string              exact evdev device name to match
-├── ControlSource   string              "cm108" (default) | "evdev"
+├── ControlSource   string              "openvlm" (default) | "evdev"
 │
 ├── Debug, Loopback, Trace  bool
 │
@@ -188,7 +188,7 @@ Start()
   │     fills empty fields with package-level constants
   │     BluetoothAudioDeviceHint propagates to Input/BluetoothOutputDevice when both empty
   │
-  ├─ 3. [if controlSource == "cm108"]
+  ├─ 3. [if controlSource == "openvlm"]
   │     detectAndSetALSACard()
   │       scans /proc/asound/card*/usbid for VID=0x0D8C PID=0x013C
   │       sets ALSA_CARD env var before portaudio.Initialize()
@@ -238,7 +238,7 @@ Start()
   │
   ├─13. buildEventSource()
   │     switch ControlSource:
-  │       "cm108" → NewCM108Source(log)
+  │       "openvlm" → NewOpenVLMSource(log)
   │       "evdev" → findCommDevice() → NewEvdevSource(dev, CommKey, log)
   │
   └─14. Run(ctx, rt, src)   ← blocks until ctx/signal
@@ -272,7 +272,7 @@ Once `Start` reaches step 14, the following goroutines are live:
   └── report.SenderInterceptor timer → RTCP SR every 5 s
 
   [EventSource-internal]
-  └── cm108Source.Events goroutine  — blocks on hid.Device.Read()
+  └── openvlmSource.Events goroutine  — blocks on hid.Device.Read()
    or evdevSource.Events goroutine  — blocks on evdev.Device.ReadOne()
 
   [PortAudio-internal, managed by the audio library]
@@ -334,7 +334,7 @@ localIP string ──────────► FNV-1a 32-bit hash → SSRC
 ### beginTransmission state machine
 
 ```
-PTTDown (cm108) or PTTToggle-when-idle (evdev)
+PTTDown (openvlm) or PTTToggle-when-idle (evdev)
   │
   ▼
 [lock] broadcasting = true [unlock]
@@ -366,7 +366,7 @@ broadcastStream.Start()
 ### endTransmission state machine
 
 ```
-PTTUp (cm108) or PTTToggle-when-broadcasting (evdev)
+PTTUp (openvlm) or PTTToggle-when-broadcasting (evdev)
   │
   ▼
 [check] broadcasting == false? → return (idempotent)
@@ -531,8 +531,8 @@ Examples:
 type PTTEvent uint8
 
 const (
-    PTTDown   PTTEvent = iota  // 0: hold-to-talk press (cm108 GPIO3 HIGH)
-    PTTUp                       // 1: hold-to-talk release (cm108 GPIO3 LOW)
+    PTTDown   PTTEvent = iota  // 0: hold-to-talk press (openvlm GPIO3 HIGH)
+    PTTUp                       // 1: hold-to-talk release (openvlm GPIO3 LOW)
     PTTToggle                   // 2: press-to-toggle (evdev key press)
 )
 ```
@@ -548,15 +548,15 @@ type EventSource interface {
 Implementations return a channel that is closed when `ctx` is cancelled,
 causing `Run` to exit its `select` loop cleanly.
 
-### cm108Source (default)
+### openvlmSource (default)
 
-Reads HID input reports from a CM108/CM108B USB dongle.  GPIO3 (IR1 bit 2)
+Reads HID input reports from an OpenVLM (Open Voice Link Module) USB dongle.  GPIO3 (IR1 bit 2)
 maps to PTT state: HIGH → `PTTDown`, LOW → `PTTUp`.
 
 ```
-cm108Source.Events(ctx) goroutine
+openvlmSource.Events(ctx) goroutine
   │
-  ├─ opener(cm108VendorID, cm108ProductID) → HIDDevice
+  ├─ opener(openvlmVendorID, openvlmProductID) → HIDDevice
   │    error → log error, close channel, return
   │
   ├─ context.AfterFunc(ctx, closeDevice)  ← unblocks dev.Read on cancel
@@ -695,7 +695,7 @@ type rtpSender interface {
 - Production: `*pionRTPSession`
 - Test: `mockRTPSender` — accumulates payloads for assertion
 
-### HIDDevice (`cm108.go`)
+### HIDDevice (`openvlm.go`)
 
 ```go
 type HIDDevice interface {
@@ -747,7 +747,7 @@ type EventSource interface {
 }
 ```
 
-- Production: `cm108Source` (default) or `evdevSource`
+- Production: `openvlmSource` (default) or `evdevSource`
 - Test: `mockEventSource` (in test files) — pre-seeded `chan PTTEvent`
 
 ---
@@ -792,9 +792,9 @@ func (cfg *CommsConfig) buildEventSource() (EventSource, error) {
             return nil, errors.New("comms: comm device not found")
         }
         return NewEvdevSource(dev, cfg.CommKey, cfg.Log), nil
-    default: // "cm108"
-        cfg.Log.Info().Msg("comms: PTT on CM108 HID dongle")
-        return NewCM108Source(cfg.Log), nil
+    default: // "openvlm"
+        cfg.Log.Info().Msg("comms: PTT on OpenVLM HID dongle")
+        return NewOpenVLMSource(cfg.Log), nil
     }
 }
 ```
@@ -869,7 +869,7 @@ dependency is hidden behind one of the interfaces listed in §10.
 | `rtp_test.go` | `ssrcFromID`, `pionRTPSession.send`, `parseIncomingRTP` |
 | `jitter_test.go` | `push`, `popReady`, `advancePast`, `shouldConceal`, `seqLess` |
 | `event_test.go` | `evdevSource.Events`, `PTTEvent` constants |
-| `cm108_test.go` | `cm108Source.Events` (mock HID); `detectAndSetALSACardFromRoot` |
+| `openvlm_test.go` | `openvlmSource.Events` (mock HID); `detectAndSetALSACardFromRoot` |
 | `codec_test.go` | `newOpusEncoder`, `newOpusDecoder` round-trip |
 | `transport_test.go` | `swappableSender`, `swappableReceiver`, concurrent swap |
 | `alsa_test.go` | `silenceALSAProbeNoise`, `restoreALSAErrorHandler` (no-op smoke test) |
@@ -934,9 +934,9 @@ s.swap(wNew)
 // wOld.count() + wNew.count() must equal total goroutine writes
 ```
 
-### Testing CM108 without hardware
+### Testing OpenVLM without hardware
 
-`cm108Source` accepts a `HIDOpener` function via `newCM108SourceWithOpener`.
+`openvlmSource` accepts a `HIDOpener` function via `newOpenVLMSourceWithOpener`.
 Tests provide a factory that returns a mock `HIDDevice` pre-loaded with
 deterministic GPIO3 state sequences:
 
@@ -947,7 +947,7 @@ opener := func(_, _ uint16) (HIDDevice, error) {
         {0, 0x00, 0x00, 0, 0},  // IR1 bit 2 LOW   → PTTUp
     }}, nil
 }
-src := newCM108SourceWithOpener(opener, zerolog.Nop())
+src := newOpenVLMSourceWithOpener(opener, zerolog.Nop())
 ```
 
 ### Testing transmission timing

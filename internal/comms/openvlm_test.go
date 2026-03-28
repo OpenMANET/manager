@@ -65,12 +65,12 @@ func (e *errHIDDevice) Close() error               { return nil }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-// makeCM108Report builds a 5-byte CM108 report [ReportID, IR0, IR1, IR2, IR3].
+// makeOpenVLMReport builds a 5-byte OpenVLM report [ReportID, IR0, IR1, IR2, IR3].
 // gpio3High sets or clears bit 2 of IR1.
-func makeCM108Report(gpio3High bool) []byte {
+func makeOpenVLMReport(gpio3High bool) []byte {
 	ir1 := byte(0x00)
 	if gpio3High {
-		ir1 |= cm108GPIO3Mask
+		ir1 |= openvlmGPIO3Mask
 	}
 
 	return []byte{0x00, 0x00, ir1, 0x00, 0x00}
@@ -109,8 +109,8 @@ func openerFailing(err error) HIDOpener {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-func TestCM108Source_OpenerError_ClosesChannelImmediately(t *testing.T) {
-	src := newCM108SourceWithOpener(openerFailing(errors.New("no device")), zerolog.Nop())
+func TestOpenVLMSource_OpenerError_ClosesChannelImmediately(t *testing.T) {
+	src := newOpenVLMSourceWithOpener(openerFailing(errors.New("no device")), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
@@ -127,7 +127,7 @@ func TestCM108Source_OpenerError_ClosesChannelImmediately(t *testing.T) {
 	}
 }
 
-func TestCM108Source_OpenerCalledWithCorrectVIDPID(t *testing.T) {
+func TestOpenVLMSource_OpenerCalledWithCorrectVIDPID(t *testing.T) {
 	type vidpid struct{ vid, pid uint16 }
 
 	resultCh := make(chan vidpid, 1)
@@ -139,7 +139,7 @@ func TestCM108Source_OpenerCalledWithCorrectVIDPID(t *testing.T) {
 		return mock, nil
 	}
 
-	src := newCM108SourceWithOpener(opener, zerolog.Nop())
+	src := newOpenVLMSourceWithOpener(opener, zerolog.Nop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -148,23 +148,23 @@ func TestCM108Source_OpenerCalledWithCorrectVIDPID(t *testing.T) {
 
 	select {
 	case r := <-resultCh:
-		if r.vid != cm108VendorID {
-			t.Errorf("VendorID: got 0x%04X, want 0x%04X", r.vid, cm108VendorID)
+		if r.vid != openvlmVendorID {
+			t.Errorf("VendorID: got 0x%04X, want 0x%04X", r.vid, openvlmVendorID)
 		}
 
-		if r.pid != cm108ProductID {
-			t.Errorf("ProductID: got 0x%04X, want 0x%04X", r.pid, cm108ProductID)
+		if r.pid != openvlmProductID {
+			t.Errorf("ProductID: got 0x%04X, want 0x%04X", r.pid, openvlmProductID)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Error("opener was not called within timeout")
 	}
 }
 
-func TestCM108Source_GPIO3_LowReport_NoEvent(t *testing.T) {
+func TestOpenVLMSource_GPIO3_LowReport_NoEvent(t *testing.T) {
 	mock := newMockHIDDevice()
-	mock.queueReport(makeCM108Report(false))
+	mock.queueReport(makeOpenVLMReport(false))
 
-	src := newCM108SourceWithOpener(openerReturning(mock), zerolog.Nop())
+	src := newOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
@@ -177,11 +177,11 @@ func TestCM108Source_GPIO3_LowReport_NoEvent(t *testing.T) {
 	}
 }
 
-func TestCM108Source_GPIO3_HighReport_EmitsPTTDown(t *testing.T) {
+func TestOpenVLMSource_GPIO3_HighReport_EmitsPTTDown(t *testing.T) {
 	mock := newMockHIDDevice()
-	mock.queueReport(makeCM108Report(true))
+	mock.queueReport(makeOpenVLMReport(true))
 
-	src := newCM108SourceWithOpener(openerReturning(mock), zerolog.Nop())
+	src := newOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -198,12 +198,12 @@ func TestCM108Source_GPIO3_HighReport_EmitsPTTDown(t *testing.T) {
 	}
 }
 
-func TestCM108Source_HighThenLow_EmitsPTTDownThenPTTUp(t *testing.T) {
+func TestOpenVLMSource_HighThenLow_EmitsPTTDownThenPTTUp(t *testing.T) {
 	mock := newMockHIDDevice()
-	mock.queueReport(makeCM108Report(true))
-	mock.queueReport(makeCM108Report(false))
+	mock.queueReport(makeOpenVLMReport(true))
+	mock.queueReport(makeOpenVLMReport(false))
 
-	src := newCM108SourceWithOpener(openerReturning(mock), zerolog.Nop())
+	src := newOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -224,13 +224,13 @@ func TestCM108Source_HighThenLow_EmitsPTTDownThenPTTUp(t *testing.T) {
 	}
 }
 
-func TestCM108Source_DuplicateState_NoExtraEvent(t *testing.T) {
+func TestOpenVLMSource_DuplicateState_NoExtraEvent(t *testing.T) {
 	mock := newMockHIDDevice()
-	mock.queueReport(makeCM108Report(true))  // HIGH → PTTDown
-	mock.queueReport(makeCM108Report(true))  // HIGH again → no event
-	mock.queueReport(makeCM108Report(false)) // LOW → PTTUp
+	mock.queueReport(makeOpenVLMReport(true))  // HIGH → PTTDown
+	mock.queueReport(makeOpenVLMReport(true))  // HIGH again → no event
+	mock.queueReport(makeOpenVLMReport(false)) // LOW → PTTUp
 
-	src := newCM108SourceWithOpener(openerReturning(mock), zerolog.Nop())
+	src := newOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -243,10 +243,10 @@ func TestCM108Source_DuplicateState_NoExtraEvent(t *testing.T) {
 	}
 }
 
-func TestCM108Source_ContextCancel_ClosesChannel(t *testing.T) {
+func TestOpenVLMSource_ContextCancel_ClosesChannel(t *testing.T) {
 	mock := newMockHIDDevice() // empty queue — will block
 
-	src := newCM108SourceWithOpener(openerReturning(mock), zerolog.Nop())
+	src := newOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := src.Events(ctx)
@@ -264,10 +264,10 @@ func TestCM108Source_ContextCancel_ClosesChannel(t *testing.T) {
 	}
 }
 
-func TestCM108Source_ReadError_ClosesChannel(t *testing.T) {
+func TestOpenVLMSource_ReadError_ClosesChannel(t *testing.T) {
 	errDev := &errHIDDevice{}
 
-	src := newCM108SourceWithOpener(openerReturning(errDev), zerolog.Nop())
+	src := newOpenVLMSourceWithOpener(openerReturning(errDev), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -340,7 +340,7 @@ func TestDetectAndSetALSACardFromRoot_NonMatchingCard(t *testing.T) {
 	detectAndSetALSACardFromRoot(tmp, zerolog.Nop())
 
 	if v := os.Getenv("ALSA_CARD"); v != "" {
-		t.Errorf("expected ALSA_CARD to remain unset for non-CM108 card; got %q", v)
+		t.Errorf("expected ALSA_CARD to remain unset for non-OpenVLM card; got %q", v)
 	}
 }
 
@@ -368,17 +368,17 @@ func TestDetectAndSetALSACardFromRoot_AlreadySet(t *testing.T) {
 	}
 }
 
-// ─── CM108 short-report test ──────────────────────────────────────────────────
+// ─── OpenVLM short-report test ─────────────────────────────────────────────────
 
-func TestCM108Source_ShortReport_SkippedAndContinues(t *testing.T) {
+func TestOpenVLMSource_ShortReport_SkippedAndContinues(t *testing.T) {
 	// A 1-byte report is below the 2-byte minimum and must be skipped.
 	// The source should sleep 50 ms then continue processing the queued
 	// valid report and emit PTTDown.
 	mock := newMockHIDDevice()
-	mock.queueReport([]byte{0x00})          // 1-byte short report — skipped
-	mock.queueReport(makeCM108Report(true)) // valid HIGH report → PTTDown
+	mock.queueReport([]byte{0x00})               // 1-byte short report — skipped
+	mock.queueReport(makeOpenVLMReport(true)) // valid HIGH report → PTTDown
 
-	src := newCM108SourceWithOpener(openerReturning(mock), zerolog.Nop())
+	src := newOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
 	defer cancel()

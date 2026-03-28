@@ -21,8 +21,8 @@ blos:
 comms:
   enable: false
   protocol: rtp
-  # cm108 (default, C-Media CM108/CM108B USB HID dongle GPIO3), evdev, or bluealsa_xevent
-  controlSource: cm108
+  # openvlm (default, Open Voice Link Module USB HID dongle GPIO3), evdev, or bluealsa_xevent
+  controlSource: openvlm
   debug: true
   loopback: false
   trace: true

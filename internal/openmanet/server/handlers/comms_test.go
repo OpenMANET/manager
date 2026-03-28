@@ -52,8 +52,8 @@ func TestGetCommsConfig_Defaults(t *testing.T) {
 	resp, err := svc.GetCommsConfig(context.Background(), &emptypb.Empty{})
 	require.NoError(t, err)
 	assert.False(t, resp.GetCommsEnabled())
-	// Default control source is cm108 (zero value maps to CM108)
-	assert.Equal(t, commsv1.ControlSource_CONTROL_SOURCE_CM108, resp.GetControlSource())
+	// Default control source is openvlm (zero value maps to OPENVLM)
+	assert.Equal(t, commsv1.ControlSource_CONTROL_SOURCE_OPENVLM, resp.GetControlSource())
 }
 
 func TestGetCommsConfig_Enabled(t *testing.T) {
@@ -74,11 +74,11 @@ func TestGetCommsConfig_AllControlSources(t *testing.T) {
 		src  string
 		want commsv1.ControlSource
 	}{
-		{"cm108", commsv1.ControlSource_CONTROL_SOURCE_CM108},
+		{"openvlm", commsv1.ControlSource_CONTROL_SOURCE_OPENVLM},
 		{"nanoptt", commsv1.ControlSource_CONTROL_SOURCE_NANOPTT},
 		{"web", commsv1.ControlSource_CONTROL_SOURCE_WEB},
-		{"", commsv1.ControlSource_CONTROL_SOURCE_CM108},        // empty defaults to cm108
-		{"unknown", commsv1.ControlSource_CONTROL_SOURCE_CM108}, // unknown defaults to cm108
+		{"", commsv1.ControlSource_CONTROL_SOURCE_OPENVLM},        // empty defaults to openvlm
+		{"unknown", commsv1.ControlSource_CONTROL_SOURCE_OPENVLM}, // unknown defaults to openvlm
 	}
 
 	for _, tt := range tests {
@@ -100,7 +100,7 @@ func TestUpdateCommsConfig_EnableWithControlSource(t *testing.T) {
 	cfg := setupCommsTestConfig(t, `
 comms:
   enable: false
-  controlSource: cm108
+  controlSource: openvlm
 `)
 	svc := &handlers.CommsService{Cfg: cfg, Log: zerolog.Nop()}
 
@@ -124,19 +124,19 @@ comms:
 
 	_, err := svc.UpdateCommsConfig(context.Background(), &commsv1.UpdateCommsConfigRequest{
 		EnableComms:   false,
-		ControlSource: commsv1.ControlSource_CONTROL_SOURCE_CM108,
+		ControlSource: commsv1.ControlSource_CONTROL_SOURCE_OPENVLM,
 	})
 	require.NoError(t, err)
 
 	assert.False(t, cfg.GetCommsEnable())
-	assert.Equal(t, "cm108", cfg.GetCommsControlSource())
+	assert.Equal(t, "openvlm", cfg.GetCommsControlSource())
 }
 
 func TestUpdateCommsConfig_PersistsToFile(t *testing.T) {
 	cfg := setupCommsTestConfig(t, `
 comms:
   enable: false
-  controlSource: cm108
+  controlSource: openvlm
 `)
 	svc := &handlers.CommsService{Cfg: cfg, Log: zerolog.Nop()}
 
@@ -160,7 +160,7 @@ func TestUpdateCommsConfig_AllControlSources(t *testing.T) {
 		proto commsv1.ControlSource
 		want  string
 	}{
-		{commsv1.ControlSource_CONTROL_SOURCE_CM108, "cm108"},
+		{commsv1.ControlSource_CONTROL_SOURCE_OPENVLM, "openvlm"},
 		{commsv1.ControlSource_CONTROL_SOURCE_NANOPTT, "nanoptt"},
 		{commsv1.ControlSource_CONTROL_SOURCE_WEB, "web"},
 	}
@@ -168,7 +168,7 @@ func TestUpdateCommsConfig_AllControlSources(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.want, func(t *testing.T) {
-			cfg := setupCommsTestConfig(t, "comms:\n  enable: false\n  controlSource: cm108\n")
+			cfg := setupCommsTestConfig(t, "comms:\n  enable: false\n  controlSource: openvlm\n")
 			svc := &handlers.CommsService{Cfg: cfg, Log: zerolog.Nop()}
 
 			_, err := svc.UpdateCommsConfig(context.Background(), &commsv1.UpdateCommsConfigRequest{
@@ -188,7 +188,7 @@ func TestUpdateCommsConfig_NoConfigFile(t *testing.T) {
 
 	_, err := svc.UpdateCommsConfig(context.Background(), &commsv1.UpdateCommsConfigRequest{
 		EnableComms:   true,
-		ControlSource: commsv1.ControlSource_CONTROL_SOURCE_CM108,
+		ControlSource: commsv1.ControlSource_CONTROL_SOURCE_OPENVLM,
 	})
 	require.Error(t, err)
 
@@ -199,7 +199,7 @@ func TestUpdateCommsConfig_NoConfigFile(t *testing.T) {
 }
 
 func TestUpdateCommsConfig_EnableCallsManager(t *testing.T) {
-	cfg := setupCommsTestConfig(t, "comms:\n  enable: false\n  controlSource: cm108\n")
+	cfg := setupCommsTestConfig(t, "comms:\n  enable: false\n  controlSource: openvlm\n")
 	mgr := &fakeCommsManager{}
 	svc := &handlers.CommsService{Cfg: cfg, Log: zerolog.Nop(), CommsManager: mgr}
 
@@ -215,13 +215,13 @@ func TestUpdateCommsConfig_EnableCallsManager(t *testing.T) {
 }
 
 func TestUpdateCommsConfig_DisableCallsManager(t *testing.T) {
-	cfg := setupCommsTestConfig(t, "comms:\n  enable: true\n  controlSource: cm108\n")
+	cfg := setupCommsTestConfig(t, "comms:\n  enable: true\n  controlSource: openvlm\n")
 	mgr := &fakeCommsManager{running: true}
 	svc := &handlers.CommsService{Cfg: cfg, Log: zerolog.Nop(), CommsManager: mgr}
 
 	_, err := svc.UpdateCommsConfig(context.Background(), &commsv1.UpdateCommsConfigRequest{
 		EnableComms:   false,
-		ControlSource: commsv1.ControlSource_CONTROL_SOURCE_CM108,
+		ControlSource: commsv1.ControlSource_CONTROL_SOURCE_OPENVLM,
 	})
 	require.NoError(t, err)
 
@@ -231,7 +231,7 @@ func TestUpdateCommsConfig_DisableCallsManager(t *testing.T) {
 }
 
 func TestUpdateCommsConfig_NilManagerOK(t *testing.T) {
-	cfg := setupCommsTestConfig(t, "comms:\n  enable: false\n  controlSource: cm108\n")
+	cfg := setupCommsTestConfig(t, "comms:\n  enable: false\n  controlSource: openvlm\n")
 	svc := &handlers.CommsService{Cfg: cfg, Log: zerolog.Nop()}
 
 	_, err := svc.UpdateCommsConfig(context.Background(), &commsv1.UpdateCommsConfigRequest{

@@ -13,33 +13,33 @@ import (
 	hid "github.com/sstallion/go-hid"
 )
 
-// ─── CM108 constants ──────────────────────────────────────────────────────────
+// ─── OpenVLM constants ────────────────────────────────────────────────────────
 
 const (
-	// cm108VendorID is the C-Media Electronics USB vendor identifier.
-	cm108VendorID uint16 = 0x0D8C
-	// cm108ProductID identifies the CM108 / CM108B all-in-one USB audio dongle.
-	cm108ProductID uint16 = 0x013C
+	// openvlmVendorID is the C-Media Electronics USB vendor identifier.
+	openvlmVendorID uint16 = 0x0D8C
+	// openvlmProductID identifies the OpenVLM (Open Voice Link Module) USB audio dongle.
+	openvlmProductID uint16 = 0x013C
 
-	// cm108ReportSize is the total HID input report buffer size.
-	// The OS prepends a Report ID byte followed by the 4 CM108 data bytes
+	// openvlmReportSize is the total HID input report buffer size.
+	// The OS prepends a Report ID byte followed by the 4 OpenVLM data bytes
 	// (IR0..IR3), giving 5 bytes total.
-	cm108ReportSize = 5
+	openvlmReportSize = 5
 
-	// cm108PayloadOffset is the byte index at which the CM108 data payload
+	// openvlmPayloadOffset is the byte index at which the OpenVLM data payload
 	// begins when the OS has prepended the one-byte Report ID.
-	cm108PayloadOffset = 1
+	openvlmPayloadOffset = 1
 
-	// cm108GPIO3Mask selects GPIO3 within IR1.
+	// openvlmGPIO3Mask selects GPIO3 within IR1.
 	// IR1 carries GPIO4..GPIO1 in its lower nibble (bits 3..0):
 	//   bit 3 = GPIO4, bit 2 = GPIO3, bit 1 = GPIO2, bit 0 = GPIO1.
-	cm108GPIO3Mask byte = 0x04
+	openvlmGPIO3Mask byte = 0x04
 )
 
 // ─── HIDDevice / HIDOpener abstractions ──────────────────────────────────────
 
 // HIDDevice is a minimal interface over a USB HID device.
-// Only the two methods used by cm108Source are declared, which allows unit
+// Only the two methods used by openvlmSource are declared, which allows unit
 // tests to inject a mock without reaching the real hardware.
 type HIDDevice interface {
 	// Read fills b with the next HID input report and returns the number of
@@ -93,48 +93,49 @@ func defaultHIDOpener(vendorID, productID uint16) (HIDDevice, error) {
 	return &hidDeviceWrapper{inner: dev}, nil
 }
 
-// ─── cm108Source ──────────────────────────────────────────────────────────────
+// ─── openvlmSource ────────────────────────────────────────────────────────────
 
-// cm108Source reads GPIO3 state from a CM108/CM108B USB HID audio dongle and
-// emits PTTDown when the button is pressed and PTTUp when it is released.
+// openvlmSource reads GPIO3 state from an OpenVLM (Open Voice Link Module) USB
+// HID audio dongle and emits PTTDown when the button is pressed and PTTUp when
+// it is released.
 //
-// The CM108B input data format is four bytes IR0..IR3. GPIO3 lives in bit 2
+// The OpenVLM input data format is four bytes IR0..IR3. GPIO3 lives in bit 2
 // of IR1 (the GPIO4..GPIO1 nibble). When the OS prepends a Report ID byte the
 // payload offset shifts by one, and the total report length is 5 bytes.
-type cm108Source struct {
+type openvlmSource struct {
 	log    zerolog.Logger
 	opener HIDOpener
 }
 
-// NewCM108Source constructs a cm108Source backed by the real HIDAPI library.
+// NewOpenVLMSource constructs an openvlmSource backed by the real HIDAPI library.
 // Exported so callers can wire it up directly when bypassing buildEventSource.
-func NewCM108Source(log zerolog.Logger) EventSource {
-	return &cm108Source{log: log, opener: defaultHIDOpener}
+func NewOpenVLMSource(log zerolog.Logger) EventSource {
+	return &openvlmSource{log: log, opener: defaultHIDOpener}
 }
 
-// newCM108SourceWithOpener constructs a cm108Source with an injectable opener.
+// newOpenVLMSourceWithOpener constructs an openvlmSource with an injectable opener.
 // Intended for unit tests only.
-func newCM108SourceWithOpener(opener HIDOpener, log zerolog.Logger) EventSource {
-	return &cm108Source{log: log, opener: opener}
+func newOpenVLMSourceWithOpener(opener HIDOpener, log zerolog.Logger) EventSource {
+	return &openvlmSource{log: log, opener: opener}
 }
 
 // Events implements EventSource.
 //
-// A goroutine opens the CM108 device, polls for HID input reports, and emits
+// A goroutine opens the OpenVLM device, polls for HID input reports, and emits
 // PTTDown when GPIO3 transitions LOW→HIGH and PTTUp when it transitions
 // HIGH→LOW. The channel is closed when ctx is canceled or the device becomes
 // unreadable.
-func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent { //nolint:gocognit
+func (s *openvlmSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:gocognit
 	ch := make(chan PTTEvent, 4)
 
 	go func() {
 		defer close(ch)
 
-		dev, err := s.opener(cm108VendorID, cm108ProductID)
+		dev, err := s.opener(openvlmVendorID, openvlmProductID)
 		if err != nil {
 			s.log.Error().Err(err).
-				Msgf("CM108: failed to open HID device VID=0x%04X PID=0x%04X",
-					cm108VendorID, cm108ProductID)
+				Msgf("OpenVLM: failed to open HID device VID=0x%04X PID=0x%04X",
+					openvlmVendorID, openvlmProductID)
 
 			return
 		}
@@ -146,7 +147,7 @@ func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent { //nolint:goc
 		closeDevice := func() {
 			closeOnce.Do(func() {
 				if cerr := dev.Close(); cerr != nil {
-					s.log.Warn().Err(cerr).Msg("CM108: error closing HID device")
+					s.log.Warn().Err(cerr).Msg("OpenVLM: error closing HID device")
 				}
 			})
 		}
@@ -160,10 +161,10 @@ func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent { //nolint:goc
 			closeDevice() // ensure device is closed on all other exit paths
 		}()
 
-		s.log.Info().Msgf("CM108: opened HID device VID=0x%04X PID=0x%04X",
-			cm108VendorID, cm108ProductID)
+		s.log.Info().Msgf("OpenVLM: opened HID device VID=0x%04X PID=0x%04X",
+			openvlmVendorID, openvlmProductID)
 
-		buf := make([]byte, cm108ReportSize)
+		buf := make([]byte, openvlmReportSize)
 		prevGPIO3 := false
 
 		for {
@@ -175,7 +176,7 @@ func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent { //nolint:goc
 					return
 				}
 
-				s.log.Error().Err(readErr).Msg("CM108: HID read error; stopping")
+				s.log.Error().Err(readErr).Msg("OpenVLM: HID read error; stopping")
 
 				return
 			}
@@ -184,13 +185,13 @@ func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent { //nolint:goc
 			// When the OS prepends a Report ID byte the total length is ≥5
 			// and the payload starts at offset 1.
 			payloadStart := 0
-			if n >= cm108ReportSize {
-				payloadStart = cm108PayloadOffset
+			if n >= openvlmReportSize {
+				payloadStart = openvlmPayloadOffset
 			}
 
 			// We need at least IR0 and IR1 after the payload offset.
 			if n < payloadStart+2 {
-				s.log.Debug().Msgf("CM108: short report (%d bytes), skipping", n)
+				s.log.Debug().Msgf("OpenVLM: short report (%d bytes), skipping", n)
 				time.Sleep(50 * time.Millisecond)
 
 				continue
@@ -198,9 +199,9 @@ func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent { //nolint:goc
 
 			// IR1 is the byte immediately after IR0; GPIO3 is bit 2.
 			ir1 := buf[payloadStart+1]
-			gpio3 := (ir1 & cm108GPIO3Mask) != 0
+			gpio3 := (ir1 & openvlmGPIO3Mask) != 0
 
-			s.log.Trace().Msgf("CM108: IR1=0x%02X  GPIO3=%v", ir1, gpio3)
+			s.log.Trace().Msgf("OpenVLM: IR1=0x%02X  GPIO3=%v", ir1, gpio3)
 
 			if gpio3 == prevGPIO3 {
 				continue
@@ -213,11 +214,11 @@ func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent { //nolint:goc
 			if gpio3 {
 				ev = PTTDown
 
-				s.log.Debug().Msg("CM108: GPIO3 HIGH → PTTDown")
+				s.log.Debug().Msg("OpenVLM: GPIO3 HIGH → PTTDown")
 			} else {
 				ev = PTTUp
 
-				s.log.Debug().Msg("CM108: GPIO3 LOW → PTTUp")
+				s.log.Debug().Msg("OpenVLM: GPIO3 LOW → PTTUp")
 			}
 
 			select {
@@ -231,9 +232,9 @@ func (s *cm108Source) Events(ctx context.Context) <-chan PTTEvent { //nolint:goc
 	return ch
 }
 
-// ─── CM108 ALSA card detection ────────────────────────────────────────────────
+// ─── OpenVLM ALSA card detection ──────────────────────────────────────────────
 
-// detectAndSetALSACard probes /proc/asound/card*/usbid to locate the CM108
+// detectAndSetALSACard probes /proc/asound/card*/usbid to locate the OpenVLM
 // by its VID:PID and sets the ALSA_CARD environment variable to its card
 // number. This must be called before portaudio.Initialize() so that PortAudio
 // and ALSA select the correct card. On OpenWRT the kernel exposes a usbid
@@ -248,7 +249,7 @@ func detectAndSetALSACard(log zerolog.Logger) {
 // root replaces /proc/asound so tests can supply a temporary directory tree.
 func detectAndSetALSACardFromRoot(root string, log zerolog.Logger) {
 	if v := os.Getenv("ALSA_CARD"); v != "" {
-		log.Debug().Str("ALSA_CARD", v).Msg("CM108: ALSA_CARD already set, skipping auto-detection")
+		log.Debug().Str("ALSA_CARD", v).Msg("OpenVLM: ALSA_CARD already set, skipping auto-detection")
 
 		return
 	}
@@ -257,17 +258,17 @@ func detectAndSetALSACardFromRoot(root string, log zerolog.Logger) {
 
 	matches, err := filepath.Glob(pattern)
 	if err != nil || len(matches) == 0 {
-		log.Warn().Msgf("CM108: no USB audio cards found at %s; ALSA_CARD not set", pattern)
+		log.Warn().Msgf("OpenVLM: no USB audio cards found at %s; ALSA_CARD not set", pattern)
 
 		return
 	}
 
-	target := fmt.Sprintf("%04x:%04x", cm108VendorID, cm108ProductID)
+	target := fmt.Sprintf("%04x:%04x", openvlmVendorID, openvlmProductID)
 
 	for _, path := range matches {
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
-			log.Debug().Err(readErr).Str("path", path).Msg("CM108: could not read usbid")
+			log.Debug().Err(readErr).Str("path", path).Msg("OpenVLM: could not read usbid")
 
 			continue
 		}
@@ -281,25 +282,25 @@ func detectAndSetALSACardFromRoot(root string, log zerolog.Logger) {
 		cardNum := strings.TrimPrefix(cardDir, "card")
 
 		if cardNum == cardDir {
-			log.Warn().Str("path", path).Msg("CM108: unexpected usbid path format")
+			log.Warn().Str("path", path).Msg("OpenVLM: unexpected usbid path format")
 
 			continue
 		}
 
 		if setErr := os.Setenv("ALSA_CARD", cardNum); setErr != nil {
-			log.Error().Err(setErr).Msg("CM108: failed to set ALSA_CARD")
+			log.Error().Err(setErr).Msg("OpenVLM: failed to set ALSA_CARD")
 
 			return
 		}
 
 		log.Info().
 			Str("ALSA_CARD", cardNum).
-			Msgf("CM108: auto-detected card %s for VID=0x%04X PID=0x%04X",
-				cardNum, cm108VendorID, cm108ProductID)
+			Msgf("OpenVLM: auto-detected card %s for VID=0x%04X PID=0x%04X",
+				cardNum, openvlmVendorID, openvlmProductID)
 
 		return
 	}
 
-	log.Warn().Msgf("CM108: no card matching VID=0x%04X PID=0x%04X found in %s; ALSA_CARD not set",
-		cm108VendorID, cm108ProductID, root)
+	log.Warn().Msgf("OpenVLM: no card matching VID=0x%04X PID=0x%04X found in %s; ALSA_CARD not set",
+		openvlmVendorID, openvlmProductID, root)
 }

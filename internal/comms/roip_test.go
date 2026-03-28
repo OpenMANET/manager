@@ -15,7 +15,7 @@ var errOpenDevice = errors.New("no HID device")
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// makeROIPReport builds a 5-byte CM108 HID report [ReportID, IR0, IR1, IR2, IR3]
+// makeROIPReport builds a 5-byte OpenVLM HID report [ReportID, IR0, IR1, IR2, IR3]
 // where the supplied gpioMask bit in IR1 is set (cosHigh=true) or cleared.
 func makeROIPReport(gpioMask byte, cosHigh bool) []byte {
 	ir1 := byte(0x00)

@@ -12,14 +12,14 @@ import (
 )
 
 const (
-	defaultControlSourceCM108   = "cm108"
+	defaultControlSourceOpenVLM = "openvlm"
 	defaultControlSourceNanoPTT = "nanoptt"
 	controlSourceROIP           = "roip"
 	controlSourceWeb            = "web"
 )
 
 // normalizeControlSource maps raw config strings to canonical control source names.
-// Unrecognized values (including empty string) default to "cm108".
+// Unrecognized values (including empty string) default to "openvlm".
 func normalizeControlSource(src string) string {
 	switch strings.ToLower(strings.TrimSpace(src)) {
 	case "bluealsa_xevent":
@@ -31,7 +31,7 @@ func normalizeControlSource(src string) string {
 	case controlSourceWeb:
 		return controlSourceWeb
 	default:
-		return defaultControlSourceCM108
+		return defaultControlSourceOpenVLM
 	}
 }
 

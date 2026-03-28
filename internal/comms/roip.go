@@ -44,18 +44,18 @@ const (
 
 // roipSource implements EventSource for a ROIP (Radio over IP) bridge.
 //
-// It uses the same CM108 USB audio dongle as cm108Source but operates without
+// It uses the same OpenVLM USB audio dongle as openvlmSource but operates without
 // a manual PTT button, automatically bridging an analog handheld radio into
 // the multicast comms network.
 //
 // Detection strategy (half-duplex enforced throughout):
 //
-//  1. COS (Carrier-Operated Squelch): the radio squelch output is wired to a
-//     CM108 GPIO pin.  The HID report is polled; cosGPIOMask selects the IR1
+//  1. COS (Carrier-Operated Squelch): the radio squelch output is wired to an
+//     OpenVLM GPIO pin.  The HID report is polled; cosGPIOMask selects the IR1
 //     bit.  PTTDown on the HIGH→LOW squelch edge, PTTUp on LOW→HIGH.
 //
 //  2. VOX fallback: if the HID device is unavailable or cosGPIOMask is 0, an
-//     audio energy threshold is applied to the CM108 input stream.  A
+//     audio energy threshold is applied to the OpenVLM input stream.  A
 //     configurable onset window (roipVOXOnsetFrames) prevents false triggers.
 //     During active transmission the broadcast stream feeds frames into a tap
 //     channel so silence can be detected and PTTUp emitted after voxHoldTime.
@@ -161,7 +161,7 @@ func noopMonitorOpener() (<-chan []float32, func(), error) {
 // Events implements EventSource.
 //
 // The detection strategy is selected at startup and runs until ctx is canceled:
-//   - COS mode when cosGPIOMask != 0 and the CM108 HID device opens successfully.
+//   - COS mode when cosGPIOMask != 0 and the OpenVLM HID device opens successfully.
 //   - VOX mode as fallback when COS is unavailable.
 //   - Error (channel closed immediately) when neither is available.
 func (s *roipSource) Events(ctx context.Context) <-chan PTTEvent {
@@ -170,9 +170,9 @@ func (s *roipSource) Events(ctx context.Context) <-chan PTTEvent {
 	go func() {
 		defer close(ch)
 
-		// COS path: attempt to open the CM108 HID device.
+		// COS path: attempt to open the OpenVLM HID device.
 		if s.cosGPIOMask != 0 {
-			dev, err := s.opener(cm108VendorID, cm108ProductID)
+			dev, err := s.opener(openvlmVendorID, openvlmProductID)
 			if err == nil {
 				s.log.Info().Msgf("ROIP: COS mode active (mask=0x%02X)", s.cosGPIOMask)
 				s.cosLoop(ctx, dev, ch)
@@ -199,7 +199,7 @@ func (s *roipSource) Events(ctx context.Context) <-chan PTTEvent {
 
 // ─── COS loop ─────────────────────────────────────────────────────────────────
 
-// cosLoop polls the CM108 HID device for the COS GPIO bit (cosGPIOMask in IR1)
+// cosLoop polls the OpenVLM HID device for the COS GPIO bit (cosGPIOMask in IR1)
 // and emits PTTDown on the LOW→HIGH transition and PTTUp on HIGH→LOW.
 //
 // Half-duplex: PTTDown is suppressed while isReceiving() returns true.  The
@@ -222,7 +222,7 @@ func (s *roipSource) cosLoop(ctx context.Context, dev HIDDevice, ch chan<- PTTEv
 		closeDevice()
 	}()
 
-	buf := make([]byte, cm108ReportSize)
+	buf := make([]byte, openvlmReportSize)
 	prevCOS := false
 
 	for {
@@ -238,8 +238,8 @@ func (s *roipSource) cosLoop(ctx context.Context, dev HIDDevice, ch chan<- PTTEv
 		}
 
 		payloadStart := 0
-		if n >= cm108ReportSize {
-			payloadStart = cm108PayloadOffset
+		if n >= openvlmReportSize {
+			payloadStart = openvlmPayloadOffset
 		}
 
 		if n < payloadStart+2 {
@@ -293,7 +293,7 @@ func (s *roipSource) cosLoop(ctx context.Context, dev HIDDevice, ch chan<- PTTEv
 
 // ─── VOX loop ─────────────────────────────────────────────────────────────────
 
-// voxLoop monitors audio energy from the CM108 input.  It operates as a
+// voxLoop monitors audio energy from the OpenVLM input.  It operates as a
 // two-phase state machine:
 //
 //	IDLE → open monitor stream, accumulate onset frames → PTTDown → ACTIVE

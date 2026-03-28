@@ -33,7 +33,7 @@ const (
 	defaultIface      string = "br-ahwlan"
 	defaultCommDevice string = "/dev/hidraw0/*"
 	defaultCommName   string = "AllInOneCable"
-	defaultCtrlSrc    string = "cm108"
+	defaultCtrlSrc    string = "openvlm"
 
 	// encBufSize is the maximum Opus encode output buffer. 1450 bytes matches
 	// the UDP MTU and is far larger than typical Opus output (~80–160 B at
@@ -773,9 +773,9 @@ func (cfg *CommsConfig) reopenBroadcastStream(rt *CommsRuntime, inDev *portaudio
 // buildEventSource constructs the PTT EventSource defined by cfg.ControlSource.
 //
 // Three backends are supported:
-//   - "cm108" (defaultCtrlSrc): reads PTT state directly from a CM108-compatible
+//   - "openvlm" (defaultCtrlSrc): reads PTT state directly from an OpenVLM-compatible
 //     USB audio/HID dongle via its HID interrupt endpoint.
-//   - "roip": ROIP bridge mode — automatic TX/RX on the same CM108 hardware
+//   - "roip": ROIP bridge mode — automatic TX/RX on the same OpenVLM hardware
 //     using COS GPIO detection with VOX (audio energy) as fallback.
 //   - anything else (default): searches for a matching evdev input device via
 //     findCommDevice and wraps it in a NanoPTT source that decodes PTT events
@@ -785,15 +785,15 @@ func (cfg *CommsConfig) reopenBroadcastStream(rt *CommsRuntime, inDev *portaudio
 func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) {
 	switch cfg.ControlSource {
 	case defaultCtrlSrc:
-		cfg.Log.Info().Msgf("comms: PTT on CM108 HID dongle (VID=0x%04X PID=0x%04X)",
-			cm108VendorID, cm108ProductID)
+		cfg.Log.Info().Msgf("comms: PTT on OpenVLM HID dongle (VID=0x%04X PID=0x%04X)",
+			openvlmVendorID, openvlmProductID)
 
-		return NewCM108Source(cfg.Log), nil
+		return NewOpenVLMSource(cfg.Log), nil
 
 	case controlSourceROIP:
 		cfg.Log.Info().Msgf(
-			"comms: ROIP bridge on CM108 (VID=0x%04X PID=0x%04X) COSmask=0x%02X VOX=%.3f hold=%s",
-			cm108VendorID, cm108ProductID, cfg.ROIPCOSGPIOMask, cfg.ROIPVOXThreshold, cfg.ROIPVOXHoldTime,
+			"comms: ROIP bridge on OpenVLM (VID=0x%04X PID=0x%04X) COSmask=0x%02X VOX=%.3f hold=%s",
+			openvlmVendorID, openvlmProductID, cfg.ROIPCOSGPIOMask, cfg.ROIPVOXThreshold, cfg.ROIPVOXHoldTime,
 		)
 
 		isReceiving := func() bool { return cfg.isReceivingRemote(rt) }

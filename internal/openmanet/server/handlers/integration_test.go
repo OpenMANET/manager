@@ -522,7 +522,7 @@ func newCommsConfigTestServer(t *testing.T) (*httptest.Server, *config.Config) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.yml")
 
-	err := os.WriteFile(cfgPath, []byte("comms:\n  enable: false\n  controlSource: cm108\n"), 0644)
+	err := os.WriteFile(cfgPath, []byte("comms:\n  enable: false\n  controlSource: openvlm\n"), 0644)
 	require.NoError(t, err)
 
 	v := viper.New()
@@ -559,7 +559,7 @@ func TestIntegration_GetCommsConfig(t *testing.T) {
 	resp, err := client.GetCommsConfig(context.Background(), &emptypb.Empty{})
 	require.NoError(t, err)
 	assert.False(t, resp.GetCommsEnabled())
-	assert.Equal(t, commsv1.ControlSource_CONTROL_SOURCE_CM108, resp.GetControlSource())
+	assert.Equal(t, commsv1.ControlSource_CONTROL_SOURCE_OPENVLM, resp.GetControlSource())
 }
 
 func TestIntegration_UpdateCommsConfig_Enable(t *testing.T) {
@@ -606,12 +606,12 @@ func TestIntegration_UpdateCommsConfig_Disable(t *testing.T) {
 	// Then disable
 	_, err = client.UpdateCommsConfig(context.Background(), &commsv1.UpdateCommsConfigRequest{
 		EnableComms:   false,
-		ControlSource: commsv1.ControlSource_CONTROL_SOURCE_CM108,
+		ControlSource: commsv1.ControlSource_CONTROL_SOURCE_OPENVLM,
 	})
 	require.NoError(t, err)
 
 	assert.False(t, cfg.GetCommsEnable())
-	assert.Equal(t, "cm108", cfg.GetCommsControlSource())
+	assert.Equal(t, "openvlm", cfg.GetCommsControlSource())
 }
 
 func TestIntegration_UpdateCommsConfig_PersistsToFile(t *testing.T) {
@@ -641,7 +641,7 @@ func TestIntegration_UpdateCommsConfig_EnableCallsManager(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.yml")
 
-	err := os.WriteFile(cfgPath, []byte("comms:\n  enable: false\n  controlSource: cm108\n"), 0644)
+	err := os.WriteFile(cfgPath, []byte("comms:\n  enable: false\n  controlSource: openvlm\n"), 0644)
 	require.NoError(t, err)
 
 	v := viper.New()

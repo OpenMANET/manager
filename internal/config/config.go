@@ -26,7 +26,7 @@ const (
 	DefaultCommsDebug                                bool    = false
 	DefaultCommsLoopback                             bool    = false
 	DefaultCommsTrace                                bool    = false
-	DefaultCommsControlSource                        string  = "cm108"
+	DefaultCommsControlSource                        string  = "openvlm"
 	DefaultCommsPlaybackBuffer                       int     = 2
 	DefaultCommsMicGain                              float32 = 1.0
 	DefaultCommsNanoPTTEnable                        bool    = false
