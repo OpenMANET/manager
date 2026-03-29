@@ -1389,3 +1389,157 @@ func TestGetOpenMANETWebsocketPort(t *testing.T) {
 		})
 	}
 }
+
+func TestSetOpenMANETAPIAddress(t *testing.T) {
+	tests := []struct {
+		name         string
+		initialValue *string
+		setTo        string
+		want         string
+	}{
+		{
+			name:         "overrides default",
+			initialValue: nil,
+			setTo:        "http://192.168.1.10:8087",
+			want:         "http://192.168.1.10:8087",
+		},
+		{
+			name:         "overrides configured value",
+			initialValue: strPtr("http://10.0.0.1:8080"),
+			setTo:        "http://192.168.1.10:8087",
+			want:         "http://192.168.1.10:8087",
+		},
+		{
+			name:         "can set to empty string",
+			initialValue: strPtr("http://10.0.0.1:8080"),
+			setTo:        "",
+			want:         "",
+		},
+		{
+			name:         "sets remote address with path",
+			initialValue: nil,
+			setTo:        "http://remote-host:8087",
+			want:         "http://remote-host:8087",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.initialValue != nil {
+				v.Set("openmanetAPIAddress", *tt.initialValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+			cfg.SetOpenMANETAPIAddress(tt.setTo)
+
+			got := cfg.GetOpenMANETAPIAddress()
+			if got != tt.want {
+				t.Errorf("GetOpenMANETAPIAddress() after Set = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetOpenMANETWebsocketPort(t *testing.T) {
+	tests := []struct {
+		name         string
+		initialValue *int
+		setTo        int
+		want         int
+	}{
+		{
+			name:         "overrides default",
+			initialValue: nil,
+			setTo:        3000,
+			want:         3000,
+		},
+		{
+			name:         "overrides configured value",
+			initialValue: intPtr(9090),
+			setTo:        3000,
+			want:         3000,
+		},
+		{
+			name:         "can set to zero",
+			initialValue: intPtr(9090),
+			setTo:        0,
+			want:         0,
+		},
+		{
+			name:         "sets high port number",
+			initialValue: nil,
+			setTo:        65535,
+			want:         65535,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.initialValue != nil {
+				v.Set("openmanetWebsocketPort", *tt.initialValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+			cfg.SetOpenMANETWebsocketPort(tt.setTo)
+
+			got := cfg.GetOpenMANETWebsocketPort()
+			if got != tt.want {
+				t.Errorf("GetOpenMANETWebsocketPort() after Set = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetOpenMANETAPIAddress_DoesNotAffectOtherFields(t *testing.T) {
+	v := viper.New()
+	v.Set("openmanetWebsocketPort", 9090)
+	v.Set("openmanetFrontendURL", "http://custom:3000")
+
+	cfg := NewWithoutWatch(v)
+	cfg.SetOpenMANETAPIAddress("http://192.168.1.10:8087")
+
+	if got := cfg.GetOpenMANETWebsocketPort(); got != 9090 {
+		t.Errorf("GetOpenMANETWebsocketPort() = %v, want 9090", got)
+	}
+
+	if got := cfg.GetOpenMANETFrontendURL(); got != "http://custom:3000" {
+		t.Errorf("GetOpenMANETFrontendURL() = %v, want http://custom:3000", got)
+	}
+}
+
+func TestSetOpenMANETWebsocketPort_DoesNotAffectOtherFields(t *testing.T) {
+	v := viper.New()
+	v.Set("openmanetAPIAddress", "http://10.0.0.1:8087")
+	v.Set("openmanetFrontendURL", "http://custom:3000")
+
+	cfg := NewWithoutWatch(v)
+	cfg.SetOpenMANETWebsocketPort(3000)
+
+	if got := cfg.GetOpenMANETAPIAddress(); got != "http://10.0.0.1:8087" {
+		t.Errorf("GetOpenMANETAPIAddress() = %v, want http://10.0.0.1:8087", got)
+	}
+
+	if got := cfg.GetOpenMANETFrontendURL(); got != "http://custom:3000" {
+		t.Errorf("GetOpenMANETFrontendURL() = %v, want http://custom:3000", got)
+	}
+}
+
+func TestSettersMultipleCallsLastWins(t *testing.T) {
+	cfg := NewWithoutWatch(viper.New())
+
+	cfg.SetOpenMANETAPIAddress("http://first:8087")
+	cfg.SetOpenMANETAPIAddress("http://second:8087")
+
+	if got := cfg.GetOpenMANETAPIAddress(); got != "http://second:8087" {
+		t.Errorf("GetOpenMANETAPIAddress() = %v, want http://second:8087", got)
+	}
+
+	cfg.SetOpenMANETWebsocketPort(3000)
+	cfg.SetOpenMANETWebsocketPort(4000)
+
+	if got := cfg.GetOpenMANETWebsocketPort(); got != 4000 {
+		t.Errorf("GetOpenMANETWebsocketPort() = %v, want 4000", got)
+	}
+}

@@ -2,6 +2,11 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+// Allow overriding the backend target for development against a remote
+// openmanetd instance:
+//   VITE_API_TARGET=http://10.41.1.1:8081 npm run dev
+const apiTarget = process.env.VITE_API_TARGET || 'http://localhost:8080';
+
 export default defineConfig({
   plugins: [react()],
   test: {
@@ -16,9 +21,9 @@ export default defineConfig({
   server: {
     // Proxy API and WebSocket to the Go backend during development
     proxy: {
-      '/ws': { target: 'http://localhost:8080', ws: true },
-      '/api': { target: 'http://localhost:8080' },
-      '/whisper': { target: 'http://localhost:8080' },
+      '/ws': { target: apiTarget, ws: true },
+      '/api': { target: apiTarget },
+      '/whisper': { target: apiTarget },
     },
   },
 });

@@ -664,3 +664,21 @@ func (c *Config) GetOpenMANETWebsocketPort() int {
 
 	return c.OpenMANETWebsocketPort
 }
+
+// SetOpenMANETAPIAddress overrides the OpenMANET API address.
+// This is used by the frontend-only dev mode to point at a remote instance.
+func (c *Config) SetOpenMANETAPIAddress(addr string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.OpenMANETAPIAddress = addr
+}
+
+// SetOpenMANETWebsocketPort overrides the OpenMANET WebSocket port.
+// This is used by the frontend-only dev mode to bind the local frontend server.
+func (c *Config) SetOpenMANETWebsocketPort(port int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.OpenMANETWebsocketPort = port
+}
