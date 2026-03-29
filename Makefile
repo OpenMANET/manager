@@ -44,7 +44,7 @@ sqlc-gen: ## Generate sqlc code
 
 .PHONY: build
 build: fmt vet buf sqlc-gen frontend whisper-embed ## Build manager binary.
-	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd main.go
+	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
 
 .PHONY: run
 run: fmt vet buf sqlc-gen ## Run a controller from your host.
@@ -65,7 +65,7 @@ test-race: fmt vet buf sqlc-gen ## Run tests with race detector.
 
 .PHONY: integration-test
 integration-test: fmt vet ## Run integration tests (no hardware required).
-	go test -tags integration -timeout 60s ./internal/openmanet/server/handlers/... -coverprofile=coverage.out -covermode=atomic
+	go test -tags integration -timeout 60s ./internal/... -coverprofile=coverage.out -covermode=atomic
 
 .PHONY: test-frontend
 test-frontend: ## Run frontend tests.
@@ -73,7 +73,7 @@ test-frontend: ## Run frontend tests.
 
 .PHONY: lint
 lint: ## Run linters.
-	$(GOBIN)/golangci-lint run --timeout 5m
+	$(GOBIN)/golangci-lint run --fix --timeout 5m
 
 .PHONY: bench-comms
 bench-comms: ## Run performance benchmarks on the comms package.

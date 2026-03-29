@@ -2,6 +2,7 @@ package frontend
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -151,8 +152,8 @@ var upgradeState = struct { //nolint:gochecknoglobals
 // Helpers
 // ---------------------------------------------------------------------------
 
-func runCmd(name string, args ...string) (string, error) {
-	out, err := exec.Command(name, args...).Output()
+func runCmd(ctx context.Context, name string, args ...string) (string, error) {
+	out, err := exec.CommandContext(ctx, name, args...).Output() //nolint:gosec // callers supply validated command names
 	if err != nil {
 		return "", fmt.Errorf("exec %s: %w", name, err)
 	}
@@ -230,34 +231,10 @@ func (s *Server) handleSystemInfo(w http.ResponseWriter, _ *http.Request) {
 	info.CPUUsage = sampleCPUUsage()
 
 	// Board info – try /etc/board.json first, fall back to sysinfo.
-	if data, err := os.ReadFile("/etc/board.json"); err == nil {
-		var board map[string]any
-		if json.Unmarshal(data, &board) == nil {
-			if v, ok := board["board_name"]; ok {
-				info.Board = fmt.Sprintf("%v", v)
-			}
-
-			if v, ok := board["model"].(map[string]any); ok {
-				if name, ok2 := v["name"]; ok2 {
-					info.Model = fmt.Sprintf("%v", name)
-				}
-			} else if v, ok := board["model"]; ok {
-				info.Model = fmt.Sprintf("%v", v)
-			}
-		}
-	} else {
-		info.Board = readFileString("/tmp/sysinfo/board_name")
-		info.Model = readFileString("/tmp/sysinfo/model")
-	}
+	info.Board, info.Model = parseBoardInfo()
 
 	// Version from /etc/openwrt_release
-	if data, err := os.ReadFile("/etc/openwrt_release"); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.HasPrefix(line, "DISTRIB_RELEASE=") {
-				info.Version = strings.Trim(strings.TrimPrefix(line, "DISTRIB_RELEASE="), "'\"")
-			}
-		}
-	}
+	info.Version = readDistribRelease()
 
 	s.writeJSON(w, info)
 }
@@ -310,11 +287,13 @@ func sampleCPUUsage() float64 {
 	return math.Round(usage*100) / 100
 }
 
-func (s *Server) handleSystemProcesses(w http.ResponseWriter, _ *http.Request) {
-	out, err := runCmd("ps", "-eo", "pid,user,vsz,stat,comm", "--sort=-vsz")
+func (s *Server) handleSystemProcesses(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	out, err := runCmd(ctx, "ps", "-eo", "pid,user,vsz,stat,comm", "--sort=-vsz")
 	if err != nil {
 		// Fallback: simpler ps for busybox.
-		out, err = runCmd("ps", "w")
+		out, err = runCmd(ctx, "ps", "w")
 		if err != nil {
 			s.writeErrorStatus(w, http.StatusInternalServerError, "failed to list processes")
 
@@ -357,8 +336,8 @@ func (s *Server) handleSystemProcesses(w http.ResponseWriter, _ *http.Request) {
 	s.writeJSON(w, procs)
 }
 
-func (s *Server) handleSystemStorage(w http.ResponseWriter, _ *http.Request) {
-	out, err := runCmd("df", "-h")
+func (s *Server) handleSystemStorage(w http.ResponseWriter, r *http.Request) {
+	out, err := runCmd(r.Context(), "df", "-h")
 	if err != nil {
 		s.writeErrorStatus(w, http.StatusInternalServerError, "failed to get storage info")
 
@@ -404,10 +383,12 @@ func (s *Server) handleSystemLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	out, err := runCmd("logread")
+	ctx := r.Context()
+
+	out, err := runCmd(ctx, "logread")
 	if err != nil {
 		// Fallback: try dmesg.
-		out, err = runCmd("dmesg")
+		out, err = runCmd(ctx, "dmesg")
 		if err != nil {
 			s.writeErrorStatus(w, http.StatusInternalServerError, "failed to read logs")
 
@@ -445,7 +426,7 @@ func (s *Server) handleSystemReboot(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		time.Sleep(1 * time.Second)
 
-		_ = exec.Command("/sbin/reboot").Run() //nolint:gosec
+		_ = exec.CommandContext(context.Background(), "/sbin/reboot").Run() //nolint:gosec
 	}()
 }
 
@@ -476,7 +457,7 @@ func (s *Server) handleSystemRestartService(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if _, err := runCmd(initScript, "restart"); err != nil {
+	if _, err := runCmd(r.Context(), initScript, "restart"); err != nil {
 		s.writeErrorStatus(w, http.StatusInternalServerError, fmt.Sprintf("failed to restart service: %v", err))
 
 		return
@@ -573,9 +554,11 @@ func parseProcNetDev(content string) map[string]netDevStats {
 	return result
 }
 
-func (s *Server) handleNetworkWifi(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleNetworkWifi(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
 	// Try iwinfo first.
-	out, err := runCmd("iwinfo")
+	out, err := runCmd(ctx, "iwinfo")
 	if err == nil && out != "" {
 		statuses := parseIwinfo(out)
 		s.writeJSON(w, statuses)
@@ -592,7 +575,7 @@ func (s *Server) handleNetworkWifi(w http.ResponseWriter, _ *http.Request) {
 		ws := wifiStatus{Interface: name}
 
 		// Try iw dev <name> info
-		if info, err2 := runCmd("iw", "dev", name, "info"); err2 == nil {
+		if info, err2 := runCmd(ctx, "iw", "dev", name, "info"); err2 == nil {
 			for _, line := range strings.Split(info, "\n") {
 				line = strings.TrimSpace(line)
 				if strings.HasPrefix(line, "ssid ") {
@@ -613,7 +596,7 @@ func (s *Server) handleNetworkWifi(w http.ResponseWriter, _ *http.Request) {
 		}
 
 		// Try iw dev <name> station dump for client count.
-		if dump, err2 := runCmd("iw", "dev", name, "station", "dump"); err2 == nil {
+		if dump, err2 := runCmd(ctx, "iw", "dev", name, "station", "dump"); err2 == nil {
 			ws.Clients = strings.Count(dump, "Station")
 		}
 
@@ -632,59 +615,7 @@ func parseIwinfo(output string) []wifiStatus {
 			continue
 		}
 
-		ws := wifiStatus{}
-
-		lines := strings.Split(block, "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-
-			if strings.Contains(line, "ESSID:") {
-				parts := strings.SplitN(line, "ESSID:", 2)
-				if len(parts) == 2 {
-					ws.SSID = strings.Trim(strings.TrimSpace(parts[1]), "\"")
-				}
-
-				// Interface name is before ESSID.
-				ws.Interface = strings.TrimSpace(parts[0])
-			}
-
-			if strings.Contains(line, "Mode:") {
-				if idx := strings.Index(line, "Mode:"); idx >= 0 {
-					rest := line[idx+5:]
-					ws.Mode = strings.Fields(rest)[0]
-				}
-			}
-
-			if strings.Contains(line, "Channel:") {
-				if idx := strings.Index(line, "Channel:"); idx >= 0 {
-					rest := line[idx+8:]
-
-					parts := strings.Fields(rest)
-					if len(parts) >= 1 {
-						ws.Channel, _ = strconv.Atoi(parts[0])
-					}
-				}
-			}
-
-			if strings.Contains(line, "Signal:") {
-				if idx := strings.Index(line, "Signal:"); idx >= 0 {
-					rest := line[idx+7:]
-
-					parts := strings.Fields(rest)
-					if len(parts) >= 1 {
-						ws.Signal, _ = strconv.Atoi(parts[0])
-					}
-				}
-			}
-
-			if strings.Contains(line, "Bit Rate:") {
-				if idx := strings.Index(line, "Bit Rate:"); idx >= 0 {
-					rest := line[idx+9:]
-					ws.BitRate = strings.TrimSpace(strings.Split(rest, "\n")[0])
-				}
-			}
-		}
-
+		ws := parseIwinfoBlock(block)
 		if ws.Interface != "" {
 			statuses = append(statuses, ws)
 		}
@@ -697,8 +628,59 @@ func parseIwinfo(output string) []wifiStatus {
 	return statuses
 }
 
-func (s *Server) handleNetworkRoutes(w http.ResponseWriter, _ *http.Request) {
-	out, err := runCmd("ip", "route", "show")
+func parseIwinfoBlock(block string) wifiStatus {
+	ws := wifiStatus{}
+
+	for _, line := range strings.Split(block, "\n") {
+		line = strings.TrimSpace(line)
+		parseIwinfoLine(&ws, line)
+	}
+
+	return ws
+}
+
+func parseIwinfoLine(ws *wifiStatus, line string) {
+	switch {
+	case strings.Contains(line, "ESSID:"):
+		parts := strings.SplitN(line, "ESSID:", 2)
+		if len(parts) == 2 {
+			ws.SSID = strings.Trim(strings.TrimSpace(parts[1]), "\"")
+		}
+
+		ws.Interface = strings.TrimSpace(parts[0])
+
+	case strings.Contains(line, "Mode:"):
+		if idx := strings.Index(line, "Mode:"); idx >= 0 {
+			rest := line[idx+5:]
+			ws.Mode = strings.Fields(rest)[0]
+		}
+
+	case strings.Contains(line, "Channel:"):
+		if idx := strings.Index(line, "Channel:"); idx >= 0 {
+			parts := strings.Fields(line[idx+8:])
+			if len(parts) >= 1 {
+				ws.Channel, _ = strconv.Atoi(parts[0])
+			}
+		}
+
+	case strings.Contains(line, "Signal:"):
+		if idx := strings.Index(line, "Signal:"); idx >= 0 {
+			parts := strings.Fields(line[idx+7:])
+			if len(parts) >= 1 {
+				ws.Signal, _ = strconv.Atoi(parts[0])
+			}
+		}
+
+	case strings.Contains(line, "Bit Rate:"):
+		if idx := strings.Index(line, "Bit Rate:"); idx >= 0 {
+			rest := line[idx+9:]
+			ws.BitRate = strings.TrimSpace(strings.Split(rest, "\n")[0])
+		}
+	}
+}
+
+func (s *Server) handleNetworkRoutes(w http.ResponseWriter, r *http.Request) {
+	out, err := runCmd(r.Context(), "ip", "route", "show")
 	if err != nil {
 		s.writeErrorStatus(w, http.StatusInternalServerError, "failed to get routes")
 
@@ -751,14 +733,15 @@ func parseRouteLine(line string) routeEntry {
 	return r
 }
 
-func (s *Server) handleNetworkBatman(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleNetworkBatman(w http.ResponseWriter, r *http.Request) {
 	info := batmanInfo{
 		Originators: []batmanOriginator{},
 		Gateways:    []string{},
 	}
 
-	// Try batctl first.
-	if out, err := runCmd("batctl", "o"); err == nil {
+	ctx := r.Context()
+
+	if out, err := runCmd(ctx, "batctl", "o"); err == nil {
 		info.Originators = parseBatctlOriginators(out)
 	} else {
 		// Fallback: read from debugfs.
@@ -768,7 +751,7 @@ func (s *Server) handleNetworkBatman(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 
-	if out, err := runCmd("batctl", "gwl"); err == nil {
+	if out, err := runCmd(ctx, "batctl", "gwl"); err == nil {
 		for _, line := range strings.Split(out, "\n") {
 			line = strings.TrimSpace(line)
 			if line != "" && !strings.HasPrefix(line, "[") && !strings.Contains(line, "Gateway") {
@@ -913,7 +896,7 @@ func (s *Server) handleSettingsConfigPost(w http.ResponseWriter, r *http.Request
 
 	if shouldRestart {
 		go func() {
-			_, _ = runCmd("/etc/init.d/openmanetd", "restart")
+			_, _ = runCmd(context.Background(), "/etc/init.d/openmanetd", "restart")
 		}()
 	}
 
@@ -981,7 +964,7 @@ func (s *Server) handleSettingsHostname(w http.ResponseWriter, r *http.Request) 
 		cmd := fmt.Sprintf("uci set system.@system[0].hostname='%s' && uci commit system && echo '%s' > /proc/sys/kernel/hostname",
 			req.Hostname, req.Hostname)
 
-		if _, err := runCmd("sh", "-c", cmd); err != nil {
+		if _, err := runCmd(r.Context(), "sh", "-c", cmd); err != nil {
 			s.writeErrorStatus(w, http.StatusInternalServerError, fmt.Sprintf("failed to set hostname: %v", err))
 
 			return
@@ -995,51 +978,157 @@ func (s *Server) handleSettingsHostname(w http.ResponseWriter, r *http.Request) 
 }
 
 // ---------------------------------------------------------------------------
-// Upgrade Handlers
+// Board / Version Helpers
 // ---------------------------------------------------------------------------
 
-func (s *Server) handleUpgradeCheck(w http.ResponseWriter, _ *http.Request) {
-	// Get current version.
-	currentVersion := ""
+func parseBoardInfo() (board, model string) {
+	data, err := os.ReadFile("/etc/board.json")
+	if err != nil {
+		return readFileString("/tmp/sysinfo/board_name"), readFileString("/tmp/sysinfo/model")
+	}
 
-	if data, err := os.ReadFile("/etc/openwrt_release"); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.HasPrefix(line, "DISTRIB_RELEASE=") {
-				currentVersion = strings.Trim(strings.TrimPrefix(line, "DISTRIB_RELEASE="), "'\"")
-			}
+	var parsed map[string]any
+	if json.Unmarshal(data, &parsed) != nil {
+		return "", ""
+	}
+
+	if v, ok := parsed["board_name"]; ok {
+		board = fmt.Sprintf("%v", v)
+	}
+
+	if m, ok := parsed["model"].(map[string]any); ok {
+		if name, ok2 := m["name"]; ok2 {
+			model = fmt.Sprintf("%v", name)
+		}
+	} else if v, ok := parsed["model"]; ok {
+		model = fmt.Sprintf("%v", v)
+	}
+
+	return board, model
+}
+
+func readDistribRelease() string {
+	data, err := os.ReadFile("/etc/openwrt_release")
+	if err != nil {
+		return ""
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "DISTRIB_RELEASE=") {
+			return strings.Trim(strings.TrimPrefix(line, "DISTRIB_RELEASE="), "'\"")
 		}
 	}
 
+	return ""
+}
+
+// ---------------------------------------------------------------------------
+// Upgrade Helpers
+// ---------------------------------------------------------------------------
+
+type releaseInfo struct {
+	TagName string
+	Assets  []releaseAsset
+}
+
+type releaseAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+	Size               int64  `json:"size"`
+}
+
+func fetchLatestRelease(ctx context.Context, client *http.Client) (releaseInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://api.github.com/repos/OpenMANET/firmware/releases/latest", nil)
+	if err != nil {
+		return releaseInfo{}, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return releaseInfo{}, fmt.Errorf("failed to check for updates: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return releaseInfo{}, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	}
+
+	var raw struct {
+		TagName string         `json:"tag_name"`
+		Assets  []releaseAsset `json:"assets"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return releaseInfo{}, fmt.Errorf("failed to parse GitHub response: %w", err)
+	}
+
+	return releaseInfo{TagName: raw.TagName, Assets: raw.Assets}, nil
+}
+
+func matchFirmwareAsset(result *upgradeCheckResponse, assets []releaseAsset, boardNorm, boardName string) {
+	for _, asset := range assets {
+		if strings.Contains(asset.Name, boardNorm) || (boardName == "" && strings.Contains(asset.Name, "sysupgrade")) {
+			result.DownloadURL = asset.BrowserDownloadURL
+			result.Size = asset.Size
+
+			return
+		}
+	}
+}
+
+func matchSHA256Asset(ctx context.Context, client *http.Client, result *upgradeCheckResponse, assets []releaseAsset, boardNorm, boardName string) {
+	for _, asset := range assets {
+		if !strings.Contains(strings.ToLower(asset.Name), "sha256") {
+			continue
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.BrowserDownloadURL, nil)
+		if err != nil {
+			return
+		}
+
+		sumResp, err := client.Do(req)
+		if err != nil {
+			return
+		}
+
+		scanner := bufio.NewScanner(sumResp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.Contains(line, boardNorm) || (boardName == "" && strings.Contains(line, "sysupgrade")) {
+				parts := strings.Fields(line)
+				if len(parts) >= 1 {
+					result.SHA256 = parts[0]
+				}
+
+				break
+			}
+		}
+
+		sumResp.Body.Close()
+
+		return
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Upgrade Handlers
+// ---------------------------------------------------------------------------
+
+func (s *Server) handleUpgradeCheck(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get current version.
+	currentVersion := readDistribRelease()
 	boardName := readFileString("/tmp/sysinfo/board_name")
 
 	// Fetch latest release from GitHub.
 	client := &http.Client{Timeout: 15 * time.Second}
 
-	resp, err := client.Get("https://api.github.com/repos/OpenMANET/firmware/releases/latest")
+	release, err := fetchLatestRelease(ctx, client)
 	if err != nil {
-		s.writeErrorStatus(w, http.StatusBadGateway, fmt.Sprintf("failed to check for updates: %v", err))
-
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		s.writeErrorStatus(w, http.StatusBadGateway, fmt.Sprintf("GitHub API returned %d", resp.StatusCode))
-
-		return
-	}
-
-	var release struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-			Size               int64  `json:"size"`
-		} `json:"assets"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		s.writeErrorStatus(w, http.StatusInternalServerError, "failed to parse GitHub response")
+		s.writeErrorStatus(w, http.StatusBadGateway, err.Error())
 
 		return
 	}
@@ -1052,39 +1141,8 @@ func (s *Server) handleUpgradeCheck(w http.ResponseWriter, _ *http.Request) {
 
 	// Match board name against assets.
 	boardNorm := strings.ReplaceAll(boardName, ",", "_")
-
-	for _, asset := range release.Assets {
-		if strings.Contains(asset.Name, boardNorm) || (boardName == "" && strings.Contains(asset.Name, "sysupgrade")) {
-			result.DownloadURL = asset.BrowserDownloadURL
-			result.Size = asset.Size
-
-			break
-		}
-	}
-
-	// Look for sha256sums file.
-	for _, asset := range release.Assets {
-		if strings.Contains(strings.ToLower(asset.Name), "sha256") {
-			if sumResp, err := client.Get(asset.BrowserDownloadURL); err == nil {
-				scanner := bufio.NewScanner(sumResp.Body)
-				for scanner.Scan() {
-					line := scanner.Text()
-					if strings.Contains(line, boardNorm) || (boardName == "" && strings.Contains(line, "sysupgrade")) {
-						parts := strings.Fields(line)
-						if len(parts) >= 1 {
-							result.SHA256 = parts[0]
-						}
-
-						break
-					}
-				}
-
-				sumResp.Body.Close()
-			}
-
-			break
-		}
-	}
+	matchFirmwareAsset(&result, release.Assets, boardNorm, boardName)
+	matchSHA256Asset(ctx, client, &result, release.Assets, boardNorm, boardName)
 
 	s.writeJSON(w, result)
 }
@@ -1135,9 +1193,17 @@ func (s *Server) downloadFirmware(url, expectedSHA string) {
 		upgradeState.mu.Unlock()
 	}
 
+	ctx := context.Background()
 	client := &http.Client{Timeout: 30 * time.Minute}
 
-	resp, err := client.Get(url) //nolint:gosec
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		setError(fmt.Sprintf("invalid download URL: %v", err))
+
+		return
+	}
+
+	resp, err := client.Do(req) //nolint:gosec
 	if err != nil {
 		setError(fmt.Sprintf("download failed: %v", err))
 
@@ -1151,7 +1217,7 @@ func (s *Server) downloadFirmware(url, expectedSHA string) {
 		return
 	}
 
-	outFile, err := os.Create("/tmp/sysupgrade.bin")
+	outFile, err := os.OpenFile("/tmp/sysupgrade.bin", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		setError(fmt.Sprintf("failed to create file: %v", err))
 
@@ -1253,7 +1319,7 @@ func (s *Server) handleUpgradeApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate the image.
-	if _, err := runCmd("sysupgrade", "--test", "/tmp/sysupgrade.bin"); err != nil {
+	if _, err := runCmd(r.Context(), "sysupgrade", "--test", "/tmp/sysupgrade.bin"); err != nil {
 		s.writeErrorStatus(w, http.StatusBadRequest, fmt.Sprintf("firmware validation failed: %v", err))
 
 		return
@@ -1261,7 +1327,7 @@ func (s *Server) handleUpgradeApply(w http.ResponseWriter, r *http.Request) {
 
 	s.writeJSON(w, map[string]string{"status": "applying"})
 
-	go func() {
+	go func() { //nolint:gosec // intentionally outlives the HTTP request
 		time.Sleep(1 * time.Second)
 
 		args := []string{"/tmp/sysupgrade.bin"}
@@ -1269,7 +1335,7 @@ func (s *Server) handleUpgradeApply(w http.ResponseWriter, r *http.Request) {
 			args = append([]string{"-n"}, args...)
 		}
 
-		_ = exec.Command("sysupgrade", args...).Run() //nolint:gosec
+		_ = exec.CommandContext(context.Background(), "sysupgrade", args...).Run() //nolint:gosec
 	}()
 }
 
@@ -1299,7 +1365,7 @@ func (s *Server) handleUpgradeUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	outFile, err := os.Create("/tmp/sysupgrade.bin")
+	outFile, err := os.OpenFile("/tmp/sysupgrade.bin", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		s.writeErrorStatus(w, http.StatusInternalServerError, "failed to create firmware file")
 
