@@ -1,0 +1,193 @@
+/* =============================================================================
+ * Layout.css — Navigation layout (sidebar + bottom tabs)
+ * ============================================================================= */
+
+/* Override body styles from App.css when Layout is active */
+body:has(.layout-desktop), body:has(.layout-mobile) {
+  padding: 0;
+  align-items: stretch;
+}
+
+/* ── Desktop layout ────────────────────────────────────────────────────── */
+.layout-desktop {
+  display: flex;
+  min-height: 100vh;
+  width: 100vw;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────────── */
+.sidebar {
+  width: 220px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: width 0.2s ease;
+  overflow: hidden;
+}
+.sidebar.collapsed {
+  width: 56px;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 12px 10px;
+  border-bottom: 1px solid var(--border);
+  min-height: 56px;
+}
+.sidebar-brand {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.brand-title {
+  font-size: 1em;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.3px;
+}
+.brand-sub {
+  font-size: 0.68em;
+  color: var(--muted);
+  margin-top: 1px;
+}
+.sidebar-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 0.7em;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+.sidebar-toggle:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.sidebar-nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 6px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 8px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.88em;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+.nav-item.active {
+  background: rgba(85, 107, 47, 0.18);
+  color: var(--green);
+  font-weight: 600;
+}
+.nav-icon {
+  font-size: 1.15em;
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+}
+.nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-footer {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+.footer-text {
+  font-size: 0.65em;
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+/* ── Main content area ─────────────────────────────────────────────────── */
+.layout-main {
+  flex: 1;
+  min-width: 0;
+  padding: 16px;
+  overflow-y: auto;
+  max-height: 100vh;
+}
+
+/* ── Mobile layout ─────────────────────────────────────────────────────── */
+.layout-mobile {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100%;
+}
+.layout-mobile .layout-content {
+  flex: 1;
+  padding: 10px;
+  padding-bottom: 68px; /* space for bottom tab bar */
+  overflow-y: auto;
+}
+
+/* ── Bottom tab bar ────────────────────────────────────────────────────── */
+.bottom-tab-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 4px 0 max(4px, env(safe-area-inset-bottom));
+  z-index: 100;
+}
+.tab-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 0.65em;
+  transition: color 0.15s;
+  min-width: 52px;
+}
+.tab-item:hover {
+  color: var(--text);
+}
+.tab-item.active {
+  color: var(--green);
+}
+.tab-icon {
+  font-size: 1.5em;
+}
+.tab-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 64px;
+}

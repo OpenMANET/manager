@@ -2,6 +2,7 @@ package openmanet
 
 import (
 	"context"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database"
 	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/openmanet/openmanetd/internal/frontend"
 	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/network"
@@ -23,7 +25,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func Start() {
+func Start(staticFS fs.FS) {
 	var (
 		ctx     = context.Background()
 		banner  = figure.NewFigure("OpenMANET", "big", true)
@@ -149,6 +151,16 @@ func Start() {
 			log.Fatal().Err(err).Msg("API Server failed")
 		}
 	}()
+
+	frontendServer := frontend.NewFrontendServer(ctx, cfg, staticFS)
+
+	go func() {
+		if err := frontendServer.Run(ctx); err != nil {
+			log.Error().Err(err).Msg("Frontend Server failed")
+		}
+	}()
+
+	log.Info().Msg("Frontend Server starting")
 
 	// Block until we receive an interrupt signal, then gracefully shutdown.
 	<-c

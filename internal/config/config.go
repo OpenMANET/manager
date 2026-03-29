@@ -42,38 +42,44 @@ const (
 	DefaultGNSSSendAsCoT                             bool    = false
 	DefaultEnableBLOS                                bool    = false
 	DefaultBLOSStatusWorkerInterval                  int     = 30 // seconds
+	DefaultOpenMANETFrontendURL                      string  = "http://localhost:8081"
+	DefaultOpenMANETWebsocketPort                    int     = 0
+	DefaultOpenMANETAPIAddress                       string  = "http://0.0.0.0:8087"
 )
 
 // Config holds the application configuration values with automatic reloading support.
 type Config struct {
 	v                                         *viper.Viper
-	CommsProtocol                             string
-	CommsNanoPTTDevicePath                    string
+	CommsNanoPTTDeviceName                    string
+	CommsBluetoothPttBluetoothAudioDeviceHint string
 	AlfredMode                                string
 	AlfredBatInterface                        string
 	AlfredSocketPath                          string
 	MeshNetInterface                          string
-	DBFile                                    string
-	CommsNanoPTTDeviceName                    string
+	CommsNanoPTTDevicePath                    string
 	CommsBluetoothPttBluetoothOutputDevice    string
+	DBFile                                    string
 	CommsControlSource                        string
-	CommsBluetoothPttBluetoothAudioDeviceHint string
+	CommsProtocol                             string
 	CommsBluetoothPttBluetoothInputDevice     string
+	OpenMANETFrontendURL                      string
+	OpenMANETAPIAddress                       string
 	onChangeCallbacks                         []func(*Config)
-	BLOSStatusWorkerInterval                  int
 	CommsPlaybackBuffer                       int
-	CommsMicGain                              float32
+	BLOSStatusWorkerInterval                  int
+	OpenMANETWebsocketPort                    int
 	mu                                        sync.RWMutex
-	AlfredDataTypeNode                        bool
-	CommsEnable                               bool
+	CommsMicGain                              float32
+	BLOSEnable                                bool
+	CommsLoopback                             bool
 	AlfredDataTypeGateway                     bool
 	AlfredEnable                              bool
 	AlfredDataTypePosition                    bool
 	AlfredDataTypeAddressReserv               bool
-	BLOSEnable                                bool
+	AlfredDataTypeNode                        bool
 	BatmanMulticastEnhancementsEnabled        bool
 	CommsDebug                                bool
-	CommsLoopback                             bool
+	CommsEnable                               bool
 	CommsTrace                                bool
 	CommsNanoPTTEnable                        bool
 	CommsBluetoothPttEnable                   bool
@@ -328,6 +334,24 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.BLOSStatusWorkerInterval = val
 	} else {
 		c.BLOSStatusWorkerInterval = DefaultBLOSStatusWorkerInterval
+	}
+
+	if val := c.v.GetString("openmanetFrontendURL"); val != "" {
+		c.OpenMANETFrontendURL = val
+	} else {
+		c.OpenMANETFrontendURL = DefaultOpenMANETFrontendURL
+	}
+
+	if val := c.v.GetString("openmanetAPIAddress"); val != "" {
+		c.OpenMANETAPIAddress = val
+	} else {
+		c.OpenMANETAPIAddress = DefaultOpenMANETAPIAddress
+	}
+
+	if val := c.v.GetInt("openmanetWebsocketPort"); val != 0 {
+		c.OpenMANETWebsocketPort = val
+	} else {
+		c.OpenMANETWebsocketPort = DefaultOpenMANETWebsocketPort
 	}
 }
 
@@ -615,4 +639,28 @@ func (c *Config) GetBLOSStatusWorkerInterval() int {
 	defer c.mu.RUnlock()
 
 	return c.BLOSStatusWorkerInterval
+}
+
+// GetOpenMANETFrontendURL returns the OpenMANET frontend URL.
+func (c *Config) GetOpenMANETFrontendURL() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.OpenMANETFrontendURL
+}
+
+// GetOpenMANETAPIAddress returns the OpenMANET API listen address.
+func (c *Config) GetOpenMANETAPIAddress() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.OpenMANETAPIAddress
+}
+
+// GetOpenMANETWebsocketPort returns the OpenMANET WebSocket port.
+func (c *Config) GetOpenMANETWebsocketPort() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.OpenMANETWebsocketPort
 }

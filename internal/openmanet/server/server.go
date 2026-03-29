@@ -30,10 +30,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const (
-	serverAddress = "0.0.0.0:8087"
-)
-
 type APIServer struct {
 	Cfg          *config.Config
 	Log          zerolog.Logger
@@ -123,7 +119,7 @@ func NewAPIServer(cfg APIServer) *APIServer {
 	// Use h2c so we can serve HTTP/2 without TLS.
 	p.SetUnencryptedHTTP2(true)
 	server := http.Server{
-		Addr:        serverAddress,
+		Addr:        cfg.Cfg.GetOpenMANETAPIAddress(),
 		Handler:     withCORS(api),
 		Protocols:   p,
 		ReadTimeout: 30 * time.Second,

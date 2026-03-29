@@ -1254,3 +1254,138 @@ func TestGetEnableBLOS(t *testing.T) {
 		})
 	}
 }
+
+func TestGetOpenMANETFrontendURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured value",
+			setValue: strPtr("https://example.com:3000"),
+			want:     "https://example.com:3000",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultOpenMANETFrontendURL,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultOpenMANETFrontendURL,
+		},
+		{
+			name:     "returns custom port",
+			setValue: strPtr("http://192.168.1.1:9090"),
+			want:     "http://192.168.1.1:9090",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("openmanetFrontendURL", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetOpenMANETFrontendURL()
+			if got != tt.want {
+				t.Errorf("GetOpenMANETFrontendURL() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetOpenMANETAPIAddress(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured value",
+			setValue: strPtr("http://127.0.0.1:9000"),
+			want:     "http://127.0.0.1:9000",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultOpenMANETAPIAddress,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultOpenMANETAPIAddress,
+		},
+		{
+			name:     "returns custom address",
+			setValue: strPtr("http://10.0.0.1:8080"),
+			want:     "http://10.0.0.1:8080",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("openmanetAPIAddress", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetOpenMANETAPIAddress()
+			if got != tt.want {
+				t.Errorf("GetOpenMANETAPIAddress() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetOpenMANETWebsocketPort(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *int
+		want     int
+	}{
+		{
+			name:     "returns configured value",
+			setValue: intPtr(9090),
+			want:     9090,
+		},
+		{
+			name:     "returns default when zero",
+			setValue: intPtr(0),
+			want:     DefaultOpenMANETWebsocketPort,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultOpenMANETWebsocketPort,
+		},
+		{
+			name:     "returns custom port",
+			setValue: intPtr(8443),
+			want:     8443,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("openmanetWebsocketPort", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetOpenMANETWebsocketPort()
+			if got != tt.want {
+				t.Errorf("GetOpenMANETWebsocketPort() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

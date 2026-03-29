@@ -18,11 +18,6 @@ PACKAGE_NAME = $(shell awk '/^module / {print $$2}' go.mod)
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-GOLANG_CROSS_VERSION  ?= v1.19.5
-
-SYSROOT_DIR     ?= sysroots
-SYSROOT_ARCHIVE ?= sysroots.tar.bz2
-
 .PHONY: help
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
@@ -39,12 +34,16 @@ vet: ## Run go vet against code.
 alfred: ## Make Alfred for Go Bindings
 	make -C internal/alfred/alfred
 
+.PHONY: frontend
+frontend: ## Build the React frontend (outputs to static/).
+	cd frontend && npm install && npx vite build
+
 .PHONY: sqlc-gen
 sqlc-gen: ## Generate sqlc code
 	$(GOBIN)/sqlc generate
 
 .PHONY: build
-build: fmt vet buf sqlc-gen ## Build manager binary.
+build: fmt vet buf sqlc-gen frontend whisper-embed ## Build manager binary.
 	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd main.go
 
 .PHONY: run
@@ -68,6 +67,10 @@ test-race: fmt vet buf sqlc-gen ## Run tests with race detector.
 integration-test: fmt vet ## Run integration tests (no hardware required).
 	go test -tags integration -timeout 60s ./internal/openmanet/server/handlers/... -coverprofile=coverage.out -covermode=atomic
 
+.PHONY: test-frontend
+test-frontend: ## Run frontend tests.
+	cd frontend && npm install && npx vitest run
+
 .PHONY: lint
 lint: ## Run linters.
 	$(GOBIN)/golangci-lint run --timeout 5m
@@ -81,39 +84,39 @@ fuzz: ## Run fuzz tests for 30 seconds each.
 	go test ./internal/security/... -fuzz=Fuzz -fuzztime=30s -run=^$$
 	go test ./internal/comms/... -fuzz=Fuzz -fuzztime=30s -run=^$$
 
-.PHONY: sysroot-pack
-sysroot-pack:
-	@tar cf - $(SYSROOT_DIR) -P | pv -s $[$(du -sk $(SYSROOT_DIR) | awk '{print $1}') * 1024] | pbzip2 > $(SYSROOT_ARCHIVE)
-
-.PHONY: sysroot-unpack
-sysroot-unpack:
-	@pv $(SYSROOT_ARCHIVE) | pbzip2 -cd | tar -xf -
-
-.PHONY: release-dry-run
-release-dry-run:
-	@docker run \
-		--rm \
-		-e CGO_ENABLED=1 \
-		-v /var/run/docker.sock:/var/run/docker.sock \
-		-v `pwd`:/go/src/$(PACKAGE_NAME) \
-		-v `pwd`/sysroot:/sysroot \
-		-w /go/src/$(PACKAGE_NAME) \
-		ghcr.io/goreleaser/goreleaser-cross:${GOLANG_CROSS_VERSION} \
-		--clean --skip=validate --skip=publish
-
-.PHONY: release
-release:
-	@if [ ! -f ".release-env" ]; then \
-		echo "\033[91m.release-env is required for release\033[0m";\
-		exit 1;\
+.PHONY: build-lite
+build-lite: fmt vet frontend ## Build lite binary without whisper, UPX compressed (~5MB).
+	@rm -rf static/whisper
+	CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd-webui .
+	@if command -v upx >/dev/null 2>&1; then \
+		upx --lzma --best bin/openmanetd-webui; \
+	else \
+		echo "WARNING: upx not found, skipping compression (install with: apt install upx-ucl)"; \
 	fi
-	docker run \
-		--rm \
-		-e CGO_ENABLED=1 \
-		--env-file .release-env \
-		-v /var/run/docker.sock:/var/run/docker.sock \
-		-v `pwd`:/go/src/$(PACKAGE_NAME) \
-		-v `pwd`/sysroot:/sysroot \
-		-w /go/src/$(PACKAGE_NAME) \
-		ghcr.io/goreleaser/goreleaser-cross:${GOLANG_CROSS_VERSION} \
-		release --clean
+	@echo "Built bin/openmanetd-webui (lite, no whisper, UPX compressed)"
+
+.PHONY: whisper-embed
+whisper-embed: ## Copy whisper WASM + model into static/ for embedding.
+	@mkdir -p static/whisper
+	@if [ ! -f whisper/whisper-main.js ]; then \
+		echo "ERROR: whisper/whisper-main.js not found."; \
+		echo "Download it from https://whisper.ggerganov.com/ or build from whisper.cpp"; \
+		exit 1; \
+	fi
+	@if [ ! -f whisper/ggml-tiny.en.bin ]; then \
+		echo "Downloading whisper tiny.en model (75MB)..."; \
+		curl -fSL -o whisper/ggml-tiny.en.bin \
+			"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"; \
+	fi
+	cp whisper/whisper-main.js static/whisper/
+	cp whisper/ggml-tiny.en.bin static/whisper/
+	@echo "Whisper files staged in static/whisper/ (will be embedded in binary)"
+
+.PHONY: whisper-clean
+whisper-clean: ## Remove whisper files from static/ (before lite build).
+	rm -rf static/whisper
+
+.PHONY: clean
+clean: ## Remove build artifacts.
+	rm -rf bin/ static/whisper
+

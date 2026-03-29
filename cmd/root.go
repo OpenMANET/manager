@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 
 	"github.com/openmanet/openmanetd/internal/openmanet"
@@ -26,10 +27,15 @@ import (
 )
 
 var (
-	version string
+	cfgFile  string //nolint:gochecknoglobals
+	staticFS fs.FS  //nolint:gochecknoglobals
+	version  string
 )
 
-var cfgFile string //nolint:gochecknoglobals
+// SetStaticFS sets the embedded filesystem used to serve static assets.
+func SetStaticFS(f fs.FS) {
+	staticFS = f
+}
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{ //nolint:gochecknoglobals
@@ -41,7 +47,7 @@ It provides a way to configure and monitor OpenMANET networks.`,
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("OpenMANET Manager\nVersion: %s\n", version)
-		openmanet.Start()
+		openmanet.Start(staticFS)
 	},
 }
 
