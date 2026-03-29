@@ -5,17 +5,17 @@ on:
     branches:
       - main
     paths:
-      - '**.go'
-      - 'go.mod'
-      - 'go.sum'
-      - 'Makefile'
-      - 'internal/**'
-      - 'cmd/**'
-      - 'proto/**'
-      - 'sqlc.yaml'
-      - 'buf.yaml'
-      - 'buf.gen.yaml'
-      - '.github/workflows/test-go.yml'
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "Makefile"
+      - "internal/**"
+      - "cmd/**"
+      - "proto/**"
+      - "sqlc.yaml"
+      - "buf.yaml"
+      - "buf.gen.yaml"
+      - ".github/workflows/test-go.yml"
 
 permissions:
   contents: read

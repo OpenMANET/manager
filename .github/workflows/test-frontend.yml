@@ -5,8 +5,8 @@ on:
     branches:
       - main
     paths:
-      - 'frontend/**'
-      - '.github/workflows/test-frontend.yml'
+      - "frontend/**"
+      - ".github/workflows/test-frontend.yml"
 
 permissions:
   contents: read
