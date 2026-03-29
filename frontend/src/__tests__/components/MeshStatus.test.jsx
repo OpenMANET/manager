@@ -18,7 +18,7 @@ describe('TestMeshStatusEmptyData', () => {
   it('handles all-null sub-fields gracefully', () => {
     const data = { status: null, nodes: null, neighbors: null, interfaces: null };
     render(<MeshStatusPanel data={data} />);
-    expect(screen.getByText('No nodes')).toBeTruthy();
+    expect(screen.getByText('No active nodes')).toBeTruthy();
     expect(screen.getByText('No neighbors')).toBeTruthy();
     expect(screen.getByText('No radios')).toBeTruthy();
   });
@@ -31,7 +31,7 @@ describe('TestMeshStatusEmptyData', () => {
       interfaces: [],
     };
     render(<MeshStatusPanel data={data} />);
-    expect(screen.getByText('No nodes')).toBeTruthy();
+    expect(screen.getByText('No active nodes')).toBeTruthy();
     expect(screen.getByText('No neighbors')).toBeTruthy();
     expect(screen.getByText('No radios')).toBeTruthy();
   });
@@ -45,21 +45,25 @@ describe('TestMeshStatusNodeList', () => {
         { hostname: 'alpha', ip: '10.0.0.1' },
         { hostname: 'bravo', ip: '10.0.0.2' },
       ],
-      neighbors: [],
+      neighbors: [
+        { name: 'alpha', mac: 'aa:bb:cc:dd:ee:01' },
+        { name: 'bravo', mac: 'aa:bb:cc:dd:ee:02' },
+      ],
       interfaces: [],
     };
     render(<MeshStatusPanel data={data} />);
-    expect(screen.getByText('alpha')).toBeTruthy();
+    // Names appear in both active nodes and neighbors sections
+    expect(screen.getAllByText('alpha').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('10.0.0.1')).toBeTruthy();
-    expect(screen.getByText('bravo')).toBeTruthy();
+    expect(screen.getAllByText('bravo').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('10.0.0.2')).toBeTruthy();
   });
 
   it('shows ? for nodes without hostname', () => {
     const data = {
       status: { connected: true, neighbors: 0, mesh_interfaces: 0 },
-      nodes: [{ ip: '10.0.0.5' }],
-      neighbors: [],
+      nodes: [{ hostname: '', ip: '10.0.0.5' }],
+      neighbors: [{ name: 'any', mac: 'xx:xx' }],
       interfaces: [],
     };
     render(<MeshStatusPanel data={data} />);

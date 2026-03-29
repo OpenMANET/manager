@@ -69,7 +69,7 @@ integration-test: fmt vet ## Run integration tests (no hardware required).
 
 .PHONY: test-frontend
 test-frontend: ## Run frontend tests.
-	cd frontend && npm install && npx vitest run
+	npm --prefix frontend install && npm --prefix frontend run test:coverage
 
 .PHONY: lint
 lint: ## Run linters.

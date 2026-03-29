@@ -7,13 +7,75 @@ import { loadFile, startPlayback, stopPlayback, isPlaying } from '../services/au
 import { SAMPLE_RATE, FRAME_SIZE } from '../constants.js';
 
 beforeEach(() => {
-  vi.useFakeTimers();
+  vi.stubGlobal('AudioData', class {
+    constructor() {}
+    close() {}
+  });
 });
 
 afterEach(() => {
   stopPlayback();
-  vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
+
+function createMockAudioBuffer(numFrames) {
+  const totalSamples = numFrames * FRAME_SIZE;
+  const pcm = new Float32Array(totalSamples);
+  for (let i = 0; i < totalSamples; i++) pcm[i] = 0.5;
+  return {
+    sampleRate: SAMPLE_RATE,
+    getChannelData: () => pcm,
+    duration: totalSamples / SAMPLE_RATE,
+  };
+}
+
+function createMockEncoder() {
+  return {
+    state: 'configured',
+    encode: vi.fn(),
+  };
+}
+
+function createMockAudioCtx() {
+  const captureNode = {
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    onaudioprocess: null,
+  };
+  const sourceNode = {
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    start: vi.fn(),
+    stop: vi.fn(),
+    buffer: null,
+    loop: false,
+    onended: null,
+  };
+  const gainNode = {
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    gain: { value: 1 },
+  };
+  return {
+    ctx: {
+      createBufferSource: vi.fn(() => sourceNode),
+      createScriptProcessor: vi.fn(() => captureNode),
+      createGain: vi.fn(() => gainNode),
+      destination: {},
+    },
+    sourceNode,
+    captureNode,
+    gainNode,
+  };
+}
+
+function makeMockProcessEvent() {
+  return {
+    inputBuffer: {
+      getChannelData: () => new Float32Array(1024),
+    },
+  };
+}
 
 describe('TestLoadFile', () => {
   it('calls audioCtx.decodeAudioData and returns file info', async () => {
@@ -44,79 +106,44 @@ describe('TestLoadFile', () => {
 });
 
 describe('TestStartPlayback', () => {
-  function createMockAudioBuffer(numFrames) {
-    const totalSamples = numFrames * FRAME_SIZE;
-    const pcm = new Float32Array(totalSamples);
-    for (let i = 0; i < totalSamples; i++) pcm[i] = 0.5;
-    return {
-      sampleRate: SAMPLE_RATE,
-      getChannelData: () => pcm,
-      duration: totalSamples / SAMPLE_RATE,
-    };
-  }
-
-  function createMockEncoder() {
-    return {
-      state: 'configured',
-      encode: vi.fn(),
-    };
-  }
-
-  it('begins sending frames at 20ms intervals', () => {
+  it('encodes frames via ScriptProcessorNode onaudioprocess', () => {
     const audioBuffer = createMockAudioBuffer(5);
     const encoder = createMockEncoder();
+    const { ctx, captureNode } = createMockAudioCtx();
 
-    // Mock AudioData global
-    vi.stubGlobal('AudioData', class {
-      constructor() {}
-      close() {}
-    });
-
-    startPlayback(audioBuffer, encoder, false, vi.fn());
+    startPlayback(audioBuffer, encoder, false, vi.fn(), ctx);
     expect(isPlaying()).toBe(true);
 
-    // First frame is sent immediately
+    // Simulate onaudioprocess events (hardware-clock driven in real code)
+    captureNode.onaudioprocess(makeMockProcessEvent());
     expect(encoder.encode).toHaveBeenCalledTimes(1);
 
-    // Advance 20ms — second frame
-    vi.advanceTimersByTime(20);
+    captureNode.onaudioprocess(makeMockProcessEvent());
     expect(encoder.encode).toHaveBeenCalledTimes(2);
 
-    // Advance another 20ms — third frame
-    vi.advanceTimersByTime(20);
+    captureNode.onaudioprocess(makeMockProcessEvent());
     expect(encoder.encode).toHaveBeenCalledTimes(3);
-
-    vi.unstubAllGlobals();
   });
 
   it('stops when audio ends in non-loop mode', () => {
-    // 2 frames worth of audio
     const audioBuffer = createMockAudioBuffer(2);
     const encoder = createMockEncoder();
+    const { ctx, sourceNode } = createMockAudioCtx();
 
-    vi.stubGlobal('AudioData', class {
-      constructor() {}
-      close() {}
-    });
+    startPlayback(audioBuffer, encoder, false, vi.fn(), ctx);
+    expect(isPlaying()).toBe(true);
 
-    startPlayback(audioBuffer, encoder, false, vi.fn());
-
-    // Frame 1 (immediate), Frame 2 (at 20ms)
-    vi.advanceTimersByTime(20);
-    expect(encoder.encode).toHaveBeenCalledTimes(2);
-
-    // Frame 3 would be at 40ms but audio should have ended
-    vi.advanceTimersByTime(20);
+    // Simulate the source node finishing playback
+    sourceNode.onended();
     expect(isPlaying()).toBe(false);
-
-    vi.unstubAllGlobals();
   });
 
   it('returns early with noop if encoder is closed', () => {
     const audioBuffer = createMockAudioBuffer(2);
     const encoder = { state: 'closed', encode: vi.fn() };
+    const { ctx } = createMockAudioCtx();
 
-    const stopFn = startPlayback(audioBuffer, encoder, false, vi.fn());
+    const stopFn = startPlayback(audioBuffer, encoder, false, vi.fn(), ctx);
     stopFn(); // should not throw
     expect(encoder.encode).not.toHaveBeenCalled();
   });
@@ -124,32 +151,20 @@ describe('TestStartPlayback', () => {
 
 describe('TestStopPlayback', () => {
   it('clears the timer and sets isPlaying to false', () => {
-    vi.stubGlobal('AudioData', class {
-      constructor() {}
-      close() {}
-    });
+    const audioBuffer = createMockAudioBuffer(10);
+    const encoder = createMockEncoder();
+    const { ctx, captureNode } = createMockAudioCtx();
 
-    const totalSamples = 10 * FRAME_SIZE;
-    const pcm = new Float32Array(totalSamples);
-    const audioBuffer = {
-      sampleRate: SAMPLE_RATE,
-      getChannelData: () => pcm,
-      duration: totalSamples / SAMPLE_RATE,
-    };
-    const encoder = { state: 'configured', encode: vi.fn() };
-
-    startPlayback(audioBuffer, encoder, false, vi.fn());
+    startPlayback(audioBuffer, encoder, false, vi.fn(), ctx);
     expect(isPlaying()).toBe(true);
 
     stopPlayback();
     expect(isPlaying()).toBe(false);
 
-    // No more frames after stop
+    // onaudioprocess after stop should not encode
     const callCount = encoder.encode.mock.calls.length;
-    vi.advanceTimersByTime(100);
+    captureNode.onaudioprocess(makeMockProcessEvent());
     expect(encoder.encode).toHaveBeenCalledTimes(callCount);
-
-    vi.unstubAllGlobals();
   });
 });
 
@@ -160,34 +175,24 @@ describe('TestIsPlaying', () => {
 });
 
 describe('TestLoopMode', () => {
-  it('restarts from beginning when audio ends in loop mode', () => {
-    vi.stubGlobal('AudioData', class {
-      constructor() {}
-      close() {}
-    });
-
-    // 2 frames of audio
-    const totalSamples = 2 * FRAME_SIZE;
-    const pcm = new Float32Array(totalSamples);
-    const audioBuffer = {
-      sampleRate: SAMPLE_RATE,
-      getChannelData: () => pcm,
-      duration: totalSamples / SAMPLE_RATE,
-    };
-    const encoder = { state: 'configured', encode: vi.fn() };
+  it('sets sourceNode.loop to true and stays playing', () => {
+    const audioBuffer = createMockAudioBuffer(2);
+    const encoder = createMockEncoder();
     const logFn = vi.fn();
+    const { ctx, sourceNode, captureNode } = createMockAudioCtx();
 
-    startPlayback(audioBuffer, encoder, true, logFn);
+    startPlayback(audioBuffer, encoder, true, logFn, ctx);
 
-    // Play through 2 frames
-    vi.advanceTimersByTime(20); // frame 2
-    vi.advanceTimersByTime(20); // end reached, loop restart, frame 1 again
-
+    // Web Audio API handles looping via sourceNode.loop
+    expect(sourceNode.loop).toBe(true);
     expect(isPlaying()).toBe(true);
-    // Should have logged the loop restart
-    expect(logFn).toHaveBeenCalledWith('File TX loop restart', 'tx');
+
+    // onaudioprocess keeps firing — encoder keeps getting called
+    captureNode.onaudioprocess(makeMockProcessEvent());
+    captureNode.onaudioprocess(makeMockProcessEvent());
+    expect(encoder.encode).toHaveBeenCalledTimes(2);
+    expect(isPlaying()).toBe(true);
 
     stopPlayback();
-    vi.unstubAllGlobals();
   });
 });
