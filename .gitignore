@@ -34,3 +34,6 @@ go.work.sum
 bin
 .claude
 static
+
+# Frontend build artifacts
+frontend/node_modules/
