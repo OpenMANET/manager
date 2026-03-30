@@ -13,7 +13,8 @@
 | Frontend tests | `make test-frontend` |
 | Lint React frontend | `make lint-frontend` |
 | Format Go code | `make fmt` |
-| Lint with auto-fix | `make lint` |
+| Lint Go with auto-fix | `make lint-go` |
+| Lint React & Go | `make lint` |
 | Generate protobuf code | `make buf` |
 | Generate sqlc database code | `make sqlc-gen` |
 
@@ -88,7 +89,7 @@ Run `make lint-frontend` before committing frontend changes. The ESLint config a
 
 ## Gotchas
 
-- **CGO required** for full build (`go-sqlite3`, `portaudio`, `go-alfred`). Use `make build-lite` (`CGO_ENABLED=0`) to skip comms/whisper. The DevContainer has all required native libraries.
+- **CGO required** for full build (`go-sqlite3`, `portaudio`, `go-alfred`). Use `make build-lite` to skip comms/whisper. The DevContainer has all required native libraries.
 - **`proto/` is a git submodule.** If empty: `git submodule update --init --recursive`, then `make buf`.
 - **`static/` must be populated** before compiling the Go binary. The `//go:embed static/*` directive in `static.go` fails at compile time if the directory is empty. Run `make frontend` first, or use `make build`.
 - **Never edit `internal/api/`, `frontend/src/gen/`, or `internal/database/models/`** — generated, will be overwritten.
