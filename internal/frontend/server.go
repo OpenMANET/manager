@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -84,7 +83,8 @@ func NewFrontendServer(ctx context.Context, cfg *config.Config, staticFS fs.FS) 
 func (s *Server) Run(ctx context.Context) error {
 	mux := s.handler()
 
-	addr := net.JoinHostPort("", strconv.Itoa(s.cfg.GetOpenMANETWebsocketPort()))
+	addr := s.cfg.GetOpenMANETFrontendHostPort()
+
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,

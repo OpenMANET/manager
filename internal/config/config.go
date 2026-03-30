@@ -42,7 +42,7 @@ const (
 	DefaultGNSSSendAsCoT                             bool    = false
 	DefaultEnableBLOS                                bool    = false
 	DefaultBLOSStatusWorkerInterval                  int     = 30 // seconds
-	DefaultOpenMANETFrontendURL                      string  = "http://localhost:8081"
+	DefaultOpenMANETFrontendHostPort                 string  = "0.0.0.0:8080"
 	DefaultOpenMANETWebsocketPort                    int     = 0
 	DefaultOpenMANETAPIAddress                       string  = "0.0.0.0:8087"
 	DefaultOpenMANETCommsAPIAddress                  string  = "http://0.0.0.0:8087"
@@ -63,7 +63,7 @@ type Config struct {
 	CommsControlSource                        string
 	CommsProtocol                             string
 	CommsBluetoothPttBluetoothInputDevice     string
-	OpenMANETFrontendURL                      string
+	OpenMANETFrontendHostPort                 string
 	OpenMANETAPIAddress                       string
 	OpenMANETCommsAPIAddress                  string
 	onChangeCallbacks                         []func(*Config)
@@ -338,10 +338,10 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.BLOSStatusWorkerInterval = DefaultBLOSStatusWorkerInterval
 	}
 
-	if val := c.v.GetString("openmanetFrontendURL"); val != "" {
-		c.OpenMANETFrontendURL = val
+	if val := c.v.GetString("openmanetFrontendHostPort"); val != "" {
+		c.OpenMANETFrontendHostPort = val
 	} else {
-		c.OpenMANETFrontendURL = DefaultOpenMANETFrontendURL
+		c.OpenMANETFrontendHostPort = DefaultOpenMANETFrontendHostPort
 	}
 
 	if val := c.v.GetString("openmanetAPIAddress"); val != "" {
@@ -649,12 +649,12 @@ func (c *Config) GetBLOSStatusWorkerInterval() int {
 	return c.BLOSStatusWorkerInterval
 }
 
-// GetOpenMANETFrontendURL returns the OpenMANET frontend URL.
-func (c *Config) GetOpenMANETFrontendURL() string {
+// GetOpenMANETFrontendHostPort returns the OpenMANET frontend host and port.
+func (c *Config) GetOpenMANETFrontendHostPort() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.OpenMANETFrontendURL
+	return c.OpenMANETFrontendHostPort
 }
 
 // GetOpenMANETAPIAddress returns the OpenMANET API listen address.

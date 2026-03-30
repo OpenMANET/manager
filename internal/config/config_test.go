@@ -1255,7 +1255,7 @@ func TestGetEnableBLOS(t *testing.T) {
 	}
 }
 
-func TestGetOpenMANETFrontendURL(t *testing.T) {
+func TestGetOpenMANETFrontendHostPort(t *testing.T) {
 	tests := []struct {
 		name     string
 		setValue *string
@@ -1269,12 +1269,12 @@ func TestGetOpenMANETFrontendURL(t *testing.T) {
 		{
 			name:     "returns default when empty",
 			setValue: strPtr(""),
-			want:     DefaultOpenMANETFrontendURL,
+			want:     DefaultOpenMANETFrontendHostPort,
 		},
 		{
 			name:     "returns default when not set",
 			setValue: nil,
-			want:     DefaultOpenMANETFrontendURL,
+			want:     DefaultOpenMANETFrontendHostPort,
 		},
 		{
 			name:     "returns custom port",
@@ -1287,14 +1287,14 @@ func TestGetOpenMANETFrontendURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			v := viper.New()
 			if tt.setValue != nil {
-				v.Set("openmanetFrontendURL", *tt.setValue)
+				v.Set("openmanetFrontendHostPort", *tt.setValue)
 			}
 
 			cfg := NewWithoutWatch(v)
 
-			got := cfg.GetOpenMANETFrontendURL()
+			got := cfg.GetOpenMANETFrontendHostPort()
 			if got != tt.want {
-				t.Errorf("GetOpenMANETFrontendURL() = %v, want %v", got, tt.want)
+				t.Errorf("GetOpenMANETFrontendHostPort() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -1495,7 +1495,7 @@ func TestSetOpenMANETWebsocketPort(t *testing.T) {
 func TestSetOpenMANETAPIAddress_DoesNotAffectOtherFields(t *testing.T) {
 	v := viper.New()
 	v.Set("openmanetWebsocketPort", 9090)
-	v.Set("openmanetFrontendURL", "http://custom:3000")
+	v.Set("openmanetFrontendHostPort", "http://custom:3000")
 
 	cfg := NewWithoutWatch(v)
 	cfg.SetOpenMANETAPIAddress("http://192.168.1.10:8087")
@@ -1504,15 +1504,15 @@ func TestSetOpenMANETAPIAddress_DoesNotAffectOtherFields(t *testing.T) {
 		t.Errorf("GetOpenMANETWebsocketPort() = %v, want 9090", got)
 	}
 
-	if got := cfg.GetOpenMANETFrontendURL(); got != "http://custom:3000" {
-		t.Errorf("GetOpenMANETFrontendURL() = %v, want http://custom:3000", got)
+	if got := cfg.GetOpenMANETFrontendHostPort(); got != "http://custom:3000" {
+		t.Errorf("GetOpenMANETFrontendHostPort() = %v, want http://custom:3000", got)
 	}
 }
 
 func TestSetOpenMANETWebsocketPort_DoesNotAffectOtherFields(t *testing.T) {
 	v := viper.New()
 	v.Set("openmanetAPIAddress", "http://10.0.0.1:8087")
-	v.Set("openmanetFrontendURL", "http://custom:3000")
+	v.Set("openmanetFrontendHostPort", "http://custom:3000")
 
 	cfg := NewWithoutWatch(v)
 	cfg.SetOpenMANETWebsocketPort(3000)
@@ -1521,8 +1521,8 @@ func TestSetOpenMANETWebsocketPort_DoesNotAffectOtherFields(t *testing.T) {
 		t.Errorf("GetOpenMANETAPIAddress() = %v, want http://10.0.0.1:8087", got)
 	}
 
-	if got := cfg.GetOpenMANETFrontendURL(); got != "http://custom:3000" {
-		t.Errorf("GetOpenMANETFrontendURL() = %v, want http://custom:3000", got)
+	if got := cfg.GetOpenMANETFrontendHostPort(); got != "http://custom:3000" {
+		t.Errorf("GetOpenMANETFrontendHostPort() = %v, want http://custom:3000", got)
 	}
 }
 
