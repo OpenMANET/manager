@@ -1,77 +1,131 @@
 // =============================================================================
-// meshApi.test.js — Tests for mesh network status API
+// meshApi.test.js — Tests for mesh network status API (ConnectRPC)
 // =============================================================================
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchMeshStatus } from '../services/meshApi.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createRouterTransport } from '@connectrpc/connect';
+import { StatusService } from '../gen/openmanet/service/v1/status_connect.js';
+import { NodeService } from '../gen/openmanet/service/v1/node_connect.js';
+import { MeshNeighborService } from '../gen/openmanet/service/v1/mesh_connect.js';
+import { InterfaceService } from '../gen/openmanet/service/v1/interface_connect.js';
 
-beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn());
-});
+// We mock the connectClient module so fetchMeshStatus uses our test transport.
+vi.mock('../services/connectClient.js', () => ({ transport: {} }));
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
+// Will be replaced per-test via the mock.
+let mockTransport;
 
 describe('TestFetchMeshStatus', () => {
-  it('calls all 4 endpoints', async () => {
-    fetch.mockResolvedValue({ json: () => Promise.resolve({}) });
-
-    await fetchMeshStatus();
-
-    expect(fetch).toHaveBeenCalledTimes(4);
-    const urls = fetch.mock.calls.map((c) => c[0]);
-    expect(urls).toContain('/api/status');
-    expect(urls).toContain('/api/nodes');
-    expect(urls).toContain('/api/neighbors');
-    expect(urls).toContain('/api/interfaces');
+  beforeEach(() => {
+    vi.resetModules();
   });
 
-  it('returns parsed JSON for each successful endpoint', async () => {
-    const mockStatus = { connected: true, neighbors: 3 };
-    const mockNodes = [{ hostname: 'node1', ip: '10.0.0.1' }];
-    const mockNeighbors = [{ mac: 'aa:bb:cc', signal: -50 }];
-    const mockInterfaces = [{ name: 'wlan0', frequency: 5180 }];
+  async function fetchWithTransport(transport) {
+    // Mock the module with the given transport, then dynamically import.
+    vi.doMock('../services/connectClient.js', () => ({ transport }));
+    const { fetchMeshStatus } = await import('../services/meshApi.js');
+    return fetchMeshStatus();
+  }
 
-    fetch.mockImplementation((url) => {
-      const responses = {
-        '/api/status': mockStatus,
-        '/api/nodes': mockNodes,
-        '/api/neighbors': mockNeighbors,
-        '/api/interfaces': mockInterfaces,
-      };
-      return Promise.resolve({ json: () => Promise.resolve(responses[url]) });
+  it('returns mapped data from all 4 services', async () => {
+    const transport = createRouterTransport(({ service }) => {
+      service(StatusService, {
+        getServiceStatus() {
+          return {
+            status: {
+              isConnected: true,
+              connectedNeighbors: 3,
+              activeMeshInterfaces: 2,
+              isMeshGateway: true,
+            },
+          };
+        },
+      });
+      service(NodeService, {
+        listNodes() {
+          return {
+            nodes: [{ hostname: 'node1', ipaddr: '10.0.0.1' }],
+          };
+        },
+      });
+      service(MeshNeighborService, {
+        listMeshNeighbors() {
+          return {
+            neighbors: [{
+              neighbor: 'node2',
+              hardwareAddress: 'aa:bb:cc:dd:ee:ff',
+              signal: -50,
+              throughput: 100,
+            }],
+          };
+        },
+      });
+      service(InterfaceService, {
+        listWirelessInterfaces() {
+          return {
+            interfaces: [{
+              name: 'wlan0',
+              interfaceType: 'mesh',
+              frequency: 5180,
+              channelWidth: 80,
+            }],
+          };
+        },
+      });
     });
 
-    const result = await fetchMeshStatus();
+    const result = await fetchWithTransport(transport);
 
-    expect(result.status).toEqual(mockStatus);
-    expect(result.nodes).toEqual(mockNodes);
-    expect(result.neighbors).toEqual(mockNeighbors);
-    expect(result.interfaces).toEqual(mockInterfaces);
+    expect(result.status).toEqual({
+      connected: true,
+      neighbors: 3,
+      mesh_interfaces: 2,
+      is_gateway: true,
+    });
+    expect(result.nodes).toEqual([{ hostname: 'node1', ip: '10.0.0.1' }]);
+    expect(result.neighbors).toEqual([{
+      name: 'node2', mac: 'aa:bb:cc:dd:ee:ff', signal: -50, throughput: 100,
+    }]);
+    expect(result.interfaces).toEqual([{
+      name: 'wlan0', type: 'mesh', frequency: 5180, channel_width: 80,
+    }]);
   });
 
-  it('returns null for failed endpoints', async () => {
-    fetch.mockImplementation((url) => {
-      if (url === '/api/status') {
-        return Promise.resolve({ json: () => Promise.resolve({ connected: true }) });
-      }
-      // Simulate network error for other endpoints
-      return Promise.reject(new Error('Network error'));
+  it('returns null for failed services', async () => {
+    const transport = createRouterTransport(({ service }) => {
+      service(StatusService, {
+        getServiceStatus() {
+          return {
+            status: {
+              isConnected: true,
+              connectedNeighbors: 1,
+              activeMeshInterfaces: 1,
+              isMeshGateway: false,
+            },
+          };
+        },
+      });
+      // Other services not registered — calls will fail.
     });
 
-    const result = await fetchMeshStatus();
+    const result = await fetchWithTransport(transport);
 
-    expect(result.status).toEqual({ connected: true });
+    expect(result.status).toEqual({
+      connected: true,
+      neighbors: 1,
+      mesh_interfaces: 1,
+      is_gateway: false,
+    });
     expect(result.nodes).toBeNull();
     expect(result.neighbors).toBeNull();
     expect(result.interfaces).toBeNull();
   });
 
-  it('handles all endpoints failing gracefully', async () => {
-    fetch.mockRejectedValue(new Error('Network down'));
+  it('handles all services failing gracefully', async () => {
+    // Empty router — no services registered.
+    const transport = createRouterTransport(() => {});
 
-    const result = await fetchMeshStatus();
+    const result = await fetchWithTransport(transport);
 
     expect(result.status).toBeNull();
     expect(result.nodes).toBeNull();

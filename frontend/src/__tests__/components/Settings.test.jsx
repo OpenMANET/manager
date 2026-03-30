@@ -4,12 +4,25 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
+
+// Mock the ConnectRPC transport and dashboard client used by Settings.jsx
+// for the restart button. vi.hoisted ensures the fn is available when
+// vi.mock factories execute (they are hoisted above imports).
+const { mockExecuteQuickAction } = vi.hoisted(() => ({
+  mockExecuteQuickAction: vi.fn().mockResolvedValue({ success: true, message: '' }),
+}));
+vi.mock('@connectrpc/connect', () => ({
+  createClient: () => ({ executeQuickAction: mockExecuteQuickAction }),
+}));
+vi.mock('../../services/connectClient.js', () => ({ transport: {} }));
+
 import SettingsPage from '../../pages/Settings.jsx';
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  mockExecuteQuickAction.mockReset().mockResolvedValue({ success: true, message: '' });
 });
 
 // ---------------------------------------------------------------------------
@@ -243,6 +256,21 @@ describe('TestSettingsRestart', () => {
     });
     // Button shows "Restarting..." while disabled
     expect(screen.getByText('Restarting...')).toBeTruthy();
+    // Verify ConnectRPC was called
+    expect(mockExecuteQuickAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows error when restart fails', async () => {
+    mockExecuteQuickAction.mockResolvedValueOnce({ success: false, message: 'service unavailable' });
+
+    render(<SettingsPage />);
+    await waitFor(() => screen.getByText('Restart openmanetd'));
+
+    fireEvent.click(screen.getByText('Restart openmanetd'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to restart/)).toBeTruthy();
+    });
   });
 });
 

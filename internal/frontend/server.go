@@ -12,18 +12,12 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1/blosv1connect"
 	"github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
-	"github.com/openmanet/openmanetd/internal/api/openmanet/dashboard/v1/dashboardv1connect"
-	"github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
-	"github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
-	"github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1/wifi_configv1connect"
 	"github.com/openmanet/openmanetd/internal/bridge"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/util/logger"
 	ws "github.com/openmanet/openmanetd/internal/websocket"
 	"github.com/rs/zerolog"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const (
@@ -40,19 +34,10 @@ var upgrader = websocket.Upgrader{ //nolint:gochecknoglobals
 
 // Server is the HTTP/WebSocket server for the WebUI.
 type Server struct {
-	log             zerolog.Logger
-	staticFS        fs.FS
-	hub             *ws.Hub
-	cfg             *config.Config
-	statusClient    servicev1connect.StatusServiceClient
-	nodeClient      servicev1connect.NodeServiceClient
-	meshClient      servicev1connect.MeshNeighborServiceClient
-	interfaceClient servicev1connect.InterfaceServiceClient
-	commsClient     commsv1connect.CommsServiceClient
-	dashboardClient dashboardv1connect.DashboardServiceClient
-	networkClient   network_interfacev1connect.NetworkInterfaceServiceClient
-	wifiClient      wifi_configv1connect.WifiConfigServiceClient
-	blosClient      blosv1connect.BLOSServiceClient
+	log      zerolog.Logger
+	staticFS fs.FS
+	hub      *ws.Hub
+	cfg      *config.Config
 }
 
 // NewFrontendServer creates a new frontend Server that serves static assets and
@@ -86,19 +71,10 @@ func NewFrontendServer(ctx context.Context, cfg *config.Config, staticFS fs.FS) 
 	b.StartAudioRXLoop(ctx)
 
 	return &Server{
-		log:             logger.GetLogger("frontend.server"),
-		staticFS:        staticFS,
-		hub:             hub,
-		cfg:             cfg,
-		statusClient:    servicev1connect.NewStatusServiceClient(rpcHTTPClient, apiAddr),
-		nodeClient:      servicev1connect.NewNodeServiceClient(rpcHTTPClient, apiAddr),
-		meshClient:      servicev1connect.NewMeshNeighborServiceClient(rpcHTTPClient, apiAddr),
-		interfaceClient: servicev1connect.NewInterfaceServiceClient(rpcHTTPClient, apiAddr),
-		commsClient:     commsClient,
-		dashboardClient: dashboardv1connect.NewDashboardServiceClient(rpcHTTPClient, apiAddr),
-		networkClient:   network_interfacev1connect.NewNetworkInterfaceServiceClient(rpcHTTPClient, apiAddr),
-		wifiClient:      wifi_configv1connect.NewWifiConfigServiceClient(rpcHTTPClient, apiAddr),
-		blosClient:      blosv1connect.NewBLOSServiceClient(rpcHTTPClient, apiAddr),
+		log:      logger.GetLogger("frontend.server"),
+		staticFS: staticFS,
+		hub:      hub,
+		cfg:      cfg,
 	}
 }
 
@@ -158,12 +134,6 @@ func (s *Server) handler() http.Handler {
 
 	// WebSocket endpoint.
 	mux.HandleFunc("/ws", s.handleWebSocket)
-
-	// REST API endpoints for mesh status.
-	mux.HandleFunc("/api/status", s.handleAPIStatus)
-	mux.HandleFunc("/api/nodes", s.handleAPINodes)
-	mux.HandleFunc("/api/neighbors", s.handleAPINeighbors)
-	mux.HandleFunc("/api/interfaces", s.handleAPIInterfaces)
 
 	// System management API endpoints.
 	mux.HandleFunc("/api/system/info", s.handleSystemInfo)
@@ -262,113 +232,4 @@ func (s *Server) writeError(w http.ResponseWriter, msg string) {
 
 type errorResponse struct {
 	Error string `json:"error"`
-}
-
-type apiStatus struct {
-	Neighbors      int32 `json:"neighbors"`
-	MeshInterfaces int32 `json:"mesh_interfaces"`
-	Connected      bool  `json:"connected"`
-	IsGateway      bool  `json:"is_gateway"`
-}
-
-func (s *Server) handleAPIStatus(w http.ResponseWriter, r *http.Request) {
-	resp, err := s.statusClient.GetServiceStatus(r.Context(), &emptypb.Empty{})
-	if err != nil {
-		s.log.Error().Err(err).Msg("GetServiceStatus failed")
-		s.writeError(w, "failed to get status")
-
-		return
-	}
-
-	st := resp.GetStatus()
-
-	s.writeJSON(w, apiStatus{
-		Connected:      st.GetIsConnected(),
-		Neighbors:      st.GetConnectedNeighbors(),
-		MeshInterfaces: st.GetActiveMeshInterfaces(),
-		IsGateway:      st.GetIsMeshGateway(),
-	})
-}
-
-type apiNode struct {
-	Hostname string `json:"hostname"`
-	IP       string `json:"ip"`
-}
-
-func (s *Server) handleAPINodes(w http.ResponseWriter, r *http.Request) {
-	resp, err := s.nodeClient.ListNodes(r.Context(), &emptypb.Empty{})
-	if err != nil {
-		s.log.Error().Err(err).Msg("ListNodes failed")
-		s.writeError(w, "failed to list nodes")
-
-		return
-	}
-
-	nodes := make([]apiNode, 0, len(resp.GetNodes()))
-	for _, n := range resp.GetNodes() {
-		nodes = append(nodes, apiNode{
-			Hostname: n.GetHostname(),
-			IP:       n.GetIpaddr(),
-		})
-	}
-
-	s.writeJSON(w, nodes)
-}
-
-type apiNeighbor struct {
-	Name       string `json:"name"`
-	MAC        string `json:"mac"`
-	Signal     int32  `json:"signal"`
-	Throughput int32  `json:"throughput"`
-}
-
-func (s *Server) handleAPINeighbors(w http.ResponseWriter, r *http.Request) {
-	resp, err := s.meshClient.ListMeshNeighbors(r.Context(), &emptypb.Empty{})
-	if err != nil {
-		s.log.Error().Err(err).Msg("ListMeshNeighbors failed")
-		s.writeError(w, "failed to list neighbors")
-
-		return
-	}
-
-	neighbors := make([]apiNeighbor, 0, len(resp.GetNeighbors()))
-	for _, n := range resp.GetNeighbors() {
-		neighbors = append(neighbors, apiNeighbor{
-			Name:       n.GetNeighbor(),
-			MAC:        n.GetHardwareAddress(),
-			Signal:     n.GetSignal(),
-			Throughput: n.GetThroughput(),
-		})
-	}
-
-	s.writeJSON(w, neighbors)
-}
-
-type apiInterface struct {
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	Frequency    int32  `json:"frequency"`
-	ChannelWidth int32  `json:"channel_width"`
-}
-
-func (s *Server) handleAPIInterfaces(w http.ResponseWriter, r *http.Request) {
-	resp, err := s.interfaceClient.ListWirelessInterfaces(r.Context(), &emptypb.Empty{})
-	if err != nil {
-		s.log.Error().Err(err).Msg("ListWirelessInterfaces failed")
-		s.writeError(w, "failed to list interfaces")
-
-		return
-	}
-
-	ifaces := make([]apiInterface, 0, len(resp.GetInterfaces()))
-	for _, i := range resp.GetInterfaces() {
-		ifaces = append(ifaces, apiInterface{
-			Name:         i.GetName(),
-			Frequency:    i.GetFrequency(),
-			ChannelWidth: i.GetChannelWidth(),
-			Type:         i.GetInterfaceType(),
-		})
-	}
-
-	s.writeJSON(w, ifaces)
 }

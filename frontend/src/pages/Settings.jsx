@@ -3,6 +3,12 @@
 // =============================================================================
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { createClient } from "@connectrpc/connect";
+import { transport } from "../services/connectClient.js";
+import { DashboardService } from "../gen/openmanet/dashboard/v1/dashboard_service_connect.js";
+import { QuickAction } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
+
+const dashboardClient = createClient(DashboardService, transport);
 
 // Simple YAML formatter for preview display (no external library needed).
 function formatYaml(obj, indent) {
@@ -149,12 +155,10 @@ export default function SettingsPage() {
     setRestarting(true);
     clearMessages();
     try {
-      const res = await fetch('/api/system/restart-service', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ service: 'openmanetd' }),
+      const resp = await dashboardClient.executeQuickAction({
+        action: QuickAction.RESTART_OPENMANETD,
       });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
+      if (!resp.success) throw new Error(resp.message || 'action failed');
       setSuccess('openmanetd restart requested.');
     } catch (e) {
       setError('Failed to restart: ' + e.message);

@@ -158,6 +158,10 @@ func withCORS(handler http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Private-Network", "true")
 		}
 
+		// 3. Allow cross-origin embedding so the frontend (served from a
+		//    different port with COEP: require-corp) can fetch from this server.
+		w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
+
 		c.Handler(handler).ServeHTTP(w, r)
 	})
 }

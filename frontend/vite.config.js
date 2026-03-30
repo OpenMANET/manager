@@ -24,6 +24,10 @@ export default defineConfig({
       '/ws': { target: apiTarget, ws: true },
       '/api': { target: apiTarget },
       '/whisper': { target: apiTarget },
+      '/rpc': {
+        target: process.env.VITE_RPC_TARGET || 'http://localhost:8087',
+        rewrite: (path) => path.replace(/^\/rpc/, ''),
+      },
     },
   },
 });
