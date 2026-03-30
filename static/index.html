@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Comms Bridge — OpenMANET</title>
+  <script type="module" crossorigin src="/assets/index-C44lVRik.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-B6GSciI4.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+  // Pre-declare Module for whisper WASM — must exist before whisper-main.js loads
+  // so the WASM module can attach its methods here.
+  // _whisperOutputHook is set by whisperService.js during transcription
+  // to intercept whisper.cpp output. This must be done HERE because
+  // Emscripten copies Module.print into a local var at init time —
+  // reassigning Module.print later has no effect on whisper output.
+  window._whisperOutputHook = null;
+  var Module = {
+    print: function(text) {
+      console.log('[whisper]', text);
+      if (window._whisperOutputHook) window._whisperOutputHook(text);
+    },
+    printErr: function(text) {
+      console.warn('[whisper]', text);
+      if (window._whisperOutputHook) window._whisperOutputHook(text);
+    },
+    setStatus: function(text) {},
+    monitorRunDependencies: function(left) {}
+  };
+  // Set up _runtimeReady AFTER Module is defined — the promise resolves when
+  // Emscripten calls onRuntimeInitialized after WASM compilation completes.
+  Module._runtimeReady = new Promise(function(resolve) {
+    Module.onRuntimeInitialized = function() { resolve(); };
+  });
+  </script>
+  <!-- Load whisper WASM synchronously so Module is fully populated before app code.
+       The original used a blocking <script src> — we must preserve that. The script
+       may 404 if whisper files aren't deployed, which is fine (CC stays disabled). -->
+  <script src="/whisper/whisper-main.js"></script>
+</body>
+</html>
