@@ -45,7 +45,7 @@ const (
 	DefaultOpenMANETFrontendHostPort                 string  = "0.0.0.0:8080"
 	DefaultOpenMANETWebsocketPort                    int     = 0
 	DefaultOpenMANETAPIAddress                       string  = "0.0.0.0:8087"
-	DefaultOpenMANETCommsAPIAddress                  string  = "http://0.0.0.0:8087"
+	DefaultOpenMANETCommsAPIAddress                  string  = "http://127.0.0.1:8087"
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -697,6 +697,15 @@ func (c *Config) SetOpenMANETWebsocketPort(port int) {
 	defer c.mu.Unlock()
 
 	c.OpenMANETWebsocketPort = port
+}
+
+// SetOpenMANETFrontendHostPort overrides the OpenMANET frontend host and port.
+// This is used by the frontend-only dev mode to bind the local frontend server.
+func (c *Config) SetOpenMANETFrontendHostPort(hostPort string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.OpenMANETFrontendHostPort = hostPort
 }
 
 // SetOpenMANETCommsAPIAddress overrides the OpenMANET comms API address.

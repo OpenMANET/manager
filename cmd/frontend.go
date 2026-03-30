@@ -41,7 +41,7 @@ WebSocket requests to the remote openmanetd API specified by --api-address.
 
 Examples:
   openmanetd frontend --api-address http://10.41.1.1:8087
-  openmanetd frontend --api-address http://10.41.1.1:8087 --port 3000`,
+  openmanetd frontend --api-address http://10.41.1.1:8087 --port 8080`,
 	Run: runFrontend,
 }
 
@@ -49,7 +49,7 @@ func init() {
 	rootCmd.AddCommand(frontendCmd)
 
 	frontendCmd.Flags().String("api-address", "", "URL of the remote openmanetd API (e.g. http://10.41.1.1:8087)")
-	frontendCmd.Flags().Int("port", 8081, "local port for the frontend server")
+	frontendCmd.Flags().Int("port", 8080, "local port for the frontend server")
 
 	_ = frontendCmd.MarkFlagRequired("api-address")
 }
@@ -65,7 +65,7 @@ func runFrontend(cmd *cobra.Command, _ []string) {
 
 	cfg := config.New(nil)
 	cfg.SetOpenMANETAPIAddress(apiAddress)
-	cfg.SetOpenMANETWebsocketPort(port)
+	cfg.SetOpenMANETFrontendHostPort(fmt.Sprintf("0.0.0.0:%d", port))
 
 	log.Info().
 		Str("api-address", apiAddress).

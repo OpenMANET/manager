@@ -1765,3 +1765,84 @@ func TestSetOpenMANETCommsAPIAddress_DoesNotAffectOtherFields(t *testing.T) {
 		t.Errorf("GetOpenMANETWebsocketPort() = %v, want 9090", got)
 	}
 }
+func TestSetOpenMANETFrontendHostPort(t *testing.T) {
+	tests := []struct {
+		name         string
+		initialValue *string
+		setTo        string
+		want         string
+	}{
+		{
+			name:         "overrides default",
+			initialValue: nil,
+			setTo:        "http://localhost:3000",
+			want:         "http://localhost:3000",
+		},
+		{
+			name:         "overrides configured value",
+			initialValue: strPtr("http://custom:8081"),
+			setTo:        "http://localhost:3000",
+			want:         "http://localhost:3000",
+		},
+		{
+			name:         "can set to empty string",
+			initialValue: strPtr("http://custom:8081"),
+			setTo:        "",
+			want:         "",
+		},
+		{
+			name:         "sets to another custom value",
+			initialValue: nil,
+			setTo:        "https://example.com:1234",
+			want:         "https://example.com:1234",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.initialValue != nil {
+				v.Set("openmanetFrontendHostPort", *tt.initialValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+			cfg.SetOpenMANETFrontendHostPort(tt.setTo)
+
+			got := cfg.GetOpenMANETFrontendHostPort()
+			if got != tt.want {
+				t.Errorf("GetOpenMANETFrontendHostPort() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetOpenMANETFrontendHostPort_DoesNotAffectOtherFields(t *testing.T) {
+	v := viper.New()
+	v.Set("openmanetAPIAddress", "http://10.0.0.1:8087")
+	v.Set("openmanetWebsocketPort", 9090)
+
+	cfg := NewWithoutWatch(v)
+	cfg.SetOpenMANETFrontendHostPort("http://localhost:3000")
+
+	if got := cfg.GetOpenMANETAPIAddress(); got != "http://10.0.0.1:8087" {
+		t.Errorf("GetOpenMANETAPIAddress() = %v, want %v", got, "http://10.0.0.1:8087")
+	}
+	if got := cfg.GetOpenMANETWebsocketPort(); got != 9090 {
+		t.Errorf("GetOpenMANETWebsocketPort() = %v, want %v", got, 9090)
+	}
+}
+
+func TestSetOpenMANETFrontendHostPort_MultipleCalls_LastWins(t *testing.T) {
+	v := viper.New()
+	cfg := NewWithoutWatch(v)
+
+	cfg.SetOpenMANETFrontendHostPort("http://first:3000")
+	cfg.SetOpenMANETFrontendHostPort("http://second:4000")
+	cfg.SetOpenMANETFrontendHostPort("http://final:5000")
+
+	got := cfg.GetOpenMANETFrontendHostPort()
+	want := "http://final:5000"
+	if got != want {
+		t.Errorf("GetOpenMANETFrontendHostPort() = %v, want %v", got, want)
+	}
+}
