@@ -85,7 +85,7 @@ func runFrontend(cmd *cobra.Command, _ []string) {
 
 	select {
 	case err := <-errCh:
-		log.Fatal().Err(err).Msg("frontend server failed")
+		log.Error().Err(err).Msg("frontend server failed")
 	case <-sig:
 		fmt.Println()
 		log.Info().Msg("shutting down frontend-only dev server")

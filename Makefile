@@ -75,9 +75,12 @@ test-frontend: ## Run frontend tests.
 lint-frontend: ## Lint the React frontend with ESLint.
 	npm --prefix frontend install && npm --prefix frontend run lint
 
-.PHONY: lint
-lint: ## Run linters.
+.PHONY: lint-go
+lint-go: ## Install golangci-lint if not present, then run it.
 	$(GOBIN)/golangci-lint run --fix --timeout 5m
+
+.PHONY: lint
+lint: lint-go lint-frontend ## Run linters.
 
 .PHONY: bench-comms
 bench-comms: ## Run performance benchmarks on the comms package.
