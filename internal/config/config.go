@@ -44,7 +44,8 @@ const (
 	DefaultBLOSStatusWorkerInterval                  int     = 30 // seconds
 	DefaultOpenMANETFrontendURL                      string  = "http://localhost:8081"
 	DefaultOpenMANETWebsocketPort                    int     = 0
-	DefaultOpenMANETAPIAddress                       string  = "http://0.0.0.0:8087"
+	DefaultOpenMANETAPIAddress                       string  = "0.0.0.0:8087"
+	DefaultOpenMANETCommsAPIAddress                  string  = "http://0.0.0.0:8087"
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -64,6 +65,7 @@ type Config struct {
 	CommsBluetoothPttBluetoothInputDevice     string
 	OpenMANETFrontendURL                      string
 	OpenMANETAPIAddress                       string
+	OpenMANETCommsAPIAddress                  string
 	onChangeCallbacks                         []func(*Config)
 	CommsPlaybackBuffer                       int
 	BLOSStatusWorkerInterval                  int
@@ -352,6 +354,12 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.OpenMANETWebsocketPort = val
 	} else {
 		c.OpenMANETWebsocketPort = DefaultOpenMANETWebsocketPort
+	}
+
+	if val := c.v.GetString("openmanetCommsAPIAddress"); val != "" {
+		c.OpenMANETCommsAPIAddress = val
+	} else {
+		c.OpenMANETCommsAPIAddress = DefaultOpenMANETCommsAPIAddress
 	}
 }
 
@@ -665,6 +673,14 @@ func (c *Config) GetOpenMANETWebsocketPort() int {
 	return c.OpenMANETWebsocketPort
 }
 
+// GetOpenMANETCommsAPIAddress returns the OpenMANET comms API address.
+func (c *Config) GetOpenMANETCommsAPIAddress() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.OpenMANETCommsAPIAddress
+}
+
 // SetOpenMANETAPIAddress overrides the OpenMANET API address.
 // This is used by the frontend-only dev mode to point at a remote instance.
 func (c *Config) SetOpenMANETAPIAddress(addr string) {
@@ -681,4 +697,13 @@ func (c *Config) SetOpenMANETWebsocketPort(port int) {
 	defer c.mu.Unlock()
 
 	c.OpenMANETWebsocketPort = port
+}
+
+// SetOpenMANETCommsAPIAddress overrides the OpenMANET comms API address.
+// This is used by the frontend-only dev mode to point at a remote instance.
+func (c *Config) SetOpenMANETCommsAPIAddress(addr string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.OpenMANETCommsAPIAddress = addr
 }

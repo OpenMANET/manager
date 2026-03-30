@@ -160,7 +160,7 @@ func Start(staticFS fs.FS) {
 		}
 	}()
 
-	log.Info().Msg("Frontend Server starting")
+	log.Info().Msg("Frontend Server starting on port 8081")
 
 	// Block until we receive an interrupt signal, then gracefully shutdown.
 	<-c

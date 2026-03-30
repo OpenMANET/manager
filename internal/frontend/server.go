@@ -43,7 +43,7 @@ type Server struct {
 // NewFrontendServer creates a new frontend Server that serves static assets and
 // proxies mesh-status API calls to the openmanetd ConnectRPC backend.
 func NewFrontendServer(ctx context.Context, cfg *config.Config, staticFS fs.FS) *Server {
-	apiAddr := cfg.GetOpenMANETAPIAddress()
+	apiAddr := cfg.GetOpenMANETCommsAPIAddress()
 
 	// Create openmanetd RPC client with a dial timeout so streaming
 	// RPCs don't hang indefinitely when openmanetd is unreachable.

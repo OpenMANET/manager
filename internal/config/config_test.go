@@ -1543,3 +1543,225 @@ func TestSettersMultipleCallsLastWins(t *testing.T) {
 		t.Errorf("GetOpenMANETWebsocketPort() = %v, want 4000", got)
 	}
 }
+
+func TestGetAlfredEnable(t *testing.T) {
+	tests := []struct {
+		setValue *bool
+		name     string
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultAlfredEnable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("alfred.enable", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetAlfredEnable()
+			if got != tt.want {
+				t.Errorf("GetAlfredEnable() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetCommsBluetoothPttBluetoothInputDevice(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured device",
+			setValue: strPtr("plughw:1,0"),
+			want:     "plughw:1,0",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultCommsBluetoothPttBluetoothInputDevice,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultCommsBluetoothPttBluetoothInputDevice,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("comms.bluetoothPtt.BluetoothInputDevice", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetCommsBluetoothPttBluetoothInputDevice()
+			if got != tt.want {
+				t.Errorf("GetCommsBluetoothPttBluetoothInputDevice() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetCommsBluetoothPttBluetoothOutputDevice(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured device",
+			setValue: strPtr("plughw:1,0"),
+			want:     "plughw:1,0",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultCommsBluetoothPttBluetoothOutputDevice,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultCommsBluetoothPttBluetoothOutputDevice,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("comms.bluetoothPtt.BluetoothOutputDevice", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetCommsBluetoothPttBluetoothOutputDevice()
+			if got != tt.want {
+				t.Errorf("GetCommsBluetoothPttBluetoothOutputDevice() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetOpenMANETCommsAPIAddress(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured value",
+			setValue: strPtr("http://10.0.0.1:8087"),
+			want:     "http://10.0.0.1:8087",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultOpenMANETCommsAPIAddress,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultOpenMANETCommsAPIAddress,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("openmanetCommsAPIAddress", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetOpenMANETCommsAPIAddress()
+			if got != tt.want {
+				t.Errorf("GetOpenMANETCommsAPIAddress() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetOpenMANETCommsAPIAddress(t *testing.T) {
+	tests := []struct {
+		name         string
+		initialValue *string
+		setTo        string
+		want         string
+	}{
+		{
+			name:         "overrides default",
+			initialValue: nil,
+			setTo:        "http://192.168.1.10:8087",
+			want:         "http://192.168.1.10:8087",
+		},
+		{
+			name:         "overrides configured value",
+			initialValue: strPtr("http://10.0.0.1:8080"),
+			setTo:        "http://192.168.1.10:8087",
+			want:         "http://192.168.1.10:8087",
+		},
+		{
+			name:         "can set to empty string",
+			initialValue: strPtr("http://10.0.0.1:8080"),
+			setTo:        "",
+			want:         "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.initialValue != nil {
+				v.Set("openmanetCommsAPIAddress", *tt.initialValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+			cfg.SetOpenMANETCommsAPIAddress(tt.setTo)
+
+			got := cfg.GetOpenMANETCommsAPIAddress()
+			if got != tt.want {
+				t.Errorf("GetOpenMANETCommsAPIAddress() after Set = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetOpenMANETCommsAPIAddress_DoesNotAffectOtherFields(t *testing.T) {
+	v := viper.New()
+	v.Set("openmanetAPIAddress", "0.0.0.0:8087")
+	v.Set("openmanetWebsocketPort", 9090)
+
+	cfg := NewWithoutWatch(v)
+	cfg.SetOpenMANETCommsAPIAddress("http://192.168.1.10:8087")
+
+	if got := cfg.GetOpenMANETAPIAddress(); got != "0.0.0.0:8087" {
+		t.Errorf("GetOpenMANETAPIAddress() = %v, want 0.0.0.0:8087", got)
+	}
+
+	if got := cfg.GetOpenMANETWebsocketPort(); got != 9090 {
+		t.Errorf("GetOpenMANETWebsocketPort() = %v, want 9090", got)
+	}
+}

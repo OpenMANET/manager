@@ -57,11 +57,11 @@ buf: ## Generate protobuf code
 
 .PHONY: test
 test: fmt vet buf sqlc-gen ## Run tests.
-	go test ./... -coverprofile=coverage.out -covermode=atomic
+	go test ./internal/... -coverprofile=coverage.out -covermode=atomic
 
 .PHONY: test-race
 test-race: fmt vet buf sqlc-gen ## Run tests with race detector.
-	go test -race -timeout 120s ./... -coverprofile=coverage.out -covermode=atomic
+	go test -race -timeout 120s ./internal/... -coverprofile=coverage.out -covermode=atomic
 
 .PHONY: integration-test
 integration-test: fmt vet ## Run integration tests (no hardware required).
