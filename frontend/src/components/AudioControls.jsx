@@ -2,7 +2,7 @@
 // AudioControls.jsx — Speaker/mic volume sliders, device selectors, VOX
 // =============================================================================
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React from 'react';
 
 export default React.memo(function AudioControls({
   speakerVol,

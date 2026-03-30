@@ -2,7 +2,7 @@
 // ringBuffer.test.js — Tests for the PCM ring buffer
 // =============================================================================
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   createRingBuffer,
   ringAvail,
@@ -14,7 +14,7 @@ import { PCM_RING_SIZE, JITTER_PREFILL } from '../constants.js';
 
 describe('TestCreateRingBuffer', () => {
   it('creates non-shared buffer with correct sizes', () => {
-    const { ringBuf, ring, state } = createRingBuffer(false);
+    const { ring, state } = createRingBuffer(false);
     expect(ring).toBeInstanceOf(Float32Array);
     expect(ring.length).toBe(PCM_RING_SIZE);
     expect(state).toBeInstanceOf(Int32Array);

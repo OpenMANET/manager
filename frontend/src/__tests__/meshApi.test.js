@@ -12,9 +12,6 @@ import { InterfaceService } from '../gen/openmanet/service/v1/interface_connect.
 // We mock the connectClient module so fetchMeshStatus uses our test transport.
 vi.mock('../services/connectClient.js', () => ({ transport: {} }));
 
-// Will be replaced per-test via the mock.
-let mockTransport;
-
 describe('TestFetchMeshStatus', () => {
   beforeEach(() => {
     vi.resetModules();

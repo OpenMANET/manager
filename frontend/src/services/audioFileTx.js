@@ -15,7 +15,7 @@
 // The audio never reaches the speakers — the ScriptProcessor is connected
 // to a silent gain node.  It only captures samples for encoding.
 
-import { SAMPLE_RATE, FRAME_SIZE } from '../constants.js';
+import { SAMPLE_RATE } from '../constants.js';
 
 // -----------------------------------------------------------------------------
 // Module state
@@ -102,7 +102,7 @@ export function startPlayback(audioBuffer, encoder, loop, onLog, audioCtx) {
       txTimestamp += (input.length / SAMPLE_RATE) * 1000000; // microseconds
       encoder.encode(ad);
       ad.close();
-    } catch (e) {
+    } catch {
       // Encoder may have been closed during stop — ignore.
     }
   };
@@ -140,7 +140,7 @@ export function stopPlayback() {
   filePlaying = false;
 
   if (sourceNode) {
-    try { sourceNode.stop(); } catch (e) { /* already stopped */ }
+    try { sourceNode.stop(); } catch { /* already stopped */ }
     sourceNode.disconnect();
     sourceNode = null;
   }

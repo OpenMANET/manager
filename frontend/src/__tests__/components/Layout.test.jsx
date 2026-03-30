@@ -2,7 +2,7 @@
 // Layout.test.jsx — Tests for responsive app shell layout
 // =============================================================================
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Layout from '../../Layout.jsx';

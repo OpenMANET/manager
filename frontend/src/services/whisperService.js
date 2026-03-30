@@ -158,7 +158,7 @@ export async function initWhisper(onStatus, onLog, debugFn) {
 
     // Write the model data to the WASM virtual filesystem.
     // Remove any existing file first to avoid errors on reload.
-    try { Module.FS_unlink('whisper.bin'); } catch (e) { /* ignore */ }
+    try { Module.FS_unlink('whisper.bin'); } catch { /* ignore */ }
 
     _debugFn('Writing model to WASM filesystem...');
     Module.FS_createDataFile('/', 'whisper.bin', modelData, true, true);
@@ -497,7 +497,7 @@ async function loadFromIDB() {
       rq.onsuccess = () => resolve(rq.result || null);
       rq.onerror = () => resolve(null);
     });
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -508,7 +508,7 @@ async function saveToIDB(data) {
     db.transaction('models', 'readwrite')
       .objectStore('models')
       .put(data, 'ggml-tiny.en');
-  } catch (e) {
+  } catch {
     // Silently ignore — caching is best-effort.
   }
 }

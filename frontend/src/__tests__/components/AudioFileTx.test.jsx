@@ -2,8 +2,8 @@
 // AudioFileTx.test.jsx — Tests for audio file TX panel component
 // =============================================================================
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 
 // Mock service modules before importing component
 vi.mock('../../services/audioFileTx.js', () => ({
@@ -20,7 +20,7 @@ vi.mock('../../services/audioEngine.js', () => ({
 }));
 
 import AudioFileTxPanel from '../../components/AudioFileTx.jsx';
-import { loadFile, startPlayback, stopPlayback, isPlaying } from '../../services/audioFileTx.js';
+import { loadFile, startPlayback, stopPlayback } from '../../services/audioFileTx.js';
 import { getAudioContext, getEncoder, resetTxTimestamp } from '../../services/audioEngine.js';
 
 afterEach(() => {

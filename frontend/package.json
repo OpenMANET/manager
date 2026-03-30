@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --coverage.provider=v8 --coverage.reporter=lcov --coverage.reportsDirectory=coverage",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^1.10.1",
@@ -20,12 +22,18 @@
     "react-router-dom": "^7.13.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.0.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^2.1.9",
+    "eslint": "^9.0.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "globals": "^15.0.0",
     "jsdom": "^25.0.1",
     "vite": "^5.4.11",
     "vitest": "^2.1.8"

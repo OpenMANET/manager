@@ -9,10 +9,10 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import './App.css';
 import { CHANNELS_DEF, MSG_TYPE, RX_WAVE_HISTORY, VOX_HANGTIME_MS, NEIGHBOR_HISTORY_LENGTH } from './constants.js';
 import { connect as wsConnect, disconnect as wsDisconnect, setCallbacks as wsSetCallbacks, sendToggle as wsSendToggle, sendByte as wsSendByte, send as wsSend, isOpen as wsIsOpen } from './services/websocketService.js';
-import { initAudio, decodeAndPlay, resetTxTimestamp, startMic, stopMic, setVolume, setMicGain, getAudioContext, getEncoder, playBuffer, startMicMonitor, isMicActive, enumerateDevices, setOutputDevice, setMicDevice, setEncoderCallback, clearEncoderCallback } from './services/audioEngine.js';
+import { initAudio, decodeAndPlay, resetTxTimestamp, startMic, stopMic, setVolume, setMicGain, playBuffer, startMicMonitor, enumerateDevices, setOutputDevice, setMicDevice, setEncoderCallback, clearEncoderCallback } from './services/audioEngine.js';
 import { isReady as whisperIsReady, initWhisper, feedAudio as whisperFeedAudio, checkSilenceAndTranscribe } from './services/whisperService.js';
 import { fetchMeshStatus } from './services/meshApi.js';
-import { getReplayPcm, hasReplayData } from './services/replayBuffer.js';
+import { getReplayPcm } from './services/replayBuffer.js';
 import StatusBar from './components/StatusBar.jsx';
 import ChannelGrid from './components/ChannelGrid.jsx';
 import PttButton from './components/PttButton.jsx';
@@ -71,7 +71,7 @@ export default function App() {
     try {
       const saved = JSON.parse(localStorage.getItem('panelVisibility'));
       if (saved) return saved;
-    } catch {}
+    } catch { /* ignore invalid JSON in localStorage */ }
     const defaults = {};
     ALL_PANELS.forEach((k) => { defaults[k] = true; });
     defaults.fileTx = false;
@@ -607,7 +607,7 @@ export default function App() {
           // Snapshot for render.
           setNeighborHistory({ ...neighborHistoryRef.current });
         }
-      } catch (e) {
+      } catch {
         setMeshData({ status: null, nodes: null, neighbors: null, interfaces: null });
       }
     };

@@ -26,6 +26,12 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Install dependencies
+        run: npm --prefix frontend install
+
+      - name: Lint frontend
+        run: npm --prefix frontend run lint
+
       - name: Run frontend tests
         run: make test-frontend
 

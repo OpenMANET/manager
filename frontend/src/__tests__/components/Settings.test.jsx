@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 
 // Mock the ConnectRPC transport and dashboard client used by Settings.jsx
 // for the restart button. vi.hoisted ensures the fn is available when

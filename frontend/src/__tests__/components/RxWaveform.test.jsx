@@ -3,11 +3,11 @@
 // =============================================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, cleanup } from '@testing-library/react';
 import RxWaveform from '../../components/RxWaveform.jsx';
 
 beforeEach(() => {
-  vi.stubGlobal('requestAnimationFrame', (cb) => 1);
+  vi.stubGlobal('requestAnimationFrame', () => 1);
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
 });
 

@@ -71,6 +71,10 @@ integration-test: fmt vet ## Run integration tests (no hardware required).
 test-frontend: ## Run frontend tests.
 	npm --prefix frontend install && npm --prefix frontend run test:coverage
 
+.PHONY: lint-frontend
+lint-frontend: ## Lint the React frontend with ESLint.
+	npm --prefix frontend install && npm --prefix frontend run lint
+
 .PHONY: lint
 lint: ## Run linters.
 	$(GOBIN)/golangci-lint run --fix --timeout 5m

@@ -30,7 +30,7 @@ function createMockAudioContext() {
       connect: vi.fn(),
       disconnect: vi.fn(),
     })),
-    createBuffer: vi.fn((ch, len, sr) => ({
+    createBuffer: vi.fn(() => ({
       getChannelData: vi.fn(() => ({ set: vi.fn() })),
     })),
     createBufferSource: vi.fn(() => ({

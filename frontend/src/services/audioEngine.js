@@ -24,7 +24,7 @@
 // runs on a dedicated audio thread and reads from the SharedArrayBuffer ring
 // with zero main-thread involvement during playback.
 
-import { SAMPLE_RATE, FRAME_SIZE, PCM_RING_SIZE } from '../constants.js';
+import { SAMPLE_RATE, PCM_RING_SIZE } from '../constants.js';
 import {
   createRingBuffer,
   ringWrite,
@@ -228,7 +228,6 @@ let micGain = 0.8;
 
 // Selected device IDs.
 let selectedMicId = '';
-let selectedOutputId = '';
 
 // -----------------------------------------------------------------------------
 // enumerateDevices()
@@ -252,7 +251,6 @@ export async function enumerateDevices() {
 // -----------------------------------------------------------------------------
 // Switches the audio output to the specified device using setSinkId.
 export async function setOutputDevice(deviceId) {
-  selectedOutputId = deviceId;
   if (audioCtx && typeof audioCtx.setSinkId === 'function') {
     try {
       await audioCtx.setSinkId(deviceId);
@@ -367,7 +365,7 @@ export async function startMic(onEncodedChunk, onMicLevel) {
           txTimestamp += (input.length / SAMPLE_RATE) * 1000000;
           opusEncoder.encode(ad);
           ad.close();
-        } catch (e) { /* transient encoder errors */ }
+        } catch { /* transient encoder errors */ }
       };
     }
     return;
@@ -408,7 +406,7 @@ export async function startMic(onEncodedChunk, onMicLevel) {
         txTimestamp += (input.length / SAMPLE_RATE) * 1000000;
         opusEncoder.encode(ad);
         ad.close();
-      } catch (e) {
+      } catch {
         // Silently ignore encoding errors — they're usually transient
         // (e.g., encoder reset during PTT release).
       }
