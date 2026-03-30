@@ -3,6 +3,7 @@ package frontend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -77,12 +78,13 @@ func NewFrontendServer(ctx context.Context, cfg *config.Config, staticFS fs.FS) 
 	}
 }
 
-// Run starts the HTTP server and blocks until ctx is canceled.
+// Run starts the HTTP and TLS servers and blocks until ctx is canceled.
 // The caller is responsible for signal handling; Run reacts to ctx.Done()
 // for graceful shutdown.
 func (s *Server) Run(ctx context.Context) error {
 	mux := s.handler()
 
+	// ── HTTP server (unchanged) ─────────────────────────────────────────
 	addr := s.cfg.GetOpenMANETFrontendHostPort()
 
 	srv := &http.Server{
@@ -91,29 +93,61 @@ func (s *Server) Run(ctx context.Context) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	// Start the server in a goroutine.
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2) //nolint:mnd
 
 	go func() {
 		errCh <- srv.ListenAndServe()
 	}()
 
-	s.log.Info().Str("addr", addr).Msg("frontend server started")
+	s.log.Info().Str("addr", addr).Msg("frontend HTTP server started")
 
+	// ── TLS server ──────────────────────────────────────────────────────
+	certFile := s.cfg.GetOpenMANETFrontendTLSCertFile()
+	keyFile := s.cfg.GetOpenMANETFrontendTLSKeyFile()
+
+	tlsConfig, err := buildTLSConfig(certFile, keyFile)
+	if err != nil {
+		return fmt.Errorf("frontend TLS config: %w", err)
+	}
+
+	tlsAddr := s.cfg.GetOpenMANETFrontendTLSHostPort()
+
+	tlsSrv := &http.Server{
+		Addr:              tlsAddr,
+		Handler:           mux,
+		TLSConfig:         tlsConfig,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	go func() {
+		// Empty cert/key paths because the certificate is already in TLSConfig.
+		errCh <- tlsSrv.ListenAndServeTLS("", "")
+	}()
+
+	selfSigned := certFile == ""
+	s.log.Info().Str("addr", tlsAddr).Bool("self-signed", selfSigned).Msg("frontend TLS server started")
+
+	// ── Wait for error or context cancellation ──────────────────────────
 	select {
 	case err := <-errCh:
+		// One server failed; shut down the other.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+
+		_ = srv.Shutdown(shutdownCtx)
+		_ = tlsSrv.Shutdown(shutdownCtx)
+
 		return err
 	case <-ctx.Done():
-		s.log.Info().Msg("shutting down frontend server")
+		s.log.Info().Msg("shutting down frontend servers")
 
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("server shutdown: %w", err)
-		}
+		httpErr := srv.Shutdown(shutdownCtx)
+		tlsErr := tlsSrv.Shutdown(shutdownCtx)
 
-		return nil
+		return errors.Join(httpErr, tlsErr)
 	}
 }
 
@@ -124,6 +158,7 @@ func coiMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 		w.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
+		w.Header().Set("Permissions-Policy", "microphone=*, speaker-selection=*")
 		next.ServeHTTP(w, r)
 	})
 }

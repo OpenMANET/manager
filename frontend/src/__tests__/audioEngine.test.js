@@ -272,6 +272,30 @@ describe('TestAudioEngineMic', () => {
     engine.stopMic();
     expect(mockTrack.stop).toHaveBeenCalled();
   });
+
+  it('startMic logs error and returns when mediaDevices unavailable', async () => {
+    vi.stubGlobal('navigator', {});
+    vi.resetModules();
+    const eng = await import('../services/audioEngine.js');
+
+    const logFn = vi.fn();
+    await eng.initAudio(logFn);
+    await eng.startMic(vi.fn(), vi.fn());
+    expect(logFn).toHaveBeenCalledWith(
+      expect.stringContaining('Mic unavailable'),
+      'err'
+    );
+  });
+
+  it('startMicMonitor returns false when mediaDevices unavailable', async () => {
+    vi.stubGlobal('navigator', {});
+    vi.resetModules();
+    const eng = await import('../services/audioEngine.js');
+    await eng.initAudio(vi.fn());
+
+    const result = await eng.startMicMonitor(vi.fn());
+    expect(result).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

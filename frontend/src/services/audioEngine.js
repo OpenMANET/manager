@@ -371,6 +371,11 @@ export async function startMic(onEncodedChunk, onMicLevel) {
     return;
   }
 
+  if (!navigator.mediaDevices) {
+    if (logFn) logFn('Mic unavailable: page must be served over HTTPS or accessed via localhost. For HTTP on a private network, launch Chromium with --unsafely-treat-insecure-origin-as-secure=<url>.', 'err');
+    return;
+  }
+
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: getMicConstraints(),
@@ -515,6 +520,8 @@ export function playBuffer(pcm) {
 // to detect speech level without transmitting. Returns true if successful.
 export async function startMicMonitor(onMicLevel) {
   if (micStream) return true; // mic already open
+
+  if (!navigator.mediaDevices) return false;
 
   try {
     if (!audioCtx) return false;

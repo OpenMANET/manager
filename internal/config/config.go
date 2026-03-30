@@ -43,6 +43,9 @@ const (
 	DefaultEnableBLOS                                bool    = false
 	DefaultBLOSStatusWorkerInterval                  int     = 30 // seconds
 	DefaultOpenMANETFrontendHostPort                 string  = "0.0.0.0:8080"
+	DefaultOpenMANETFrontendTLSHostPort              string  = "0.0.0.0:8081"
+	DefaultOpenMANETFrontendTLSCertFile              string  = ""
+	DefaultOpenMANETFrontendTLSKeyFile               string  = ""
 	DefaultOpenMANETWebsocketPort                    int     = 0
 	DefaultOpenMANETAPIAddress                       string  = "0.0.0.0:8087"
 	DefaultOpenMANETCommsAPIAddress                  string  = "http://127.0.0.1:8087"
@@ -64,6 +67,9 @@ type Config struct {
 	CommsProtocol                             string
 	CommsBluetoothPttBluetoothInputDevice     string
 	OpenMANETFrontendHostPort                 string
+	OpenMANETFrontendTLSHostPort              string
+	OpenMANETFrontendTLSCertFile              string
+	OpenMANETFrontendTLSKeyFile               string
 	OpenMANETAPIAddress                       string
 	OpenMANETCommsAPIAddress                  string
 	onChangeCallbacks                         []func(*Config)
@@ -342,6 +348,24 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.OpenMANETFrontendHostPort = val
 	} else {
 		c.OpenMANETFrontendHostPort = DefaultOpenMANETFrontendHostPort
+	}
+
+	if val := c.v.GetString("frontend.tlsHostPort"); val != "" {
+		c.OpenMANETFrontendTLSHostPort = val
+	} else {
+		c.OpenMANETFrontendTLSHostPort = DefaultOpenMANETFrontendTLSHostPort
+	}
+
+	if val := c.v.GetString("frontend.tlsCertFile"); val != "" {
+		c.OpenMANETFrontendTLSCertFile = val
+	} else {
+		c.OpenMANETFrontendTLSCertFile = DefaultOpenMANETFrontendTLSCertFile
+	}
+
+	if val := c.v.GetString("frontend.tlsKeyFile"); val != "" {
+		c.OpenMANETFrontendTLSKeyFile = val
+	} else {
+		c.OpenMANETFrontendTLSKeyFile = DefaultOpenMANETFrontendTLSKeyFile
 	}
 
 	if val := c.v.GetString("openmanetAPIAddress"); val != "" {
@@ -655,6 +679,30 @@ func (c *Config) GetOpenMANETFrontendHostPort() string {
 	defer c.mu.RUnlock()
 
 	return c.OpenMANETFrontendHostPort
+}
+
+// GetOpenMANETFrontendTLSHostPort returns the TLS listen address for the frontend server.
+func (c *Config) GetOpenMANETFrontendTLSHostPort() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.OpenMANETFrontendTLSHostPort
+}
+
+// GetOpenMANETFrontendTLSCertFile returns the path to the TLS certificate file.
+func (c *Config) GetOpenMANETFrontendTLSCertFile() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.OpenMANETFrontendTLSCertFile
+}
+
+// GetOpenMANETFrontendTLSKeyFile returns the path to the TLS private key file.
+func (c *Config) GetOpenMANETFrontendTLSKeyFile() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.OpenMANETFrontendTLSKeyFile
 }
 
 // GetOpenMANETAPIAddress returns the OpenMANET API listen address.

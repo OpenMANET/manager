@@ -1827,6 +1827,7 @@ func TestSetOpenMANETFrontendHostPort_DoesNotAffectOtherFields(t *testing.T) {
 	if got := cfg.GetOpenMANETAPIAddress(); got != "http://10.0.0.1:8087" {
 		t.Errorf("GetOpenMANETAPIAddress() = %v, want %v", got, "http://10.0.0.1:8087")
 	}
+
 	if got := cfg.GetOpenMANETWebsocketPort(); got != 9090 {
 		t.Errorf("GetOpenMANETWebsocketPort() = %v, want %v", got, 9090)
 	}
@@ -1841,6 +1842,7 @@ func TestSetOpenMANETFrontendHostPort_MultipleCalls_LastWins(t *testing.T) {
 	cfg.SetOpenMANETFrontendHostPort("http://final:5000")
 
 	got := cfg.GetOpenMANETFrontendHostPort()
+
 	want := "http://final:5000"
 	if got != want {
 		t.Errorf("GetOpenMANETFrontendHostPort() = %v, want %v", got, want)

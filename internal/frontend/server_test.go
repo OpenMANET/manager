@@ -135,6 +135,10 @@ func TestCoiMiddleware(t *testing.T) {
 	if v := w.Header().Get("Cross-Origin-Embedder-Policy"); v != "require-corp" {
 		t.Errorf("COEP = %q, want require-corp", v)
 	}
+
+	if v := w.Header().Get("Permissions-Policy"); v != "microphone=*, speaker-selection=*" {
+		t.Errorf("Permissions-Policy = %q, want microphone=*, speaker-selection=*", v)
+	}
 }
 
 // ---------------------------------------------------------------------------
