@@ -94,13 +94,13 @@ fuzz: ## Run fuzz tests for 30 seconds each.
 .PHONY: build-lite
 build-lite: fmt vet frontend ## Build lite binary without whisper, UPX compressed (~5MB).
 	@rm -rf static/whisper
-	CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd-webui .
+	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
 	@if command -v upx >/dev/null 2>&1; then \
-		upx --lzma --best bin/openmanetd-webui; \
+		upx --lzma --best bin/openmanetd; \
 	else \
 		echo "WARNING: upx not found, skipping compression (install with: apt install upx-ucl)"; \
 	fi
-	@echo "Built bin/openmanetd-webui (lite, no whisper, UPX compressed)"
+	@echo "Built bin/openmanetd (lite, no whisper, UPX compressed)"
 
 .PHONY: whisper-embed
 whisper-embed: ## Copy whisper WASM + model into static/ for embedding.
@@ -125,5 +125,5 @@ whisper-clean: ## Remove whisper files from static/ (before lite build).
 
 .PHONY: clean
 clean: ## Remove build artifacts.
-	rm -rf bin/ static/whisper
+	rm -rf bin/ static/whisper/
 
