@@ -203,13 +203,6 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("/api/settings/config", s.handleSettingsConfig)
 	mux.HandleFunc("/api/settings/hostname", s.handleSettingsHostname)
 
-	// Upgrade API endpoints.
-	mux.HandleFunc("/api/upgrade/check", s.handleUpgradeCheck)
-	mux.HandleFunc("/api/upgrade/download", s.handleUpgradeDownload)
-	mux.HandleFunc("/api/upgrade/status", s.handleUpgradeStatus)
-	mux.HandleFunc("/api/upgrade/apply", s.handleUpgradeApply)
-	mux.HandleFunc("/api/upgrade/upload", s.handleUpgradeUpload)
-
 	// Whisper management endpoints.
 	mux.HandleFunc("/api/whisper/status", s.handleWhisperStatus)
 	mux.HandleFunc("/api/whisper/download", s.handleWhisperDownload)
