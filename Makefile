@@ -36,6 +36,7 @@ alfred: ## Make Alfred for Go Bindings
 
 .PHONY: frontend
 frontend: ## Build the React frontend (outputs to static/).
+	@find static/ -mindepth 1 ! -path 'static/whisper' ! -path 'static/whisper/*' -delete 2>/dev/null || true
 	cd frontend && npm install && npx vite build
 
 .PHONY: sqlc-gen
@@ -121,11 +122,8 @@ whisper-embed: whisper-js ## Download whisper model into static/ for full embedd
 	fi
 	@echo "Whisper model staged in static/whisper/ (fully embedded in binary)"
 
-.PHONY: whisper-clean
-whisper-clean: ## Remove whisper files from static/ (before lite build).
-	rm -rf static/whisper
 
 .PHONY: clean
 clean: ## Remove build artifacts.
-	rm -rf bin/ static/whisper/
+	rm -rf bin/
 

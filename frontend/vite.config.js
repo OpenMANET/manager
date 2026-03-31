@@ -16,7 +16,7 @@ export default defineConfig({
   // Build output goes into ../static/ so the Go binary can embed it
   build: {
     outDir: path.resolve(__dirname, '../static'),
-    emptyOutDir: true,
+    emptyOutDir: false,
   },
   server: {
     // Proxy API and WebSocket to the Go backend during development
