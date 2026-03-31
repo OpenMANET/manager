@@ -207,6 +207,13 @@ func (r *BLOS) hasPeerChanges(activePeerIPs map[string]bool) bool {
 // removeInactiveVXLANPeers removes VXLAN peers that are not in the active peer list
 // and are not multicast addresses.
 func (r *BLOS) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
+	// Reload configuration to ensure clean state before peer operations
+	if err := r.uciNetworkConfig.ReloadConfig(); err != nil {
+		r.Logger.Debug().
+			Err(err).
+			Msg("Failed to reload UCI config before removing inactive peers, continuing anyway")
+	}
+
 	// Get all VXLAN peers from UCI configuration
 	allPeers, err := network.GetAllVXLANPeersWithReader(r.uciNetworkConfig)
 	if err != nil {
