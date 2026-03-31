@@ -1037,12 +1037,6 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 		return nil
 	}
 
-	// Voice comms is not supported on MIPS due to lack of audio hardware
-	// TODO: Target specific boards and not a GOARCH; some MIPS boards may have audio support
-	// if runtime.GOARCH == "mipsle" {
-	// 	return errors.New("comms: running on MIPS; audio not supported")
-	// }
-
 	cfg.applyDefaults()
 
 	if cfg.ControlSource != controlSourceWeb {

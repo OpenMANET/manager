@@ -99,6 +99,7 @@ func TestBLOSsupported(t *testing.T) {
 		{name: "GW7400", modelID: GW7400, want: true},
 		{name: "GW7904", modelID: GW7904, want: true},
 		{name: "GW7905_2", modelID: GW7905_2, want: true},
+		{name: "HalowLink2", modelID: HalowLink2, want: true},
 		// Unsupported models
 		{name: "BCM2710_MM6108_SPI", modelID: BCM2710_MM6108_SPI, want: false},
 		{name: "BCM2710_MM6108_SDIO", modelID: BCM2710_MM6108_SDIO, want: false},

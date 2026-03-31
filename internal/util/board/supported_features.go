@@ -81,6 +81,8 @@ func BLOSsupported() bool {
 		return true
 	case BCM2710_MM6108_SPI, BCM2710_MM6108_SDIO:
 		return false
+	case HalowLink2:
+		return true
 	case HeltecHD01V2:
 		return false
 	case GW7100_2, GW7200_2, GW7300_2, GW7400,
