@@ -41,3 +41,4 @@ frontend/coverage
 .vite/vitest
 .claude/settings.local.json
 .gocache
+.pnpm-store

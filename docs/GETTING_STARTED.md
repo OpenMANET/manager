@@ -98,8 +98,8 @@ remote openmanetd frontend server or a local `openmanetd frontend` instance:
 
 ```shell
 cd frontend
-npm install
-VITE_API_TARGET=http://192.168.1.10:8081 npm run dev
+pnpm install
+VITE_API_TARGET=http://10.41.1.1:8081 pnpm run dev
 ```
 
 If `VITE_API_TARGET` is not set, the proxy defaults to `http://localhost:8080`.

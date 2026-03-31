@@ -62,6 +62,14 @@ jobs:
               ].join('\n')
             })
 
+      - name: Install pnpm
+        if: |
+          steps.check-static.outputs.skip == 'false' &&
+          github.event.pull_request.head.repo.fork == false
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
       - name: Set up Node.js
         if: |
           steps.check-static.outputs.skip == 'false' &&
@@ -69,14 +77,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Build frontend
         if: |
           steps.check-static.outputs.skip == 'false' &&
           github.event.pull_request.head.repo.fork == false
-        run: cd frontend && npm install && npx vite build
+        run: cd frontend && pnpm install && pnpm run build
 
       - name: Commit static assets
         if: |

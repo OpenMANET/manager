@@ -11,11 +11,11 @@ updates:
       prefix: "deps"
     schedule:
       interval: "weekly"
-  # Enable version updates for npm
+  # Enable version updates for frontend (pnpm)
   - package-ecosystem: "npm"
-    # Look for `package.json` and `lock` files in the `frontend` directory
+    # Look for `package.json` and `pnpm-lock.yaml` in the `frontend` directory
     directory: "frontend"
-    # Check the npm registry for updates every day (weekdays)
+    # Check for updates weekly
     schedule:
       interval: "weekly"
     commit-message:

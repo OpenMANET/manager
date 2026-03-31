@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm --version)",
+      "Bash(pnpm --version)",
       "Bash(make test:*)",
       "Bash(make test-frontend:*)",
       "Bash(find /workspaces/openmanetd -type f -name *.proto)",
@@ -15,11 +15,13 @@
       "Bash(claude plugin:*)",
       "Read(//go/pkg/mod/**)",
       "Bash(go doc:*)",
-      "Bash(npx vitest:*)",
+      "Bash(pnpm exec vitest:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(go test:*)",
       "Bash(make buf:*)",
-      "Bash(make sqlc-gen:*)"
+      "Bash(make sqlc-gen:*)",
+      "Bash(pnpm run:*)",
+      "Bash(make lint-frontend:*)"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"
@@ -66,7 +68,7 @@
           },
           {
             "type": "command",
-            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE 'frontend/src/.*\\.(js|jsx)$' && ! echo \"$FILE\" | grep -q 'src/gen/'; then npm --prefix /workspaces/openmanetd/frontend run lint:fix -- \"$FILE\" 2>/dev/null; fi; exit 0"
+            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE 'frontend/src/.*\\.(js|jsx)$' && ! echo \"$FILE\" | grep -q 'src/gen/'; then pnpm -C /workspaces/openmanetd/frontend run lint:fix -- \"$FILE\" 2>/dev/null; fi; exit 0"
           }
         ]
       }

@@ -37,7 +37,7 @@ alfred: ## Make Alfred for Go Bindings
 .PHONY: frontend
 frontend: ## Build the React frontend (outputs to static/).
 	@find static/ -mindepth 1 ! -path 'static/whisper' ! -path 'static/whisper/*' -delete 2>/dev/null || true
-	cd frontend && npm install && npx vite build
+	cd frontend && pnpm install && pnpm run build
 
 .PHONY: sqlc-gen
 sqlc-gen: ## Generate sqlc code
@@ -45,7 +45,7 @@ sqlc-gen: ## Generate sqlc code
 
 .PHONY: build
 build: fmt vet buf sqlc-gen frontend whisper-js ## Build manager binary.
-	GOCACHE=$(CURDIR)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
+	GOCACHE=$(HOME)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
 
 .PHONY: run
 run: fmt vet buf sqlc-gen ## Run a controller from your host.
@@ -70,11 +70,11 @@ integration-test: fmt vet ## Run integration tests (no hardware required).
 
 .PHONY: test-frontend
 test-frontend: ## Run frontend tests.
-	npm --prefix frontend install && npm --prefix frontend run test:coverage
+	pnpm -C frontend install && pnpm -C frontend run test:coverage
 
 .PHONY: lint-frontend
 lint-frontend: ## Lint the React frontend with ESLint.
-	npm --prefix frontend install && npm --prefix frontend run lint
+	pnpm -C frontend install && pnpm -C frontend run lint
 
 .PHONY: lint-go
 lint-go: ## Install golangci-lint if not present, then run it.
@@ -95,7 +95,7 @@ fuzz: ## Run fuzz tests for 30 seconds each.
 .PHONY: build-lite
 build-lite: fmt vet frontend ## Build lite binary without whisper WASM, UPX compressed (~5MB).
 	@rm -rf static/whisper
-	GOCACHE=$(CURDIR)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
+	GOCACHE=$(HOME)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
 	@if command -v upx >/dev/null 2>&1; then \
 		upx --lzma --best bin/openmanetd; \
 	else \

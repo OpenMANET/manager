@@ -72,7 +72,7 @@ Ports: API + WebSocket = **8087**. Frontend server = **8081** (proxies `/api/*` 
 
 **Vite hot-reload dev server:**
 ```bash
-cd frontend && VITE_API_TARGET=http://<remote-host>:8081 npm run dev
+cd frontend && VITE_API_TARGET=http://<remote-host>:8081 pnpm run dev
 ```
 
 Proxy rules (`frontend/vite.config.js`):
@@ -85,7 +85,7 @@ Proxy rules (`frontend/vite.config.js`):
 ```
 
 **Linting:**
-Run `make lint-frontend` before committing frontend changes. The ESLint config at `frontend/eslint.config.js` covers all `.js`/`.jsx` files under `frontend/src/` (excluding `src/gen/`). To auto-fix fixable issues: `npm --prefix frontend run lint:fix`.
+Run `make lint-frontend` before committing frontend changes. The ESLint config at `frontend/eslint.config.js` covers all `.js`/`.jsx` files under `frontend/src/` (excluding `src/gen/`). To auto-fix fixable issues: `pnpm -C frontend run lint:fix`.
 
 ## Gotchas
 

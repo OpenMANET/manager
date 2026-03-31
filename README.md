@@ -74,7 +74,7 @@ Use `make build-lite` for a smaller binary (~5 MB) without audio/comms hardware 
 
 **Frontend dev server** (hot-reload, pointed at a remote node):
 ```bash
-cd frontend && VITE_API_TARGET=http://<node-ip>:8081 npm run dev
+cd frontend && VITE_API_TARGET=http://<node-ip>:8081 pnpm run dev
 ```
 
 **Frontend-only mode** (no local database or hardware):

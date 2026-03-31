@@ -4,7 +4,7 @@ import path from 'path';
 
 // Allow overriding the backend target for development against a remote
 // openmanetd instance:
-//   VITE_API_TARGET=http://10.41.1.1:8081 npm run dev
+//   VITE_API_TARGET=http://10.41.1.1:8081 pnpm run dev
 const apiTarget = process.env.VITE_API_TARGET || 'http://localhost:8080';
 
 export default defineConfig({
