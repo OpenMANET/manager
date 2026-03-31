@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -296,11 +297,15 @@ func (c *Client) Close() error {
 		c.listener.Stop()
 	}
 
+	c.queryMu.Lock()
+	var closeErr error
 	if c.querier != nil {
-		return c.querier.Close()
+		closeErr = c.querier.Close()
+		c.querier = nil
 	}
+	c.queryMu.Unlock()
 
-	return nil
+	return closeErr
 }
 
 // queryMeshConfig sends a BATADV_CMD_GET_MESH query and parses the response.
@@ -322,6 +327,11 @@ func (c *Client) queryMeshConfig() (*MeshConfig, error) {
 	}
 
 	c.queryMu.Lock()
+	if c.querier == nil {
+		c.queryMu.Unlock()
+
+		return nil, errors.New("execute get_mesh: connection closed")
+	}
 	msgs, err := c.querier.Execute(msg, c.family.ID, 0)
 	c.queryMu.Unlock()
 
@@ -360,6 +370,11 @@ func (c *Client) queryGateways() (*Gateways, error) {
 	}
 
 	c.queryMu.Lock()
+	if c.querier == nil {
+		c.queryMu.Unlock()
+
+		return nil, errors.New("execute get_gateways: connection closed")
+	}
 	msgs, err := c.querier.Execute(msg, c.family.ID, netlink.Request|netlink.Dump)
 	c.queryMu.Unlock()
 
@@ -409,6 +424,11 @@ func (c *Client) queryNeighbors() (*Neighbors, error) {
 	}
 
 	c.queryMu.Lock()
+	if c.querier == nil {
+		c.queryMu.Unlock()
+
+		return nil, errors.New("execute get_neighbors: connection closed")
+	}
 	msgs, err := c.querier.Execute(msg, c.family.ID, netlink.Request|netlink.Dump)
 	c.queryMu.Unlock()
 
@@ -458,6 +478,11 @@ func (c *Client) queryOriginators() ([]Originator, error) {
 	}
 
 	c.queryMu.Lock()
+	if c.querier == nil {
+		c.queryMu.Unlock()
+
+		return nil, errors.New("execute get_originators: connection closed")
+	}
 	msgs, err := c.querier.Execute(msg, c.family.ID, netlink.Request|netlink.Dump)
 	c.queryMu.Unlock()
 
@@ -498,7 +523,9 @@ func (c *Client) isConnectionLost(err error) bool {
 		errors.Is(err, syscall.ECONNRESET) ||
 		errors.Is(err, syscall.ECONNREFUSED) ||
 		errors.Is(err, syscall.EPIPE) ||
-		errors.Is(err, syscall.ENODEV) {
+		errors.Is(err, syscall.ENODEV) ||
+		errors.Is(err, syscall.EBADF) ||
+		errors.Is(err, os.ErrClosed) {
 		return true
 	}
 
@@ -538,11 +565,13 @@ func (c *Client) reconnectLoop() {
 		case <-time.After(backoff):
 		}
 
-		// Close old querier
+		// Close old querier while holding queryMu to prevent concurrent Execute() calls.
+		c.queryMu.Lock()
 		if c.querier != nil {
 			c.querier.Close()
 			c.querier = nil
 		}
+		c.queryMu.Unlock()
 
 		if err := c.connect(); err != nil {
 			c.logger.Debug().Err(err).Dur("next_retry", backoff).Msg("batman-adv reconnect failed")
