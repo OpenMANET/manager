@@ -56,7 +56,18 @@ type McastFlagsPriv struct {
 	Raw                  int  `json:"raw"`
 }
 
+// GetMeshConfig retrieves the mesh configuration, preferring netlink when a
+// default client has been set, falling back to batctl otherwise.
 func GetMeshConfig(iface string) (*MeshConfig, error) {
+	if c := getDefaultClient(); c != nil && !c.useBatctl.Load() {
+		return c.GetMeshConfig()
+	}
+
+	return GetMeshConfigBatctl(iface)
+}
+
+// GetMeshConfigBatctl retrieves the mesh configuration by executing `batctl mj`.
+func GetMeshConfigBatctl(iface string) (*MeshConfig, error) {
 	cmd := exec.CommandContext(context.Background(), "batctl", "mj")
 
 	output, err := cmd.Output()

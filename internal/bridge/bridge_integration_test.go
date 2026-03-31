@@ -13,7 +13,6 @@ import (
 	"github.com/gorilla/websocket"
 	servicev1 "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	"github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
-	"github.com/openmanet/openmanetd/internal/openmanetd"
 	ws "github.com/openmanet/openmanetd/internal/websocket"
 	"google.golang.org/protobuf/types/known/emptypb"
 )

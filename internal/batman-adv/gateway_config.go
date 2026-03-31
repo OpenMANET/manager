@@ -21,7 +21,18 @@ type Gateway struct {
 
 type Gateways []Gateway
 
+// GetMeshGateways retrieves the gateway list, preferring netlink when a
+// default client has been set, falling back to batctl otherwise.
 func GetMeshGateways(iface string) (*Gateways, error) {
+	if c := getDefaultClient(); c != nil && !c.useBatctl.Load() {
+		return c.GetMeshGateways()
+	}
+
+	return GetMeshGatewaysBatctl(iface)
+}
+
+// GetMeshGatewaysBatctl retrieves the gateway list by executing `batctl gwj`.
+func GetMeshGatewaysBatctl(iface string) (*Gateways, error) {
 	cmd := exec.CommandContext(context.Background(), "batctl", "gwj")
 
 	output, err := cmd.Output()

@@ -31,7 +31,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func Start(staticFS fs.FS) {
+func Start(staticFS fs.FS) { //nolint:gocognit // top-level startup wiring
 	var (
 		ctx, cancel = context.WithCancel(context.Background())
 		banner      = figure.NewFigure("OpenMANET", "big", true)
@@ -74,6 +74,18 @@ func Start(staticFS fs.FS) {
 		gps, err = gpsd.NewGPSService(logger.GetLogger("gps"), cfg)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to initialize GPS service")
+		}
+	}
+
+	// Initialize batman-adv netlink client (replaces batctl exec with kernel netlink)
+	batAdvClient, batAdvErr := batmanadv.NewClient(cfg.GetAlfredBatInterface(), logger.GetLogger("batman-adv"))
+	if batAdvErr != nil {
+		log.Warn().Err(batAdvErr).Msg("batman-adv netlink client init failed, using batctl fallback")
+	} else {
+		batmanadv.SetDefaultClient(batAdvClient)
+
+		if listenerErr := batAdvClient.StartEventListener(ctx); listenerErr != nil {
+			log.Warn().Err(listenerErr).Msg("batman-adv event listener failed to start")
 		}
 	}
 
@@ -124,6 +136,7 @@ func Start(staticFS fs.FS) {
 		BLOSManager:  blosManager,
 		CommsManager: commsManager,
 		Interfaces:   interfaceProvider,
+		BatAdvClient: batAdvClient,
 		DHCP: &network.UCIDHCPConfigProvider{
 			DHCPReader:    network.NewUCIDHCPConfigReader(),
 			NetworkReader: network.NewUCINetworkConfigReader(),
@@ -182,6 +195,10 @@ func Start(staticFS fs.FS) {
 
 	commsManager.Disable()
 	blosManager.Disable()
+
+	if batAdvClient != nil {
+		batAdvClient.Close()
+	}
 
 	if cfg.GetEnableGNSS() {
 		gps.Close()
