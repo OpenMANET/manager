@@ -7,7 +7,6 @@ import (
 	"math"
 	"net"
 	"os"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -1039,9 +1038,10 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 	}
 
 	// Voice comms is not supported on MIPS due to lack of audio hardware
-	if runtime.GOARCH == "mipsle" {
-		return errors.New("comms: running on MIPS; audio not supported")
-	}
+	// TODO: Target specific boards and not a GOARCH; some MIPS boards may have audio support
+	// if runtime.GOARCH == "mipsle" {
+	// 	return errors.New("comms: running on MIPS; audio not supported")
+	// }
 
 	cfg.applyDefaults()
 
