@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -11,7 +12,7 @@ func TestHub_RegisterUnregister(t *testing.T) {
 	hub := NewHub(func(c *Client, data []byte) {
 		received <- data
 	})
-	go hub.Run()
+	go hub.Run(context.Background())
 
 	// Give hub goroutine time to start.
 	time.Sleep(10 * time.Millisecond)
@@ -44,7 +45,7 @@ func TestHub_RegisterUnregister(t *testing.T) {
 
 func TestHub_BroadcastRaw(t *testing.T) {
 	hub := NewHub(nil)
-	go hub.Run()
+	go hub.Run(context.Background())
 
 	time.Sleep(10 * time.Millisecond)
 
@@ -71,7 +72,7 @@ func TestHub_BroadcastRaw(t *testing.T) {
 
 func TestHub_BroadcastAudioRX_Filtered(t *testing.T) {
 	hub := NewHub(nil)
-	go hub.Run()
+	go hub.Run(context.Background())
 
 	time.Sleep(10 * time.Millisecond)
 

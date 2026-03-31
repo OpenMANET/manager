@@ -36,10 +36,11 @@ var upgrader = websocket.Upgrader{ //nolint:gochecknoglobals
 
 // Server is the HTTP/WebSocket server for the WebUI.
 type Server struct {
-	log      zerolog.Logger
-	staticFS fs.FS
-	hub      *ws.Hub
-	cfg      *config.Config
+	log       zerolog.Logger
+	staticFS  fs.FS
+	hub       *ws.Hub
+	cfg       *config.Config
+	indexHTML []byte
 }
 
 // NewFrontendServer creates a new frontend Server that serves static assets and
@@ -67,16 +68,24 @@ func NewFrontendServer(ctx context.Context, cfg *config.Config, staticFS fs.FS) 
 	})
 	b = bridge.NewBridge(hub, commsClient)
 
-	go hub.Run()
+	go hub.Run(ctx)
 
 	// Start the audio RX loop (receives from openmanetd, broadcasts to WS clients).
 	b.StartAudioRXLoop(ctx)
 
+	log := logger.GetLogger("frontend.server")
+
+	indexHTML, err := fs.ReadFile(staticFS, "index.html")
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to pre-read index.html; SPA fallback will be unavailable")
+	}
+
 	return &Server{
-		log:      logger.GetLogger("frontend.server"),
-		staticFS: staticFS,
-		hub:      hub,
-		cfg:      cfg,
+		log:       log,
+		staticFS:  staticFS,
+		hub:       hub,
+		cfg:       cfg,
+		indexHTML: indexHTML,
 	}
 }
 
@@ -93,6 +102,8 @@ func (s *Server) Run(ctx context.Context) error {
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 16, // 64 KB
 	}
 
 	errCh := make(chan error, 2) //nolint:mnd
@@ -119,6 +130,8 @@ func (s *Server) Run(ctx context.Context) error {
 		Handler:           mux,
 		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 16, // 64 KB
 	}
 
 	go func() {
@@ -241,16 +254,15 @@ func (s *Server) handler() http.Handler {
 			return
 		}
 
-		// Serve index.html for SPA client-side routing.
-		indexFile, err := fs.ReadFile(s.staticFS, "index.html")
-		if err != nil {
+		// Serve cached index.html for SPA client-side routing.
+		if s.indexHTML == nil {
 			http.NotFound(w, r)
 
 			return
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(indexFile)
+		_, _ = w.Write(s.indexHTML)
 	}
 
 	// Register the SPA handler for root and all client-side routes.

@@ -6,7 +6,7 @@ import (
 )
 
 func TestNewOpusEncoder_Succeeds(t *testing.T) {
-	enc, err := newOpusEncoder()
+	enc, err := newOpusEncoder(encoderComplexity)
 	if err != nil {
 		t.Fatalf("newOpusEncoder error: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestNewOpusDecoder_Succeeds(t *testing.T) {
 }
 
 func TestOpusEncode_ProducesOutput(t *testing.T) {
-	enc, err := newOpusEncoder()
+	enc, err := newOpusEncoder(encoderComplexity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestOpusEncode_ProducesOutput(t *testing.T) {
 }
 
 func TestOpusRoundTrip(t *testing.T) {
-	enc, err := newOpusEncoder()
+	enc, err := newOpusEncoder(encoderComplexity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestOpusRoundTrip(t *testing.T) {
 func TestOpusDecodeConsecutiveFrames(t *testing.T) {
 	// Verify that the encoder and decoder handle multiple sequential calls
 	// correctly — frame boundaries and state are maintained between calls.
-	enc, err := newOpusEncoder()
+	enc, err := newOpusEncoder(encoderComplexity)
 	if err != nil {
 		t.Fatal(err)
 	}

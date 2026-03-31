@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"sync"
 
 	"github.com/openmanet/openmanetd/internal/util/logger"
@@ -26,7 +27,7 @@ type Hub struct {
 func NewHub(handler MessageHandler) *Hub {
 	return &Hub{
 		clients:    make(map[*Client]struct{}),
-		register:   make(chan *Client),
+		register:   make(chan *Client, 16),
 		unregister: make(chan *Client, 16),
 		broadcast:  make(chan []byte, 256),
 		handler:    handler,
@@ -35,9 +36,20 @@ func NewHub(handler MessageHandler) *Hub {
 }
 
 // Run starts the hub's event loop. It should be called in a goroutine.
-func (h *Hub) Run() {
+// It returns when ctx is canceled, closing all client send channels.
+func (h *Hub) Run(ctx context.Context) {
 	for {
 		select {
+		case <-ctx.Done():
+			h.mu.Lock()
+			for client := range h.clients {
+				close(client.send)
+				delete(h.clients, client)
+			}
+			h.mu.Unlock()
+
+			return
+
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = struct{}{}

@@ -1,6 +1,7 @@
 package mgmt
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -19,21 +20,21 @@ const (
 )
 
 type GatewayWorker struct {
-	Config       *ManagementConfig
-	Client       *alfred.Client
-	ShutdownChan <-chan os.Signal
+	Config *ManagementConfig
+	Client *alfred.Client
+	done   <-chan struct{}
 
 	sendInterval time.Duration
 	recvInterval time.Duration
 }
 
-func NewGatewayWorker(config *ManagementConfig, client *alfred.Client, shutdownChan <-chan os.Signal) *GatewayWorker {
+func NewGatewayWorker(config *ManagementConfig, client *alfred.Client, ctx context.Context) *GatewayWorker {
 	config.Log.Info().Msg("GatewayWorker initialized")
 
 	return &GatewayWorker{
-		Config:       config,
-		Client:       client,
-		ShutdownChan: shutdownChan,
+		Config: config,
+		Client: client,
+		done:   ctx.Done(),
 
 		sendInterval: config.gatewayWorkerSendInterval,
 		recvInterval: config.gatewayWorkerRecvInterval,
@@ -47,7 +48,7 @@ func (gw *GatewayWorker) StartSend() { //nolint:gocognit
 
 	for {
 		select {
-		case <-gw.ShutdownChan:
+		case <-gw.done:
 			return
 		case <-ticker.C:
 			if err := gw.sendGatewayDataOnce(gw.Client); err != nil {
@@ -141,7 +142,7 @@ func (gw *GatewayWorker) StartReceive() { //nolint:gocognit
 
 	for {
 		select {
-		case <-gw.ShutdownChan:
+		case <-gw.done:
 			return
 		case <-ticker.C:
 			if err := gw.receiveGatewayDataOnce(gw.Client); err != nil {

@@ -81,7 +81,7 @@ func TestIntegration_WSClientToRPC(t *testing.T) {
 		b.HandleMessage(client, data)
 	})
 	b = NewBridge(hub, rpcClient, rpcClient)
-	go hub.Run()
+	go hub.Run(context.Background())
 
 	// Create WS server with the hub.
 	wsMux := http.NewServeMux()

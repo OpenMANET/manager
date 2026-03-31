@@ -192,6 +192,7 @@ type CommsConfig struct {
 	Trace                    bool
 	Enable                   bool
 	EnableBluetoothPtt       bool
+	EncoderComplexity        int
 }
 
 // NewComms copies cfg and returns a pointer ready for Start.
@@ -225,6 +226,7 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		ROIPVOXHoldTime:          cfg.ROIPVOXHoldTime,
 		ROIPMaxTXDuration:        cfg.ROIPMaxTXDuration,
 		ROIPInputDevice:          cfg.ROIPInputDevice,
+		EncoderComplexity:        cfg.EncoderComplexity,
 	}
 }
 
@@ -310,7 +312,12 @@ func (cfg *CommsConfig) applyDefaults() {
 // ─── buildCodec ───────────────────────────────────────────────────────────────
 
 func (cfg *CommsConfig) buildCodec() (AudioEncoder, AudioDecoder, error) {
-	enc, err := newOpusEncoder()
+	complexity := cfg.EncoderComplexity
+	if complexity <= 0 || complexity > 10 {
+		complexity = encoderComplexity
+	}
+
+	enc, err := newOpusEncoder(complexity)
 	if err != nil {
 		return nil, nil, err
 	}

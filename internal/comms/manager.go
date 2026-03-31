@@ -66,6 +66,7 @@ func (m *CommsManager) buildCommsConfig() *CommsConfig {
 		BluetoothInputDevice:     m.cfg.GetCommsBluetoothPttBluetoothInputDevice(),
 		BluetoothOutputDevice:    m.cfg.GetCommsBluetoothPttBluetoothOutputDevice(),
 		PlaybackDepth:            m.cfg.GetCommsPlaybackBuffer(),
+		EncoderComplexity:        m.cfg.GetCommsEncoderComplexity(),
 	})
 }
 

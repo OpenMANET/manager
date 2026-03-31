@@ -2,7 +2,6 @@ package mgmt
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"github.com/openmanet/go-alfred"
@@ -25,7 +24,6 @@ const (
 type ManagementConfig struct {
 	Log                                     zerolog.Logger
 	DB                                      *models.Queries
-	InteruptChan                            chan os.Signal
 	GPS                                     *gpsd.GPSService
 	uciOpenMANETConfig                      *network.UCIOpenMANETConfigReader
 	uciDHCPConfig                           *network.UCIDHCPConfigReader
@@ -69,7 +67,6 @@ func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
 		PositionDataType:           cfg.PositionDataType,
 		AddressReservationDataType: cfg.AddressReservationDataType,
 		WirelessConfig:             wirelessConfig,
-		InteruptChan:               cfg.InteruptChan,
 		DB:                         cfg.DB,
 		GPS:                        cfg.GPS,
 
@@ -108,20 +105,20 @@ func (m *ManagementConfig) Start(ctx context.Context) {
 	m.Log.Info().Msg("Alfred Client Started")
 
 	if m.AddressReservationDataType {
-		addressReservationWorker := NewAddressReservationWorker(m, client, m.InteruptChan)
+		addressReservationWorker := NewAddressReservationWorker(m, client, ctx)
 		go addressReservationWorker.ReserveAddressIfNeeded(ctx)
 	}
 
 	if m.NodeDataType {
 		// Start the node data worker
-		nodeDataWorker := NewNodeDataWorker(m, client, nodeDataWorkerInterval, m.InteruptChan)
+		nodeDataWorker := NewNodeDataWorker(m, client, nodeDataWorkerInterval, ctx)
 		go nodeDataWorker.StartSend()
 		go nodeDataWorker.StartReceive()
 	}
 
 	if m.GatewayDataType {
 		// Start the gateway worker
-		gatewayDataWorker := NewGatewayWorker(m, client, m.InteruptChan)
+		gatewayDataWorker := NewGatewayWorker(m, client, ctx)
 		go gatewayDataWorker.StartSend()
 		go gatewayDataWorker.StartReceive()
 	}

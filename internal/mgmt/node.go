@@ -28,20 +28,20 @@ const (
 )
 
 type NodeDataWorker struct {
-	Config       *ManagementConfig
-	Client       *alfred.Client
-	ShutdownChan <-chan os.Signal
-	Interval     time.Duration
+	Config   *ManagementConfig
+	Client   *alfred.Client
+	done     <-chan struct{}
+	Interval time.Duration
 }
 
-func NewNodeDataWorker(config *ManagementConfig, client *alfred.Client, interval time.Duration, shutdownChan <-chan os.Signal) *NodeDataWorker {
+func NewNodeDataWorker(config *ManagementConfig, client *alfred.Client, interval time.Duration, ctx context.Context) *NodeDataWorker {
 	config.Log.Info().Msg("NodeDataWorker initialized")
 
 	return &NodeDataWorker{
-		Config:       config,
-		Client:       client,
-		Interval:     interval,
-		ShutdownChan: shutdownChan,
+		Config:   config,
+		Client:   client,
+		Interval: interval,
+		done:     ctx.Done(),
 	}
 }
 
@@ -52,7 +52,7 @@ func (ndw *NodeDataWorker) StartSend() { //nolint:gocognit
 
 	for {
 		select {
-		case <-ndw.ShutdownChan:
+		case <-ndw.done:
 			return
 		case <-ticker.C:
 			if err := ndw.sendNodeDataOnce(ndw.Client); err != nil {
@@ -166,7 +166,7 @@ func (ndw *NodeDataWorker) StartReceive() { //nolint:gocognit
 
 	for {
 		select {
-		case <-ndw.ShutdownChan:
+		case <-ndw.done:
 			return
 		case <-ticker.C:
 			if err := ndw.receiveNodeDataOnce(ndw.Client, os.Hostname); err != nil {

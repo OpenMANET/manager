@@ -100,7 +100,7 @@ func (o *opusDecoder) DecodeFloat32(data []byte, pcm []float32) (int, error) {
 //   - "opus SetInBandFEC": failed to disable in-band FEC
 //   - "opus SetPacketLossPerc": failed to set the packet loss percentage
 //   - "opus SetDTX": failed to disable discontinuous transmission
-func newOpusEncoder() (AudioEncoder, error) {
+func newOpusEncoder(complexity int) (AudioEncoder, error) {
 	enc, err := opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
 	if err != nil {
 		return nil, fmt.Errorf("opus encoder: %w", err)
@@ -110,7 +110,7 @@ func newOpusEncoder() (AudioEncoder, error) {
 		return nil, fmt.Errorf("opus SetBitrate: %w", err)
 	}
 
-	if err := enc.SetComplexity(encoderComplexity); err != nil {
+	if err := enc.SetComplexity(complexity); err != nil {
 		return nil, fmt.Errorf("opus SetComplexity: %w", err)
 	}
 

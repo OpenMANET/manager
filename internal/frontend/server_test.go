@@ -1,8 +1,10 @@
 package frontend
 
 import (
+	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,7 +21,7 @@ import (
 
 func newTestServer(opts ...func(*Server)) *Server {
 	hub := ws.NewHub(nil)
-	go hub.Run()
+	go hub.Run(context.Background())
 
 	cfg := config.NewWithoutWatch(nil)
 	staticFS := fstest.MapFS{
@@ -29,11 +31,14 @@ func newTestServer(opts ...func(*Server)) *Server {
 		"pcm-worklet.js":   &fstest.MapFile{Data: []byte("// worklet")},
 	}
 
+	indexHTML, _ := fs.ReadFile(staticFS, "index.html")
+
 	s := &Server{
-		log:      logger.GetLogger("frontend.test"),
-		staticFS: staticFS,
-		hub:      hub,
-		cfg:      cfg,
+		log:       logger.GetLogger("frontend.test"),
+		staticFS:  staticFS,
+		hub:       hub,
+		cfg:       cfg,
+		indexHTML: indexHTML,
 	}
 
 	for _, opt := range opts {

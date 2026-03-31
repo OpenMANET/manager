@@ -38,6 +38,19 @@ func NewConnection(ctx context.Context, log zerolog.Logger, dbFilePath string) (
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
 
+	// Apply SQLite pragmas before any other operations.
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA synchronous=NORMAL",
+	}
+
+	for _, p := range pragmas {
+		if _, err := db.ExecContext(ctx, p); err != nil {
+			return nil, fmt.Errorf("execute %s: %w", p, err)
+		}
+	}
+
 	// Configure connection pool settings for SQLite
 	// SQLite only supports 1 writer at a time, so limit max open connections
 	db.SetMaxOpenConns(1)

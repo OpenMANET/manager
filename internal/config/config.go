@@ -49,16 +49,21 @@ const (
 	DefaultOpenMANETWebsocketPort                    int     = 0
 	DefaultOpenMANETAPIAddress                       string  = "0.0.0.0:8087"
 	DefaultOpenMANETCommsAPIAddress                  string  = "http://127.0.0.1:8087"
+	DefaultRuntimeMemLimit                           string  = "64MiB"
+	DefaultRuntimeGoGC                               int     = 50
+	DefaultDebugPprof                                bool    = false
+	DefaultDebugPprofAddress                         string  = "127.0.0.1:6060"
+	DefaultCommsEncoderComplexity                    int     = 5
 )
 
 // Config holds the application configuration values with automatic reloading support.
 type Config struct {
 	v                                         *viper.Viper
+	OpenMANETFrontendTLSHostPort              string
 	CommsNanoPTTDeviceName                    string
-	CommsBluetoothPttBluetoothAudioDeviceHint string
 	AlfredMode                                string
 	AlfredBatInterface                        string
-	AlfredSocketPath                          string
+	OpenMANETFrontendTLSCertFile              string
 	MeshNetInterface                          string
 	CommsNanoPTTDevicePath                    string
 	CommsBluetoothPttBluetoothOutputDevice    string
@@ -66,23 +71,22 @@ type Config struct {
 	CommsControlSource                        string
 	CommsProtocol                             string
 	CommsBluetoothPttBluetoothInputDevice     string
+	CommsBluetoothPttBluetoothAudioDeviceHint string
 	OpenMANETFrontendHostPort                 string
-	OpenMANETFrontendTLSHostPort              string
-	OpenMANETFrontendTLSCertFile              string
+	AlfredSocketPath                          string
 	OpenMANETFrontendTLSKeyFile               string
 	OpenMANETAPIAddress                       string
 	OpenMANETCommsAPIAddress                  string
+	RuntimeMemLimit                           string
+	DebugPprofAddress                         string
 	onChangeCallbacks                         []func(*Config)
-	CommsPlaybackBuffer                       int
 	BLOSStatusWorkerInterval                  int
 	OpenMANETWebsocketPort                    int
+	CommsEncoderComplexity                    int
+	CommsPlaybackBuffer                       int
+	RuntimeGoGC                               int
 	mu                                        sync.RWMutex
 	CommsMicGain                              float32
-	BLOSEnable                                bool
-	CommsLoopback                             bool
-	AlfredDataTypeGateway                     bool
-	AlfredEnable                              bool
-	AlfredDataTypePosition                    bool
 	AlfredDataTypeAddressReserv               bool
 	AlfredDataTypeNode                        bool
 	BatmanMulticastEnhancementsEnabled        bool
@@ -95,6 +99,12 @@ type Config struct {
 	EnableGNSS                                bool
 	GNSSSendAsNMEA                            bool
 	GNSSSendAsCoT                             bool
+	DebugPprof                                bool
+	AlfredDataTypePosition                    bool
+	AlfredEnable                              bool
+	AlfredDataTypeGateway                     bool
+	CommsLoopback                             bool
+	BLOSEnable                                bool
 }
 
 // New creates a new Config instance with the given viper instance.
@@ -384,6 +394,39 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.OpenMANETCommsAPIAddress = val
 	} else {
 		c.OpenMANETCommsAPIAddress = DefaultOpenMANETCommsAPIAddress
+	}
+
+	// Load runtime configuration
+	if val := c.v.GetString("runtime.memlimit"); val != "" {
+		c.RuntimeMemLimit = val
+	} else {
+		c.RuntimeMemLimit = DefaultRuntimeMemLimit
+	}
+
+	if c.v.IsSet("runtime.gogc") {
+		c.RuntimeGoGC = c.v.GetInt("runtime.gogc")
+	} else {
+		c.RuntimeGoGC = DefaultRuntimeGoGC
+	}
+
+	// Load debug configuration
+	if c.v.IsSet("debug.pprof") {
+		c.DebugPprof = c.v.GetBool("debug.pprof")
+	} else {
+		c.DebugPprof = DefaultDebugPprof
+	}
+
+	if val := c.v.GetString("debug.pprofAddress"); val != "" {
+		c.DebugPprofAddress = val
+	} else {
+		c.DebugPprofAddress = DefaultDebugPprofAddress
+	}
+
+	// Load comms encoder complexity
+	if c.v.IsSet("comms.encoderComplexity") {
+		c.CommsEncoderComplexity = c.v.GetInt("comms.encoderComplexity")
+	} else {
+		c.CommsEncoderComplexity = DefaultCommsEncoderComplexity
 	}
 }
 
@@ -763,4 +806,44 @@ func (c *Config) SetOpenMANETCommsAPIAddress(addr string) {
 	defer c.mu.Unlock()
 
 	c.OpenMANETCommsAPIAddress = addr
+}
+
+// GetRuntimeMemLimit returns the runtime memory limit string (e.g. "64MiB").
+func (c *Config) GetRuntimeMemLimit() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.RuntimeMemLimit
+}
+
+// GetRuntimeGoGC returns the GOGC percentage value.
+func (c *Config) GetRuntimeGoGC() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.RuntimeGoGC
+}
+
+// GetDebugPprof returns whether the pprof debug endpoint is enabled.
+func (c *Config) GetDebugPprof() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.DebugPprof
+}
+
+// GetDebugPprofAddress returns the pprof listen address.
+func (c *Config) GetDebugPprofAddress() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.DebugPprofAddress
+}
+
+// GetCommsEncoderComplexity returns the Opus encoder complexity (0-10).
+func (c *Config) GetCommsEncoderComplexity() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsEncoderComplexity
 }

@@ -12,7 +12,7 @@ import (
 // ─── Codec benchmarks ────────────────────────────────────────────────────────
 
 func BenchmarkEncodeOpus(b *testing.B) {
-	enc, err := newOpusEncoder()
+	enc, err := newOpusEncoder(encoderComplexity)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func BenchmarkEncodeOpus(b *testing.B) {
 // BenchmarkDecodeOpus measures the Encode→Decode (int16) round-trip used by
 // the send path.
 func BenchmarkDecodeOpus(b *testing.B) {
-	enc, err := newOpusEncoder()
+	enc, err := newOpusEncoder(encoderComplexity)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func BenchmarkDecodeOpus(b *testing.B) {
 // BenchmarkDecodeOpusFloat32 measures the receive hot path: DecodeFloat32
 // decodes directly to float32, skipping the int16 intermediate stage.
 func BenchmarkDecodeOpusFloat32(b *testing.B) {
-	enc, err := newOpusEncoder()
+	enc, err := newOpusEncoder(encoderComplexity)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func BenchmarkDecodeAndQueue_Mock(b *testing.B) {
 // BenchmarkDecodeAndQueue_Real measures the full receive hot path using the
 // real Opus decoder, confirming that DecodeFloat32 + pool reuse yield 0 allocs/op.
 func BenchmarkDecodeAndQueue_Real(b *testing.B) {
-	enc, err := newOpusEncoder()
+	enc, err := newOpusEncoder(encoderComplexity)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func BenchmarkBackpressureDrain(b *testing.B) {
 // decoder. This covers Changes 3 and 5 where PLC frames are generated on
 // decode errors and during consecutive loss bursts.
 func BenchmarkDecodeAndQueuePLC(b *testing.B) {
-	enc, err := newOpusEncoder()
+	enc, err := newOpusEncoder(encoderComplexity)
 	if err != nil {
 		b.Fatal(err)
 	}

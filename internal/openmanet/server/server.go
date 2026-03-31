@@ -119,10 +119,12 @@ func NewAPIServer(cfg APIServer) *APIServer {
 	// Use h2c so we can serve HTTP/2 without TLS.
 	p.SetUnencryptedHTTP2(true)
 	server := http.Server{
-		Addr:        cfg.Cfg.GetOpenMANETAPIAddress(),
-		Handler:     withCORS(api),
-		Protocols:   p,
-		ReadTimeout: 30 * time.Second,
+		Addr:           cfg.Cfg.GetOpenMANETAPIAddress(),
+		Handler:        withCORS(api),
+		Protocols:      p,
+		ReadTimeout:    30 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 16, // 64 KB
 		// WriteTimeout is intentionally omitted to support long-lived
 		// streaming RPCs (e.g. CommsService audio streams).
 		ErrorLog: logger.StandardLogger(cfg.Log),
@@ -149,6 +151,8 @@ func withCORS(handler http.Handler) http.Handler {
 		OptionsPassthrough: false,
 	})
 
+	wrapped := c.Handler(handler)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 1. Handle the Vary header for caching safety
 		w.Header().Add("Vary", "Access-Control-Request-Private-Network")
@@ -162,6 +166,6 @@ func withCORS(handler http.Handler) http.Handler {
 		//    different port with COEP: require-corp) can fetch from this server.
 		w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
 
-		c.Handler(handler).ServeHTTP(w, r)
+		wrapped.ServeHTTP(w, r)
 	})
 }

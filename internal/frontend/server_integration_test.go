@@ -104,7 +104,7 @@ func TestIntegration_APIEndpoints(t *testing.T) {
 
 	// Create the frontend server with the real clients.
 	hub := ws.NewHub(nil)
-	go hub.Run()
+	go hub.Run(context.Background())
 
 	cfg := config.NewWithoutWatch(nil)
 	staticFS := fstest.MapFS{

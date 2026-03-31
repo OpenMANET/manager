@@ -2,11 +2,17 @@ package openmanet
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"net/http"
+	_ "net/http/pprof" //nolint:gosec
 	"os"
 	"os/signal"
+	"runtime/debug"
+	"strconv"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/common-nighthawk/go-figure"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
@@ -27,16 +33,17 @@ import (
 
 func Start(staticFS fs.FS) {
 	var (
-		ctx     = context.Background()
-		banner  = figure.NewFigure("OpenMANET", "big", true)
-		c       = make(chan os.Signal, 1)
-		cfg     = config.New(nil)
-		log     = logger.InitLogging(ctx)
-		gps     *gpsd.GPSService
-		manager *mgmt.ManagementConfig
+		ctx, cancel = context.WithCancel(context.Background())
+		banner      = figure.NewFigure("OpenMANET", "big", true)
+		c           = make(chan os.Signal, 1)
+		cfg         = config.New(nil)
+		log         = logger.InitLogging(ctx)
+		gps         *gpsd.GPSService
+		manager     *mgmt.ManagementConfig
 	)
 
 	banner.Print()
+	applyRuntimeTuning(cfg, log)
 
 	// Create Comms manager (always, so the API handler can use it even if comms is currently disabled)
 	commsManager := comms.NewCommsManager(cfg, logger.GetLogger("comms"))
@@ -73,7 +80,6 @@ func Start(staticFS fs.FS) {
 	// Initialize and start management module
 	if cfg.GetAlfredEnable() {
 		manager, err = mgmt.NewManager(mgmt.ManagementConfig{
-			InteruptChan:               c,
 			Log:                        logger.GetLogger("mgmt"),
 			GPS:                        gps,
 			AlfredMode:                 cfg.GetAlfredMode(),
@@ -163,7 +169,15 @@ func Start(staticFS fs.FS) {
 	// Block until we receive an interrupt signal, then gracefully shutdown.
 	<-c
 
-	_ = api.Stop(ctx)
+	// Cancel context to signal all context-aware goroutines (mgmt workers, hub, etc.)
+	cancel()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+	_ = api.Stop(shutdownCtx)
+
+	shutdownCancel()
+
 	_ = database.CloseConnection()
 
 	commsManager.Disable()
@@ -175,6 +189,71 @@ func Start(staticFS fs.FS) {
 
 	log.Info().Msg("Exiting OpenMANETd")
 	os.Exit(0)
+}
+
+// applyRuntimeTuning configures Go runtime parameters and optionally starts
+// the pprof debug endpoint based on the application configuration.
+func applyRuntimeTuning(cfg *config.Config, log zerolog.Logger) {
+	debug.SetGCPercent(cfg.GetRuntimeGoGC())
+
+	if limit, err := parseMemLimit(cfg.GetRuntimeMemLimit()); err == nil {
+		debug.SetMemoryLimit(limit)
+		log.Info().Int64("bytes", limit).Msg("runtime memory limit set")
+	} else {
+		log.Warn().Err(err).Msg("invalid runtime.memlimit value; using Go default")
+	}
+
+	log.Info().
+		Int("GOGC", cfg.GetRuntimeGoGC()).
+		Msg("runtime tuning applied")
+
+	if cfg.GetDebugPprof() {
+		pprofAddr := cfg.GetDebugPprofAddress()
+
+		go func() {
+			log.Info().Str("addr", pprofAddr).Msg("pprof debug endpoint enabled")
+
+			if err := http.ListenAndServe(pprofAddr, nil); err != nil { //nolint:gosec
+				log.Error().Err(err).Msg("pprof server failed")
+			}
+		}()
+	}
+}
+
+// parseMemLimit converts a human-readable memory string (e.g. "64MiB", "256MiB",
+// "1GiB") into bytes. Supported suffixes: KiB, MiB, GiB.
+func parseMemLimit(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+
+	type suffix struct {
+		name string
+		mult int64
+	}
+
+	for _, sf := range []suffix{
+		{"GiB", 1 << 30},
+		{"MiB", 1 << 20},
+		{"KiB", 1 << 10},
+	} {
+		if strings.HasSuffix(s, sf.name) {
+			num := strings.TrimSuffix(s, sf.name)
+
+			v, err := strconv.ParseInt(strings.TrimSpace(num), 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("parse %q: %w", s, err)
+			}
+
+			return v * sf.mult, nil
+		}
+	}
+
+	// Plain integer treated as bytes.
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse %q: %w", s, err)
+	}
+
+	return v, nil
 }
 
 func resetDBOnStart(ctx context.Context, db *models.Queries, log zerolog.Logger) error {

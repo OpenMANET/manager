@@ -3,7 +3,6 @@ package mgmt
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 
@@ -15,20 +14,20 @@ import (
 )
 
 type AddressReservationWorker struct {
-	Config       *ManagementConfig
-	Client       *alfred.Client
-	ShutdownChan <-chan os.Signal
+	Config *ManagementConfig
+	Client *alfred.Client
+	done   <-chan struct{}
 
 	reserveInterval time.Duration
 }
 
-func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client, shutdownChan <-chan os.Signal) *AddressReservationWorker {
+func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client, ctx context.Context) *AddressReservationWorker {
 	config.Log.Info().Msg("AddressReservationWorker initialized")
 
 	return &AddressReservationWorker{
-		Config:       config,
-		Client:       client,
-		ShutdownChan: shutdownChan,
+		Config: config,
+		Client: client,
+		done:   ctx.Done(),
 
 		reserveInterval: config.addressReservationWorkerReserveInterval,
 	}
@@ -43,7 +42,7 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded(ctx context.Context)
 
 	for {
 		select {
-		case <-arw.ShutdownChan:
+		case <-arw.done:
 			return
 		case <-ticker.C:
 			configured, err := network.IsDHCPConfiguredWithReader(arw.Config.uciOpenMANETConfig)
