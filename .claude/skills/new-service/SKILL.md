@@ -3,10 +3,7 @@ name: new-service
 description: Scaffold a new ConnectRPC API service with proto, handler, registration, and tests
 disable-model-invocation: true
 user-invocable: true
-arguments:
-  - name: service-name
-    description: Name of the new service (e.g., "location", "mesh-monitor")
-    required: true
+argument-hint: "<service-name> (e.g., location, mesh-monitor)"
 ---
 
 # New API Service Scaffolding
