@@ -45,7 +45,7 @@ sqlc-gen: ## Generate sqlc code
 
 .PHONY: build
 build: fmt vet buf sqlc-gen frontend whisper-js ## Build manager binary.
-	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
+	GOCACHE=$(CURDIR)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
 
 .PHONY: run
 run: fmt vet buf sqlc-gen ## Run a controller from your host.
@@ -95,7 +95,7 @@ fuzz: ## Run fuzz tests for 30 seconds each.
 .PHONY: build-lite
 build-lite: fmt vet frontend ## Build lite binary without whisper WASM, UPX compressed (~5MB).
 	@rm -rf static/whisper
-	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
+	GOCACHE=$(CURDIR)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
 	@if command -v upx >/dev/null 2>&1; then \
 		upx --lzma --best bin/openmanetd; \
 	else \

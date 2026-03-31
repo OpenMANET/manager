@@ -7,15 +7,19 @@
     "ghcr.io/stuartleeks/dev-container-features/shell-history:0": {
       "version": "latest"
     },
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "installOhMyZsh": true,
+      "installOhMyZshConfig": true,
+      "configureZshAsDefaultShell": true
+    },
+    "ghcr.io/devcontainers-extra/features/zsh-plugins:0": {},
     "ghcr.io/devcontainers/features/go:1": {
       "version": "1.26",
       "golangciLintVersion": "latest"
     },
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {
-      "version": "latest",
-      "moby": false
-    },
     "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
     "ghcr.io/rocker-org/devcontainer-features/apt-packages:1": {
       "packages": "ripgrep,build-essential,libnl-3-dev,libnl-genl-3-dev,libgps-dev,libcap-dev,pkg-config,libopus-dev,libopusfile-dev,portaudio19-dev,batctl,net-tools,alfred,iproute2,libhidapi-dev,libusb-1.0-0-dev,libudev-dev"
     }
@@ -36,25 +40,21 @@
   "containerEnv": {
     "SOURCE_FILEPATH": "${localWorkspaceFolder}"
   },
+  "mounts": [
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.claude,target=/home/vscode/.claude,type=bind"
+  ],
   // The optional 'runArgs' property can be used to specify additional runtime arguments.
   "runArgs": [
-    // Uncomment the next line to use Docker from inside the container. See https://aka.ms/vscode-remote/samples/docker-in-docker for details.
-    "-v",
-    "/var/run/docker.sock:/var/run/docker.sock",
     // Uncomment the next line if you will use a ptrace-based debugger like C++, Go, and Rust
     "--cap-add=SYS_ADMIN",
     "--security-opt",
     "apparmor:unconfined",
-    "--privileged",
     // "--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined",
     // Uncomment the next line to use a non-root user. On Linux, this will prevent
     // new files getting created as root, but you may need to update the USER_UID
     // and USER_GID in .devcontainer/Dockerfile to match your user if not 1000.
-    "--network=host",
-    "-v",
-    "/dev:/dev",
     "-u",
-    "root"
+    "vscode"
   ],
   // Uncomment the next line if you want to publish any ports.
   "appPort": [],
