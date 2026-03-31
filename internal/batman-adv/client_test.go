@@ -3,14 +3,84 @@ package batmanadv
 import (
 	"encoding/binary"
 	"errors"
+	"os"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/mdlayher/genetlink"
 	"github.com/mdlayher/netlink"
 	"github.com/rs/zerolog"
 )
+
+// syncFakeQuerier is a thread-safe Querier for concurrent tests.
+type syncFakeQuerier struct {
+	mu     sync.Mutex
+	msgs   []genetlink.Message
+	err    error
+	calls  int
+	closed bool
+}
+
+func (q *syncFakeQuerier) Execute(_ genetlink.Message, _ uint16, _ netlink.HeaderFlags) ([]genetlink.Message, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.calls++
+	return q.msgs, q.err
+}
+
+func (q *syncFakeQuerier) Close() error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.closed = true
+	return nil
+}
+
+func (q *syncFakeQuerier) isClosed() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.closed
+}
+
+// blockingQuerier blocks in Execute until unblocked via a channel.
+// Used to test that Close() and reconnectLoop hold queryMu while closing the connection.
+type blockingQuerier struct {
+	mu      sync.Mutex
+	closed  bool
+	once    sync.Once
+	started chan struct{} // closed when Execute first begins
+	unblock chan struct{} // close to let Execute return
+	err     error
+}
+
+func newBlockingQuerier(err error) *blockingQuerier {
+	return &blockingQuerier{
+		started: make(chan struct{}),
+		unblock: make(chan struct{}),
+		err:     err,
+	}
+}
+
+func (q *blockingQuerier) Execute(_ genetlink.Message, _ uint16, _ netlink.HeaderFlags) ([]genetlink.Message, error) {
+	q.once.Do(func() { close(q.started) })
+	<-q.unblock
+	return nil, q.err
+}
+
+func (q *blockingQuerier) Close() error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.closed = true
+	return nil
+}
+
+func (q *blockingQuerier) isClosed() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.closed
+}
 
 // fakeQuerier is a mock Querier that returns preconfigured responses.
 type fakeQuerier struct {
@@ -615,5 +685,212 @@ func TestGetOriginators_EmptyDump(t *testing.T) {
 
 	if len(origs) != 0 {
 		t.Errorf("len(origs) = %d, want 0", len(origs))
+	}
+}
+
+// --- Race condition fix tests ---
+
+func TestIsConnectionLost_EBADFAndErrClosed(t *testing.T) {
+	c := testClient(&fakeQuerier{})
+	defer c.cancel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"EBADF", syscall.EBADF, true},
+		{"os.ErrClosed", os.ErrClosed, true},
+		{"EBADF wrapped", errors.Join(syscall.EBADF, errors.New("outer")), true},
+		{"os.ErrClosed wrapped", errors.Join(os.ErrClosed, errors.New("outer")), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := c.isConnectionLost(tt.err)
+			if got != tt.want {
+				t.Errorf("isConnectionLost(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestGetMeshConfig_EBADF_FallsBackToBatctl verifies that an EBADF error from
+// the querier is treated as a connection loss, switching to batctl fallback
+// instead of propagating the raw fd error.
+func TestGetMeshConfig_EBADF_FallsBackToBatctl(t *testing.T) {
+	q := &fakeQuerier{err: syscall.EBADF}
+	c := testClient(q)
+	defer c.cancel()
+
+	_, _ = c.GetMeshConfig()
+
+	if !c.useBatctl.Load() {
+		t.Error("expected useBatctl=true after EBADF error")
+	}
+}
+
+func TestGetMeshGateways_EBADF_FallsBackToBatctl(t *testing.T) {
+	q := &fakeQuerier{err: syscall.EBADF}
+	c := testClient(q)
+	defer c.cancel()
+
+	_, _ = c.GetMeshGateways()
+
+	if !c.useBatctl.Load() {
+		t.Error("expected useBatctl=true after EBADF error")
+	}
+}
+
+func TestGetMeshNeighbors_EBADF_FallsBackToBatctl(t *testing.T) {
+	q := &fakeQuerier{err: syscall.EBADF}
+	c := testClient(q)
+	defer c.cancel()
+
+	_, _ = c.GetMeshNeighbors()
+
+	if !c.useBatctl.Load() {
+		t.Error("expected useBatctl=true after EBADF error")
+	}
+}
+
+func TestGetOriginators_EBADF_FallsBackToBatctl(t *testing.T) {
+	q := &fakeQuerier{err: syscall.EBADF}
+	c := testClient(q)
+	defer c.cancel()
+
+	_, _ = c.GetOriginators()
+
+	if !c.useBatctl.Load() {
+		t.Error("expected useBatctl=true after EBADF error")
+	}
+}
+
+// TestGetMeshConfig_ErrClosed_FallsBackToBatctl verifies that an os.ErrClosed
+// error ("use of closed file") triggers batctl fallback rather than a hard error.
+func TestGetMeshConfig_ErrClosed_FallsBackToBatctl(t *testing.T) {
+	q := &fakeQuerier{err: os.ErrClosed}
+	c := testClient(q)
+	defer c.cancel()
+
+	_, _ = c.GetMeshConfig()
+
+	if !c.useBatctl.Load() {
+		t.Error("expected useBatctl=true after os.ErrClosed error")
+	}
+}
+
+// TestClose_NilsQuerier verifies that Close sets c.querier to nil so that any
+// code path that checks c.querier cannot accidentally use the closed fd.
+func TestClose_NilsQuerier(t *testing.T) {
+	q := &fakeQuerier{}
+	c := testClient(q)
+
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	if c.querier != nil {
+		t.Error("expected c.querier to be nil after Close()")
+	}
+}
+
+// TestClose_BlocksUntilQueryCompletes verifies that Close() holds queryMu
+// before closing the querier, so it cannot close a connection mid-Execute.
+// This guards against the race: query goroutine calls Execute while Close
+// concurrently frees the underlying fd.
+func TestClose_BlocksUntilQueryCompletes(t *testing.T) {
+	q := newBlockingQuerier(errors.New("query error"))
+	c := testClient(q)
+
+	// Start a query that will block in Execute (holding queryMu).
+	go func() {
+		_, _ = c.queryMeshConfig()
+	}()
+
+	// Wait for Execute to be running.
+	<-q.started
+
+	// Call Close() concurrently; with the fix it must wait for Execute to finish.
+	closeDone := make(chan struct{})
+	go func() {
+		c.Close()
+		close(closeDone)
+	}()
+
+	// Give Close a chance to (incorrectly) proceed without the lock.
+	time.Sleep(20 * time.Millisecond)
+
+	if q.isClosed() {
+		t.Error("Close() closed the querier while Execute was still blocked — queryMu not held")
+	}
+
+	// Unblock Execute; Close() should now be able to acquire queryMu and proceed.
+	close(q.unblock)
+
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for Close() to complete after Execute returned")
+	}
+
+	if !q.isClosed() {
+		t.Error("querier was not closed after Execute returned and Close() proceeded")
+	}
+}
+
+// TestConcurrentQueriesAndClose_NoRace exercises concurrent queryMeshConfig and
+// Close calls. Run with -race to verify the queryMu fix eliminates the data race
+// on c.querier between the query path and the close path.
+func TestConcurrentQueriesAndClose_NoRace(t *testing.T) {
+	q := &syncFakeQuerier{msgs: []genetlink.Message{buildMeshConfigMessage()}}
+	c := testClient(q)
+
+	var wg sync.WaitGroup
+
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = c.queryMeshConfig()
+		}()
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.Close()
+	}()
+
+	wg.Wait()
+}
+
+// TestReconnectLoop_ClosesQuerier verifies that the reconnect loop closes the
+// old querier after a connection loss, even when re-dialling batman-adv fails
+// (which it always will in the test environment with no kernel module).
+func TestReconnectLoop_ClosesQuerier(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: reconnectLoop has a 1 s initial backoff")
+	}
+
+	q := &syncFakeQuerier{}
+	c := testClient(q)
+
+	c.handleConnectionLoss()
+
+	deadline := time.After(5 * time.Second)
+	poll := time.NewTicker(50 * time.Millisecond)
+	defer poll.Stop()
+
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out: reconnectLoop did not close the old querier")
+		case <-poll.C:
+			if q.isClosed() {
+				c.cancel() // stop the loop
+				return
+			}
+		}
 	}
 }
