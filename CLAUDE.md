@@ -94,6 +94,7 @@ Run `make lint-frontend` before committing frontend changes. The ESLint config a
 - **`static/` must be populated** before compiling the Go binary. The `//go:embed static/*` directive in `static.go` fails at compile time if the directory is empty. Run `make frontend` first, or use `make build`.
 - **Never edit `internal/api/`, `frontend/src/gen/`, or `internal/database/models/`** — generated, will be overwritten.
 - **No WriteTimeout on the API server** — intentional, required for long-lived streaming RPCs in CommsService.
+- **Cross-architecture builds**: The application must compile for `linux/amd64`, `linux/arm64`, and `linux/mipsle`. Use `golang.org/x/sys/unix` (not the frozen `syscall` package) for socket options and other OS-level constants to ensure portability.
 
 ## Testing Patterns
 
