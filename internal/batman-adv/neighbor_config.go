@@ -23,18 +23,7 @@ type Neighbors []Neighbor
 // It returns a pointer to a [Neighbors] struct containing the list of discovered
 // mesh neighbors, or an error if the command execution fails or the output cannot
 // be parsed as valid JSON.
-// GetMeshNeighbors retrieves the neighbor list, preferring netlink when a
-// default client has been set, falling back to batctl otherwise.
 func GetMeshNeighbors() (*Neighbors, error) {
-	if c := getDefaultClient(); c != nil && !c.useBatctl.Load() {
-		return c.GetMeshNeighbors()
-	}
-
-	return GetMeshNeighborsBatctl()
-}
-
-// GetMeshNeighborsBatctl retrieves the neighbor list by executing `batctl nj`.
-func GetMeshNeighborsBatctl() (*Neighbors, error) {
 	cmd := exec.Command("batctl", "nj") //nolint:noctx // no context needed for short-lived local command
 
 	output, err := cmd.Output()

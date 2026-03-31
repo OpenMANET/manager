@@ -40,7 +40,6 @@ type APIServer struct {
 	BLOSManager  blos.BLOSLifecycle
 	CommsManager comms.CommsLifecycle
 	Interfaces   handlers.InterfaceProvider
-	BatAdvClient batmanadv.OriginatorProvider
 	DHCP         handlers.DHCPConfigProvider
 	Leases       handlers.LeaseProvider
 	Tailscale    handlers.TailscaleStatusProvider
@@ -93,11 +92,6 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Leases:     cfg.Leases,
 	}, connect.WithInterceptors(validateInterceptor)))
 
-	originatorProvider := batmanadv.OriginatorProvider(&batmanadv.BatctlOriginatorProvider{})
-	if cfg.BatAdvClient != nil {
-		originatorProvider = cfg.BatAdvClient
-	}
-
 	api.Handle(dashboardconnect.NewDashboardServiceHandler(&handlers.DashboardService{
 		Log:         cfg.Log,
 		Board:       &handlers.DefaultBoardProvider{},
@@ -105,7 +99,7 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Firmware:    &system.OpenWrtFirmwareProvider{},
 		Interfaces:  cfg.Interfaces,
 		Wifi:        &handlers.DefaultWifiStationProvider{Wifi: cfg.Wifi},
-		Originators: originatorProvider,
+		Originators: &batmanadv.BatctlOriginatorProvider{},
 		Tailscale:   cfg.Tailscale,
 		Services:    &system.InitDServiceChecker{},
 		Actions:     &system.InitDActionExecutor{},
