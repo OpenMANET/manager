@@ -69,3 +69,4 @@
 /internal/mgmt @coreywagehoft
 .golangci.yml @coreywagehoft
 .goreleaser.yml @coreywagehoft
+.claude @coreywagehoft
