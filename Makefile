@@ -43,7 +43,7 @@ sqlc-gen: ## Generate sqlc code
 	$(GOBIN)/sqlc generate
 
 .PHONY: build
-build: fmt vet buf sqlc-gen frontend whisper-embed ## Build manager binary.
+build: fmt vet buf sqlc-gen frontend whisper-js ## Build manager binary.
 	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
 
 .PHONY: run
@@ -92,7 +92,7 @@ fuzz: ## Run fuzz tests for 30 seconds each.
 	go test ./internal/comms/... -fuzz=Fuzz -fuzztime=30s -run=^$$
 
 .PHONY: build-lite
-build-lite: fmt vet frontend ## Build lite binary without whisper, UPX compressed (~5MB).
+build-lite: fmt vet frontend ## Build lite binary without whisper WASM, UPX compressed (~5MB).
 	@rm -rf static/whisper
 	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
 	@if command -v upx >/dev/null 2>&1; then \
@@ -102,22 +102,24 @@ build-lite: fmt vet frontend ## Build lite binary without whisper, UPX compresse
 	fi
 	@echo "Built bin/openmanetd (lite, no whisper, UPX compressed)"
 
-.PHONY: whisper-embed
-whisper-embed: ## Copy whisper WASM + model into static/ for embedding.
+.PHONY: whisper-js
+whisper-js: ## Download whisper WASM JS into static/ for embedding (model downloaded at runtime).
 	@mkdir -p static/whisper
-	@if [ ! -f whisper/whisper-main.js ]; then \
-		echo "ERROR: whisper/whisper-main.js not found."; \
-		echo "Download it from https://whisper.ggerganov.com/ or build from whisper.cpp"; \
-		exit 1; \
+	@if [ ! -f static/whisper/whisper-main.js ]; then \
+		echo "Downloading whisper WASM JS..."; \
+		curl -fSL -o static/whisper/whisper-main.js \
+			"https://whisper.ggerganov.com/whisper-main.js"; \
 	fi
-	@if [ ! -f whisper/ggml-tiny.en.bin ]; then \
+	@echo "Whisper JS staged in static/whisper/ (model will be downloaded on-demand via WebUI)"
+
+.PHONY: whisper-embed
+whisper-embed: whisper-js ## Download whisper model into static/ for full embedding (dev/testing).
+	@if [ ! -f static/whisper/ggml-tiny.en.bin ]; then \
 		echo "Downloading whisper tiny.en model (75MB)..."; \
-		curl -fSL -o whisper/ggml-tiny.en.bin \
+		curl -fSL -o static/whisper/ggml-tiny.en.bin \
 			"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"; \
 	fi
-	cp whisper/whisper-main.js static/whisper/
-	cp whisper/ggml-tiny.en.bin static/whisper/
-	@echo "Whisper files staged in static/whisper/ (will be embedded in binary)"
+	@echo "Whisper model staged in static/whisper/ (fully embedded in binary)"
 
 .PHONY: whisper-clean
 whisper-clean: ## Remove whisper files from static/ (before lite build).

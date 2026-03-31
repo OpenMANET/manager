@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -195,15 +197,40 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("/api/upgrade/apply", s.handleUpgradeApply)
 	mux.HandleFunc("/api/upgrade/upload", s.handleUpgradeUpload)
 
+	// Whisper management endpoints.
+	mux.HandleFunc("/api/whisper/status", s.handleWhisperStatus)
+	mux.HandleFunc("/api/whisper/download", s.handleWhisperDownload)
+	mux.HandleFunc("/api/whisper/download/status", s.handleWhisperDownloadStatus)
+	mux.HandleFunc("/api/whisper/remove", s.handleWhisperRemove)
+
 	// SPA-aware static file server.
 	// Serves static files if they exist, otherwise serves index.html
 	// for client-side routing (React Router).
 	staticFileServer := http.FileServerFS(s.staticFS)
 	spaHandler := func(w http.ResponseWriter, r *http.Request) {
+		// Serve whisper model files from the runtime download directory
+		// (/tmp/whisper by default) before checking the embedded staticFS.
+		// The WASM JS file remains embedded; only the large model is optional.
+		if strings.HasPrefix(r.URL.Path, "/whisper/") {
+			name := filepath.Base(r.URL.Path)
+			candidate := filepath.Join(whisperDir, name)
+
+			absCandidate, err := filepath.Abs(candidate)
+			if err == nil && strings.HasPrefix(absCandidate, whisperDir) {
+				if _, statErr := os.Stat(absCandidate); statErr == nil {
+					http.ServeFile(w, r, absCandidate)
+
+					return
+				}
+			}
+
+			// Fall through to embedded staticFS.
+		}
+
 		// Try to serve the static file directly.
 		if r.URL.Path != "/" {
-			filePath := strings.TrimPrefix(r.URL.Path, "/")
-			if _, err := fs.Stat(s.staticFS, filePath); err == nil {
+			fp := strings.TrimPrefix(r.URL.Path, "/")
+			if _, err := fs.Stat(s.staticFS, fp); err == nil {
 				staticFileServer.ServeHTTP(w, r)
 
 				return

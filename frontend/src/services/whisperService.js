@@ -64,6 +64,75 @@ const DB_NAME = 'comms-whisper';
 const DB_VER = 1;
 
 // -----------------------------------------------------------------------------
+// Server-side whisper model management
+// -----------------------------------------------------------------------------
+
+// checkWhisperAvailable — queries the backend for whisper model availability.
+// Returns { available, state, progress, error } or { available: false } on failure.
+export async function checkWhisperAvailable() {
+  try {
+    const resp = await fetch('/api/whisper/status');
+    if (!resp.ok) return { available: false, state: 'idle', progress: 0, error: '' };
+    return await resp.json();
+  } catch {
+    return { available: false, state: 'idle', progress: 0, error: '' };
+  }
+}
+
+// downloadWhisperModel — triggers a server-side download of the whisper model.
+// Polls progress and calls onProgress(pct) until complete.
+// Returns true on success, false on failure.
+export async function downloadWhisperModel(onProgress, onError) {
+  try {
+    const resp = await fetch('/api/whisper/download', { method: 'POST' });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      if (onError) onError(data.error || `HTTP ${resp.status}`);
+      return false;
+    }
+
+    // Poll download progress.
+    return new Promise((resolve) => {
+      const poll = setInterval(async () => {
+        try {
+          const statusResp = await fetch('/api/whisper/download/status');
+          if (!statusResp.ok) return;
+          const status = await statusResp.json();
+
+          if (onProgress) onProgress(status.progress || 0);
+
+          if (status.state === 'ready') {
+            clearInterval(poll);
+            resolve(true);
+          } else if (status.state === 'error') {
+            clearInterval(poll);
+            if (onError) onError(status.error || 'Download failed');
+            resolve(false);
+          }
+          // 'downloading' — keep polling.
+        } catch {
+          // Network error during poll — keep trying.
+        }
+      }, 1000);
+    });
+  } catch (e) {
+    if (onError) onError(e.message);
+    return false;
+  }
+}
+
+// removeWhisperModel — asks the backend to delete downloaded whisper files.
+// Returns true on success, false on failure.
+export async function removeWhisperModel() {
+  try {
+    const resp = await fetch('/api/whisper/remove', { method: 'DELETE' });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
+// -----------------------------------------------------------------------------
 // initWhisper(onStatus, onLog, debugFn)
 // -----------------------------------------------------------------------------
 // Loads the Whisper model and initializes the WASM inference engine.
@@ -131,18 +200,21 @@ export async function initWhisper(onStatus, onLog, debugFn) {
     let modelData = await loadFromIDB();
 
     if (!modelData) {
+      // Check if the model is available on the server (downloaded to /tmp
+      // or embedded in the binary).
+      _debugFn('Checking server for whisper model availability...');
+      const serverStatus = await checkWhisperAvailable();
+      if (!serverStatus.available) {
+        onStatus('Whisper model not downloaded \u2014 go to Settings to download');
+        _onLog('Whisper model not available. Download it from the Settings page.', 'err');
+        return false;
+      }
+
       // Download from the backend server.
       onStatus('Downloading model from server...');
       _debugFn('Fetching model from /whisper/ggml-tiny.en.bin...');
 
-      // Try local server first, fall back to HuggingFace CDN if not deployed.
-      // The model is ~75 MB and may not fit on storage-constrained devices.
-      let resp = await fetch('/whisper/ggml-tiny.en.bin');
-      if (!resp.ok) {
-        _debugFn('Local model not found, falling back to HuggingFace CDN...');
-        onStatus('Downloading model from HuggingFace...');
-        resp = await fetch('https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin');
-      }
+      const resp = await fetch('/whisper/ggml-tiny.en.bin');
       if (!resp.ok) throw new Error('Failed to fetch model: HTTP ' + resp.status);
 
       modelData = new Uint8Array(await resp.arrayBuffer());

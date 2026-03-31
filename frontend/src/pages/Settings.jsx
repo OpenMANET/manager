@@ -7,6 +7,7 @@ import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { DashboardService } from "../gen/openmanet/dashboard/v1/dashboard_service_connect.js";
 import { QuickAction } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
+import WhisperManager from "../components/WhisperManager.jsx";
 
 const dashboardClient = createClient(DashboardService, transport);
 
@@ -260,6 +261,9 @@ export default function SettingsPage() {
             {restarting ? 'Restarting...' : 'Restart openmanetd'}
           </button>
         </div>
+
+        {/* Whisper Speech-to-Text */}
+        <WhisperManager />
 
         {/* OpenMANETd Config */}
         <div className="card" style={{ gridColumn: '1 / -1' }}>

@@ -10,7 +10,7 @@ import './App.css';
 import { CHANNELS_DEF, MSG_TYPE, RX_WAVE_HISTORY, VOX_HANGTIME_MS, NEIGHBOR_HISTORY_LENGTH } from './constants.js';
 import { connect as wsConnect, disconnect as wsDisconnect, setCallbacks as wsSetCallbacks, sendToggle as wsSendToggle, sendByte as wsSendByte, send as wsSend, isOpen as wsIsOpen } from './services/websocketService.js';
 import { initAudio, decodeAndPlay, resetTxTimestamp, startMic, stopMic, setVolume, setMicGain, playBuffer, startMicMonitor, enumerateDevices, setOutputDevice, setMicDevice, setEncoderCallback, clearEncoderCallback } from './services/audioEngine.js';
-import { isReady as whisperIsReady, initWhisper, feedAudio as whisperFeedAudio, checkSilenceAndTranscribe } from './services/whisperService.js';
+import { isReady as whisperIsReady, initWhisper, feedAudio as whisperFeedAudio, checkSilenceAndTranscribe, checkWhisperAvailable } from './services/whisperService.js';
 import { fetchMeshStatus } from './services/meshApi.js';
 import { getReplayPcm } from './services/replayBuffer.js';
 import StatusBar from './components/StatusBar.jsx';
@@ -538,6 +538,17 @@ export default function App() {
     dbg(`CC toggle: enabled=${enabled} ready=${whisperIsReady()}`);
 
     if (enabled && !whisperIsReady()) {
+      // Check if the whisper model is available on the server before
+      // attempting to initialize.  If not downloaded, guide the user
+      // to the Settings page instead of failing with a cryptic error.
+      const serverStatus = await checkWhisperAvailable();
+      if (!serverStatus.available) {
+        setWhisperStatus('Whisper model not downloaded \u2014 go to Settings to download');
+        setWhisperEnabled(false);
+        whisperEnabledRef.current = false;
+        return;
+      }
+
       const ok = await initWhisper(
         (statusMsg) => setWhisperStatus(statusMsg),
         addLog,

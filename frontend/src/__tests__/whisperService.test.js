@@ -140,12 +140,18 @@ describe('TestWhisperInit', () => {
       FS_unlink: vi.fn(),
       init: vi.fn(() => null),
     });
-    vi.stubGlobal('fetch', vi.fn(() =>
-      Promise.resolve({
+    vi.stubGlobal('fetch', vi.fn((url) => {
+      if (url === '/api/whisper/status') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ available: true, state: 'ready', progress: 100, error: '' }),
+        });
+      }
+      return Promise.resolve({
         ok: true,
         arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
-      })
-    ));
+      });
+    }));
 
     const onStatus = vi.fn();
     const onLog = vi.fn();
@@ -169,12 +175,18 @@ describe('TestWhisperInit', () => {
       init: vi.fn(() => 1),
       full_default: vi.fn(),
     });
-    vi.stubGlobal('fetch', vi.fn(() =>
-      Promise.resolve({
+    vi.stubGlobal('fetch', vi.fn((url) => {
+      if (url === '/api/whisper/status') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ available: true, state: 'ready', progress: 100, error: '' }),
+        });
+      }
+      return Promise.resolve({
         ok: true,
         arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
-      })
-    ));
+      });
+    }));
 
     const onStatus = vi.fn();
     const onLog = vi.fn();
@@ -187,7 +199,7 @@ describe('TestWhisperInit', () => {
     expect(onStatus).toHaveBeenCalledWith('Whisper ready — listening on all channels');
   });
 
-  it('falls back to CDN when local fetch fails', async () => {
+  it('returns false when server model fetch fails', async () => {
     vi.stubGlobal('Module', {
       FS_createDataFile: vi.fn(),
       FS_unlink: vi.fn(),
@@ -195,22 +207,150 @@ describe('TestWhisperInit', () => {
       full_default: vi.fn(),
     });
     vi.stubGlobal('fetch', vi.fn((url) => {
-      if (url.includes('huggingface')) {
+      if (url === '/api/whisper/status') {
         return Promise.resolve({
           ok: true,
-          arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
+          json: () => Promise.resolve({ available: true, state: 'ready', progress: 100, error: '' }),
+        });
+      }
+      // Model fetch fails
+      return Promise.resolve({ ok: false, status: 404 });
+    }));
+
+    const onLog = vi.fn();
+    const initPromise = whisper.initWhisper(vi.fn(), onLog, vi.fn());
+    await vi.advanceTimersByTimeAsync(100);
+
+    const result = await initPromise;
+    expect(result).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkWhisperAvailable
+// ---------------------------------------------------------------------------
+
+describe('TestCheckWhisperAvailable', () => {
+  it('returns available true when server reports available', async () => {
+    vi.stubGlobal('fetch', vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ available: true, state: 'ready', progress: 100, error: '' }),
+      })
+    ));
+
+    const result = await whisper.checkWhisperAvailable();
+    expect(result.available).toBe(true);
+    expect(result.state).toBe('ready');
+  });
+
+  it('returns available false on network error', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('network error'))));
+
+    const result = await whisper.checkWhisperAvailable();
+    expect(result.available).toBe(false);
+  });
+
+  it('returns available false on non-ok response', async () => {
+    vi.stubGlobal('fetch', vi.fn(() =>
+      Promise.resolve({ ok: false, status: 500 })
+    ));
+
+    const result = await whisper.checkWhisperAvailable();
+    expect(result.available).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// downloadWhisperModel
+// ---------------------------------------------------------------------------
+
+describe('TestDownloadWhisperModel', () => {
+  it('returns false and calls onError when POST fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(() =>
+      Promise.resolve({
+        ok: false,
+        status: 409,
+        json: () => Promise.resolve({ error: 'download already in progress' }),
+      })
+    ));
+
+    const onError = vi.fn();
+    const result = await whisper.downloadWhisperModel(vi.fn(), onError);
+    expect(result).toBe(false);
+    expect(onError).toHaveBeenCalledWith('download already in progress');
+  });
+
+  it('returns false and calls onError on network failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))));
+
+    const onError = vi.fn();
+    const result = await whisper.downloadWhisperModel(vi.fn(), onError);
+    expect(result).toBe(false);
+    expect(onError).toHaveBeenCalledWith('offline');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// removeWhisperModel
+// ---------------------------------------------------------------------------
+
+describe('TestRemoveWhisperModel', () => {
+  it('returns true on success', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true })));
+
+    const result = await whisper.removeWhisperModel();
+    expect(result).toBe(true);
+    expect(fetch).toHaveBeenCalledWith('/api/whisper/remove', { method: 'DELETE' });
+  });
+
+  it('returns false on failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false })));
+
+    const result = await whisper.removeWhisperModel();
+    expect(result).toBe(false);
+  });
+
+  it('returns false on network error', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('fail'))));
+
+    const result = await whisper.removeWhisperModel();
+    expect(result).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// initWhisper with server availability check
+// ---------------------------------------------------------------------------
+
+describe('TestWhisperInitAvailability', () => {
+  it('returns false when model not available on server', async () => {
+    vi.stubGlobal('Module', {
+      _runtimeReady: Promise.resolve(),
+      FS_createDataFile: vi.fn(),
+    });
+
+    // First call: checkWhisperAvailable → /api/whisper/status
+    // Second call would be model fetch, but should not happen
+    vi.stubGlobal('fetch', vi.fn((url) => {
+      if (url === '/api/whisper/status') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ available: false, state: 'idle', progress: 0, error: '' }),
         });
       }
       return Promise.resolve({ ok: false, status: 404 });
     }));
 
-    const initPromise = whisper.initWhisper(vi.fn(), vi.fn(), vi.fn());
+    const onStatus = vi.fn();
+    const onLog = vi.fn();
+
+    const initPromise = whisper.initWhisper(onStatus, onLog, vi.fn());
     await vi.advanceTimersByTimeAsync(100);
 
     const result = await initPromise;
-    expect(result).toBe(true);
-    // Verify both local and CDN fetches were attempted
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(result).toBe(false);
+    expect(onStatus).toHaveBeenCalledWith(expect.stringContaining('not downloaded'));
   });
 });
 
@@ -242,12 +382,18 @@ describe('TestWhisperIsReady', () => {
       init: vi.fn(() => 1),
       full_default: vi.fn(),
     });
-    vi.stubGlobal('fetch', vi.fn(() =>
-      Promise.resolve({
+    vi.stubGlobal('fetch', vi.fn((url) => {
+      if (url === '/api/whisper/status') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ available: true, state: 'ready', progress: 100, error: '' }),
+        });
+      }
+      return Promise.resolve({
         ok: true,
         arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
-      })
-    ));
+      });
+    }));
 
     const initPromise = whisper.initWhisper(vi.fn(), vi.fn(), vi.fn());
     await vi.advanceTimersByTimeAsync(100);

@@ -33,9 +33,10 @@ go.work.sum
 .DS_Store
 bin
 .claude
-static/whisper
+static/whisper/*.bin
 
 # Frontend build artifacts
 frontend/node_modules/
 node_modules
 frontend/coverage
+.vite/vitest
