@@ -1,6 +1,6 @@
 # OpenMANETd
 
-Management and operations daemon for OpenMANET mesh networks. Runs on batman-adv mesh nodes and provides push-to-talk audio communications, mesh management, an embedded React web interface, and a gRPC/HTTP API.
+Management and operations daemon for OpenMANET mesh networks. Runs on OpenMANET mesh nodes and provides, mesh management, an embedded React web interface, and a gRPC/HTTP API.
 
 ## Features
 
