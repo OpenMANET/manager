@@ -1,9 +1,4 @@
 {
-  "enabledPlugins": {
-    "gopls-lsp@claude-plugins-official": true,
-    "security-guidance@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true
-  },
   "permissions": {
     "allow": [
       "Bash(npm --version)",
@@ -22,7 +17,12 @@
       "Bash(go doc:*)",
       "Bash(npx vitest:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(go test:*)"
+      "Bash(go test:*)",
+      "Bash(make buf:*)",
+      "Bash(make sqlc-gen:*)"
+    ],
+    "additionalDirectories": [
+      "/workspaces/openmanetd/.claude/skills"
     ]
   },
   "hooks": {
@@ -56,7 +56,13 @@
           },
           {
             "type": "command",
-            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$FILE\" ]; then if echo \"$FILE\" | grep -q '/proto/'; then echo \"Proto file edited — remember to run: make buf\" >&2; fi; if echo \"$FILE\" | grep -qE '(schema|query)\\.sql$'; then echo \"SQL file edited — remember to run: make sqlc-gen\" >&2; fi; fi; exit 0"
+            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -q '/proto/'; then echo 'Auto-running make buf...' >&2; make -C /workspaces/openmanetd buf >&2; fi; exit 0",
+            "statusMessage": "Running make buf..."
+          },
+          {
+            "type": "command",
+            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(schema|query)\\.sql$'; then echo 'Auto-running make sqlc-gen...' >&2; make -C /workspaces/openmanetd sqlc-gen >&2; fi; exit 0",
+            "statusMessage": "Running make sqlc-gen..."
           },
           {
             "type": "command",
@@ -65,5 +71,11 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "gopls-lsp@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": true
   }
 }
