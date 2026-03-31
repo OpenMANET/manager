@@ -1,0 +1,69 @@
+{
+  "enabledPlugins": {
+    "gopls-lsp@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(make test:*)",
+      "Bash(make test-frontend:*)",
+      "Bash(find /workspaces/openmanetd -type f -name *.proto)",
+      "Bash(ls -la /workspaces/openmanetd/*.go)",
+      "Bash(go vet:*)",
+      "Bash(make lint:*)",
+      "Bash(make lint-go:*)",
+      "Bash(make build-lite:*)",
+      "Bash(go build:*)",
+      "Bash(go mod:*)",
+      "Bash(claude plugin:*)",
+      "Read(//go/pkg/mod/**)",
+      "Bash(go doc:*)",
+      "Bash(npx vitest:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(go test:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(internal/api/|frontend/src/gen/|internal/database/models/)'; then echo \"Do not edit generated files. Edit the proto source or SQL and run make buf / make sqlc-gen.\" >&2; exit 2; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CMD=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.command // empty'); if echo \"$CMD\" | grep -qE '\\bgo build\\b' && ! echo \"$CMD\" | grep -q 'make'; then if [ -z \"$(ls -A /workspaces/openmanetd/static 2>/dev/null)\" ]; then echo 'Warning: static/ is empty. Use make build instead of go build directly, or run make frontend first.' >&2; fi; fi; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); [ -n \"$FILE\" ] && [[ \"$FILE\" == *.go ]] && gofmt -w \"$FILE\" 2>/dev/null; exit 0"
+          },
+          {
+            "type": "command",
+            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$FILE\" ]; then if echo \"$FILE\" | grep -q '/proto/'; then echo \"Proto file edited — remember to run: make buf\" >&2; fi; if echo \"$FILE\" | grep -qE '(schema|query)\\.sql$'; then echo \"SQL file edited — remember to run: make sqlc-gen\" >&2; fi; fi; exit 0"
+          },
+          {
+            "type": "command",
+            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE 'frontend/src/.*\\.(js|jsx)$' && ! echo \"$FILE\" | grep -q 'src/gen/'; then npm --prefix /workspaces/openmanetd/frontend run lint:fix -- \"$FILE\" 2>/dev/null; fi; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
