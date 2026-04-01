@@ -52,8 +52,8 @@ func protoToControlSource(src commsv1.ControlSource) string {
 // GetCommsConfig retrieves the current communications configuration.
 func (c *CommsService) GetCommsConfig(_ context.Context, _ *emptypb.Empty) (*commsv1.GetCommsConfigResponse, error) {
 	return &commsv1.GetCommsConfigResponse{
-		CommsEnabled:  c.Cfg.CommsEnable,
-		ControlSource: controlSourceToProto(c.Cfg.CommsControlSource),
+		CommsEnabled:  c.Cfg.GetCommsEnable(),
+		ControlSource: controlSourceToProto(c.Cfg.GetCommsControlSource()),
 	}, nil
 }
 
@@ -88,7 +88,7 @@ func (c *CommsService) UpdateCommsConfig(_ context.Context, req *commsv1.UpdateC
 // GetCommsStatus retrieves the current status of the communications service.
 // It returns the active talk group and a list of all available talk groups.
 func (c *CommsService) GetCommsStatus(_ context.Context, _ *emptypb.Empty) (*commsv1.GetCommsStatusResponse, error) {
-	if !c.Cfg.CommsEnable {
+	if !c.Cfg.GetCommsEnable() {
 		return nil, errors.New("comms module not enabled")
 	}
 
@@ -178,7 +178,7 @@ func talkGroupPortIdx(channel int) (int, error) {
 // SetSendTalkGroup enables or disables RTP transmission on the talkgroup
 // identified by the 1-based channel number in the request.
 func (c *CommsService) SetSendTalkGroup(_ context.Context, req *commsv1.SetSendTalkGroupRequest) (*commsv1.SetSendTalkGroupResponse, error) {
-	if !c.Cfg.CommsEnable {
+	if !c.Cfg.GetCommsEnable() {
 		return nil, errors.New("comms module not enabled")
 	}
 
@@ -205,7 +205,7 @@ func (c *CommsService) SetSendTalkGroup(_ context.Context, req *commsv1.SetSendT
 // SetReceiveTalkGroup enables or disables RTP reception on the talkgroup
 // identified by the 1-based channel number in the request.
 func (c *CommsService) SetReceiveTalkGroup(_ context.Context, req *commsv1.SetReceiveTalkGroupRequest) (*commsv1.SetReceiveTalkGroupResponse, error) {
-	if !c.Cfg.CommsEnable {
+	if !c.Cfg.GetCommsEnable() {
 		return nil, errors.New("comms module not enabled")
 	}
 

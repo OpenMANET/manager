@@ -94,6 +94,37 @@ func TestGetCommsConfig_AllControlSources(t *testing.T) {
 	}
 }
 
+func TestGetCommsConfig_ReflectsPersistedChanges(t *testing.T) {
+	cfg := setupCommsTestConfig(t, `
+comms:
+  enable: false
+  controlSource: openvlm
+`)
+	svc := &handlers.CommsService{Cfg: cfg, Log: zerolog.Nop()}
+
+	// Initial state
+	resp, err := svc.GetCommsConfig(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	assert.False(t, resp.GetCommsEnabled())
+	assert.Equal(t, commsv1.ControlSource_CONTROL_SOURCE_OPENVLM, resp.GetControlSource())
+
+	// Persist a change and verify GetCommsConfig picks it up
+	require.NoError(t, cfg.PersistCommsConfig(true, "web"))
+
+	resp, err = svc.GetCommsConfig(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	assert.True(t, resp.GetCommsEnabled())
+	assert.Equal(t, commsv1.ControlSource_CONTROL_SOURCE_WEB, resp.GetControlSource())
+
+	// Persist another change
+	require.NoError(t, cfg.PersistCommsConfig(false, "nanoptt"))
+
+	resp, err = svc.GetCommsConfig(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	assert.False(t, resp.GetCommsEnabled())
+	assert.Equal(t, commsv1.ControlSource_CONTROL_SOURCE_NANOPTT, resp.GetControlSource())
+}
+
 // ── UpdateCommsConfig ─────────────────────────────────────────────────────────
 
 func TestUpdateCommsConfig_EnableWithControlSource(t *testing.T) {
@@ -268,6 +299,30 @@ func TestGetCommsStatus_Enabled(t *testing.T) {
 
 	// talkgroup_states is best-effort: empty (or nil) when comms is not running.
 	assert.Empty(t, resp.GetTalkgroupStates())
+}
+
+func TestGetCommsStatus_ReflectsPersistedEnable(t *testing.T) {
+	cfg := setupCommsTestConfig(t, `
+comms:
+  enable: false
+  controlSource: openvlm
+`)
+	svc := &handlers.CommsService{Cfg: cfg, Log: zerolog.Nop()}
+
+	// Disabled — should return an error
+	_, err := svc.GetCommsStatus(context.Background(), &emptypb.Empty{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not enabled")
+
+	// Enable via persist and verify guard passes
+	require.NoError(t, cfg.PersistCommsConfig(true, "openvlm"))
+
+	_, err = svc.GetCommsStatus(context.Background(), &emptypb.Empty{})
+	// Should no longer return "not enabled" (may return other errors since
+	// the comms runtime is not started, but the enable guard must pass).
+	if err != nil {
+		assert.NotContains(t, err.Error(), "not enabled")
+	}
 }
 
 // ── SetSendTalkGroup ──────────────────────────────────────────────────────────

@@ -3,11 +3,17 @@ package comms
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeStartFunc returns a startFunc that blocks until ctx is canceled and
@@ -115,6 +121,49 @@ func TestCommsManager_EnableAfterDisable(t *testing.T) {
 	if !m.IsRunning() {
 		t.Fatal("expected IsRunning() to be true after re-enable")
 	}
+
+	m.Disable()
+}
+
+func TestCommsManager_DisableEnablePicksUpConfigChange(t *testing.T) {
+	// Set up a real Config backed by a temp YAML file so PersistCommsConfig works.
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yml")
+
+	err := os.WriteFile(cfgPath, []byte("comms:\n  enable: true\n  controlSource: openvlm\n"), 0644)
+	require.NoError(t, err)
+
+	v := viper.New()
+	v.SetConfigFile(cfgPath)
+	require.NoError(t, v.ReadInConfig())
+
+	cfg := config.NewWithoutWatch(v)
+
+	// Track the CommsConfig received by startFn on each Enable() call.
+	var lastControlSource atomic.Value
+
+	m := NewCommsManager(cfg, zerolog.Nop())
+	m.startFn = func(cc *CommsConfig) startFunc {
+		return func(ctx context.Context) error {
+			lastControlSource.Store(cc.ControlSource)
+			<-ctx.Done()
+			return nil
+		}
+	}
+
+	// First Enable — should read "openvlm" from config.
+	require.NoError(t, m.Enable())
+	time.Sleep(20 * time.Millisecond)
+	assert.Equal(t, "openvlm", lastControlSource.Load())
+
+	// Disable, change config, re-enable.
+	m.Disable()
+
+	require.NoError(t, cfg.PersistCommsConfig(true, "web"))
+
+	require.NoError(t, m.Enable())
+	time.Sleep(20 * time.Millisecond)
+	assert.Equal(t, "web", lastControlSource.Load())
 
 	m.Disable()
 }
