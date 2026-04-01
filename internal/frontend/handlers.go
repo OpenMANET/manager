@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -111,38 +110,6 @@ type hostnameResponse struct {
 type hostnameRequest struct {
 	Hostname string `json:"hostname"`
 }
-
-type upgradeCheckResponse struct {
-	CurrentVersion  string `json:"current_version"`
-	LatestVersion   string `json:"latest_version"`
-	DownloadURL     string `json:"download_url"`
-	SHA256          string `json:"sha256"`
-	Size            int64  `json:"size"`
-	UpdateAvailable bool   `json:"update_available"`
-}
-
-type upgradeDownloadRequest struct {
-	URL    string `json:"url"`
-	SHA256 string `json:"sha256"`
-}
-
-type upgradeStatus struct {
-	State    string `json:"state"`
-	Error    string `json:"error"`
-	Progress int    `json:"progress"`
-}
-
-type upgradeApplyRequest struct {
-	KeepSettings bool `json:"keep_settings"`
-}
-
-// upgradeState holds the current firmware download state.
-var upgradeState = struct { //nolint:gochecknoglobals
-	state    string
-	err      string
-	progress int
-	mu       sync.Mutex
-}{state: "idle"}
 
 // ---------------------------------------------------------------------------
 // Helpers
