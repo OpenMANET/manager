@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/common-nighthawk/go-figure"
+	"github.com/openmanet/openmanetd/internal/auth"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/blos"
 	"github.com/openmanet/openmanetd/internal/comms"
@@ -113,6 +114,23 @@ func Start(staticFS fs.FS) {
 	// Create BLOS manager (always, so the API handler can use it even if BLOS is currently disabled)
 	blosManager := blos.NewBLOSManager(cfg, logger.GetLogger("blos"))
 
+	// Set up session-based authentication when enabled.
+	var (
+		sessionStore  *auth.SessionStore
+		authenticator auth.Authenticator
+	)
+
+	if cfg.GetAuthEnable() {
+		sessionStore = auth.NewSessionStore(
+			time.Duration(cfg.GetAuthSessionMaxAgeSecs())*time.Second,
+			cfg.GetAuthSessionMaxSize(),
+		)
+		sessionStore.StartCleanup(ctx, 5*time.Minute)
+
+		authenticator = &auth.PAMAuthenticator{ServiceName: cfg.GetAuthPAMService()}
+		log.Info().Str("pamService", cfg.GetAuthPAMService()).Msg("authentication enabled")
+	}
+
 	// Start API Server
 	interfaceProvider := &network.NetlinkInterfaceProvider{}
 
@@ -131,6 +149,9 @@ func Start(staticFS fs.FS) {
 		Leases: &network.UbusLeaseProvider{
 			Executor: &network.DefaultUbusExecutor{},
 		},
+		SessionStore:  sessionStore,
+		Authenticator: authenticator,
+		AuthEnabled:   cfg.GetAuthEnable(),
 	}
 
 	if manager != nil {
@@ -158,7 +179,7 @@ func Start(staticFS fs.FS) {
 		}
 	}()
 
-	frontendServer := frontend.NewFrontendServer(ctx, cfg, staticFS)
+	frontendServer := frontend.NewFrontendServer(ctx, cfg, staticFS, sessionStore, cfg.GetAuthEnable())
 
 	go func() {
 		if err := frontendServer.Run(ctx); err != nil {

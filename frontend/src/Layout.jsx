@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
+import { useAuth } from './contexts/useAuth.js';
 import './Layout.css';
 
 const NAV_ITEMS = [
@@ -12,6 +13,7 @@ const NAV_ITEMS = [
 ];
 
 export default function Layout() {
+  const { logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
@@ -40,6 +42,10 @@ export default function Layout() {
               <span className="tab-label">{item.label}</span>
             </NavLink>
           ))}
+          <button className="tab-item tab-logout" onClick={logout} title="Sign out">
+            <span className="tab-icon">🔒</span>
+            <span className="tab-label">Sign Out</span>
+          </button>
         </nav>
       </div>
     );
@@ -78,11 +84,11 @@ export default function Layout() {
             </NavLink>
           ))}
         </div>
-        {!collapsed && (
-          <div className="sidebar-footer">
-            <span className="footer-text">OpenMANET v1.0</span>
-          </div>
-        )}
+        <div className="sidebar-footer">
+          <button className="sidebar-logout" onClick={logout} title="Sign out">
+            {collapsed ? '🔒' : '🔒 Sign Out'}
+          </button>
+        </div>
       </nav>
       <main className="layout-main">
         <Outlet />

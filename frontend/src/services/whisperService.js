@@ -71,7 +71,7 @@ const DB_VER = 1;
 // Returns { available, state, progress, error } or { available: false } on failure.
 export async function checkWhisperAvailable() {
   try {
-    const resp = await fetch('/api/whisper/status');
+    const resp = await fetch('/api/whisper/status', { credentials: 'include' });
     if (!resp.ok) return { available: false, state: 'idle', progress: 0, error: '' };
     return await resp.json();
   } catch {
@@ -84,7 +84,7 @@ export async function checkWhisperAvailable() {
 // Returns true on success, false on failure.
 export async function downloadWhisperModel(onProgress, onError) {
   try {
-    const resp = await fetch('/api/whisper/download', { method: 'POST' });
+    const resp = await fetch('/api/whisper/download', { method: 'POST', credentials: 'include' });
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}));
       if (onError) onError(data.error || `HTTP ${resp.status}`);
@@ -95,7 +95,7 @@ export async function downloadWhisperModel(onProgress, onError) {
     return new Promise((resolve) => {
       const poll = setInterval(async () => {
         try {
-          const statusResp = await fetch('/api/whisper/download/status');
+          const statusResp = await fetch('/api/whisper/download/status', { credentials: 'include' });
           if (!statusResp.ok) return;
           const status = await statusResp.json();
 
@@ -125,7 +125,7 @@ export async function downloadWhisperModel(onProgress, onError) {
 // Returns true on success, false on failure.
 export async function removeWhisperModel() {
   try {
-    const resp = await fetch('/api/whisper/remove', { method: 'DELETE' });
+    const resp = await fetch('/api/whisper/remove', { method: 'DELETE', credentials: 'include' });
     return resp.ok;
   } catch {
     return false;

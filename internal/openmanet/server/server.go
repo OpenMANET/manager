@@ -14,6 +14,7 @@ import (
 	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
 	wificonfigconnect "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1/wifi_configv1connect"
+	"github.com/openmanet/openmanetd/internal/auth"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/blos"
 	"github.com/openmanet/openmanetd/internal/comms"
@@ -31,18 +32,21 @@ import (
 )
 
 type APIServer struct {
-	Cfg          *config.Config
-	Log          zerolog.Logger
-	DB           *models.Queries
-	ApiServer    *http.Server
-	Wifi         *mgmt.WirelessConfig
-	GPS          *gpsd.GPSService
-	BLOSManager  blos.BLOSLifecycle
-	CommsManager comms.CommsLifecycle
-	Interfaces   handlers.InterfaceProvider
-	DHCP         handlers.DHCPConfigProvider
-	Leases       handlers.LeaseProvider
-	Tailscale    handlers.TailscaleStatusProvider
+	Cfg           *config.Config
+	Log           zerolog.Logger
+	DB            *models.Queries
+	ApiServer     *http.Server
+	Wifi          *mgmt.WirelessConfig
+	GPS           *gpsd.GPSService
+	BLOSManager   blos.BLOSLifecycle
+	CommsManager  comms.CommsLifecycle
+	Interfaces    handlers.InterfaceProvider
+	DHCP          handlers.DHCPConfigProvider
+	Leases        handlers.LeaseProvider
+	Tailscale     handlers.TailscaleStatusProvider
+	SessionStore  *auth.SessionStore
+	Authenticator auth.Authenticator
+	AuthEnabled   bool
 }
 
 func NewAPIServer(cfg APIServer) *APIServer {
@@ -114,13 +118,27 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		DHCPLeases:     cfg.Leases,
 	}, connect.WithInterceptors(validateInterceptor)))
 
+	// Register auth endpoints when authentication is enabled.
+	if cfg.Authenticator != nil && cfg.SessionStore != nil {
+		authHandler := &auth.AuthHandler{
+			Log:           cfg.Log.With().Str("service", "auth").Logger(),
+			Authenticator: cfg.Authenticator,
+			Store:         cfg.SessionStore,
+		}
+		api.HandleFunc("/auth/login", authHandler.HandleLogin)
+		api.HandleFunc("/auth/logout", authHandler.HandleLogout)
+		api.HandleFunc("/auth/check", authHandler.HandleCheck)
+	}
+
+	authMW := auth.NewAPIAuthMiddleware(cfg.SessionStore, cfg.AuthEnabled)
+
 	p := new(http.Protocols)
 	p.SetHTTP1(true)
 	// Use h2c so we can serve HTTP/2 without TLS.
 	p.SetUnencryptedHTTP2(true)
 	server := http.Server{
 		Addr:           cfg.Cfg.GetOpenMANETAPIAddress(),
-		Handler:        withCORS(api),
+		Handler:        withCORS(authMW(api)),
 		Protocols:      p,
 		ReadTimeout:    30 * time.Second,
 		IdleTimeout:    120 * time.Second,
@@ -143,10 +161,14 @@ func (s *APIServer) Stop(ctx context.Context) error {
 
 func withCORS(handler http.Handler) http.Handler {
 	c := cors.New(cors.Options{
-		AllowedOrigins: []string{"*"}, // Allow all origins for private network
-		AllowedMethods: connectcors.AllowedMethods(),
-		AllowedHeaders: append(connectcors.AllowedHeaders(), "Access-Control-Request-Private-Network"),
-		ExposedHeaders: connectcors.ExposedHeaders(),
+		// AllowOriginFunc reflects the request origin rather than using a wildcard
+		// so that AllowCredentials: true is compatible with the CORS spec. This is
+		// safe for a private-network device where all LAN clients are trusted.
+		AllowOriginFunc:  func(_ string) bool { return true },
+		AllowedMethods:   connectcors.AllowedMethods(),
+		AllowedHeaders:   append(connectcors.AllowedHeaders(), "Access-Control-Request-Private-Network"),
+		ExposedHeaders:   connectcors.ExposedHeaders(),
+		AllowCredentials: true,
 		// Crucial for PNA:
 		OptionsPassthrough: false,
 	})

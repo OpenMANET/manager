@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
+	"github.com/openmanet/openmanetd/internal/auth"
 	"github.com/openmanet/openmanetd/internal/bridge"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/util/logger"
@@ -36,16 +37,19 @@ var upgrader = websocket.Upgrader{ //nolint:gochecknoglobals
 
 // Server is the HTTP/WebSocket server for the WebUI.
 type Server struct {
-	log       zerolog.Logger
-	staticFS  fs.FS
-	hub       *ws.Hub
-	cfg       *config.Config
-	indexHTML []byte
+	log          zerolog.Logger
+	staticFS     fs.FS
+	hub          *ws.Hub
+	cfg          *config.Config
+	sessionStore *auth.SessionStore
+	indexHTML    []byte
+	authEnabled  bool
 }
 
 // NewFrontendServer creates a new frontend Server that serves static assets and
 // proxies mesh-status API calls to the openmanetd ConnectRPC backend.
-func NewFrontendServer(ctx context.Context, cfg *config.Config, staticFS fs.FS) *Server {
+// sessionStore may be nil when auth is disabled.
+func NewFrontendServer(ctx context.Context, cfg *config.Config, staticFS fs.FS, sessionStore *auth.SessionStore, authEnabled bool) *Server {
 	apiAddr := cfg.GetOpenMANETCommsAPIAddress()
 
 	// Create openmanetd RPC client with a dial timeout so streaming
@@ -81,11 +85,13 @@ func NewFrontendServer(ctx context.Context, cfg *config.Config, staticFS fs.FS) 
 	}
 
 	return &Server{
-		log:       log,
-		staticFS:  staticFS,
-		hub:       hub,
-		cfg:       cfg,
-		indexHTML: indexHTML,
+		log:          log,
+		staticFS:     staticFS,
+		hub:          hub,
+		cfg:          cfg,
+		indexHTML:    indexHTML,
+		sessionStore: sessionStore,
+		authEnabled:  authEnabled,
 	}
 }
 
@@ -261,8 +267,11 @@ func (s *Server) handler() http.Handler {
 	// Register the SPA handler for root and all client-side routes.
 	mux.HandleFunc("/", spaHandler)
 	mux.HandleFunc("/settings", spaHandler)
+	mux.HandleFunc("/login", spaHandler)
 
-	return coiMiddleware(mux)
+	authMW := auth.NewFrontendAuthMiddleware(s.sessionStore, s.authEnabled)
+
+	return coiMiddleware(authMW(mux))
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {

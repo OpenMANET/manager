@@ -2,10 +2,14 @@
 // Layout.test.jsx — Tests for responsive app shell layout
 // =============================================================================
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { vi, describe, it, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Layout from '../../Layout.jsx';
+
+vi.mock('../../contexts/useAuth.js', () => ({
+  useAuth: () => ({ logout: vi.fn() }),
+}));
 
 afterEach(() => {
   cleanup();
@@ -29,9 +33,9 @@ describe('TestLayoutDesktop', () => {
     expect(screen.getByText('Settings')).toBeTruthy();
   });
 
-  it('renders version footer', () => {
+  it('renders brand subtitle', () => {
     renderLayout(1024);
-    expect(screen.getByText('OpenMANET v1.0')).toBeTruthy();
+    expect(screen.getByText('Mesh Radio WebUI')).toBeTruthy();
   });
 });
 

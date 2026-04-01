@@ -35,6 +35,7 @@ require (
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
 	tailscale.com v1.94.2
+	github.com/msteinert/pam/v2 v2.1.0
 )
 
 require (

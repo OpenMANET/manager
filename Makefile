@@ -94,8 +94,9 @@ fuzz: ## Run fuzz tests for 30 seconds each.
 
 .PHONY: build-lite
 build-lite: fmt vet frontend ## Build lite binary without whisper WASM, UPX compressed (~5MB).
-	@rm -rf static/whisper
+	@if [ -d static/whisper ]; then cp -r static/whisper /tmp/openmanetd-whisper-bak && rm -rf static/whisper; fi
 	GOCACHE=$(HOME)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
+	@if [ -d /tmp/openmanetd-whisper-bak ]; then mv /tmp/openmanetd-whisper-bak static/whisper; fi
 	@if command -v upx >/dev/null 2>&1; then \
 		upx --lzma --best bin/openmanetd; \
 	else \

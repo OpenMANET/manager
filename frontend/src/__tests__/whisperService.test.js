@@ -301,7 +301,7 @@ describe('TestRemoveWhisperModel', () => {
 
     const result = await whisper.removeWhisperModel();
     expect(result).toBe(true);
-    expect(fetch).toHaveBeenCalledWith('/api/whisper/remove', { method: 'DELETE' });
+    expect(fetch).toHaveBeenCalledWith('/api/whisper/remove', { method: 'DELETE', credentials: 'include' });
   });
 
   it('returns false on failure', async () => {

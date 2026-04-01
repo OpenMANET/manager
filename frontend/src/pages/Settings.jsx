@@ -52,8 +52,8 @@ export default function SettingsPage() {
   const fetchSettings = useCallback(async () => {
     try {
       const results = await Promise.allSettled([
-        fetch('/api/settings/hostname').then(r => r.ok ? r.json() : Promise.reject(r.status)),
-        fetch('/api/settings/config').then(r => r.ok ? r.json() : Promise.reject(r.status)),
+        fetch('/api/settings/hostname', { credentials: 'include' }).then(r => r.ok ? r.json() : Promise.reject(r.status)),
+        fetch('/api/settings/config', { credentials: 'include' }).then(r => r.ok ? r.json() : Promise.reject(r.status)),
       ]);
 
       if (results[0].status === 'fulfilled') {
@@ -111,6 +111,7 @@ export default function SettingsPage() {
       const res = await fetch('/api/settings/hostname', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ hostname }),
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -140,6 +141,7 @@ export default function SettingsPage() {
       const res = await fetch('/api/settings/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);

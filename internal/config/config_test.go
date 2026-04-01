@@ -1848,3 +1848,217 @@ func TestSetOpenMANETFrontendHostPort_MultipleCalls_LastWins(t *testing.T) {
 		t.Errorf("GetOpenMANETFrontendHostPort() = %v, want %v", got, want)
 	}
 }
+
+func TestGetAuthEnable(t *testing.T) {
+	tests := []struct {
+		name    string
+		isSet   bool
+		setValue bool
+		want    bool
+	}{
+		{
+			name:     "returns true when explicitly enabled",
+			isSet:    true,
+			setValue: true,
+			want:     true,
+		},
+		{
+			name:     "returns false when explicitly disabled",
+			isSet:    true,
+			setValue: false,
+			want:     false,
+		},
+		{
+			name:  "returns default false when not set",
+			isSet: false,
+			want:  DefaultAuthEnable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.isSet {
+				v.Set("auth.enable", tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetAuthEnable()
+			if got != tt.want {
+				t.Errorf("GetAuthEnable() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAuthSessionMaxAgeSecs(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *int
+		want     int
+	}{
+		{
+			name:     "returns configured value",
+			setValue: intPtr(3600),
+			want:     3600,
+		},
+		{
+			name:     "returns default when zero",
+			setValue: intPtr(0),
+			want:     DefaultAuthSessionMaxAgeSecs,
+		},
+		{
+			name:     "returns default when negative",
+			setValue: intPtr(-1),
+			want:     DefaultAuthSessionMaxAgeSecs,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultAuthSessionMaxAgeSecs,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("auth.sessionMaxAge", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetAuthSessionMaxAgeSecs()
+			if got != tt.want {
+				t.Errorf("GetAuthSessionMaxAgeSecs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAuthSessionMaxSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *int
+		want     int
+	}{
+		{
+			name:     "returns configured value",
+			setValue: intPtr(32),
+			want:     32,
+		},
+		{
+			name:     "returns default when zero",
+			setValue: intPtr(0),
+			want:     DefaultAuthSessionMaxSize,
+		},
+		{
+			name:     "returns default when negative",
+			setValue: intPtr(-5),
+			want:     DefaultAuthSessionMaxSize,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultAuthSessionMaxSize,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("auth.sessionMaxSize", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetAuthSessionMaxSize()
+			if got != tt.want {
+				t.Errorf("GetAuthSessionMaxSize() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAuthPAMService(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured service name",
+			setValue: strPtr("sshd"),
+			want:     "sshd",
+		},
+		{
+			name:     "returns default when empty string",
+			setValue: strPtr(""),
+			want:     DefaultAuthPAMService,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultAuthPAMService,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("auth.pamService", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetAuthPAMService()
+			if got != tt.want {
+				t.Errorf("GetAuthPAMService() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAuthDefaults_NothingSet(t *testing.T) {
+	v := viper.New()
+	cfg := NewWithoutWatch(v)
+
+	if got := cfg.GetAuthEnable(); got != DefaultAuthEnable {
+		t.Errorf("GetAuthEnable() = %v, want default %v", got, DefaultAuthEnable)
+	}
+	if got := cfg.GetAuthSessionMaxAgeSecs(); got != DefaultAuthSessionMaxAgeSecs {
+		t.Errorf("GetAuthSessionMaxAgeSecs() = %v, want default %v", got, DefaultAuthSessionMaxAgeSecs)
+	}
+	if got := cfg.GetAuthSessionMaxSize(); got != DefaultAuthSessionMaxSize {
+		t.Errorf("GetAuthSessionMaxSize() = %v, want default %v", got, DefaultAuthSessionMaxSize)
+	}
+	if got := cfg.GetAuthPAMService(); got != DefaultAuthPAMService {
+		t.Errorf("GetAuthPAMService() = %v, want default %v", got, DefaultAuthPAMService)
+	}
+}
+
+func TestAuthConfig_AllFieldsOverridden(t *testing.T) {
+	v := viper.New()
+	v.Set("auth.enable", true)
+	v.Set("auth.sessionMaxAge", 7200)
+	v.Set("auth.sessionMaxSize", 8)
+	v.Set("auth.pamService", "system-auth")
+
+	cfg := NewWithoutWatch(v)
+
+	if got := cfg.GetAuthEnable(); !got {
+		t.Errorf("GetAuthEnable() = false, want true")
+	}
+	if got := cfg.GetAuthSessionMaxAgeSecs(); got != 7200 {
+		t.Errorf("GetAuthSessionMaxAgeSecs() = %v, want 7200", got)
+	}
+	if got := cfg.GetAuthSessionMaxSize(); got != 8 {
+		t.Errorf("GetAuthSessionMaxSize() = %v, want 8", got)
+	}
+	if got := cfg.GetAuthPAMService(); got != "system-auth" {
+		t.Errorf("GetAuthPAMService() = %v, want system-auth", got)
+	}
+}

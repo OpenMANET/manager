@@ -54,6 +54,10 @@ const (
 	DefaultDebugPprof                                bool    = false
 	DefaultDebugPprofAddress                         string  = "127.0.0.1:6060"
 	DefaultCommsEncoderComplexity                    int     = 5
+	DefaultAuthEnable                                bool    = false
+	DefaultAuthSessionMaxAgeSecs                     int     = 86400 // 24 hours
+	DefaultAuthSessionMaxSize                        int     = 16
+	DefaultAuthPAMService                            string  = "login"
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -79,12 +83,15 @@ type Config struct {
 	OpenMANETCommsAPIAddress                  string
 	RuntimeMemLimit                           string
 	DebugPprofAddress                         string
+	AuthPAMService                            string
 	onChangeCallbacks                         []func(*Config)
 	BLOSStatusWorkerInterval                  int
 	OpenMANETWebsocketPort                    int
 	CommsEncoderComplexity                    int
 	CommsPlaybackBuffer                       int
 	RuntimeGoGC                               int
+	AuthSessionMaxAgeSecs                     int
+	AuthSessionMaxSize                        int
 	mu                                        sync.RWMutex
 	CommsMicGain                              float32
 	AlfredDataTypeAddressReserv               bool
@@ -105,6 +112,7 @@ type Config struct {
 	AlfredDataTypeGateway                     bool
 	CommsLoopback                             bool
 	BLOSEnable                                bool
+	AuthEnable                                bool
 }
 
 // New creates a new Config instance with the given viper instance.
@@ -427,6 +435,31 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsEncoderComplexity = c.v.GetInt("comms.encoderComplexity")
 	} else {
 		c.CommsEncoderComplexity = DefaultCommsEncoderComplexity
+	}
+
+	// Load auth configuration
+	if c.v.IsSet("auth.enable") {
+		c.AuthEnable = c.v.GetBool("auth.enable")
+	} else {
+		c.AuthEnable = DefaultAuthEnable
+	}
+
+	if val := c.v.GetInt("auth.sessionMaxAge"); val > 0 {
+		c.AuthSessionMaxAgeSecs = val
+	} else {
+		c.AuthSessionMaxAgeSecs = DefaultAuthSessionMaxAgeSecs
+	}
+
+	if val := c.v.GetInt("auth.sessionMaxSize"); val > 0 {
+		c.AuthSessionMaxSize = val
+	} else {
+		c.AuthSessionMaxSize = DefaultAuthSessionMaxSize
+	}
+
+	if val := c.v.GetString("auth.pamService"); val != "" {
+		c.AuthPAMService = val
+	} else {
+		c.AuthPAMService = DefaultAuthPAMService
 	}
 }
 
@@ -846,4 +879,36 @@ func (c *Config) GetCommsEncoderComplexity() int {
 	defer c.mu.RUnlock()
 
 	return c.CommsEncoderComplexity
+}
+
+// GetAuthEnable returns whether HTTP authentication is enabled.
+func (c *Config) GetAuthEnable() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.AuthEnable
+}
+
+// GetAuthSessionMaxAgeSecs returns the session lifetime in seconds.
+func (c *Config) GetAuthSessionMaxAgeSecs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.AuthSessionMaxAgeSecs
+}
+
+// GetAuthSessionMaxSize returns the maximum number of concurrent sessions.
+func (c *Config) GetAuthSessionMaxSize() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.AuthSessionMaxSize
+}
+
+// GetAuthPAMService returns the PAM service name used for authentication.
+func (c *Config) GetAuthPAMService() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.AuthPAMService
 }
