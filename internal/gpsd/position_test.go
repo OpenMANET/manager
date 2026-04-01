@@ -461,6 +461,183 @@ func TestUpdatePosition_WithAllErrorEstimates(t *testing.T) {
 	}
 }
 
+func TestUpdateSatelliteInfo_CachesFullReport(t *testing.T) {
+	gps := &GPSService{Log: zerolog.Nop()}
+
+	skyReport := SKYReport{
+		Class: "SKY",
+		HDOP:  1.2,
+		VDOP:  1.8,
+		PDOP:  2.4,
+		NSat:  12,
+		USat:  8,
+		Satellites: []struct {
+			PRN  int     `json:"PRN"`
+			El   float64 `json:"el"`
+			Az   float64 `json:"az"`
+			Ss   float64 `json:"ss"`
+			Used bool    `json:"used"`
+		}{
+			{PRN: 2, El: 45.0, Az: 120.0, Ss: 38.0, Used: true},
+			{PRN: 5, El: 72.0, Az: 210.0, Ss: 42.0, Used: true},
+			{PRN: 7, El: 15.0, Az: 330.0, Ss: 18.0, Used: false},
+		},
+	}
+
+	gps.updateSatelliteInfo(skyReport)
+
+	report := gps.GetSatelliteReport()
+	if report.HDOP != 1.2 {
+		t.Errorf("Expected HDOP 1.2, got %f", report.HDOP)
+	}
+
+	if report.VDOP != 1.8 {
+		t.Errorf("Expected VDOP 1.8, got %f", report.VDOP)
+	}
+
+	if report.PDOP != 2.4 {
+		t.Errorf("Expected PDOP 2.4, got %f", report.PDOP)
+	}
+
+	if report.NSat != 12 {
+		t.Errorf("Expected NSat 12, got %d", report.NSat)
+	}
+
+	if report.USat != 8 {
+		t.Errorf("Expected USat 8, got %d", report.USat)
+	}
+
+	if len(report.Satellites) != 3 {
+		t.Fatalf("Expected 3 satellites, got %d", len(report.Satellites))
+	}
+
+	// Verify first satellite
+	sat := report.Satellites[0]
+	if sat.PRN != 2 || sat.El != 45.0 || sat.Az != 120.0 || sat.Ss != 38.0 || !sat.Used {
+		t.Errorf("First satellite mismatch: %+v", sat)
+	}
+
+	// Verify third satellite (not used)
+	sat = report.Satellites[2]
+	if sat.PRN != 7 || sat.Used {
+		t.Errorf("Third satellite mismatch: %+v", sat)
+	}
+}
+
+func TestGetSatelliteReport_ReturnsCopy(t *testing.T) {
+	gps := &GPSService{Log: zerolog.Nop()}
+
+	skyReport := SKYReport{
+		Class: "SKY",
+		HDOP:  1.0,
+		PDOP:  2.0,
+		NSat:  2,
+		USat:  1,
+		Satellites: []struct {
+			PRN  int     `json:"PRN"`
+			El   float64 `json:"el"`
+			Az   float64 `json:"az"`
+			Ss   float64 `json:"ss"`
+			Used bool    `json:"used"`
+		}{
+			{PRN: 10, El: 30.0, Az: 90.0, Ss: 25.0, Used: true},
+		},
+	}
+
+	gps.updateSatelliteInfo(skyReport)
+
+	// Get a copy and mutate it
+	report := gps.GetSatelliteReport()
+	report.Satellites[0].PRN = 999
+	report.PDOP = 99.9
+
+	// Verify internal state was not affected
+	internal := gps.GetSatelliteReport()
+	if internal.Satellites[0].PRN != 10 {
+		t.Errorf("Internal satellite PRN was mutated: got %d", internal.Satellites[0].PRN)
+	}
+
+	if internal.PDOP != 2.0 {
+		t.Errorf("Internal PDOP was mutated: got %f", internal.PDOP)
+	}
+}
+
+func TestGetSatelliteReport_EmptySatelliteList(t *testing.T) {
+	gps := &GPSService{Log: zerolog.Nop()}
+
+	skyReport := SKYReport{
+		Class: "SKY",
+		HDOP:  1.5,
+		USat:  0,
+		NSat:  0,
+	}
+
+	gps.updateSatelliteInfo(skyReport)
+
+	report := gps.GetSatelliteReport()
+	if len(report.Satellites) != 0 {
+		t.Errorf("Expected empty satellites, got %d", len(report.Satellites))
+	}
+
+	if report.HDOP != 1.5 {
+		t.Errorf("Expected HDOP 1.5, got %f", report.HDOP)
+	}
+}
+
+func TestGetSatelliteReport_ConcurrentAccess(t *testing.T) {
+	gps := &GPSService{Log: zerolog.Nop()}
+
+	var wg sync.WaitGroup
+
+	// Writer goroutine
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		for i := range 100 {
+			sky := SKYReport{
+				Class: "SKY",
+				HDOP:  float64(i) * 0.1,
+				USat:  i % 15,
+				NSat:  i%15 + 5,
+				Satellites: []struct {
+					PRN  int     `json:"PRN"`
+					El   float64 `json:"el"`
+					Az   float64 `json:"az"`
+					Ss   float64 `json:"ss"`
+					Used bool    `json:"used"`
+				}{
+					{PRN: i, El: 45.0, Az: 180.0, Ss: 30.0, Used: true},
+				},
+			}
+			gps.updateSatelliteInfo(sky)
+		}
+	}()
+
+	// Reader goroutines
+	for range 4 {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for range 100 {
+				report := gps.GetSatelliteReport()
+				// Access fields to ensure no data race
+				_ = report.PDOP
+
+				_ = report.USat
+				if len(report.Satellites) > 0 {
+					_ = report.Satellites[0].PRN
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
 func TestUpdateSatelliteInfo_NegativeValues(t *testing.T) {
 	log := zerolog.Nop()
 	gps := &GPSService{

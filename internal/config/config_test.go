@@ -1851,10 +1851,10 @@ func TestSetOpenMANETFrontendHostPort_MultipleCalls_LastWins(t *testing.T) {
 
 func TestGetAuthEnable(t *testing.T) {
 	tests := []struct {
-		name    string
-		isSet   bool
+		name     string
+		isSet    bool
 		setValue bool
-		want    bool
+		want     bool
 	}{
 		{
 			name:     "returns true when explicitly enabled",
@@ -2029,12 +2029,15 @@ func TestAuthDefaults_NothingSet(t *testing.T) {
 	if got := cfg.GetAuthEnable(); got != DefaultAuthEnable {
 		t.Errorf("GetAuthEnable() = %v, want default %v", got, DefaultAuthEnable)
 	}
+
 	if got := cfg.GetAuthSessionMaxAgeSecs(); got != DefaultAuthSessionMaxAgeSecs {
 		t.Errorf("GetAuthSessionMaxAgeSecs() = %v, want default %v", got, DefaultAuthSessionMaxAgeSecs)
 	}
+
 	if got := cfg.GetAuthSessionMaxSize(); got != DefaultAuthSessionMaxSize {
 		t.Errorf("GetAuthSessionMaxSize() = %v, want default %v", got, DefaultAuthSessionMaxSize)
 	}
+
 	if got := cfg.GetAuthPAMService(); got != DefaultAuthPAMService {
 		t.Errorf("GetAuthPAMService() = %v, want default %v", got, DefaultAuthPAMService)
 	}
@@ -2052,12 +2055,15 @@ func TestAuthConfig_AllFieldsOverridden(t *testing.T) {
 	if got := cfg.GetAuthEnable(); !got {
 		t.Errorf("GetAuthEnable() = false, want true")
 	}
+
 	if got := cfg.GetAuthSessionMaxAgeSecs(); got != 7200 {
 		t.Errorf("GetAuthSessionMaxAgeSecs() = %v, want 7200", got)
 	}
+
 	if got := cfg.GetAuthSessionMaxSize(); got != 8 {
 		t.Errorf("GetAuthSessionMaxSize() = %v, want 8", got)
 	}
+
 	if got := cfg.GetAuthPAMService(); got != "system-auth" {
 		t.Errorf("GetAuthPAMService() = %v, want system-auth", got)
 	}

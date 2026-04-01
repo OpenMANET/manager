@@ -40,6 +40,7 @@ const (
 	DefaultEnableGNSS                                bool    = false
 	DefaultGNSSSendAsNMEA                            bool    = false
 	DefaultGNSSSendAsCoT                             bool    = false
+	DefaultGNSSCoTUID                                string  = ""
 	DefaultEnableBLOS                                bool    = false
 	DefaultBLOSStatusWorkerInterval                  int     = 30 // seconds
 	DefaultOpenMANETFrontendHostPort                 string  = "0.0.0.0:8080"
@@ -84,6 +85,7 @@ type Config struct {
 	RuntimeMemLimit                           string
 	DebugPprofAddress                         string
 	AuthPAMService                            string
+	GNSSCoTUID                                string
 	onChangeCallbacks                         []func(*Config)
 	BLOSStatusWorkerInterval                  int
 	OpenMANETWebsocketPort                    int
@@ -198,6 +200,12 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.GNSSSendAsCoT = c.v.GetBool("gnss.sendAsExternalGNSSSource.sendAsCoT")
 	} else {
 		c.GNSSSendAsCoT = DefaultGNSSSendAsCoT
+	}
+
+	if val := c.v.GetString("gnss.sendAsExternalGNSSSource.cotUID"); val != "" {
+		c.GNSSCoTUID = val
+	} else {
+		c.GNSSCoTUID = DefaultGNSSCoTUID
 	}
 
 	if c.v.IsSet("batman.multicastEnhancementsEnabled") {
@@ -731,6 +739,14 @@ func (c *Config) GetGNSSSendAsCoT() bool {
 	defer c.mu.RUnlock()
 
 	return c.GNSSSendAsCoT
+}
+
+// GetGNSSCoTUID returns the CoT UID for GNSS messages.
+func (c *Config) GetGNSSCoTUID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.GNSSCoTUID
 }
 
 // BLOSEnabled returns whether BLOS (Beyond Line of Sight) is enabled.

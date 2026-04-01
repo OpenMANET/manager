@@ -85,7 +85,11 @@ func (s *Server) handleWhisperDownload(w http.ResponseWriter, r *http.Request) {
 	whisperState.err = ""
 	whisperState.mu.Unlock()
 
-	go s.downloadWhisperModel()
+	// Capture whisperDir on the caller's goroutine so the background
+	// goroutine does not race with test cleanup resetting the global.
+	dir := whisperDir
+
+	go s.downloadWhisperModel(dir)
 
 	s.writeJSON(w, map[string]string{"status": "downloading"})
 }
@@ -127,12 +131,12 @@ func (s *Server) handleWhisperRemove(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, map[string]string{"status": "removed"})
 }
 
-// downloadWhisperModel downloads the whisper model to whisperDir.
-func (s *Server) downloadWhisperModel() {
+// downloadWhisperModel downloads the whisper model to the given directory.
+func (s *Server) downloadWhisperModel(dir string) {
 	setError := func(msg string) {
 		s.log.Error().Msg(msg)
 
-		_ = os.RemoveAll(whisperDir)
+		_ = os.RemoveAll(dir)
 
 		whisperState.mu.Lock()
 		whisperState.state = "error"
@@ -140,7 +144,7 @@ func (s *Server) downloadWhisperModel() {
 		whisperState.mu.Unlock()
 	}
 
-	if err := os.MkdirAll(whisperDir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		setError(fmt.Sprintf("failed to create whisper directory: %v", err))
 
 		return
@@ -172,7 +176,7 @@ func (s *Server) downloadWhisperModel() {
 		return
 	}
 
-	outPath := filepath.Join(whisperDir, whisperModelFile)
+	outPath := filepath.Join(dir, whisperModelFile)
 
 	outFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {

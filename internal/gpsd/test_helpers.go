@@ -108,6 +108,32 @@ func (m *mockGPSDServer) AddSKYMessage(hdop float64, uSat int) {
 	m.messages = append(m.messages, string(data))
 }
 
+// AddSKYMessageWithSatellites adds a SKY message with individual satellite entries
+func (m *mockGPSDServer) AddSKYMessageWithSatellites(hdop float64, uSat int, satellites []SatelliteInfo) {
+	sky := SKYReport{
+		Class: "SKY",
+		Time:  time.Now().UTC().Format(time.RFC3339),
+		HDOP:  hdop,
+		VDOP:  hdop * 1.5,
+		PDOP:  hdop * 2.0,
+		NSat:  len(satellites),
+		USat:  uSat,
+	}
+
+	for _, s := range satellites {
+		sky.Satellites = append(sky.Satellites, struct {
+			PRN  int     `json:"PRN"`
+			El   float64 `json:"el"`
+			Az   float64 `json:"az"`
+			Ss   float64 `json:"ss"`
+			Used bool    `json:"used"`
+		}{PRN: s.PRN, El: s.El, Az: s.Az, Ss: s.Ss, Used: s.Used})
+	}
+
+	data, _ := json.Marshal(sky)
+	m.messages = append(m.messages, string(data))
+}
+
 // Helper function to verify NMEA checksum
 func verifyNMEAChecksum(nmea string) bool {
 	if !strings.HasPrefix(nmea, "$") || !strings.Contains(nmea, "*") {

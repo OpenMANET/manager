@@ -65,6 +65,42 @@ func (g *GPSService) updateSatelliteInfo(sky SKYReport) {
 	if sky.HDOP > 0 {
 		g.position.HDOP = sky.HDOP
 	}
+
+	// Cache full satellite constellation data
+	sats := make([]SatelliteInfo, 0, len(sky.Satellites))
+	for _, s := range sky.Satellites {
+		sats = append(sats, SatelliteInfo{
+			PRN:  s.PRN,
+			El:   s.El,
+			Az:   s.Az,
+			Ss:   s.Ss,
+			Used: s.Used,
+		})
+	}
+
+	g.satellites = SatelliteReport{
+		Satellites: sats,
+		HDOP:       sky.HDOP,
+		VDOP:       sky.VDOP,
+		PDOP:       sky.PDOP,
+		NSat:       sky.NSat,
+		USat:       sky.USat,
+	}
+}
+
+// GetSatelliteReport returns a copy of the current satellite report.
+func (g *GPSService) GetSatelliteReport() SatelliteReport {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	// Return a deep copy to avoid sharing the slice
+	report := g.satellites
+	if len(g.satellites.Satellites) > 0 {
+		report.Satellites = make([]SatelliteInfo, len(g.satellites.Satellites))
+		copy(report.Satellites, g.satellites.Satellites)
+	}
+
+	return report
 }
 
 // GetPosition returns a copy of the current position report

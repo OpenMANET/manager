@@ -9,6 +9,7 @@ import './Layout.css';
 
 const NAV_ITEMS = [
   { to: '/',         label: 'Comms Bridge', icon: '\uD83C\uDF99' },   // microphone
+  { to: '/gps',      label: 'GPS / GNSS',   icon: '\uD83D\uDCE1' },   // satellite
   { to: '/settings', label: 'Settings',     icon: '\u2699\uFE0F' },   // gear
 ];
 

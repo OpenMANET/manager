@@ -11,6 +11,7 @@ import (
 	blosconnect "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1/blosv1connect"
 	commsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
 	dashboardconnect "github.com/openmanet/openmanetd/internal/api/openmanet/dashboard/v1/dashboardv1connect"
+	gnssconnect "github.com/openmanet/openmanetd/internal/api/openmanet/gnss/v1/gnssv1connect"
 	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
 	wificonfigconnect "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1/wifi_configv1connect"
@@ -107,6 +108,12 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Tailscale:   cfg.Tailscale,
 		Services:    &system.InitDServiceChecker{},
 		Actions:     &system.InitDActionExecutor{},
+	}, connect.WithInterceptors(validateInterceptor)))
+
+	api.Handle(gnssconnect.NewGNSSServiceHandler(&handlers.GNSSService{
+		Cfg: cfg.Cfg,
+		Log: cfg.Log,
+		GPS: cfg.GPS,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(wificonfigconnect.NewWifiConfigServiceHandler(&handlers.WifiConfigService{

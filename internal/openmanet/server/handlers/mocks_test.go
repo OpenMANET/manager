@@ -10,6 +10,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdlayher/wifi"
 	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/openmanet/openmanetd/internal/gpsd"
 )
 
 // ── fakeBLOSManager ────────────────────────────────────────────────────────────
@@ -200,6 +201,28 @@ func makeStation(macStr string, signal int) *wifi.StationInfo {
 		SignalAverage:   signal,
 		TransmitBitrate: 54000,
 	}
+}
+
+// ── fakeGNSSProvider ────────────────────────────────────────────────────────
+
+type fakeGNSSProvider struct {
+	mu              sync.Mutex
+	position        gpsd.PositionReport
+	satelliteReport gpsd.SatelliteReport
+}
+
+func (f *fakeGNSSProvider) GetPosition() gpsd.PositionReport {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.position
+}
+
+func (f *fakeGNSSProvider) GetSatelliteReport() gpsd.SatelliteReport {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.satelliteReport
 }
 
 // ── in-memory SQLite DB helper ───────────────────────────────────────────────

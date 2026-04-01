@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -193,6 +194,75 @@ func setCommsConfig(doc *yaml.Node, enable bool, controlSource string) error {
 	commsMapping := findOrCreateMapping(root, "comms")
 	setScalarValue(commsMapping, "enable", fmt.Sprintf("%t", enable))
 	setScalarWithTag(commsMapping, "controlSource", controlSource, "!!str")
+
+	return nil
+}
+
+// PersistGNSSConfig updates the GNSS configuration in the YAML config file
+// and refreshes the in-memory config state. It preserves comments and key
+// ordering in the YAML file by operating on the yaml.Node tree.
+func (c *Config) PersistGNSSConfig(enable, sendAsNMEA, sendAsCoT bool, cotUID string) error {
+	filePath := c.v.ConfigFileUsed()
+	if filePath == "" {
+		return fmt.Errorf("no config file path configured")
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("reading config file: %w", err)
+	}
+
+	var doc yaml.Node
+
+	err = yaml.Unmarshal(data, &doc)
+	if err != nil {
+		return fmt.Errorf("parsing config file: %w", err)
+	}
+
+	if err = setGNSSConfig(&doc, enable, sendAsNMEA, sendAsCoT, cotUID); err != nil {
+		return fmt.Errorf("updating gnss config: %w", err)
+	}
+
+	out, err := yaml.Marshal(&doc)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+
+	//nolint:gosec // config file permissions match the original file
+	err = os.WriteFile(filePath, out, 0644)
+	if err != nil {
+		return fmt.Errorf("writing config file: %w", err)
+	}
+
+	// Update in-memory state immediately without waiting for fsnotify.
+	c.v.Set("gnss.enable", enable)
+	c.v.Set("gnss.sendAsExternalGNSSSource.sendAsNMEA", sendAsNMEA)
+	c.v.Set("gnss.sendAsExternalGNSSSource.sendAsCoT", sendAsCoT)
+	c.v.Set("gnss.sendAsExternalGNSSSource.cotUID", cotUID)
+	c.reload()
+
+	return nil
+}
+
+// setGNSSConfig finds or creates the gnss section in the YAML document and
+// sets all GNSS configuration keys.
+func setGNSSConfig(doc *yaml.Node, enable, sendAsNMEA, sendAsCoT bool, cotUID string) error {
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return fmt.Errorf("unexpected YAML structure: expected document node")
+	}
+
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("unexpected YAML structure: expected mapping node at root")
+	}
+
+	gnssMapping := findOrCreateMapping(root, "gnss")
+	setScalarValue(gnssMapping, "enable", strconv.FormatBool(enable))
+
+	sendMapping := findOrCreateMapping(gnssMapping, "sendAsExternalGNSSSource")
+	setScalarValue(sendMapping, "sendAsNMEA", strconv.FormatBool(sendAsNMEA))
+	setScalarValue(sendMapping, "sendAsCoT", strconv.FormatBool(sendAsCoT))
+	setScalarWithTag(sendMapping, "cotUID", cotUID, "!!str")
 
 	return nil
 }

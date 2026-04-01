@@ -72,15 +72,35 @@ type SKYReport struct {
 	USat int     `json:"uSat,omitempty"` // Number of satellites used in solution
 }
 
+// SatelliteInfo holds data for a single visible satellite.
+type SatelliteInfo struct {
+	PRN  int     // Satellite PRN number
+	El   float64 // Elevation in degrees
+	Az   float64 // Azimuth in degrees
+	Ss   float64 // Signal strength (SNR) in dB-Hz
+	Used bool    // Whether this satellite is used in the navigation solution
+}
+
+// SatelliteReport holds the cached satellite constellation data from the last SKY report.
+type SatelliteReport struct {
+	Satellites []SatelliteInfo // Individual satellite data
+	HDOP       float64         // Horizontal dilution of precision
+	VDOP       float64         // Vertical dilution of precision
+	PDOP       float64         // Position dilution of precision
+	NSat       int             // Number of satellites visible
+	USat       int             // Number of satellites used
+}
+
 // GPSService represents a GPS service client that connects to GPSD
 type GPSService struct {
 	Log               zerolog.Logger
-	lastMulticastTime time.Time // Last time a gps message was sent to multicast
+	lastMulticastTime time.Time
 	conn              net.Conn
-	ctx               context.Context //nolint:containedctx
+	ctx               context.Context
 	Config            *config.Config
 	cancel            context.CancelFunc
 	address           string
+	satellites        SatelliteReport
 	position          PositionReport
 	reconnectDelay    time.Duration
 	reconnectAttempts int
