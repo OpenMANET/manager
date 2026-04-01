@@ -239,8 +239,8 @@ func (l *LinuxSysInfo) GetOverlayUsage() (*OverlayUsage, error) {
 		return nil, fmt.Errorf("statfs %s: %w", l.overlayPath(), err)
 	}
 
-	total := int64(stat.Blocks) * stat.Bsize
-	free := int64(stat.Bfree) * stat.Bsize
+	total := int64(stat.Blocks) * int64(stat.Bsize)
+	free := int64(stat.Bfree) * int64(stat.Bsize)
 
 	return &OverlayUsage{
 		TotalBytes: total,
