@@ -39,35 +39,78 @@ type BLOSLifecycle interface {
 // BLOSManager owns the BLOS lifecycle and serializes enable/disable operations.
 // It implements BLOSLifecycle.
 type BLOSManager struct {
-	logger     zerolog.Logger
-	blos       *BLOS
-	cfg        *config.Config
-	authClient TailscaleAuthClient
-	createFn   func(*config.Config, zerolog.Logger) (*BLOS, error)
-	mu         sync.Mutex
-	running    bool
+	logger       zerolog.Logger
+	blos         *BLOS
+	cfg          *config.Config
+	authClient   TailscaleAuthClient
+	initDService InitDService
+	createFn     func(*config.Config, zerolog.Logger) (*BLOS, error)
+	mu           sync.Mutex
+	running      bool
 }
 
 // NewBLOSManager creates a new BLOSManager. The manager is created at startup
 // regardless of whether BLOS is enabled, so the API handler always has it.
 func NewBLOSManager(cfg *config.Config, logger zerolog.Logger) *BLOSManager {
 	return &BLOSManager{
-		cfg:        cfg,
-		logger:     logger,
-		authClient: &LocalTailscaleAuthClient{},
-		createFn:   NewBLOS,
+		cfg:          cfg,
+		logger:       logger,
+		authClient:   &LocalTailscaleAuthClient{},
+		initDService: &TailscaleInitDService{},
+		createFn:     NewBLOS,
 	}
+}
+
+// ensureTailscaleService makes sure the tailscale init.d service is enabled
+// and running before Tailscale SDK authentication. Must be called with m.mu held.
+func (m *BLOSManager) ensureTailscaleService(ctx context.Context) error {
+	if m.initDService == nil {
+		return nil
+	}
+
+	enabled, err := m.initDService.IsEnabled(ctx)
+	if err != nil {
+		return fmt.Errorf("check tailscale service enabled: %w", err)
+	}
+
+	if !enabled {
+		m.logger.Info().Msg("Enabling tailscale init.d service")
+
+		if enableErr := m.initDService.Enable(ctx); enableErr != nil {
+			return fmt.Errorf("enable tailscale service: %w", enableErr)
+		}
+	}
+
+	running, err := m.initDService.IsRunning(ctx)
+	if err != nil {
+		return fmt.Errorf("check tailscale service running: %w", err)
+	}
+
+	if !running {
+		m.logger.Info().Msg("Starting tailscale init.d service")
+
+		if startErr := m.initDService.Start(ctx); startErr != nil {
+			return fmt.Errorf("start tailscale service: %w", startErr)
+		}
+	}
+
+	return nil
 }
 
 // ConfigureAndEnable authenticates with Tailscale using the provided credentials
 // and then starts the BLOS module. It is idempotent: if BLOS is already running
-// it returns nil.
+// it returns nil. It ensures the tailscale init.d service is enabled and running
+// before attempting SDK authentication.
 func (m *BLOSManager) ConfigureAndEnable(ctx context.Context, authKey string, loginServerURL string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.running {
 		return nil
+	}
+
+	if err := m.ensureTailscaleService(ctx); err != nil {
+		return fmt.Errorf("tailscale service setup failed: %w", err)
 	}
 
 	opts := ipn.Options{

@@ -45,6 +45,70 @@ func (m *mockTailscaleAuthClient) getStartOpts() ipn.Options {
 	return m.startOpts
 }
 
+// mockInitDService records calls and returns configured results.
+type mockInitDService struct {
+	mu           sync.Mutex
+	isEnabledVal bool
+	isEnabledErr error
+	enableErr    error
+	enableCalls  int
+	isRunningVal bool
+	isRunningErr error
+	startErr     error
+	startCalls   int
+}
+
+func (m *mockInitDService) IsEnabled(_ context.Context) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.isEnabledVal, m.isEnabledErr
+}
+
+func (m *mockInitDService) Enable(_ context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.enableCalls++
+
+	return m.enableErr
+}
+
+func (m *mockInitDService) IsRunning(_ context.Context) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.isRunningVal, m.isRunningErr
+}
+
+func (m *mockInitDService) Start(_ context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.startCalls++
+
+	return m.startErr
+}
+
+func (m *mockInitDService) getEnableCalls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.enableCalls
+}
+
+func (m *mockInitDService) getStartCalls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.startCalls
+}
+
+// runningInitDService returns a mockInitDService that reports already enabled and running.
+func runningInitDService() *mockInitDService {
+	return &mockInitDService{isEnabledVal: true, isRunningVal: true}
+}
+
 // newTestManager creates a BLOSManager with an injectable createFn for testing.
 func newTestManager(t *testing.T, createFn func(*config.Config, zerolog.Logger) (*BLOS, error)) *BLOSManager {
 	t.Helper()
@@ -214,20 +278,21 @@ func TestBLOSManager_GetBLOS_WhenNotRunning(t *testing.T) {
 
 // ── ConfigureAndEnable ────────────────────────────────────────────────────────
 
-func newTestManagerWithAuth(t *testing.T, auth *mockTailscaleAuthClient, createFn func(*config.Config, zerolog.Logger) (*BLOS, error)) *BLOSManager {
+func newTestManagerWithAuth(t *testing.T, auth *mockTailscaleAuthClient, initD InitDService, createFn func(*config.Config, zerolog.Logger) (*BLOS, error)) *BLOSManager {
 	t.Helper()
 
 	return &BLOSManager{
-		cfg:        &config.Config{},
-		logger:     zerolog.Nop(),
-		authClient: auth,
-		createFn:   createFn,
+		cfg:          &config.Config{},
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		initDService: initD,
+		createFn:     createFn,
 	}
 }
 
 func TestBLOSManager_ConfigureAndEnable_Success(t *testing.T) {
 	auth := &mockTailscaleAuthClient{}
-	m := newTestManagerWithAuth(t, auth, successCreateFn)
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
 	require.NoError(t, err)
@@ -241,7 +306,7 @@ func TestBLOSManager_ConfigureAndEnable_Success(t *testing.T) {
 
 func TestBLOSManager_ConfigureAndEnable_WithLoginServer(t *testing.T) {
 	auth := &mockTailscaleAuthClient{}
-	m := newTestManagerWithAuth(t, auth, successCreateFn)
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "https://hs.example.com")
 	require.NoError(t, err)
@@ -255,7 +320,7 @@ func TestBLOSManager_ConfigureAndEnable_WithLoginServer(t *testing.T) {
 
 func TestBLOSManager_ConfigureAndEnable_WithoutLoginServer(t *testing.T) {
 	auth := &mockTailscaleAuthClient{}
-	m := newTestManagerWithAuth(t, auth, successCreateFn)
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
 	require.NoError(t, err)
@@ -266,7 +331,7 @@ func TestBLOSManager_ConfigureAndEnable_WithoutLoginServer(t *testing.T) {
 
 func TestBLOSManager_ConfigureAndEnable_AuthFailure(t *testing.T) {
 	auth := &mockTailscaleAuthClient{err: errors.New("auth failed")}
-	m := newTestManagerWithAuth(t, auth, successCreateFn)
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-bad", "")
 	require.Error(t, err)
@@ -277,7 +342,7 @@ func TestBLOSManager_ConfigureAndEnable_AuthFailure(t *testing.T) {
 
 func TestBLOSManager_ConfigureAndEnable_CreateFnFailure(t *testing.T) {
 	auth := &mockTailscaleAuthClient{}
-	m := newTestManagerWithAuth(t, auth, func(_ *config.Config, _ zerolog.Logger) (*BLOS, error) {
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), func(_ *config.Config, _ zerolog.Logger) (*BLOS, error) {
 		return nil, errors.New("create failed")
 	})
 
@@ -290,7 +355,7 @@ func TestBLOSManager_ConfigureAndEnable_CreateFnFailure(t *testing.T) {
 
 func TestBLOSManager_ConfigureAndEnable_Idempotent(t *testing.T) {
 	auth := &mockTailscaleAuthClient{}
-	m := newTestManagerWithAuth(t, auth, successCreateFn)
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
 	require.NoError(t, err)
@@ -304,10 +369,110 @@ func TestBLOSManager_ConfigureAndEnable_Idempotent(t *testing.T) {
 
 func TestBLOSManager_ConfigureAndEnable_NotGatewayMode(t *testing.T) {
 	auth := &mockTailscaleAuthClient{}
-	m := newTestManagerWithAuth(t, auth, notGatewayCreateFn)
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), notGatewayCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "gateway mode")
 	assert.False(t, m.IsRunning())
+}
+
+// ── InitDService integration with ConfigureAndEnable ─────────────────────────
+
+func TestBLOSManager_ConfigureAndEnable_EnablesService(t *testing.T) {
+	auth := &mockTailscaleAuthClient{}
+	initD := &mockInitDService{isEnabledVal: false, isRunningVal: true}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.Equal(t, 1, initD.getEnableCalls(), "Enable should be called when not enabled")
+	assert.Equal(t, 1, auth.getCalls(), "auth should proceed after enabling service")
+}
+
+func TestBLOSManager_ConfigureAndEnable_SkipsEnableWhenAlreadyEnabled(t *testing.T) {
+	auth := &mockTailscaleAuthClient{}
+	initD := &mockInitDService{isEnabledVal: true, isRunningVal: true}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.Equal(t, 0, initD.getEnableCalls(), "Enable should not be called when already enabled")
+}
+
+func TestBLOSManager_ConfigureAndEnable_StartsService(t *testing.T) {
+	auth := &mockTailscaleAuthClient{}
+	initD := &mockInitDService{isEnabledVal: true, isRunningVal: false}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.Equal(t, 1, initD.getStartCalls(), "Start should be called when not running")
+	assert.Equal(t, 1, auth.getCalls(), "auth should proceed after starting service")
+}
+
+func TestBLOSManager_ConfigureAndEnable_SkipsStartWhenAlreadyRunning(t *testing.T) {
+	auth := &mockTailscaleAuthClient{}
+	initD := &mockInitDService{isEnabledVal: true, isRunningVal: true}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.Equal(t, 0, initD.getStartCalls(), "Start should not be called when already running")
+}
+
+func TestBLOSManager_ConfigureAndEnable_EnableFailure(t *testing.T) {
+	auth := &mockTailscaleAuthClient{}
+	initD := &mockInitDService{isEnabledVal: false, isRunningVal: true, enableErr: errors.New("enable failed")}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "enable tailscale service")
+	assert.Equal(t, 0, auth.getCalls(), "auth should not be called when enable fails")
+	assert.False(t, m.IsRunning())
+}
+
+func TestBLOSManager_ConfigureAndEnable_StartFailure(t *testing.T) {
+	auth := &mockTailscaleAuthClient{}
+	initD := &mockInitDService{isEnabledVal: true, isRunningVal: false, startErr: errors.New("start failed")}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "start tailscale service")
+	assert.Equal(t, 0, auth.getCalls(), "auth should not be called when start fails")
+	assert.False(t, m.IsRunning())
+}
+
+func TestBLOSManager_ConfigureAndEnable_IsEnabledCheckFailure(t *testing.T) {
+	auth := &mockTailscaleAuthClient{}
+	initD := &mockInitDService{isEnabledErr: errors.New("check failed")}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "check tailscale service enabled")
+	assert.Equal(t, 0, auth.getCalls())
+}
+
+func TestBLOSManager_ConfigureAndEnable_IsRunningCheckFailure(t *testing.T) {
+	auth := &mockTailscaleAuthClient{}
+	initD := &mockInitDService{isEnabledVal: true, isRunningErr: errors.New("check failed")}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "check tailscale service running")
+	assert.Equal(t, 0, auth.getCalls())
+}
+
+func TestBLOSManager_ConfigureAndEnable_NilInitDService(t *testing.T) {
+	auth := &mockTailscaleAuthClient{}
+	m := newTestManagerWithAuth(t, auth, nil, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.True(t, m.IsRunning())
+	assert.Equal(t, 1, auth.getCalls(), "auth should proceed when initDService is nil")
 }

@@ -147,6 +147,7 @@ func TestCommsManager_DisableEnablePicksUpConfigChange(t *testing.T) {
 		return func(ctx context.Context) error {
 			lastControlSource.Store(cc.ControlSource)
 			<-ctx.Done()
+
 			return nil
 		}
 	}
