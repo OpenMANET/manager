@@ -8,8 +8,10 @@ import { useAuth } from './contexts/useAuth.js';
 import './Layout.css';
 
 const NAV_ITEMS = [
-  { to: '/',         label: 'Comms Bridge', icon: '\uD83C\uDF99' },   // microphone
+  { to: '/',         label: 'Dashboard',    icon: '\uD83D\uDCCA' },   // bar chart
+  { to: '/comms',    label: 'Comms Bridge', icon: '\uD83C\uDF99' },   // microphone
   { to: '/gps',      label: 'GPS / GNSS',   icon: '\uD83D\uDCE1' },   // satellite
+  { to: '/blos',     label: 'BLOS',          icon: '\uD83D\uDD17' },   // link
   { to: '/settings', label: 'Settings',     icon: '\u2699\uFE0F' },   // gear
 ];
 
