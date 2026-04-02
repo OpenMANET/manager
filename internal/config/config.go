@@ -55,7 +55,7 @@ const (
 	DefaultDebugPprof                                bool    = false
 	DefaultDebugPprofAddress                         string  = "127.0.0.1:6060"
 	DefaultCommsEncoderComplexity                    int     = 5
-	DefaultAuthEnable                                bool    = true
+	DefaultAuthEnable                                bool    = false
 	DefaultAuthSessionMaxAgeSecs                     int     = 86400 // 24 hours
 	DefaultAuthSessionMaxSize                        int     = 16
 	DefaultAuthPAMService                            string  = "login"
