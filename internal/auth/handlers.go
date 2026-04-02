@@ -136,3 +136,17 @@ func (h *AuthHandler) HandleCheck(w http.ResponseWriter, r *http.Request) {
 
 	_ = json.NewEncoder(w).Encode(checkResponse{Authenticated: true, Username: sess.Username})
 }
+
+// HandleCheckDisabled is a standalone handler for GET /auth/check when
+// authentication is disabled. It always reports authenticated so the
+// frontend skips the login gate.
+func HandleCheckDisabled(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(checkResponse{Authenticated: true, Username: "admin"})
+}

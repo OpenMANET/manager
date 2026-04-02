@@ -24,6 +24,13 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false));
   }, []);
 
+  // Clear session when any API call receives a 401 (session expired/invalid).
+  useEffect(() => {
+    const handleExpired = () => setUser(null);
+    window.addEventListener('session-expired', handleExpired);
+    return () => window.removeEventListener('session-expired', handleExpired);
+  }, []);
+
   const login = useCallback(async (username, password) => {
     const resp = await fetch(`${baseUrl}/auth/login`, {
       method: 'POST',

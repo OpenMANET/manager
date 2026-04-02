@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
+import authFetch from "../services/authFetch.js";
 import { DashboardService } from "../gen/openmanet/dashboard/v1/dashboard_service_connect.js";
 import { QuickAction } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
 import WhisperManager from "../components/WhisperManager.jsx";
@@ -52,8 +53,8 @@ export default function SettingsPage() {
   const fetchSettings = useCallback(async () => {
     try {
       const results = await Promise.allSettled([
-        fetch('/api/settings/hostname', { credentials: 'include' }).then(r => r.ok ? r.json() : Promise.reject(r.status)),
-        fetch('/api/settings/config', { credentials: 'include' }).then(r => r.ok ? r.json() : Promise.reject(r.status)),
+        authFetch('/api/settings/hostname').then(r => r.ok ? r.json() : Promise.reject(r.status)),
+        authFetch('/api/settings/config').then(r => r.ok ? r.json() : Promise.reject(r.status)),
       ]);
 
       if (results[0].status === 'fulfilled') {
@@ -108,10 +109,9 @@ export default function SettingsPage() {
     clearMessages();
     setSaving(true);
     try {
-      const res = await fetch('/api/settings/hostname', {
+      const res = await authFetch('/api/settings/hostname', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ hostname }),
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -138,10 +138,9 @@ export default function SettingsPage() {
           talkgroups: config.talkgroup_count,
         },
       };
-      const res = await fetch('/api/settings/config', {
+      const res = await authFetch('/api/settings/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);

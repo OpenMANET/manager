@@ -125,7 +125,9 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		DHCPLeases:     cfg.Leases,
 	}, connect.WithInterceptors(validateInterceptor)))
 
-	// Register auth endpoints when authentication is enabled.
+	// Register auth endpoints. Login and logout are only available when
+	// authentication is enabled. The check endpoint is always registered so
+	// the frontend can determine whether auth is required.
 	if cfg.Authenticator != nil && cfg.SessionStore != nil {
 		authHandler := &auth.AuthHandler{
 			Log:           cfg.Log.With().Str("service", "auth").Logger(),
@@ -135,6 +137,10 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		api.HandleFunc("/auth/login", authHandler.HandleLogin)
 		api.HandleFunc("/auth/logout", authHandler.HandleLogout)
 		api.HandleFunc("/auth/check", authHandler.HandleCheck)
+	} else {
+		// Auth disabled — always report authenticated so the frontend
+		// skips the login gate.
+		api.HandleFunc("/auth/check", auth.HandleCheckDisabled)
 	}
 
 	authMW := auth.NewAPIAuthMiddleware(cfg.SessionStore, cfg.AuthEnabled)

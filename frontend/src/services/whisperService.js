@@ -31,6 +31,7 @@ import {
   WHISPER_MAX_SEC,
   CHANNELS_DEF,
 } from '../constants.js';
+import authFetch from './authFetch.js';
 
 // -----------------------------------------------------------------------------
 // Module state
@@ -71,7 +72,7 @@ const DB_VER = 1;
 // Returns { available, state, progress, error } or { available: false } on failure.
 export async function checkWhisperAvailable() {
   try {
-    const resp = await fetch('/api/whisper/status', { credentials: 'include' });
+    const resp = await authFetch('/api/whisper/status');
     if (!resp.ok) return { available: false, state: 'idle', progress: 0, error: '' };
     return await resp.json();
   } catch {
@@ -84,7 +85,7 @@ export async function checkWhisperAvailable() {
 // Returns true on success, false on failure.
 export async function downloadWhisperModel(onProgress, onError) {
   try {
-    const resp = await fetch('/api/whisper/download', { method: 'POST', credentials: 'include' });
+    const resp = await authFetch('/api/whisper/download', { method: 'POST' });
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}));
       if (onError) onError(data.error || `HTTP ${resp.status}`);
@@ -95,7 +96,7 @@ export async function downloadWhisperModel(onProgress, onError) {
     return new Promise((resolve) => {
       const poll = setInterval(async () => {
         try {
-          const statusResp = await fetch('/api/whisper/download/status', { credentials: 'include' });
+          const statusResp = await authFetch('/api/whisper/download/status');
           if (!statusResp.ok) return;
           const status = await statusResp.json();
 
@@ -125,7 +126,7 @@ export async function downloadWhisperModel(onProgress, onError) {
 // Returns true on success, false on failure.
 export async function removeWhisperModel() {
   try {
-    const resp = await fetch('/api/whisper/remove', { method: 'DELETE', credentials: 'include' });
+    const resp = await authFetch('/api/whisper/remove', { method: 'DELETE' });
     return resp.ok;
   } catch {
     return false;
