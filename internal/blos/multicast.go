@@ -56,8 +56,8 @@ func (r *BLOS) joinMulticastGroupsOnInterface(ifaceName string) error {
 	newConns := make([]*net.UDPConn, 0, len(addrs))
 
 	for _, addrStr := range addrs {
-		if r.Config.CommsEnable && addrStr == config.TalkGroupMcastAddr {
-			r.Logger.Debug().
+		if r.cfg.CommsEnable && addrStr == config.TalkGroupMcastAddr {
+			r.logger.Debug().
 				Str("addr", addrStr).
 				Msg("Skipping multicast group join: comms subsystem owns this group")
 
@@ -80,15 +80,17 @@ func (r *BLOS) joinMulticastGroupsOnInterface(ifaceName string) error {
 
 		newConns = append(newConns, conn)
 
-		r.Logger.Debug().
+		r.logger.Debug().
 			Str("addr", addrStr).
 			Str("iface", ifaceName).
 			Msg("Joined multicast group")
 	}
 
+	r.mu.Lock()
 	r.multicastConns = append(r.multicastConns, newConns...)
+	r.mu.Unlock()
 
-	r.Logger.Info().
+	r.logger.Info().
 		Int("count", len(newConns)).
 		Str("iface", ifaceName).
 		Msg("Multicast group memberships established")

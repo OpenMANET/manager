@@ -161,7 +161,7 @@ func Start(staticFS fs.FS) {
 	log.Info().Msg("OpenMANETd API Server starting on port 8087")
 
 	if cfg.BLOSEnabled() && board.BLOSsupported() {
-		if err := blosManager.Enable(); err != nil {
+		if err := blosManager.Enable(context.Background()); err != nil {
 			log.Fatal().Err(err).Msg("Failed to initialize BLOS module")
 		}
 	}

@@ -14,8 +14,8 @@ import (
 
 const testStateRunning = "Running"
 
-// MockStatusClient is a mock implementation of StatusClient for testing.
-type MockStatusClient struct {
+// fakeStatusClient is a mock implementation of StatusClient for testing.
+type fakeStatusClient struct {
 	lastCallTime   time.Time
 	errorToReturn  error
 	statusFunc     func(ctx context.Context) (*ipnstate.Status, error)
@@ -26,7 +26,7 @@ type MockStatusClient struct {
 }
 
 // Status implements the StatusClient interface for mocking.
-func (m *MockStatusClient) Status(ctx context.Context) (*ipnstate.Status, error) {
+func (m *fakeStatusClient) Status(ctx context.Context) (*ipnstate.Status, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -54,7 +54,7 @@ func (m *MockStatusClient) Status(ctx context.Context) (*ipnstate.Status, error)
 }
 
 // GetCallCount returns the number of times Status has been called.
-func (m *MockStatusClient) GetCallCount() int {
+func (m *fakeStatusClient) GetCallCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -62,7 +62,7 @@ func (m *MockStatusClient) GetCallCount() int {
 }
 
 // ResetCallCount resets the call counter.
-func (m *MockStatusClient) ResetCallCount() {
+func (m *fakeStatusClient) ResetCallCount() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -70,7 +70,7 @@ func (m *MockStatusClient) ResetCallCount() {
 }
 
 // SetError configures the mock to return an error.
-func (m *MockStatusClient) SetError(err error) {
+func (m *fakeStatusClient) SetError(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -79,7 +79,7 @@ func (m *MockStatusClient) SetError(err error) {
 }
 
 // SetStatus configures the mock to return a specific status.
-func (m *MockStatusClient) SetStatus(status *ipnstate.Status) {
+func (m *fakeStatusClient) SetStatus(status *ipnstate.Status) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -115,7 +115,7 @@ func createMockStatus() *ipnstate.Status {
 
 // TestNewStatusWorker tests the creation of a new StatusWorker.
 func TestNewStatusWorker(t *testing.T) {
-	client := &MockStatusClient{}
+	client := &fakeStatusClient{}
 	logger := zerolog.Nop()
 	interval := 10 * time.Second
 
@@ -144,7 +144,7 @@ func TestNewStatusWorker(t *testing.T) {
 
 // TestStatusWorkerStartStop tests starting and stopping the worker.
 func TestStatusWorkerStartStop(t *testing.T) {
-	client := &MockStatusClient{}
+	client := &fakeStatusClient{}
 	logger := zerolog.Nop()
 	interval := 100 * time.Millisecond
 
@@ -154,14 +154,14 @@ func TestStatusWorkerStartStop(t *testing.T) {
 		t.Error("Worker should not be running initially")
 	}
 
-	worker.Start()
+	worker.Start(context.Background())
 
 	if !worker.IsRunning() {
 		t.Error("Worker should be running after Start()")
 	}
 
 	// Starting again should not cause issues
-	worker.Start()
+	worker.Start(context.Background())
 
 	if !worker.IsRunning() {
 		t.Error("Worker should still be running after second Start()")
@@ -179,13 +179,13 @@ func TestStatusWorkerStartStop(t *testing.T) {
 
 // TestStatusWorkerFetchesStatus tests that the worker fetches status periodically.
 func TestStatusWorkerFetchesStatus(t *testing.T) {
-	client := &MockStatusClient{}
+	client := &fakeStatusClient{}
 	logger := zerolog.Nop()
 	interval := 50 * time.Millisecond
 
 	worker := NewStatusWorker(client, interval, logger)
 
-	worker.Start()
+	worker.Start(context.Background())
 	defer worker.Stop()
 
 	// Wait for initial fetch
@@ -208,7 +208,7 @@ func TestStatusWorkerFetchesStatus(t *testing.T) {
 // TestStatusWorkerStoresStatus tests that the worker correctly stores status data.
 func TestStatusWorkerStoresStatus(t *testing.T) {
 	mockStatus := createMockStatus()
-	client := &MockStatusClient{}
+	client := &fakeStatusClient{}
 	client.SetStatus(mockStatus)
 
 	logger := zerolog.Nop()
@@ -216,7 +216,7 @@ func TestStatusWorkerStoresStatus(t *testing.T) {
 
 	worker := NewStatusWorker(client, interval, logger)
 
-	worker.Start()
+	worker.Start(context.Background())
 	defer worker.Stop()
 
 	// Wait for initial fetch
@@ -240,7 +240,7 @@ func TestStatusWorkerStoresStatus(t *testing.T) {
 // TestStatusWorkerGetPeer tests retrieving a specific peer.
 func TestStatusWorkerGetPeer(t *testing.T) {
 	mockStatus := createMockStatus()
-	client := &MockStatusClient{}
+	client := &fakeStatusClient{}
 	client.SetStatus(mockStatus)
 
 	logger := zerolog.Nop()
@@ -248,7 +248,7 @@ func TestStatusWorkerGetPeer(t *testing.T) {
 
 	worker := NewStatusWorker(client, interval, logger)
 
-	worker.Start()
+	worker.Start(context.Background())
 	defer worker.Stop()
 
 	// Wait for initial fetch
@@ -298,7 +298,7 @@ func TestStatusWorkerGetPeer(t *testing.T) {
 
 // TestStatusWorkerHandlesErrors tests that the worker handles errors gracefully.
 func TestStatusWorkerHandlesErrors(t *testing.T) {
-	client := &MockStatusClient{}
+	client := &fakeStatusClient{}
 	client.SetError(errors.New("test error"))
 
 	logger := zerolog.Nop()
@@ -306,7 +306,7 @@ func TestStatusWorkerHandlesErrors(t *testing.T) {
 
 	worker := NewStatusWorker(client, interval, logger)
 
-	worker.Start()
+	worker.Start(context.Background())
 	defer worker.Stop()
 
 	// Wait for a few fetch attempts
@@ -330,7 +330,7 @@ func TestStatusWorkerHandlesErrors(t *testing.T) {
 // TestStatusWorkerConcurrency tests concurrent access to worker data.
 func TestStatusWorkerConcurrency(t *testing.T) {
 	mockStatus := createMockStatus()
-	client := &MockStatusClient{}
+	client := &fakeStatusClient{}
 	client.SetStatus(mockStatus)
 
 	logger := zerolog.Nop()
@@ -338,7 +338,7 @@ func TestStatusWorkerConcurrency(t *testing.T) {
 
 	worker := NewStatusWorker(client, interval, logger)
 
-	worker.Start()
+	worker.Start(context.Background())
 	defer worker.Stop()
 
 	// Wait for initial fetch
@@ -371,12 +371,12 @@ func TestStatusWorkerConcurrency(t *testing.T) {
 
 // TestStatusWorkerContextCancellation tests that the worker respects context cancellation.
 func TestStatusWorkerContextCancellation(t *testing.T) {
-	client := &MockStatusClient{}
+	client := &fakeStatusClient{}
 	logger := zerolog.Nop()
 	interval := 50 * time.Millisecond
 
 	worker := NewStatusWorker(client, interval, logger)
-	worker.Start()
+	worker.Start(context.Background())
 
 	// Let it run for a bit
 	time.Sleep(100 * time.Millisecond)
@@ -409,7 +409,7 @@ func TestLocalStatusClient(t *testing.T) {
 // TestStatusWorkerGetPeersReturnsACopy tests that GetPeers returns a copy, not the original map.
 func TestStatusWorkerGetPeersReturnsACopy(t *testing.T) {
 	mockStatus := createMockStatus()
-	client := &MockStatusClient{}
+	client := &fakeStatusClient{}
 	client.SetStatus(mockStatus)
 
 	logger := zerolog.Nop()
@@ -417,7 +417,7 @@ func TestStatusWorkerGetPeersReturnsACopy(t *testing.T) {
 
 	worker := NewStatusWorker(client, interval, logger)
 
-	worker.Start()
+	worker.Start(context.Background())
 	defer worker.Stop()
 
 	// Wait for initial fetch
@@ -443,7 +443,7 @@ func TestStatusWorkerGetPeersReturnsACopy(t *testing.T) {
 // TestStatusWorker_SetOnStatusUpdate tests that the callback is set and called
 func TestStatusWorker_SetOnStatusUpdate(t *testing.T) {
 	mockStatus := createMockStatus()
-	client := &MockStatusClient{}
+	client := &fakeStatusClient{}
 	client.SetStatus(mockStatus)
 
 	logger := zerolog.Nop()
@@ -455,7 +455,7 @@ func TestStatusWorker_SetOnStatusUpdate(t *testing.T) {
 
 	var mu sync.Mutex
 
-	callback := func() error {
+	callback := func(_ context.Context) error {
 		mu.Lock()
 		defer mu.Unlock()
 
@@ -467,7 +467,7 @@ func TestStatusWorker_SetOnStatusUpdate(t *testing.T) {
 	worker.SetOnStatusUpdate(callback)
 
 	// Manually trigger status fetch
-	worker.fetchAndStoreStatus()
+	worker.fetchAndStoreStatus(context.Background())
 
 	mu.Lock()
 	count := callCount
@@ -478,7 +478,7 @@ func TestStatusWorker_SetOnStatusUpdate(t *testing.T) {
 	}
 
 	// Trigger again
-	worker.fetchAndStoreStatus()
+	worker.fetchAndStoreStatus(context.Background())
 
 	mu.Lock()
 	count = callCount
@@ -492,7 +492,7 @@ func TestStatusWorker_SetOnStatusUpdate(t *testing.T) {
 // TestStatusWorker_CallbackError tests that callback errors are handled gracefully
 func TestStatusWorker_CallbackError(t *testing.T) {
 	mockStatus := createMockStatus()
-	client := &MockStatusClient{}
+	client := &fakeStatusClient{}
 	client.SetStatus(mockStatus)
 
 	logger := zerolog.Nop()
@@ -501,14 +501,14 @@ func TestStatusWorker_CallbackError(t *testing.T) {
 	worker := NewStatusWorker(client, interval, logger)
 
 	expectedError := errors.New("callback error")
-	callback := func() error {
+	callback := func(_ context.Context) error {
 		return expectedError
 	}
 
 	worker.SetOnStatusUpdate(callback)
 
 	// Should not panic even if callback returns error
-	worker.fetchAndStoreStatus()
+	worker.fetchAndStoreStatus(context.Background())
 
 	// Status should still be updated despite callback error
 	status := worker.GetStatus()
@@ -524,7 +524,7 @@ func TestStatusWorker_CallbackError(t *testing.T) {
 
 // TestStatusWorker_CallbackNotCalledOnError tests that callback is not called when status fetch fails
 func TestStatusWorker_CallbackNotCalledOnError(t *testing.T) {
-	client := &MockStatusClient{
+	client := &fakeStatusClient{
 		shouldError: true,
 	}
 
@@ -534,7 +534,7 @@ func TestStatusWorker_CallbackNotCalledOnError(t *testing.T) {
 	worker := NewStatusWorker(client, interval, logger)
 
 	callCount := 0
-	callback := func() error {
+	callback := func(_ context.Context) error {
 		callCount++
 
 		return nil
@@ -543,7 +543,7 @@ func TestStatusWorker_CallbackNotCalledOnError(t *testing.T) {
 	worker.SetOnStatusUpdate(callback)
 
 	// Trigger status fetch which should fail
-	worker.fetchAndStoreStatus()
+	worker.fetchAndStoreStatus(context.Background())
 
 	if callCount != 0 {
 		t.Errorf("Expected callback to not be called on error, but it was called %d times", callCount)
@@ -553,7 +553,7 @@ func TestStatusWorker_CallbackNotCalledOnError(t *testing.T) {
 // TestStatusWorker_CallbackWithRunningWorker tests that callback is called during normal operation
 func TestStatusWorker_CallbackWithRunningWorker(t *testing.T) {
 	mockStatus := createMockStatus()
-	client := &MockStatusClient{}
+	client := &fakeStatusClient{}
 	client.SetStatus(mockStatus)
 
 	logger := zerolog.Nop()
@@ -565,7 +565,7 @@ func TestStatusWorker_CallbackWithRunningWorker(t *testing.T) {
 
 	var mu sync.Mutex
 
-	callback := func() error {
+	callback := func(_ context.Context) error {
 		mu.Lock()
 		defer mu.Unlock()
 
@@ -576,7 +576,7 @@ func TestStatusWorker_CallbackWithRunningWorker(t *testing.T) {
 
 	worker.SetOnStatusUpdate(callback)
 
-	worker.Start()
+	worker.Start(context.Background())
 	defer worker.Stop()
 
 	// Wait for a few ticks

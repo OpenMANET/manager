@@ -98,7 +98,7 @@ func TestJoinMulticastGroupsOnInterface_InterfaceNotFound(t *testing.T) {
 func TestJoinMulticastGroupsOnInterface_IncludesTalkGroupWhenCommsDisabled(t *testing.T) {
 	fj := newFakeJoiner()
 	r := createTestBLOSWithFakeJoiner(fj)
-	r.Config.CommsEnable = false
+	r.cfg.CommsEnable = false
 
 	err := r.joinMulticastGroupsOnInterface("lo")
 	if err != nil {
@@ -125,7 +125,7 @@ func TestJoinMulticastGroupsOnInterface_IncludesTalkGroupWhenCommsDisabled(t *te
 func TestJoinMulticastGroupsOnInterface_SkipsTalkGroupWhenCommsEnabled(t *testing.T) {
 	fj := newFakeJoiner()
 	r := createTestBLOSWithFakeJoiner(fj)
-	r.Config.CommsEnable = true
+	r.cfg.CommsEnable = true
 
 	err := r.joinMulticastGroupsOnInterface("lo")
 	if err != nil {
@@ -161,7 +161,7 @@ func TestJoinMulticastGroupsOnInterface_SkipsTalkGroupWhenCommsEnabled(t *testin
 func TestJoinMulticastGroupsOnInterface_StoresConns(t *testing.T) {
 	fj := newFakeJoiner()
 	r := createTestBLOSWithFakeJoiner(fj)
-	r.Config.CommsEnable = false
+	r.cfg.CommsEnable = false
 
 	err := r.joinMulticastGroupsOnInterface("lo")
 	if err != nil {

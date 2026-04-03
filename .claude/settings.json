@@ -25,7 +25,8 @@
       "Bash(make frontend:*)",
       "Bash(pnpm -C frontend run test)",
       "Bash(pnpm -C frontend run lint)",
-      "Bash(make integration-test:*)"
+      "Bash(make integration-test:*)",
+      "Bash(wc -l /workspaces/openmanetd/internal/blos/*.go)"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"

@@ -1,6 +1,8 @@
 package blos
 
 import (
+	"context"
+
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/network"
 )
@@ -15,7 +17,7 @@ import (
 func (r *BLOS) createVXMulticastPeers() error {
 	// Reload configuration to ensure clean state before creating peers
 	if err := r.uciNetworkConfig.ReloadConfig(); err != nil {
-		r.Logger.Debug().
+		r.logger.Debug().
 			Err(err).
 			Msg("Failed to reload UCI config before creating multicast peers, continuing anyway")
 	}
@@ -24,7 +26,7 @@ func (r *BLOS) createVXMulticastPeers() error {
 	peersToCreate := []network.UCIVXLANPeer{}
 
 	for _, addr := range config.GetMulticastGroupAddresses() {
-		if !network.VXLANPeerExistsByDst(addr) {
+		if !network.VXLANPeerExistsByDstWithReader(addr, r.uciNetworkConfig) {
 			peersToCreate = append(peersToCreate, network.UCIVXLANPeer{
 				Dst:   addr,
 				Via:   defaultTunnelDeviceName,
@@ -35,14 +37,14 @@ func (r *BLOS) createVXMulticastPeers() error {
 
 	// If no peers need to be created, return early
 	if len(peersToCreate) == 0 {
-		r.Logger.Debug().Msg("All multicast peers already exist")
+		r.logger.Debug().Msg("All multicast peers already exist")
 
 		return nil
 	}
 
 	// Batch create all missing multicast peers
 	if err := network.BatchAddVXLANPeersWithReader(peersToCreate, r.uciNetworkConfig); err != nil {
-		r.Logger.Error().
+		r.logger.Error().
 			Err(err).
 			Int("count", len(peersToCreate)).
 			Msg("Failed to batch create VXLAN multicast peers")
@@ -50,17 +52,17 @@ func (r *BLOS) createVXMulticastPeers() error {
 		return err
 	}
 
-	r.Logger.Debug().
+	r.logger.Debug().
 		Int("count", len(peersToCreate)).
 		Msg("Successfully created VXLAN multicast peers")
 
 	return nil
 }
 
-func (r *BLOS) createVxlanPeer(peerIP string) error {
+func (r *BLOS) createVxlanPeer(ctx context.Context, peerIP string) error {
 	// Reload configuration to ensure clean state before peer operations
 	if err := r.uciNetworkConfig.ReloadConfig(); err != nil {
-		r.Logger.Debug().
+		r.logger.Debug().
 			Err(err).
 			Msg("Failed to reload UCI config before creating peer, continuing anyway")
 	}
@@ -85,8 +87,8 @@ func (r *BLOS) createVxlanPeer(peerIP string) error {
 		}
 	}
 
-	if err := network.ForceReloadConfig(r.ctx); err != nil {
-		r.Logger.Error().
+	if err := network.ForceReloadConfig(ctx); err != nil {
+		r.logger.Error().
 			Err(err).
 			Msg("Failed to reload UCI config after creating/updating peer, continuing anyway")
 	}
@@ -98,14 +100,11 @@ func (r *BLOS) createVxlanPeer(peerIP string) error {
 // It adds/updates VXLAN peers for active Tailscale peers and removes VXLAN peers
 // for Tailscale peers that are no longer present.
 // This function only makes changes if the peer map has actually changed since the last sync.
-func (r *BLOS) syncVXLANPeersWithTailscale() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
+func (r *BLOS) syncVXLANPeersWithTailscale(ctx context.Context) error {
 	// Get current Tailscale peers
 	tailscalePeers := r.GetPeers()
 	if tailscalePeers == nil {
-		r.Logger.Debug().Msg("No Tailscale peers available")
+		r.logger.Debug().Msg("No Tailscale peers available")
 
 		return nil
 	}
@@ -115,7 +114,7 @@ func (r *BLOS) syncVXLANPeersWithTailscale() error {
 
 	for _, peer := range tailscalePeers {
 		if len(peer.TailscaleIPs) == 0 {
-			r.Logger.Debug().Str("peer", peer.HostName).Msg("Peer has no Tailscale IPs")
+			r.logger.Debug().Str("peer", peer.HostName).Msg("Peer has no Tailscale IPs")
 
 			continue
 		}
@@ -125,23 +124,26 @@ func (r *BLOS) syncVXLANPeersWithTailscale() error {
 		activePeerIPs[peerIP] = true
 	}
 
-	// Check if the peer set has changed since last sync
+	// Check if the peer set has changed since last sync (lock protects lastSyncedPeerIPs)
+	r.mu.Lock()
 	hasChanges := r.hasPeerChanges(activePeerIPs)
+	r.mu.Unlock()
 
 	if !hasChanges {
-		r.Logger.Debug().Msg("No changes in Tailscale peers, skipping VXLAN sync")
+		r.logger.Debug().Msg("No changes in Tailscale peers, skipping VXLAN sync")
 
 		return nil
 	}
 
+	// Perform I/O operations outside the lock
 	// Create/update VXLAN peers for each active Tailscale peer
 	for peerIP := range activePeerIPs {
-		r.Logger.Debug().
+		r.logger.Debug().
 			Str("ip", peerIP).
 			Msg("Syncing VXLAN peer")
 
-		if err := r.createVxlanPeer(peerIP); err != nil {
-			r.Logger.Error().
+		if err := r.createVxlanPeer(ctx, peerIP); err != nil {
+			r.logger.Error().
 				Err(err).
 				Str("ip", peerIP).
 				Msg("Failed to create/update VXLAN peer")
@@ -151,25 +153,25 @@ func (r *BLOS) syncVXLANPeersWithTailscale() error {
 	}
 
 	// Remove VXLAN peers that are no longer in Tailscale
-	// We need to check all VXLAN peers and remove those not in activePeerIPs
-	// and not in multicast addresses
-	if err := r.removeInactiveVXLANPeers(activePeerIPs); err != nil {
+	if err := r.removeInactiveVXLANPeers(ctx, activePeerIPs); err != nil {
 		return err
 	}
 
-	// Update the last synced peer IPs
+	// Update the last synced peer IPs (lock protects lastSyncedPeerIPs)
+	r.mu.Lock()
 	r.lastSyncedPeerIPs = activePeerIPs
+	r.mu.Unlock()
 
 	// Bring up or refresh the VXLAN interface after syncing peers
-	if err := r.interfaceManager.BringUp(r.ctx, defaultVxLanDeviceName); err != nil {
-		r.Logger.Error().
+	if err := r.interfaceManager.BringUp(ctx, defaultVxLanDeviceName); err != nil {
+		r.logger.Error().
 			Err(err).
 			Msgf("Failed to bring up interface %s after syncing peers", defaultVxLanDeviceName)
 
 		return err
 	}
 
-	r.Logger.Debug().
+	r.logger.Debug().
 		Int("active_peers", len(activePeerIPs)).
 		Msg("VXLAN peers synchronized with Tailscale")
 
@@ -189,30 +191,24 @@ func (r *BLOS) hasPeerChanges(activePeerIPs map[string]bool) bool {
 		return true
 	}
 
-	// Check if any peer in activePeerIPs is not in lastSyncedPeerIPs
+	// Check if any peer in activePeerIPs is not in lastSyncedPeerIPs.
+	// The reverse check is unnecessary: equal lengths + all keys in A exist in B
+	// guarantees all keys in B exist in A.
 	for peerIP := range activePeerIPs {
 		if !r.lastSyncedPeerIPs[peerIP] {
 			return true
 		}
 	}
 
-	// Check if any peer in lastSyncedPeerIPs is not in activePeerIPs
-	for peerIP := range r.lastSyncedPeerIPs {
-		if !activePeerIPs[peerIP] {
-			return true
-		}
-	}
-
-	// No changes detected
 	return false
 }
 
 // removeInactiveVXLANPeers removes VXLAN peers that are not in the active peer list
 // and are not multicast addresses.
-func (r *BLOS) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
+func (r *BLOS) removeInactiveVXLANPeers(ctx context.Context, activePeerIPs map[string]bool) error {
 	// Reload configuration to ensure clean state before peer operations
 	if err := r.uciNetworkConfig.ReloadConfig(); err != nil {
-		r.Logger.Debug().
+		r.logger.Debug().
 			Err(err).
 			Msg("Failed to reload UCI config before removing inactive peers, continuing anyway")
 	}
@@ -220,7 +216,7 @@ func (r *BLOS) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
 	// Get all VXLAN peers from UCI configuration
 	allPeers, err := network.GetAllVXLANPeersWithReader(r.uciNetworkConfig)
 	if err != nil {
-		r.Logger.Error().
+		r.logger.Error().
 			Err(err).
 			Msg("Failed to get all VXLAN peers")
 
@@ -240,13 +236,13 @@ func (r *BLOS) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
 		}
 
 		// This peer should be removed
-		r.Logger.Debug().
+		r.logger.Debug().
 			Str("dst", peer.Dst).
 			Str("section", section).
 			Msg("Removing inactive VXLAN peer")
 
 		if err := network.DeleteVXLANPeerByDstWithReader(peer.Dst, r.uciNetworkConfig); err != nil {
-			r.Logger.Error().
+			r.logger.Error().
 				Err(err).
 				Str("dst", peer.Dst).
 				Msg("Failed to remove inactive VXLAN peer")
@@ -255,8 +251,8 @@ func (r *BLOS) removeInactiveVXLANPeers(activePeerIPs map[string]bool) error {
 		}
 	}
 
-	if err := network.ForceReloadConfig(r.ctx); err != nil {
-		r.Logger.Error().
+	if err := network.ForceReloadConfig(ctx); err != nil {
+		r.logger.Error().
 			Err(err).
 			Msg("Failed to reload UCI config after removing inactive peers, continuing anyway")
 	}

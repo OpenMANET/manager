@@ -41,7 +41,7 @@ func (f *fakeBLOSManager) ConfigureAndEnable(_ context.Context, _ string, _ stri
 	return nil
 }
 
-func (f *fakeBLOSManager) Enable() error {
+func (f *fakeBLOSManager) Enable(_ context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

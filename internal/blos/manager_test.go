@@ -16,15 +16,15 @@ import (
 	"tailscale.com/ipn/ipnstate"
 )
 
-// mockTailscaleAuthClient records calls and returns configured errors.
-type mockTailscaleAuthClient struct {
+// fakeTailscaleAuthClient records calls and returns configured errors.
+type fakeTailscaleAuthClient struct {
 	mu        sync.Mutex
 	err       error
 	startOpts ipn.Options
 	calls     int
 }
 
-func (m *mockTailscaleAuthClient) Start(_ context.Context, opts ipn.Options) error {
+func (m *fakeTailscaleAuthClient) Start(_ context.Context, opts ipn.Options) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -34,22 +34,22 @@ func (m *mockTailscaleAuthClient) Start(_ context.Context, opts ipn.Options) err
 	return m.err
 }
 
-func (m *mockTailscaleAuthClient) getCalls() int {
+func (m *fakeTailscaleAuthClient) getCalls() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	return m.calls
 }
 
-func (m *mockTailscaleAuthClient) getStartOpts() ipn.Options {
+func (m *fakeTailscaleAuthClient) getStartOpts() ipn.Options {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	return m.startOpts
 }
 
-// mockInitDService records calls and returns configured results.
-type mockInitDService struct {
+// fakeInitDService records calls and returns configured results.
+type fakeInitDService struct {
 	mu           sync.Mutex
 	isEnabledVal bool
 	isEnabledErr error
@@ -61,14 +61,14 @@ type mockInitDService struct {
 	startCalls   int
 }
 
-func (m *mockInitDService) IsEnabled(_ context.Context) (bool, error) {
+func (m *fakeInitDService) IsEnabled(_ context.Context) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	return m.isEnabledVal, m.isEnabledErr
 }
 
-func (m *mockInitDService) Enable(_ context.Context) error {
+func (m *fakeInitDService) Enable(_ context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -77,14 +77,14 @@ func (m *mockInitDService) Enable(_ context.Context) error {
 	return m.enableErr
 }
 
-func (m *mockInitDService) IsRunning(_ context.Context) (bool, error) {
+func (m *fakeInitDService) IsRunning(_ context.Context) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	return m.isRunningVal, m.isRunningErr
 }
 
-func (m *mockInitDService) Start(_ context.Context) error {
+func (m *fakeInitDService) Start(_ context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -93,23 +93,23 @@ func (m *mockInitDService) Start(_ context.Context) error {
 	return m.startErr
 }
 
-func (m *mockInitDService) getEnableCalls() int {
+func (m *fakeInitDService) getEnableCalls() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	return m.enableCalls
 }
 
-func (m *mockInitDService) getStartCalls() int {
+func (m *fakeInitDService) getStartCalls() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	return m.startCalls
 }
 
-// runningInitDService returns a mockInitDService that reports already enabled and running.
-func runningInitDService() *mockInitDService {
-	return &mockInitDService{isEnabledVal: true, isRunningVal: true}
+// runningInitDService returns a fakeInitDService that reports already enabled and running.
+func runningInitDService() *fakeInitDService {
+	return &fakeInitDService{isEnabledVal: true, isRunningVal: true}
 }
 
 // newTestManager creates a BLOSManager with an injectable createFn for testing.
@@ -136,7 +136,7 @@ func notGatewayCreateFn(_ *config.Config, _ zerolog.Logger) (*BLOS, error) {
 func TestBLOSManager_Enable_Success(t *testing.T) {
 	m := newTestManager(t, successCreateFn)
 
-	err := m.Enable()
+	err := m.Enable(context.Background())
 	require.NoError(t, err)
 	assert.True(t, m.IsRunning())
 	assert.NotNil(t, m.GetBLOS())
@@ -150,10 +150,10 @@ func TestBLOSManager_Enable_Idempotent(t *testing.T) {
 		return &BLOS{}, nil
 	})
 
-	err := m.Enable()
+	err := m.Enable(context.Background())
 	require.NoError(t, err)
 
-	err = m.Enable()
+	err = m.Enable(context.Background())
 	require.NoError(t, err)
 
 	assert.True(t, m.IsRunning())
@@ -163,7 +163,7 @@ func TestBLOSManager_Enable_Idempotent(t *testing.T) {
 func TestBLOSManager_Enable_NotGatewayMode(t *testing.T) {
 	m := newTestManager(t, notGatewayCreateFn)
 
-	err := m.Enable()
+	err := m.Enable(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "gateway mode")
 	assert.False(t, m.IsRunning())
@@ -175,7 +175,7 @@ func TestBLOSManager_Enable_Error(t *testing.T) {
 		return nil, errors.New("tailscale not running")
 	})
 
-	err := m.Enable()
+	err := m.Enable(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tailscale not running")
 	assert.False(t, m.IsRunning())
@@ -189,7 +189,7 @@ func TestBLOSManager_Disable_Success(t *testing.T) {
 		return b, nil
 	})
 
-	err := m.Enable()
+	err := m.Enable(context.Background())
 	require.NoError(t, err)
 	assert.True(t, m.IsRunning())
 
@@ -212,7 +212,7 @@ func TestBLOSManager_Disable_Idempotent(t *testing.T) {
 	assert.False(t, m.IsRunning())
 
 	// Enable then disable twice
-	err := m.Enable()
+	err := m.Enable(context.Background())
 	require.NoError(t, err)
 
 	m.Disable()
@@ -229,7 +229,7 @@ func TestBLOSManager_Disable_ThenReEnable(t *testing.T) {
 	})
 
 	// First cycle
-	err := m.Enable()
+	err := m.Enable(context.Background())
 	require.NoError(t, err)
 	assert.True(t, m.IsRunning())
 
@@ -237,7 +237,7 @@ func TestBLOSManager_Disable_ThenReEnable(t *testing.T) {
 	assert.False(t, m.IsRunning())
 
 	// Second cycle
-	err = m.Enable()
+	err = m.Enable(context.Background())
 	require.NoError(t, err)
 	assert.True(t, m.IsRunning())
 	assert.Equal(t, 2, callCount, "createFn should be called once per enable cycle")
@@ -257,7 +257,7 @@ func TestBLOSManager_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 
 			for j := 0; j < 50; j++ {
-				_ = m.Enable()
+				_ = m.Enable(context.Background())
 				_ = m.IsRunning()
 				_ = m.GetBLOS()
 				m.Disable()
@@ -281,15 +281,15 @@ func TestBLOSManager_GetBLOS_WhenNotRunning(t *testing.T) {
 
 // ── ConfigureAndEnable ────────────────────────────────────────────────────────
 
-// runningStatusClient returns a MockStatusClient that always reports "Running".
-func runningStatusClient() *MockStatusClient {
-	sc := &MockStatusClient{}
+// runningStatusClient returns a fakeStatusClient that always reports "Running".
+func runningStatusClient() *fakeStatusClient {
+	sc := &fakeStatusClient{}
 	sc.SetStatus(&ipnstate.Status{BackendState: "Running"})
 
 	return sc
 }
 
-func newTestManagerWithAuth(t *testing.T, auth *mockTailscaleAuthClient, initD InitDService, createFn func(*config.Config, zerolog.Logger) (*BLOS, error)) *BLOSManager {
+func newTestManagerWithAuth(t *testing.T, auth *fakeTailscaleAuthClient, initD InitDService, createFn func(*config.Config, zerolog.Logger) (*BLOS, error)) *BLOSManager {
 	t.Helper()
 
 	return &BLOSManager{
@@ -303,7 +303,7 @@ func newTestManagerWithAuth(t *testing.T, auth *mockTailscaleAuthClient, initD I
 }
 
 func TestBLOSManager_ConfigureAndEnable_Success(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
+	auth := &fakeTailscaleAuthClient{}
 	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
@@ -317,7 +317,7 @@ func TestBLOSManager_ConfigureAndEnable_Success(t *testing.T) {
 }
 
 func TestBLOSManager_ConfigureAndEnable_WithLoginServer(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
+	auth := &fakeTailscaleAuthClient{}
 	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "https://hs.example.com")
@@ -331,7 +331,7 @@ func TestBLOSManager_ConfigureAndEnable_WithLoginServer(t *testing.T) {
 }
 
 func TestBLOSManager_ConfigureAndEnable_WithoutLoginServer(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
+	auth := &fakeTailscaleAuthClient{}
 	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
@@ -342,7 +342,7 @@ func TestBLOSManager_ConfigureAndEnable_WithoutLoginServer(t *testing.T) {
 }
 
 func TestBLOSManager_ConfigureAndEnable_AuthFailure(t *testing.T) {
-	auth := &mockTailscaleAuthClient{err: errors.New("auth failed")}
+	auth := &fakeTailscaleAuthClient{err: errors.New("auth failed")}
 	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-bad", "")
@@ -353,7 +353,7 @@ func TestBLOSManager_ConfigureAndEnable_AuthFailure(t *testing.T) {
 }
 
 func TestBLOSManager_ConfigureAndEnable_CreateFnFailure(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
+	auth := &fakeTailscaleAuthClient{}
 	m := newTestManagerWithAuth(t, auth, runningInitDService(), func(_ *config.Config, _ zerolog.Logger) (*BLOS, error) {
 		return nil, errors.New("create failed")
 	})
@@ -366,7 +366,7 @@ func TestBLOSManager_ConfigureAndEnable_CreateFnFailure(t *testing.T) {
 }
 
 func TestBLOSManager_ConfigureAndEnable_Idempotent(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
+	auth := &fakeTailscaleAuthClient{}
 	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
@@ -380,7 +380,7 @@ func TestBLOSManager_ConfigureAndEnable_Idempotent(t *testing.T) {
 }
 
 func TestBLOSManager_ConfigureAndEnable_NotGatewayMode(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
+	auth := &fakeTailscaleAuthClient{}
 	m := newTestManagerWithAuth(t, auth, runningInitDService(), notGatewayCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
@@ -392,8 +392,8 @@ func TestBLOSManager_ConfigureAndEnable_NotGatewayMode(t *testing.T) {
 // ── InitDService integration with ConfigureAndEnable ─────────────────────────
 
 func TestBLOSManager_ConfigureAndEnable_EnablesService(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
-	initD := &mockInitDService{isEnabledVal: false, isRunningVal: true}
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: false, isRunningVal: true}
 	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
@@ -403,8 +403,8 @@ func TestBLOSManager_ConfigureAndEnable_EnablesService(t *testing.T) {
 }
 
 func TestBLOSManager_ConfigureAndEnable_SkipsEnableWhenAlreadyEnabled(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
-	initD := &mockInitDService{isEnabledVal: true, isRunningVal: true}
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: true, isRunningVal: true}
 	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
@@ -413,8 +413,8 @@ func TestBLOSManager_ConfigureAndEnable_SkipsEnableWhenAlreadyEnabled(t *testing
 }
 
 func TestBLOSManager_ConfigureAndEnable_StartsService(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
-	initD := &mockInitDService{isEnabledVal: true, isRunningVal: false}
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: true, isRunningVal: false}
 	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
@@ -424,8 +424,8 @@ func TestBLOSManager_ConfigureAndEnable_StartsService(t *testing.T) {
 }
 
 func TestBLOSManager_ConfigureAndEnable_SkipsStartWhenAlreadyRunning(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
-	initD := &mockInitDService{isEnabledVal: true, isRunningVal: true}
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: true, isRunningVal: true}
 	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
@@ -434,8 +434,8 @@ func TestBLOSManager_ConfigureAndEnable_SkipsStartWhenAlreadyRunning(t *testing.
 }
 
 func TestBLOSManager_ConfigureAndEnable_EnableFailure(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
-	initD := &mockInitDService{isEnabledVal: false, isRunningVal: true, enableErr: errors.New("enable failed")}
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: false, isRunningVal: true, enableErr: errors.New("enable failed")}
 	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
@@ -446,8 +446,8 @@ func TestBLOSManager_ConfigureAndEnable_EnableFailure(t *testing.T) {
 }
 
 func TestBLOSManager_ConfigureAndEnable_StartFailure(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
-	initD := &mockInitDService{isEnabledVal: true, isRunningVal: false, startErr: errors.New("start failed")}
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: true, isRunningVal: false, startErr: errors.New("start failed")}
 	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
@@ -458,8 +458,8 @@ func TestBLOSManager_ConfigureAndEnable_StartFailure(t *testing.T) {
 }
 
 func TestBLOSManager_ConfigureAndEnable_IsEnabledCheckFailure(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
-	initD := &mockInitDService{isEnabledErr: errors.New("check failed")}
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledErr: errors.New("check failed")}
 	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
@@ -469,8 +469,8 @@ func TestBLOSManager_ConfigureAndEnable_IsEnabledCheckFailure(t *testing.T) {
 }
 
 func TestBLOSManager_ConfigureAndEnable_IsRunningCheckFailure(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
-	initD := &mockInitDService{isEnabledVal: true, isRunningErr: errors.New("check failed")}
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: true, isRunningErr: errors.New("check failed")}
 	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
@@ -480,7 +480,7 @@ func TestBLOSManager_ConfigureAndEnable_IsRunningCheckFailure(t *testing.T) {
 }
 
 func TestBLOSManager_ConfigureAndEnable_NilInitDService(t *testing.T) {
-	auth := &mockTailscaleAuthClient{}
+	auth := &fakeTailscaleAuthClient{}
 	m := newTestManagerWithAuth(t, auth, nil, successCreateFn)
 
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
@@ -502,7 +502,8 @@ func TestWaitForTailscaleReady_ImmediatelyRunning(t *testing.T) {
 
 func TestWaitForTailscaleReady_TransitionsFromStarting(t *testing.T) {
 	var calls atomic.Int32
-	sc := &MockStatusClient{
+
+	sc := &fakeStatusClient{
 		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
 			n := calls.Add(1)
 			if n <= 3 {
@@ -521,7 +522,8 @@ func TestWaitForTailscaleReady_TransitionsFromStarting(t *testing.T) {
 
 func TestWaitForTailscaleReady_TransitionsFromNeedsLogin(t *testing.T) {
 	var calls atomic.Int32
-	sc := &MockStatusClient{
+
+	sc := &fakeStatusClient{
 		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
 			n := calls.Add(1)
 			if n <= 3 {
@@ -539,7 +541,7 @@ func TestWaitForTailscaleReady_TransitionsFromNeedsLogin(t *testing.T) {
 }
 
 func TestWaitForTailscaleReady_NeedsLoginTimesOut(t *testing.T) {
-	sc := &MockStatusClient{}
+	sc := &fakeStatusClient{}
 	sc.SetStatus(&ipnstate.Status{BackendState: "NeedsLogin"})
 	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
 
@@ -553,7 +555,7 @@ func TestWaitForTailscaleReady_NeedsLoginTimesOut(t *testing.T) {
 }
 
 func TestWaitForTailscaleReady_Timeout(t *testing.T) {
-	sc := &MockStatusClient{}
+	sc := &fakeStatusClient{}
 	sc.SetStatus(&ipnstate.Status{BackendState: "Starting"})
 	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
 
@@ -568,7 +570,7 @@ func TestWaitForTailscaleReady_Timeout(t *testing.T) {
 }
 
 func TestWaitForTailscaleReady_StatusErrorsAreTransient(t *testing.T) {
-	sc := &MockStatusClient{}
+	sc := &fakeStatusClient{}
 	sc.SetError(errors.New("socket not found"))
 	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
 
@@ -583,7 +585,8 @@ func TestWaitForTailscaleReady_StatusErrorsAreTransient(t *testing.T) {
 
 func TestWaitForTailscaleReady_TransientStatusErrors(t *testing.T) {
 	var calls atomic.Int32
-	sc := &MockStatusClient{
+
+	sc := &fakeStatusClient{
 		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
 			n := calls.Add(1)
 
@@ -606,7 +609,8 @@ func TestWaitForTailscaleReady_TransientStatusErrors(t *testing.T) {
 
 func TestBLOSManager_ConfigureAndEnable_WaitsForReady(t *testing.T) {
 	var calls atomic.Int32
-	sc := &MockStatusClient{
+
+	sc := &fakeStatusClient{
 		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
 			n := calls.Add(1)
 			if n <= 2 {
@@ -617,7 +621,7 @@ func TestBLOSManager_ConfigureAndEnable_WaitsForReady(t *testing.T) {
 		},
 	}
 
-	auth := &mockTailscaleAuthClient{}
+	auth := &fakeTailscaleAuthClient{}
 	m := &BLOSManager{
 		cfg:          &config.Config{},
 		logger:       zerolog.Nop(),
@@ -635,10 +639,10 @@ func TestBLOSManager_ConfigureAndEnable_WaitsForReady(t *testing.T) {
 }
 
 func TestBLOSManager_ConfigureAndEnable_TailscaleNotReady(t *testing.T) {
-	sc := &MockStatusClient{}
+	sc := &fakeStatusClient{}
 	sc.SetStatus(&ipnstate.Status{BackendState: "NeedsLogin"})
 
-	auth := &mockTailscaleAuthClient{}
+	auth := &fakeTailscaleAuthClient{}
 	m := &BLOSManager{
 		cfg:          &config.Config{},
 		logger:       zerolog.Nop(),
@@ -672,7 +676,8 @@ func TestWaitForTailscaleDaemon_ImmediatelyAvailable(t *testing.T) {
 
 func TestWaitForTailscaleDaemon_WaitsForBackendState(t *testing.T) {
 	var calls atomic.Int32
-	sc := &MockStatusClient{
+
+	sc := &fakeStatusClient{
 		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
 			n := calls.Add(1)
 			if n <= 3 {
@@ -692,7 +697,8 @@ func TestWaitForTailscaleDaemon_WaitsForBackendState(t *testing.T) {
 
 func TestWaitForTailscaleDaemon_BecomesAvailableAfterRetries(t *testing.T) {
 	var calls atomic.Int32
-	sc := &MockStatusClient{
+
+	sc := &fakeStatusClient{
 		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
 			n := calls.Add(1)
 			if n <= 3 {
@@ -710,7 +716,7 @@ func TestWaitForTailscaleDaemon_BecomesAvailableAfterRetries(t *testing.T) {
 }
 
 func TestWaitForTailscaleDaemon_Timeout(t *testing.T) {
-	sc := &MockStatusClient{}
+	sc := &fakeStatusClient{}
 	sc.SetError(errors.New("no such file or directory"))
 	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
 
@@ -726,7 +732,8 @@ func TestBLOSManager_ConfigureAndEnable_WaitsForDaemon(t *testing.T) {
 	// Simulate: daemon socket unavailable for 2 polls, then comes up as "Stopped"
 	// (logged out), then auth succeeds, then backend transitions to "Running".
 	var calls atomic.Int32
-	sc := &MockStatusClient{
+
+	sc := &fakeStatusClient{
 		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
 			n := calls.Add(1)
 
@@ -744,7 +751,7 @@ func TestBLOSManager_ConfigureAndEnable_WaitsForDaemon(t *testing.T) {
 		},
 	}
 
-	auth := &mockTailscaleAuthClient{}
+	auth := &fakeTailscaleAuthClient{}
 	m := &BLOSManager{
 		cfg:          &config.Config{},
 		logger:       zerolog.Nop(),

@@ -10,73 +10,8 @@ import (
 	"tailscale.com/ipn"
 )
 
-func TestContainsString(t *testing.T) {
-	tests := []struct {
-		name   string
-		target string
-		items  []string
-		want   bool
-	}{
-		{
-			name:   "found in middle",
-			items:  []string{"a", "b", "c"},
-			target: "b",
-			want:   true,
-		},
-		{
-			name:   "found at start",
-			items:  []string{"x", "y", "z"},
-			target: "x",
-			want:   true,
-		},
-		{
-			name:   "found at end",
-			items:  []string{"x", "y", "z"},
-			target: "z",
-			want:   true,
-		},
-		{
-			name:   "not found",
-			items:  []string{"a", "b", "c"},
-			target: "d",
-			want:   false,
-		},
-		{
-			name:   "empty slice",
-			items:  []string{},
-			target: "a",
-			want:   false,
-		},
-		{
-			name:   "nil slice",
-			items:  nil,
-			target: "a",
-			want:   false,
-		},
-		{
-			name:   "single item match",
-			items:  []string{"only"},
-			target: "only",
-			want:   true,
-		},
-		{
-			name:   "single item no match",
-			items:  []string{"only"},
-			target: "other",
-			want:   false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := containsString(tt.items, tt.target)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestUpdateTailscalePreferences(t *testing.T) {
-	r := &BLOS{Logger: zerolog.Nop()}
+	r := &BLOS{logger: zerolog.Nop()}
 
 	prefs := &ipn.Prefs{
 		NoSNAT:          true,
@@ -96,7 +31,7 @@ func TestUpdateTailscalePreferences(t *testing.T) {
 }
 
 func TestUpdateTailscalePreferences_OverwritesExisting(t *testing.T) {
-	r := &BLOS{Logger: zerolog.Nop()}
+	r := &BLOS{logger: zerolog.Nop()}
 
 	prefs := &ipn.Prefs{
 		NoSNAT: true,
@@ -160,7 +95,7 @@ func TestHasPeerChanges(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &BLOS{
-				Logger:            zerolog.Nop(),
+				logger:            zerolog.Nop(),
 				lastSyncedPeerIPs: tt.lastSynced,
 			}
 

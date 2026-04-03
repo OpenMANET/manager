@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -13,26 +14,34 @@ import (
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/system"
 	"github.com/rs/zerolog"
-	"tailscale.com/client/local"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/types/key"
 )
 
+// BLOS manages Beyond Line-of-Sight networking via Tailscale, VXLAN, and Batman-adv.
 type BLOS struct {
-	Logger             zerolog.Logger
-	ctx                context.Context
+	logger             zerolog.Logger
 	uciOpenManetConfig network.OpenMANETConfigReader
 	uciNetworkConfig   network.ConfigReader
 	uciFirewallConfig  firewall.ConfigReader
 	interfaceManager   InterfaceManager
-	Config             *config.Config
+	tsClient           TailscaleClient
+	cfg                *config.Config
 	statusWorker       *StatusWorker
-	lastSyncedPeerIPs  map[string]bool
 	mcastJoiner        multicastJoiner
-	multicastConns     []*net.UDPConn
-	mu                 sync.Mutex
+	lastSyncedPeerIPs  map[string]bool
+
+	// Overrideable function fields for testability.
+	// When nil, the private helper methods fall back to the real implementations.
+	Reboot         func() error
+	RunCmd         func(ctx context.Context, name string, args ...string) error
+	multicastConns []*net.UDPConn
+	mu             sync.Mutex
 }
 
+// NewBLOS creates a new BLOS instance. It checks gateway mode but performs no
+// I/O beyond that. Call Start(ctx) to configure interfaces and begin polling.
+// Returns (nil, nil) if the node is not in gateway mode.
 func NewBLOS(cfg *config.Config, logger zerolog.Logger) (*BLOS, error) {
 	// Get mesh config to determine if we are a gateway
 	meshCfg, err := batmanadv.GetMeshConfig(cfg.GetAlfredBatInterface())
@@ -50,34 +59,61 @@ func NewBLOS(cfg *config.Config, logger zerolog.Logger) (*BLOS, error) {
 	}
 
 	r := &BLOS{
-		Config:             cfg,
-		Logger:             logger,
-		ctx:                context.Background(),
+		cfg:                cfg,
+		logger:             logger,
 		uciOpenManetConfig: network.NewUCIOpenMANETConfigReader(),
 		uciNetworkConfig:   network.NewUCINetworkConfigReader(),
 		uciFirewallConfig:  firewall.NewUCIFirewallConfigReader(),
 		interfaceManager:   &RealInterfaceManager{},
+		tsClient:           &LocalTailscaleClient{},
 	}
 
-	// Initialize the status worker
+	// Initialize the status worker (not started yet)
 	interval := time.Duration(cfg.GetBLOSStatusWorkerInterval()) * time.Second
 	r.statusWorker = NewStatusWorker(&LocalStatusClient{}, interval, logger)
 
-	// Set the callback to sync VXLAN peers when Tailscale status updates
-	r.statusWorker.SetOnStatusUpdate(func() error {
-		return r.syncVXLANPeersWithTailscale()
-	})
+	return r, nil
+}
 
-	if err := r.configureInterfaces(r.ctx); err != nil {
-		return nil, err
+// Start configures network interfaces and begins the status polling loop.
+// It must be called after NewBLOS and before the BLOS instance is used.
+func (r *BLOS) Start(ctx context.Context) error {
+	if r.statusWorker != nil {
+		// Set the callback to sync VXLAN peers when Tailscale status updates
+		r.statusWorker.SetOnStatusUpdate(func(callbackCtx context.Context) error {
+			return r.syncVXLANPeersWithTailscale(callbackCtx)
+		})
 	}
 
-	// Start the status worker
-	r.statusWorker.Start()
+	if r.tsClient != nil {
+		if err := r.configureInterfaces(ctx); err != nil {
+			return err
+		}
+	}
 
-	logger.Info().Msg("BLOS (Beyond Line-of-Sight) module initialized successfully")
+	if r.statusWorker != nil {
+		r.statusWorker.Start(ctx)
+	}
 
-	return r, nil
+	r.logger.Info().Msg("BLOS (Beyond Line-of-Sight) module initialized successfully")
+
+	return nil
+}
+
+func (r *BLOS) reboot() error {
+	if r.Reboot != nil {
+		return r.Reboot()
+	}
+
+	return system.Reboot()
+}
+
+func (r *BLOS) runCmd(ctx context.Context, name string, args ...string) error {
+	if r.RunCmd != nil {
+		return r.RunCmd(ctx, name, args...)
+	}
+
+	return exec.CommandContext(ctx, name, args...).Run()
 }
 
 // configureInterfaces sets up the network interfaces required for BLOS operation.
@@ -86,31 +122,30 @@ func NewBLOS(cfg *config.Config, logger zerolog.Logger) (*BLOS, error) {
 // Then it sequentially configures the tunnel interface, VxLAN interface, and Batman
 // interface, and creates VxLAN multicast peers. Returns an error if any step fails.
 func (r *BLOS) configureInterfaces(ctx context.Context) error { //nolint:gocognit
-	// Implementation of interface configuration would go here
-	tunnelStatus, err := local.Status(ctx)
+	tunnelStatus, err := r.tsClient.Status(ctx)
 	if err != nil {
-		r.Logger.Error().Err(err).Msg("Failed to get Tailscale status")
+		r.logger.Error().Err(err).Msg("Failed to get Tailscale status")
 
 		return err
 	}
 
 	switch tunnelStatus.BackendState {
 	case "Running", "Starting":
-		r.Logger.Info().Msgf("Tunnel status: %s", tunnelStatus.BackendState)
+		r.logger.Info().Msgf("Tunnel status: %s", tunnelStatus.BackendState)
 	case "Stopped":
-		r.Logger.Info().Msg("Tunnel is stopped")
+		r.logger.Info().Msg("Tunnel is stopped")
 
 		return errors.New("tunnel is stopped. Ensure Tailscale is running and authenticated, then restart openmanetd")
 	case "NeedsLogin", "NeedsMachineAuth":
-		r.Logger.Error().Msgf("Tunnel requires login or machine authentication: %s", tunnelStatus.BackendState)
+		r.logger.Error().Msgf("Tunnel requires login or machine authentication: %s", tunnelStatus.BackendState)
 
 		return errors.New("tunnel needs to autheticate, or machine auth is broken. Fix the authentication and restart openmanetd")
 	default:
-		r.Logger.Info().Msgf("Tunnel is in state: %s", tunnelStatus.BackendState)
+		r.logger.Info().Msgf("Tunnel is in state: %s", tunnelStatus.BackendState)
 	}
 
 	// Only configure BLOS interfaces if the mesh network interface exists
-	if network.NetworkSectionExistsWithReader(r.Config.GetAlfredBatInterface(), r.uciNetworkConfig) { //nolint:nestif
+	if network.NetworkSectionExistsWithReader(r.cfg.GetAlfredBatInterface(), r.uciNetworkConfig) { //nolint:nestif
 		blosConfigured, err := network.IsBLOSConfiguredWithReader(r.uciOpenManetConfig)
 		if err != nil {
 			return err
@@ -118,40 +153,35 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error { //nolint:gocogni
 
 		if !blosConfigured {
 			// Configure wireguard (tailscale) tunnel interface
-			err = r.createOrConfigureTunnelInterface()
-			if err != nil {
+			if err = r.createOrConfigureTunnelInterface(ctx); err != nil {
 				return err
 			}
 
 			// Configure VxLAN interface
-			err = r.createOrConfigureVxLanInterface()
-			if err != nil {
+			if err = r.createOrConfigureVxLanInterface(ctx); err != nil {
 				return err
 			}
 
 			// Configure Batman interface for tunnel
-			err = r.createOrConfigureBatmanInterface()
-			if err != nil {
+			if err = r.createOrConfigureBatmanInterface(); err != nil {
 				return err
 			}
 
 			// Create VxLAN multicast peers
-			err = r.createVXMulticastPeers()
-			if err != nil {
+			if err = r.createVXMulticastPeers(); err != nil {
 				return err
 			}
 
 			// Mark BLOS as configured in the OpenMANET config to avoid reconfiguring on every startup
-			err = network.SetBLOSConfiguredWithReader(r.uciOpenManetConfig)
-			if err != nil {
+			if err = network.SetBLOSConfiguredWithReader(r.uciOpenManetConfig); err != nil {
 				return err
 			}
 
 			// Reboot the system to clean up things and apply new network settings.  This is required to properly set up the tunnel and interfaces in the correct order, and to ensure a clean state.  We will likely need to reboot at least once anyway after installation to get Tailscale set up, so doing it here ensures we don't end up in a broken state if we try to configure interfaces before Tailscale is fully set up and authenticated.
-			r.Logger.Info().Msg("BLOS configured successfully, rebooting system to apply changes")
+			r.logger.Info().Msg("BLOS configured successfully, rebooting system to apply changes")
 
-			if err = system.Reboot(); err != nil {
-				r.Logger.Error().Err(err).Msg("Failed to reboot system after BLOS configuration")
+			if err = r.reboot(); err != nil {
+				r.logger.Error().Err(err).Msg("Failed to reboot system after BLOS configuration")
 
 				return err
 			}
@@ -171,13 +201,13 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error { //nolint:gocogni
 
 		// Join multicast groups on the mesh interface so batman-adv forwards
 		// multicast traffic across the VXLAN link to BLOS peers.
-		if err := r.joinMulticastGroupsOnInterface(r.Config.MeshNetInterface); err != nil {
-			r.Logger.Error().Err(err).Msg("Failed to join multicast groups on mesh interface")
+		if err := r.joinMulticastGroupsOnInterface(r.cfg.MeshNetInterface); err != nil {
+			r.logger.Error().Err(err).Msg("Failed to join multicast groups on mesh interface")
 
 			return err
 		}
 
-		r.Logger.Debug().Msg("BLOS interfaces configured successfully")
+		r.logger.Debug().Msg("BLOS interfaces configured successfully")
 	}
 
 	return nil
@@ -216,11 +246,14 @@ func (r *BLOS) Stop() {
 		r.statusWorker.Stop()
 	}
 
-	for _, c := range r.multicastConns {
+	r.mu.Lock()
+	conns := r.multicastConns
+	r.multicastConns = nil
+	r.mu.Unlock()
+
+	for _, c := range conns {
 		if err := c.Close(); err != nil {
-			r.Logger.Debug().Err(err).Msg("Error closing multicast socket during shutdown")
+			r.logger.Debug().Err(err).Msg("Error closing multicast socket during shutdown")
 		}
 	}
-
-	r.multicastConns = nil
 }

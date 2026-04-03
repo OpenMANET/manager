@@ -37,7 +37,7 @@ func (c *LocalTailscaleAuthClient) Start(ctx context.Context, opts ipn.Options) 
 // The handler depends on this interface so that tests can provide a mock.
 type BLOSLifecycle interface {
 	ConfigureAndEnable(ctx context.Context, authKey string, loginServerURL string) error
-	Enable() error
+	Enable(ctx context.Context) error
 	Disable()
 	IsRunning() bool
 }
@@ -238,6 +238,10 @@ func (m *BLOSManager) ConfigureAndEnable(ctx context.Context, authKey string, lo
 		return errors.New("BLOS requires gateway mode; configure the node as a mesh gateway first")
 	}
 
+	if err := b.Start(ctx); err != nil {
+		return err
+	}
+
 	m.blos = b
 	m.running = true
 	m.logger.Info().Msg("BLOS module enabled at runtime")
@@ -248,7 +252,7 @@ func (m *BLOSManager) ConfigureAndEnable(ctx context.Context, authKey string, lo
 // Enable starts the BLOS module. It is idempotent: if BLOS is already running
 // it returns nil. Returns a descriptive error if the node is not in gateway
 // mode or if initialization fails.
-func (m *BLOSManager) Enable() error {
+func (m *BLOSManager) Enable(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -263,6 +267,10 @@ func (m *BLOSManager) Enable() error {
 
 	if b == nil {
 		return errors.New("BLOS requires gateway mode; configure the node as a mesh gateway first")
+	}
+
+	if err := b.Start(ctx); err != nil {
+		return err
 	}
 
 	m.blos = b

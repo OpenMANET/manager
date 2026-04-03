@@ -3,14 +3,44 @@ package blos
 import (
 	"context"
 	"net/netip"
-	"os/exec"
+	"slices"
 	"strconv"
 
 	"github.com/openmanet/openmanetd/internal/firewall"
 	"github.com/openmanet/openmanetd/internal/network"
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
+	"tailscale.com/ipn/ipnstate"
 )
+
+// TailscaleClient abstracts the Tailscale local daemon API for testability.
+type TailscaleClient interface {
+	Status(ctx context.Context) (*ipnstate.Status, error)
+	GetPrefs(ctx context.Context) (*ipn.Prefs, error)
+	EditPrefs(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error)
+}
+
+// LocalTailscaleClient is the production implementation using the Tailscale SDK.
+type LocalTailscaleClient struct{}
+
+// Status returns the current Tailscale daemon status.
+func (c *LocalTailscaleClient) Status(ctx context.Context) (*ipnstate.Status, error) {
+	return local.Status(ctx)
+}
+
+// GetPrefs returns the current Tailscale preferences.
+func (c *LocalTailscaleClient) GetPrefs(ctx context.Context) (*ipn.Prefs, error) {
+	lc := &local.Client{}
+
+	return lc.GetPrefs(ctx)
+}
+
+// EditPrefs updates Tailscale preferences.
+func (c *LocalTailscaleClient) EditPrefs(ctx context.Context, mp *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+	lc := &local.Client{}
+
+	return lc.EditPrefs(ctx, mp)
+}
 
 // InterfaceManager defines an interface for managing network interfaces.
 type InterfaceManager interface {
@@ -49,7 +79,7 @@ const (
 // It checks if a tunnel interface with the default device name already exists in the UCI configuration.
 // If the interface doesn't exist, it creates a new network section with protocol set to "none" and the
 // default tunnel device name. Returns an error if the network configuration operation fails.
-func (r *BLOS) createOrConfigureTunnelInterface() error {
+func (r *BLOS) createOrConfigureTunnelInterface(ctx context.Context) error {
 	// Check if the tunnel interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultTunnelDeviceName, r.uciNetworkConfig) { //nolint:nestif
 		// Create a new network section for the tunnel interface
@@ -64,24 +94,23 @@ func (r *BLOS) createOrConfigureTunnelInterface() error {
 			return err
 		}
 
-		if err := r.configureTailscalePreferences(r.ctx); err != nil {
+		if err := r.configureTailscalePreferences(ctx); err != nil {
 			return err
 		}
 
 		// Remove tailscale0 from the br-ahwlan bridge if it's there, to avoid conflicts with the VXLAN interface
-		device, err := network.GetDeviceByNameWithReader(r.Config.MeshNetInterface, r.uciNetworkConfig)
+		device, err := network.GetDeviceByNameWithReader(r.cfg.MeshNetInterface, r.uciNetworkConfig)
 		if err != nil {
 			return err
 		}
 
-		if device != nil && containsString(device.Ports, defaultTunnelDeviceName) {
-			removeDevice := exec.CommandContext(r.ctx, "uci", "del_list", "network."+r.Config.MeshNetInterface+".ports="+defaultTunnelDeviceName)
-			if err := removeDevice.Run(); err != nil {
+		if device != nil && slices.Contains(device.Ports, defaultTunnelDeviceName) {
+			if err := r.runCmd(ctx, "uci", "del_list", "network."+r.cfg.MeshNetInterface+".ports="+defaultTunnelDeviceName); err != nil {
 				return err
 			}
 		}
 
-		r.Logger.Debug().Msgf("Created BLOS tunnel interface %s", defaultTunnelDeviceName)
+		r.logger.Debug().Msgf("Created BLOS tunnel interface %s", defaultTunnelDeviceName)
 	}
 
 	return nil
@@ -96,7 +125,7 @@ func (r *BLOS) createOrConfigureTunnelInterface() error {
 //   - Proxy: "1" - enables ARP proxying
 //
 // Returns an error if the VXLAN configuration creation fails, otherwise returns nil.
-func (r *BLOS) createOrConfigureVxLanInterface() error {
+func (r *BLOS) createOrConfigureVxLanInterface(ctx context.Context) error {
 	// Check if the VXLAN interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultVxLanDeviceName, r.uciNetworkConfig) {
 		// Create a new network section for the VXLAN interface
@@ -111,11 +140,11 @@ func (r *BLOS) createOrConfigureVxLanInterface() error {
 			return err
 		}
 
-		if err := network.ForceReloadConfig(r.ctx); err != nil {
+		if err := network.ForceReloadConfig(ctx); err != nil {
 			return err
 		}
 
-		r.Logger.Debug().Msgf("Created BLOS VXLAN interface %s", defaultVxLanDeviceName)
+		r.logger.Debug().Msgf("Created BLOS VXLAN interface %s", defaultVxLanDeviceName)
 	}
 
 	return nil
@@ -134,12 +163,12 @@ func (r *BLOS) createOrConfigureBatmanInterface() error {
 		if err := network.SetNetworkConfigWithReader(defaultBatmanInterfaceName, &network.UCINetwork{
 			Proto:  "batadv_hardif",
 			Device: defaultVxLanDeviceName,
-			Master: r.Config.AlfredBatInterface,
+			Master: r.cfg.AlfredBatInterface,
 		}, r.uciNetworkConfig); err != nil {
 			return err
 		}
 
-		r.Logger.Debug().Msgf("Created BLOS Batman interface %s", defaultBatmanInterfaceName)
+		r.logger.Debug().Msgf("Created BLOS Batman interface %s", defaultBatmanInterfaceName)
 	}
 
 	return nil
@@ -148,12 +177,10 @@ func (r *BLOS) createOrConfigureBatmanInterface() error {
 // configureTailscalePreferences retrieves current Tailscale preferences, updates them to enable
 // RouteAll and disable NoSNAT, and applies the changes back to the Tailscale daemon.
 func (r *BLOS) configureTailscalePreferences(ctx context.Context) error {
-	lc := &local.Client{}
-
 	// Get current preferences from Tailscale daemon
-	prefs, err := lc.GetPrefs(ctx)
+	prefs, err := r.tsClient.GetPrefs(ctx)
 	if err != nil {
-		r.Logger.Error().Err(err).Msg("Failed to get Tailscale preferences")
+		r.logger.Error().Err(err).Msg("Failed to get Tailscale preferences")
 
 		return err
 	}
@@ -162,18 +189,18 @@ func (r *BLOS) configureTailscalePreferences(ctx context.Context) error {
 	r.updateTailscalePreferences(prefs)
 
 	// Apply the updated preferences back to Tailscale
-	_, err = lc.EditPrefs(ctx, &ipn.MaskedPrefs{
+	_, err = r.tsClient.EditPrefs(ctx, &ipn.MaskedPrefs{
 		Prefs:              *prefs,
 		NoSNATSet:          true,
 		AdvertiseRoutesSet: true,
 	})
 	if err != nil {
-		r.Logger.Error().Err(err).Msg("Failed to update Tailscale preferences")
+		r.logger.Error().Err(err).Msg("Failed to update Tailscale preferences")
 
 		return err
 	}
 
-	r.Logger.Info().Msg("Successfully configured Tailscale preferences (RouteAll: true, NoSNAT: false)")
+	r.logger.Info().Msg("Successfully configured Tailscale preferences (RouteAll: true, NoSNAT: false)")
 
 	return nil
 }
@@ -195,16 +222,4 @@ func (r *BLOS) updateTailscalePreferences(prefs *ipn.Prefs) {
 
 	// Apply the edits to the provided Prefs
 	prefs.ApplyEdits(&edits)
-}
-
-// containsString checks if a slice of strings contains a specific target string.
-// It iterates through the slice and returns true if it finds a match, otherwise returns false.
-func containsString(items []string, target string) bool {
-	for _, item := range items {
-		if item == target {
-			return true
-		}
-	}
-
-	return false
 }

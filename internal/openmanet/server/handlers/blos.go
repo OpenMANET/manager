@@ -93,7 +93,7 @@ func (b *BLOSService) disableBLOS() (*v1.UpdateBLOSConfigResponse, error) {
 	if err := b.Cfg.PersistBLOSConfig(false); err != nil {
 		b.Log.Error().Err(err).Msg("Failed to persist BLOS config, re-enabling")
 
-		if reErr := b.BLOSManager.Enable(); reErr != nil {
+		if reErr := b.BLOSManager.Enable(context.Background()); reErr != nil {
 			b.Log.Error().Err(reErr).Msg("Failed to re-enable BLOS during rollback")
 		}
 

@@ -22,21 +22,20 @@ func TestBLOSWithStatusWorker(t *testing.T) {
 	logger := zerolog.Nop()
 
 	// Create mock status client
-	mockClient := &MockStatusClient{}
+	mockClient := &fakeStatusClient{}
 	mockStatus := createMockStatus()
 	mockClient.SetStatus(mockStatus)
 
 	// Create BLOS with a custom status worker for testing
 	r := &BLOS{
-		Config: cfg,
-		Logger: logger,
-		ctx:    context.Background(),
+		cfg:    cfg,
+		logger: logger,
 	}
 
 	// Initialize the status worker with our mock client
 	interval := time.Duration(cfg.GetBLOSStatusWorkerInterval()) * time.Second
 	r.statusWorker = NewStatusWorker(mockClient, interval, logger)
-	r.statusWorker.Start()
+	r.statusWorker.Start(context.Background())
 
 	// Give it time to fetch status
 	time.Sleep(100 * time.Millisecond)
@@ -94,9 +93,8 @@ func TestBLOSGetPeersWhenWorkerIsNil(t *testing.T) {
 	logger := zerolog.Nop()
 
 	r := &BLOS{
-		Config:       cfg,
-		Logger:       logger,
-		ctx:          context.Background(),
+		cfg:          cfg,
+		logger:       logger,
 		statusWorker: nil, // Explicitly nil
 	}
 
@@ -155,7 +153,7 @@ func TestBLOSStatusWorkerInterval(t *testing.T) {
 			cfg := config.New(v)
 			logger := zerolog.Nop()
 
-			mockClient := &MockStatusClient{}
+			mockClient := &fakeStatusClient{}
 			interval := time.Duration(cfg.GetBLOSStatusWorkerInterval()) * time.Second
 
 			if interval != tt.expectedInterval {
@@ -177,18 +175,17 @@ func TestBLOSConcurrentAccess(t *testing.T) {
 	cfg := config.New(v)
 	logger := zerolog.Nop()
 
-	mockClient := &MockStatusClient{}
+	mockClient := &fakeStatusClient{}
 	mockClient.SetStatus(createMockStatus())
 
 	r := &BLOS{
-		Config: cfg,
-		Logger: logger,
-		ctx:    context.Background(),
+		cfg:    cfg,
+		logger: logger,
 	}
 
 	interval := time.Duration(cfg.GetBLOSStatusWorkerInterval()) * time.Second
 	r.statusWorker = NewStatusWorker(mockClient, interval, logger)
-	r.statusWorker.Start()
+	r.statusWorker.Start(context.Background())
 
 	defer r.Stop()
 

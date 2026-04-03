@@ -29,41 +29,38 @@ func (c *LocalStatusClient) Status(ctx context.Context) (*ipnstate.Status, error
 type StatusWorker struct {
 	logger         zerolog.Logger
 	client         StatusClient
-	ctx            context.Context //nolint:containedctx
+	cancel         context.CancelFunc
+	onStatusUpdate func(ctx context.Context) error
 	peers          map[key.NodePublic]*ipnstate.PeerStatus
 	status         *ipnstate.Status
-	cancel         context.CancelFunc
-	onStatusUpdate func() error
 	wg             sync.WaitGroup
 	interval       time.Duration
-	mu             sync.RWMutex
+	mu             sync.RWMutex // protects peers, status, onStatusUpdate, running
 	running        bool
 }
 
 // NewStatusWorker creates a new StatusWorker with the given configuration.
 func NewStatusWorker(client StatusClient, interval time.Duration, logger zerolog.Logger) *StatusWorker {
-	ctx, cancel := context.WithCancel(context.Background())
-
 	return &StatusWorker{
 		client:   client,
 		interval: interval,
 		logger:   logger,
 		peers:    make(map[key.NodePublic]*ipnstate.PeerStatus),
-		ctx:      ctx,
-		cancel:   cancel,
 	}
 }
 
 // SetOnStatusUpdate sets a callback function to be called after status is updated.
-func (w *StatusWorker) SetOnStatusUpdate(callback func() error) {
+func (w *StatusWorker) SetOnStatusUpdate(callback func(ctx context.Context) error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	w.onStatusUpdate = callback
 }
 
-// Start begins the periodic status polling.
-func (w *StatusWorker) Start() {
+// Start begins the periodic status polling. The provided context is used as
+// the parent for all polling operations; canceling it (or calling Stop) will
+// terminate the worker.
+func (w *StatusWorker) Start(ctx context.Context) {
 	w.mu.Lock()
 	if w.running {
 		w.mu.Unlock()
@@ -74,9 +71,12 @@ func (w *StatusWorker) Start() {
 	w.running = true
 	w.mu.Unlock()
 
+	workerCtx, cancel := context.WithCancel(ctx)
+	w.cancel = cancel
+
 	w.wg.Add(1)
 
-	go w.run()
+	go w.run(workerCtx)
 }
 
 // Stop halts the status polling worker.
@@ -96,30 +96,30 @@ func (w *StatusWorker) Stop() {
 }
 
 // run is the main worker loop that periodically fetches status.
-func (w *StatusWorker) run() {
+func (w *StatusWorker) run(ctx context.Context) {
 	defer w.wg.Done()
 
 	// Fetch status immediately on start
-	w.fetchAndStoreStatus()
+	w.fetchAndStoreStatus(ctx)
 
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-w.ctx.Done():
+		case <-ctx.Done():
 			w.logger.Debug().Msg("Status worker stopped")
 
 			return
 		case <-ticker.C:
-			w.fetchAndStoreStatus()
+			w.fetchAndStoreStatus(ctx)
 		}
 	}
 }
 
 // fetchAndStoreStatus retrieves the current Tailscale status and stores peer information.
-func (w *StatusWorker) fetchAndStoreStatus() {
-	status, err := w.client.Status(w.ctx)
+func (w *StatusWorker) fetchAndStoreStatus(ctx context.Context) {
+	status, err := w.client.Status(ctx)
 	if err != nil {
 		w.logger.Error().Err(err).Msg("Failed to fetch Tailscale status")
 
@@ -136,19 +136,27 @@ func (w *StatusWorker) fetchAndStoreStatus() {
 
 	// Call the callback if set
 	if callback != nil {
-		if err := callback(); err != nil {
+		if err := callback(ctx); err != nil {
 			w.logger.Error().Err(err).Msg("Error in status update callback")
 		}
 	}
 }
 
-// GetPeers returns the current peer map.
-// Note: Do not modify the returned map.
+// GetPeers returns a shallow copy of the current peer map.
 func (w *StatusWorker) GetPeers() map[key.NodePublic]*ipnstate.PeerStatus {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
-	return w.peers
+	if w.peers == nil {
+		return nil
+	}
+
+	cp := make(map[key.NodePublic]*ipnstate.PeerStatus, len(w.peers))
+	for k, v := range w.peers {
+		cp[k] = v
+	}
+
+	return cp
 }
 
 // GetPeer returns a specific peer by node key.

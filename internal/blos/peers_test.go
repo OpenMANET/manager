@@ -18,8 +18,9 @@ import (
 
 const testPeerAddr = "100.64.1.2"
 
-// MockConfigReader for testing VXLAN operations
-type MockVXLANConfigReader struct {
+// fakeVXLANConfigReader is a test double for VXLAN operations.
+type fakeVXLANConfigReader struct {
+	mu                   sync.Mutex
 	data                 map[string]map[string]map[string][]string
 	updatedPeers         map[string]network.UCIVXLANPeer
 	lastAnonymousSection string
@@ -31,8 +32,8 @@ type MockVXLANConfigReader struct {
 	shouldFailDelete     bool
 }
 
-func newMockVXLANConfigReader() *MockVXLANConfigReader {
-	return &MockVXLANConfigReader{
+func newfakeVXLANConfigReader() *fakeVXLANConfigReader {
+	return &fakeVXLANConfigReader{
 		data: map[string]map[string]map[string][]string{
 			"network": {},
 		},
@@ -42,7 +43,10 @@ func newMockVXLANConfigReader() *MockVXLANConfigReader {
 	}
 }
 
-func (m *MockVXLANConfigReader) Get(config, section, option string) ([]string, bool) {
+func (m *fakeVXLANConfigReader) Get(config, section, option string) ([]string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if configData, ok := m.data[config]; ok {
 		if sectionData, ok := configData[section]; ok {
 			if values, ok := sectionData[option]; ok {
@@ -54,7 +58,10 @@ func (m *MockVXLANConfigReader) Get(config, section, option string) ([]string, b
 	return nil, false
 }
 
-func (m *MockVXLANConfigReader) GetSections(config, secType string) ([]string, error) {
+func (m *fakeVXLANConfigReader) GetSections(config, secType string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	// Return all sections in the given config
 	// In a real implementation, this would filter by section type
 	// For our mock, we'll return all section names that look like vxlan_peer sections
@@ -74,7 +81,10 @@ func (m *MockVXLANConfigReader) GetSections(config, secType string) ([]string, e
 	return sections, nil
 }
 
-func (m *MockVXLANConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
+func (m *fakeVXLANConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
 	}
@@ -93,7 +103,10 @@ func (m *MockVXLANConfigReader) SetType(config, section, option string, typ uci.
 	return nil
 }
 
-func (m *MockVXLANConfigReader) Del(config, section, option string) error {
+func (m *fakeVXLANConfigReader) Del(config, section, option string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if configData, ok := m.data[config]; ok {
 		if sectionData, ok := configData[section]; ok {
 			delete(sectionData, option)
@@ -103,7 +116,10 @@ func (m *MockVXLANConfigReader) Del(config, section, option string) error {
 	return nil
 }
 
-func (m *MockVXLANConfigReader) AddSection(config, section, typ string) error {
+func (m *fakeVXLANConfigReader) AddSection(config, section, typ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if m.shouldFailAdd {
 		return fmt.Errorf("mock add error")
 	}
@@ -137,7 +153,10 @@ func (m *MockVXLANConfigReader) AddSection(config, section, typ string) error {
 	return nil
 }
 
-func (m *MockVXLANConfigReader) DelSection(config, section string) error {
+func (m *fakeVXLANConfigReader) DelSection(config, section string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if m.shouldFailDelete {
 		return fmt.Errorf("mock delete error")
 	}
@@ -149,7 +168,10 @@ func (m *MockVXLANConfigReader) DelSection(config, section string) error {
 	return nil
 }
 
-func (m *MockVXLANConfigReader) Commit() error {
+func (m *fakeVXLANConfigReader) Commit() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.commitCalled = true
 	if m.shouldFailCommit {
 		return fmt.Errorf("mock commit error")
@@ -158,11 +180,14 @@ func (m *MockVXLANConfigReader) Commit() error {
 	return nil
 }
 
-func (m *MockVXLANConfigReader) ReloadConfig() error {
+func (m *fakeVXLANConfigReader) ReloadConfig() error {
 	return nil
 }
 
-func (m *MockVXLANConfigReader) addPeer(dst, via, vxlan string) {
+func (m *fakeVXLANConfigReader) addPeer(dst, via, vxlan string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	// Use numeric peer names like the real implementation
 	peerNum := len(m.data["network"])
 
@@ -181,10 +206,9 @@ func createTestBLOS() *BLOS {
 	logger := zerolog.Nop()
 
 	return &BLOS{
-		Config:           cfg,
-		Logger:           logger,
-		ctx:              context.Background(),
-		uciNetworkConfig: newMockVXLANConfigReader(),
+		cfg:              cfg,
+		logger:           logger,
+		uciNetworkConfig: newfakeVXLANConfigReader(),
 		interfaceManager: &NoOpInterfaceManager{},
 	}
 }
@@ -193,14 +217,14 @@ func TestCreateVxlanPeer_New(t *testing.T) {
 	r := createTestBLOS()
 	peerIP := testPeerAddr
 
-	err := r.createVxlanPeer(peerIP)
+	err := r.createVxlanPeer(context.Background(), peerIP)
 	if err != nil {
 		t.Fatalf("createVxlanPeer failed: %v", err)
 	}
 
-	mockReader, ok := r.uciNetworkConfig.(*MockVXLANConfigReader)
+	mockReader, ok := r.uciNetworkConfig.(*fakeVXLANConfigReader)
 	if !ok {
-		t.Fatal("uciNetworkConfig is not *MockVXLANConfigReader")
+		t.Fatal("uciNetworkConfig is not *fakeVXLANConfigReader")
 	}
 
 	if !mockReader.commitCalled {
@@ -236,9 +260,9 @@ func TestCreateVxlanPeer_New(t *testing.T) {
 func TestCreateVxlanPeer_Update(t *testing.T) {
 	r := createTestBLOS()
 
-	mockReader, ok := r.uciNetworkConfig.(*MockVXLANConfigReader)
+	mockReader, ok := r.uciNetworkConfig.(*fakeVXLANConfigReader)
 	if !ok {
-		t.Fatal("uciNetworkConfig is not *MockVXLANConfigReader")
+		t.Fatal("uciNetworkConfig is not *fakeVXLANConfigReader")
 	}
 
 	peerIP := testPeerAddr
@@ -246,7 +270,7 @@ func TestCreateVxlanPeer_Update(t *testing.T) {
 	// Add an existing peer
 	mockReader.addPeer(peerIP, "old_tunnel", "old_vxlan")
 
-	err := r.createVxlanPeer(peerIP)
+	err := r.createVxlanPeer(context.Background(), peerIP)
 	if err != nil {
 		t.Fatalf("createVxlanPeer failed: %v", err)
 	}
@@ -279,7 +303,7 @@ func TestSyncVXLANPeersWithTailscale_NoPeers(t *testing.T) {
 	r := createTestBLOS()
 
 	// No status worker or peers
-	err := r.syncVXLANPeersWithTailscale()
+	err := r.syncVXLANPeersWithTailscale(context.Background())
 	if err != nil {
 		t.Fatalf("syncVXLANPeersWithTailscale failed: %v", err)
 	}
@@ -310,21 +334,21 @@ func TestSyncVXLANPeersWithTailscale_AddPeers(t *testing.T) {
 		},
 	}
 
-	mockClient := &MockStatusClient{}
+	mockClient := &fakeStatusClient{}
 	mockClient.SetStatus(mockStatus)
 
 	// interval removed
-	r.statusWorker = NewStatusWorker(mockClient, 1*time.Second, r.Logger)
-	r.statusWorker.fetchAndStoreStatus()
+	r.statusWorker = NewStatusWorker(mockClient, 1*time.Second, r.logger)
+	r.statusWorker.fetchAndStoreStatus(context.Background())
 
-	err := r.syncVXLANPeersWithTailscale()
+	err := r.syncVXLANPeersWithTailscale(context.Background())
 	if err != nil {
 		t.Fatalf("syncVXLANPeersWithTailscale failed: %v", err)
 	}
 
-	mockReader, ok := r.uciNetworkConfig.(*MockVXLANConfigReader)
+	mockReader, ok := r.uciNetworkConfig.(*fakeVXLANConfigReader)
 	if !ok {
-		t.Fatal("uciNetworkConfig is not *MockVXLANConfigReader")
+		t.Fatal("uciNetworkConfig is not *fakeVXLANConfigReader")
 	}
 
 	// Verify both peers were added
@@ -347,9 +371,9 @@ func TestSyncVXLANPeersWithTailscale_AddPeers(t *testing.T) {
 func TestSyncVXLANPeersWithTailscale_RemoveInactivePeers(t *testing.T) {
 	r := createTestBLOS()
 
-	mockReader, ok := r.uciNetworkConfig.(*MockVXLANConfigReader)
+	mockReader, ok := r.uciNetworkConfig.(*fakeVXLANConfigReader)
 	if !ok {
-		t.Fatal("uciNetworkConfig is not *MockVXLANConfigReader")
+		t.Fatal("uciNetworkConfig is not *fakeVXLANConfigReader")
 	}
 
 	// Add some existing peers
@@ -371,14 +395,14 @@ func TestSyncVXLANPeersWithTailscale_RemoveInactivePeers(t *testing.T) {
 		},
 	}
 
-	mockClient := &MockStatusClient{}
+	mockClient := &fakeStatusClient{}
 	mockClient.SetStatus(mockStatus)
 
 	// interval removed
-	r.statusWorker = NewStatusWorker(mockClient, 1*time.Second, r.Logger)
-	r.statusWorker.fetchAndStoreStatus()
+	r.statusWorker = NewStatusWorker(mockClient, 1*time.Second, r.logger)
+	r.statusWorker.fetchAndStoreStatus(context.Background())
 
-	err := r.syncVXLANPeersWithTailscale()
+	err := r.syncVXLANPeersWithTailscale(context.Background())
 	if err != nil {
 		t.Fatalf("syncVXLANPeersWithTailscale failed: %v", err)
 	}
@@ -407,9 +431,9 @@ func TestSyncVXLANPeersWithTailscale_RemoveInactivePeers(t *testing.T) {
 func TestSyncVXLANPeersWithTailscale_PreserveMulticast(t *testing.T) {
 	r := createTestBLOS()
 
-	mockReader, ok := r.uciNetworkConfig.(*MockVXLANConfigReader)
+	mockReader, ok := r.uciNetworkConfig.(*fakeVXLANConfigReader)
 	if !ok {
-		t.Fatal("uciNetworkConfig is not *MockVXLANConfigReader")
+		t.Fatal("uciNetworkConfig is not *fakeVXLANConfigReader")
 	}
 
 	// Add multicast peers
@@ -425,13 +449,13 @@ func TestSyncVXLANPeersWithTailscale_PreserveMulticast(t *testing.T) {
 		Peer: map[key.NodePublic]*ipnstate.PeerStatus{},
 	}
 
-	mockClient := &MockStatusClient{}
+	mockClient := &fakeStatusClient{}
 	mockClient.SetStatus(mockStatus)
 
-	r.statusWorker = NewStatusWorker(mockClient, 1*time.Second, r.Logger)
-	r.statusWorker.fetchAndStoreStatus()
+	r.statusWorker = NewStatusWorker(mockClient, 1*time.Second, r.logger)
+	r.statusWorker.fetchAndStoreStatus(context.Background())
 
-	err := r.syncVXLANPeersWithTailscale()
+	err := r.syncVXLANPeersWithTailscale(context.Background())
 	if err != nil {
 		t.Fatalf("syncVXLANPeersWithTailscale failed: %v", err)
 	}
@@ -481,21 +505,21 @@ func TestSyncVXLANPeersWithTailscale_PeerWithoutIP(t *testing.T) {
 		},
 	}
 
-	mockClient := &MockStatusClient{}
+	mockClient := &fakeStatusClient{}
 	mockClient.SetStatus(mockStatus)
 
 	// interval removed
-	r.statusWorker = NewStatusWorker(mockClient, 1*time.Second, r.Logger)
-	r.statusWorker.fetchAndStoreStatus()
+	r.statusWorker = NewStatusWorker(mockClient, 1*time.Second, r.logger)
+	r.statusWorker.fetchAndStoreStatus(context.Background())
 
-	err := r.syncVXLANPeersWithTailscale()
+	err := r.syncVXLANPeersWithTailscale(context.Background())
 	if err != nil {
 		t.Fatalf("syncVXLANPeersWithTailscale failed: %v", err)
 	}
 
-	mockReader, ok2 := r.uciNetworkConfig.(*MockVXLANConfigReader)
+	mockReader, ok2 := r.uciNetworkConfig.(*fakeVXLANConfigReader)
 	if !ok2 {
-		t.Fatal("uciNetworkConfig is not *MockVXLANConfigReader")
+		t.Fatal("uciNetworkConfig is not *fakeVXLANConfigReader")
 	}
 
 	// Verify no peers were added (peer has no IP)
@@ -515,9 +539,9 @@ func TestSyncVXLANPeersWithTailscale_PeerWithoutIP(t *testing.T) {
 func TestRemoveInactiveVXLANPeers(t *testing.T) {
 	r := createTestBLOS()
 
-	mockReader, ok := r.uciNetworkConfig.(*MockVXLANConfigReader)
+	mockReader, ok := r.uciNetworkConfig.(*fakeVXLANConfigReader)
 	if !ok {
-		t.Fatal("uciNetworkConfig is not *MockVXLANConfigReader")
+		t.Fatal("uciNetworkConfig is not *fakeVXLANConfigReader")
 	}
 
 	// Add various peers
@@ -529,7 +553,7 @@ func TestRemoveInactiveVXLANPeers(t *testing.T) {
 		testPeerAddr: true, // Keep this one
 	}
 
-	err := r.removeInactiveVXLANPeers(activePeerIPs)
+	err := r.removeInactiveVXLANPeers(context.Background(), activePeerIPs)
 	if err != nil {
 		t.Fatalf("removeInactiveVXLANPeers failed: %v", err)
 	}
@@ -593,11 +617,11 @@ func TestSyncVXLANPeersWithTailscale_ConcurrentCallsNoRace(t *testing.T) {
 		},
 	}
 
-	mockClient := &MockStatusClient{}
+	mockClient := &fakeStatusClient{}
 	mockClient.SetStatus(mockStatus)
 
-	r.statusWorker = NewStatusWorker(mockClient, 1*time.Second, r.Logger)
-	r.statusWorker.fetchAndStoreStatus()
+	r.statusWorker = NewStatusWorker(mockClient, 1*time.Second, r.logger)
+	r.statusWorker.fetchAndStoreStatus(context.Background())
 
 	var wg sync.WaitGroup
 
@@ -608,7 +632,7 @@ func TestSyncVXLANPeersWithTailscale_ConcurrentCallsNoRace(t *testing.T) {
 			defer wg.Done()
 
 			for j := 0; j < 20; j++ {
-				_ = r.syncVXLANPeersWithTailscale()
+				_ = r.syncVXLANPeersWithTailscale(context.Background())
 			}
 		}()
 	}

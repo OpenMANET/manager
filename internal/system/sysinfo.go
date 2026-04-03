@@ -240,7 +240,7 @@ func (l *LinuxSysInfo) GetOverlayUsage() (*OverlayUsage, error) {
 	}
 
 	total := int64(stat.Blocks) * int64(stat.Bsize) //nolint:unconvert
-	free := int64(stat.Bfree) * int64(stat.Bsize) //nolint:unconvert
+	free := int64(stat.Bfree) * int64(stat.Bsize)   //nolint:unconvert
 
 	return &OverlayUsage{
 		TotalBytes: total,
