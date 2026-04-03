@@ -551,6 +551,11 @@ func TestGetSatelliteReport_ReturnsCopy(t *testing.T) {
 	report.Satellites[0].PRN = 999
 	report.PDOP = 99.9
 
+	// Verify the copy reflects our mutations
+	if report.PDOP != 99.9 {
+		t.Errorf("Copy PDOP should be 99.9, got %f", report.PDOP)
+	}
+
 	// Verify internal state was not affected
 	internal := gps.GetSatelliteReport()
 	if internal.Satellites[0].PRN != 10 {

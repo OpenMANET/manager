@@ -20,13 +20,20 @@ func NewGPSService(log zerolog.Logger, cfg *config.Config) (*GPSService, error) 
 // NewGPSServiceWithAddress creates a new GPS service with a custom GPSD address.
 // It creates two separate sessions: one for JSON/TPV reports and one for NMEA sentences.
 func NewGPSServiceWithAddress(log zerolog.Logger, cfg *config.Config, address string) (*GPSService, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	cancel := context.CancelFunc(func() {
+		select {
+		case <-done:
+		default:
+			close(done)
+		}
+	})
 
 	g := &GPSService{
 		Log:            log,
 		Config:         cfg,
 		address:        address,
-		ctx:            ctx,
+		done:           done,
 		cancel:         cancel,
 		reconnectDelay: 5 * time.Second,
 	}
@@ -57,7 +64,7 @@ func (g *GPSService) Close() error {
 func (g *GPSService) connectionHandler() {
 	for {
 		select {
-		case <-g.ctx.Done():
+		case <-g.done:
 			return
 		default:
 			err := g.connect()
@@ -134,7 +141,7 @@ func (g *GPSService) readGPSD() {
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		select {
-		case <-g.ctx.Done():
+		case <-g.done:
 			return
 		default:
 			line := scanner.Text()

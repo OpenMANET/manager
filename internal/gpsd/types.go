@@ -96,7 +96,7 @@ type GPSService struct {
 	Log               zerolog.Logger
 	lastMulticastTime time.Time
 	conn              net.Conn
-	ctx               context.Context
+	done              chan struct{}
 	Config            *config.Config
 	cancel            context.CancelFunc
 	address           string

@@ -1,7 +1,6 @@
 package gpsd
 
 import (
-	"context"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -47,9 +46,9 @@ func TestGPSService_Reconnection(t *testing.T) {
 		reconnectDelay: 100 * time.Millisecond,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	gps.ctx = ctx
-	gps.cancel = cancel
+	done := make(chan struct{})
+	gps.done = done
+	gps.cancel = func() { close(done) }
 
 	// Start connection handler in background
 	go gps.connectionHandler()
@@ -125,9 +124,9 @@ func TestGPSService_Close(t *testing.T) {
 		gps := &GPSService{
 			Log: log,
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		gps.ctx = ctx
-		gps.cancel = cancel
+		done := make(chan struct{})
+		gps.done = done
+		gps.cancel = func() { close(done) }
 
 		err := gps.Close()
 		if err != nil {
@@ -161,14 +160,13 @@ func TestReconnectionLimit(t *testing.T) {
 	log := zerolog.Nop()
 
 	// Create a GPS service with an invalid address to trigger reconnection failures
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	stopCh := make(chan struct{})
 
 	gps := &GPSService{
 		Log:            log,
 		address:        "127.0.0.1:1", // Invalid port that should fail to connect
-		ctx:            ctx,
-		cancel:         cancel,
+		done:           stopCh,
+		cancel:         func() { close(stopCh) },
 		reconnectDelay: 10 * time.Millisecond, // Short delay for testing
 	}
 
@@ -186,7 +184,7 @@ func TestReconnectionLimit(t *testing.T) {
 		// Good - the handler stopped
 	case <-time.After(2 * time.Second):
 		t.Error("Connection handler did not stop after max reconnection attempts")
-		cancel()
+		gps.cancel()
 	}
 
 	// Verify reconnectAttempts reached the limit
