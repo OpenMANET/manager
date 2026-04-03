@@ -419,6 +419,138 @@ func TestServiceStateToProto(t *testing.T) {
 	assert.Equal(t, v1.ServiceStatus_SERVICE_STATUS_UNSPECIFIED, serviceStateToProto(system.ServiceStateUnknown))
 }
 
+func findTailscaleEntry(entries []*v1.NetworkSummaryEntry) *v1.NetworkSummaryEntry {
+	for _, e := range entries {
+		if e.InterfaceName == "tailscale0" {
+			return e
+		}
+	}
+	return nil
+}
+
+func TestDashboardService_BuildTailscaleEntry(t *testing.T) {
+	tests := []struct {
+		name         string
+		tailscale    TailscaleStatusProvider
+		ifaces       []network.NetworkInterfaceInfo
+		wantState    v1.NetworkInterfaceState
+		wantDetail   string
+		wantNilEntry bool
+	}{
+		{
+			name:      "running with interface present shows connected with IP",
+			tailscale: &mockTailscaleProvider{running: true},
+			ifaces: []network.NetworkInterfaceInfo{
+				{Name: "tailscale0", IP: "100.64.0.5/32", State: network.OperStateUp},
+			},
+			wantState:  v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_CONNECTED,
+			wantDetail: "100.64.0.5/32",
+		},
+		{
+			name:      "not running with interface present shows not connected",
+			tailscale: &mockTailscaleProvider{running: false},
+			ifaces: []network.NetworkInterfaceInfo{
+				{Name: "tailscale0", IP: "100.64.0.5/32", State: network.OperStateUp},
+			},
+			wantState:  v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_NOT_CONNECTED,
+			wantDetail: "Not connected",
+		},
+		{
+			name:      "running without interface present shows not connected",
+			tailscale: &mockTailscaleProvider{running: true},
+			ifaces: []network.NetworkInterfaceInfo{
+				{Name: "eth0", State: network.OperStateUp},
+			},
+			wantState:  v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_NOT_CONNECTED,
+			wantDetail: "Not connected",
+		},
+		{
+			name:      "nil provider with interface present shows not connected",
+			tailscale: nil,
+			ifaces: []network.NetworkInterfaceInfo{
+				{Name: "tailscale0", IP: "100.64.0.5/32", State: network.OperStateUp},
+			},
+			wantState:  v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_NOT_CONNECTED,
+			wantDetail: "Not connected",
+		},
+		{
+			name:         "nil provider without interface returns nil",
+			tailscale:    nil,
+			ifaces:       []network.NetworkInterfaceInfo{{Name: "eth0"}},
+			wantNilEntry: true,
+		},
+		{
+			name:      "running with interface present but empty IP",
+			tailscale: &mockTailscaleProvider{running: true},
+			ifaces: []network.NetworkInterfaceInfo{
+				{Name: "tailscale0", IP: "", State: network.OperStateUp},
+			},
+			wantState:  v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_CONNECTED,
+			wantDetail: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &DashboardService{
+				Log:       zerolog.Nop(),
+				Tailscale: tc.tailscale,
+			}
+
+			entry := svc.buildTailscaleEntry(tc.ifaces)
+
+			if tc.wantNilEntry {
+				assert.Nil(t, entry)
+				return
+			}
+
+			require.NotNil(t, entry)
+			assert.Equal(t, "tailscale0", entry.InterfaceName)
+			assert.Equal(t, "Tailscale (tailscale0)", entry.DisplayName)
+			assert.Equal(t, tc.wantState, entry.State)
+			assert.Equal(t, tc.wantDetail, entry.Detail)
+		})
+	}
+}
+
+func TestDashboardService_GetDashboardStatus_TailscaleRunning(t *testing.T) {
+	svc := newTestDashboardService()
+	svc.Tailscale = &mockTailscaleProvider{running: true}
+	svc.Interfaces = &mockInterfaceProvider{
+		ifaces: []network.NetworkInterfaceInfo{
+			{Name: "eth0", LinkType: network.LinkTypeEthernet, State: network.OperStateDown},
+			{Name: "tailscale0", LinkType: network.LinkTypeUnknown, State: network.OperStateUp, IP: "100.64.0.5/32"},
+		},
+	}
+
+	resp, err := svc.GetDashboardStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	entry := findTailscaleEntry(resp.NetworkSummary.Entries)
+	require.NotNil(t, entry, "tailscale entry should be present")
+	assert.Equal(t, v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_CONNECTED, entry.State)
+	assert.Equal(t, "100.64.0.5/32", entry.Detail)
+}
+
+func TestDashboardService_GetDashboardStatus_TailscaleNotRunning(t *testing.T) {
+	svc := newTestDashboardService()
+	svc.Tailscale = &mockTailscaleProvider{running: false}
+	svc.Interfaces = &mockInterfaceProvider{
+		ifaces: []network.NetworkInterfaceInfo{
+			{Name: "eth0", LinkType: network.LinkTypeEthernet, State: network.OperStateDown},
+			{Name: "tailscale0", LinkType: network.LinkTypeUnknown, State: network.OperStateUp, IP: "100.64.0.5/32"},
+		},
+	}
+
+	resp, err := svc.GetDashboardStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	entry := findTailscaleEntry(resp.NetworkSummary.Entries)
+	require.NotNil(t, entry, "tailscale entry should be present")
+	assert.Equal(t, v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_NOT_CONNECTED, entry.State)
+	assert.Equal(t, "Not connected", entry.Detail)
+}
+
 func TestDashboardService_MonitoredServices_Default(t *testing.T) {
 	svc := newTestDashboardService()
 	svc.MonitoredServices = nil

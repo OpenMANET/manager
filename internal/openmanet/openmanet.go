@@ -140,6 +140,7 @@ func Start(staticFS fs.FS) {
 		DB:           db,
 		GPS:          gps,
 		BLOSManager:  blosManager,
+		Tailscale:    blosManager,
 		CommsManager: commsManager,
 		Interfaces:   interfaceProvider,
 		DHCP: &network.UCIDHCPConfigProvider{
