@@ -567,15 +567,41 @@ func TestWaitForTailscaleReady_Timeout(t *testing.T) {
 	assert.Contains(t, err.Error(), "Starting")
 }
 
-func TestWaitForTailscaleReady_StatusError(t *testing.T) {
+func TestWaitForTailscaleReady_StatusErrorsAreTransient(t *testing.T) {
 	sc := &MockStatusClient{}
 	sc.SetError(errors.New("socket not found"))
 	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
 
-	err := m.waitForTailscaleReady(context.Background())
+	// Status errors are now transient — should timeout, not fail immediately
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := m.waitForTailscaleReady(ctx)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "check tailscale status")
-	assert.Contains(t, err.Error(), "socket not found")
+	assert.Contains(t, err.Error(), "timeout waiting for tailscale")
+}
+
+func TestWaitForTailscaleReady_TransientStatusErrors(t *testing.T) {
+	var calls atomic.Int32
+	sc := &MockStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+
+			switch {
+			case n <= 2:
+				return nil, errors.New("connection refused")
+			case n <= 4:
+				return &ipnstate.Status{BackendState: "NeedsLogin"}, nil
+			default:
+				return &ipnstate.Status{BackendState: "Running"}, nil
+			}
+		},
+	}
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleReady(context.Background())
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, int(calls.Load()), 5, "should have polled through errors and NeedsLogin")
 }
 
 func TestBLOSManager_ConfigureAndEnable_WaitsForReady(t *testing.T) {
@@ -642,6 +668,26 @@ func TestWaitForTailscaleDaemon_ImmediatelyAvailable(t *testing.T) {
 	err := m.waitForTailscaleDaemon(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 1, sc.GetCallCount())
+}
+
+func TestWaitForTailscaleDaemon_WaitsForBackendState(t *testing.T) {
+	var calls atomic.Int32
+	sc := &MockStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+			if n <= 3 {
+				// Daemon socket is up but backend not yet initialized
+				return &ipnstate.Status{BackendState: ""}, nil
+			}
+
+			return &ipnstate.Status{BackendState: "Stopped"}, nil
+		},
+	}
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleDaemon(context.Background())
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, int(calls.Load()), 4, "should have waited for non-empty BackendState")
 }
 
 func TestWaitForTailscaleDaemon_BecomesAvailableAfterRetries(t *testing.T) {

@@ -106,8 +106,10 @@ func (m *BLOSManager) ensureTailscaleService(ctx context.Context) error {
 }
 
 // waitForTailscaleDaemon polls the Tailscale status endpoint until the daemon is
-// accepting connections on its socket. After ensureTailscaleService starts the
-// init.d service the daemon is forked but needs time to create its socket.
+// accepting connections and the IPN backend has initialized. After
+// ensureTailscaleService starts the init.d service the daemon needs time to
+// create its socket and initialize its backend. A non-empty BackendState
+// indicates the backend is ready to accept commands like Start().
 // Must be called with m.mu held.
 func (m *BLOSManager) waitForTailscaleDaemon(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, tailscaleReadyTimeout)
@@ -119,17 +121,27 @@ func (m *BLOSManager) waitForTailscaleDaemon(ctx context.Context) error {
 	var lastErr error
 
 	for {
-		_, err := m.statusClient.Status(ctx)
-		if err == nil {
+		status, err := m.statusClient.Status(ctx)
+		if err == nil && status.BackendState != "" {
+			m.logger.Debug().Str("state", status.BackendState).Msg("Tailscale daemon ready")
+
 			return nil
 		}
 
-		lastErr = err
-		m.logger.Debug().Err(err).Msg("Waiting for Tailscale daemon to accept connections")
+		if err != nil {
+			lastErr = err
+			m.logger.Debug().Err(err).Msg("Waiting for Tailscale daemon to accept connections")
+		} else {
+			m.logger.Debug().Msg("Waiting for Tailscale backend to initialize")
+		}
 
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for tailscale daemon: %w", lastErr)
+			if lastErr != nil {
+				return fmt.Errorf("timeout waiting for tailscale daemon: %w", lastErr)
+			}
+
+			return fmt.Errorf("timeout waiting for tailscale backend to initialize: %w", ctx.Err())
 		case <-ticker.C:
 		}
 	}
@@ -153,16 +165,18 @@ func (m *BLOSManager) waitForTailscaleReady(ctx context.Context) error {
 	for {
 		status, err := m.statusClient.Status(ctx)
 		if err != nil {
-			return fmt.Errorf("check tailscale status: %w", err)
+			// Status errors are transient — the daemon may be briefly
+			// unresponsive during auth processing. Keep polling.
+			m.logger.Debug().Err(err).Msg("Tailscale status check failed, retrying")
+		} else {
+			lastState = status.BackendState
+
+			if lastState == "Running" {
+				return nil
+			}
+
+			m.logger.Debug().Str("state", lastState).Msg("Waiting for Tailscale backend to be ready")
 		}
-
-		lastState = status.BackendState
-
-		if lastState == "Running" {
-			return nil
-		}
-
-		m.logger.Debug().Str("state", lastState).Msg("Waiting for Tailscale backend to be ready")
 
 		select {
 		case <-ctx.Done():
