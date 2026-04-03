@@ -3,6 +3,8 @@ package comms
 import (
 	"context"
 	"errors"
+	"io"
+	"os/exec"
 	"sync"
 	"testing"
 	"time"
@@ -94,6 +96,41 @@ func TestBlueALSAEventName(t *testing.T) {
 	}
 }
 
+func TestBlueALSAJournalEventName(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want string
+		ok   bool
+	}{
+		{
+			name: "journal marker",
+			line: "daemon.info bluealsa: AT message: SET: command:+XEVENT, value:PTT_DOWN",
+			want: "PTT_DOWN",
+			ok:   true,
+		},
+		{
+			name: "missing marker",
+			line: "daemon.info bluealsa: connected device",
+			want: "",
+			ok:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := blueALSAJournalEventName(tt.line)
+			if ok != tt.ok {
+				t.Fatalf("blueALSAJournalEventName(%q) ok = %v, want %v", tt.line, ok, tt.ok)
+			}
+
+			if got != tt.want {
+				t.Fatalf("blueALSAJournalEventName(%q) = %q, want %q", tt.line, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBlueALSAPropertyMessages(t *testing.T) {
 	sig := &dbus.Signal{
 		Name: bluezPropertiesChangedSignal,
@@ -136,6 +173,47 @@ func TestBlueALSAXEventSource_ParsesATMessageSignals(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected BlueALSA event to be emitted")
+	}
+}
+
+func TestBlueALSAXEventSource_ParsesLogreadFallback(t *testing.T) {
+	src := &blueALSAXEventSource{
+		log:  zerolog.Nop(),
+		dial: nil,
+		spawnLogTail: func(ctx context.Context) (*exec.Cmd, io.ReadCloser, io.ReadCloser, error) {
+			cmd := exec.CommandContext(ctx, "sh", "-c", "printf 'daemon.info bluealsa: AT message: SET: command:+XEVENT, value:PTT_DOWN\\n'")
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			stderr, err := cmd.StderrPipe()
+			if err != nil {
+				_ = stdout.Close()
+				return nil, nil, nil, err
+			}
+			if err := cmd.Start(); err != nil {
+				_ = stdout.Close()
+				_ = stderr.Close()
+				return nil, nil, nil, err
+			}
+			return cmd, stdout, stderr, nil
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	ch := src.Events(ctx)
+	select {
+	case ev, ok := <-ch:
+		if !ok {
+			t.Fatal("expected BlueALSA logread event, got closed channel")
+		}
+		if ev != PTTDown {
+			t.Fatalf("event = %v, want %v", ev, PTTDown)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("expected BlueALSA logread fallback event to be emitted")
 	}
 }
 
