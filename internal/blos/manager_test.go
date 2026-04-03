@@ -519,26 +519,37 @@ func TestWaitForTailscaleReady_TransitionsFromStarting(t *testing.T) {
 	assert.GreaterOrEqual(t, int(calls.Load()), 4, "should have polled at least 4 times")
 }
 
-func TestWaitForTailscaleReady_NeedsLoginFailsFast(t *testing.T) {
+func TestWaitForTailscaleReady_TransitionsFromNeedsLogin(t *testing.T) {
+	var calls atomic.Int32
+	sc := &MockStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+			if n <= 3 {
+				return &ipnstate.Status{BackendState: "NeedsLogin"}, nil
+			}
+
+			return &ipnstate.Status{BackendState: "Running"}, nil
+		},
+	}
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleReady(context.Background())
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, int(calls.Load()), 4, "should have polled through NeedsLogin until Running")
+}
+
+func TestWaitForTailscaleReady_NeedsLoginTimesOut(t *testing.T) {
 	sc := &MockStatusClient{}
 	sc.SetStatus(&ipnstate.Status{BackendState: "NeedsLogin"})
 	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
 
-	err := m.waitForTailscaleReady(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := m.waitForTailscaleReady(ctx)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "authentication not complete")
+	assert.Contains(t, err.Error(), "timeout waiting for tailscale")
 	assert.Contains(t, err.Error(), "NeedsLogin")
-	assert.Equal(t, 1, sc.GetCallCount(), "should fail on first check without polling")
-}
-
-func TestWaitForTailscaleReady_NeedsMachineAuthFailsFast(t *testing.T) {
-	sc := &MockStatusClient{}
-	sc.SetStatus(&ipnstate.Status{BackendState: "NeedsMachineAuth"})
-	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
-
-	err := m.waitForTailscaleReady(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "NeedsMachineAuth")
 }
 
 func TestWaitForTailscaleReady_Timeout(t *testing.T) {
@@ -611,7 +622,11 @@ func TestBLOSManager_ConfigureAndEnable_TailscaleNotReady(t *testing.T) {
 		createFn:     successCreateFn,
 	}
 
-	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	// Use a short context so the test doesn't wait the full 30s
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	err := m.ConfigureAndEnable(ctx, "tskey-abc123", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tailscale not ready after authentication")
 	assert.False(t, m.IsRunning())

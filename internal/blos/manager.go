@@ -136,9 +136,11 @@ func (m *BLOSManager) waitForTailscaleDaemon(ctx context.Context) error {
 }
 
 // waitForTailscaleReady polls Tailscale status until the backend reports "Running".
-// It returns immediately if the state is already "Running", fails fast on terminal
-// error states ("NeedsLogin", "NeedsMachineAuth"), and times out after
-// tailscaleReadyTimeout. Must be called with m.mu held.
+// This is called after authClient.Start() has already succeeded, so transient states
+// like "NeedsLogin" or "Starting" are expected while the daemon processes the auth
+// key with the control server. All non-Running states are polled through; if the
+// backend never reaches "Running" the call times out after tailscaleReadyTimeout.
+// Must be called with m.mu held.
 func (m *BLOSManager) waitForTailscaleReady(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, tailscaleReadyTimeout)
 	defer cancel()
@@ -156,11 +158,8 @@ func (m *BLOSManager) waitForTailscaleReady(ctx context.Context) error {
 
 		lastState = status.BackendState
 
-		switch lastState {
-		case "Running":
+		if lastState == "Running" {
 			return nil
-		case "NeedsLogin", "NeedsMachineAuth":
-			return fmt.Errorf("tailscale authentication not complete: %s", lastState)
 		}
 
 		m.logger.Debug().Str("state", lastState).Msg("Waiting for Tailscale backend to be ready")
