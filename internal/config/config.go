@@ -95,6 +95,7 @@ type Config struct {
 	AuthSessionMaxAgeSecs                     int
 	AuthSessionMaxSize                        int
 	mu                                        sync.RWMutex
+	persistMu                                 sync.Mutex // serializes Persist*Config file I/O
 	CommsMicGain                              float32
 	AlfredDataTypeAddressReserv               bool
 	AlfredDataTypeNode                        bool

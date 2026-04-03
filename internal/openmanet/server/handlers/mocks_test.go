@@ -78,6 +78,13 @@ func (f *fakeBLOSManager) getConfigureAndEnableCalls() int {
 	return f.configureAndEnableCalls
 }
 
+func (f *fakeBLOSManager) getEnableCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.enableCalls
+}
+
 func (f *fakeBLOSManager) getDisableCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()

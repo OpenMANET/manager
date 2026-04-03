@@ -24,7 +24,8 @@
       "Bash(make lint-frontend:*)",
       "Bash(make frontend:*)",
       "Bash(pnpm -C frontend run test)",
-      "Bash(pnpm -C frontend run lint)"
+      "Bash(pnpm -C frontend run lint)",
+      "Bash(make integration-test:*)"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"

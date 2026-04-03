@@ -17,6 +17,9 @@ func (c *Config) GetConfigFilePath() string {
 // and refreshes the in-memory config state. It preserves comments and key
 // ordering in the YAML file by operating on the yaml.Node tree.
 func (c *Config) PersistBLOSConfig(enable bool) error {
+	c.persistMu.Lock()
+	defer c.persistMu.Unlock()
+
 	filePath := c.v.ConfigFileUsed()
 	if filePath == "" {
 		return fmt.Errorf("no config file path configured")
@@ -139,6 +142,9 @@ func setScalarWithTag(mapping *yaml.Node, key string, value string, tag string) 
 // in the YAML config file and refreshes the in-memory config state. It
 // preserves comments and key ordering by operating on the yaml.Node tree.
 func (c *Config) PersistCommsConfig(enable bool, controlSource string) error {
+	c.persistMu.Lock()
+	defer c.persistMu.Unlock()
+
 	filePath := c.v.ConfigFileUsed()
 	if filePath == "" {
 		return fmt.Errorf("no config file path configured")
@@ -202,6 +208,9 @@ func setCommsConfig(doc *yaml.Node, enable bool, controlSource string) error {
 // and refreshes the in-memory config state. It preserves comments and key
 // ordering in the YAML file by operating on the yaml.Node tree.
 func (c *Config) PersistGNSSConfig(enable, sendAsNMEA, sendAsCoT bool, cotUID string) error {
+	c.persistMu.Lock()
+	defer c.persistMu.Unlock()
+
 	filePath := c.v.ConfigFileUsed()
 	if filePath == "" {
 		return fmt.Errorf("no config file path configured")

@@ -425,6 +425,7 @@ func findTailscaleEntry(entries []*v1.NetworkSummaryEntry) *v1.NetworkSummaryEnt
 			return e
 		}
 	}
+
 	return nil
 }
 
@@ -501,6 +502,7 @@ func TestDashboardService_BuildTailscaleEntry(t *testing.T) {
 
 			if tc.wantNilEntry {
 				assert.Nil(t, entry)
+
 				return
 			}
 

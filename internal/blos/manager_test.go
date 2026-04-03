@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tailscale.com/ipn"
+	"tailscale.com/ipn/ipnstate"
 )
 
 // mockTailscaleAuthClient records calls and returns configured errors.
@@ -278,6 +281,14 @@ func TestBLOSManager_GetBLOS_WhenNotRunning(t *testing.T) {
 
 // ── ConfigureAndEnable ────────────────────────────────────────────────────────
 
+// runningStatusClient returns a MockStatusClient that always reports "Running".
+func runningStatusClient() *MockStatusClient {
+	sc := &MockStatusClient{}
+	sc.SetStatus(&ipnstate.Status{BackendState: "Running"})
+
+	return sc
+}
+
 func newTestManagerWithAuth(t *testing.T, auth *mockTailscaleAuthClient, initD InitDService, createFn func(*config.Config, zerolog.Logger) (*BLOS, error)) *BLOSManager {
 	t.Helper()
 
@@ -285,6 +296,7 @@ func newTestManagerWithAuth(t *testing.T, auth *mockTailscaleAuthClient, initD I
 		cfg:          &config.Config{},
 		logger:       zerolog.Nop(),
 		authClient:   auth,
+		statusClient: runningStatusClient(),
 		initDService: initD,
 		createFn:     createFn,
 	}
@@ -475,4 +487,133 @@ func TestBLOSManager_ConfigureAndEnable_NilInitDService(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, m.IsRunning())
 	assert.Equal(t, 1, auth.getCalls(), "auth should proceed when initDService is nil")
+}
+
+// ── waitForTailscaleReady ────────────────────────────────────────────────────
+
+func TestWaitForTailscaleReady_ImmediatelyRunning(t *testing.T) {
+	sc := runningStatusClient()
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleReady(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, sc.GetCallCount())
+}
+
+func TestWaitForTailscaleReady_TransitionsFromStarting(t *testing.T) {
+	var calls atomic.Int32
+	sc := &MockStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+			if n <= 3 {
+				return &ipnstate.Status{BackendState: "Starting"}, nil
+			}
+
+			return &ipnstate.Status{BackendState: "Running"}, nil
+		},
+	}
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleReady(context.Background())
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, int(calls.Load()), 4, "should have polled at least 4 times")
+}
+
+func TestWaitForTailscaleReady_NeedsLoginFailsFast(t *testing.T) {
+	sc := &MockStatusClient{}
+	sc.SetStatus(&ipnstate.Status{BackendState: "NeedsLogin"})
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleReady(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "authentication not complete")
+	assert.Contains(t, err.Error(), "NeedsLogin")
+	assert.Equal(t, 1, sc.GetCallCount(), "should fail on first check without polling")
+}
+
+func TestWaitForTailscaleReady_NeedsMachineAuthFailsFast(t *testing.T) {
+	sc := &MockStatusClient{}
+	sc.SetStatus(&ipnstate.Status{BackendState: "NeedsMachineAuth"})
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleReady(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NeedsMachineAuth")
+}
+
+func TestWaitForTailscaleReady_Timeout(t *testing.T) {
+	sc := &MockStatusClient{}
+	sc.SetStatus(&ipnstate.Status{BackendState: "Starting"})
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	// Use a short-lived context to avoid waiting the full 30s
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := m.waitForTailscaleReady(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timeout waiting for tailscale")
+	assert.Contains(t, err.Error(), "Starting")
+}
+
+func TestWaitForTailscaleReady_StatusError(t *testing.T) {
+	sc := &MockStatusClient{}
+	sc.SetError(errors.New("socket not found"))
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleReady(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "check tailscale status")
+	assert.Contains(t, err.Error(), "socket not found")
+}
+
+func TestBLOSManager_ConfigureAndEnable_WaitsForReady(t *testing.T) {
+	var calls atomic.Int32
+	sc := &MockStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+			if n <= 2 {
+				return &ipnstate.Status{BackendState: "Starting"}, nil
+			}
+
+			return &ipnstate.Status{BackendState: "Running"}, nil
+		},
+	}
+
+	auth := &mockTailscaleAuthClient{}
+	m := &BLOSManager{
+		cfg:          &config.Config{},
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		statusClient: sc,
+		initDService: runningInitDService(),
+		createFn:     successCreateFn,
+	}
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.True(t, m.IsRunning())
+	assert.Equal(t, 1, auth.getCalls())
+	assert.GreaterOrEqual(t, int(calls.Load()), 3, "should have polled until Running")
+}
+
+func TestBLOSManager_ConfigureAndEnable_TailscaleNotReady(t *testing.T) {
+	sc := &MockStatusClient{}
+	sc.SetStatus(&ipnstate.Status{BackendState: "NeedsLogin"})
+
+	auth := &mockTailscaleAuthClient{}
+	m := &BLOSManager{
+		cfg:          &config.Config{},
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		statusClient: sc,
+		initDService: runningInitDService(),
+		createFn:     successCreateFn,
+	}
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tailscale not ready after authentication")
+	assert.False(t, m.IsRunning())
+	assert.Equal(t, 1, auth.getCalls(), "auth should have been called before status check")
 }

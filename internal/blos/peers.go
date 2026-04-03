@@ -99,6 +99,9 @@ func (r *BLOS) createVxlanPeer(peerIP string) error {
 // for Tailscale peers that are no longer present.
 // This function only makes changes if the peer map has actually changed since the last sync.
 func (r *BLOS) syncVXLANPeersWithTailscale() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	// Get current Tailscale peers
 	tailscalePeers := r.GetPeers()
 	if tailscalePeers == nil {

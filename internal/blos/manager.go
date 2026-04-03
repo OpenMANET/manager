@@ -5,11 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
+)
+
+const (
+	tailscaleReadyTimeout      = 30 * time.Second
+	tailscaleReadyPollInterval = 500 * time.Millisecond
 )
 
 // TailscaleAuthClient abstracts Tailscale authentication for testability.
@@ -43,6 +49,7 @@ type BLOSManager struct {
 	blos         *BLOS
 	cfg          *config.Config
 	authClient   TailscaleAuthClient
+	statusClient StatusClient
 	initDService InitDService
 	createFn     func(*config.Config, zerolog.Logger) (*BLOS, error)
 	mu           sync.Mutex
@@ -56,6 +63,7 @@ func NewBLOSManager(cfg *config.Config, logger zerolog.Logger) *BLOSManager {
 		cfg:          cfg,
 		logger:       logger,
 		authClient:   &LocalTailscaleAuthClient{},
+		statusClient: &LocalStatusClient{},
 		initDService: &TailscaleInitDService{},
 		createFn:     NewBLOS,
 	}
@@ -97,6 +105,44 @@ func (m *BLOSManager) ensureTailscaleService(ctx context.Context) error {
 	return nil
 }
 
+// waitForTailscaleReady polls Tailscale status until the backend reports "Running".
+// It returns immediately if the state is already "Running", fails fast on terminal
+// error states ("NeedsLogin", "NeedsMachineAuth"), and times out after
+// tailscaleReadyTimeout. Must be called with m.mu held.
+func (m *BLOSManager) waitForTailscaleReady(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, tailscaleReadyTimeout)
+	defer cancel()
+
+	ticker := time.NewTicker(tailscaleReadyPollInterval)
+	defer ticker.Stop()
+
+	var lastState string
+
+	for {
+		status, err := m.statusClient.Status(ctx)
+		if err != nil {
+			return fmt.Errorf("check tailscale status: %w", err)
+		}
+
+		lastState = status.BackendState
+
+		switch lastState {
+		case "Running":
+			return nil
+		case "NeedsLogin", "NeedsMachineAuth":
+			return fmt.Errorf("tailscale authentication not complete: %s", lastState)
+		}
+
+		m.logger.Debug().Str("state", lastState).Msg("Waiting for Tailscale backend to be ready")
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for tailscale to be ready (last state: %s): %w", lastState, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 // ConfigureAndEnable authenticates with Tailscale using the provided credentials
 // and then starts the BLOS module. It is idempotent: if BLOS is already running
 // it returns nil. It ensures the tailscale init.d service is enabled and running
@@ -128,7 +174,13 @@ func (m *BLOSManager) ConfigureAndEnable(ctx context.Context, authKey string, lo
 		return fmt.Errorf("tailscale authentication failed: %w", err)
 	}
 
-	m.logger.Info().Msg("Tailscale authentication successful")
+	m.logger.Info().Msg("Tailscale authentication successful, waiting for backend to be ready")
+
+	if err := m.waitForTailscaleReady(ctx); err != nil {
+		return fmt.Errorf("tailscale not ready after authentication: %w", err)
+	}
+
+	m.logger.Info().Msg("Tailscale backend ready")
 
 	b, err := m.createFn(m.cfg, m.logger)
 	if err != nil {

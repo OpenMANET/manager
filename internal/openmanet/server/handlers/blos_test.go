@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/openmanet/openmanetd/internal/config"
@@ -214,4 +215,86 @@ func TestUpdateBLOSConfig_Disable_AlreadyDisabled(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
 	assert.Equal(t, 1, mgr.getDisableCalls()) // still called, idempotent
+}
+
+// ── Rollback on persist failure ──────────────────────────────────────────────
+
+func TestUpdateBLOSConfig_Enable_PersistFailure_RollsBack(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "blos:\n  enable: false\n")
+	mgr := &fakeBLOSManager{}
+	svc := newBLOSService(t, cfg, mgr)
+
+	// Make the config file read-only so PersistBLOSConfig fails
+	err := os.Chmod(cfg.GetConfigFilePath(), 0444)
+	require.NoError(t, err)
+
+	_, err = svc.UpdateBLOSConfig(context.Background(), &v1.UpdateBLOSConfigRequest{
+		EnableBlos: true,
+		AuthKey:    "tskey-abc123",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rolled back")
+
+	// ConfigureAndEnable was called, then rolled back via Disable
+	assert.Equal(t, 1, mgr.getConfigureAndEnableCalls())
+	assert.Equal(t, 1, mgr.getDisableCalls())
+	assert.False(t, mgr.IsRunning())
+}
+
+func TestUpdateBLOSConfig_Disable_PersistFailure_RollsBack(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "blos:\n  enable: true\n")
+	mgr := &fakeBLOSManager{running: true}
+	svc := newBLOSService(t, cfg, mgr)
+
+	// Make the config file read-only so PersistBLOSConfig fails
+	err := os.Chmod(cfg.GetConfigFilePath(), 0444)
+	require.NoError(t, err)
+
+	_, err = svc.UpdateBLOSConfig(context.Background(), &v1.UpdateBLOSConfigRequest{
+		EnableBlos: false,
+		AuthKey:    "",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rolled back")
+
+	// Disable was called, then Enable was called to roll back
+	assert.Equal(t, 1, mgr.getDisableCalls())
+	assert.Equal(t, 1, mgr.getEnableCalls())
+	assert.True(t, mgr.IsRunning())
+}
+
+// ── Concurrent enable/disable ────────────────────────────────────────────────
+
+func TestUpdateBLOSConfig_ConcurrentEnableDisable(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "blos:\n  enable: false\n")
+	mgr := &fakeBLOSManager{}
+	svc := newBLOSService(t, cfg, mgr)
+
+	var wg sync.WaitGroup
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for j := 0; j < 20; j++ {
+				if j%2 == 0 {
+					_, _ = svc.UpdateBLOSConfig(context.Background(), &v1.UpdateBLOSConfigRequest{
+						EnableBlos: true,
+						AuthKey:    "tskey-test",
+					})
+				} else {
+					_, _ = svc.UpdateBLOSConfig(context.Background(), &v1.UpdateBLOSConfigRequest{
+						EnableBlos: false,
+					})
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	// If we get here without panic or race, the test passes.
 }

@@ -71,12 +71,12 @@ func (b *BLOSService) enableBLOS(ctx context.Context, req *v1.UpdateBLOSConfigRe
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to enable BLOS: %w", err))
 	}
 
-	// Persist config change
+	// Persist config change; roll back runtime state on failure
 	if err := b.Cfg.PersistBLOSConfig(true); err != nil {
-		errMsg := fmt.Sprintf("BLOS enabled but failed to persist config: %v", err)
-		b.Log.Error().Err(err).Msg("Failed to persist BLOS config")
+		b.Log.Error().Err(err).Msg("Failed to persist BLOS config, rolling back")
+		b.BLOSManager.Disable()
 
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("%s", errMsg))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to enable BLOS: config persistence failed, rolled back: %w", err))
 	}
 
 	message := "BLOS enabled successfully."
@@ -91,10 +91,13 @@ func (b *BLOSService) disableBLOS() (*v1.UpdateBLOSConfigResponse, error) {
 	b.BLOSManager.Disable()
 
 	if err := b.Cfg.PersistBLOSConfig(false); err != nil {
-		errMsg := fmt.Sprintf("BLOS module stopped but failed to persist config: %v", err)
-		b.Log.Error().Err(err).Msg("Failed to persist BLOS config")
+		b.Log.Error().Err(err).Msg("Failed to persist BLOS config, re-enabling")
 
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("%s", errMsg))
+		if reErr := b.BLOSManager.Enable(); reErr != nil {
+			b.Log.Error().Err(reErr).Msg("Failed to re-enable BLOS during rollback")
+		}
+
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to disable BLOS: config persistence failed, rolled back: %w", err))
 	}
 
 	message := "BLOS disabled successfully."

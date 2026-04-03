@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 
@@ -566,4 +567,52 @@ func TestRemoveInactiveVXLANPeers(t *testing.T) {
 	if !found {
 		t.Error("Multicast peer should have been preserved")
 	}
+}
+
+func TestSyncVXLANPeersWithTailscale_ConcurrentCallsNoRace(t *testing.T) {
+	r := createTestBLOS()
+
+	nodeKey1 := key.NewNode()
+	ip1, _ := netip.ParseAddr(testPeerAddr)
+	peer1 := &ipnstate.PeerStatus{
+		HostName:     "peer1",
+		TailscaleIPs: []netip.Addr{ip1},
+	}
+
+	nodeKey2 := key.NewNode()
+	ip2, _ := netip.ParseAddr("100.64.1.3")
+	peer2 := &ipnstate.PeerStatus{
+		HostName:     "peer2",
+		TailscaleIPs: []netip.Addr{ip2},
+	}
+
+	mockStatus := &ipnstate.Status{
+		Peer: map[key.NodePublic]*ipnstate.PeerStatus{
+			nodeKey1.Public(): peer1,
+			nodeKey2.Public(): peer2,
+		},
+	}
+
+	mockClient := &MockStatusClient{}
+	mockClient.SetStatus(mockStatus)
+
+	r.statusWorker = NewStatusWorker(mockClient, 1*time.Second, r.Logger)
+	r.statusWorker.fetchAndStoreStatus()
+
+	var wg sync.WaitGroup
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for j := 0; j < 20; j++ {
+				_ = r.syncVXLANPeersWithTailscale()
+			}
+		}()
+	}
+
+	wg.Wait()
+	// If we get here without panic or race, the test passes.
 }

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -372,4 +373,119 @@ func TestPersistCommsConfig_NonExistentFile(t *testing.T) {
 	err := cfg.PersistCommsConfig(true, "openvlm")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no config file path configured")
+}
+
+// ── Concurrency tests ───────────────────────────────��────────────────────────
+
+func TestPersistConfig_ConcurrentDifferentSubsystems(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `blos:
+  enable: false
+comms:
+  enable: false
+  controlSource: openvlm
+gnss:
+  enable: false
+  sendAsExternalGNSSSource:
+    sendAsNMEA: false
+    sendAsCoT: false
+    cotUID: ""
+`)
+
+	var wg sync.WaitGroup
+
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+
+		for i := 0; i < 10; i++ {
+			_ = cfg.PersistBLOSConfig(true)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for i := 0; i < 10; i++ {
+			_ = cfg.PersistCommsConfig(true, "web")
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for i := 0; i < 10; i++ {
+			_ = cfg.PersistGNSSConfig(true, true, true, "uid")
+		}
+	}()
+
+	wg.Wait()
+
+	// All three subsystems should be enabled in memory
+	assert.True(t, cfg.GetEnableBLOS(), "BLOS should be enabled")
+	assert.True(t, cfg.GetCommsEnable(), "Comms should be enabled")
+	assert.True(t, cfg.GetEnableGNSS(), "GNSS should be enabled")
+
+	// Verify on-disk YAML has all three enabled and parses cleanly
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "blos:")
+	assert.Contains(t, content, "comms:")
+	assert.Contains(t, content, "gnss:")
+}
+
+func TestPersistBLOSConfig_ConcurrentSameSubsystem(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `blos:
+  enable: false
+`)
+
+	var wg sync.WaitGroup
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+
+		enable := i%2 == 0
+
+		go func() {
+			defer wg.Done()
+
+			for j := 0; j < 10; j++ {
+				_ = cfg.PersistBLOSConfig(enable)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Verify disk and memory are consistent
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	memEnabled := cfg.GetEnableBLOS()
+
+	if memEnabled {
+		assert.Contains(t, content, "enable: true")
+	} else {
+		assert.Contains(t, content, "enable: false")
+	}
+}
+
+func TestPersistBLOSConfig_FileWriteError(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `blos:
+  enable: false
+`)
+
+	// Make config file read-only
+	err := os.Chmod(cfg.GetConfigFilePath(), 0444)
+	require.NoError(t, err)
+
+	err = cfg.PersistBLOSConfig(true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "writing config file")
+
+	// In-memory state should be unchanged
+	assert.False(t, cfg.GetEnableBLOS())
 }

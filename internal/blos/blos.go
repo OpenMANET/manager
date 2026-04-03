@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync"
 	"time"
 
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
@@ -19,7 +20,7 @@ import (
 
 type BLOS struct {
 	Logger             zerolog.Logger
-	ctx                context.Context //nolint:containedctx
+	ctx                context.Context
 	uciOpenManetConfig network.OpenMANETConfigReader
 	uciNetworkConfig   network.ConfigReader
 	uciFirewallConfig  firewall.ConfigReader
@@ -29,6 +30,7 @@ type BLOS struct {
 	lastSyncedPeerIPs  map[string]bool
 	mcastJoiner        multicastJoiner
 	multicastConns     []*net.UDPConn
+	mu                 sync.Mutex
 }
 
 func NewBLOS(cfg *config.Config, logger zerolog.Logger) (*BLOS, error) {
