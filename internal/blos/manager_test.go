@@ -617,3 +617,86 @@ func TestBLOSManager_ConfigureAndEnable_TailscaleNotReady(t *testing.T) {
 	assert.False(t, m.IsRunning())
 	assert.Equal(t, 1, auth.getCalls(), "auth should have been called before status check")
 }
+
+// ── waitForTailscaleDaemon ───────────────────────────────────────────────────
+
+func TestWaitForTailscaleDaemon_ImmediatelyAvailable(t *testing.T) {
+	sc := runningStatusClient()
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleDaemon(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, sc.GetCallCount())
+}
+
+func TestWaitForTailscaleDaemon_BecomesAvailableAfterRetries(t *testing.T) {
+	var calls atomic.Int32
+	sc := &MockStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+			if n <= 3 {
+				return nil, errors.New("dial unix /var/run/tailscale/tailscaled.sock: connect: no such file or directory")
+			}
+
+			return &ipnstate.Status{BackendState: "Stopped"}, nil
+		},
+	}
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleDaemon(context.Background())
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, int(calls.Load()), 4, "should have retried until daemon was reachable")
+}
+
+func TestWaitForTailscaleDaemon_Timeout(t *testing.T) {
+	sc := &MockStatusClient{}
+	sc.SetError(errors.New("no such file or directory"))
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := m.waitForTailscaleDaemon(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timeout waiting for tailscale daemon")
+}
+
+func TestBLOSManager_ConfigureAndEnable_WaitsForDaemon(t *testing.T) {
+	// Simulate: daemon socket unavailable for 2 polls, then comes up as "Stopped"
+	// (logged out), then auth succeeds, then backend transitions to "Running".
+	var calls atomic.Int32
+	sc := &MockStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+
+			switch {
+			case n <= 2:
+				// Daemon not yet listening
+				return nil, errors.New("dial unix: no such file or directory")
+			case n == 3:
+				// Daemon up, pre-auth (waitForTailscaleDaemon succeeds here)
+				return &ipnstate.Status{BackendState: "Stopped"}, nil
+			default:
+				// Post-auth polls (waitForTailscaleReady)
+				return &ipnstate.Status{BackendState: "Running"}, nil
+			}
+		},
+	}
+
+	auth := &mockTailscaleAuthClient{}
+	m := &BLOSManager{
+		cfg:          &config.Config{},
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		statusClient: sc,
+		initDService: runningInitDService(),
+		createFn:     successCreateFn,
+	}
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.True(t, m.IsRunning())
+	assert.Equal(t, 1, auth.getCalls())
+	// At least 3 calls for daemon wait + 1 for ready wait
+	assert.GreaterOrEqual(t, int(calls.Load()), 4)
+}

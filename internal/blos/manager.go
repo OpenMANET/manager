@@ -105,6 +105,36 @@ func (m *BLOSManager) ensureTailscaleService(ctx context.Context) error {
 	return nil
 }
 
+// waitForTailscaleDaemon polls the Tailscale status endpoint until the daemon is
+// accepting connections on its socket. After ensureTailscaleService starts the
+// init.d service the daemon is forked but needs time to create its socket.
+// Must be called with m.mu held.
+func (m *BLOSManager) waitForTailscaleDaemon(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, tailscaleReadyTimeout)
+	defer cancel()
+
+	ticker := time.NewTicker(tailscaleReadyPollInterval)
+	defer ticker.Stop()
+
+	var lastErr error
+
+	for {
+		_, err := m.statusClient.Status(ctx)
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		m.logger.Debug().Err(err).Msg("Waiting for Tailscale daemon to accept connections")
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for tailscale daemon: %w", lastErr)
+		case <-ticker.C:
+		}
+	}
+}
+
 // waitForTailscaleReady polls Tailscale status until the backend reports "Running".
 // It returns immediately if the state is already "Running", fails fast on terminal
 // error states ("NeedsLogin", "NeedsMachineAuth"), and times out after
@@ -157,6 +187,10 @@ func (m *BLOSManager) ConfigureAndEnable(ctx context.Context, authKey string, lo
 
 	if err := m.ensureTailscaleService(ctx); err != nil {
 		return fmt.Errorf("tailscale service setup failed: %w", err)
+	}
+
+	if err := m.waitForTailscaleDaemon(ctx); err != nil {
+		return fmt.Errorf("tailscale daemon not available: %w", err)
 	}
 
 	opts := ipn.Options{
