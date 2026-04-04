@@ -206,15 +206,16 @@ func (m *BLOSManager) ConfigureAndEnable(ctx context.Context, authKey string, lo
 		return fmt.Errorf("tailscale daemon not available: %w", err)
 	}
 
-	opts := ipn.Options{
-		AuthKey: authKey,
-	}
+	prefs := ipn.NewPrefs()
+	prefs.WantRunning = true
 
 	if loginServerURL != "" {
-		opts.UpdatePrefs = &ipn.Prefs{
-			ControlURL:  loginServerURL,
-			WantRunning: true,
-		}
+		prefs.ControlURL = loginServerURL
+	}
+
+	opts := ipn.Options{
+		AuthKey:     authKey,
+		UpdatePrefs: prefs,
 	}
 
 	if err := m.authClient.Start(ctx, opts); err != nil {

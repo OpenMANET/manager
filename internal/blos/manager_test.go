@@ -313,7 +313,9 @@ func TestBLOSManager_ConfigureAndEnable_Success(t *testing.T) {
 
 	opts := auth.getStartOpts()
 	assert.Equal(t, "tskey-abc123", opts.AuthKey)
-	assert.Nil(t, opts.UpdatePrefs)
+	require.NotNil(t, opts.UpdatePrefs)
+	assert.True(t, opts.UpdatePrefs.WantRunning)
+	assert.Equal(t, "", opts.UpdatePrefs.ControlURL)
 }
 
 func TestBLOSManager_ConfigureAndEnable_WithLoginServer(t *testing.T) {
@@ -328,6 +330,7 @@ func TestBLOSManager_ConfigureAndEnable_WithLoginServer(t *testing.T) {
 	require.NotNil(t, opts.UpdatePrefs)
 	assert.Equal(t, "https://hs.example.com", opts.UpdatePrefs.ControlURL)
 	assert.True(t, opts.UpdatePrefs.WantRunning)
+	assert.True(t, opts.UpdatePrefs.CorpDNS, "NewPrefs() default should be preserved")
 }
 
 func TestBLOSManager_ConfigureAndEnable_WithoutLoginServer(t *testing.T) {
@@ -338,7 +341,9 @@ func TestBLOSManager_ConfigureAndEnable_WithoutLoginServer(t *testing.T) {
 	require.NoError(t, err)
 
 	opts := auth.getStartOpts()
-	assert.Nil(t, opts.UpdatePrefs)
+	require.NotNil(t, opts.UpdatePrefs)
+	assert.True(t, opts.UpdatePrefs.WantRunning)
+	assert.Equal(t, "", opts.UpdatePrefs.ControlURL)
 }
 
 func TestBLOSManager_ConfigureAndEnable_AuthFailure(t *testing.T) {
@@ -767,4 +772,91 @@ func TestBLOSManager_ConfigureAndEnable_WaitsForDaemon(t *testing.T) {
 	assert.Equal(t, 1, auth.getCalls())
 	// At least 3 calls for daemon wait + 1 for ready wait
 	assert.GreaterOrEqual(t, int(calls.Load()), 4)
+}
+
+func TestBLOSManager_ConfigureAndEnable_AlwaysSetsWantRunning(t *testing.T) {
+	tests := []struct {
+		name           string
+		loginServerURL string
+		wantControlURL string
+	}{
+		{"empty login server", "", ""},
+		{"custom login server", "https://hs.example.com", "https://hs.example.com"},
+		{"default tailscale server", "https://controlplane.tailscale.com", "https://controlplane.tailscale.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			auth := &fakeTailscaleAuthClient{}
+			m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
+
+			err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", tt.loginServerURL)
+			require.NoError(t, err)
+
+			opts := auth.getStartOpts()
+			require.NotNil(t, opts.UpdatePrefs, "UpdatePrefs must always be set")
+			assert.True(t, opts.UpdatePrefs.WantRunning, "WantRunning must always be true")
+			assert.Equal(t, tt.wantControlURL, opts.UpdatePrefs.ControlURL)
+		})
+	}
+}
+
+func TestBLOSManager_ConfigureAndEnable_UsesNewPrefsDefaults(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+
+	opts := auth.getStartOpts()
+	require.NotNil(t, opts.UpdatePrefs)
+	assert.True(t, opts.UpdatePrefs.WantRunning)
+	assert.True(t, opts.UpdatePrefs.CorpDNS, "CorpDNS default from NewPrefs()")
+}
+
+func TestBLOSManager_ConfigureAndEnable_FullFlowSetsCorrectPrefs(t *testing.T) {
+	var statusCalls atomic.Int32
+
+	sc := &fakeStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := statusCalls.Add(1)
+
+			switch {
+			case n <= 2:
+				return nil, errors.New("dial unix: no such file or directory")
+			case n == 3:
+				return &ipnstate.Status{BackendState: "Stopped"}, nil
+			default:
+				return &ipnstate.Status{BackendState: "Running"}, nil
+			}
+		},
+	}
+
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: false, isRunningVal: false}
+	m := &BLOSManager{
+		cfg:          &config.Config{},
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		statusClient: sc,
+		initDService: initD,
+		createFn:     successCreateFn,
+	}
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "https://headscale.local")
+	require.NoError(t, err)
+
+	// Service was enabled and started
+	assert.Equal(t, 1, initD.getEnableCalls())
+	assert.Equal(t, 1, initD.getStartCalls())
+
+	// Auth was called with correct options
+	assert.Equal(t, 1, auth.getCalls())
+	opts := auth.getStartOpts()
+	assert.Equal(t, "tskey-abc123", opts.AuthKey)
+	require.NotNil(t, opts.UpdatePrefs)
+	assert.True(t, opts.UpdatePrefs.WantRunning)
+	assert.Equal(t, "https://headscale.local", opts.UpdatePrefs.ControlURL)
+
+	assert.True(t, m.IsRunning())
 }
