@@ -82,7 +82,11 @@ let onDecodedPcm = null;
 //
 // Returns: a state object (currently just { useWorklet }) for diagnostics.
 // Subsequent calls are no-ops if the AudioContext is already created.
+// The onPcm callback is always updated so consumers can refresh their
+// closure (e.g. after a React re-render) without re-initialising audio.
 export async function initAudio(onLog, opts = {}) {
+  if (opts.onPcm) onDecodedPcm = opts.onPcm;
+
   if (audioCtx) return { useWorklet };
 
   logFn = onLog || (() => {});

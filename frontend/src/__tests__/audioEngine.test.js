@@ -156,6 +156,34 @@ describe('TestAudioEngineInit', () => {
     expect(logFn).toHaveBeenCalledWith('Opus encoder ready', 'info');
   });
 
+  it('updates onPcm callback on subsequent initAudio calls', async () => {
+    const firstPcm = vi.fn();
+    const secondPcm = vi.fn();
+
+    await engine.initAudio(vi.fn(), { onPcm: firstPcm });
+
+    // Simulate a decoded frame — should call firstPcm
+    const decoderInstance = AudioDecoder.mock.instances[0];
+    const fakeAudioData = {
+      numberOfFrames: 2,
+      copyTo: vi.fn((dst) => { dst[0] = 0.5; dst[1] = -0.3; }),
+      close: vi.fn(),
+    };
+    decoderInstance._output(fakeAudioData);
+    expect(firstPcm).toHaveBeenCalledTimes(1);
+    expect(secondPcm).not.toHaveBeenCalled();
+
+    // Second initAudio call — should update the onPcm callback
+    await engine.initAudio(vi.fn(), { onPcm: secondPcm });
+
+    // AudioContext should NOT be recreated
+    expect(AudioContext).toHaveBeenCalledTimes(1);
+
+    // Simulate another decoded frame — should call secondPcm now
+    decoderInstance._output(fakeAudioData);
+    expect(secondPcm).toHaveBeenCalledTimes(1);
+  });
+
   it('handles missing WebCodecs gracefully', async () => {
     vi.stubGlobal('AudioDecoder', undefined);
     vi.resetModules();
