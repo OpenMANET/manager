@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -131,89 +131,106 @@ func TestBlueALSAJournalEventName(t *testing.T) {
 	}
 }
 
-func TestBlueALSAPropertyMessages(t *testing.T) {
+func TestBlueALSAEventNames(t *testing.T) {
+	got := blueALSAEventNames("\r\n+XEVENT:PTT_DOWN\r\nAT+XEVENT=PTT_UP\r\nignored\r\n")
+	want := []string{"PTT_DOWN", "PTT_UP"}
+	if len(got) != len(want) {
+		t.Fatalf("blueALSAEventNames() len = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("blueALSAEventNames()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBlueALSARFCOMMPaths(t *testing.T) {
+	managed := map[dbus.ObjectPath]map[string]map[string]dbus.Variant{
+		dbus.ObjectPath("/org/bluealsa/hci0/dev_BB/rfcomm"): {
+			bluealsaRFCOMMInterface: {},
+		},
+		dbus.ObjectPath("/org/bluealsa/hci0/dev_AA/a2dp"): {
+			"org.bluealsa.PCM1": {},
+		},
+		dbus.ObjectPath("/org/bluealsa/hci0/dev_AA/rfcomm"): {
+			bluealsaRFCOMMInterface: {},
+		},
+	}
+
+	got := blueALSARFCOMMPaths(managed)
+	want := []dbus.ObjectPath{
+		dbus.ObjectPath("/org/bluealsa/hci0/dev_AA/rfcomm"),
+		dbus.ObjectPath("/org/bluealsa/hci0/dev_BB/rfcomm"),
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("blueALSARFCOMMPaths() len = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("blueALSARFCOMMPaths()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBlueALSAInterfacesAddedRFCOMMPath(t *testing.T) {
 	sig := &dbus.Signal{
-		Name: bluezPropertiesChangedSignal,
-		Path: dbus.ObjectPath("/org/bluealsa/hci0/dev_test"),
+		Name: bluealsaInterfacesAddedSignal,
 		Body: []any{
-			"org.bluealsa.Device1",
-			map[string]dbus.Variant{
-				"ATCommand": dbus.MakeVariant("+XEVENT:PTT_DOWN"),
-				"State":     dbus.MakeVariant("ignored"),
+			dbus.ObjectPath("/org/bluealsa/hci0/dev_test/rfcomm"),
+			map[string]map[string]dbus.Variant{
+				bluealsaRFCOMMInterface: {},
+				"org.bluealsa.PCM1":     {},
 			},
 		},
 	}
 
-	msgs := blueALSAPropertyMessages(sig)
-	if len(msgs) != 1 {
-		t.Fatalf("blueALSAPropertyMessages() len = %d, want 1", len(msgs))
-	}
-
-	if msgs[0] != "+XEVENT:PTT_DOWN" {
-		t.Fatalf("blueALSAPropertyMessages()[0] = %q, want %q", msgs[0], "+XEVENT:PTT_DOWN")
-	}
-}
-
-func TestBlueALSAXEventSource_ParsesATMessageSignals(t *testing.T) {
-	src := &blueALSAXEventSource{log: zerolog.Nop()}
-	ch := make(chan PTTEvent, 1)
-
-	ok := src.handleSignal(context.Background(), ch, &dbus.Signal{
-		Name: bluealsaATMessageSignal,
-		Body: []any{"+XEVENT:PTT_DOWN"},
-	})
+	path, ok := blueALSAInterfacesAddedRFCOMMPath(sig)
 	if !ok {
-		t.Fatal("handleSignal returned false")
+		t.Fatal("expected RFCOMM path to be detected")
 	}
-
-	select {
-	case ev := <-ch:
-		if ev != PTTDown {
-			t.Fatalf("event = %v, want %v", ev, PTTDown)
-		}
-	default:
-		t.Fatal("expected BlueALSA event to be emitted")
+	if path != dbus.ObjectPath("/org/bluealsa/hci0/dev_test/rfcomm") {
+		t.Fatalf("path = %q, want %q", path, "/org/bluealsa/hci0/dev_test/rfcomm")
 	}
 }
 
-func TestBlueALSAXEventSource_ParsesLogreadFallback(t *testing.T) {
-	src := &blueALSAXEventSource{
-		log:  zerolog.Nop(),
-		dial: nil,
-		spawnLogTail: func(ctx context.Context) (*exec.Cmd, io.ReadCloser, io.ReadCloser, error) {
-			cmd := exec.CommandContext(ctx, "sh", "-c", "printf 'daemon.info bluealsa: AT message: SET: command:+XEVENT, value:PTT_DOWN\\n'")
-			stdout, err := cmd.StdoutPipe()
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			stderr, err := cmd.StderrPipe()
-			if err != nil {
-				_ = stdout.Close()
-				return nil, nil, nil, err
-			}
-			if err := cmd.Start(); err != nil {
-				_ = stdout.Close()
-				_ = stderr.Close()
-				return nil, nil, nil, err
-			}
-			return cmd, stdout, stderr, nil
+func TestBlueALSAInterfacesRemovedRFCOMMPath(t *testing.T) {
+	sig := &dbus.Signal{
+		Name: bluealsaInterfacesRemovedSignal,
+		Body: []any{
+			dbus.ObjectPath("/org/bluealsa/hci0/dev_test/rfcomm"),
+			[]string{"org.bluealsa.PCM1", bluealsaRFCOMMInterface},
 		},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+	path, ok := blueALSAInterfacesRemovedRFCOMMPath(sig)
+	if !ok {
+		t.Fatal("expected RFCOMM path to be detected")
+	}
+	if path != dbus.ObjectPath("/org/bluealsa/hci0/dev_test/rfcomm") {
+		t.Fatalf("path = %q, want %q", path, "/org/bluealsa/hci0/dev_test/rfcomm")
+	}
+}
 
-	ch := src.Events(ctx)
-	select {
-	case ev, ok := <-ch:
-		if !ok {
-			t.Fatal("expected BlueALSA logread event, got closed channel")
-		}
-		if ev != PTTDown {
-			t.Fatalf("event = %v, want %v", ev, PTTDown)
-		}
-	case <-time.After(250 * time.Millisecond):
-		t.Fatal("expected BlueALSA logread fallback event to be emitted")
+func TestBlueALSAXEventSource_ConsumesRFCOMM(t *testing.T) {
+	src := &blueALSAXEventSource{
+		log: zerolog.Nop(),
+		openRFCOMM: func(*dbus.Conn, dbus.ObjectPath) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("\r\n+XEVENT:PTT_DOWN\r\nAT+XEVENT=PTT_UP\r\n")), nil
+		},
+	}
+
+	ch := make(chan PTTEvent, 2)
+	src.monitorRFCOMM(context.Background(), nil, dbus.ObjectPath("/org/bluealsa/hci0/dev_test/rfcomm"), ch)
+
+	ev1 := <-ch
+	ev2 := <-ch
+
+	if ev1 != PTTDown {
+		t.Fatalf("event 1 = %v, want %v", ev1, PTTDown)
+	}
+	if ev2 != PTTUp {
+		t.Fatalf("event 2 = %v, want %v", ev2, PTTUp)
 	}
 }
 

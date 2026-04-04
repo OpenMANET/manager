@@ -1,10 +1,11 @@
 package comms
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"io"
-	"os/exec"
+	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -14,28 +15,39 @@ import (
 )
 
 const (
-	bluezPropertiesChangedRule   = "type='signal',interface='org.freedesktop.DBus.Properties',sender='org.bluez'"
-	bluezPropertiesChangedSignal = "org.freedesktop.DBus.Properties.PropertiesChanged"
-	bluealsaATMessageRule        = "type='signal',interface='org.bluealsa.Device1',member='ATMessage'"
-	bluealsaATMessageSignal      = "org.bluealsa.Device1.ATMessage"
-	bluealsaPropertiesRule       = "type='signal',interface='org.freedesktop.DBus.Properties',path_namespace='/org/bluealsa'"
-	bluealsaPathPrefix           = "/org/bluealsa"
-	bluezDeviceInterface         = "org.bluez.Device1"
-	bluezHFPUUID                 = "0000111e-0000-1000-8000-00805f9b34fb"
-	bluealsaLogreadCmd           = "logread -f"
-	bluealsaJournalMarker        = "AT message: SET: command:+XEVENT, value:"
+	bluezPropertiesChangedRule      = "type='signal',interface='org.freedesktop.DBus.Properties',sender='org.bluez'"
+	bluezPropertiesChangedSignal    = "org.freedesktop.DBus.Properties.PropertiesChanged"
+	bluealsaService                 = "org.bluealsa"
+	bluealsaPathPrefix              = "/org/bluealsa"
+	bluealsaManagerPath             = dbus.ObjectPath("/org/bluealsa")
+	bluealsaManagedObjectsMethod    = "org.freedesktop.DBus.ObjectManager.GetManagedObjects"
+	bluealsaInterfacesAddedRule     = "type='signal',interface='org.freedesktop.DBus.ObjectManager',path='/org/bluealsa',member='InterfacesAdded'"
+	bluealsaInterfacesRemovedRule   = "type='signal',interface='org.freedesktop.DBus.ObjectManager',path='/org/bluealsa',member='InterfacesRemoved'"
+	bluealsaInterfacesAddedSignal   = "org.freedesktop.DBus.ObjectManager.InterfacesAdded"
+	bluealsaInterfacesRemovedSignal = "org.freedesktop.DBus.ObjectManager.InterfacesRemoved"
+	bluealsaRFCOMMInterface         = "org.bluealsa.RFCOMM1"
+	bluealsaRFCOMMOpenMethod        = bluealsaRFCOMMInterface + ".Open"
+	bluezDeviceInterface            = "org.bluez.Device1"
+	bluezHFPUUID                    = "0000111e-0000-1000-8000-00805f9b34fb"
+	bluealsaJournalMarker           = "AT message: SET: command:+XEVENT, value:"
 )
 
 type systemBusDialer func() (*dbus.Conn, error)
-type logTailSpawner func(context.Context) (*exec.Cmd, io.ReadCloser, io.ReadCloser, error)
+type rfcommPathLister func(*dbus.Conn) ([]dbus.ObjectPath, error)
+type rfcommOpener func(*dbus.Conn, dbus.ObjectPath) (io.ReadCloser, error)
 
 type blueALSAXEventSource struct {
 	log           zerolog.Logger
 	dial          systemBusDialer
-	spawnLogTail  logTailSpawner
+	listRFCOMM    rfcommPathLister
+	openRFCOMM    rfcommOpener
 	dedupeMu      sync.Mutex
 	lastEventName string
 	lastEventAt   time.Time
+}
+
+type blueALSARFCOMMMonitor struct {
+	cancel context.CancelFunc
 }
 
 type bluetoothEventSource struct {
@@ -51,28 +63,8 @@ func NewBlueALSAXEventSource(log zerolog.Logger) EventSource {
 		dial: func() (*dbus.Conn, error) {
 			return dbus.ConnectSystemBus()
 		},
-		spawnLogTail: func(ctx context.Context) (*exec.Cmd, io.ReadCloser, io.ReadCloser, error) {
-			cmd := exec.CommandContext(ctx, "sh", "-c", bluealsaLogreadCmd)
-
-			stdout, err := cmd.StdoutPipe()
-			if err != nil {
-				return nil, nil, nil, err
-			}
-
-			stderr, err := cmd.StderrPipe()
-			if err != nil {
-				_ = stdout.Close()
-				return nil, nil, nil, err
-			}
-
-			if err := cmd.Start(); err != nil {
-				_ = stdout.Close()
-				_ = stderr.Close()
-				return nil, nil, nil, err
-			}
-
-			return cmd, stdout, stderr, nil
-		},
+		listRFCOMM: listBlueALSARFCOMMPaths,
+		openRFCOMM: openBlueALSARFCOMM,
 	}
 }
 
@@ -93,46 +85,29 @@ func (s *blueALSAXEventSource) Events(ctx context.Context) <-chan PTTEvent {
 	go func() {
 		defer close(ch)
 
-		var wg sync.WaitGroup
-
-		if s.spawnLogTail != nil {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				s.monitorBlueALSALogread(ctx, ch)
-			}()
-		}
-
 		if s.dial == nil {
-			wg.Wait()
 			return
 		}
 
 		conn, err := s.dial()
 		if err != nil {
 			s.log.Error().Err(err).Msg("BlueALSA: failed to connect to system DBus")
-			wg.Wait()
 			return
 		}
 		defer conn.Close()
 
-		matched := false
-
-		if err := addDBusMatch(conn, bluealsaATMessageRule); err != nil {
-			s.log.Debug().Err(err).Msg("BlueALSA: ATMessage match unavailable")
-		} else {
-			matched = true
+		if err := addDBusMatch(conn, bluealsaInterfacesAddedRule); err != nil {
+			s.log.Error().Err(err).Msg("BlueALSA: failed to add InterfacesAdded match rule")
+			return
 		}
 
-		if err := addDBusMatch(conn, bluealsaPropertiesRule); err != nil {
-			s.log.Debug().Err(err).Msg("BlueALSA: property match unavailable")
-		} else {
-			matched = true
+		if err := addDBusMatch(conn, bluealsaInterfacesRemovedRule); err != nil {
+			s.log.Error().Err(err).Msg("BlueALSA: failed to add InterfacesRemoved match rule")
+			return
 		}
 
-		if !matched {
-			s.log.Warn().Msg("BlueALSA: no usable DBus match rules; using logread fallback only")
-			wg.Wait()
+		if s.listRFCOMM == nil || s.openRFCOMM == nil {
+			s.log.Error().Msg("BlueALSA: RFCOMM monitor is not configured")
 			return
 		}
 
@@ -140,22 +115,88 @@ func (s *blueALSAXEventSource) Events(ctx context.Context) <-chan PTTEvent {
 		conn.Signal(sigCh)
 		defer conn.RemoveSignal(sigCh)
 
-		s.log.Info().Msg("Starting BlueALSA XEVENT monitor via native DBus signals")
+		s.log.Info().Msg("Starting BlueALSA XEVENT monitor via RFCOMM1.Open()")
+
+		paths, err := s.listRFCOMM(conn)
+		if err != nil {
+			s.log.Error().Err(err).Msg("BlueALSA: failed to enumerate RFCOMM objects")
+		}
+
+		active := make(map[dbus.ObjectPath]*blueALSARFCOMMMonitor)
+		var activeMu sync.Mutex
+
+		startMonitor := func(path dbus.ObjectPath) {
+			activeMu.Lock()
+			if _, exists := active[path]; exists {
+				activeMu.Unlock()
+				return
+			}
+			monitorCtx, cancel := context.WithCancel(ctx)
+			monitor := &blueALSARFCOMMMonitor{cancel: cancel}
+			active[path] = monitor
+			activeMu.Unlock()
+
+			go func() {
+				defer func() {
+					activeMu.Lock()
+					if current, exists := active[path]; exists && current == monitor {
+						delete(active, path)
+					}
+					activeMu.Unlock()
+					cancel()
+				}()
+
+				s.monitorRFCOMM(monitorCtx, conn, path, ch)
+			}()
+		}
+
+		stopMonitor := func(path dbus.ObjectPath) {
+			activeMu.Lock()
+			monitor, exists := active[path]
+			if exists {
+				delete(active, path)
+			}
+			activeMu.Unlock()
+
+			if exists {
+				monitor.cancel()
+			}
+		}
+
+		stopAll := func() {
+			activeMu.Lock()
+			cancels := make([]context.CancelFunc, 0, len(active))
+			for path, monitor := range active {
+				cancels = append(cancels, monitor.cancel)
+				delete(active, path)
+			}
+			activeMu.Unlock()
+
+			for _, cancel := range cancels {
+				cancel()
+			}
+		}
+
+		for _, path := range paths {
+			startMonitor(path)
+		}
 
 		for {
 			select {
 			case <-ctx.Done():
-				wg.Wait()
+				stopAll()
 				return
 			case sig, ok := <-sigCh:
 				if !ok {
-					wg.Wait()
+					stopAll()
 					return
 				}
 
-				if !s.handleSignal(ctx, ch, sig) {
-					wg.Wait()
-					return
+				if path, ok := blueALSAInterfacesAddedRFCOMMPath(sig); ok {
+					startMonitor(path)
+				}
+				if path, ok := blueALSAInterfacesRemovedRFCOMMPath(sig); ok {
+					stopMonitor(path)
 				}
 			}
 		}
@@ -164,41 +205,32 @@ func (s *blueALSAXEventSource) Events(ctx context.Context) <-chan PTTEvent {
 	return ch
 }
 
-func (s *blueALSAXEventSource) handleSignal(ctx context.Context, out chan<- PTTEvent, sig *dbus.Signal) bool {
-	if sig == nil {
-		return true
+func (s *blueALSAXEventSource) monitorRFCOMM(
+	ctx context.Context,
+	conn *dbus.Conn,
+	path dbus.ObjectPath,
+	out chan<- PTTEvent,
+) {
+	reader, err := s.openRFCOMM(conn, path)
+	if err != nil {
+		s.log.Debug().Err(err).Str("path", string(path)).Msg("BlueALSA: failed to open RFCOMM channel")
+		return
 	}
+	defer reader.Close()
 
-	switch sig.Name {
-	case bluealsaATMessageSignal:
-		msg, ok := signalStringBody(sig)
-		if !ok {
-			return true
+	s.log.Info().Str("path", string(path)).Msg("BlueALSA: monitoring RFCOMM channel")
+
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = reader.Close()
+		case <-done:
 		}
+	}()
+	defer close(done)
 
-		return s.emitATMessage(ctx, out, msg)
-	case bluezPropertiesChangedSignal:
-		if !strings.HasPrefix(string(sig.Path), bluealsaPathPrefix) {
-			return true
-		}
-
-		for _, msg := range blueALSAPropertyMessages(sig) {
-			if !s.emitATMessage(ctx, out, msg) {
-				return false
-			}
-		}
-	}
-
-	return true
-}
-
-func (s *blueALSAXEventSource) emitATMessage(ctx context.Context, out chan<- PTTEvent, msg string) bool {
-	eventName, ok := blueALSAEventName(msg)
-	if !ok {
-		return true
-	}
-
-	return s.emitEventName(ctx, out, eventName)
+	s.consumeRFCOMM(ctx, out, reader)
 }
 
 func (s *blueALSAXEventSource) emitEventName(ctx context.Context, out chan<- PTTEvent, eventName string) bool {
@@ -242,44 +274,25 @@ func (s *blueALSAXEventSource) shouldSuppressDuplicate(eventName string) bool {
 	return false
 }
 
-func (s *blueALSAXEventSource) monitorBlueALSALogread(ctx context.Context, out chan<- PTTEvent) {
-	cmd, stdout, stderr, err := s.spawnLogTail(ctx)
-	if err != nil {
-		s.log.Debug().Err(err).Msg("BlueALSA: logread fallback unavailable")
-		return
-	}
-	defer func() {
-		_ = stdout.Close()
-		_ = stderr.Close()
-		_ = cmd.Wait()
-	}()
+func (s *blueALSAXEventSource) consumeRFCOMM(ctx context.Context, out chan<- PTTEvent, r io.Reader) {
+	buf := make([]byte, 4096)
 
-	s.log.Info().Msg("Starting BlueALSA XEVENT monitor via logread fallback")
-
-	go s.drainBlueALSALogreadStderr(stderr)
-	s.consumeBlueALSALogread(ctx, out, stdout)
-}
-
-func (s *blueALSAXEventSource) drainBlueALSALogreadStderr(r io.Reader) {
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line != "" {
-			s.log.Debug().Msgf("BlueALSA logread stderr: %s", line)
-		}
-	}
-}
-
-func (s *blueALSAXEventSource) consumeBlueALSALogread(ctx context.Context, out chan<- PTTEvent, r io.Reader) {
-	scanner := bufio.NewScanner(r)
-
-	for scanner.Scan() {
-		eventName, ok := blueALSAJournalEventName(scanner.Text())
-		if !ok {
-			continue
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			for _, eventName := range blueALSAEventNames(string(buf[:n])) {
+				if !s.emitEventName(ctx, out, eventName) {
+					return
+				}
+			}
 		}
 
-		if !s.emitEventName(ctx, out, eventName) {
+		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) {
+				return
+			}
+
+			s.log.Debug().Err(err).Msg("BlueALSA: RFCOMM read failed")
 			return
 		}
 	}
@@ -376,41 +389,104 @@ func addDBusMatch(conn *dbus.Conn, rule string) error {
 	return conn.BusObject().Call("org.freedesktop.DBus.AddMatch", 0, rule).Err
 }
 
-func signalStringBody(sig *dbus.Signal) (string, bool) {
-	if sig == nil || len(sig.Body) == 0 {
+func listBlueALSARFCOMMPaths(conn *dbus.Conn) ([]dbus.ObjectPath, error) {
+	if conn == nil {
+		return nil, errors.New("nil DBus connection")
+	}
+
+	var managed map[dbus.ObjectPath]map[string]map[string]dbus.Variant
+	call := conn.Object(bluealsaService, bluealsaManagerPath).Call(bluealsaManagedObjectsMethod, 0)
+	if call.Err != nil {
+		return nil, call.Err
+	}
+	if err := call.Store(&managed); err != nil {
+		return nil, err
+	}
+
+	return blueALSARFCOMMPaths(managed), nil
+}
+
+func openBlueALSARFCOMM(conn *dbus.Conn, path dbus.ObjectPath) (io.ReadCloser, error) {
+	if conn == nil {
+		return nil, errors.New("nil DBus connection")
+	}
+
+	var fd dbus.UnixFD
+	call := conn.Object(bluealsaService, path).Call(bluealsaRFCOMMOpenMethod, 0)
+	if call.Err != nil {
+		return nil, call.Err
+	}
+	if err := call.Store(&fd); err != nil {
+		return nil, err
+	}
+
+	file := os.NewFile(uintptr(fd), string(path))
+	if file == nil {
+		return nil, errors.New("RFCOMM1.Open returned invalid file descriptor")
+	}
+
+	return file, nil
+}
+
+func blueALSARFCOMMPaths(
+	managed map[dbus.ObjectPath]map[string]map[string]dbus.Variant,
+) []dbus.ObjectPath {
+	paths := make([]dbus.ObjectPath, 0)
+
+	for path, ifaces := range managed {
+		if _, ok := ifaces[bluealsaRFCOMMInterface]; ok {
+			paths = append(paths, path)
+		}
+	}
+
+	sort.Slice(paths, func(i, j int) bool {
+		return string(paths[i]) < string(paths[j])
+	})
+
+	return paths
+}
+
+func blueALSAInterfacesAddedRFCOMMPath(sig *dbus.Signal) (dbus.ObjectPath, bool) {
+	if sig == nil || sig.Name != bluealsaInterfacesAddedSignal || len(sig.Body) < 2 {
 		return "", false
 	}
 
-	msg, ok := sig.Body[0].(string)
+	path, ok := sig.Body[0].(dbus.ObjectPath)
+	if !ok {
+		return "", false
+	}
 
-	return msg, ok
+	ifaces, ok := sig.Body[1].(map[string]map[string]dbus.Variant)
+	if !ok {
+		return "", false
+	}
+
+	_, ok = ifaces[bluealsaRFCOMMInterface]
+	return path, ok
 }
 
-func blueALSAPropertyMessages(sig *dbus.Signal) []string {
-	if sig == nil || len(sig.Body) < 2 {
-		return nil
+func blueALSAInterfacesRemovedRFCOMMPath(sig *dbus.Signal) (dbus.ObjectPath, bool) {
+	if sig == nil || sig.Name != bluealsaInterfacesRemovedSignal || len(sig.Body) < 2 {
+		return "", false
 	}
 
-	changed, ok := sig.Body[1].(map[string]dbus.Variant)
+	path, ok := sig.Body[0].(dbus.ObjectPath)
 	if !ok {
-		return nil
+		return "", false
 	}
 
-	var msgs []string
+	ifaces, ok := sig.Body[1].([]string)
+	if !ok {
+		return "", false
+	}
 
-	for key, val := range changed {
-		upperKey := strings.ToUpper(key)
-		if !strings.Contains(upperKey, "AT") && !strings.Contains(upperKey, "COMMAND") {
-			continue
-		}
-
-		msg, ok := val.Value().(string)
-		if ok {
-			msgs = append(msgs, msg)
+	for _, iface := range ifaces {
+		if iface == bluealsaRFCOMMInterface {
+			return path, true
 		}
 	}
 
-	return msgs
+	return "", false
 }
 
 func blueALSAEventName(msg string) (string, bool) {
@@ -431,6 +507,29 @@ func blueALSAEventName(msg string) (string, bool) {
 	}
 
 	return strings.ToUpper(parts[0]), true
+}
+
+func blueALSAEventNames(packet string) []string {
+	packet = strings.TrimSpace(packet)
+	if packet == "" {
+		return nil
+	}
+
+	parts := strings.FieldsFunc(packet, func(r rune) bool {
+		return r == '\r' || r == '\n'
+	})
+	if len(parts) == 0 {
+		parts = []string{packet}
+	}
+
+	events := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if eventName, ok := blueALSAEventName(strings.TrimSpace(part)); ok {
+			events = append(events, eventName)
+		}
+	}
+
+	return events
 }
 
 func blueALSAJournalEventName(line string) (string, bool) {

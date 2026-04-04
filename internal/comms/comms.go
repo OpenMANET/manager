@@ -17,6 +17,7 @@ import (
 	"github.com/gordonklaus/portaudio"
 	"github.com/rs/zerolog"
 	"golang.org/x/net/ipv4"
+	"golang.org/x/sys/unix"
 
 	"github.com/openmanet/openmanetd/internal/config"
 )
@@ -334,7 +335,7 @@ func listenRTPReceiver(addr *net.UDPAddr) (*net.UDPConn, error) {
 	lc := net.ListenConfig{
 		Control: func(_, _ string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
-				_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEPORT, 1)
+				_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1)
 			})
 		},
 	}
