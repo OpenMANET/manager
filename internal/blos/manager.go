@@ -236,6 +236,10 @@ func (m *BLOSManager) ConfigureAndEnable(ctx context.Context, authKey string, lo
 		return err
 	}
 
+	if err := m.cfg.PersistBLOSConfig(true); err != nil {
+		return fmt.Errorf("failed to persist BLOS config: %w", err)
+	}
+
 	m.blos = b
 	m.running = true
 	m.logger.Info().Msg("BLOS module enabled at runtime")

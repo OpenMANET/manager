@@ -3,6 +3,8 @@ package blos
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tailscale.com/ipn/ipnstate"
@@ -301,13 +304,32 @@ func newTestManagerWithAuth(t *testing.T, auth *fakeTailscaleAuthClient, initD I
 	t.Helper()
 
 	return &BLOSManager{
-		cfg:          &config.Config{},
+		cfg:          newTestConfig(t),
 		logger:       zerolog.Nop(),
 		authClient:   auth,
 		statusClient: runningStatusClient(),
 		initDService: initD,
 		createFn:     createFn,
 	}
+}
+
+// newTestConfig creates a Config backed by a temp YAML file so that
+// PersistBLOSConfig can read/write without panicking on a nil viper.
+func newTestConfig(t *testing.T) *config.Config {
+	t.Helper()
+
+	cfgPath := filepath.Join(t.TempDir(), "config.yml")
+
+	err := os.WriteFile(cfgPath, []byte("blos:\n  enable: false\n"), 0644)
+	require.NoError(t, err)
+
+	v := viper.New()
+	v.SetConfigFile(cfgPath)
+
+	err = v.ReadInConfig()
+	require.NoError(t, err)
+
+	return config.NewWithoutWatch(v)
 }
 
 func TestBLOSManager_ConfigureAndEnable_Success(t *testing.T) {
@@ -628,7 +650,7 @@ func TestBLOSManager_ConfigureAndEnable_WaitsForReady(t *testing.T) {
 
 	auth := &fakeTailscaleAuthClient{}
 	m := &BLOSManager{
-		cfg:          &config.Config{},
+		cfg:          newTestConfig(t),
 		logger:       zerolog.Nop(),
 		authClient:   auth,
 		statusClient: sc,
@@ -649,7 +671,7 @@ func TestBLOSManager_ConfigureAndEnable_TailscaleNotReady(t *testing.T) {
 
 	auth := &fakeTailscaleAuthClient{}
 	m := &BLOSManager{
-		cfg:          &config.Config{},
+		cfg:          newTestConfig(t),
 		logger:       zerolog.Nop(),
 		authClient:   auth,
 		statusClient: sc,
@@ -758,7 +780,7 @@ func TestBLOSManager_ConfigureAndEnable_WaitsForDaemon(t *testing.T) {
 
 	auth := &fakeTailscaleAuthClient{}
 	m := &BLOSManager{
-		cfg:          &config.Config{},
+		cfg:          newTestConfig(t),
 		logger:       zerolog.Nop(),
 		authClient:   auth,
 		statusClient: sc,
@@ -821,7 +843,7 @@ func TestBLOSManager_ConfigureAndEnable_FullFlowPassesCorrectArgs(t *testing.T) 
 	auth := &fakeTailscaleAuthClient{}
 	initD := &fakeInitDService{isEnabledVal: false, isRunningVal: false}
 	m := &BLOSManager{
-		cfg:          &config.Config{},
+		cfg:          newTestConfig(t),
 		logger:       zerolog.Nop(),
 		authClient:   auth,
 		statusClient: sc,
