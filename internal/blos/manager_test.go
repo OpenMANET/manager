@@ -12,24 +12,25 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 )
 
 // fakeTailscaleAuthClient records calls and returns configured errors.
 type fakeTailscaleAuthClient struct {
-	mu        sync.Mutex
-	err       error
-	startOpts ipn.Options
-	calls     int
+	mu             sync.Mutex
+	err            error
+	authKey        string
+	loginServerURL string
+	calls          int
 }
 
-func (m *fakeTailscaleAuthClient) Start(_ context.Context, opts ipn.Options) error {
+func (m *fakeTailscaleAuthClient) Authenticate(_ context.Context, authKey, loginServerURL string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.calls++
-	m.startOpts = opts
+	m.authKey = authKey
+	m.loginServerURL = loginServerURL
 
 	return m.err
 }
@@ -41,11 +42,18 @@ func (m *fakeTailscaleAuthClient) getCalls() int {
 	return m.calls
 }
 
-func (m *fakeTailscaleAuthClient) getStartOpts() ipn.Options {
+func (m *fakeTailscaleAuthClient) getAuthKey() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.startOpts
+	return m.authKey
+}
+
+func (m *fakeTailscaleAuthClient) getLoginServerURL() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.loginServerURL
 }
 
 // fakeInitDService records calls and returns configured results.
@@ -311,11 +319,8 @@ func TestBLOSManager_ConfigureAndEnable_Success(t *testing.T) {
 	assert.True(t, m.IsRunning())
 	assert.Equal(t, 1, auth.getCalls())
 
-	opts := auth.getStartOpts()
-	assert.Equal(t, "tskey-abc123", opts.AuthKey)
-	require.NotNil(t, opts.UpdatePrefs)
-	assert.True(t, opts.UpdatePrefs.WantRunning)
-	assert.Equal(t, "", opts.UpdatePrefs.ControlURL)
+	assert.Equal(t, "tskey-abc123", auth.getAuthKey())
+	assert.Equal(t, "", auth.getLoginServerURL())
 }
 
 func TestBLOSManager_ConfigureAndEnable_WithLoginServer(t *testing.T) {
@@ -326,11 +331,8 @@ func TestBLOSManager_ConfigureAndEnable_WithLoginServer(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, m.IsRunning())
 
-	opts := auth.getStartOpts()
-	require.NotNil(t, opts.UpdatePrefs)
-	assert.Equal(t, "https://hs.example.com", opts.UpdatePrefs.ControlURL)
-	assert.True(t, opts.UpdatePrefs.WantRunning)
-	assert.True(t, opts.UpdatePrefs.CorpDNS, "NewPrefs() default should be preserved")
+	assert.Equal(t, "tskey-abc123", auth.getAuthKey())
+	assert.Equal(t, "https://hs.example.com", auth.getLoginServerURL())
 }
 
 func TestBLOSManager_ConfigureAndEnable_WithoutLoginServer(t *testing.T) {
@@ -340,10 +342,8 @@ func TestBLOSManager_ConfigureAndEnable_WithoutLoginServer(t *testing.T) {
 	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
 	require.NoError(t, err)
 
-	opts := auth.getStartOpts()
-	require.NotNil(t, opts.UpdatePrefs)
-	assert.True(t, opts.UpdatePrefs.WantRunning)
-	assert.Equal(t, "", opts.UpdatePrefs.ControlURL)
+	assert.Equal(t, "tskey-abc123", auth.getAuthKey())
+	assert.Equal(t, "", auth.getLoginServerURL())
 }
 
 func TestBLOSManager_ConfigureAndEnable_AuthFailure(t *testing.T) {
@@ -774,15 +774,15 @@ func TestBLOSManager_ConfigureAndEnable_WaitsForDaemon(t *testing.T) {
 	assert.GreaterOrEqual(t, int(calls.Load()), 4)
 }
 
-func TestBLOSManager_ConfigureAndEnable_AlwaysSetsWantRunning(t *testing.T) {
+func TestBLOSManager_ConfigureAndEnable_PassesCorrectArgs(t *testing.T) {
 	tests := []struct {
 		name           string
+		authKey        string
 		loginServerURL string
-		wantControlURL string
 	}{
-		{"empty login server", "", ""},
-		{"custom login server", "https://hs.example.com", "https://hs.example.com"},
-		{"default tailscale server", "https://controlplane.tailscale.com", "https://controlplane.tailscale.com"},
+		{"empty login server", "tskey-abc123", ""},
+		{"custom login server", "tskey-abc123", "https://hs.example.com"},
+		{"default tailscale server", "tskey-abc123", "https://controlplane.tailscale.com"},
 	}
 
 	for _, tt := range tests {
@@ -790,31 +790,17 @@ func TestBLOSManager_ConfigureAndEnable_AlwaysSetsWantRunning(t *testing.T) {
 			auth := &fakeTailscaleAuthClient{}
 			m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
 
-			err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", tt.loginServerURL)
+			err := m.ConfigureAndEnable(context.Background(), tt.authKey, tt.loginServerURL)
 			require.NoError(t, err)
 
-			opts := auth.getStartOpts()
-			require.NotNil(t, opts.UpdatePrefs, "UpdatePrefs must always be set")
-			assert.True(t, opts.UpdatePrefs.WantRunning, "WantRunning must always be true")
-			assert.Equal(t, tt.wantControlURL, opts.UpdatePrefs.ControlURL)
+			assert.Equal(t, 1, auth.getCalls())
+			assert.Equal(t, tt.authKey, auth.getAuthKey())
+			assert.Equal(t, tt.loginServerURL, auth.getLoginServerURL())
 		})
 	}
 }
 
-func TestBLOSManager_ConfigureAndEnable_UsesNewPrefsDefaults(t *testing.T) {
-	auth := &fakeTailscaleAuthClient{}
-	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
-
-	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
-	require.NoError(t, err)
-
-	opts := auth.getStartOpts()
-	require.NotNil(t, opts.UpdatePrefs)
-	assert.True(t, opts.UpdatePrefs.WantRunning)
-	assert.True(t, opts.UpdatePrefs.CorpDNS, "CorpDNS default from NewPrefs()")
-}
-
-func TestBLOSManager_ConfigureAndEnable_FullFlowSetsCorrectPrefs(t *testing.T) {
+func TestBLOSManager_ConfigureAndEnable_FullFlowPassesCorrectArgs(t *testing.T) {
 	var statusCalls atomic.Int32
 
 	sc := &fakeStatusClient{
@@ -850,13 +836,10 @@ func TestBLOSManager_ConfigureAndEnable_FullFlowSetsCorrectPrefs(t *testing.T) {
 	assert.Equal(t, 1, initD.getEnableCalls())
 	assert.Equal(t, 1, initD.getStartCalls())
 
-	// Auth was called with correct options
+	// Auth was called with correct arguments
 	assert.Equal(t, 1, auth.getCalls())
-	opts := auth.getStartOpts()
-	assert.Equal(t, "tskey-abc123", opts.AuthKey)
-	require.NotNil(t, opts.UpdatePrefs)
-	assert.True(t, opts.UpdatePrefs.WantRunning)
-	assert.Equal(t, "https://headscale.local", opts.UpdatePrefs.ControlURL)
+	assert.Equal(t, "tskey-abc123", auth.getAuthKey())
+	assert.Equal(t, "https://headscale.local", auth.getLoginServerURL())
 
 	assert.True(t, m.IsRunning())
 }

@@ -4,33 +4,38 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"sync"
 	"time"
 
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
-	"tailscale.com/client/local"
-	"tailscale.com/ipn"
 )
 
 const (
 	tailscaleReadyTimeout      = 30 * time.Second
 	tailscaleReadyPollInterval = 500 * time.Millisecond
+	tailscaleBinaryPath        = "/usr/sbin/tailscale"
 )
 
 // TailscaleAuthClient abstracts Tailscale authentication for testability.
 type TailscaleAuthClient interface {
-	Start(ctx context.Context, opts ipn.Options) error
+	Authenticate(ctx context.Context, authKey, loginServerURL string) error
 }
 
-// LocalTailscaleAuthClient is the production implementation using the Tailscale SDK.
+// LocalTailscaleAuthClient is the production implementation that runs the
+// tailscale CLI to authenticate and bring up the tunnel.
 type LocalTailscaleAuthClient struct{}
 
-// Start calls the real Tailscale local.Client.Start to authenticate and start the daemon.
-func (c *LocalTailscaleAuthClient) Start(ctx context.Context, opts ipn.Options) error {
-	lc := &local.Client{}
+// Authenticate runs "tailscale up --authkey=<key> [--login-server=<url>]" to
+// authenticate the node with the control server.
+func (c *LocalTailscaleAuthClient) Authenticate(ctx context.Context, authKey, loginServerURL string) error {
+	args := []string{"up", "--authkey=" + authKey}
+	if loginServerURL != "" {
+		args = append(args, "--login-server="+loginServerURL)
+	}
 
-	return lc.Start(ctx, opts)
+	return exec.CommandContext(ctx, tailscaleBinaryPath, args...).Run()
 }
 
 // BLOSLifecycle defines the interface for managing BLOS runtime lifecycle.
@@ -206,19 +211,7 @@ func (m *BLOSManager) ConfigureAndEnable(ctx context.Context, authKey string, lo
 		return fmt.Errorf("tailscale daemon not available: %w", err)
 	}
 
-	prefs := ipn.NewPrefs()
-	prefs.WantRunning = true
-
-	if loginServerURL != "" {
-		prefs.ControlURL = loginServerURL
-	}
-
-	opts := ipn.Options{
-		AuthKey:     authKey,
-		UpdatePrefs: prefs,
-	}
-
-	if err := m.authClient.Start(ctx, opts); err != nil {
+	if err := m.authClient.Authenticate(ctx, authKey, loginServerURL); err != nil {
 		return fmt.Errorf("tailscale authentication failed: %w", err)
 	}
 
