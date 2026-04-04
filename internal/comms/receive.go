@@ -175,7 +175,9 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 		}
 
 		// Half-duplex: suppress playback on send-capable ports while broadcasting.
-		if cfg.isBroadcasting(rt) && pc.sendEnabled.Load() {
+		// In web mode the browser manages its own audio I/O and echo
+		// cancellation, so Rx must continue flowing during TX.
+		if rt.webBridge == nil && cfg.isBroadcasting(rt) && pc.sendEnabled.Load() {
 			continue
 		}
 

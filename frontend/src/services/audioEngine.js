@@ -56,6 +56,12 @@ let lastDecodeCh = 0;
 let lastDecodeIP = '';
 let rxTimestamp = 0;       // Microsecond timestamp fed to AudioDecoder
 
+// Pending Rx frame buffer — holds frames that arrive before the Opus decoder
+// is initialized (i.e. before the first user interaction triggers initAudio).
+// Flushed once the decoder is ready.  Bounded to ~1 second of 20 ms frames.
+const PENDING_RX_MAX = 50;
+let pendingRxFrames = [];
+
 // Log callback set by initAudio's caller.
 let logFn = null;
 
@@ -169,6 +175,15 @@ export async function initAudio(onLog, opts = {}) {
     }
   } else {
     logFn('WebCodecs not available — RX disabled', 'err');
+  }
+
+  // ── Flush any Rx frames that arrived before the decoder was ready ──────
+  if (opusDecoder && pendingRxFrames.length > 0) {
+    const queued = pendingRxFrames;
+    pendingRxFrames = [];
+    for (const frame of queued) {
+      decodeAndPlay(frame.data, frame.ch, frame.srcIP);
+    }
   }
 
   // ── WebCodecs AudioEncoder (PCM → Opus) ────────────────────────────────
@@ -303,7 +318,14 @@ export function setMicGain(value) {
 // zero.  This is necessary because AudioDecoder uses timestamps to detect
 // gaps and overlaps — stale timestamps from a previous source would confuse it.
 export function decodeAndPlay(opusData, ch, srcIP) {
-  if (!opusDecoder || opusDecoder.state === 'closed') return;
+  if (!opusDecoder || opusDecoder.state === 'closed') {
+    // Buffer frames that arrive before the decoder is initialized so they
+    // can be played back once initAudio() completes.
+    if (!opusDecoder && pendingRxFrames.length < PENDING_RX_MAX) {
+      pendingRxFrames.push({ data: opusData, ch, srcIP });
+    }
+    return;
+  }
 
   // Reset decoder timestamp when the source changes to avoid feeding stale
   // timing info to the AudioDecoder.

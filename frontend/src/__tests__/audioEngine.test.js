@@ -216,6 +216,155 @@ describe('TestAudioEngineDecodeAndPlay', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Pending Rx frame buffer (pre-init buffering)
+// ---------------------------------------------------------------------------
+
+describe('TestAudioEnginePendingRxBuffer', () => {
+  it('buffers frames when decoder is not initialized', () => {
+    // Before initAudio, decodeAndPlay should buffer, not throw
+    engine.decodeAndPlay(new Uint8Array([1, 2, 3]), 1, '10.0.0.1');
+    engine.decodeAndPlay(new Uint8Array([4, 5, 6]), 2, '10.0.0.2');
+
+    // Frames were not decoded (no decoder yet)
+    expect(EncodedAudioChunk).not.toHaveBeenCalled();
+  });
+
+  it('flushes buffered frames after initAudio', async () => {
+    // Queue frames before decoder exists
+    engine.decodeAndPlay(new Uint8Array([1]), 1, '10.0.0.1');
+    engine.decodeAndPlay(new Uint8Array([2]), 2, '10.0.0.2');
+    engine.decodeAndPlay(new Uint8Array([3]), 1, '10.0.0.3');
+
+    // Now initialize — should flush all 3 buffered frames
+    await engine.initAudio(vi.fn());
+
+    // The decoder should have been called once per buffered frame
+    const decoderInstance = AudioDecoder.mock.instances[0];
+    expect(decoderInstance.decode).toHaveBeenCalledTimes(3);
+  });
+
+  it('flushes frames in order preserving channel and srcIP', async () => {
+    engine.decodeAndPlay(new Uint8Array([10]), 1, '10.0.0.1');
+    engine.decodeAndPlay(new Uint8Array([20]), 3, '10.0.0.5');
+
+    await engine.initAudio(vi.fn());
+
+    // Each flushed frame creates an EncodedAudioChunk
+    expect(EncodedAudioChunk).toHaveBeenCalledTimes(2);
+
+    // First frame: timestamp resets to 0 (new source)
+    expect(EncodedAudioChunk.mock.calls[0][0].timestamp).toBe(0);
+
+    // Second frame: source changes (ch 1→3, IP changes), timestamp resets to 0
+    expect(EncodedAudioChunk.mock.calls[1][0].timestamp).toBe(0);
+  });
+
+  it('caps the pending buffer at 50 frames', () => {
+    // Queue 60 frames — only the first 50 should be buffered
+    for (let i = 0; i < 60; i++) {
+      engine.decodeAndPlay(new Uint8Array([i]), 1, '10.0.0.1');
+    }
+
+    // No decoding yet (decoder is null)
+    expect(EncodedAudioChunk).not.toHaveBeenCalled();
+  });
+
+  it('decodes only 50 frames after init when 60 were queued', async () => {
+    for (let i = 0; i < 60; i++) {
+      engine.decodeAndPlay(new Uint8Array([i]), 1, '10.0.0.1');
+    }
+
+    await engine.initAudio(vi.fn());
+
+    const decoderInstance = AudioDecoder.mock.instances[0];
+    expect(decoderInstance.decode).toHaveBeenCalledTimes(50);
+  });
+
+  it('does not buffer frames when decoder is closed', async () => {
+    await engine.initAudio(vi.fn());
+
+    const decoderInstance = AudioDecoder.mock.instances[0];
+
+    // Simulate a normal decode first
+    engine.decodeAndPlay(new Uint8Array([1]), 1, '10.0.0.1');
+    expect(decoderInstance.decode).toHaveBeenCalledTimes(1);
+
+    // Now mark decoder as closed — frames should be dropped, not buffered
+    decoderInstance.state = 'closed';
+    engine.decodeAndPlay(new Uint8Array([2]), 1, '10.0.0.1');
+
+    // Still only 1 call — the closed-state frame was dropped (not buffered
+    // because opusDecoder is truthy but closed, distinct from null)
+    expect(decoderInstance.decode).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the pending buffer after flush', async () => {
+    engine.decodeAndPlay(new Uint8Array([1]), 1, '10.0.0.1');
+
+    await engine.initAudio(vi.fn());
+
+    const decoderInstance = AudioDecoder.mock.instances[0];
+    expect(decoderInstance.decode).toHaveBeenCalledTimes(1);
+
+    // Decode another frame post-init — should NOT replay the buffered frame
+    engine.decodeAndPlay(new Uint8Array([2]), 1, '10.0.0.1');
+    expect(decoderInstance.decode).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not flush if decoder creation fails', async () => {
+    // Make AudioDecoder constructor throw so opusDecoder stays null
+    vi.stubGlobal('AudioDecoder', vi.fn(() => {
+      throw new Error('codec init failed');
+    }));
+    vi.resetModules();
+    const eng = await import('../services/audioEngine.js');
+
+    // Queue a frame
+    eng.decodeAndPlay(new Uint8Array([1]), 1, '10.0.0.1');
+
+    // Init — decoder creation fails, flush should not run
+    await eng.initAudio(vi.fn());
+
+    // No EncodedAudioChunk should have been created
+    expect(EncodedAudioChunk).not.toHaveBeenCalled();
+  });
+
+  it('post-init frames go directly to decoder without buffering', async () => {
+    await engine.initAudio(vi.fn());
+
+    const decoderInstance = AudioDecoder.mock.instances[0];
+
+    engine.decodeAndPlay(new Uint8Array([1]), 1, '10.0.0.1');
+    engine.decodeAndPlay(new Uint8Array([2]), 1, '10.0.0.1');
+    engine.decodeAndPlay(new Uint8Array([3]), 1, '10.0.0.1');
+
+    // All 3 should decode immediately
+    expect(decoderInstance.decode).toHaveBeenCalledTimes(3);
+
+    // Timestamps should increment: 0, 20000, 40000
+    expect(EncodedAudioChunk.mock.calls[0][0].timestamp).toBe(0);
+    expect(EncodedAudioChunk.mock.calls[1][0].timestamp).toBe(20000);
+    expect(EncodedAudioChunk.mock.calls[2][0].timestamp).toBe(40000);
+  });
+
+  it('timestamp resets properly for flushed frames from different sources', async () => {
+    // Queue frames from two different sources
+    engine.decodeAndPlay(new Uint8Array([1]), 1, '10.0.0.1');
+    engine.decodeAndPlay(new Uint8Array([2]), 1, '10.0.0.1');
+    engine.decodeAndPlay(new Uint8Array([3]), 2, '10.0.0.5');
+
+    await engine.initAudio(vi.fn());
+
+    // Frame 1: ch=1, new source → timestamp=0
+    expect(EncodedAudioChunk.mock.calls[0][0].timestamp).toBe(0);
+    // Frame 2: same source → timestamp=20000
+    expect(EncodedAudioChunk.mock.calls[1][0].timestamp).toBe(20000);
+    // Frame 3: different source → timestamp resets to 0
+    expect(EncodedAudioChunk.mock.calls[2][0].timestamp).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // enumerateDevices
 // ---------------------------------------------------------------------------
 

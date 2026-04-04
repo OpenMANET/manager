@@ -708,7 +708,7 @@ func TestPlayoutLoop_WebMode_MultipleFrames(t *testing.T) {
 	}
 }
 
-func TestPlayoutLoop_WebMode_SkipsWhenBroadcasting(t *testing.T) {
+func TestPlayoutLoop_WebMode_DeliversWhileBroadcasting(t *testing.T) {
 	cfg := newSilentComms()
 	rt, pc := newReceiveRuntime()
 
@@ -724,14 +724,13 @@ func TestPlayoutLoop_WebMode_SkipsWhenBroadcasting(t *testing.T) {
 
 	go cfg.playoutLoop(ctx, jb, pc, rt)
 
-	// Let the loop tick several times.
-	time.Sleep(80 * time.Millisecond)
-	cancel()
-
+	// Web mode skips the half-duplex suppression so the frame should
+	// be delivered even while broadcasting.
 	select {
 	case <-bridge.RxFrames():
-		t.Error("bridge should not receive frames while broadcasting")
-	default:
+		// OK — frame delivered as expected.
+	case <-ctx.Done():
+		t.Error("bridge should receive frames in web mode even while broadcasting")
 	}
 }
 

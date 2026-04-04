@@ -1,5 +1,10 @@
 # Testing Rules
 
+## When to Write Tests
+
+- **Every behavior change must include tests.** Bug fixes, new features, and refactors that alter runtime logic require unit and/or integration tests in the same changeset. Do not ship behavior changes without corresponding test coverage.
+- If a change alters expected behavior of an existing test, update the test to assert the new behavior — do not delete it.
+
 ## Go — General
 
 - Package: `package handlers_test` (external test package). Tests live alongside the code they test.
