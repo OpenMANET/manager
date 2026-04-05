@@ -71,14 +71,6 @@ func (b *BLOSService) enableBLOS(ctx context.Context, req *v1.UpdateBLOSConfigRe
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to enable BLOS: %w", err))
 	}
 
-	// Persist config change; roll back runtime state on failure
-	if err := b.Cfg.PersistBLOSConfig(true); err != nil {
-		b.Log.Error().Err(err).Msg("Failed to persist BLOS config, rolling back")
-		b.BLOSManager.Disable()
-
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to enable BLOS: config persistence failed, rolled back: %w", err))
-	}
-
 	message := "BLOS enabled successfully."
 
 	return &v1.UpdateBLOSConfigResponse{

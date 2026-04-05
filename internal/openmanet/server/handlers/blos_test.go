@@ -99,11 +99,8 @@ func TestUpdateBLOSConfig_Enable_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
 
-	// Verify ConfigureAndEnable was called
+	// Verify ConfigureAndEnable was called (it persists config internally)
 	assert.Equal(t, 1, mgr.getConfigureAndEnableCalls())
-
-	// Verify config persisted
-	assert.True(t, cfg.BLOSEnabled())
 }
 
 func TestUpdateBLOSConfig_Enable_WithLoginServer(t *testing.T) {
@@ -218,29 +215,6 @@ func TestUpdateBLOSConfig_Disable_AlreadyDisabled(t *testing.T) {
 }
 
 // ── Rollback on persist failure ──────────────────────────────────────────────
-
-func TestUpdateBLOSConfig_Enable_PersistFailure_RollsBack(t *testing.T) {
-	cfg := setupBLOSTestConfig(t, "blos:\n  enable: false\n")
-	mgr := &fakeBLOSManager{}
-	svc := newBLOSService(t, cfg, mgr)
-
-	// Make the config file read-only so PersistBLOSConfig fails
-	err := os.Chmod(cfg.GetConfigFilePath(), 0444)
-	require.NoError(t, err)
-
-	_, err = svc.UpdateBLOSConfig(context.Background(), &v1.UpdateBLOSConfigRequest{
-		EnableBlos: true,
-		AuthKey:    "tskey-abc123",
-	})
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "rolled back")
-
-	// ConfigureAndEnable was called, then rolled back via Disable
-	assert.Equal(t, 1, mgr.getConfigureAndEnableCalls())
-	assert.Equal(t, 1, mgr.getDisableCalls())
-	assert.False(t, mgr.IsRunning())
-}
 
 func TestUpdateBLOSConfig_Disable_PersistFailure_RollsBack(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "blos:\n  enable: true\n")
