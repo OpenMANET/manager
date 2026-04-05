@@ -123,6 +123,7 @@ func newWirelessMockReader() *mockConfigReader {
 					"enable_twt":                {"0"},
 					"bcf":                       {"bcf_fgh100mhaamd.bin"},
 					"channel":                   {"42"},
+					"disabled":                  {"1"},
 				},
 				"default_radio1": {
 					"device":              {"radio1"},
@@ -200,6 +201,7 @@ func TestGetWirelessDeviceByNameWithReader_Radio4(t *testing.T) {
 		EnableDynamicPSOffload: "0",
 		EnableTWT:              "0",
 		BCF:                    "bcf_fgh100mhaamd.bin",
+		Disabled:               "1",
 	}
 
 	got, err := GetWirelessDeviceByNameWithReader("radio4", reader)
@@ -638,5 +640,117 @@ func TestDeleteWirelessIfaceWithReader_CommitError(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "failed to commit") {
 		t.Errorf("expected commit error, got %v", err)
+	}
+}
+
+// --- UCIWirelessDevice.Disabled field tests ---
+
+func TestGetWirelessDeviceByNameWithReader_DisabledField(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	got, err := GetWirelessDeviceByNameWithReader("radio4", reader)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got.Disabled != "1" {
+		t.Errorf("Disabled: got %q, want %q", got.Disabled, "1")
+	}
+}
+
+func TestGetWirelessDeviceByNameWithReader_DisabledNotSet(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	got, err := GetWirelessDeviceByNameWithReader("radio1", reader)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got.Disabled != "" {
+		t.Errorf("Disabled: got %q, want empty string", got.Disabled)
+	}
+}
+
+func TestSetWirelessDeviceConfigWithReader_Disabled(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	cfg := &UCIWirelessDevice{
+		Band:     "5g",
+		Channel:  "36",
+		Disabled: "1",
+	}
+
+	if err := SetWirelessDeviceConfigWithReader("radio_dis", cfg, reader); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, err := GetWirelessDeviceByNameWithReader("radio_dis", reader)
+	if err != nil {
+		t.Fatalf("unexpected error reading back config: %v", err)
+	}
+
+	if got.Disabled != "1" {
+		t.Errorf("Disabled: got %q, want %q", got.Disabled, "1")
+	}
+}
+
+func TestSetWirelessDeviceConfigWithReader_DisabledZero(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	cfg := &UCIWirelessDevice{
+		Band:     "2g",
+		Channel:  "6",
+		Disabled: "0",
+	}
+
+	if err := SetWirelessDeviceConfigWithReader("radio_en", cfg, reader); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, err := GetWirelessDeviceByNameWithReader("radio_en", reader)
+	if err != nil {
+		t.Fatalf("unexpected error reading back config: %v", err)
+	}
+
+	if got.Disabled != "0" {
+		t.Errorf("Disabled: got %q, want %q", got.Disabled, "0")
+	}
+}
+
+func TestSetWirelessDeviceConfigWithReader_DisabledEmpty(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	cfg := &UCIWirelessDevice{
+		Band:    "2g",
+		Channel: "1",
+	}
+
+	if err := SetWirelessDeviceConfigWithReader("radio_nod", cfg, reader); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, err := GetWirelessDeviceByNameWithReader("radio_nod", reader)
+	if err != nil {
+		t.Fatalf("unexpected error reading back config: %v", err)
+	}
+
+	if got.Disabled != "" {
+		t.Errorf("Disabled: got %q, want empty (should not be set)", got.Disabled)
+	}
+}
+
+func TestSetWirelessDeviceConfigWithReader_DisabledSetTypeError(t *testing.T) {
+	reader := newWirelessMockReader()
+	reader.setTypeError = errors.New("set type failed")
+
+	cfg := &UCIWirelessDevice{Disabled: "1"}
+
+	err := SetWirelessDeviceConfigWithReader("radio0", cfg, reader)
+	if err == nil {
+		t.Fatal("expected error when SetType fails")
+	}
+
+	if !strings.Contains(err.Error(), "failed to set disabled") {
+		t.Errorf("expected set disabled error, got %v", err)
 	}
 }

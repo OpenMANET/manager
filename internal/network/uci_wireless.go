@@ -32,6 +32,7 @@ type UCIWirelessDevice struct {
 	EnableTWT              string `uci:"option enable_twt"`
 	BCF                    string `uci:"option bcf"`
 	TxPower                string `uci:"option txpower"`
+	Disabled               string `uci:"option disabled"`
 }
 
 // UCIWirelessIface represents a UCI wireless interface (wifi-iface section) configuration.
@@ -343,6 +344,10 @@ func GetWirelessDeviceByNameWithReader(name string, reader ConfigReader) (*UCIWi
 		config.TxPower = values[0]
 	}
 
+	if values, ok := reader.Get(wirelessConfigName, name, "disabled"); ok && len(values) > 0 {
+		config.Disabled = values[0]
+	}
+
 	return config, nil
 }
 
@@ -540,6 +545,12 @@ func SetWirelessDeviceConfigWithReader(section string, config *UCIWirelessDevice
 	if config.TxPower != "" {
 		if err := reader.SetType(wirelessConfigName, section, "txpower", uci.TypeOption, config.TxPower); err != nil {
 			return fmt.Errorf("failed to set txpower: %w", err)
+		}
+	}
+
+	if config.Disabled != "" {
+		if err := reader.SetType(wirelessConfigName, section, "disabled", uci.TypeOption, config.Disabled); err != nil {
+			return fmt.Errorf("failed to set disabled: %w", err)
 		}
 	}
 

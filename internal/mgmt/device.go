@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/openmanet/openmanetd/internal/batman-adv"
+	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/iwinfo"
 	"github.com/openmanet/openmanetd/internal/network"
 )
@@ -107,7 +107,7 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 	}
 
 	if !supportedHardwareFound {
-		m.Log.Warn().Msg("No supported MediaTek hardware (MT7915 or MT7916) found for batmesh1 configuration")
+		m.Log.Debug().Msg("No supported MediaTek hardware (MT7915 or MT7916) found for batmesh1 configuration")
 
 		return nil
 	}
@@ -184,15 +184,16 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 
 	// Step 6: update the 2g radio device.
 	radioUpdate := &network.UCIWirelessDevice{
-		Channel: "8",
-		HTMode:  "HE20",
+		Channel:  "8",
+		HTMode:   "HE20",
+		Disabled: "0",
 	}
 
 	if err := network.SetWirelessDeviceConfigWithReader(radioSection, radioUpdate, wirelessReader); err != nil {
 		return fmt.Errorf("update wifi-device %s: %w", radioSection, err)
 	}
 
-	m.Log.Info().Str("section", radioSection).Str("channel", "8").Str("htmode", "HE20").Msg("Updated 2g radio for batmesh1")
+	m.Log.Info().Str("section", radioSection).Str("channel", "8").Str("htmode", "HE20").Str("disabled", "0").Msg("Updated 2g radio for batmesh1")
 
 	// Step 7: mark batmesh1 as configured.
 	if err := network.SetBatMesh1ConfiguredWithReader(openmanetReader); err != nil {
