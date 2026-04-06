@@ -425,6 +425,164 @@ func TestJitterBuffer_Reset_ClearsState(t *testing.T) {
 	}
 }
 
+// ─── SSRC change & idle reset tests ─────────────────────────────────────────
+
+// TestJitterBuffer_SSRCChangeResets is the regression test for the silent-stall
+// bug: a new talker on the multicast group whose starting sequence number lies
+// in the "past half" of the previous talker's frozen cursor must NOT be
+// rejected. The jitter buffer must detect the SSRC change and reset.
+func TestJitterBuffer_SSRCChangeResets(t *testing.T) {
+	jb := newRTPJitterBuffer(1, 10)
+
+	const (
+		ssrcA = uint32(0x11111111)
+		ssrcB = uint32(0x22222222)
+	)
+
+	// Talker A streams seqs 0..4, drained → expected = 5.
+	for i := uint16(0); i <= 4; i++ {
+		if !jb.pushWithSSRC(ssrcA, i, []byte{byte(i)}, nil) {
+			t.Fatalf("ssrcA push seq=%d rejected", i)
+		}
+	}
+
+	for range 5 {
+		if _, ready, _ := jb.popReady(); !ready {
+			t.Fatal("expected ssrcA frames to be ready")
+		}
+	}
+
+	// Talker B starts at seq 0x8005. int16(0x8005 - 5) = -32768, so
+	// seqLess(0x8005, 5) is true — on a SSRC-blind buffer this packet would
+	// be silently rejected as "stale" forever. With SSRC tracking the buffer
+	// must reset and accept it as a fresh stream.
+	var (
+		gotOld, gotNew uint32
+		gotChange      bool
+	)
+
+	cb := func(oldSSRC, newSSRC uint32) {
+		gotOld = oldSSRC
+		gotNew = newSSRC
+		gotChange = true
+	}
+
+	if !jb.pushWithSSRC(ssrcB, 0x8005, []byte{0xBB}, cb) {
+		t.Fatal("ssrcB starting packet must be accepted after SSRC change")
+	}
+
+	if !gotChange {
+		t.Fatal("expected SSRC change callback to fire")
+	}
+
+	if gotOld != ssrcA || gotNew != ssrcB {
+		t.Errorf("callback got (%#x→%#x), want (%#x→%#x)", gotOld, gotNew, ssrcA, ssrcB)
+	}
+
+	if got := jb.ssrcResets.Load(); got != 1 {
+		t.Errorf("ssrcResets = %d, want 1", got)
+	}
+
+	// The new packet must be deliverable.
+	payload, ready, _ := jb.popReady()
+	if !ready || len(payload) == 0 || payload[0] != 0xBB {
+		t.Errorf("expected payload 0xBB after SSRC change, got ready=%v payload=%v", ready, payload)
+	}
+}
+
+// TestJitterBuffer_SSRCChange_NoCallbackOnSameSSRC verifies that a stream of
+// packets all sharing the same SSRC never triggers the SSRC-change path.
+func TestJitterBuffer_SSRCChange_NoCallbackOnSameSSRC(t *testing.T) {
+	jb := newRTPJitterBuffer(1, 10)
+
+	called := false
+	cb := func(_, _ uint32) { called = true }
+
+	for i := uint16(0); i < 5; i++ {
+		jb.pushWithSSRC(0xDEADBEEF, i, []byte{byte(i)}, cb)
+	}
+
+	if called {
+		t.Error("SSRC change callback fired despite constant SSRC")
+	}
+
+	if got := jb.ssrcResets.Load(); got != 0 {
+		t.Errorf("ssrcResets = %d, want 0", got)
+	}
+}
+
+// TestJitterBuffer_SameSSRCStalePacketStillDropped is a regression that
+// preserves the existing reorder protection: with the same SSRC, a stale seq
+// must still be dropped (otherwise we'd accept duplicates and out-of-window
+// reorderings as fresh streams).
+func TestJitterBuffer_SameSSRCStalePacketStillDropped(t *testing.T) {
+	jb := newRTPJitterBuffer(1, 10)
+
+	jb.pushWithSSRC(1, 100, []byte{100}, nil)
+	jb.popReady() // expected = 101
+
+	if jb.pushWithSSRC(1, 100, []byte{100}, nil) {
+		t.Error("stale seq=100 with same SSRC must still be rejected")
+	}
+}
+
+// TestJitterBuffer_IdleTimeoutResets verifies the defensive idle-reset safety
+// net: a long inter-arrival gap causes the buffer to treat the next packet as
+// the start of a fresh stream, even with the same SSRC.
+func TestJitterBuffer_IdleTimeoutResets(t *testing.T) {
+	fakeNow := time.Unix(0, 0)
+	jb := newRTPJitterBuffer(1, 10)
+	jb.now = func() time.Time { return fakeNow }
+
+	// First push at t=0, drain it.
+	if !jb.pushWithSSRC(1, 1000, []byte{0xAA}, nil) {
+		t.Fatal("initial push rejected")
+	}
+
+	jb.popReady()
+
+	// Advance the clock past the idle threshold.
+	fakeNow = fakeNow.Add(jitterIdleResetThreshold + time.Second)
+
+	// A packet with a stale seq (would be rejected by seqLess against
+	// expected=1001) must now be accepted because the idle-reset clears state.
+	if !jb.pushWithSSRC(1, 50, []byte{0xBB}, nil) {
+		t.Error("stale-seq packet after idle gap must be accepted (idle reset)")
+	}
+
+	if got := jb.idleResets.Load(); got != 1 {
+		t.Errorf("idleResets = %d, want 1", got)
+	}
+
+	payload, ready, _ := jb.popReady()
+	if !ready || payload[0] != 0xBB {
+		t.Errorf("expected payload 0xBB after idle reset, got ready=%v payload=%v", ready, payload)
+	}
+}
+
+// TestJitterBuffer_IdleTimeout_NoResetWithinWindow verifies that arrivals
+// within the idle window do not trigger a reset.
+func TestJitterBuffer_IdleTimeout_NoResetWithinWindow(t *testing.T) {
+	fakeNow := time.Unix(0, 0)
+	jb := newRTPJitterBuffer(1, 10)
+	jb.now = func() time.Time { return fakeNow }
+
+	jb.pushWithSSRC(1, 1000, []byte{0xAA}, nil)
+	jb.popReady()
+
+	// Just below the threshold.
+	fakeNow = fakeNow.Add(jitterIdleResetThreshold - time.Millisecond)
+
+	// Stale seq must still be rejected — no idle reset yet.
+	if jb.pushWithSSRC(1, 50, []byte{0xBB}, nil) {
+		t.Error("stale-seq packet within idle window must be rejected")
+	}
+
+	if got := jb.idleResets.Load(); got != 0 {
+		t.Errorf("idleResets = %d, want 0", got)
+	}
+}
+
 // TestJitterBuffer_Reset_PrebufferRestartsAfterReset verifies that after reset
 // the prebuffer threshold must be satisfied again before popReady returns frames.
 func TestJitterBuffer_Reset_PrebufferRestartsAfterReset(t *testing.T) {

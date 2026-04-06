@@ -14,6 +14,14 @@ const (
 	// Payload pool buffers are sized to this capacity to eliminate per-packet
 	// heap allocations in the jitter buffer hot path.
 	maxOpusPayloadSize = 1275
+
+	// jitterIdleResetThreshold is the inter-arrival gap after which the jitter
+	// buffer treats the next packet as a fresh stream and re-initializes its
+	// expected sequence cursor. This is a defensive safety net for cases where
+	// SSRC tracking misses an edge (e.g. RFC 3550 §8.2 collision-driven SSRC
+	// rotation, or a sender that resets seq without rotating SSRC). Two seconds
+	// is well beyond any realistic jitter window and well below user-noticeable.
+	jitterIdleResetThreshold = 2 * time.Second
 )
 
 // jitterSlot is one entry in the fixed-size ring buffer.
@@ -24,22 +32,31 @@ type jitterSlot struct {
 }
 
 // rtpJitterBuffer is a sequence-number-ordered buffer for RTP audio payloads.
-// It provides prebuffering, late-packet dropping, and gap detection for PLC.
+// It provides prebuffering, late-packet dropping, gap detection for PLC, and
+// SSRC-change/idle-gap detection so a new talker is never silently dropped
+// because their starting sequence number lies in the "past half" of the
+// previous talker's frozen sequence cursor.
 //
 // Internally, frames are stored in a fixed-size circular array indexed by
 // (seq % maxDepth), eliminating all map allocations on the hot path.
 type rtpJitterBuffer struct {
+	// now is injectable for deterministic idle-reset tests. nil → time.Now.
+	now         func() time.Time
 	payloadPool sync.Pool
 	lastPush    time.Time
 	slots       [jitterMaxDepth]jitterSlot
 	overflows   atomic.Int64
+	ssrcResets  atomic.Int64
+	idleResets  atomic.Int64
 	count       int
 	prebuffer   int
 	maxDepth    int
 	mu          sync.Mutex
+	ssrc        uint32
 	expected    uint16
 	init        bool
 	started     bool
+	haveSSRC    bool
 }
 
 func newRTPJitterBuffer(prebuffer, maxDepth int) *rtpJitterBuffer {
@@ -57,6 +74,15 @@ func newRTPJitterBuffer(prebuffer, maxDepth int) *rtpJitterBuffer {
 	return jb
 }
 
+// nowFn returns the current time, honoring an injected clock if set.
+func (jb *rtpJitterBuffer) nowFn() time.Time {
+	if jb.now != nil {
+		return jb.now()
+	}
+
+	return time.Now()
+}
+
 // seqLess compares RTP sequence numbers with uint16 wrap-around awareness.
 func seqLess(a, b uint16) bool {
 	return int16(a-b) < 0
@@ -64,13 +90,52 @@ func seqLess(a, b uint16) bool {
 
 // push stores a received payload keyed by sequence number.
 // Returns false if the packet is stale, a duplicate, or the buffer is full.
+//
+// Deprecated: use pushWithSSRC. push is retained for tests that pre-date SSRC
+// tracking; it treats every packet as belonging to a single anonymous stream.
 func (jb *rtpJitterBuffer) push(seq uint16, payload []byte) bool {
+	return jb.pushWithSSRC(0, seq, payload, nil)
+}
+
+// pushWithSSRC stores a received payload, tracking the SSRC of the source
+// stream. When the SSRC changes mid-stream, the buffer is reset and re-
+// initialized from the new packet — without this, a new talker whose starting
+// sequence number happens to lie in the "past half" of the previous talker's
+// frozen cursor would be silently rejected forever.
+//
+// If onSSRCChange is non-nil, it is invoked (without holding jb.mu) when an
+// SSRC change is detected, with the old and new SSRC values. Pass nil if you
+// don't need notification (e.g. tests).
+func (jb *rtpJitterBuffer) pushWithSSRC(ssrc uint32, seq uint16, payload []byte, onSSRCChange func(oldSSRC, newSSRC uint32)) bool {
 	jb.mu.Lock()
-	defer jb.mu.Unlock()
+
+	var (
+		oldSSRC     uint32
+		ssrcChanged bool
+	)
+
+	if jb.haveSSRC && jb.init && ssrc != jb.ssrc {
+		oldSSRC = jb.ssrc
+		ssrcChanged = true
+
+		jb.resetLocked()
+		jb.ssrcResets.Add(1)
+	}
 
 	ok := jb.pushLocked(seq, payload)
 	if !ok && jb.count >= jb.maxDepth {
 		jb.overflows.Add(1)
+	}
+
+	if ok {
+		jb.ssrc = ssrc
+		jb.haveSSRC = true
+	}
+
+	jb.mu.Unlock()
+
+	if ssrcChanged && onSSRCChange != nil {
+		onSSRCChange(oldSSRC, ssrc)
 	}
 
 	return ok
@@ -78,6 +143,16 @@ func (jb *rtpJitterBuffer) push(seq uint16, payload []byte) bool {
 
 // pushLocked is the internal push implementation; caller must hold jb.mu.
 func (jb *rtpJitterBuffer) pushLocked(seq uint16, payload []byte) bool {
+	// Idle-reset safety net: if a long gap has elapsed since the last push,
+	// treat the next packet as the start of a fresh stream regardless of
+	// sequence number. Catches edge cases the SSRC check cannot, e.g. a sender
+	// that resets seq without rotating SSRC, or RFC 3550 §8.2 collision-driven
+	// SSRC rotation that the caller did not propagate.
+	if jb.init && !jb.lastPush.IsZero() && jb.nowFn().Sub(jb.lastPush) > jitterIdleResetThreshold {
+		jb.resetLocked()
+		jb.idleResets.Add(1)
+	}
+
 	if !jb.init {
 		jb.expected = seq
 		jb.init = true
@@ -114,7 +189,7 @@ func (jb *rtpJitterBuffer) pushLocked(seq uint16, payload []byte) bool {
 	slot.payload = buf
 	slot.valid = true
 	jb.count++
-	jb.lastPush = time.Now()
+	jb.lastPush = jb.nowFn()
 
 	return true
 }
@@ -249,6 +324,15 @@ func (jb *rtpJitterBuffer) reset() {
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
 
+	jb.resetLocked()
+	jb.haveSSRC = false
+	jb.ssrc = 0
+}
+
+// resetLocked is the internal reset implementation; caller must hold jb.mu.
+// It does NOT clear the SSRC tracking fields — that is the caller's choice
+// (e.g. pushWithSSRC overwrites jb.ssrc with the new value after reset).
+func (jb *rtpJitterBuffer) resetLocked() {
 	for i := range jb.slots {
 		if jb.slots[i].valid {
 			jb.releasePayload(jb.slots[i].payload)

@@ -130,8 +130,16 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 		// Pass the pion payload directly to the jitter buffer; push()
 		// performs its own defensive copy so a separate copy here is
 		// unnecessary — the receive buffer (buf) is reused on the next
-		// iteration anyway.
-		if !jitter.push(pkt.SequenceNumber, pkt.Payload) {
+		// iteration anyway. The SSRC is tracked so that a new talker
+		// joining the multicast group does not get silently dropped
+		// because their starting sequence number happens to lie in the
+		// "past half" of the previous talker's frozen cursor.
+		if !jitter.pushWithSSRC(pkt.SSRC, pkt.SequenceNumber, pkt.Payload, func(oldSSRC, newSSRC uint32) {
+			cfg.Log.Info().
+				Uint32("old_ssrc", oldSSRC).
+				Uint32("new_ssrc", newSSRC).
+				Msg("comms: RTP SSRC changed; jitter buffer reset")
+		}) {
 			if n := jitter.overflows.Load(); n > 0 && n%50 == 0 {
 				cfg.Log.Warn().Int64("total_overflows", n).Msg("comms: jitter buffer overflow")
 			}
