@@ -312,7 +312,7 @@ func TestDetectAndSetALSACardFromRoot_MatchingCard(t *testing.T) {
 
 	usbidPath := filepath.Join(cardDir, "usbid")
 
-	if err := os.WriteFile(usbidPath, []byte("0D8C:013C\n"), 0o644); err != nil {
+	if err := os.WriteFile(usbidPath, []byte("0D8C:0012\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
