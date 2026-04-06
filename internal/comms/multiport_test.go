@@ -411,24 +411,23 @@ func TestSendToAllPorts_SendErrorDoesNotPanic(t *testing.T) {
 	cfg.sendToAllPorts(rt, []byte{0xAA, 0xBB})
 }
 
-// ─── playoutLoop receive-only port tests ──────────────────────────────────────
+// ─── playoutOneFrame receive-only port tests ──────────────────────────────────
 
-// TestPlayoutLoop_ReceiveOnlyPortNotSuppressedDuringBroadcast verifies that
-// playout suppression (half-duplex) only applies to send-capable ports.
-// A receive-only port (cfg.Send=false) must continue delivering frames to its
-// playback buffer even while rt.broadcasting==true.
-func TestPlayoutLoop_ReceiveOnlyPortNotSuppressedDuringBroadcast(t *testing.T) {
-	// Receive-only port: Send=false.
+// TestPlayoutOneFrame_ReceiveOnlyPortNotSuppressedDuringBroadcast verifies
+// that half-duplex suppression in playoutOneFrame only applies to
+// send-capable ports. A receive-only port (sendEnabled=false) must continue
+// emitting decoded audio even while rt.broadcasting==true.
+func TestPlayoutOneFrame_ReceiveOnlyPortNotSuppressedDuringBroadcast(t *testing.T) {
+	// Receive-only port: sendEnabled=false.
 	pc := &portChannel{
 		cfg: McastPortConfig{Send: false, Receive: true},
 	}
 	pc.sendEnabled.Store(false)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 8)
 
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
+		decoder: &mockDecoder{fillValue: 42, returnN: frameSize},
 	}
 	rt.broadcasting.Store(true) // simulate active broadcast on another port
 
@@ -437,16 +436,23 @@ func TestPlayoutLoop_ReceiveOnlyPortNotSuppressedDuringBroadcast(t *testing.T) {
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+	out := make([]float32, frameSize)
+	cfg.playoutOneFrame(pc, rt, jb, out)
 
-	go cfg.playoutLoop(ctx, jb, pc, rt)
+	// The decoder fills with fillValue/32768; receive-only ports bypass
+	// the half-duplex check so we should see non-zero samples even though
+	// rt.broadcasting is true.
+	allZero := true
 
-	// The frame must be delivered because cfg.Send==false bypasses suppression.
-	select {
-	case <-pc.playbackBuffer:
-		// success: frame appeared despite broadcasting=true
-	case <-time.After(200 * time.Millisecond):
-		t.Error("receive-only port should deliver frames during broadcast; got none")
+	for _, v := range out {
+		if v != 0 {
+			allZero = false
+
+			break
+		}
+	}
+
+	if allZero {
+		t.Error("receive-only port should emit decoded samples during broadcast; got silence")
 	}
 }

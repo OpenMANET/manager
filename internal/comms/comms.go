@@ -126,19 +126,36 @@ type McastPortState struct {
 // sendEnabled and receiveEnabled are atomic bools that can be toggled at
 // runtime via EnableTalkGroupSend / EnableTalkGroupReceive without restarting any goroutine
 // or socket.
+//
+// jitter is the per-port RTP jitter buffer. It is allocated in
+// buildSinglePortChannel for ports with a Receive socket and shared between
+// receiveLoop (producer) and the PortAudio output callback (consumer). For
+// portChannels constructed directly in tests, callers must allocate it
+// explicitly.
+//
+// consecutivePLC is owned by the PortAudio output callback for this port:
+// each port has its own callback running on its own audio thread, so the
+// field is single-writer and does not need atomic semantics. Tests that call
+// playoutOneFrame directly are likewise single-threaded with respect to it.
+//
+// playbackBuffer is retained as a one-shot side channel for TX beep tones
+// (see transmit.go beginTransmission/endTransmission); the PortAudio callback
+// drains it before falling through to playoutOneFrame so beeps preempt one
+// frame of jitter-buffered audio.
 type portChannel struct {
-	rtpSess               rtpSender
-	playbackStream        AudioStream
-	sender                *swappableSender
-	rtcpSend              *swappableSender
-	receiver              *swappableReceiver
-	playbackBuffer        chan []float32
-	cfg                   McastPortConfig
-	playbackHighWaterMark int
-	lastRemoteRx          atomic.Int64
-	playbackDrops         atomic.Int64
-	sendEnabled           atomic.Bool
-	receiveEnabled        atomic.Bool
+	rtpSess           rtpSender
+	playbackStream    AudioStream
+	sender            *swappableSender
+	rtcpSend          *swappableSender
+	receiver          *swappableReceiver
+	jitter            *rtpJitterBuffer
+	playbackBuffer    chan []float32
+	cfg               McastPortConfig
+	consecutivePLC    int
+	lastRemoteRx      atomic.Int64
+	playbackUnderruns atomic.Int64
+	sendEnabled       atomic.Bool
+	receiveEnabled    atomic.Bool
 }
 
 // ─── CommsRuntime ─────────────────────────────────────────────────────────────
@@ -498,6 +515,7 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 		}
 
 		pc.receiver = newSwappableReceiver(recvConn)
+		pc.jitter = newRTPJitterBuffer(jitterPrebufferPackets, jitterMaxDepth)
 
 		cfg.Log.Debug().Msgf("comms: RTP receiver port %d", mpc.Port)
 	}
@@ -579,10 +597,13 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 
 	cfg.Log.Info().Msgf("comms: audio in=%s out=%s", inDev.Name, outDev.Name)
 
-	playbackDepth := 20
-	if cfg.PlaybackDepth > 0 {
-		playbackDepth = cfg.PlaybackDepth
-	}
+	// playbackBuffer is a small one-shot side channel used by the TX path
+	// (transmit.go) to inject start/stop beep tones into the local speaker.
+	// It is no longer the carrier for decoded RTP audio — that flows through
+	// pc.jitter directly into the PortAudio output callback via
+	// playoutOneFrame, eliminating the producer/consumer clock mismatch that
+	// previously caused stutter.
+	const beepChannelDepth = 4
 
 	playbackParams := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
@@ -602,21 +623,23 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 			continue
 		}
 
-		pc.playbackBuffer = make(chan []float32, playbackDepth)
-		pc.playbackHighWaterMark = cap(pc.playbackBuffer) * 3 / 4
+		pc.playbackBuffer = make(chan []float32, beepChannelDepth)
 
 		pcRef := pc // capture for callback closure
 
 		rawPlayback, openErr := portaudio.OpenStream(playbackParams, func(_, out []float32) {
+			// Beep injection: TX start/stop tones preempt one frame of
+			// jitter-buffered audio. The select is non-blocking so a
+			// missing beep falls straight through to playoutOneFrame.
 			select {
 			case data := <-pcRef.playbackBuffer:
 				copy(out, data)
-				returnFloat32(data)
+
+				return
 			default:
-				for i := range out {
-					out[i] = 0
-				}
 			}
+
+			cfg.playoutOneFrame(pcRef, rt, pcRef.jitter, out)
 		})
 		if openErr != nil {
 			// Close already-opened per-port streams before propagating error.

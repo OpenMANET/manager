@@ -12,10 +12,10 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// These tests exercise the full receive path end-to-end:
+// These tests exercise the receive path end-to-end:
 //
-//   mockReader → receiveLoop → parseIncomingRTP → jitter buffer →
-//     playoutLoop → decodeAndQueue → pc.playbackBuffer
+//   mockReader → receiveLoop → parseIncomingRTP → pc.jitter →
+//     playoutOneFrame → mockDecoder → caller-supplied PCM buffer
 //
 // They cannot exercise the TX path end-to-end because the Opus encode lives
 // inside the PortAudio capture callback closure (comms.go:684) which cannot
@@ -29,6 +29,11 @@ import (
 // receive-path plumbing. The integration value here is in the loop wiring,
 // jitter buffer behavior, and reset semantics — not in the decoder itself,
 // which is well-covered by codec_test.go.
+//
+// In production the PortAudio output callback drives playoutOneFrame at the
+// audio hardware clock rate. These tests drive playoutOneFrame manually
+// against a synthetic float32 output buffer, which is the same primitive the
+// production callback calls.
 
 // buildRTPPacket marshals an RTP packet with the given SSRC, seq, and payload.
 // It uses the production pion/rtp library directly so the bytes are bit-for-bit
@@ -57,7 +62,7 @@ func buildRTPPacket(t *testing.T, ssrc uint32, seq uint16, payload []byte) []byt
 
 // newIntegrationReceiver builds a minimal portChannel + CommsRuntime backed
 // by a mockReader so a test can push RTP datagrams through the real
-// receiveLoop / playoutLoop and observe decoded frames on playbackBuffer.
+// receiveLoop and observe decoded frames via playoutOneFrame.
 func newIntegrationReceiver(t *testing.T) (*CommsConfig, *portChannel, *CommsRuntime, *mockReader) {
 	t.Helper()
 
@@ -66,19 +71,62 @@ func newIntegrationReceiver(t *testing.T) (*CommsConfig, *portChannel, *CommsRun
 	pc := &portChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
 		receiver: newSwappableReceiver(reader),
+		jitter:   newRTPJitterBuffer(jitterPrebufferPackets, jitterMaxDepth),
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 64)
 
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
+		decoder: &mockDecoder{fillValue: 1234, returnN: int(rtpFrameSamples)},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
 
 	return cfg, pc, rt, reader
+}
+
+// pollDecodedFrame repeatedly calls playoutOneFrame against a fresh PCM
+// buffer until non-zero samples appear or the deadline is reached. It mirrors
+// what the PortAudio output callback does in production at the 20 ms
+// hardware tick rate.
+func pollDecodedFrame(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	out := make([]float32, frameSize)
+
+	for time.Now().Before(deadline) {
+		for i := range out {
+			out[i] = 0
+		}
+
+		cfg.playoutOneFrame(pc, rt, pc.jitter, out)
+
+		for _, v := range out {
+			if v != 0 {
+				return true
+			}
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	return false
+}
+
+// drainConcealmentFrames calls playoutOneFrame in a loop until enough time
+// has elapsed for the conceal window (~100 ms) plus a margin to expire, so
+// the next pollDecodedFrame call can distinguish "fresh decoded audio" from
+// "leftover concealment". consecutivePLC is also reset.
+func drainConcealmentFrames(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime) {
+	deadline := time.Now().Add(500 * time.Millisecond)
+	out := make([]float32, frameSize)
+
+	for time.Now().Before(deadline) {
+		cfg.playoutOneFrame(pc, rt, pc.jitter, out)
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	pc.consecutivePLC = 0
 }
 
 // pushPackets enqueues raw datagrams onto the mockReader so the next
@@ -94,9 +142,9 @@ func pushPackets(reader *mockReader, raws ...[]byte) {
 	}
 }
 
-// TestIntegration_RTPReceivePath_BasicFlow drives a small burst of RTP packets
-// from a single SSRC through the receive path and asserts that decoded PCM
-// frames land in pc.playbackBuffer.
+// TestIntegration_RTPReceivePath_BasicFlow drives a small burst of RTP
+// packets from a single SSRC through the receive path and asserts that
+// decoded PCM frames are produced by playoutOneFrame.
 func TestIntegration_RTPReceivePath_BasicFlow(t *testing.T) {
 	cfg, pc, rt, reader := newIntegrationReceiver(t)
 
@@ -120,7 +168,7 @@ func TestIntegration_RTPReceivePath_BasicFlow(t *testing.T) {
 		cfg.receiveLoop(ctx, pc, rt)
 	}()
 
-	if _, ok := waitForFrame(pc.playbackBuffer, 500*time.Millisecond); !ok {
+	if !pollDecodedFrame(cfg, pc, rt, 500*time.Millisecond) {
 		t.Fatal("expected a decoded frame from the basic-flow burst")
 	}
 
@@ -163,34 +211,20 @@ func TestIntegration_RTPReceivePath_SSRCChangeRecovery(t *testing.T) {
 	}()
 
 	// Wait for talker A's first frame to confirm the path is alive.
-	if _, ok := waitForFrame(pc.playbackBuffer, 500*time.Millisecond); !ok {
+	if !pollDecodedFrame(cfg, pc, rt, 500*time.Millisecond) {
 		t.Fatal("expected at least one frame from talker A")
 	}
 
-	// Drain everything talker A produced AND wait for the conceal window
-	// (~100 ms after last successful push) plus a margin to expire. This is
-	// important: playoutLoop emits PLC and silence frames after the burst
-	// ends, and we need a "quiet" channel before checking talker B's effect.
-	// Otherwise leftover concealment frames would mask the bug.
-	deadline := time.Now().Add(500 * time.Millisecond)
-
-	for time.Now().Before(deadline) {
-		drainCh(pc.playbackBuffer)
-		time.Sleep(30 * time.Millisecond)
-	}
-
-	drainCh(pc.playbackBuffer)
-
-	// Confirm the channel is genuinely quiet (conceal window has closed).
-	if _, ok := waitForFrame(pc.playbackBuffer, 150*time.Millisecond); ok {
-		t.Fatal("playback channel still active before talker B push; cannot distinguish bug from background concealment")
-	}
+	// Drain whatever's left from talker A AND let the conceal window
+	// (~100 ms after the last push) expire so the next pollDecodedFrame
+	// call can distinguish a real talker-B frame from background PLC.
+	drainConcealmentFrames(cfg, pc, rt)
 
 	// Talker B: starting seq 0x8005. With talker A's expected = 5, we have
 	// int16(0x8005 - 5) = int16(0x8000) = -32768, so seqLess(0x8005, 5) is
 	// true. On a SSRC-blind buffer every Talker B packet is "stale" by
-	// signed-int16 wrap math and gets silently dropped at jitter.go:87 —
-	// the receive path stalls forever despite tcpdump showing packets.
+	// signed-int16 wrap math and gets silently dropped — the receive path
+	// stalls forever despite tcpdump showing packets.
 	var rawsB [][]byte
 
 	for i := uint16(0); i < jitterPrebufferPackets+3; i++ {
@@ -199,7 +233,7 @@ func TestIntegration_RTPReceivePath_SSRCChangeRecovery(t *testing.T) {
 
 	pushPackets(reader, rawsB...)
 
-	if _, ok := waitForFrame(pc.playbackBuffer, 1*time.Second); !ok {
+	if !pollDecodedFrame(cfg, pc, rt, 1*time.Second) {
 		t.Fatal("BUG: receive stalled after SSRC change — talker B frames never reached playback")
 	}
 
@@ -235,43 +269,27 @@ func TestIntegration_RTPReceivePath_SameSSRCStaleStillDropped(t *testing.T) {
 		cfg.receiveLoop(ctx, pc, rt)
 	}()
 
-	// Drain the burst.
-	for i := 0; i < len(raws); i++ {
-		if _, ok := waitForFrame(pc.playbackBuffer, 500*time.Millisecond); !ok {
-			break
-		}
+	// Confirm at least one frame from the burst.
+	if !pollDecodedFrame(cfg, pc, rt, 500*time.Millisecond) {
+		t.Fatal("expected a decoded frame from the same-SSRC burst")
 	}
 
-	// Drain any concealment frames produced after the burst so the channel
-	// is empty before we measure the stale-packet behavior.
-	drainCh(pc.playbackBuffer)
-
-	// Push a stale packet (same SSRC, old seq). It must be dropped — no new
-	// frame should appear within a short window beyond background PLC.
+	// Push a stale packet (same SSRC, old seq) and verify SSRC tracking
+	// did not reset. The stale packet itself is silently dropped at the
+	// seqLess gate inside pushLocked, which is the existing reorder
+	// protection. We assert no SSRC reset was counted.
+	resetsBefore := pc.jitter.ssrcResets.Load()
 	pushPackets(reader, buildRTPPacket(t, ssrc, 50, []byte{0xDE}))
 
-	// Allow a couple of playout ticks; PLC frames may still appear because
-	// the stream is "active". The point is that the stale packet itself
-	// must not be decoded — we verify this indirectly by checking that the
-	// jitter buffer's overflow counter never increments and that the
-	// packet was rejected.
+	// Give the receive loop a moment to process the stale packet.
 	time.Sleep(100 * time.Millisecond)
 
 	cancel()
 	pc.receiver.Close()
 	<-done
 
-	// The stale packet should not have caused a SSRC reset.
-	// (Indirectly verified: same SSRC, no reset path exercised.)
-}
-
-// drainCh empties a channel non-blockingly.
-func drainCh(ch chan []float32) {
-	for {
-		select {
-		case <-ch:
-		default:
-			return
-		}
+	if got := pc.jitter.ssrcResets.Load(); got != resetsBefore {
+		t.Errorf("stale same-SSRC packet should not trigger an SSRC reset; got resets=%d (was %d)",
+			got, resetsBefore)
 	}
 }

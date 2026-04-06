@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,7 +18,7 @@ func newReceiveRuntime() (*CommsRuntime, *portChannel) {
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 32)
+	pc.playbackBuffer = make(chan []float32, 4)
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
 		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
@@ -28,42 +27,57 @@ func newReceiveRuntime() (*CommsRuntime, *portChannel) {
 	return rt, pc
 }
 
-// waitForFrame blocks until at least one frame appears in buf or
-// the deadline is reached.
-func waitForFrame(buf chan []float32, timeout time.Duration) ([]float32, bool) { //nolint:unparam
-	select {
-	case f := <-buf:
-		return f, true
-	case <-time.After(timeout):
-		return nil, false
+// isAllZero reports whether every sample in the slice is exactly zero.
+// Used by playoutOneFrame tests to distinguish silence from decoded audio.
+func isAllZero(out []float32) bool {
+	for _, v := range out {
+		if v != 0 {
+			return false
+		}
 	}
+
+	return true
 }
 
-// ─── playoutLoop tests ────────────────────────────────────────────────────────
+// ─── playoutOneFrame tests ────────────────────────────────────────────────────
 
-func TestPlayoutLoop_DeliversReadyFrame(t *testing.T) {
+// driveOneFrame is a small helper for tests that need to call playoutOneFrame
+// against a fresh PCM output buffer of the standard frame size.
+func driveOneFrame(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime, jb *rtpJitterBuffer) []float32 {
+	out := make([]float32, frameSize)
+	cfg.playoutOneFrame(pc, rt, jb, out)
+
+	return out
+}
+
+func TestPlayoutOneFrame_DecodesPayload(t *testing.T) {
 	rt, pc := newReceiveRuntime()
+	rt.decoder = &mockDecoder{fillValue: 1234, returnN: frameSize}
+
 	jb := newRTPJitterBuffer(1, 10) // prebuffer=1: first push triggers start
 	jb.push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+	out := driveOneFrame(cfg, pc, rt, jb)
+	if isAllZero(out) {
+		t.Fatal("expected decoded samples, got silence")
+	}
 
-	go cfg.playoutLoop(ctx, jb, pc, rt)
-
-	if _, ok := waitForFrame(pc.playbackBuffer, 200*time.Millisecond); !ok {
-		t.Error("expected a decoded frame in playbackBuffer within 200 ms")
+	if pc.consecutivePLC != 0 {
+		t.Errorf("consecutivePLC should be 0 after a decoded payload; got %d", pc.consecutivePLC)
 	}
 }
 
-func TestPlayoutLoop_EmitsPLCOnSkippedMissing(t *testing.T) {
+func TestPlayoutOneFrame_PLCOnSkippedMissing(t *testing.T) {
 	// maxDepth=4 → skip threshold = maxDepth/2 = 2.
 	// Push seq=0 first to set up expected=0 and pass the prebuffer=1 threshold,
 	// then pop it. Now expected=1. Push seq=2 and seq=3 (missing seq=1 with
-	// len >= maxDepth/2) so popReady returns skipped=true → PLC must be emitted.
+	// len >= maxDepth/2) so popOrConceal returns conceal=true → PLC must
+	// be invoked via the decoder with nil payload.
 	rt, pc := newReceiveRuntime()
+	rt.decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
+
 	jb := newRTPJitterBuffer(1, 4)
 
 	jb.push(0, []byte{0})
@@ -74,21 +88,23 @@ func TestPlayoutLoop_EmitsPLCOnSkippedMissing(t *testing.T) {
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+	out := driveOneFrame(cfg, pc, rt, jb)
+	if isAllZero(out) {
+		t.Fatal("expected a PLC frame when jitter buffer skips missing seq, got silence")
+	}
 
-	go cfg.playoutLoop(ctx, jb, pc, rt)
-
-	if _, ok := waitForFrame(pc.playbackBuffer, 200*time.Millisecond); !ok {
-		t.Error("expected a PLC frame when jitter buffer skips missing seq")
+	if pc.consecutivePLC != 1 {
+		t.Errorf("consecutivePLC should be 1 after one PLC frame; got %d", pc.consecutivePLC)
 	}
 }
 
-func TestPlayoutLoop_EmitsPLCOnConceal(t *testing.T) {
-	// Push+pop one frame to set started=true and record a recent lastPush
-	// timestamp. The jitter buffer is then empty, so shouldConceal fires on
-	// the next 20 ms tick and decodeAndQueuePLC is called.
+func TestPlayoutOneFrame_PLCOnConceal(t *testing.T) {
+	// Push+pop one frame to set started=true and record a recent lastPush.
+	// The jitter buffer is then empty, so shouldConceal fires on the next
+	// playoutOneFrame call and the decoder is invoked with nil payload.
 	rt, pc := newReceiveRuntime()
+	rt.decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
+
 	jb := newRTPJitterBuffer(1, 10)
 
 	jb.push(0, []byte{0})
@@ -96,84 +112,151 @@ func TestPlayoutLoop_EmitsPLCOnConceal(t *testing.T) {
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+	out := driveOneFrame(cfg, pc, rt, jb)
+	if isAllZero(out) {
+		t.Fatal("expected a PLC concealment frame while stream is active but empty, got silence")
+	}
 
-	go cfg.playoutLoop(ctx, jb, pc, rt)
-
-	if _, ok := waitForFrame(pc.playbackBuffer, 300*time.Millisecond); !ok {
-		t.Error("expected a PLC concealment frame while stream is active but empty")
+	if pc.consecutivePLC != 1 {
+		t.Errorf("consecutivePLC should increment to 1 after concealment; got %d", pc.consecutivePLC)
 	}
 }
 
-func TestPlayoutLoop_BackpressureDrainsOldest(t *testing.T) {
-	// Use a small buffer (cap=4); fill 3 of 4 slots (75%) before starting
-	// the playout loop. The drain logic should discard the oldest frame to
-	// make room for the new one, keeping the 20 ms cadence intact.
-	pc := &portChannel{
-		cfg: McastPortConfig{Send: true, Receive: true},
-	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 4)
-	rt := &CommsRuntime{
-		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
-	}
-
-	// Pre-fill to 75% capacity.
-	for i := 0; i < 3; i++ {
-		pc.playbackBuffer <- make([]float32, rtpFrameSamples)
-	}
-
-	jb := newRTPJitterBuffer(1, 10)
-	jb.push(0, []byte{0xAA}) // satisfies prebuffer
-
-	cfg := &CommsConfig{Log: zerolog.Nop()}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-
-	go cfg.playoutLoop(ctx, jb, pc, rt)
-
-	// Wait for the playout loop to fire at least one tick.
-	time.Sleep(80 * time.Millisecond)
-	cancel()
-
-	// With the drain logic, the loop should have drained at least one
-	// oldest frame to make room and then queued the decoded frame. The
-	// buffer depth should still be 3 (one drained, one added) rather
-	// than staying stuck at 3 with the jitter buffer frame unpopped.
-	//
-	// Verify the jitter buffer was consumed (the old skip logic would
-	// have left it untouched).
-	if p, _, _ := jb.popReady(); p != nil {
-		t.Error("jitter buffer frame should have been consumed by the drain path, but it was still present")
-		jb.releasePayload(p)
-	}
-}
-
-func TestPlayoutLoop_EmitsNothingWhenBroadcasting(t *testing.T) {
+func TestPlayoutOneFrame_SilenceAfterMaxPLC(t *testing.T) {
+	// After maxConsecutivePLC frames, playoutOneFrame should emit clean
+	// silence rather than calling the (now degraded) decoder PLC.
 	rt, pc := newReceiveRuntime()
-	rt.broadcasting.Store(true) // isBroadcasting will return true; pc.cfg.Send=true → suppress
+	dec := &mockDecoder{fillValue: 99, returnN: frameSize}
+	rt.decoder = dec
 
 	jb := newRTPJitterBuffer(1, 10)
-	jb.push(0, []byte{0}) // satisfies prebuffer
+	jb.push(0, []byte{0})
+	jb.popReady() // started=true, lastPush set
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
+	// Drive playout until we exceed the PLC budget. The mock decoder
+	// returns non-zero samples for both real and PLC frames so we can tell
+	// PLC frames apart from silence by inspecting the samples.
+	for i := 0; i < maxConsecutivePLC; i++ {
+		out := driveOneFrame(cfg, pc, rt, jb)
+		if isAllZero(out) {
+			t.Fatalf("frame %d: expected a PLC frame, got silence", i)
+		}
+	}
 
-	go cfg.playoutLoop(ctx, jb, pc, rt)
+	// The next call should be silence (consecutivePLC > maxConsecutivePLC).
+	out := driveOneFrame(cfg, pc, rt, jb)
+	if !isAllZero(out) {
+		t.Errorf("expected silence after %d PLC frames; got non-zero samples", maxConsecutivePLC)
+	}
+}
 
-	// Let the loop tick several times.
-	time.Sleep(80 * time.Millisecond)
-	cancel()
+func TestPlayoutOneFrame_SilenceWhenBroadcasting(t *testing.T) {
+	rt, pc := newReceiveRuntime()
+	rt.broadcasting.Store(true) // isBroadcasting will return true; pc.sendEnabled=true → suppress
 
-	if len(pc.playbackBuffer) != 0 {
-		t.Errorf("playback buffer should stay empty while broadcasting; got %d frames",
-			len(pc.playbackBuffer))
+	jb := newRTPJitterBuffer(1, 10)
+	jb.push(0, []byte{0xAA, 0xBB})
+
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	out := driveOneFrame(cfg, pc, rt, jb)
+	if !isAllZero(out) {
+		t.Errorf("playoutOneFrame should emit silence while broadcasting; got non-zero samples")
+	}
+}
+
+func TestPlayoutOneFrame_SilenceWhenReceiveDisabled(t *testing.T) {
+	rt, pc := newReceiveRuntime()
+	pc.receiveEnabled.Store(false)
+
+	jb := newRTPJitterBuffer(1, 10)
+	jb.push(0, []byte{0xAA})
+
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	out := driveOneFrame(cfg, pc, rt, jb)
+	if !isAllZero(out) {
+		t.Errorf("playoutOneFrame should emit silence when receive is disabled; got non-zero samples")
+	}
+}
+
+func TestPlayoutOneFrame_NilJitter(t *testing.T) {
+	rt, pc := newReceiveRuntime()
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	out := driveOneFrame(cfg, pc, rt, nil)
+	if !isAllZero(out) {
+		t.Errorf("playoutOneFrame with nil jitter should emit silence; got non-zero samples")
+	}
+
+	if pc.playbackUnderruns.Load() != 0 {
+		t.Errorf("nil jitter should not count as underrun; got %d", pc.playbackUnderruns.Load())
+	}
+}
+
+func TestPlayoutOneFrame_NoUnderrunOnIdleStream(t *testing.T) {
+	// Stream that has never started (no packets yet) should write silence
+	// without incrementing the underrun counter — silence != underrun.
+	rt, pc := newReceiveRuntime()
+	jb := newRTPJitterBuffer(1, 10)
+
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	out := driveOneFrame(cfg, pc, rt, jb)
+	if !isAllZero(out) {
+		t.Errorf("expected silence on idle stream; got non-zero samples")
+	}
+
+	if pc.playbackUnderruns.Load() != 0 {
+		t.Errorf("idle stream should not increment playbackUnderruns; got %d", pc.playbackUnderruns.Load())
+	}
+}
+
+func TestPlayoutOneFrame_UnderrunOnDecoderError(t *testing.T) {
+	// Decoder returning an error AND PLC also failing → silence + underrun++.
+	rt, pc := newReceiveRuntime()
+	rt.decoder = &mockDecoder{decodeErr: errors.New("bad decode")}
+
+	jb := newRTPJitterBuffer(1, 10)
+	jb.push(0, []byte{0xAA, 0xBB})
+
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	out := driveOneFrame(cfg, pc, rt, jb)
+	if !isAllZero(out) {
+		t.Errorf("expected silence on decoder error; got non-zero samples")
+	}
+
+	if pc.playbackUnderruns.Load() != 1 {
+		t.Errorf("expected playbackUnderruns=1 after decoder error; got %d", pc.playbackUnderruns.Load())
+	}
+}
+
+func TestPlayoutOneFrame_DecoderErrorPLCFallback(t *testing.T) {
+	// Real decode fails but PLC succeeds → playoutOneFrame should emit the
+	// PLC samples, reset consecutivePLC, and NOT count an underrun.
+	rt, pc := newReceiveRuntime()
+	rt.decoder = &mockDecoder{
+		decodeErr: errors.New("bad decode"),
+		plcOK:     true,
+		returnN:   frameSize,
+		fillValue: 1234,
+	}
+
+	jb := newRTPJitterBuffer(1, 10)
+	jb.push(0, []byte{0xAA, 0xBB})
+
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	out := driveOneFrame(cfg, pc, rt, jb)
+	if isAllZero(out) {
+		t.Errorf("expected PLC samples on decoder error fallback; got silence")
+	}
+
+	if pc.playbackUnderruns.Load() != 0 {
+		t.Errorf("PLC fallback success should not count as underrun; got %d", pc.playbackUnderruns.Load())
 	}
 }
 
@@ -291,78 +374,6 @@ func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 	}
 }
 
-// ─── decodeAndQueue error-path tests ─────────────────────────────────────────
-
-func TestDecodeAndQueue_DecoderError_PLCFallback(t *testing.T) {
-	cfg := &CommsConfig{Log: zerolog.Nop()}
-	buf := make(chan []float32, 4)
-	pc := &portChannel{}
-	pc.playbackBuffer = buf
-	rt := &CommsRuntime{
-		decoder: &mockDecoder{decodeErr: errors.New("bad decode"), plcOK: true, returnN: int(rtpFrameSamples)},
-	}
-
-	cfg.decodeAndQueue(pc, rt, []byte{1, 2, 3})
-
-	if len(buf) != 1 {
-		t.Errorf("expected PLC fallback frame in buffer; got %d frames", len(buf))
-	}
-}
-
-func TestDecodeAndQueue_DecoderError_PLCAlsoFails(t *testing.T) {
-	cfg := &CommsConfig{Log: zerolog.Nop()}
-	buf := make(chan []float32, 4)
-	pc := &portChannel{}
-	pc.playbackBuffer = buf
-	rt := &CommsRuntime{
-		decoder: &mockDecoder{decodeErr: errors.New("bad decode")},
-	}
-
-	cfg.decodeAndQueue(pc, rt, []byte{1, 2, 3})
-
-	if len(buf) != 0 {
-		t.Errorf("expected empty buffer when both decode and PLC fail; got %d frames", len(buf))
-	}
-}
-
-func TestDecodeAndQueue_BufferFull_DoesNotPanic(t *testing.T) {
-	cfg := &CommsConfig{Log: zerolog.Nop()}
-
-	buf := make(chan []float32, 2)
-	buf <- []float32{0}
-
-	buf <- []float32{0}
-
-	pc := &portChannel{}
-	pc.playbackBuffer = buf
-	rt := &CommsRuntime{
-		decoder: &mockDecoder{returnN: 4},
-	}
-
-	// Must not block or panic when the buffer is full.
-	cfg.decodeAndQueue(pc, rt, []byte{1, 2, 3})
-
-	if len(buf) != 2 {
-		t.Errorf("buffer depth changed unexpectedly; got %d", len(buf))
-	}
-}
-
-func TestDecodeAndQueuePLC_ZeroReturnDropsFrame(t *testing.T) {
-	cfg := &CommsConfig{Log: zerolog.Nop()}
-	buf := make(chan []float32, 4)
-	pc := &portChannel{}
-	pc.playbackBuffer = buf
-	rt := &CommsRuntime{
-		decoder: &mockDecoder{returnN: 0, forceN: true},
-	}
-
-	cfg.decodeAndQueuePLC(pc, rt)
-
-	if len(buf) != 0 {
-		t.Errorf("expected empty buffer when decoder returns 0; got %d frames", len(buf))
-	}
-}
-
 // ─── isReceivingRemote tests ──────────────────────────────────────────────────
 
 func TestIsReceivingRemote_FalseWhenNeverReceived(t *testing.T) {
@@ -442,36 +453,6 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 
 	if pc.lastRemoteRx.Load() == 0 {
 		t.Error("expected lastRemoteRx to be set after receiving a remote packet")
-	}
-}
-
-// ─── logPlaybackDrop tests ────────────────────────────────────────────────────
-
-func TestLogPlaybackDrop_FirstDropAlwaysLogs(t *testing.T) {
-	// Verify the counter increments on every call and the function
-	// does not panic with a nop logger.
-	cfg := &CommsConfig{Log: zerolog.Nop()}
-
-	var counter atomic.Int64
-
-	logPlaybackDrop(&counter, cfg, "test drop")
-
-	if got := counter.Load(); got != 1 {
-		t.Errorf("expected drop counter = 1; got %d", got)
-	}
-}
-
-func TestLogPlaybackDrop_CounterIncrements(t *testing.T) {
-	cfg := &CommsConfig{Log: zerolog.Nop()}
-
-	var counter atomic.Int64
-
-	for i := 0; i < 150; i++ {
-		logPlaybackDrop(&counter, cfg, "test drop")
-	}
-
-	if got := counter.Load(); got != 150 {
-		t.Errorf("expected drop counter = 150; got %d", got)
 	}
 }
 
@@ -599,9 +580,13 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 
 // ─── Web-mode playout tests ─────────────────────────────────────────────────
 
-func TestPlayoutLoop_WebMode_ForwardsRawOpus(t *testing.T) {
+// In web mode the receiveLoop spawns webPlayoutLoop, which forwards raw
+// Opus payloads from the jitter buffer to the WebAudioBridge for streaming
+// to the browser. PortAudio is not active and playoutOneFrame is not used.
+
+func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 	cfg := newSilentComms()
-	rt, pc := newReceiveRuntime()
+	rt, _ := newReceiveRuntime()
 
 	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
 	rt.webBridge = bridge
@@ -612,7 +597,7 @@ func TestPlayoutLoop_WebMode_ForwardsRawOpus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	go cfg.playoutLoop(ctx, jb, pc, rt)
+	go cfg.webPlayoutLoop(ctx, jb, rt)
 
 	// The raw Opus bytes should arrive on the bridge's RX channel.
 	select {
@@ -623,56 +608,11 @@ func TestPlayoutLoop_WebMode_ForwardsRawOpus(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Error("timed out waiting for raw Opus frame on web bridge")
 	}
-
-	// Nothing should appear in the PortAudio playback buffer.
-	select {
-	case <-pc.playbackBuffer:
-		t.Error("unexpected frame in PortAudio playback buffer in web mode")
-	default:
-	}
 }
 
-// TestPlayoutLoop_WebMode_NilPlaybackBuffer reproduces the production web
-// mode condition where startHardwareAudio is skipped and playbackBuffer is
-// nil. Prior to the fix, hwm computed to 0 and the backpressure check
-// (len(nil) >= 0) blocked every tick.
-func TestPlayoutLoop_WebMode_NilPlaybackBuffer(t *testing.T) {
-	cfg := newSilentComms()
-
-	// Mirror production web mode: no playbackBuffer, no decoder needed.
-	pc := &portChannel{
-		cfg: McastPortConfig{Send: true, Receive: true},
-	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
-	// playbackBuffer intentionally left nil
-
-	rt := &CommsRuntime{ports: []*portChannel{pc}}
-
-	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
-	rt.webBridge = bridge
-
-	jb := newRTPJitterBuffer(1, 10)
-	jb.push(0, []byte{0xDE, 0xAD})
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	go cfg.playoutLoop(ctx, jb, pc, rt)
-
-	select {
-	case frame := <-bridge.RxFrames():
-		if len(frame) != 2 || frame[0] != 0xDE || frame[1] != 0xAD {
-			t.Errorf("unexpected frame data: %v", frame)
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timed out: web bridge did not receive frame with nil playbackBuffer")
-	}
-}
-
-// TestPlayoutLoop_WebMode_MultipleFrames verifies that a sequence of
-// frames is streamed through the web bridge in order.
-func TestPlayoutLoop_WebMode_MultipleFrames(t *testing.T) {
+// TestWebPlayoutLoop_MultipleFrames verifies that a sequence of frames is
+// streamed through the web bridge in order.
+func TestWebPlayoutLoop_MultipleFrames(t *testing.T) {
 	cfg := newSilentComms()
 
 	pc := &portChannel{
@@ -694,7 +634,7 @@ func TestPlayoutLoop_WebMode_MultipleFrames(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go cfg.playoutLoop(ctx, jb, pc, rt)
+	go cfg.webPlayoutLoop(ctx, jb, rt)
 
 	for i := 0; i < 5; i++ {
 		select {
@@ -708,9 +648,12 @@ func TestPlayoutLoop_WebMode_MultipleFrames(t *testing.T) {
 	}
 }
 
-func TestPlayoutLoop_WebMode_DeliversWhileBroadcasting(t *testing.T) {
+// TestWebPlayoutLoop_DeliversWhileBroadcasting verifies that the web
+// playout loop has no half-duplex suppression: frames flow to the bridge
+// even while the local node is broadcasting.
+func TestWebPlayoutLoop_DeliversWhileBroadcasting(t *testing.T) {
 	cfg := newSilentComms()
-	rt, pc := newReceiveRuntime()
+	rt, _ := newReceiveRuntime()
 
 	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
 	rt.webBridge = bridge
@@ -722,10 +665,8 @@ func TestPlayoutLoop_WebMode_DeliversWhileBroadcasting(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	go cfg.playoutLoop(ctx, jb, pc, rt)
+	go cfg.webPlayoutLoop(ctx, jb, rt)
 
-	// Web mode skips the half-duplex suppression so the frame should
-	// be delivered even while broadcasting.
 	select {
 	case <-bridge.RxFrames():
 		// OK — frame delivered as expected.
@@ -736,95 +677,71 @@ func TestPlayoutLoop_WebMode_DeliversWhileBroadcasting(t *testing.T) {
 
 // ─── consecutive PLC limit tests ─────────────────────────────────────────────
 
-func TestPlayoutLoop_ConsecutivePLCLimit(t *testing.T) {
+func TestPlayoutOneFrame_ConsecutivePLCLimit(t *testing.T) {
 	// Set up a jitter buffer where the stream is active (recent lastPush)
-	// but all subsequent frames are missing. The playout loop should emit
-	// exactly 5 PLC frames followed by silence frames.
+	// but all subsequent frames are missing. playoutOneFrame should emit
+	// exactly maxConsecutivePLC PLC frames followed by silence.
 	rt, pc := newReceiveRuntime()
-	jb := newRTPJitterBuffer(1, 10)
+	rt.decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
 
-	// Push and pop one frame to start the buffer and set lastPush.
+	jb := newRTPJitterBuffer(1, 10)
 	jb.push(0, []byte{0})
 	jb.popReady() // started=true, expected=1, lastPush set
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-
-	go cfg.playoutLoop(ctx, jb, pc, rt)
-
-	// Collect frames. With 20ms ticks over 500ms we get up to ~25 ticks.
-	// The conceal window is 100ms so we should get ~5 PLC + a few silence
-	// before shouldConceal stops returning true.
-	var frames [][]float32
-
-	for {
-		select {
-		case f := <-pc.playbackBuffer:
-			frames = append(frames, f)
-		case <-ctx.Done():
-			goto done
+	// First maxConsecutivePLC calls should produce non-zero PLC samples.
+	for i := 0; i < maxConsecutivePLC; i++ {
+		out := driveOneFrame(cfg, pc, rt, jb)
+		if isAllZero(out) {
+			t.Fatalf("frame %d: expected PLC samples; got silence", i)
 		}
 	}
 
-done:
-	cancel()
-
-	if len(frames) == 0 {
-		t.Fatal("expected at least one PLC/silence frame")
-	}
-
-	// The mock decoder fills PLC frames with fillValue/32768 (default 0).
-	// Silence frames are explicitly zeroed. We can't distinguish them by
-	// value with the default mock, but we CAN verify the total count is
-	// bounded: we should never get more than ~5 PLC frames + a few silence
-	// within the 100ms conceal window (5 ticks).
-	if len(frames) > 10 {
-		t.Errorf("expected at most ~10 frames (5 PLC + some silence); got %d", len(frames))
+	// All subsequent calls should return silence.
+	for i := 0; i < 5; i++ {
+		out := driveOneFrame(cfg, pc, rt, jb)
+		if !isAllZero(out) {
+			t.Errorf("post-cap frame %d: expected silence; got non-zero samples", i)
+		}
 	}
 }
 
-func TestPlayoutLoop_ConsecutivePLCResets(t *testing.T) {
-	// After a burst of PLC, pushing a real frame should reset the counter
-	// so subsequent gaps produce PLC again (not silence).
+func TestPlayoutOneFrame_ConsecutivePLCResets(t *testing.T) {
+	// After a burst of PLC, decoding a real frame should reset the
+	// consecutivePLC counter so a subsequent gap produces PLC again.
 	rt, pc := newReceiveRuntime()
-	jb := newRTPJitterBuffer(1, 10)
+	rt.decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
 
-	// Start the buffer.
+	jb := newRTPJitterBuffer(1, 10)
 	jb.push(0, []byte{0})
-	jb.popReady() // started=true, expected=1
+	jb.popReady() // started=true, expected=1, lastPush set
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
-	defer cancel()
-
-	go cfg.playoutLoop(ctx, jb, pc, rt)
-
-	// Let PLC run for a bit (>100ms to exhaust the 5-frame PLC budget).
-	time.Sleep(150 * time.Millisecond)
-
-	// Drain whatever frames accumulated.
-	for len(pc.playbackBuffer) > 0 {
-		<-pc.playbackBuffer
+	// Drive a few PLC frames. Each call advances expected via
+	// advancePastLocked → expected goes 1→2→3→4 across these 3 calls.
+	for i := 0; i < 3; i++ {
+		_ = driveOneFrame(cfg, pc, rt, jb)
 	}
 
-	// Push a real frame with a sequence number far enough ahead that it
-	// won't be rejected as stale. The playout loop's shouldConceal calls
-	// have advanced expected by ~5 during the PLC burst, so use seq=20
-	// to be safe.
-	jb.push(20, []byte{0xBB})
-
-	// Wait for it to be decoded and queued.
-	f, ok := waitForFrame(pc.playbackBuffer, 300*time.Millisecond)
-	if !ok {
-		t.Fatal("expected a decoded frame after pushing real data")
+	if pc.consecutivePLC == 0 {
+		t.Fatal("expected consecutivePLC > 0 after PLC frames")
 	}
 
-	_ = f
+	// Push a real packet at the current expected cursor (4) so the next
+	// pop returns it directly. Anything ahead of expected is buffered but
+	// not popped until the cursor advances to its slot.
+	jb.push(4, []byte{0xBB})
 
-	cancel()
+	out := driveOneFrame(cfg, pc, rt, jb)
+	if isAllZero(out) {
+		t.Fatal("expected decoded samples after pushing real frame")
+	}
+
+	if pc.consecutivePLC != 0 {
+		t.Errorf("consecutivePLC should reset to 0 after a real frame; got %d", pc.consecutivePLC)
+	}
 }
 
 // ─── jitter buffer overflow counter test ─────────────────────────────────────

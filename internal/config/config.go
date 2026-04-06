@@ -28,7 +28,7 @@ const (
 	DefaultCommsTrace                                bool    = false
 	DefaultCommsControlSource                        string  = "openvlm"
 	DefaultCommsPlaybackBuffer                       int     = 2
-	DefaultCommsMicGain                              float32 = 1.0
+	DefaultCommsMicGain                              float32 = 8.0
 	DefaultCommsNanoPTTEnable                        bool    = false
 	DefaultCommsNanoPTTDevicePath                    string  = "/dev/hidraw0/*"
 	DefaultCommsNanoPTTDeviceName                    string  = ""

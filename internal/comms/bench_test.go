@@ -234,38 +234,40 @@ func BenchmarkFloat32ToInt16(b *testing.B) {
 	}
 }
 
-// ─── decodeAndQueue benchmark ────────────────────────────────────────────────
+// ─── playoutOneFrame benchmarks ──────────────────────────────────────────────
 
-// BenchmarkDecodeAndQueue_Mock measures the pool and channel mechanics with a
-// no-op decoder. 0 allocs/op here confirms the float32Pool path is allocation-free.
-func BenchmarkDecodeAndQueue_Mock(b *testing.B) {
+// BenchmarkPlayoutOneFrame_Mock measures the playout primitive with a no-op
+// decoder. The PCM output buffer is reused across iterations so 0 allocs/op
+// confirms that the decode path is allocation-free.
+func BenchmarkPlayoutOneFrame_Mock(b *testing.B) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	pc := &portChannel{}
-	pc.playbackBuffer = make(chan []float32, 64)
+
+	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+
 	rt := &CommsRuntime{
 		decoder: &mockDecoder{returnN: frameSize},
 	}
 
+	jb := newRTPJitterBuffer(1, jitterMaxDepth)
 	payload := make([]byte, 100)
+	out := make([]float32, frameSize)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for b.Loop() {
-		cfg.decodeAndQueue(pc, rt, payload)
-
-		select {
-		case f := <-pc.playbackBuffer:
-			// Return to pool so the next iteration reuses the buffer.
-			returnFloat32(f)
-		default:
-		}
+		// Push a fresh payload each iteration so the buffer never empties.
+		jb.push(0, payload)
+		cfg.playoutOneFrame(pc, rt, jb, out)
 	}
 }
 
-// BenchmarkDecodeAndQueue_Real measures the full receive hot path using the
-// real Opus decoder, confirming that DecodeFloat32 + pool reuse yield 0 allocs/op.
-func BenchmarkDecodeAndQueue_Real(b *testing.B) {
+// BenchmarkPlayoutOneFrame_Real measures playoutOneFrame using the real Opus
+// decoder, confirming that DecodeFloat32 directly into a caller-supplied
+// buffer yields 0 allocs/op.
+func BenchmarkPlayoutOneFrame_Real(b *testing.B) {
 	enc, err := newOpusEncoder(encoderComplexity)
 	if err != nil {
 		b.Fatal(err)
@@ -291,78 +293,31 @@ func BenchmarkDecodeAndQueue_Real(b *testing.B) {
 	encoded := encBuf[:n]
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	pc := &portChannel{}
-	pc.playbackBuffer = make(chan []float32, 64)
+
+	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+
 	rt := &CommsRuntime{decoder: dec}
 
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for b.Loop() {
-		cfg.decodeAndQueue(pc, rt, encoded)
-
-		select {
-		case f := <-pc.playbackBuffer:
-			returnFloat32(f)
-		default:
-		}
-	}
-}
-
-// ─── Backpressure drain benchmark ────────────────────────────────────────────
-
-// BenchmarkBackpressureDrain measures the cost of draining the oldest frame from
-// a nearly-full playback channel to make room for a new frame. This is the hot
-// path introduced by the drain-instead-of-skip backpressure fix.
-func BenchmarkBackpressureDrain(b *testing.B) {
-	cfg := &CommsConfig{Log: zerolog.Nop()}
-	pc := &portChannel{}
-	pc.playbackBuffer = make(chan []float32, 16)
-	rt := &CommsRuntime{
-		decoder: &mockDecoder{returnN: frameSize},
-	}
-
-	hwm := cap(pc.playbackBuffer) * 3 / 4 // 12
-	payload := make([]byte, 100)
+	jb := newRTPJitterBuffer(1, jitterMaxDepth)
+	out := make([]float32, frameSize)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for b.Loop() {
-		// Fill to high-water mark.
-		for len(pc.playbackBuffer) < hwm {
-			pc.playbackBuffer <- make([]float32, frameSize)
-		}
-
-		// Drain oldest to make room (mirrors the new backpressure path).
-		for len(pc.playbackBuffer) >= hwm {
-			select {
-			case old := <-pc.playbackBuffer:
-				returnFloat32(old)
-			default:
-			}
-		}
-
-		// Decode and queue a new frame.
-		cfg.decodeAndQueue(pc, rt, payload)
-
-		// Drain the buffer for the next iteration.
-		for len(pc.playbackBuffer) > 0 {
-			select {
-			case f := <-pc.playbackBuffer:
-				returnFloat32(f)
-			default:
-			}
-		}
+		jb.push(0, encoded)
+		cfg.playoutOneFrame(pc, rt, jb, out)
 	}
 }
 
 // ─── PLC decode benchmark ───────────────────────────────────────────────────
 
-// BenchmarkDecodeAndQueuePLC measures the PLC decode path using the real Opus
-// decoder. This covers Changes 3 and 5 where PLC frames are generated on
-// decode errors and during consecutive loss bursts.
-func BenchmarkDecodeAndQueuePLC(b *testing.B) {
+// BenchmarkPlayoutOneFrame_PLC measures the PLC decode path through
+// playoutOneFrame using the real Opus decoder. The jitter buffer is set up
+// so that every call hits the conceal branch and invokes DecodePLCFloat32.
+func BenchmarkPlayoutOneFrame_PLC(b *testing.B) {
 	enc, err := newOpusEncoder(encoderComplexity)
 	if err != nil {
 		b.Fatal(err)
@@ -392,21 +347,29 @@ func BenchmarkDecodeAndQueuePLC(b *testing.B) {
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	pc := &portChannel{}
-	pc.playbackBuffer = make(chan []float32, 64)
+
+	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+
 	rt := &CommsRuntime{decoder: dec}
+
+	// Prime the jitter buffer with a single push+pop so started=true and
+	// lastPush is recent; subsequent playoutOneFrame calls will hit conceal.
+	jb := newRTPJitterBuffer(1, jitterMaxDepth)
+	jb.push(0, encBuf[:n])
+	jb.popReady()
+
+	out := make([]float32, frameSize)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for b.Loop() {
-		cfg.decodeAndQueuePLC(pc, rt)
-
-		select {
-		case f := <-pc.playbackBuffer:
-			returnFloat32(f)
-		default:
-		}
+		// Reset consecutivePLC each iteration so we always exercise the
+		// PLC decode path rather than falling through to silence.
+		pc.consecutivePLC = 0
+		cfg.playoutOneFrame(pc, rt, jb, out)
 	}
 }
 

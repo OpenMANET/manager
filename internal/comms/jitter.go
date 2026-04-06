@@ -7,7 +7,11 @@ import (
 )
 
 const (
-	jitterPrebufferPackets = 3
+	// jitterPrebufferPackets is the number of frames the jitter buffer must
+	// hold before playout begins. Each frame is 20 ms, so 4 packets ≈ 80 ms.
+	// This sets the minimum receive latency floor and the safety margin for
+	// arrival jitter on the mesh.
+	jitterPrebufferPackets = 4
 	jitterMaxDepth         = 24
 
 	// maxOpusPayloadSize is the RFC 6716 §3.2.1 maximum encoded frame size.

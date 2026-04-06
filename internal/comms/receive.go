@@ -4,9 +4,29 @@ import (
 	"context"
 	"errors"
 	"net"
-	"sync/atomic"
 	"time"
 )
+
+// maxConsecutivePLC caps the number of consecutive Packet-Loss-Concealment
+// frames the playout path will emit before falling back to silence. Opus PLC
+// is designed for short losses (~100 ms); beyond that the synthesized output
+// becomes increasingly robotic, so silence is preferable. With a 20 ms frame,
+// 5 frames ≈ 100 ms.
+const maxConsecutivePLC = 5
+
+// concealRecentWindow is the inter-arrival window during which a missing
+// frame is treated as a transient gap (PLC) rather than the end of the
+// stream (silence). It matches the maximum delay the playout side will
+// tolerate before declaring the stream idle.
+const concealRecentWindow = 100 * time.Millisecond
+
+// zeroFloat32 fills a float32 slice with zeros. Used by the playout callback
+// to emit silence into the PortAudio output buffer.
+func zeroFloat32(out []float32) {
+	for i := range out {
+		out[i] = 0
+	}
+}
 
 // rxActiveThreshold is the window after the last received remote RTP packet
 // during which the channel is considered "actively receiving". Transmission
@@ -35,16 +55,29 @@ func (cfg *CommsConfig) isReceivingRemote(rt *CommsRuntime) bool {
 // ─── Receive path ─────────────────────────────────────────────────────────────
 
 // receiveLoop reads datagrams from pc.receiver, parses them as RTP packets
-// using pion/rtp, and pushes the payloads into the jitter buffer. A companion
-// playoutLoop goroutine drains the jitter buffer at 20 ms intervals.
+// using pion/rtp, and pushes the payloads into the per-port jitter buffer.
+//
+// In non-web mode the PortAudio output callback is the consumer (driven by
+// the audio hardware clock); no playout goroutine is spawned. In web mode a
+// stripped-down webPlayoutLoop forwards raw Opus payloads to the WebAudioBridge.
 //
 // The loop discards packets from our own IP (loopback prevention) unless
 // cfg.Loopback is true, and skips queuing frames when pc.receiveEnabled is false.
 func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *CommsRuntime) { //nolint:gocognit
 	buf := make([]byte, 1500)
-	jitter := newRTPJitterBuffer(jitterPrebufferPackets, jitterMaxDepth)
 
-	go cfg.playoutLoop(ctx, jitter, pc, rt)
+	// pc.jitter is allocated in buildSinglePortChannel for receive-capable
+	// ports. Test code that constructs portChannel directly may leave it
+	// nil, in which case we allocate one here so the loop is self-sufficient.
+	if pc.jitter == nil {
+		pc.jitter = newRTPJitterBuffer(jitterPrebufferPackets, jitterMaxDepth)
+	}
+
+	jitter := pc.jitter
+
+	if rt.webBridge != nil {
+		go cfg.webPlayoutLoop(ctx, jitter, rt)
+	}
 
 	// cachedLocalIP caches the parsed form of rt.localIP so that the loopback
 	// filter can use a byte-level net.IP.Equal comparison instead of calling
@@ -147,33 +180,119 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 	}
 }
 
-// playoutLoop drives the RTP jitter buffer at a 20 ms tick rate.
-// It pops ready frames, applies PLC for missing frames, and queues decoded
-// PCM to pc.playbackBuffer. Exits when ctx is canceled.
+// playoutOneFrame produces exactly one frame of PCM audio into out. It is
+// the per-tick playout primitive: in production it is invoked from the
+// PortAudio output callback once per audio period (one call per ~20 ms), and
+// in tests it can be driven directly with a synthetic []float32 buffer.
 //
-// Half-duplex: on send-capable ports playback is suppressed while broadcasting
-// to prevent local echo. Receive-only ports always play back.
+// Driving playout from the consumer (the audio hardware clock) eliminates
+// the producer/consumer clock mismatch that the previous time.Ticker-based
+// playoutLoop suffered from, and removes the playback buffer entirely as a
+// carrier for decoded audio.
 //
-// Backpressure: when the playback buffer is ≥75% full the tick is skipped,
-// allowing the PortAudio callback (hardware clock) to drain before more
-// frames are produced. The jitter buffer absorbs the delay.
-func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer, pc *portChannel, rt *CommsRuntime) {
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
+// Half-duplex: on send-capable ports the function returns silence while the
+// node is broadcasting, to prevent local echo. Receive-only ports always
+// play back. Web mode is irrelevant here because the PortAudio callback is
+// not opened in web mode at all (web RX uses webPlayoutLoop instead).
+//
+// State: pc.consecutivePLC is owned exclusively by the callback closure for
+// this port. Each port has its own PortAudio output stream running on its own
+// audio thread, so the field is single-writer. Tests must respect this by
+// not invoking playoutOneFrame concurrently with the production callback.
+func (cfg *CommsConfig) playoutOneFrame(pc *portChannel, rt *CommsRuntime, jitter *rtpJitterBuffer, out []float32) {
+	// Half-duplex: emit silence while broadcasting on a send-capable port.
+	// Web mode skips this because the browser handles its own echo cancel,
+	// but web mode does not call this function in the first place.
+	if cfg.isBroadcasting(rt) && pc.sendEnabled.Load() {
+		zeroFloat32(out)
 
-	// Use the pre-computed high-water mark when available; fall back to
-	// computing it here for portChannels built outside of buildAudio (tests).
-	hwm := pc.playbackHighWaterMark
-	if hwm == 0 {
-		hwm = cap(pc.playbackBuffer) * 3 / 4
+		return
 	}
 
-	// Track consecutive PLC frames to cap robotic artifacts during burst
-	// loss. After maxConsecutivePLC frames (100 ms on a mesh), silence is
-	// emitted instead of increasingly degraded PLC output.
-	var consecutivePLC int
+	if !pc.receiveEnabled.Load() {
+		zeroFloat32(out)
 
-	const maxConsecutivePLC = 5
+		return
+	}
+
+	if jitter == nil {
+		zeroFloat32(out)
+
+		return
+	}
+
+	payload, conceal := jitter.popOrConceal(concealRecentWindow)
+	if payload != nil {
+		n, err := rt.decoder.DecodeFloat32(payload, out)
+		jitter.releasePayload(payload)
+
+		if err != nil {
+			cfg.Log.Debug().Err(err).Msg("comms: opus decode error; falling back to PLC")
+
+			// Try PLC into the same buffer.
+			n, err = rt.decoder.DecodeFloat32(nil, out)
+			if err != nil || n != len(out) {
+				zeroFloat32(out)
+				pc.playbackUnderruns.Add(1)
+
+				return
+			}
+
+			pc.consecutivePLC = 0
+
+			return
+		}
+
+		if n != len(out) {
+			// Decoder produced a short frame; zero the tail rather than
+			// emitting whatever stale samples remained in out.
+			for i := n; i < len(out); i++ {
+				out[i] = 0
+			}
+		}
+
+		if cfg.Trace {
+			cfg.Log.Trace().Msgf("comms: decoded %d samples", n)
+		}
+
+		pc.consecutivePLC = 0
+
+		return
+	}
+
+	if conceal {
+		pc.consecutivePLC++
+		if pc.consecutivePLC <= maxConsecutivePLC {
+			if cfg.Trace {
+				cfg.Log.Trace().Int("consecutive_plc", pc.consecutivePLC).Msg("comms: jitter buffer gap → PLC")
+			}
+
+			n, err := rt.decoder.DecodeFloat32(nil, out)
+			if err != nil || n != len(out) {
+				zeroFloat32(out)
+			}
+
+			return
+		}
+
+		// Sustained loss: emit clean silence rather than degraded PLC.
+		zeroFloat32(out)
+
+		return
+	}
+
+	// Buffer empty and stream not active → genuine silence (no underrun).
+	zeroFloat32(out)
+}
+
+// webPlayoutLoop is the receive-side consumer used in web mode (rt.webBridge
+// non-nil). PortAudio is not active in web mode, so the loop runs on a 20 ms
+// software ticker and forwards raw Opus payloads to the WebAudioBridge for
+// streaming to the browser. PLC, half-duplex enforcement, and decoding all
+// happen on the browser side and are skipped here.
+func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *rtpJitterBuffer, rt *CommsRuntime) {
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
 
 	for {
 		select {
@@ -182,171 +301,15 @@ func (cfg *CommsConfig) playoutLoop(ctx context.Context, jitter *rtpJitterBuffer
 		case <-ticker.C:
 		}
 
-		// Half-duplex: suppress playback on send-capable ports while broadcasting.
-		// In web mode the browser manages its own audio I/O and echo
-		// cancellation, so Rx must continue flowing during TX.
-		if rt.webBridge == nil && cfg.isBroadcasting(rt) && pc.sendEnabled.Load() {
+		payload, _ := jitter.popOrConceal(concealRecentWindow)
+		if payload == nil {
 			continue
 		}
 
-		// Skip if receive has been disabled at runtime.
-		if !pc.receiveEnabled.Load() {
-			continue
-		}
-
-		// Web mode: forward raw Opus to the web client instead of
-		// decoding to PCM and queueing to the PortAudio playback buffer.
-		// Backpressure and PLC are skipped because PortAudio is not active
-		// and Opus PLC produces PCM which cannot be forwarded as-is.
-		if rt.webBridge != nil {
-			payload, _ := jitter.popOrConceal(100 * time.Millisecond)
-			if payload != nil {
-				cp := make([]byte, len(payload))
-				copy(cp, payload)
-				rt.webBridge.PushRxFrame(cp)
-				jitter.releasePayload(payload)
-			}
-
-			continue
-		}
-
-		// Backpressure: drain the oldest frame(s) when the playback
-		// channel is nearly full rather than skipping this tick. This
-		// keeps the 20 ms playout cadence intact and prevents the
-		// jitter buffer from drifting out of sync with the hardware
-		// clock.
-		for len(pc.playbackBuffer) >= hwm {
-			select {
-			case old := <-pc.playbackBuffer:
-				returnFloat32(old)
-			default:
-			}
-		}
-
-		payload, conceal := jitter.popOrConceal(100 * time.Millisecond)
-		if payload != nil {
-			cfg.decodeAndQueue(pc, rt, payload)
-			jitter.releasePayload(payload)
-
-			consecutivePLC = 0
-
-			continue
-		}
-
-		if conceal {
-			consecutivePLC++
-			cfg.emitConcealFrame(pc, rt, consecutivePLC, maxConsecutivePLC)
-		}
-	}
-}
-
-// emitConcealFrame emits either a PLC or silence frame depending on how many
-// consecutive concealment frames have been produced. This caps robotic PLC
-// artifacts during burst loss on the mesh.
-func (cfg *CommsConfig) emitConcealFrame(pc *portChannel, rt *CommsRuntime, consecutive, max int) {
-	if consecutive <= max {
-		if cfg.Trace {
-			cfg.Log.Trace().Msg("comms: jitter buffer gap → PLC")
-		}
-
-		cfg.decodeAndQueuePLC(pc, rt)
-	} else {
-		cfg.decodeAndQueueSilence(pc)
-	}
-}
-
-// decodeAndQueue decodes an Opus payload directly into a pooled float32 PCM
-// buffer and queues it to pc.playbackBuffer. Frames are silently dropped when
-// the buffer is full. The caller must call jitter.releasePayload on the payload
-// after this function returns.
-func (cfg *CommsConfig) decodeAndQueue(pc *portChannel, rt *CommsRuntime, payload []byte) {
-	outPtr := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
-	out := *outPtr
-
-	n, err := rt.decoder.DecodeFloat32(payload, out)
-	if err != nil {
-		cfg.Log.Debug().Err(err).Msg("comms: opus decode error; falling back to PLC")
-
-		n, err = rt.decoder.DecodeFloat32(nil, out)
-		if err != nil || n <= 0 {
-			returnFloat32(out)
-
-			return
-		}
-	}
-
-	out = out[:n]
-
-	select {
-	case pc.playbackBuffer <- out:
-		if cfg.Trace {
-			cfg.Log.Trace().Msgf("comms: queued %d samples (depth=%d)", n, len(pc.playbackBuffer))
-		}
-	default:
-		returnFloat32(out)
-		logPlaybackDrop(&pc.playbackDrops, cfg, "comms: playback buffer full; dropping packet")
-	}
-}
-
-// decodeAndQueuePLC generates a Packet Loss Concealment frame via the Opus
-// decoder (nil payload) and queues it to pc.playbackBuffer.
-func (cfg *CommsConfig) decodeAndQueuePLC(pc *portChannel, rt *CommsRuntime) {
-	outPtr := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
-	out := *outPtr
-
-	n, err := rt.decoder.DecodeFloat32(nil, out)
-	if err != nil || n <= 0 {
-		returnFloat32(out)
-
-		return
-	}
-
-	out = out[:n]
-
-	select {
-	case pc.playbackBuffer <- out:
-		if cfg.Trace {
-			cfg.Log.Trace().Msgf("comms: queued PLC %d samples (depth=%d)", n, len(pc.playbackBuffer))
-		}
-	default:
-		returnFloat32(out)
-		logPlaybackDrop(&pc.playbackDrops, cfg, "comms: playback buffer full; dropping PLC frame")
-	}
-}
-
-// decodeAndQueueSilence queues a zeroed float32 frame to pc.playbackBuffer.
-// Used after maxConsecutivePLC frames to replace degraded PLC output with
-// clean silence during sustained burst loss.
-func (cfg *CommsConfig) decodeAndQueueSilence(pc *portChannel) {
-	outPtr := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
-	out := (*outPtr)[:frameSize]
-
-	for i := range out {
-		out[i] = 0
-	}
-
-	select {
-	case pc.playbackBuffer <- out:
-	default:
-		returnFloat32(out)
-	}
-}
-
-// playbackDropLogInterval controls how often repeated playback-buffer-full
-// warnings are emitted. The first drop always logs; subsequent drops log
-// once every playbackDropLogInterval occurrences.
-const playbackDropLogInterval = 50
-
-// logPlaybackDrop increments the drop counter and emits a Warn log on the
-// first drop and then every playbackDropLogInterval drops thereafter. All
-// other drops are recorded at Debug level so the counter remains accurate
-// without flooding logs.
-func logPlaybackDrop(counter *atomic.Int64, cfg *CommsConfig, msg string) {
-	n := counter.Add(1)
-	if n == 1 || n%playbackDropLogInterval == 0 {
-		cfg.Log.Warn().Int64("total_drops", n).Msg(msg)
-	} else if cfg.Debug {
-		cfg.Log.Debug().Int64("total_drops", n).Msg(msg)
+		cp := make([]byte, len(payload))
+		copy(cp, payload)
+		rt.webBridge.PushRxFrame(cp)
+		jitter.releasePayload(payload)
 	}
 }
 

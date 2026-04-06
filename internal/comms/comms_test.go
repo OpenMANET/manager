@@ -115,75 +115,65 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 	}
 }
 
-// TestPlayoutLoop_SuppressedDuringBroadcastOnSendPort verifies that the playout
-// loop (spawned by receiveLoop) suppresses output while broadcasting on a
-// send-capable port. Receive-only ports are not suppressed; that behavior is
-// covered by TestPlayoutLoop_ReceiveOnlyPortNotSuppressedDuringBroadcast.
-func TestPlayoutLoop_SuppressedDuringBroadcastOnSendPort(t *testing.T) {
-	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
-	raw := makeRTPBytes(t, 0)
-	reader := newMockReader(mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
+// TestPlayoutOneFrame_SuppressedDuringBroadcastOnSendPort verifies that
+// playoutOneFrame emits silence on a send-capable port while the local node
+// is broadcasting (half-duplex echo prevention). Receive-only ports are not
+// suppressed; that behavior is covered by
+// TestPlayoutOneFrame_ReceiveOnlyPortNotSuppressedDuringBroadcast.
+func TestPlayoutOneFrame_SuppressedDuringBroadcastOnSendPort(t *testing.T) {
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
 	pc := &portChannel{
-		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: newSwappableReceiver(reader),
+		cfg: McastPortConfig{Send: true, Receive: true},
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 8)
+
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{},
+		decoder: &mockDecoder{fillValue: 42, returnN: frameSize},
 	}
 	rt.broadcasting.Store(true)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
+	jb := newRTPJitterBuffer(1, 10)
+	jb.push(0, []byte{0xAA, 0xBB})
 
-	go func() {
-		defer close(done)
+	out := make([]float32, frameSize)
+	cfg.playoutOneFrame(pc, rt, jb, out)
 
-		cfg.receiveLoop(ctx, pc, rt)
-	}()
+	for i, v := range out {
+		if v != 0 {
+			t.Errorf("playoutOneFrame should emit silence during broadcast; sample[%d]=%f", i, v)
 
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-	pc.receiver.Close() // unblocks ReadFromUDP in mockReader
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("receiveLoop did not exit")
-	}
-
-	if len(pc.playbackBuffer) != 0 {
-		t.Errorf("playback buffer should be empty during broadcast; got %d frames", len(pc.playbackBuffer))
+			break
+		}
 	}
 }
 
-func TestDecodeAndQueue(t *testing.T) {
+func TestPlayoutOneFrame_DecodesPayloadIntoOut(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	buf := make(chan []float32, 4)
-	pc := &portChannel{}
-	pc.playbackBuffer = buf
-	dec := &mockDecoder{fillValue: 42, returnN: 4}
-	rt := &CommsRuntime{decoder: dec}
-	cfg.decodeAndQueue(pc, rt, []byte{1, 2, 3})
 
-	if len(buf) != 1 {
-		t.Fatalf("expected 1 frame; got %d", len(buf))
+	pc := &portChannel{
+		cfg: McastPortConfig{Send: true, Receive: true},
 	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
 
-	frame := <-buf
+	dec := &mockDecoder{fillValue: 42, returnN: frameSize}
+	rt := &CommsRuntime{decoder: dec}
+
+	jb := newRTPJitterBuffer(1, 10)
+	jb.push(0, []byte{1, 2, 3})
+
+	out := make([]float32, frameSize)
+	cfg.playoutOneFrame(pc, rt, jb, out)
+
 	// float32 arithmetic may produce minor rounding; verify the value is in the right ballpark.
 	expected := float32(42) / 32768.0
 
-	if len(frame) == 0 {
-		t.Fatal("empty frame")
-	}
-
 	const eps = 0.0001
 
-	for i, v := range frame {
+	for i, v := range out {
 		diff := v - expected
 		if diff < -eps || diff > eps {
 			t.Errorf("sample[%d]=%f want ~%f", i, v, expected)
@@ -193,17 +183,34 @@ func TestDecodeAndQueue(t *testing.T) {
 	}
 }
 
-func TestDecodeAndQueuePLC(t *testing.T) {
+func TestPlayoutOneFrame_PLCFillsOut(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	buf := make(chan []float32, 4)
-	pc := &portChannel{}
-	pc.playbackBuffer = buf
-	dec := &mockDecoder{fillValue: 10, returnN: 4}
-	rt := &CommsRuntime{decoder: dec}
-	cfg.decodeAndQueuePLC(pc, rt)
 
-	if len(buf) != 1 {
-		t.Fatalf("expected 1 PLC frame; got %d", len(buf))
+	pc := &portChannel{
+		cfg: McastPortConfig{Send: true, Receive: true},
+	}
+	pc.sendEnabled.Store(true)
+	pc.receiveEnabled.Store(true)
+
+	dec := &mockDecoder{fillValue: 10, returnN: frameSize}
+	rt := &CommsRuntime{decoder: dec}
+
+	// Push and pop to set started=true and a recent lastPush; the next
+	// playoutOneFrame call will hit the conceal branch and call the decoder
+	// with a nil payload (PLC).
+	jb := newRTPJitterBuffer(1, 10)
+	jb.push(0, []byte{0})
+	jb.popReady()
+
+	out := make([]float32, frameSize)
+	cfg.playoutOneFrame(pc, rt, jb, out)
+
+	expected := float32(10) / 32768.0
+
+	const eps = 0.0001
+
+	if v := out[0]; v < expected-eps || v > expected+eps {
+		t.Errorf("PLC sample[0]=%f want ~%f", v, expected)
 	}
 }
 
