@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -33,16 +34,27 @@ var sharedConsoleWriter = zerolog.ConsoleWriter{ //nolint:gochecknoglobals
 	FieldsExclude: []string{zerolog.TimestampFieldName, LogComponentFieldName},
 }
 
+// initOnce guards one-time mutation of the zerolog package globals so
+// concurrent callers of GetLogger don't race the writer goroutine that
+// reads those same globals while formatting fields.
+var initOnce sync.Once //nolint:gochecknoglobals
+
+// initZerologGlobals configures the zerolog package-level globals exactly
+// once. These fields are read concurrently by the shared ConsoleWriter, so
+// they must not be re-assigned on every GetLogger call.
+func initZerologGlobals() {
+	initOnce.Do(func() {
+		zerolog.TimestampFieldName = timestampFieldName
+		zerolog.MessageFieldName = MessageFieldName
+		zerolog.ErrorFieldName = errorFieldName
+		zerolog.TimeFieldFormat = time.RFC3339
+		zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
+	})
+}
+
 // InitLogging initializes the logging configuration
 func InitLogging(ctx context.Context) zerolog.Logger {
-	zerolog.TimestampFieldName = timestampFieldName
-	zerolog.MessageFieldName = MessageFieldName
-	zerolog.ErrorFieldName = errorFieldName
-
-	// Use RFC3339 for human-readable timestamps
-	zerolog.TimeFieldFormat = time.RFC3339
-
-	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
+	initZerologGlobals()
 
 	zlog := zerolog.New(sharedConsoleWriter)
 
@@ -54,23 +66,12 @@ func InitLogging(ctx context.Context) zerolog.Logger {
 	// Set Global Log Level From Environment Configuration
 	setLogLevel(viper.GetString("logLevel"))
 
-	// Set our logger as the writer for standard library log
-	// log.SetFlags(0)
-	// log.SetOutput(zlog)
-
 	return zlog
 }
 
 // getLogger returns a logger with the given component name
 func getLogger(component string) zerolog.Logger {
-	zerolog.TimestampFieldName = timestampFieldName
-	zerolog.MessageFieldName = MessageFieldName
-	zerolog.ErrorFieldName = errorFieldName
-
-	// UNIX Time is faster and smaller than most timestamps
-	zerolog.TimeFieldFormat = time.RFC3339
-
-	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
+	initZerologGlobals()
 
 	zlog := zerolog.New(sharedConsoleWriter)
 
@@ -81,10 +82,6 @@ func getLogger(component string) zerolog.Logger {
 
 	// Set Global Log Level From Environment Configuration
 	setLogLevel(viper.GetString("logLevel"))
-
-	// Set our logger as the writer for standard library log
-	// log.SetFlags(0)
-	// log.SetOutput(zlog)
 
 	return zlog
 }

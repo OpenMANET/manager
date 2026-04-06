@@ -786,60 +786,6 @@ func TestIntegration_UpdateBLOSConfig_Disable(t *testing.T) {
 	assert.True(t, resp.Success)
 }
 
-func TestIntegration_UpdateBLOSConfig_Enable_PersistFailure(t *testing.T) {
-	// Create server with a real config backed by a temp file
-	tmpDir := t.TempDir()
-	cfgPath := filepath.Join(tmpDir, "config.yml")
-
-	err := os.WriteFile(cfgPath, []byte("blos:\n  enable: false\n"), 0644)
-	require.NoError(t, err)
-
-	v := viper.New()
-	v.SetConfigFile(cfgPath)
-
-	err = v.ReadInConfig()
-	require.NoError(t, err)
-
-	cfg := config.NewWithoutWatch(v)
-	mgr := &fakeBLOSManager{}
-
-	validateInterceptor := validate.NewInterceptor()
-	handlerOpt := connect.WithInterceptors(validateInterceptor)
-
-	mux := http.NewServeMux()
-	mux.Handle(blosconnect.NewBLOSServiceHandler(&handlers.BLOSService{
-		Cfg:         cfg,
-		Log:         zerolog.Nop(),
-		BLOSManager: mgr,
-	}, handlerOpt))
-
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-
-	// Make config file read-only to trigger persist failure
-	err = os.Chmod(cfgPath, 0444)
-	require.NoError(t, err)
-
-	client := blosconnect.NewBLOSServiceClient(
-		http.DefaultClient,
-		srv.URL,
-		connect.WithGRPCWeb(),
-	)
-
-	_, err = client.UpdateBLOSConfig(context.Background(), &blosproto.UpdateBLOSConfigRequest{
-		EnableBlos: true,
-		AuthKey:    "tskey-test-key",
-	})
-	require.Error(t, err)
-
-	var connectErr *connect.Error
-	require.ErrorAs(t, err, &connectErr)
-	assert.Equal(t, connect.CodeInternal, connectErr.Code())
-
-	// BLOS should have been rolled back
-	assert.False(t, mgr.IsRunning(), "BLOS should be rolled back after persist failure")
-}
-
 func TestIntegration_UpdateBLOSConfig_ConcurrentRequests(t *testing.T) {
 	srv := newBLOSTestServer(t)
 

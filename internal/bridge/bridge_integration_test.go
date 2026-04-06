@@ -1,6 +1,6 @@
 //go:build integration
 
-package bridge
+package bridge_test
 
 import (
 	"context"
@@ -11,103 +11,107 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	servicev1 "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
-	"github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
+	commsv1 "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1"
+	"github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
+	"github.com/openmanet/openmanetd/internal/bridge"
 	ws "github.com/openmanet/openmanetd/internal/websocket"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// integrationCommsHandler tracks RPC calls for integration testing.
+// integrationCommsHandler tracks RPC calls received from the bridge so the
+// test can assert that WebSocket events are translated into the expected
+// upstream ConnectRPC calls.
 type integrationCommsHandler struct {
-	servicev1connect.UnimplementedCommsServiceHandler
-	sendCalls    chan *servicev1.SetSendTalkGroupRequest
-	receiveCalls chan *servicev1.SetReceiveTalkGroupRequest
+	commsv1connect.UnimplementedCommsServiceHandler
+
+	sendCalls    chan *commsv1.SetSendTalkGroupRequest
+	receiveCalls chan *commsv1.SetReceiveTalkGroupRequest
+	pttCalls     chan *commsv1.SendPTTEventRequest
 }
 
-func (h *integrationCommsHandler) GetCommsStatus(_ context.Context, _ *emptypb.Empty) (*servicev1.GetCommsStatusResponse, error) {
-	return &servicev1.GetCommsStatusResponse{
-		ActiveTalkgroup:     1,
-		AvailableTalkgroups: []int32{1, 2, 3, 4, 5},
-	}, nil
+func (h *integrationCommsHandler) GetCommsStatus(_ context.Context, _ *emptypb.Empty) (*commsv1.GetCommsStatusResponse, error) {
+	return &commsv1.GetCommsStatusResponse{}, nil
 }
 
-func (h *integrationCommsHandler) SetSendTalkGroup(_ context.Context, req *servicev1.SetSendTalkGroupRequest) (*servicev1.SetSendTalkGroupResponse, error) {
+func (h *integrationCommsHandler) SetSendTalkGroup(_ context.Context, req *commsv1.SetSendTalkGroupRequest) (*commsv1.SetSendTalkGroupResponse, error) {
 	h.sendCalls <- req
-	return &servicev1.SetSendTalkGroupResponse{Success: true}, nil
+
+	return &commsv1.SetSendTalkGroupResponse{Success: true}, nil
 }
 
-func (h *integrationCommsHandler) SetReceiveTalkGroup(_ context.Context, req *servicev1.SetReceiveTalkGroupRequest) (*servicev1.SetReceiveTalkGroupResponse, error) {
+func (h *integrationCommsHandler) SetReceiveTalkGroup(_ context.Context, req *commsv1.SetReceiveTalkGroupRequest) (*commsv1.SetReceiveTalkGroupResponse, error) {
 	h.receiveCalls <- req
-	return &servicev1.SetReceiveTalkGroupResponse{Success: true}, nil
+
+	return &commsv1.SetReceiveTalkGroupResponse{Success: true}, nil
 }
 
-// integrationWebCommsHandler tracks PTT calls.
-type integrationWebCommsHandler struct {
-	servicev1connect.UnimplementedWebCommsServiceHandler
-	pttCalls chan *servicev1.SendPTTEventRequest
-}
-
-func (h *integrationWebCommsHandler) SendPTTEvent(_ context.Context, req *servicev1.SendPTTEventRequest) (*servicev1.SendPTTEventResponse, error) {
+func (h *integrationCommsHandler) SendPTTEvent(_ context.Context, req *commsv1.SendPTTEventRequest) (*commsv1.SendPTTEventResponse, error) {
 	h.pttCalls <- req
-	return &servicev1.SendPTTEventResponse{Success: true}, nil
+
+	return &commsv1.SendPTTEventResponse{Success: true}, nil
 }
 
 func TestIntegration_WSClientToRPC(t *testing.T) {
-	// Stand up mock Connect RPC server.
+	// Stand up a real ConnectRPC server hosting the CommsService so the
+	// bridge exercises its full client→server code path.
 	commsHandler := &integrationCommsHandler{
-		sendCalls:    make(chan *servicev1.SetSendTalkGroupRequest, 10),
-		receiveCalls: make(chan *servicev1.SetReceiveTalkGroupRequest, 10),
-	}
-	webCommsHandler := &integrationWebCommsHandler{
-		pttCalls: make(chan *servicev1.SendPTTEventRequest, 10),
+		sendCalls:    make(chan *commsv1.SetSendTalkGroupRequest, 10),
+		receiveCalls: make(chan *commsv1.SetReceiveTalkGroupRequest, 10),
+		pttCalls:     make(chan *commsv1.SendPTTEventRequest, 10),
 	}
 
 	mux := http.NewServeMux()
-	commsPath, commsH := servicev1connect.NewCommsServiceHandler(commsHandler)
+	commsPath, commsH := commsv1connect.NewCommsServiceHandler(commsHandler)
 	mux.Handle(commsPath, commsH)
-	webCommsPath, webCommsH := servicev1connect.NewWebCommsServiceHandler(webCommsHandler)
-	mux.Handle(webCommsPath, webCommsH)
 
 	rpcServer := httptest.NewServer(mux)
-	defer rpcServer.Close()
+	t.Cleanup(rpcServer.Close)
 
-	// Create RPC client pointing to mock server.
-	rpcClient := openmanetd.NewClient(rpcServer.URL, rpcServer.Client())
+	// Create the real ConnectRPC client pointing at the test server.
+	commsClient := commsv1connect.NewCommsServiceClient(rpcServer.Client(), rpcServer.URL)
 
 	// Create the bridge + hub.
-	var b *Bridge
+	var b *bridge.Bridge
+
 	hub := ws.NewHub(func(client *ws.Client, data []byte) {
 		b.HandleMessage(client, data)
 	})
-	b = NewBridge(hub, rpcClient, rpcClient)
-	go hub.Run(context.Background())
+	b = bridge.NewBridge(hub, commsClient)
 
-	// Create WS server with the hub.
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	go hub.Run(ctx)
+
+	// Create the WebSocket server with the hub.
 	wsMux := http.NewServeMux()
-	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	upgrader := websocket.Upgrader{CheckOrigin: func(_ *http.Request) bool { return true }}
 	wsMux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			t.Errorf("upgrade error: %v", err)
+
 			return
 		}
+
 		client := ws.NewClient(hub, conn)
 		hub.Register(client)
+
 		go client.WritePump()
 		go client.ReadPump()
 	})
+
 	wsServer := httptest.NewServer(wsMux)
-	defer wsServer.Close()
+	t.Cleanup(wsServer.Close)
 
 	// Connect a WebSocket client.
 	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http") + "/ws"
+
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("WS dial: %v", err)
 	}
-	defer conn.Close()
-
-	time.Sleep(50 * time.Millisecond) // Let registration complete.
+	t.Cleanup(func() { _ = conn.Close() })
 
 	// Send a TX toggle message through the WebSocket.
 	txToggle := []byte{ws.OpcodeTXToggle, 3, 1} // channel 3, on
@@ -115,12 +119,13 @@ func TestIntegration_WSClientToRPC(t *testing.T) {
 		t.Fatalf("WS write: %v", err)
 	}
 
-	// Verify the RPC was called.
+	// Verify the RPC was called with the expected payload.
 	select {
 	case req := <-commsHandler.sendCalls:
 		if req.Talkgroup != 3 {
 			t.Errorf("talkgroup = %d, want 3", req.Talkgroup)
 		}
+
 		if !req.Enabled {
 			t.Error("enabled = false, want true")
 		}
@@ -139,10 +144,25 @@ func TestIntegration_WSClientToRPC(t *testing.T) {
 		if req.Talkgroup != 1 {
 			t.Errorf("talkgroup = %d, want 1", req.Talkgroup)
 		}
+
 		if req.Enabled {
 			t.Error("enabled = true, want false")
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for SetReceiveTalkGroup RPC")
+	}
+
+	// Send a PTT-down message.
+	if err := conn.WriteMessage(websocket.BinaryMessage, []byte{ws.OpcodePTTDown}); err != nil {
+		t.Fatalf("WS write: %v", err)
+	}
+
+	select {
+	case req := <-commsHandler.pttCalls:
+		if req.Event != 1 {
+			t.Errorf("PTT event = %d, want 1", req.Event)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for SendPTTEvent RPC")
 	}
 }
