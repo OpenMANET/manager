@@ -19,7 +19,7 @@ const (
 	// openvlmVendorID is the C-Media Electronics USB vendor identifier.
 	openvlmVendorID uint16 = 0x0D8C
 	// openvlmProductID identifies the OpenVLM (Open Voice Link Module) USB audio dongle.
-	openvlmProductID uint16 = 0x013C
+	openvlmProductID uint16 = 0x0012
 
 	// openvlmReportSize is the total HID input report buffer size.
 	// The OS prepends a Report ID byte followed by the 4 OpenVLM data bytes
