@@ -27,7 +27,6 @@ const (
 	DefaultCommsLoopback                             bool    = false
 	DefaultCommsTrace                                bool    = false
 	DefaultCommsControlSource                        string  = "openvlm"
-	DefaultCommsPlaybackBuffer                       int     = 2
 	DefaultCommsMicGain                              float32 = 8.0
 	DefaultCommsNanoPTTEnable                        bool    = false
 	DefaultCommsNanoPTTDevicePath                    string  = "/dev/hidraw0/*"
@@ -90,7 +89,6 @@ type Config struct {
 	BLOSStatusWorkerInterval                  int
 	OpenMANETWebsocketPort                    int
 	CommsEncoderComplexity                    int
-	CommsPlaybackBuffer                       int
 	RuntimeGoGC                               int
 	AuthSessionMaxAgeSecs                     int
 	AuthSessionMaxSize                        int
@@ -300,12 +298,6 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsControlSource = val
 	} else {
 		c.CommsControlSource = DefaultCommsControlSource
-	}
-
-	if val := c.v.GetInt("comms.playbackBuffer"); val > 0 {
-		c.CommsPlaybackBuffer = val
-	} else {
-		c.CommsPlaybackBuffer = DefaultCommsPlaybackBuffer
 	}
 
 	if val := c.v.GetFloat64("comms.micGain"); val > 0 {
@@ -642,14 +634,6 @@ func (c *Config) GetCommsControlSource() string {
 	defer c.mu.RUnlock()
 
 	return c.CommsControlSource
-}
-
-// GetCommsPlaybackBuffer returns the playback buffer depth for comms audio.
-func (c *Config) GetCommsPlaybackBuffer() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.CommsPlaybackBuffer
 }
 
 // GetCommsMicGain returns the microphone gain multiplier applied during transmission.

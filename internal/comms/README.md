@@ -43,6 +43,36 @@ These constants are defined in `comms.go`:
 - In-band FEC: **disabled**
 - DTX: **disabled**
 
+### Playback device latency
+
+The PortAudio output stream is opened with
+`Latency = outDev.DefaultHighOutputLatency` (the host API's preferred
+high-latency configuration). On Linux ALSA this is typically 30–60 ms of
+internal device buffer depth, which gives the audio thread that much
+scheduling slack before the DAC underruns. The callback chunk size stays at
+`frameSize` (one Opus frame, 20 ms) so `playoutOneFrame` produces exactly one
+frame per call as before.
+
+This is the only layer of buffering that protects against playback-side OS
+scheduling stalls — the Go-side jitter buffer (`pc.jitter`) sits upstream of
+the DAC and cannot help once the audio thread is preempted. The two layers
+absorb different classes of stutter:
+
+| Class of stutter | Mitigated by |
+|---|---|
+| Network arrival jitter (out-of-order, late packets) | Go jitter prebuffer |
+| Brief packet loss bursts | Opus PLC + jitter buffer |
+| Playback-side OS scheduling stalls | PortAudio output device buffer |
+
+The mic capture stream uses the default minimum latency: capture-side latency
+only affects mouth-to-ear delay, not stutter, and the Opus encoder is happy to
+consume late frames.
+
+The actual granted latency (which may differ from the suggestion if the host
+API clamps it) is logged at Debug level on stream open as
+`comms: playback stream opened` with `requested_latency` and
+`actual_output_latency` fields.
+
 The mic callback:
 
 1. Receives `[]float32` PCM from PortAudio.
@@ -160,17 +190,19 @@ SSRC is computed as the **FNV-1a 32-bit hash** of the chosen string.
 A sequence-number-ordered jitter buffer (`rtpJitterBuffer` in `jitter.go`)
 smooths network reordering and provides Packet Loss Concealment:
 
-- **Prebuffer**: waits for `jitterPrebufferPackets` (3) frames before beginning
-  playout, absorbing early-arrival jitter.
+- **Prebuffer**: waits for `jitterPrebufferPackets` (5) frames before beginning
+  playout, absorbing early-arrival jitter (~100 ms safety margin).
 - **Max depth**: drops newly arriving packets once `jitterMaxDepth` (24) frames
   are already buffered — prevents unbounded memory growth.
 - **Gap detection**: if the expected sequence number is missing and ≥ half the
   max depth is occupied, the frame is skipped and PLC is applied.
 - **Idle concealment**: `shouldConceal` returns true when any packet arrived
-  within the last 100 ms, allowing the playout loop to generate comfort noise
-  during a gap in an otherwise active stream.
-- **Playout clock**: `playoutLoop` ticks at 20 ms intervals; one frame is
-  produced per tick regardless of whether a real payload or a PLC frame is used.
+  within the last 200 ms (`concealRecentWindow`), allowing playout to generate
+  Opus PLC frames during a gap in an otherwise active stream. Capped at
+  `maxConsecutivePLC` (10 frames ≈ 200 ms) before falling back to silence.
+- **Playout clock**: the PortAudio output callback drives playout directly,
+  calling `playoutOneFrame` once per audio period (20 ms). One frame is
+  produced per call regardless of whether a real payload or a PLC frame is used.
 
 Sequence numbers use **uint16 wrap-around-aware** comparison (`seqLess`) so
 streams that cross the 65 535 → 0 boundary are handled correctly.
@@ -272,8 +304,7 @@ ptt:
   BluetoothAudioDeviceHint: ""          # optional shared substring for both input/output (e.g. "OpenVLM")
   BluetoothInputDevice: ""              # optional; device name substring or index for capture
   BluetoothOutputDevice: ""             # optional; device name substring or index for playback
-  playbackBuffer: 10           # decoded-audio channel depth (default 10 = ~200 ms)
-  micGain: 1.0                 # float32; >1 amplifies, <1 attenuates
+  micGain: 8.0                 # float32; >1 amplifies, <1 attenuates
 ```
 
 `pttDevice` / `pttDeviceName` are only relevant when `controlSource: evdev`.

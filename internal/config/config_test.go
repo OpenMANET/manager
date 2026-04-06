@@ -863,51 +863,10 @@ func TestGetCommsBluetoothPttEnable(t *testing.T) {
 	}
 }
 
-func TestGetCommsPlaybackBuffer(t *testing.T) {
-	tests := []struct {
-		setValue *int
-		name     string
-		want     int
-	}{
-		{
-			name:     "returns configured buffer",
-			setValue: intPtr(4),
-			want:     4,
-		},
-		{
-			name:     "returns default when zero",
-			setValue: intPtr(0),
-			want:     DefaultCommsPlaybackBuffer,
-		},
-		{
-			name:     "returns default when not set",
-			setValue: nil,
-			want:     DefaultCommsPlaybackBuffer,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			v := viper.New()
-			if tt.setValue != nil {
-				v.Set("comms.playbackBuffer", *tt.setValue)
-			}
-
-			cfg := New(v)
-
-			got := cfg.GetCommsPlaybackBuffer()
-			if got != tt.want {
-				t.Errorf("GetCommsPlaybackBuffer() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestConfigReload(t *testing.T) {
 	v := viper.New()
 	v.Set("meshNetInterface", "eth0")
 	v.Set("gatewayMode", true)
-	v.Set("comms.playbackBuffer", 4)
 
 	cfg := New(v)
 
@@ -916,13 +875,8 @@ func TestConfigReload(t *testing.T) {
 		t.Errorf("Initial GetMeshNetInterface() = %v, want eth0", got)
 	}
 
-	if got := cfg.GetCommsPlaybackBuffer(); got != 4 {
-		t.Errorf("Initial GetCommsPlaybackBuffer() = %v, want 4", got)
-	}
-
 	// Change configuration values
 	v.Set("meshNetInterface", "wlan0")
-	v.Set("comms.playbackBuffer", 8)
 
 	// Manually trigger reload (simulating config file change)
 	cfg.reload()
@@ -930,10 +884,6 @@ func TestConfigReload(t *testing.T) {
 	// Check updated values
 	if got := cfg.GetMeshNetInterface(); got != "wlan0" {
 		t.Errorf("After reload GetMeshNetInterface() = %v, want wlan0", got)
-	}
-
-	if got := cfg.GetCommsPlaybackBuffer(); got != 8 {
-		t.Errorf("After reload GetCommsPlaybackBuffer() = %v, want 8", got)
 	}
 }
 

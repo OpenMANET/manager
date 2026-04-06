@@ -9,16 +9,20 @@ import (
 
 // maxConsecutivePLC caps the number of consecutive Packet-Loss-Concealment
 // frames the playout path will emit before falling back to silence. Opus PLC
-// is designed for short losses (~100 ms); beyond that the synthesized output
-// becomes increasingly robotic, so silence is preferable. With a 20 ms frame,
-// 5 frames ≈ 100 ms.
-const maxConsecutivePLC = 5
+// is designed for short losses but stays acceptable up to ~200 ms; beyond
+// that the synthesized output becomes increasingly robotic, so silence is
+// preferable. With a 20 ms frame, 10 frames ≈ 200 ms. The previous 100 ms
+// cap was conservative and bailed out of PLC mid-burst on transient mesh
+// losses, producing audible muted gaps.
+const maxConsecutivePLC = 10
 
 // concealRecentWindow is the inter-arrival window during which a missing
 // frame is treated as a transient gap (PLC) rather than the end of the
-// stream (silence). It matches the maximum delay the playout side will
-// tolerate before declaring the stream idle.
-const concealRecentWindow = 100 * time.Millisecond
+// stream (silence). It matches maxConsecutivePLC × 20 ms so the two
+// concealment heuristics agree on what counts as "recent": shorter, and
+// popOrConceal would hand back genuine silence even though playoutOneFrame
+// is still willing to PLC.
+const concealRecentWindow = 200 * time.Millisecond
 
 // zeroFloat32 fills a float32 slice with zeros. Used by the playout callback
 // to emit silence into the PortAudio output buffer.

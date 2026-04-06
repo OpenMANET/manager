@@ -112,7 +112,6 @@ CommsConfig
 ├── BluetoothInputDevice     string              PortAudio device name/index
 ├── BluetoothOutputDevice    string
 ├── BluetoothAudioDeviceHint string              fills both if neither is set
-├── PlaybackDepth   int                 channel buffer depth (default 10)
 ├── MicGain         float32             per-sample gain (default 1.0)
 │
 ├── CommKey         string              "any" | decimal EV_KEY code (evdev only)
@@ -201,8 +200,8 @@ Start()
   │     newOpusEncoder() — 48 kHz, mono, VoIP, 32 kbps, complexity=10
   │     newOpusDecoder() — 48 kHz, mono
   │
-  ├─ 6. Build playback channel + beep buffers
-  │     chan []float32 (depth = PlaybackDepth, default 10)
+  ├─ 6. Build beep side channel + beep buffers
+  │     chan []float32 (depth = beepChannelDepth = 4) — TX start/stop tones only
   │     beepStart: 1000 Hz sine × 0.2 amplitude, frameSize samples
   │     beepStop:   600 Hz sine × 0.2 amplitude, frameSize samples
   │

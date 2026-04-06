@@ -26,7 +26,6 @@ comms:
   debug: true
   loopback: false
   trace: true
-  playbackBuffer: 10
   micGain: "1.0"
   nanoPTT:
     enable: false

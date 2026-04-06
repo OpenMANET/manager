@@ -199,7 +199,6 @@ type CommsConfig struct {
 	McastPorts               []McastPortConfig
 	ROIPVOXHoldTime          time.Duration
 	ROIPMaxTXDuration        time.Duration
-	PlaybackDepth            int
 	MicGain                  float32
 	ROIPVOXThreshold         float32
 	ROIPCOSGPIOMask          byte
@@ -237,7 +236,6 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		BluetoothAudioDeviceHint: cfg.BluetoothAudioDeviceHint,
 		BluetoothInputDevice:     cfg.BluetoothInputDevice,
 		BluetoothOutputDevice:    cfg.BluetoothOutputDevice,
-		PlaybackDepth:            cfg.PlaybackDepth,
 		ROIPCOSGPIOMask:          cfg.ROIPCOSGPIOMask,
 		ROIPVOXThreshold:         cfg.ROIPVOXThreshold,
 		ROIPVOXHoldTime:          cfg.ROIPVOXHoldTime,
@@ -388,6 +386,44 @@ func setMulticastTTL(conn *net.UDPConn, ttl int) error {
 	return nil
 }
 
+// rxSocketBufBytes is the requested SO_RCVBUF size for the RTP receive
+// socket. 1 MiB absorbs bursty mesh arrivals when receiveLoop is briefly
+// scheduled out (GC, scheduler hand-off, neighbor goroutine). At ~100-byte
+// Opus payloads this is roughly 10000 frames of headroom — far more than
+// any realistic stall. The kernel may clamp the actual value at
+// net.core.rmem_max (typically 208 KB on stock Linux, but embedded targets
+// usually raise this in sysctl); the post-set verification log records
+// what we actually got so undersized rmem_max is observable.
+const rxSocketBufBytes = 1 << 20
+
+// getReadBufferBytes returns the kernel's actual SO_RCVBUF for conn. Linux
+// reports the doubled value (the kernel adds bookkeeping overhead to
+// whatever was requested), so the returned value is typically twice the
+// argument passed to SetReadBuffer.
+func getReadBufferBytes(conn *net.UDPConn) (int, error) {
+	raw, err := conn.SyscallConn()
+	if err != nil {
+		return 0, fmt.Errorf("syscall conn: %w", err)
+	}
+
+	var (
+		val     int
+		sockErr error
+	)
+
+	if controlErr := raw.Control(func(fd uintptr) {
+		val, sockErr = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_RCVBUF)
+	}); controlErr != nil {
+		return 0, fmt.Errorf("control: %w", controlErr)
+	}
+
+	if sockErr != nil {
+		return 0, fmt.Errorf("getsockopt SO_RCVBUF: %w", sockErr)
+	}
+
+	return val, nil
+}
+
 // boolPtrVal dereferences p when non-nil; otherwise returns fallback.
 // Used to distinguish "not set" from false in McastPortConfig.Init* fields.
 func boolPtrVal(p *bool, fallback bool) bool {
@@ -484,7 +520,7 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 			return nil, fmt.Errorf("listen RTP receiver %s:%d: %w", mpc.Address, mpc.Port, err)
 		}
 
-		if err := recvConn.SetReadBuffer(65535); err != nil {
+		if err := recvConn.SetReadBuffer(rxSocketBufBytes); err != nil {
 			_ = recvConn.Close()
 
 			if pc.sender != nil {
@@ -497,6 +533,19 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 			}
 
 			return nil, fmt.Errorf("set RTP read buffer: %w", err)
+		}
+
+		// Verify what the kernel actually granted us. Linux clamps SO_RCVBUF
+		// at net.core.rmem_max and silently caps the request, so logging the
+		// observed value lets an operator see whether sysctl is undersized
+		// for the desired audio safety margin.
+		if got, err := getReadBufferBytes(recvConn); err == nil {
+			cfg.Log.Debug().
+				Int("requested_bytes", rxSocketBufBytes).
+				Int("actual_bytes", got).
+				Str("addr", mpc.Address).
+				Int("port", mpc.Port).
+				Msg("comms: rx socket buffer")
 		}
 
 		if err := joinMulticastGroup(ifi, recvConn, net.ParseIP(mpc.Address)); err != nil {
@@ -605,10 +654,18 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 	// previously caused stutter.
 	const beepChannelDepth = 4
 
+	// Use the host API's preferred "high latency" output configuration. On
+	// Linux ALSA this is typically 30–60 ms of internal device buffer depth,
+	// giving the audio thread that much scheduling slack before the DAC
+	// underruns. The callback chunk size stays at frameSize so playoutOneFrame
+	// is unchanged. This is the only layer of buffering that protects against
+	// playback-side OS scheduling stalls — the Go-side jitter buffer sits
+	// upstream of the DAC and cannot help once the audio thread is preempted.
 	playbackParams := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
 			Device:   outDev,
 			Channels: channels,
+			Latency:  outDev.DefaultHighOutputLatency,
 		},
 		SampleRate:      float64(sampleRate),
 		FramesPerBuffer: frameSize,
@@ -651,6 +708,18 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 			}
 
 			return nil, nil, fmt.Errorf("open playback stream for port %d: %w", pc.cfg.Port, openErr)
+		}
+
+		// Log the actual output latency the host API granted. This may differ
+		// from outDev.DefaultHighOutputLatency if the host API clamped the
+		// suggestion. Deploy-time verification uses this to confirm whether
+		// the bump took effect or fell back to the minimum buffer.
+		if info := rawPlayback.Info(); info != nil {
+			cfg.Log.Debug().
+				Dur("requested_latency", outDev.DefaultHighOutputLatency).
+				Dur("actual_output_latency", info.OutputLatency).
+				Int("port", pc.cfg.Port).
+				Msg("comms: playback stream opened")
 		}
 
 		pc.playbackStream = &portaudioStream{rawPlayback}

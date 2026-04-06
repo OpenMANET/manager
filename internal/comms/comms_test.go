@@ -215,9 +215,9 @@ func TestPlayoutOneFrame_PLCFillsOut(t *testing.T) {
 }
 
 func TestNewComms_Defaults(t *testing.T) {
-	// NewComms is a copy constructor; defaults (McastPorts, PlaybackDepth, etc.)
-	// are applied lazily in Start(). Verify NewComms returns a non-nil value and
-	// that the supplied log is preserved.
+	// NewComms is a copy constructor; defaults (McastPorts, etc.) are applied
+	// lazily in Start(). Verify NewComms returns a non-nil value and that the
+	// supplied log is preserved.
 	log := zerolog.Nop()
 
 	cfg := NewComms(CommsConfig{Log: log, McastPorts: []McastPortConfig{{Port: 5004, Send: true, Receive: true}}})
@@ -591,6 +591,37 @@ func TestListenRTPReceiver_ReturnType(t *testing.T) {
 
 	if conn == nil {
 		t.Fatal("expected non-nil *net.UDPConn")
+	}
+}
+
+// TestGetReadBufferBytes_AfterSetReadBuffer verifies that the helper observes
+// the value the kernel actually granted after a SetReadBuffer call. The
+// returned value is at least as large as the previous default (65535) so the
+// rxSocketBufBytes bump is a strict improvement, but it does not have to be
+// exactly rxSocketBufBytes because Linux may clamp at net.core.rmem_max.
+func TestGetReadBufferBytes_AfterSetReadBuffer(t *testing.T) {
+	conn, err := listenRTPReceiver(&net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close() //nolint:errcheck
+
+	if err := conn.SetReadBuffer(rxSocketBufBytes); err != nil {
+		t.Fatalf("SetReadBuffer(%d): %v", rxSocketBufBytes, err)
+	}
+
+	got, err := getReadBufferBytes(conn)
+	if err != nil {
+		t.Fatalf("getReadBufferBytes: %v", err)
+	}
+
+	// Linux returns SO_RCVBUF doubled (kernel bookkeeping overhead is folded
+	// into the reported value). On a stock kernel with low rmem_max we may
+	// be clamped well below rxSocketBufBytes; the only safe assertion is that
+	// it is strictly larger than the previous hard-coded default (65535).
+	const previousDefault = 65535
+	if got <= previousDefault {
+		t.Errorf("SO_RCVBUF after SetReadBuffer: got %d, want > %d (the previous default)", got, previousDefault)
 	}
 }
 
