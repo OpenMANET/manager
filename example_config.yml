@@ -18,8 +18,12 @@ comms:
   trace: false
   loopback: false
   controlSource: openvlm
-  # Microphone gain multiplier (1.0 = unity, 2.0 = +6 dB, 0.5 = -6 dB)
-  micGain: "1.0"
+  # PortAudio output device buffer depth (ms). Bounds the audio thread's
+  # scheduling slack against OS preemption — too low and the DAC underruns
+  # (audible stutter); too high and mouth-to-ear delay grows. Default 60 ms
+  # = three 20 ms callback periods. Floored at the device's
+  # DefaultHighOutputLatency, so values below the device hint are ignored.
+  playbackLatencyMs: 60
   nanoPTT:
     enable: false
     devicePath: /dev/hidraw0/*

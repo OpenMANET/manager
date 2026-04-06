@@ -783,6 +783,51 @@ func TestGetCommsMicGain(t *testing.T) {
 	}
 }
 
+func TestGetCommsPlaybackLatencyMs(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *int
+		want     int
+	}{
+		{
+			name:     "returns configured value",
+			setValue: intPtr(80),
+			want:     80,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultCommsPlaybackLatencyMs,
+		},
+		{
+			name:     "returns default when zero",
+			setValue: intPtr(0),
+			want:     DefaultCommsPlaybackLatencyMs,
+		},
+		{
+			name:     "returns default when negative",
+			setValue: intPtr(-10),
+			want:     DefaultCommsPlaybackLatencyMs,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("comms.playbackLatencyMs", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetCommsPlaybackLatencyMs()
+			if got != tt.want {
+				t.Errorf("GetCommsPlaybackLatencyMs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetCommsNanoPTTEnable(t *testing.T) {
 	tests := []struct {
 		setValue *bool

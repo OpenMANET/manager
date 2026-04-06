@@ -54,10 +54,19 @@ const (
 	DefaultDebugPprof                                bool    = false
 	DefaultDebugPprofAddress                         string  = "127.0.0.1:6060"
 	DefaultCommsEncoderComplexity                    int     = 5
-	DefaultAuthEnable                                bool    = false
-	DefaultAuthSessionMaxAgeSecs                     int     = 86400 // 24 hours
-	DefaultAuthSessionMaxSize                        int     = 16
-	DefaultAuthPAMService                            string  = "login"
+	// DefaultCommsPlaybackLatencyMs is the playback-side device buffer depth
+	// suggested to PortAudio. The Go-side jitter buffer cannot save the
+	// audio thread from OS scheduling stalls — only the device buffer can.
+	// 60 ms = three 20 ms callback periods, giving the audio thread two
+	// full periods of slack before the DAC underruns. Some hardware reports
+	// a higher DefaultHighOutputLatency than this; in that case the floor
+	// in buildAudio uses the device value instead so we never go below
+	// what the host API itself recommends.
+	DefaultCommsPlaybackLatencyMs int    = 60
+	DefaultAuthEnable             bool   = false
+	DefaultAuthSessionMaxAgeSecs  int    = 86400 // 24 hours
+	DefaultAuthSessionMaxSize     int    = 16
+	DefaultAuthPAMService         string = "login"
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -89,6 +98,7 @@ type Config struct {
 	BLOSStatusWorkerInterval                  int
 	OpenMANETWebsocketPort                    int
 	CommsEncoderComplexity                    int
+	CommsPlaybackLatencyMs                    int
 	RuntimeGoGC                               int
 	AuthSessionMaxAgeSecs                     int
 	AuthSessionMaxSize                        int
@@ -436,6 +446,16 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsEncoderComplexity = c.v.GetInt("comms.encoderComplexity")
 	} else {
 		c.CommsEncoderComplexity = DefaultCommsEncoderComplexity
+	}
+
+	// Load comms playback latency. Suggested to PortAudio as the playback
+	// device buffer depth (StreamDeviceParameters.Latency). Values <= 0
+	// fall back to the default; the actual depth granted by the host API
+	// is logged at Debug level when the playback stream is opened.
+	if val := c.v.GetInt("comms.playbackLatencyMs"); val > 0 {
+		c.CommsPlaybackLatencyMs = val
+	} else {
+		c.CommsPlaybackLatencyMs = DefaultCommsPlaybackLatencyMs
 	}
 
 	// Load auth configuration
@@ -880,6 +900,17 @@ func (c *Config) GetCommsEncoderComplexity() int {
 	defer c.mu.RUnlock()
 
 	return c.CommsEncoderComplexity
+}
+
+// GetCommsPlaybackLatencyMs returns the playback device buffer depth
+// suggested to PortAudio, in milliseconds. The actual depth granted by the
+// host API may be smaller; the playback stream open log records the granted
+// value at Debug level for verification.
+func (c *Config) GetCommsPlaybackLatencyMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsPlaybackLatencyMs
 }
 
 // GetAuthEnable returns whether HTTP authentication is enabled.

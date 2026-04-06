@@ -46,16 +46,13 @@ These constants are defined in `comms.go`:
 ### Playback device latency
 
 The PortAudio output stream is opened with
-`Latency = outDev.DefaultHighOutputLatency` (the host API's preferred
-high-latency configuration). On Linux ALSA this is typically 30–60 ms of
-internal device buffer depth, which gives the audio thread that much
-scheduling slack before the DAC underruns. The callback chunk size stays at
-`frameSize` (one Opus frame, 20 ms) so `playoutOneFrame` produces exactly one
-frame per call as before.
+`Latency = max(comms.playbackLatencyMs, outDev.DefaultHighOutputLatency)`.
+The callback chunk size stays at `frameSize` (one Opus frame, 20 ms) so
+`playoutOneFrame` produces exactly one frame per call.
 
 This is the only layer of buffering that protects against playback-side OS
 scheduling stalls — the Go-side jitter buffer (`pc.jitter`) sits upstream of
-the DAC and cannot help once the audio thread is preempted. The two layers
+the DAC and cannot help once the audio thread is preempted. The three layers
 absorb different classes of stutter:
 
 | Class of stutter | Mitigated by |
@@ -68,10 +65,31 @@ The mic capture stream uses the default minimum latency: capture-side latency
 only affects mouth-to-ear delay, not stutter, and the Opus encoder is happy to
 consume late frames.
 
-The actual granted latency (which may differ from the suggestion if the host
-API clamps it) is logged at Debug level on stream open as
-`comms: playback stream opened` with `requested_latency` and
-`actual_output_latency` fields.
+#### Tuning `comms.playbackLatencyMs`
+
+Some hardware (e.g. the OpenVLM USB audio class device) reports a
+`DefaultHighOutputLatency` of only ~21 ms — barely more than one 20 ms
+callback period. On those targets, relying on the device hint alone gives the
+audio thread effectively zero scheduling slack and on-device stutter persists
+even with a healthy Go-side jitter buffer. The `comms.playbackLatencyMs`
+config knob lets you suggest a larger value directly (default: **60 ms** =
+three callback periods, two periods of slack). Other devices may report a
+genuinely higher hint, in which case the floor in `buildAudio` honours the
+device value rather than overriding it downward.
+
+The host API may still clamp the suggestion. The actual granted latency is
+logged at Debug level on stream open as `comms: playback stream opened` with
+the following fields:
+
+- `configured_latency_ms` — the value from `comms.playbackLatencyMs`
+- `device_high_latency` — `outDev.DefaultHighOutputLatency` (the floor)
+- `requested_latency` — what we passed to `portaudio.OpenStream`
+- `actual_output_latency` — what the host API actually granted
+
+If `actual_output_latency` is well below `requested_latency` after raising
+`comms.playbackLatencyMs`, the host API is clamping and the only remaining
+PortAudio knob is `FramesPerBuffer` (which would require restructuring
+`playoutOneFrame` to loop).
 
 The mic callback:
 
@@ -305,6 +323,7 @@ ptt:
   BluetoothInputDevice: ""              # optional; device name substring or index for capture
   BluetoothOutputDevice: ""             # optional; device name substring or index for playback
   micGain: 8.0                 # float32; >1 amplifies, <1 attenuates
+  playbackLatencyMs: 60        # PortAudio output device buffer depth (ms); floored at outDev.DefaultHighOutputLatency
 ```
 
 `pttDevice` / `pttDeviceName` are only relevant when `controlSource: evdev`.

@@ -209,6 +209,7 @@ type CommsConfig struct {
 	Enable                   bool
 	EnableBluetoothPtt       bool
 	EncoderComplexity        int
+	PlaybackLatencyMs        int
 }
 
 // NewComms copies cfg and returns a pointer ready for Start.
@@ -242,6 +243,7 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		ROIPMaxTXDuration:        cfg.ROIPMaxTXDuration,
 		ROIPInputDevice:          cfg.ROIPInputDevice,
 		EncoderComplexity:        cfg.EncoderComplexity,
+		PlaybackLatencyMs:        cfg.PlaybackLatencyMs,
 	}
 }
 
@@ -654,18 +656,29 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 	// previously caused stutter.
 	const beepChannelDepth = 4
 
-	// Use the host API's preferred "high latency" output configuration. On
-	// Linux ALSA this is typically 30–60 ms of internal device buffer depth,
-	// giving the audio thread that much scheduling slack before the DAC
-	// underruns. The callback chunk size stays at frameSize so playoutOneFrame
-	// is unchanged. This is the only layer of buffering that protects against
-	// playback-side OS scheduling stalls — the Go-side jitter buffer sits
-	// upstream of the DAC and cannot help once the audio thread is preempted.
+	// Suggest a playback device buffer depth to PortAudio. This is the only
+	// layer of buffering that protects against playback-side OS scheduling
+	// stalls — the Go-side jitter buffer sits upstream of the DAC and cannot
+	// help once the audio thread is preempted. The callback chunk size stays
+	// at frameSize so playoutOneFrame is unchanged.
+	//
+	// Floor at outDev.DefaultHighOutputLatency: some hardware reports a
+	// "high" latency that is essentially the same as one callback period
+	// (e.g. 21 ms on the OpenVLM USB audio class device, where the next
+	// useful step up is the configured value); other hardware reports a
+	// genuinely higher value, in which case we honor the device hint
+	// rather than overriding it downward. The host API may still clamp
+	// the suggestion — the actual granted latency is logged below.
+	playbackLatency := time.Duration(cfg.PlaybackLatencyMs) * time.Millisecond
+	if playbackLatency < outDev.DefaultHighOutputLatency {
+		playbackLatency = outDev.DefaultHighOutputLatency
+	}
+
 	playbackParams := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
 			Device:   outDev,
 			Channels: channels,
-			Latency:  outDev.DefaultHighOutputLatency,
+			Latency:  playbackLatency,
 		},
 		SampleRate:      float64(sampleRate),
 		FramesPerBuffer: frameSize,
@@ -710,13 +723,18 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 			return nil, nil, fmt.Errorf("open playback stream for port %d: %w", pc.cfg.Port, openErr)
 		}
 
-		// Log the actual output latency the host API granted. This may differ
-		// from outDev.DefaultHighOutputLatency if the host API clamped the
-		// suggestion. Deploy-time verification uses this to confirm whether
-		// the bump took effect or fell back to the minimum buffer.
+		// Log the actual output latency the host API granted. This may
+		// differ from playbackLatency if the host API clamped the
+		// suggestion. Deploy-time verification uses this to confirm
+		// whether the configured comms.playbackLatencyMs took effect or
+		// fell back to the device's idea of "high latency". The
+		// device_high field is the floor we used (so it is obvious when
+		// the configured value was overridden by a higher device hint).
 		if info := rawPlayback.Info(); info != nil {
 			cfg.Log.Debug().
-				Dur("requested_latency", outDev.DefaultHighOutputLatency).
+				Int("configured_latency_ms", cfg.PlaybackLatencyMs).
+				Dur("device_high_latency", outDev.DefaultHighOutputLatency).
+				Dur("requested_latency", playbackLatency).
 				Dur("actual_output_latency", info.OutputLatency).
 				Int("port", pc.cfg.Port).
 				Msg("comms: playback stream opened")
