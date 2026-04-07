@@ -1,4 +1,4 @@
-package comms
+package rtp
 
 import (
 	"net"
@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-// ─── swappableSender tests ────────────────────────────────────────────────────
+// ─── SwappableSender tests ────────────────────────────────────────────────────
 
 func TestSwappableSender_WritesToInitialImpl(t *testing.T) {
 	w := &mockWriter{}
-	s := newSwappableSender(w)
+	s := NewSwappableSender(w)
 
 	if _, err := s.Write([]byte{1, 2, 3}); err != nil {
 		t.Fatal(err)
@@ -25,9 +25,9 @@ func TestSwappableSender_WritesToInitialImpl(t *testing.T) {
 func TestSwappableSender_SwapReturnsOld(t *testing.T) {
 	w1 := &mockWriter{}
 	w2 := &mockWriter{}
-	s := newSwappableSender(w1)
+	s := NewSwappableSender(w1)
 
-	old := s.swap(w2)
+	old := s.Swap(w2)
 
 	if old != w1 {
 		t.Error("swap should return the previous implementation")
@@ -37,9 +37,9 @@ func TestSwappableSender_SwapReturnsOld(t *testing.T) {
 func TestSwappableSender_WritesToNewImplAfterSwap(t *testing.T) {
 	w1 := &mockWriter{}
 	w2 := &mockWriter{}
-	s := newSwappableSender(w1)
+	s := NewSwappableSender(w1)
 
-	s.swap(w2)
+	s.Swap(w2)
 	_, _ = s.Write([]byte{9})
 
 	if len(w1.Packets) != 0 {
@@ -54,9 +54,9 @@ func TestSwappableSender_WritesToNewImplAfterSwap(t *testing.T) {
 func TestSwappableSender_Swap_ClosesOldIfCloser(t *testing.T) {
 	w1 := &mockClosingWriter{}
 	w2 := &mockWriter{}
-	s := newSwappableSender(w1)
+	s := NewSwappableSender(w1)
 
-	old := s.swap(w2)
+	old := s.Swap(w2)
 
 	// Simulate what replaceNetwork does.
 	if c, ok := old.(interface{ Close() error }); ok {
@@ -74,9 +74,9 @@ func TestSwappableSender_Swap_ClosesOldIfCloser(t *testing.T) {
 func TestSwappableSender_SwapAndDeferClose(t *testing.T) {
 	w1 := &mockClosingWriter{}
 	w2 := &mockWriter{}
-	s := newSwappableSender(w1)
+	s := NewSwappableSender(w1)
 
-	s.swapAndDeferClose(w2)
+	s.SwapAndDeferClose(w2)
 
 	if _, err := s.Write([]byte{7}); err != nil {
 		t.Fatal(err)
@@ -86,8 +86,8 @@ func TestSwappableSender_SwapAndDeferClose(t *testing.T) {
 		t.Error("write after swap should hit new writer")
 	}
 
-	// Wait for the deferred close fire (swapCloseGrace + slack).
-	deadline := time.Now().Add(swapCloseGrace + 500*time.Millisecond)
+	// Wait for the deferred close fire (SwapCloseGrace + slack).
+	deadline := time.Now().Add(SwapCloseGrace + 500*time.Millisecond)
 	for time.Now().Before(deadline) {
 		if w1.closeCalled.Load() {
 			break
@@ -104,7 +104,7 @@ func TestSwappableSender_SwapAndDeferClose(t *testing.T) {
 func TestSwappableSender_ConcurrentWritesAndSwap(t *testing.T) {
 	w1 := &safeMockWriter{}
 	w2 := &safeMockWriter{}
-	s := newSwappableSender(w1)
+	s := NewSwappableSender(w1)
 
 	const (
 		writers    = 10
@@ -127,7 +127,7 @@ func TestSwappableSender_ConcurrentWritesAndSwap(t *testing.T) {
 
 	// Swap in the middle of the writes.
 	time.Sleep(1 * time.Millisecond)
-	s.swap(w2)
+	s.Swap(w2)
 
 	wg.Wait()
 
@@ -150,7 +150,7 @@ func TestSwappableSender_StressWritersAndSwapper(t *testing.T) {
 	)
 
 	impls := []*safeMockWriter{{}, {}, {}, {}}
-	s := newSwappableSender(impls[0])
+	s := NewSwappableSender(impls[0])
 
 	var wg sync.WaitGroup
 
@@ -171,7 +171,7 @@ func TestSwappableSender_StressWritersAndSwapper(t *testing.T) {
 			default:
 			}
 
-			s.swap(impls[i%len(impls)])
+			s.Swap(impls[i%len(impls)])
 			i++
 
 			time.Sleep(swapInterval)
@@ -222,12 +222,12 @@ func TestSwappableSender_StressWritersAndSwapper(t *testing.T) {
 	}
 }
 
-// ─── swappableReceiver tests ──────────────────────────────────────────────────
+// ─── SwappableReceiver tests ──────────────────────────────────────────────────
 
 func TestSwappableReceiver_ReadsFromInitialImpl(t *testing.T) {
 	src := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1234}
 	r := newMockReader(mockPacket{src: src, data: []byte{42}})
-	sr := newSwappableReceiver(r)
+	sr := NewSwappableReceiver(r)
 
 	buf := make([]byte, 10)
 
@@ -250,9 +250,9 @@ func TestSwappableReceiver_ReadsFromInitialImpl(t *testing.T) {
 func TestSwappableReceiver_SwapReturnsOld(t *testing.T) {
 	r1 := newMockReader()
 	r2 := newMockReader()
-	sr := newSwappableReceiver(r1)
+	sr := NewSwappableReceiver(r1)
 
-	old := sr.swap(r2)
+	old := sr.Swap(r2)
 
 	if old != r1 {
 		t.Error("swap should return the previous implementation")
@@ -261,7 +261,7 @@ func TestSwappableReceiver_SwapReturnsOld(t *testing.T) {
 
 func TestSwappableReceiver_Close(t *testing.T) {
 	tr := &trackingReader{}
-	sr := newSwappableReceiver(tr)
+	sr := NewSwappableReceiver(tr)
 
 	if err := sr.Close(); err != nil {
 		t.Fatal(err)
@@ -274,7 +274,7 @@ func TestSwappableReceiver_Close(t *testing.T) {
 
 func TestSwappableReceiver_CloseUnblocksRead(t *testing.T) {
 	r := newMockReader() // empty queue — will block until Close
-	sr := newSwappableReceiver(r)
+	sr := NewSwappableReceiver(r)
 
 	done := make(chan struct{})
 
@@ -302,7 +302,7 @@ func TestSwappableReceiver_CloseUnblocksRead(t *testing.T) {
 func TestSwappableReceiver_ConcurrentSwapAndRead(t *testing.T) {
 	r1 := &safeCountingReader{}
 	r2 := &safeCountingReader{}
-	sr := newSwappableReceiver(r1)
+	sr := NewSwappableReceiver(r1)
 
 	const (
 		readers   = 10
@@ -327,7 +327,7 @@ func TestSwappableReceiver_ConcurrentSwapAndRead(t *testing.T) {
 
 	// Swap in the middle of concurrent reads.
 	time.Sleep(1 * time.Millisecond)
-	sr.swap(r2)
+	sr.Swap(r2)
 
 	wg.Wait()
 

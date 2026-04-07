@@ -1,6 +1,7 @@
 package comms
 
 import (
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"context"
 	"errors"
 	"testing"
@@ -171,8 +172,8 @@ func TestBeginTransmission_200msSleep(t *testing.T) {
 // started inside Run does not panic.
 func newRunRuntime(stream AudioStream) *CommsRuntime {
 	rt := newTestRuntime(stream)
-	rt.ports[0].receiver = newSwappableReceiver(newMockReader())
-	rt.ports[0].sender = newSwappableSender(&mockWriter{})
+	rt.ports[0].receiver = rtp.NewSwappableReceiver(newMockReader())
+	rt.ports[0].sender = rtp.NewSwappableSender(&mockWriter{})
 
 	return rt
 }

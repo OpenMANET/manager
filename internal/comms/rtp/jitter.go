@@ -1,4 +1,4 @@
-package comms
+package rtp
 
 import (
 	"sync"
@@ -7,18 +7,18 @@ import (
 )
 
 const (
-	// jitterPrebufferPackets is the number of frames the jitter buffer must
+	// PrebufferPackets is the number of frames the jitter buffer must
 	// hold before playout begins. Each frame is 20 ms, so 5 packets ≈ 100 ms.
 	// This sets the minimum receive latency floor and the safety margin for
 	// arrival jitter on the mesh. 100 ms tolerates roughly one full packet
 	// of late arrival before the buffer empties and playout falls into PLC.
-	jitterPrebufferPackets = 5
-	jitterMaxDepth         = 24
+	PrebufferPackets = 5
+	MaxDepth         = 24
 
-	// maxOpusPayloadSize is the RFC 6716 §3.2.1 maximum encoded frame size.
+	// MaxOpusPayloadSize is the RFC 6716 §3.2.1 maximum encoded frame size.
 	// Payload pool buffers are sized to this capacity to eliminate per-packet
 	// heap allocations in the jitter buffer hot path.
-	maxOpusPayloadSize = 1275
+	MaxOpusPayloadSize = 1275
 
 	// jitterIdleResetThreshold is the inter-arrival gap after which the jitter
 	// buffer treats the next packet as a fresh stream and re-initializes its
@@ -36,7 +36,7 @@ type jitterSlot struct {
 	valid   bool
 }
 
-// rtpJitterBuffer is a sequence-number-ordered buffer for RTP audio payloads.
+// JitterBuffer is a sequence-number-ordered buffer for RTP audio payloads.
 // It provides prebuffering, late-packet dropping, gap detection for PLC, and
 // SSRC-change/idle-gap detection so a new talker is never silently dropped
 // because their starting sequence number lies in the "past half" of the
@@ -44,15 +44,15 @@ type jitterSlot struct {
 //
 // Internally, frames are stored in a fixed-size circular array indexed by
 // (seq % maxDepth), eliminating all map allocations on the hot path.
-type rtpJitterBuffer struct {
+type JitterBuffer struct {
 	// now is injectable for deterministic idle-reset tests. nil → time.Now.
 	now         func() time.Time
 	payloadPool sync.Pool
 	lastPush    time.Time
-	slots       [jitterMaxDepth]jitterSlot
-	overflows   atomic.Int64
-	ssrcResets  atomic.Int64
-	idleResets  atomic.Int64
+	slots       [MaxDepth]jitterSlot
+	Overflows   atomic.Int64
+	SSRCResets  atomic.Int64
+	IdleResets  atomic.Int64
 	count       int
 	prebuffer   int
 	maxDepth    int
@@ -64,14 +64,14 @@ type rtpJitterBuffer struct {
 	haveSSRC    bool
 }
 
-func newRTPJitterBuffer(prebuffer, maxDepth int) *rtpJitterBuffer {
-	jb := &rtpJitterBuffer{
+func NewJitterBuffer(prebuffer, maxDepth int) *JitterBuffer {
+	jb := &JitterBuffer{
 		prebuffer: prebuffer,
 		maxDepth:  maxDepth,
 	}
 
 	jb.payloadPool.New = func() any {
-		s := make([]byte, maxOpusPayloadSize)
+		s := make([]byte, MaxOpusPayloadSize)
 
 		return &s
 	}
@@ -80,7 +80,7 @@ func newRTPJitterBuffer(prebuffer, maxDepth int) *rtpJitterBuffer {
 }
 
 // nowFn returns the current time, honoring an injected clock if set.
-func (jb *rtpJitterBuffer) nowFn() time.Time {
+func (jb *JitterBuffer) nowFn() time.Time {
 	if jb.now != nil {
 		return jb.now()
 	}
@@ -98,8 +98,8 @@ func seqLess(a, b uint16) bool {
 //
 // Deprecated: use pushWithSSRC. push is retained for tests that pre-date SSRC
 // tracking; it treats every packet as belonging to a single anonymous stream.
-func (jb *rtpJitterBuffer) push(seq uint16, payload []byte) bool {
-	return jb.pushWithSSRC(0, seq, payload, nil)
+func (jb *JitterBuffer) Push(seq uint16, payload []byte) bool {
+	return jb.PushWithSSRC(0, seq, payload, nil)
 }
 
 // pushWithSSRC stores a received payload, tracking the SSRC of the source
@@ -111,7 +111,7 @@ func (jb *rtpJitterBuffer) push(seq uint16, payload []byte) bool {
 // If onSSRCChange is non-nil, it is invoked (without holding jb.mu) when an
 // SSRC change is detected, with the old and new SSRC values. Pass nil if you
 // don't need notification (e.g. tests).
-func (jb *rtpJitterBuffer) pushWithSSRC(ssrc uint32, seq uint16, payload []byte, onSSRCChange func(oldSSRC, newSSRC uint32)) bool {
+func (jb *JitterBuffer) PushWithSSRC(ssrc uint32, seq uint16, payload []byte, onSSRCChange func(oldSSRC, newSSRC uint32)) bool {
 	jb.mu.Lock()
 
 	var (
@@ -124,12 +124,12 @@ func (jb *rtpJitterBuffer) pushWithSSRC(ssrc uint32, seq uint16, payload []byte,
 		ssrcChanged = true
 
 		jb.resetLocked()
-		jb.ssrcResets.Add(1)
+		jb.SSRCResets.Add(1)
 	}
 
 	ok := jb.pushLocked(seq, payload)
 	if !ok && jb.count >= jb.maxDepth {
-		jb.overflows.Add(1)
+		jb.Overflows.Add(1)
 	}
 
 	if ok {
@@ -147,7 +147,7 @@ func (jb *rtpJitterBuffer) pushWithSSRC(ssrc uint32, seq uint16, payload []byte,
 }
 
 // pushLocked is the internal push implementation; caller must hold jb.mu.
-func (jb *rtpJitterBuffer) pushLocked(seq uint16, payload []byte) bool {
+func (jb *JitterBuffer) pushLocked(seq uint16, payload []byte) bool {
 	// Idle-reset safety net: if a long gap has elapsed since the last push,
 	// treat the next packet as the start of a fresh stream regardless of
 	// sequence number. Catches edge cases the SSRC check cannot, e.g. a sender
@@ -155,7 +155,7 @@ func (jb *rtpJitterBuffer) pushLocked(seq uint16, payload []byte) bool {
 	// SSRC rotation that the caller did not propagate.
 	if jb.init && !jb.lastPush.IsZero() && jb.nowFn().Sub(jb.lastPush) > jitterIdleResetThreshold {
 		jb.resetLocked()
-		jb.idleResets.Add(1)
+		jb.IdleResets.Add(1)
 	}
 
 	if !jb.init {
@@ -182,7 +182,7 @@ func (jb *rtpJitterBuffer) pushLocked(seq uint16, payload []byte) bool {
 
 	// Overwrite a stale slot, returning its buffer to the pool first.
 	if slot.valid && slot.seq != seq {
-		jb.releasePayload(slot.payload)
+		jb.ReleasePayload(slot.payload)
 		jb.count--
 	}
 
@@ -203,7 +203,7 @@ func (jb *rtpJitterBuffer) pushLocked(seq uint16, payload []byte) bool {
 //
 // skippedMissing is true when the buffer advances past a gap (caller should
 // apply PLC for the skipped frame). ready is true when a payload is returned.
-func (jb *rtpJitterBuffer) popReady() (payload []byte, ready bool, skippedMissing bool) {
+func (jb *JitterBuffer) PopReady() (payload []byte, ready bool, skippedMissing bool) {
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
 
@@ -211,7 +211,7 @@ func (jb *rtpJitterBuffer) popReady() (payload []byte, ready bool, skippedMissin
 }
 
 // popReadyLocked is the internal pop implementation; caller must hold jb.mu.
-func (jb *rtpJitterBuffer) popReadyLocked() (payload []byte, ready bool, skippedMissing bool) {
+func (jb *JitterBuffer) popReadyLocked() (payload []byte, ready bool, skippedMissing bool) {
 	if !jb.init {
 		return nil, false, false
 	}
@@ -250,7 +250,7 @@ func (jb *rtpJitterBuffer) popReadyLocked() (payload []byte, ready bool, skipped
 
 // shouldConceal returns true when a packet arrived recently enough that PLC
 // is appropriate for a missing frame (i.e. the stream is active but gapped).
-func (jb *rtpJitterBuffer) shouldConceal(recentWindow time.Duration) bool {
+func (jb *JitterBuffer) ShouldConceal(recentWindow time.Duration) bool {
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
 
@@ -258,7 +258,7 @@ func (jb *rtpJitterBuffer) shouldConceal(recentWindow time.Duration) bool {
 }
 
 // shouldConcealLocked is the lock-free internal implementation.
-func (jb *rtpJitterBuffer) shouldConcealLocked(recentWindow time.Duration) bool {
+func (jb *JitterBuffer) shouldConcealLocked(recentWindow time.Duration) bool {
 	if !jb.started || jb.lastPush.IsZero() {
 		return false
 	}
@@ -268,7 +268,7 @@ func (jb *rtpJitterBuffer) shouldConcealLocked(recentWindow time.Duration) bool 
 
 // advancePast discards the current expected sequence number and advances the
 // playout cursor by one.
-func (jb *rtpJitterBuffer) advancePast() {
+func (jb *JitterBuffer) AdvancePast() {
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
 
@@ -276,12 +276,12 @@ func (jb *rtpJitterBuffer) advancePast() {
 }
 
 // advancePastLocked is the lock-free internal implementation.
-func (jb *rtpJitterBuffer) advancePastLocked() {
+func (jb *JitterBuffer) advancePastLocked() {
 	idx := int(jb.expected) % jb.maxDepth
 	slot := &jb.slots[idx]
 
 	if slot.valid && slot.seq == jb.expected {
-		jb.releasePayload(slot.payload)
+		jb.ReleasePayload(slot.payload)
 		slot.payload = nil
 		slot.valid = false
 		jb.count--
@@ -299,7 +299,7 @@ func (jb *rtpJitterBuffer) advancePastLocked() {
 //   - conceal == true: no frame was available but the stream is active and PLC
 //     should be applied. The playout cursor has already been advanced.
 //   - both nil/false: no frame available and no concealment needed.
-func (jb *rtpJitterBuffer) popOrConceal(recentWindow time.Duration) (payload []byte, conceal bool) { //nolint:unparam
+func (jb *JitterBuffer) PopOrConceal(recentWindow time.Duration) (payload []byte, conceal bool) { //nolint:unparam
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
 
@@ -325,7 +325,7 @@ func (jb *rtpJitterBuffer) popOrConceal(recentWindow time.Duration) (payload []b
 // reset clears all buffered state so the jitter buffer can be reused for a
 // new RTP stream (e.g. after a talk-group switch). The next push will
 // re-initialize the expected sequence number from the first arriving packet.
-func (jb *rtpJitterBuffer) reset() {
+func (jb *JitterBuffer) Reset() {
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
 
@@ -337,10 +337,10 @@ func (jb *rtpJitterBuffer) reset() {
 // resetLocked is the internal reset implementation; caller must hold jb.mu.
 // It does NOT clear the SSRC tracking fields — that is the caller's choice
 // (e.g. pushWithSSRC overwrites jb.ssrc with the new value after reset).
-func (jb *rtpJitterBuffer) resetLocked() {
+func (jb *JitterBuffer) resetLocked() {
 	for i := range jb.slots {
 		if jb.slots[i].valid {
-			jb.releasePayload(jb.slots[i].payload)
+			jb.ReleasePayload(jb.slots[i].payload)
 		}
 
 		jb.slots[i] = jitterSlot{}
@@ -354,10 +354,10 @@ func (jb *rtpJitterBuffer) resetLocked() {
 }
 
 // releasePayload returns a jitter-buffer payload slice back to the pool.
-// Only pool-allocated slices (cap == maxOpusPayloadSize) are accepted;
+// Only pool-allocated slices (cap == MaxOpusPayloadSize) are accepted;
 // anything else (test slices, nil) is silently ignored.
-func (jb *rtpJitterBuffer) releasePayload(p []byte) {
-	if cap(p) != maxOpusPayloadSize {
+func (jb *JitterBuffer) ReleasePayload(p []byte) {
+	if cap(p) != MaxOpusPayloadSize {
 		return
 	}
 

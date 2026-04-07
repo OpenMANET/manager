@@ -1,6 +1,7 @@
 package comms
 
 import (
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"context"
 	"errors"
 	"net"
@@ -81,7 +82,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 	// ports. Test code that constructs portChannel directly may leave it
 	// nil, in which case we allocate one here so the loop is self-sufficient.
 	if pc.jitter == nil {
-		pc.jitter = newRTPJitterBuffer(jitterPrebufferPackets, jitterMaxDepth)
+		pc.jitter = rtp.NewJitterBuffer(rtp.PrebufferPackets, rtp.MaxDepth)
 	}
 
 	jitter := pc.jitter
@@ -119,7 +120,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 				// log at Debug rather than Error.
 				if errors.Is(err, net.ErrClosed) {
 					cfg.Log.Debug().Msg("comms: recv socket swapped; resetting jitter buffer")
-					jitter.reset()
+					jitter.Reset()
 				} else {
 					cfg.Log.Error().Err(err).Msg("comms: recv error")
 				}
@@ -146,7 +147,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 		}
 
 		// Parse using pion/rtp for proper header validation.
-		pkt, parseErr := parseIncomingRTP(buf[:n])
+		pkt, parseErr := rtp.ParseIncoming(buf[:n])
 		if parseErr != nil {
 			cfg.Log.Debug().Err(parseErr).Int("bytes", n).Msg("comms: dropping non-RTP datagram")
 
@@ -178,13 +179,13 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 		// joining the multicast group does not get silently dropped
 		// because their starting sequence number happens to lie in the
 		// "past half" of the previous talker's frozen cursor.
-		if !jitter.pushWithSSRC(pkt.SSRC, pkt.SequenceNumber, pkt.Payload, func(oldSSRC, newSSRC uint32) {
+		if !jitter.PushWithSSRC(pkt.SSRC, pkt.SequenceNumber, pkt.Payload, func(oldSSRC, newSSRC uint32) {
 			cfg.Log.Info().
 				Uint32("old_ssrc", oldSSRC).
 				Uint32("new_ssrc", newSSRC).
 				Msg("comms: RTP SSRC changed; jitter buffer reset")
 		}) {
-			if n := jitter.overflows.Load(); n > 0 && n%50 == 0 {
+			if n := jitter.Overflows.Load(); n > 0 && n%50 == 0 {
 				cfg.Log.Warn().Int64("total_overflows", n).Msg("comms: jitter buffer overflow")
 			}
 		}
@@ -210,7 +211,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 // this port. Each port has its own PortAudio output stream running on its own
 // audio thread, so the field is single-writer. Tests must respect this by
 // not invoking playoutOneFrame concurrently with the production callback.
-func (cfg *CommsConfig) playoutOneFrame(pc *portChannel, rt *CommsRuntime, jitter *rtpJitterBuffer, out []int16) {
+func (cfg *CommsConfig) playoutOneFrame(pc *portChannel, rt *CommsRuntime, jitter *RTPJitterBuffer, out []int16) {
 	// Half-duplex: emit silence while broadcasting on a send-capable port.
 	if cfg.isBroadcasting(rt) && pc.sendEnabled.Load() {
 		zeroInt16(out)
@@ -230,10 +231,10 @@ func (cfg *CommsConfig) playoutOneFrame(pc *portChannel, rt *CommsRuntime, jitte
 		return
 	}
 
-	payload, conceal := jitter.popOrConceal(concealRecentWindow)
+	payload, conceal := jitter.PopOrConceal(concealRecentWindow)
 	if payload != nil {
 		n, err := rt.decoder.DecodeS16(payload, out)
-		jitter.releasePayload(payload)
+		jitter.ReleasePayload(payload)
 
 		if err != nil {
 			cfg.Log.Debug().Err(err).Msg("comms: opus decode error; falling back to PLC")
@@ -297,7 +298,7 @@ func (cfg *CommsConfig) playoutOneFrame(pc *portChannel, rt *CommsRuntime, jitte
 // software ticker and forwards raw Opus payloads to the WebAudioBridge for
 // streaming to the browser. PLC, half-duplex enforcement, and decoding all
 // happen on the browser side and are skipped here.
-func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *rtpJitterBuffer, rt *CommsRuntime) {
+func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *RTPJitterBuffer, rt *CommsRuntime) {
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -308,7 +309,7 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *rtpJitterBuf
 		case <-ticker.C:
 		}
 
-		payload, _ := jitter.popOrConceal(concealRecentWindow)
+		payload, _ := jitter.PopOrConceal(concealRecentWindow)
 		if payload == nil {
 			continue
 		}
@@ -316,7 +317,7 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *rtpJitterBuf
 		cp := make([]byte, len(payload))
 		copy(cp, payload)
 		rt.webBridge.PushRxFrame(cp)
-		jitter.releasePayload(payload)
+		jitter.ReleasePayload(payload)
 	}
 }
 
