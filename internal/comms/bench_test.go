@@ -290,12 +290,12 @@ func BenchmarkMicGainInt16(b *testing.B) {
 func BenchmarkPlayoutOneFrame_Mock(b *testing.B) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
+	pc := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
 
 	rt := &CommsRuntime{
-		decoder: &mockDecoder{returnN: frameSize},
+		Decoder: &mockDecoder{returnN: frameSize},
 	}
 
 	jb := rtp.NewJitterBuffer(1, rtp.MaxDepth)
@@ -342,11 +342,11 @@ func BenchmarkPlayoutOneFrame_Real(b *testing.B) {
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
+	pc := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
 
-	rt := &CommsRuntime{decoder: dec}
+	rt := &CommsRuntime{Decoder: dec}
 
 	jb := rtp.NewJitterBuffer(1, rtp.MaxDepth)
 	out := make([]int16, frameSize)
@@ -396,11 +396,11 @@ func BenchmarkPlayoutOneFrame_PLC(b *testing.B) {
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
+	pc := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
 
-	rt := &CommsRuntime{decoder: dec}
+	rt := &CommsRuntime{Decoder: dec}
 
 	// Prime the jitter buffer with a single push+pop so started=true and
 	// lastPush is recent; subsequent playoutOneFrame calls will hit conceal.
@@ -416,7 +416,7 @@ func BenchmarkPlayoutOneFrame_PLC(b *testing.B) {
 	for b.Loop() {
 		// Reset consecutivePLC each iteration so we always exercise the
 		// PLC decode path rather than falling through to silence.
-		pc.consecutivePLC = 0
+		pc.ConsecutivePLC = 0
 		cfg.playoutOneFrame(pc, rt, jb, out)
 	}
 }

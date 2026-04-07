@@ -49,15 +49,15 @@ func (f *fakePAStream) Info() *portaudio.StreamInfo { return f.info }
 func newTestBroadcastEncoder(t *testing.T, enc *mockEncoder) (*broadcastEncoder, *mockRTPSender, *fakePAStream) {
 	t.Helper()
 
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg:     McastPortConfig{Send: true},
-		rtpSess: &mockRTPSender{},
+		RTPSess: &mockRTPSender{},
 	}
-	pc.sendEnabled.Store(true)
+	pc.SendEnabled.Store(true)
 
 	rt := &CommsRuntime{
-		ports:   []*portChannel{pc},
-		encoder: enc,
+		Ports:   []*PortChannel{pc},
+		Encoder: enc,
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -72,7 +72,7 @@ func newTestBroadcastEncoder(t *testing.T, enc *mockEncoder) (*broadcastEncoder,
 		done:  make(chan struct{}),
 	}
 
-	return be, pc.rtpSess.(*mockRTPSender), stream
+	return be, pc.RTPSess.(*mockRTPSender), stream
 }
 
 // silentFrame returns a frameSize-long int16 slice filled with zeros. Phase 5
@@ -168,7 +168,7 @@ func TestBroadcastEncoder_ChannelFullDropsAndCounts(t *testing.T) {
 	// encode loop would.
 	for range broadcastEncoderChanDepth {
 		fp := <-be.encCh
-		int16Pool.Put(fp)
+		Int16Pool.Put(fp)
 	}
 }
 

@@ -79,11 +79,11 @@ func (s *Service) EnableTalkGroupSend(portIdx int, enabled bool) error {
 	}
 
 	rt := s.runtime
-	if portIdx < 0 || portIdx >= len(rt.ports) {
-		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(rt.ports))
+	if portIdx < 0 || portIdx >= len(rt.Ports) {
+		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(rt.Ports))
 	}
 
-	rt.ports[portIdx].sendEnabled.Store(enabled)
+	rt.Ports[portIdx].SendEnabled.Store(enabled)
 
 	return nil
 }
@@ -95,11 +95,11 @@ func (s *Service) EnableTalkGroupReceive(portIdx int, enabled bool) error {
 	}
 
 	rt := s.runtime
-	if portIdx < 0 || portIdx >= len(rt.ports) {
-		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(rt.ports))
+	if portIdx < 0 || portIdx >= len(rt.Ports) {
+		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(rt.Ports))
 	}
 
-	rt.ports[portIdx].receiveEnabled.Store(enabled)
+	rt.Ports[portIdx].ReceiveEnabled.Store(enabled)
 
 	return nil
 }
@@ -111,14 +111,14 @@ func (s *Service) TalkGroupStates() ([]McastPortState, error) {
 	}
 
 	rt := s.runtime
-	states := make([]McastPortState, len(rt.ports))
+	states := make([]McastPortState, len(rt.Ports))
 
-	for i, pc := range rt.ports {
+	for i, pc := range rt.Ports {
 		states[i] = McastPortState{
 			Address:        pc.cfg.Address,
 			Port:           pc.cfg.Port,
-			SendEnabled:    pc.sendEnabled.Load(),
-			ReceiveEnabled: pc.receiveEnabled.Load(),
+			SendEnabled:    pc.SendEnabled.Load(),
+			ReceiveEnabled: pc.ReceiveEnabled.Load(),
 		}
 	}
 
@@ -132,7 +132,7 @@ func (s *Service) WebEventSource() *webEventSource {
 		return nil
 	}
 
-	return s.runtime.webEvtSrc
+	return s.runtime.WebEvtSrc
 }
 
 // WebAudioBridge returns the web audio bridge if one was constructed,
@@ -142,7 +142,7 @@ func (s *Service) WebAudioBridge() *WebAudioBridge {
 		return nil
 	}
 
-	return s.runtime.webBridge
+	return s.runtime.WebBridge
 }
 
 // ─── Shim free functions ─────────────────────────────────────────────────────

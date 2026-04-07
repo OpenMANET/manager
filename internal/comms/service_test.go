@@ -11,12 +11,12 @@ func newTestService(t *testing.T, ports []McastPortConfig) *Service {
 	t.Helper()
 
 	svc := &Service{McastPorts: ports}
-	rt := &CommsRuntime{ports: make([]*portChannel, len(ports))}
+	rt := &CommsRuntime{Ports: make([]*PortChannel, len(ports))}
 
 	for i, pc := range ports {
-		rt.ports[i] = &portChannel{cfg: pc}
-		rt.ports[i].sendEnabled.Store(true)
-		rt.ports[i].receiveEnabled.Store(true)
+		rt.Ports[i] = &PortChannel{cfg: pc}
+		rt.Ports[i].SendEnabled.Store(true)
+		rt.Ports[i].ReceiveEnabled.Store(true)
 	}
 
 	svc.runtime = rt

@@ -8,12 +8,12 @@ import (
 // ─── Transmission state ───────────────────────────────────────────────────────
 
 func (cfg *CommsConfig) isBroadcasting(rt *CommsRuntime) bool {
-	return rt.broadcasting.Load()
+	return rt.Broadcasting.Load()
 }
 
 func (cfg *CommsConfig) drainPlaybackBuffer(rt *CommsRuntime) {
-	for _, pc := range rt.ports {
-		buf := pc.playbackBuffer
+	for _, pc := range rt.Ports {
+		buf := pc.PlaybackBuffer
 		if buf == nil {
 			continue
 		}
@@ -33,10 +33,10 @@ func (cfg *CommsConfig) drainPlaybackBuffer(rt *CommsRuntime) {
 // beginTransmission starts the mic capture stream and plays the start-tone
 // into the local speaker to signal the start of transmission.
 //
-// If the broadcast stream is nil or fails to start, rt.reopenBroadcast is
+// If the broadcast stream is nil or fails to start, rt.ReopenBroadcast is
 // called to rebuild it using the input device that was resolved at startup.
 func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
-	if rt.broadcasting.Load() {
+	if rt.Broadcasting.Load() {
 		cfg.Log.Debug().Msg("PTTDown ignored; already broadcasting")
 
 		return
@@ -50,11 +50,11 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 		return
 	}
 
-	rt.broadcasting.Store(true)
+	rt.Broadcasting.Store(true)
 
 	// Web mode: the browser provides its own audio I/O and UI feedback,
 	// so skip beep tones, playback drain, and PortAudio stream management.
-	if rt.webBridge != nil {
+	if rt.WebBridge != nil {
 		cfg.Log.Debug().Msg("Begin web transmission")
 
 		return
@@ -63,49 +63,49 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 	cfg.Log.Debug().Msg("Begin transmission: playing start tone and starting mic stream")
 	cfg.drainPlaybackBuffer(rt)
 
-	for _, pc := range rt.ports {
-		if pc.playbackBuffer != nil {
-			pc.playbackBuffer <- rt.beepBufferStart
+	for _, pc := range rt.Ports {
+		if pc.PlaybackBuffer != nil {
+			pc.PlaybackBuffer <- rt.BeepBufferStart
 		}
 	}
 
 	time.Sleep(200 * time.Millisecond)
 
-	if rt.broadcastStream == nil {
+	if rt.BroadcastStream == nil {
 		cfg.Log.Warn().Msg("Mic stream is nil; attempting to reopen")
 
-		if rt.reopenBroadcast != nil {
-			if err := rt.reopenBroadcast(); err != nil {
+		if rt.ReopenBroadcast != nil {
+			if err := rt.ReopenBroadcast(); err != nil {
 				cfg.Log.Error().Err(err).Msg("Failed to reopen mic stream")
-				rt.broadcasting.Store(false)
+				rt.Broadcasting.Store(false)
 
 				return
 			}
 		}
 	}
 
-	if rt.broadcastStream == nil {
+	if rt.BroadcastStream == nil {
 		cfg.Log.Error().Msg("Mic stream still nil after reopen attempt")
-		rt.broadcasting.Store(false)
+		rt.Broadcasting.Store(false)
 
 		return
 	}
 
-	if err := rt.broadcastStream.Start(); err != nil {
+	if err := rt.BroadcastStream.Start(); err != nil {
 		cfg.Log.Error().Err(err).Msg("Failed to start mic stream; attempting to reopen stream")
 
-		if rt.reopenBroadcast != nil {
-			if reErr := rt.reopenBroadcast(); reErr != nil {
+		if rt.ReopenBroadcast != nil {
+			if reErr := rt.ReopenBroadcast(); reErr != nil {
 				cfg.Log.Error().Err(reErr).Msg("Failed to reopen mic stream")
-				rt.broadcasting.Store(false)
+				rt.Broadcasting.Store(false)
 
 				return
 			}
 		}
 
-		if err := rt.broadcastStream.Start(); err != nil {
+		if err := rt.BroadcastStream.Start(); err != nil {
 			cfg.Log.Error().Err(err).Msg("Failed to start mic stream after reopen")
-			rt.broadcasting.Store(false)
+			rt.Broadcasting.Store(false)
 
 			return
 		}
@@ -116,25 +116,25 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 
 // endTransmission stops the mic capture stream and plays the stop-tone.
 func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
-	if !rt.broadcasting.Load() {
+	if !rt.Broadcasting.Load() {
 		cfg.Log.Debug().Msg("PTTUp ignored; mic already idle")
 
 		return
 	}
 
 	// Web mode: skip PortAudio stream management and beep tones.
-	if rt.webBridge != nil {
+	if rt.WebBridge != nil {
 		cfg.Log.Debug().Msg("End web transmission")
-		rt.broadcasting.Store(false)
+		rt.Broadcasting.Store(false)
 
 		return
 	}
 
 	cfg.Log.Debug().Msg("End transmission: stopping mic stream and playing stop tone")
 
-	if rt.broadcastStream == nil {
+	if rt.BroadcastStream == nil {
 		cfg.Log.Warn().Msg("Mic stream was nil during stop")
-	} else if err := rt.broadcastStream.Stop(); err != nil {
+	} else if err := rt.BroadcastStream.Stop(); err != nil {
 		cfg.Log.Error().Err(err).Msg("stop mic")
 	} else {
 		cfg.Log.Debug().Msg("Mic stream stopped")
@@ -142,21 +142,21 @@ func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 
 	cfg.drainPlaybackBuffer(rt)
 
-	for _, pc := range rt.ports {
-		if pc.playbackBuffer != nil {
-			pc.playbackBuffer <- rt.beepBufferStop
+	for _, pc := range rt.Ports {
+		if pc.PlaybackBuffer != nil {
+			pc.PlaybackBuffer <- rt.BeepBufferStop
 		}
 	}
 
-	rt.broadcasting.Store(false)
+	rt.Broadcasting.Store(false)
 }
 
 // Run is the main event loop. It starts a receiveLoop goroutine for every
 // Receive-capable port and then blocks, dispatching PTT events until ctx is
 // canceled.
 func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src EventSource) {
-	for _, pc := range rt.ports {
-		if pc.receiver != nil {
+	for _, pc := range rt.Ports {
+		if pc.Receiver != nil {
 			go cfg.receiveLoop(ctx, pc, rt)
 		}
 	}

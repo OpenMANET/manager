@@ -179,7 +179,7 @@ func TestWebEventSource_RunIntegration(t *testing.T) {
 		t.Error("Run did not exit in time")
 	}
 
-	rt.ports[0].receiver.Close()
+	rt.Ports[0].Receiver.Close()
 
 	if stream.startCalls != 1 {
 		t.Errorf("Start called %d times, want 1", stream.startCalls)

@@ -15,20 +15,20 @@ func newSilentComms() *CommsConfig {
 }
 
 func newTestRuntime(stream AudioStream) *CommsRuntime {
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg:     McastPortConfig{Send: true, Receive: true},
-		rtpSess: &mockRTPSender{},
+		RTPSess: &mockRTPSender{},
 	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []int16, 16)
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
+	pc.PlaybackBuffer = make(chan []int16, 16)
 
 	return &CommsRuntime{
-		ports:           []*portChannel{pc},
-		beepBufferStart: []int16{100, 200},
-		beepBufferStop:  []int16{300, 400},
-		broadcastStream: stream,
-		decoder:         &mockDecoder{},
+		Ports:           []*PortChannel{pc},
+		BeepBufferStart: []int16{100, 200},
+		BeepBufferStop:  []int16{300, 400},
+		BroadcastStream: stream,
+		Decoder:         &mockDecoder{},
 	}
 }
 
@@ -59,7 +59,7 @@ func TestBeginTransmission_QueuesStartBeep(t *testing.T) {
 	cfg.beginTransmission(rt)
 
 	select {
-	case frame := <-rt.ports[0].playbackBuffer:
+	case frame := <-rt.Ports[0].PlaybackBuffer:
 		if len(frame) != 2 {
 			t.Errorf("beep frame len=%d want 2", len(frame))
 		}
@@ -74,8 +74,8 @@ func TestBeginTransmission_DoublePressIgnored(t *testing.T) {
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
 
-	for len(rt.ports[0].playbackBuffer) > 0 {
-		<-rt.ports[0].playbackBuffer
+	for len(rt.Ports[0].PlaybackBuffer) > 0 {
+		<-rt.Ports[0].PlaybackBuffer
 	}
 
 	cfg.beginTransmission(rt)
@@ -91,8 +91,8 @@ func TestEndTransmission_StopsStream(t *testing.T) {
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
 
-	for len(rt.ports[0].playbackBuffer) > 0 {
-		<-rt.ports[0].playbackBuffer
+	for len(rt.Ports[0].PlaybackBuffer) > 0 {
+		<-rt.Ports[0].PlaybackBuffer
 	}
 
 	cfg.endTransmission(rt)
@@ -107,8 +107,8 @@ func TestEndTransmission_ClearsBroadcasting(t *testing.T) {
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
 
-	for len(rt.ports[0].playbackBuffer) > 0 {
-		<-rt.ports[0].playbackBuffer
+	for len(rt.Ports[0].PlaybackBuffer) > 0 {
+		<-rt.Ports[0].PlaybackBuffer
 	}
 
 	cfg.endTransmission(rt)
@@ -133,14 +133,14 @@ func TestDrainPlaybackBuffer(t *testing.T) {
 	rt := newTestRuntime(&mockStream{})
 	cfg := newSilentComms()
 
-	rt.ports[0].playbackBuffer <- []int16{1}
+	rt.Ports[0].PlaybackBuffer <- []int16{1}
 
-	rt.ports[0].playbackBuffer <- []int16{2}
+	rt.Ports[0].PlaybackBuffer <- []int16{2}
 
 	cfg.drainPlaybackBuffer(rt)
 
-	if len(rt.ports[0].playbackBuffer) != 0 {
-		t.Errorf("expected empty buffer; got %d items", len(rt.ports[0].playbackBuffer))
+	if len(rt.Ports[0].PlaybackBuffer) != 0 {
+		t.Errorf("expected empty buffer; got %d items", len(rt.Ports[0].PlaybackBuffer))
 	}
 }
 
@@ -172,8 +172,8 @@ func TestBeginTransmission_200msSleep(t *testing.T) {
 // started inside Run does not panic.
 func newRunRuntime(stream AudioStream) *CommsRuntime {
 	rt := newTestRuntime(stream)
-	rt.ports[0].receiver = rtp.NewSwappableReceiver(newMockReader())
-	rt.ports[0].sender = rtp.NewSwappableSender(&mockWriter{})
+	rt.Ports[0].Receiver = rtp.NewSwappableReceiver(newMockReader())
+	rt.Ports[0].Sender = rtp.NewSwappableSender(&mockWriter{})
 
 	return rt
 }
@@ -181,8 +181,8 @@ func newRunRuntime(stream AudioStream) *CommsRuntime {
 func TestBeginTransmission_NilStreamCallsReopen(t *testing.T) {
 	reopened := &mockStream{}
 	rt := newTestRuntime(nil) // nil broadcastStream triggers reopen path
-	rt.reopenBroadcast = func() error {
-		rt.broadcastStream = reopened
+	rt.ReopenBroadcast = func() error {
+		rt.BroadcastStream = reopened
 
 		return nil
 	}
@@ -201,7 +201,7 @@ func TestBeginTransmission_NilStreamCallsReopen(t *testing.T) {
 
 func TestBeginTransmission_ReopenFailureClearsBroadcasting(t *testing.T) {
 	rt := newTestRuntime(nil) // nil broadcastStream triggers reopen path
-	rt.reopenBroadcast = func() error {
+	rt.ReopenBroadcast = func() error {
 		return errors.New("hardware fault")
 	}
 
@@ -218,8 +218,8 @@ func TestBeginTransmission_StartFailureReopensAndSucceeds(t *testing.T) {
 	goodStream := &mockStream{}
 
 	rt := newTestRuntime(badStream)
-	rt.reopenBroadcast = func() error {
-		rt.broadcastStream = goodStream
+	rt.ReopenBroadcast = func() error {
+		rt.BroadcastStream = goodStream
 
 		return nil
 	}
@@ -238,7 +238,7 @@ func TestBeginTransmission_StartFailureReopensAndSucceeds(t *testing.T) {
 
 func TestBeginTransmission_StartFailureReopenAlsoFails(t *testing.T) {
 	rt := newTestRuntime(&mockStream{startErr: errors.New("start failed")})
-	rt.reopenBroadcast = func() error {
+	rt.ReopenBroadcast = func() error {
 		return errors.New("reopen error")
 	}
 
@@ -256,7 +256,7 @@ func TestBeginTransmission_BlockedWhenReceivingRemote(t *testing.T) {
 	stream := &mockStream{}
 	rt := newTestRuntime(stream)
 	// Simulate a packet that arrived just now from a remote peer.
-	rt.ports[0].rxGate.mark()
+	rt.Ports[0].RxGate.Mark()
 
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
@@ -274,7 +274,7 @@ func TestBeginTransmission_AllowedWhenRxStale(t *testing.T) {
 	stream := &mockStream{}
 	rt := newTestRuntime(stream)
 	// Store a timestamp well beyond rxActiveThreshold.
-	rt.ports[0].rxGate.markAt(time.Now().Add(-(rxActiveThreshold + time.Second)))
+	rt.Ports[0].RxGate.MarkAt(time.Now().Add(-(rxActiveThreshold + time.Second)))
 
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
@@ -324,7 +324,7 @@ func TestRun_ExitsOnContextCancel(t *testing.T) {
 		t.Error("Run did not exit after context cancel")
 	}
 
-	rt.ports[0].receiver.Close() // unblock any lingering receiveLoop goroutine
+	rt.Ports[0].Receiver.Close() // unblock any lingering receiveLoop goroutine
 }
 
 func TestRun_ClosedEventChannelExits(t *testing.T) {
@@ -348,7 +348,7 @@ func TestRun_ClosedEventChannelExits(t *testing.T) {
 		t.Error("Run did not exit when event channel is closed")
 	}
 
-	rt.ports[0].receiver.Close()
+	rt.Ports[0].Receiver.Close()
 }
 
 func TestRun_PTTDownStartsTransmission(t *testing.T) {
@@ -363,7 +363,7 @@ func TestRun_PTTDownStartsTransmission(t *testing.T) {
 
 	cfg.Run(context.Background(), rt, &mockEventSource{ch: evCh})
 
-	rt.ports[0].receiver.Close()
+	rt.Ports[0].Receiver.Close()
 
 	if stream.startCalls != 1 {
 		t.Errorf("Start called %d times, want 1", stream.startCalls)
@@ -384,7 +384,7 @@ func TestRun_PTTUpStopsTransmission(t *testing.T) {
 
 	cfg.Run(context.Background(), rt, &mockEventSource{ch: evCh})
 
-	rt.ports[0].receiver.Close()
+	rt.Ports[0].Receiver.Close()
 
 	if stream.startCalls != 1 {
 		t.Errorf("Start called %d times, want 1", stream.startCalls)
@@ -409,7 +409,7 @@ func TestRun_PTTToggleFlips(t *testing.T) {
 
 	cfg.Run(context.Background(), rt, &mockEventSource{ch: evCh})
 
-	rt.ports[0].receiver.Close()
+	rt.Ports[0].Receiver.Close()
 
 	if stream.startCalls != 1 {
 		t.Errorf("Start called %d times, want 1", stream.startCalls)
@@ -427,7 +427,7 @@ func TestRun_PTTToggleFlips(t *testing.T) {
 // reopenBroadcast are nil.
 func TestBeginTransmission_NilStreamAndNilReopen(t *testing.T) {
 	rt := newTestRuntime(nil) // nil broadcastStream
-	rt.reopenBroadcast = nil  // also nil
+	rt.ReopenBroadcast = nil  // also nil
 
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
@@ -441,18 +441,18 @@ func TestBeginTransmission_NilStreamAndNilReopen(t *testing.T) {
 // queues beepBufferStop to every configured port, mirroring the multi-port
 // start-beep behavior tested by TestBeginTransmission_BeepSentToAllPorts.
 func TestEndTransmission_QueuesStopBeepToAllPorts(t *testing.T) {
-	pc0 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
-	pc0.playbackBuffer = make(chan []int16, 16)
+	pc0 := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc0.PlaybackBuffer = make(chan []int16, 16)
 
-	pc1 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
-	pc1.playbackBuffer = make(chan []int16, 16)
+	pc1 := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc1.PlaybackBuffer = make(chan []int16, 16)
 
 	rt := &CommsRuntime{
-		ports:           []*portChannel{pc0, pc1},
-		beepBufferStart: []int16{100, 200},
-		beepBufferStop:  []int16{300, 400},
-		broadcastStream: &mockStream{},
-		decoder:         &mockDecoder{},
+		Ports:           []*PortChannel{pc0, pc1},
+		BeepBufferStart: []int16{100, 200},
+		BeepBufferStop:  []int16{300, 400},
+		BroadcastStream: &mockStream{},
+		Decoder:         &mockDecoder{},
 	}
 
 	cfg := newSilentComms()
@@ -460,20 +460,20 @@ func TestEndTransmission_QueuesStopBeepToAllPorts(t *testing.T) {
 	// Begin so broadcasting=true, then drain the start beeps before asserting.
 	cfg.beginTransmission(rt)
 
-	for len(pc0.playbackBuffer) > 0 {
-		<-pc0.playbackBuffer
+	for len(pc0.PlaybackBuffer) > 0 {
+		<-pc0.PlaybackBuffer
 	}
 
-	for len(pc1.playbackBuffer) > 0 {
-		<-pc1.playbackBuffer
+	for len(pc1.PlaybackBuffer) > 0 {
+		<-pc1.PlaybackBuffer
 	}
 
 	cfg.endTransmission(rt)
 
 	// Both ports must have received a stop beep.
-	for i, pc := range []*portChannel{pc0, pc1} {
+	for i, pc := range []*PortChannel{pc0, pc1} {
 		select {
-		case frame := <-pc.playbackBuffer:
+		case frame := <-pc.PlaybackBuffer:
 			if len(frame) != 2 {
 				t.Errorf("port %d: stop-beep frame len=%d, want 2", i, len(frame))
 			}
@@ -488,7 +488,7 @@ func TestEndTransmission_QueuesStopBeepToAllPorts(t *testing.T) {
 func TestBeginTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
 	stream := &mockStream{}
 	rt := newTestRuntime(stream)
-	rt.webBridge = &WebAudioBridge{} // non-nil activates web mode
+	rt.WebBridge = &WebAudioBridge{} // non-nil activates web mode
 
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
@@ -503,7 +503,7 @@ func TestBeginTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
 
 	// No beep should be queued.
 	select {
-	case <-rt.ports[0].playbackBuffer:
+	case <-rt.Ports[0].PlaybackBuffer:
 		t.Error("unexpected beep in playback buffer in web mode")
 	default:
 	}
@@ -512,12 +512,12 @@ func TestBeginTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
 func TestEndTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
 	stream := &mockStream{}
 	rt := newTestRuntime(stream)
-	rt.webBridge = &WebAudioBridge{}
+	rt.WebBridge = &WebAudioBridge{}
 
 	cfg := newSilentComms()
 
 	// Begin first so broadcasting is true.
-	rt.broadcasting.Store(true)
+	rt.Broadcasting.Store(true)
 	cfg.endTransmission(rt)
 
 	if cfg.isBroadcasting(rt) {
@@ -530,7 +530,7 @@ func TestEndTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
 
 	// No beep should be queued.
 	select {
-	case <-rt.ports[0].playbackBuffer:
+	case <-rt.Ports[0].PlaybackBuffer:
 		t.Error("unexpected beep in playback buffer in web mode")
 	default:
 	}
@@ -538,9 +538,9 @@ func TestEndTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
 
 func TestBeginTransmission_WebMode_HalfDuplexStillWorks(t *testing.T) {
 	rt := newTestRuntime(&mockStream{})
-	rt.webBridge = &WebAudioBridge{}
+	rt.WebBridge = &WebAudioBridge{}
 	// Simulate active remote reception.
-	rt.ports[0].rxGate.mark()
+	rt.Ports[0].RxGate.Mark()
 
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)

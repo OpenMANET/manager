@@ -81,7 +81,7 @@ func (be *broadcastEncoder) captureCallback(in []int16) {
 	// — the tap is only active when the ROIP control source is selected and
 	// VOX is currently monitoring. Regular TX (openvlm, nanoptt, web) never
 	// enters this branch and pays nothing.
-	if tapPtr := be.rt.broadcastTap.Load(); tapPtr != nil {
+	if tapPtr := be.rt.BroadcastTap.Load(); tapPtr != nil {
 		fp := audiopool.Float32Pool.Get().(*[]float32) //nolint:forcetypeassert
 		f := (*fp)[:frameSize]
 		for i, v := range in {
@@ -97,7 +97,7 @@ func (be *broadcastEncoder) captureCallback(in []int16) {
 
 	be.framesCaptured.Add(1)
 
-	fp := int16Pool.Get().(*[]int16) //nolint:forcetypeassert
+	fp := Int16Pool.Get().(*[]int16) //nolint:forcetypeassert
 	f := (*fp)[:frameSize]
 	copy(f, in)
 	*fp = f
@@ -109,7 +109,7 @@ func (be *broadcastEncoder) captureCallback(in []int16) {
 	case be.encCh <- fp:
 	default:
 		be.framesDropped.Add(1)
-		int16Pool.Put(fp)
+		Int16Pool.Put(fp)
 	}
 }
 
@@ -128,7 +128,7 @@ func (be *broadcastEncoder) encodeLoop() {
 // ships the payload via sendToAllPorts. Pool buffers are released via
 // defer so a panic in the encoder still returns them.
 func (be *broadcastEncoder) encodeOne(fp *[]int16) {
-	defer int16Pool.Put(fp)
+	defer Int16Pool.Put(fp)
 
 	pcm := *fp
 
@@ -146,12 +146,12 @@ func (be *broadcastEncoder) encodeOne(fp *[]int16) {
 		}
 	}
 
-	bufPtr := encBufPool.Get().(*[]byte) //nolint:forcetypeassert
+	bufPtr := EncBufPool.Get().(*[]byte) //nolint:forcetypeassert
 
 	buf := *bufPtr
-	defer encBufPool.Put(bufPtr)
+	defer EncBufPool.Put(bufPtr)
 
-	n, encErr := be.rt.encoder.EncodeS16(pcm, buf)
+	n, encErr := be.rt.Encoder.EncodeS16(pcm, buf)
 	if encErr != nil {
 		be.encodeErrors.Add(1)
 		be.cfg.Log.Debug().Err(encErr).Msg("comms: opus encode failed")

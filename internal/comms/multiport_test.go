@@ -20,13 +20,13 @@ func TestSendToAllPorts_SendsToEnabledPorts(t *testing.T) {
 	enabledSess := &mockRTPSender{}
 	disabledSess := &mockRTPSender{}
 
-	pc0 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}, rtpSess: enabledSess}
-	pc0.sendEnabled.Store(true)
+	pc0 := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}, RTPSess: enabledSess}
+	pc0.SendEnabled.Store(true)
 
-	pc1 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}, rtpSess: disabledSess}
-	pc1.sendEnabled.Store(false) // disabled at runtime
+	pc1 := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}, RTPSess: disabledSess}
+	pc1.SendEnabled.Store(false) // disabled at runtime
 
-	rt := &CommsRuntime{ports: []*portChannel{pc0, pc1}}
+	rt := &CommsRuntime{Ports: []*PortChannel{pc0, pc1}}
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
 	cfg.sendToAllPorts(rt, []byte{0xAA, 0xBB})
@@ -43,10 +43,10 @@ func TestSendToAllPorts_SendsToEnabledPorts(t *testing.T) {
 // TestSendToAllPorts_SkipsNilSession verifies that ports with nil rtpSess are
 // skipped without panicking.
 func TestSendToAllPorts_SkipsNilSession(t *testing.T) {
-	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}, rtpSess: nil}
-	pc.sendEnabled.Store(true)
+	pc := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}, RTPSess: nil}
+	pc.SendEnabled.Store(true)
 
-	rt := &CommsRuntime{ports: []*portChannel{pc}}
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
 	// Must not panic.
@@ -57,15 +57,15 @@ func TestSendToAllPorts_SkipsNilSession(t *testing.T) {
 // all send-enabled ports in a multi-port configuration.
 func TestSendToAllPorts_MultiplePortsAllEnabled(t *testing.T) {
 	sessions := [3]*mockRTPSender{}
-	ports := make([]*portChannel, 3)
+	ports := make([]*PortChannel, 3)
 
 	for i := range sessions {
 		sessions[i] = &mockRTPSender{}
-		ports[i] = &portChannel{cfg: McastPortConfig{Send: true}, rtpSess: sessions[i]}
-		ports[i].sendEnabled.Store(true)
+		ports[i] = &PortChannel{cfg: McastPortConfig{Send: true}, RTPSess: sessions[i]}
+		ports[i].SendEnabled.Store(true)
 	}
 
-	rt := &CommsRuntime{ports: ports}
+	rt := &CommsRuntime{Ports: ports}
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
 	cfg.sendToAllPorts(rt, []byte{0xDE, 0xAD})
@@ -82,15 +82,15 @@ func TestSendToAllPorts_MultiplePortsAllEnabled(t *testing.T) {
 func setupRuntimeConfig(t *testing.T) (*CommsConfig, *CommsRuntime) {
 	t.Helper()
 
-	pc0 := &portChannel{cfg: McastPortConfig{Address: "239.0.0.1", Port: 5004, Send: true, Receive: true}}
-	pc0.sendEnabled.Store(true)
-	pc0.receiveEnabled.Store(true)
+	pc0 := &PortChannel{cfg: McastPortConfig{Address: "239.0.0.1", Port: 5004, Send: true, Receive: true}}
+	pc0.SendEnabled.Store(true)
+	pc0.ReceiveEnabled.Store(true)
 
-	pc1 := &portChannel{cfg: McastPortConfig{Address: "239.0.0.2", Port: 5006, Send: true, Receive: false}}
-	pc1.sendEnabled.Store(true)
-	pc1.receiveEnabled.Store(false)
+	pc1 := &PortChannel{cfg: McastPortConfig{Address: "239.0.0.2", Port: 5006, Send: true, Receive: false}}
+	pc1.SendEnabled.Store(true)
+	pc1.ReceiveEnabled.Store(false)
 
-	rt := &CommsRuntime{ports: []*portChannel{pc0, pc1}}
+	rt := &CommsRuntime{Ports: []*PortChannel{pc0, pc1}}
 	cfg := &CommsConfig{
 		Log:        zerolog.Nop(),
 		McastPorts: []McastPortConfig{pc0.cfg, pc1.cfg},
@@ -109,7 +109,7 @@ func TestEnableTalkGroupSend_TogglesEnabled(t *testing.T) {
 		t.Fatalf("EnableTalkGroupSend(0, false): %v", err)
 	}
 
-	if rt.ports[0].sendEnabled.Load() {
+	if rt.Ports[0].SendEnabled.Load() {
 		t.Error("expected port 0 sendEnabled=false after EnableTalkGroupSend(0, false)")
 	}
 
@@ -117,7 +117,7 @@ func TestEnableTalkGroupSend_TogglesEnabled(t *testing.T) {
 		t.Fatalf("EnableTalkGroupSend(0, true): %v", err)
 	}
 
-	if !rt.ports[0].sendEnabled.Load() {
+	if !rt.Ports[0].SendEnabled.Load() {
 		t.Error("expected port 0 sendEnabled=true after EnableTalkGroupSend(0, true)")
 	}
 }
@@ -149,7 +149,7 @@ func TestEnableTalkGroupReceive_TogglesEnabled(t *testing.T) {
 		t.Fatalf("EnableTalkGroupReceive(0, false): %v", err)
 	}
 
-	if rt.ports[0].receiveEnabled.Load() {
+	if rt.Ports[0].ReceiveEnabled.Load() {
 		t.Error("expected port 0 receiveEnabled=false")
 	}
 
@@ -157,7 +157,7 @@ func TestEnableTalkGroupReceive_TogglesEnabled(t *testing.T) {
 		t.Fatalf("EnableTalkGroupReceive(0, true): %v", err)
 	}
 
-	if !rt.ports[0].receiveEnabled.Load() {
+	if !rt.Ports[0].ReceiveEnabled.Load() {
 		t.Error("expected port 0 receiveEnabled=true")
 	}
 }
@@ -186,8 +186,8 @@ func TestGetTalkGroupStates_ReturnsSnapshot(t *testing.T) {
 		t.Fatalf("GetTalkGroupStates: %v", err)
 	}
 
-	if len(states) != len(rt.ports) {
-		t.Fatalf("got %d states, want %d", len(states), len(rt.ports))
+	if len(states) != len(rt.Ports) {
+		t.Fatalf("got %d states, want %d", len(states), len(rt.Ports))
 	}
 
 	if states[0].Address != "239.0.0.1" || states[0].Port != 5004 {
@@ -243,11 +243,11 @@ func TestIsReceivingRemote_SendDisabledPortNotChecked(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
 	// Port with sendEnabled=false has recent rx – should NOT block transmission.
-	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
-	pc.sendEnabled.Store(false)
-	pc.rxGate.mark()
+	pc := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc.SendEnabled.Store(false)
+	pc.RxGate.Mark()
 
-	rt := &CommsRuntime{ports: []*portChannel{pc}}
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
 
 	if cfg.isReceivingRemote(rt) {
 		t.Error("sendEnabled=false port should not trigger half-duplex block")
@@ -259,15 +259,15 @@ func TestIsReceivingRemote_SendDisabledPortNotChecked(t *testing.T) {
 func TestIsReceivingRemote_MultiPortFirstEnabled(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	pc0 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
-	pc0.sendEnabled.Store(true)
-	pc0.rxGate.mark()
+	pc0 := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc0.SendEnabled.Store(true)
+	pc0.RxGate.Mark()
 
-	pc1 := &portChannel{cfg: McastPortConfig{Send: true, Receive: false}}
-	pc1.sendEnabled.Store(true)
+	pc1 := &PortChannel{cfg: McastPortConfig{Send: true, Receive: false}}
+	pc1.SendEnabled.Store(true)
 	// pc1 has never received
 
-	rt := &CommsRuntime{ports: []*portChannel{pc0, pc1}}
+	rt := &CommsRuntime{Ports: []*PortChannel{pc0, pc1}}
 
 	if !cfg.isReceivingRemote(rt) {
 		t.Error("expected true when first port has recent rx and sendEnabled=true")
@@ -277,7 +277,7 @@ func TestIsReceivingRemote_MultiPortFirstEnabled(t *testing.T) {
 // ─── receiveEnabled runtime toggle tests ─────────────────────────────────────
 
 // TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled verifies that when
-// pc.receiveEnabled is false, incoming RTP packets are read but not queued
+// pc.ReceiveEnabled is false, incoming RTP packets are read but not queued
 // to the jitter buffer (the playback buffer stays empty).
 func TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
@@ -289,17 +289,17 @@ func TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled(t *testing.T) {
 		mockPacket{data: raw, src: src},
 	)
 
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg:      McastPortConfig{Send: false, Receive: true},
-		receiver: rtp.NewSwappableReceiver(reader),
+		Receiver: rtp.NewSwappableReceiver(reader),
 	}
-	pc.sendEnabled.Store(false)
-	pc.receiveEnabled.Store(false) // ← disabled
-	pc.playbackBuffer = make(chan []int16, 8)
+	pc.SendEnabled.Store(false)
+	pc.ReceiveEnabled.Store(false) // ← disabled
+	pc.PlaybackBuffer = make(chan []int16, 8)
 
 	rt := &CommsRuntime{
-		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
+		Ports:   []*PortChannel{pc},
+		Decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -325,72 +325,72 @@ func TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled(t *testing.T) {
 	time.Sleep(60 * time.Millisecond) // allow one playout tick interval
 
 	cancel()
-	pc.receiver.Close()
+	pc.Receiver.Close()
 
 	<-done
 
-	if len(pc.playbackBuffer) != 0 {
-		t.Errorf("receive disabled: got %d frames queued, want 0", len(pc.playbackBuffer))
+	if len(pc.PlaybackBuffer) != 0 {
+		t.Errorf("receive disabled: got %d frames queued, want 0", len(pc.PlaybackBuffer))
 	}
 }
 
 // ─── per-port drainPlaybackBuffer tests ──────────────────────────────────────
 
 func TestDrainPlaybackBuffer_MultiPort(t *testing.T) {
-	pc0 := &portChannel{}
+	pc0 := &PortChannel{}
 
-	pc0.playbackBuffer = make(chan []int16, 4)
-	pc0.playbackBuffer <- []int16{1}
+	pc0.PlaybackBuffer = make(chan []int16, 4)
+	pc0.PlaybackBuffer <- []int16{1}
 
-	pc0.playbackBuffer <- []int16{2}
+	pc0.PlaybackBuffer <- []int16{2}
 
-	pc1 := &portChannel{}
+	pc1 := &PortChannel{}
 
-	pc1.playbackBuffer = make(chan []int16, 4)
-	pc1.playbackBuffer <- []int16{3}
+	pc1.PlaybackBuffer = make(chan []int16, 4)
+	pc1.PlaybackBuffer <- []int16{3}
 
-	rt := &CommsRuntime{ports: []*portChannel{pc0, pc1}}
+	rt := &CommsRuntime{Ports: []*PortChannel{pc0, pc1}}
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	cfg.drainPlaybackBuffer(rt)
 
-	if len(pc0.playbackBuffer) != 0 {
-		t.Errorf("port 0: expected empty buffer; got %d items", len(pc0.playbackBuffer))
+	if len(pc0.PlaybackBuffer) != 0 {
+		t.Errorf("port 0: expected empty buffer; got %d items", len(pc0.PlaybackBuffer))
 	}
 
-	if len(pc1.playbackBuffer) != 0 {
-		t.Errorf("port 1: expected empty buffer; got %d items", len(pc1.playbackBuffer))
+	if len(pc1.PlaybackBuffer) != 0 {
+		t.Errorf("port 1: expected empty buffer; got %d items", len(pc1.PlaybackBuffer))
 	}
 }
 
 // TestBeginTransmission_BeepSentToAllPorts verifies that beginTransmission
 // queues the start-beep to every configured port's playback buffer.
 func TestBeginTransmission_BeepSentToAllPorts(t *testing.T) {
-	pc0 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
-	pc0.sendEnabled.Store(true)
-	pc0.receiveEnabled.Store(true)
-	pc0.playbackBuffer = make(chan []int16, 4)
+	pc0 := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc0.SendEnabled.Store(true)
+	pc0.ReceiveEnabled.Store(true)
+	pc0.PlaybackBuffer = make(chan []int16, 4)
 
-	pc1 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
-	pc1.sendEnabled.Store(true)
-	pc1.receiveEnabled.Store(true)
-	pc1.playbackBuffer = make(chan []int16, 4)
+	pc1 := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc1.SendEnabled.Store(true)
+	pc1.ReceiveEnabled.Store(true)
+	pc1.PlaybackBuffer = make(chan []int16, 4)
 
 	rt := &CommsRuntime{
-		ports:           []*portChannel{pc0, pc1},
-		broadcastStream: &mockStream{},
-		beepBufferStart: []int16{100, 200},
-		beepBufferStop:  []int16{300, 400},
-		decoder:         &mockDecoder{},
+		Ports:           []*PortChannel{pc0, pc1},
+		BroadcastStream: &mockStream{},
+		BeepBufferStart: []int16{100, 200},
+		BeepBufferStop:  []int16{300, 400},
+		Decoder:         &mockDecoder{},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	cfg.beginTransmission(rt)
 
-	if len(pc0.playbackBuffer) == 0 {
+	if len(pc0.PlaybackBuffer) == 0 {
 		t.Error("port 0: expected start beep in playback buffer")
 	}
 
-	if len(pc1.playbackBuffer) == 0 {
+	if len(pc1.PlaybackBuffer) == 0 {
 		t.Error("port 1: expected start beep in playback buffer")
 	}
 }
@@ -402,10 +402,10 @@ func TestBeginTransmission_BeepSentToAllPorts(t *testing.T) {
 func TestSendToAllPorts_SendErrorDoesNotPanic(t *testing.T) {
 	sess := &mockRTPSender{sendErr: errors.New("network unreachable")}
 
-	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}, rtpSess: sess}
-	pc.sendEnabled.Store(true)
+	pc := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}, RTPSess: sess}
+	pc.SendEnabled.Store(true)
 
-	rt := &CommsRuntime{ports: []*portChannel{pc}}
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
 	// Must not panic.
@@ -417,20 +417,20 @@ func TestSendToAllPorts_SendErrorDoesNotPanic(t *testing.T) {
 // TestPlayoutOneFrame_ReceiveOnlyPortNotSuppressedDuringBroadcast verifies
 // that half-duplex suppression in playoutOneFrame only applies to
 // send-capable ports. A receive-only port (sendEnabled=false) must continue
-// emitting decoded audio even while rt.broadcasting==true.
+// emitting decoded audio even while rt.Broadcasting==true.
 func TestPlayoutOneFrame_ReceiveOnlyPortNotSuppressedDuringBroadcast(t *testing.T) {
 	// Receive-only port: sendEnabled=false.
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg: McastPortConfig{Send: false, Receive: true},
 	}
-	pc.sendEnabled.Store(false)
-	pc.receiveEnabled.Store(true)
+	pc.SendEnabled.Store(false)
+	pc.ReceiveEnabled.Store(true)
 
 	rt := &CommsRuntime{
-		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{fillValue: 42, returnN: frameSize},
+		Ports:   []*PortChannel{pc},
+		Decoder: &mockDecoder{fillValue: 42, returnN: frameSize},
 	}
-	rt.broadcasting.Store(true) // simulate active broadcast on another port
+	rt.Broadcasting.Store(true) // simulate active broadcast on another port
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0xAA, 0xBB}) // prebuffer=1: immediately ready
@@ -442,7 +442,7 @@ func TestPlayoutOneFrame_ReceiveOnlyPortNotSuppressedDuringBroadcast(t *testing.
 
 	// The decoder fills with fillValue/32768; receive-only ports bypass
 	// the half-duplex check so we should see non-zero samples even though
-	// rt.broadcasting is true.
+	// rt.Broadcasting is true.
 	allZero := true
 
 	for _, v := range out {

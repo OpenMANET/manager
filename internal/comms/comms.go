@@ -55,7 +55,7 @@ const (
 // every 20 ms. Pooling them eliminates per-frame GC pressure.
 
 var (
-	int16Pool = sync.Pool{ //nolint:gochecknoglobals
+	Int16Pool = sync.Pool{ //nolint:gochecknoglobals
 		New: func() any {
 			s := make([]int16, frameSize)
 
@@ -65,7 +65,7 @@ var (
 	// float32Pool has been moved to pools.go (sibling file) so future
 	// sub-packages (audio/, control/roip.go) can import it via the parent
 	// package without cross-importing each other.
-	encBufPool = sync.Pool{ //nolint:gochecknoglobals
+	EncBufPool = sync.Pool{ //nolint:gochecknoglobals
 		New: func() any {
 			s := make([]byte, encBufSize)
 
@@ -81,15 +81,15 @@ func returnFloat32(s []float32) {
 	audiopool.ReturnFloat32(s)
 }
 
-// returnInt16 returns a pooled []int16 slice to int16Pool. Non-pooled slices
+// ReturnInt16 returns a pooled []int16 slice to Int16Pool. Non-pooled slices
 // (capacity != frameSize) are silently ignored.
-func returnInt16(s []int16) {
+func ReturnInt16(s []int16) {
 	if cap(s) != frameSize {
 		return
 	}
 
 	sp := &s
-	int16Pool.Put(sp)
+	Int16Pool.Put(sp)
 }
 
 // ─── McastPortConfig / McastPortState ────────────────────────────────────────
@@ -121,9 +121,9 @@ type McastPortState struct {
 	ReceiveEnabled bool
 }
 
-// ─── portChannel ─────────────────────────────────────────────────────────────
+// ─── PortChannel ─────────────────────────────────────────────────────────────
 
-// portChannel holds all live resources for one McastPortConfig entry.
+// PortChannel holds all live resources for one McastPortConfig entry.
 // sendEnabled and receiveEnabled are atomic bools that can be toggled at
 // runtime via EnableTalkGroupSend / EnableTalkGroupReceive without restarting any goroutine
 // or socket.
@@ -143,20 +143,20 @@ type McastPortState struct {
 // (see transmit.go beginTransmission/endTransmission); the PortAudio callback
 // drains it before falling through to playoutOneFrame so beeps preempt one
 // frame of jitter-buffered audio.
-type portChannel struct {
-	rtpSess           RTPSender
-	playbackStream    AudioStream
-	sender            *SwappableSender
-	rtcpSend          *SwappableSender
-	receiver          *SwappableReceiver
-	jitter            *RTPJitterBuffer
-	playbackBuffer    chan []int16
+type PortChannel struct {
+	RTPSess           RTPSender
+	PlaybackStream    AudioStream
+	Sender            *SwappableSender
+	RTCPSend          *SwappableSender
+	Receiver          *SwappableReceiver
+	Jitter            *RTPJitterBuffer
+	PlaybackBuffer    chan []int16
 	cfg               McastPortConfig
-	consecutivePLC    int
-	rxGate            halfDuplexGate
-	playbackUnderruns atomic.Int64
-	sendEnabled       atomic.Bool
-	receiveEnabled    atomic.Bool
+	ConsecutivePLC    int
+	RxGate            HalfDuplexGate
+	PlaybackUnderruns atomic.Int64
+	SendEnabled       atomic.Bool
+	ReceiveEnabled    atomic.Bool
 }
 
 
@@ -281,11 +281,11 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 	localIP string,
 	ifi *net.Interface,
 	ssrc uint32,
-) (*portChannel, error) {
-	pc := &portChannel{cfg: mpc}
-	pc.rxGate.threshold = cfg.HalfDuplexThreshold
-	pc.sendEnabled.Store(boolPtrVal(mpc.InitSendEnabled, mpc.Send))
-	pc.receiveEnabled.Store(boolPtrVal(mpc.InitReceiveEnabled, mpc.Receive))
+) (*PortChannel, error) {
+	pc := &PortChannel{cfg: mpc}
+	pc.RxGate.Threshold = cfg.HalfDuplexThreshold
+	pc.SendEnabled.Store(boolPtrVal(mpc.InitSendEnabled, mpc.Send))
+	pc.ReceiveEnabled.Store(boolPtrVal(mpc.InitReceiveEnabled, mpc.Receive))
 
 	if mpc.Send {
 		// ── RTP sender ─────────────────────────────────────────────────
@@ -332,9 +332,9 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 			return nil, fmt.Errorf("pion RTP session for %s:%d: %w", mpc.Address, mpc.Port, err)
 		}
 
-		pc.sender = sender
-		pc.rtcpSend = rtcpSend
-		pc.rtpSess = sess
+		pc.Sender = sender
+		pc.RTCPSend = rtcpSend
+		pc.RTPSess = sess
 
 		cfg.Log.Debug().Msgf("comms: RTP sender %s:%d  RTCP %s:%d", mpc.Address, mpc.Port, mpc.Address, mpc.Port+1)
 	}
@@ -345,11 +345,11 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 		// on the same port while the current receiver is still running.
 		recvConn, err := listenRTPReceiver(&net.UDPAddr{IP: net.IPv4zero, Port: mpc.Port})
 		if err != nil {
-			if pc.sender != nil {
-				_ = pc.sender.Close()
+			if pc.Sender != nil {
+				_ = pc.Sender.Close()
 
-				_ = pc.rtcpSend.Close()
-				if s, ok := pc.rtpSess.(*RTPSession); ok {
+				_ = pc.RTCPSend.Close()
+				if s, ok := pc.RTPSess.(*RTPSession); ok {
 					_ = s.Close()
 				}
 			}
@@ -360,11 +360,11 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 		if err := recvConn.SetReadBuffer(rxSocketBufBytes); err != nil {
 			_ = recvConn.Close()
 
-			if pc.sender != nil {
-				_ = pc.sender.Close()
+			if pc.Sender != nil {
+				_ = pc.Sender.Close()
 
-				_ = pc.rtcpSend.Close()
-				if s, ok := pc.rtpSess.(*RTPSession); ok {
+				_ = pc.RTCPSend.Close()
+				if s, ok := pc.RTPSess.(*RTPSession); ok {
 					_ = s.Close()
 				}
 			}
@@ -388,11 +388,11 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 		if err := device.JoinMulticastGroup(ifi, recvConn, net.ParseIP(mpc.Address)); err != nil {
 			_ = recvConn.Close()
 
-			if pc.sender != nil {
-				_ = pc.sender.Close()
+			if pc.Sender != nil {
+				_ = pc.Sender.Close()
 
-				_ = pc.rtcpSend.Close()
-				if s, ok := pc.rtpSess.(*RTPSession); ok {
+				_ = pc.RTCPSend.Close()
+				if s, ok := pc.RTPSess.(*RTPSession); ok {
 					_ = s.Close()
 				}
 			}
@@ -400,8 +400,8 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 			return nil, err
 		}
 
-		pc.receiver = rtp.NewSwappableReceiver(recvConn)
-		pc.jitter = rtp.NewJitterBuffer(rtp.PrebufferPackets, rtp.MaxDepth)
+		pc.Receiver = rtp.NewSwappableReceiver(recvConn)
+		pc.Jitter = rtp.NewJitterBuffer(rtp.PrebufferPackets, rtp.MaxDepth)
 
 		cfg.Log.Debug().Msgf("comms: RTP receiver port %d", mpc.Port)
 	}
@@ -410,12 +410,12 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 }
 
 // buildNetwork opens sockets for every McastPortConfig entry and returns the
-// assembled portChannel slice plus the local IP address of cfg.Iface.
+// assembled PortChannel slice plus the local IP address of cfg.Iface.
 //
 // The SSRC used for all Send-enabled ports is derived from cfg.RtpID (or
 // localIP as fallback), keeping transmissions from this node identifiable
 // across talk groups.
-func (cfg *CommsConfig) buildNetwork() ([]*portChannel, string, error) {
+func (cfg *CommsConfig) buildNetwork() ([]*PortChannel, string, error) {
 	localIP, ifi, err := device.IfaceIPv4(cfg.Iface)
 	if err != nil {
 		return nil, "", err
@@ -430,23 +430,23 @@ func (cfg *CommsConfig) buildNetwork() ([]*portChannel, string, error) {
 
 	ssrc := rtp.SSRCFromID(rtpID)
 
-	ports := make([]*portChannel, 0, len(cfg.McastPorts))
+	ports := make([]*PortChannel, 0, len(cfg.McastPorts))
 
 	for _, mpc := range cfg.McastPorts {
 		pc, err := cfg.buildSinglePortChannel(mpc, localIP, ifi, ssrc)
 		if err != nil {
 			// Clean up already-built channels before propagating the error.
 			for _, built := range ports {
-				if built.receiver != nil {
-					_ = built.receiver.Close()
+				if built.Receiver != nil {
+					_ = built.Receiver.Close()
 				}
 
-				if built.sender != nil {
-					_ = built.sender.Close()
-					_ = built.rtcpSend.Close()
+				if built.Sender != nil {
+					_ = built.Sender.Close()
+					_ = built.RTCPSend.Close()
 				}
 
-				if s, ok := built.rtpSess.(*RTPSession); ok && built.rtpSess != nil {
+				if s, ok := built.RTPSess.(*RTPSession); ok && built.RTPSess != nil {
 					_ = s.Close()
 				}
 			}
@@ -463,9 +463,9 @@ func (cfg *CommsConfig) buildNetwork() ([]*portChannel, string, error) {
 // ─── buildAudio ───────────────────────────────────────────────────────────────
 
 // buildAudio resolves PortAudio devices, opens a dedicated playback stream for
-// every Receive-capable port (storing it in portChannel.playbackStream), and
+// every Receive-capable port (storing it in PortChannel.PlaybackStream), and
 // opens the shared broadcast capture stream. Per-port playback streams are
-// accessible via rt.ports after this call returns.
+// accessible via rt.Ports after this call returns.
 func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 	broadcast AudioStream,
 	inDev *portaudio.DeviceInfo,
@@ -486,7 +486,7 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 	// playbackBuffer is a small one-shot side channel used by the TX path
 	// (transmit.go) to inject start/stop beep tones into the local speaker.
 	// It is no longer the carrier for decoded RTP audio — that flows through
-	// pc.jitter directly into the PortAudio output callback via
+	// pc.Jitter directly into the PortAudio output callback via
 	// playoutOneFrame, eliminating the producer/consumer clock mismatch that
 	// previously caused stutter.
 	const beepChannelDepth = 4
@@ -523,12 +523,12 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 	// receiver socket, regardless of its initial receiveEnabled state.
 	// This ensures that EnableTalkGroupReceive can activate any port at
 	// runtime without needing a restart.
-	for _, pc := range rt.ports {
-		if pc.receiver == nil {
+	for _, pc := range rt.Ports {
+		if pc.Receiver == nil {
 			continue
 		}
 
-		pc.playbackBuffer = make(chan []int16, beepChannelDepth)
+		pc.PlaybackBuffer = make(chan []int16, beepChannelDepth)
 
 		pcRef := pc // capture for callback closure
 
@@ -541,21 +541,21 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 			// jitter-buffered audio. The select is non-blocking so a
 			// missing beep falls straight through to playoutOneFrame.
 			select {
-			case data := <-pcRef.playbackBuffer:
+			case data := <-pcRef.PlaybackBuffer:
 				copy(out, data)
 
 				return
 			default:
 			}
 
-			cfg.playoutOneFrame(pcRef, rt, pcRef.jitter, out)
+			cfg.playoutOneFrame(pcRef, rt, pcRef.Jitter, out)
 		})
 		if openErr != nil {
 			// Close already-opened per-port streams before propagating error.
-			for _, built := range rt.ports {
-				if built.playbackStream != nil {
-					_ = built.playbackStream.Close()
-					built.playbackStream = nil
+			for _, built := range rt.Ports {
+				if built.PlaybackStream != nil {
+					_ = built.PlaybackStream.Close()
+					built.PlaybackStream = nil
 				}
 			}
 
@@ -579,15 +579,15 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 				Msg("comms: playback stream opened")
 		}
 
-		pc.playbackStream = &portaudioStream{rawPlayback}
+		pc.PlaybackStream = &portaudioStream{rawPlayback}
 	}
 
 	broadcast, err = cfg.openBroadcastStreamOn(inDev, rt)
 	if err != nil {
-		for _, pc := range rt.ports {
-			if pc.playbackStream != nil {
-				_ = pc.playbackStream.Close()
-				pc.playbackStream = nil
+		for _, pc := range rt.Ports {
+			if pc.PlaybackStream != nil {
+				_ = pc.PlaybackStream.Close()
+				pc.PlaybackStream = nil
 			}
 		}
 
@@ -601,12 +601,12 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 // is true and an rtpSess is configured. Send errors are logged at Debug level
 // and do not abort remaining ports.
 func (cfg *CommsConfig) sendToAllPorts(rt *CommsRuntime, payload []byte) {
-	for _, pc := range rt.ports {
-		if !pc.sendEnabled.Load() || pc.rtpSess == nil {
+	for _, pc := range rt.Ports {
+		if !pc.SendEnabled.Load() || pc.RTPSess == nil {
 			continue
 		}
 
-		if err := pc.rtpSess.Send(payload); err != nil {
+		if err := pc.RTPSess.Send(payload); err != nil {
 			cfg.Log.Debug().Err(err).
 				Str("addr", pc.cfg.Address).
 				Int("port", pc.cfg.Port).
@@ -682,9 +682,9 @@ func (cfg *CommsConfig) reopenBroadcastStream(rt *CommsRuntime, inDev *portaudio
 		return errors.New("input device is not set")
 	}
 
-	if rt.broadcastStream != nil {
-		_ = rt.broadcastStream.Close()
-		rt.broadcastStream = nil
+	if rt.BroadcastStream != nil {
+		_ = rt.BroadcastStream.Close()
+		rt.BroadcastStream = nil
 	}
 
 	stream, err := cfg.openBroadcastStreamOn(inDev, rt)
@@ -692,7 +692,7 @@ func (cfg *CommsConfig) reopenBroadcastStream(rt *CommsRuntime, inDev *portaudio
 		return err
 	}
 
-	rt.broadcastStream = stream
+	rt.BroadcastStream = stream
 
 	return nil
 }
@@ -744,9 +744,9 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 		)
 
 		isReceiving := func() bool { return cfg.isReceivingRemote(rt) }
-		isBroadcasting := func() bool { return rt.broadcasting.Load() }
-		setTap := func(ch chan []float32) { rt.broadcastTap.Store(&ch) }
-		clearTap := func() { rt.broadcastTap.Store(nil) }
+		isBroadcasting := func() bool { return rt.Broadcasting.Load() }
+		setTap := func(ch chan []float32) { rt.BroadcastTap.Store(&ch) }
+		clearTap := func() { rt.BroadcastTap.Store(nil) }
 
 		return control.NewROIPSource(
 			cfg.Log,
@@ -766,7 +766,7 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 		cfg.Log.Info().Msg("comms: PTT via web RPC")
 
 		ws := control.NewWebEventSource(cfg.Log)
-		rt.webEvtSrc = ws
+		rt.WebEvtSrc = ws
 
 		return ws, nil
 
@@ -795,26 +795,26 @@ func (cfg *CommsConfig) replaceNetwork(
 	newReceiver PacketReader,
 	newLocalIP string,
 ) {
-	pc := rt.ports[0]
+	pc := rt.Ports[0]
 
-	if pc.receiver != nil && newReceiver != nil {
-		old := pc.receiver.Swap(newReceiver)
+	if pc.Receiver != nil && newReceiver != nil {
+		old := pc.Receiver.Swap(newReceiver)
 		_ = old.Close()
 	}
 
-	if pc.sender != nil && newSender != nil {
+	if pc.Sender != nil && newSender != nil {
 		// Deferred close: the lock-free Write path on SwappableSender
 		// cannot be drained synchronously, so the previous underlying
 		// connection is closed after rtp.SwapCloseGrace to let any in-flight
 		// sendto(2) on the old fd finish first.
-		pc.sender.SwapAndDeferClose(newSender)
+		pc.Sender.SwapAndDeferClose(newSender)
 	}
 
-	if pc.rtcpSend != nil && newRTCPSender != nil {
-		pc.rtcpSend.SwapAndDeferClose(newRTCPSender)
+	if pc.RTCPSend != nil && newRTCPSender != nil {
+		pc.RTCPSend.SwapAndDeferClose(newRTCPSender)
 	}
 
-	rt.localIP.Store(&newLocalIP)
+	rt.LocalIP.Store(&newLocalIP)
 }
 
 // Accessors for the active Service live in service.go.
@@ -841,12 +841,12 @@ func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) (func(), error) {
 		return nil, fmt.Errorf("comms: failed to build audio streams: %w", audioErr)
 	}
 
-	rt.broadcastStream = broadcastStream
-	rt.reopenBroadcast = func() error { return cfg.reopenBroadcastStream(rt, inDev) }
+	rt.BroadcastStream = broadcastStream
+	rt.ReopenBroadcast = func() error { return cfg.reopenBroadcastStream(rt, inDev) }
 
-	for _, pc := range rt.ports {
-		if pc.playbackStream != nil {
-			if startErr := pc.playbackStream.Start(); startErr != nil {
+	for _, pc := range rt.Ports {
+		if pc.PlaybackStream != nil {
+			if startErr := pc.PlaybackStream.Start(); startErr != nil {
 				_ = broadcastStream.Close()
 				_ = portaudio.Terminate()
 
@@ -856,10 +856,10 @@ func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) (func(), error) {
 	}
 
 	return func() {
-		for _, pc := range rt.ports {
-			if pc.playbackStream != nil {
-				_ = pc.playbackStream.Stop()
-				_ = pc.playbackStream.Close()
+		for _, pc := range rt.Ports {
+			if pc.PlaybackStream != nil {
+				_ = pc.PlaybackStream.Stop()
+				_ = pc.PlaybackStream.Close()
 			}
 		}
 
@@ -931,23 +931,23 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 
 	// ── assemble runtime ───────────────────────────────────────────────────
 	rt := &CommsRuntime{
-		encoder:         enc,
-		decoder:         dec,
-		ports:           ports,
-		beepBufferStart: beepStart,
-		beepBufferStop:  beepStop,
+		Encoder:         enc,
+		Decoder:         dec,
+		Ports:           ports,
+		BeepBufferStart: beepStart,
+		BeepBufferStop:  beepStop,
 	}
 
-	rt.localIP.Store(&localIP)
+	rt.LocalIP.Store(&localIP)
 
 	defer func() {
-		for _, pc := range rt.ports {
-			if pc.receiver != nil {
-				_ = pc.receiver.Close()
+		for _, pc := range rt.Ports {
+			if pc.Receiver != nil {
+				_ = pc.Receiver.Close()
 			}
 
-			if pc.rtpSess != nil {
-				if s, ok := pc.rtpSess.(*RTPSession); ok {
+			if pc.RTPSess != nil {
+				if s, ok := pc.RTPSess.(*RTPSession); ok {
 					_ = s.Close()
 				}
 			}
@@ -970,7 +970,7 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 	// ── audio I/O ─────────────────────────────────────────────────────────
 	if cfg.ControlSource == controlSourceWeb {
 		// Web mode: skip PortAudio entirely; the browser provides audio I/O.
-		rt.webBridge = NewWebAudioBridge(cfg, rt, cfg.Log)
+		rt.WebBridge = NewWebAudioBridge(cfg, rt, cfg.Log)
 	} else {
 		cleanup, hwErr := cfg.startHardwareAudio(rt)
 		if hwErr != nil {

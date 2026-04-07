@@ -131,16 +131,16 @@ func (cfg *CommsConfig) buildControlDeps(rt *CommsRuntime) (control.ControlDeps,
 			MaxTXDuration:  cfg.ROIPMaxTXDuration,
 			InputDevice:    cfg.ROIPInputDevice,
 			IsReceiving:    func() bool { return cfg.isReceivingRemote(rt) },
-			IsBroadcasting: func() bool { return rt.broadcasting.Load() },
-			SetTap:         func(ch chan []float32) { rt.broadcastTap.Store(&ch) },
-			ClearTap:       func() { rt.broadcastTap.Store(nil) },
+			IsBroadcasting: func() bool { return rt.Broadcasting.Load() },
+			SetTap:         func(ch chan []float32) { rt.BroadcastTap.Store(&ch) },
+			ClearTap:       func() { rt.BroadcastTap.Store(nil) },
 		}
 
 		return deps, controlSourceROIP, true
 
 	case controlSourceWeb:
 		deps.Backend = &webBackend{
-			Sink: func(ws *webEventSource) { rt.webEvtSrc = ws },
+			Sink: func(ws *webEventSource) { rt.WebEvtSrc = ws },
 		}
 
 		return deps, controlSourceWeb, true
