@@ -82,6 +82,13 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 
 	rt.LocalIP.Store(&localIP)
 
+	// Wrap the static config and the freshly built runtime in a *Service
+	// so the HTTP handlers and other consumers can resolve them via
+	// SetDefault / Default. The Service is published just before the event
+	// source is built so anything that depends on the live runtime can
+	// observe it as soon as Run starts.
+	svc := &Service{Cfg: cfg, Rt: rt}
+
 	defer func() {
 		for _, pc := range rt.Ports {
 			if pc.Receiver != nil {
@@ -95,13 +102,10 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 			}
 		}
 
-		cfg.runtime = nil
-
 		SetDefault(nil)
 	}()
 
-	cfg.runtime = rt
-	SetDefault(cfg)
+	SetDefault(svc)
 
 	// ── event source ───────────────────────────────────────────────────────
 	src, srcErr := cfg.buildEventSource(rt)

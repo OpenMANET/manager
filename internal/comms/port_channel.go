@@ -25,7 +25,7 @@ type McastPortConfig struct {
 }
 
 // McastPortState is a read-only snapshot of the runtime direction-toggle state
-// for a single port. Returned by GetTalkGroupStates.
+// for a single port. Returned by Service.TalkGroupStates.
 type McastPortState struct {
 	Address        string
 	Port           int

@@ -95,8 +95,8 @@ func setupRuntimeConfig(t *testing.T) (*CommsConfig, *CommsRuntime) {
 		Log:        zerolog.Nop(),
 		McastPorts: []McastPortConfig{pc0.cfg, pc1.cfg},
 	}
-	cfg.runtime = rt
-	SetDefault(cfg)
+
+	SetDefault(&Service{Cfg: cfg, Rt: rt})
 	t.Cleanup(func() { SetDefault(nil) })
 
 	return cfg, rt
@@ -104,8 +104,9 @@ func setupRuntimeConfig(t *testing.T) (*CommsConfig, *CommsRuntime) {
 
 func TestEnableTalkGroupSend_TogglesEnabled(t *testing.T) {
 	_, rt := setupRuntimeConfig(t)
+	svc := Default()
 
-	if err := EnableTalkGroupSend(0, false); err != nil {
+	if err := svc.EnableTalkGroupSend(0, false); err != nil {
 		t.Fatalf("EnableTalkGroupSend(0, false): %v", err)
 	}
 
@@ -113,7 +114,7 @@ func TestEnableTalkGroupSend_TogglesEnabled(t *testing.T) {
 		t.Error("expected port 0 sendEnabled=false after EnableTalkGroupSend(0, false)")
 	}
 
-	if err := EnableTalkGroupSend(0, true); err != nil {
+	if err := svc.EnableTalkGroupSend(0, true); err != nil {
 		t.Fatalf("EnableTalkGroupSend(0, true): %v", err)
 	}
 
@@ -125,11 +126,13 @@ func TestEnableTalkGroupSend_TogglesEnabled(t *testing.T) {
 func TestEnableTalkGroupSend_OutOfRange(t *testing.T) {
 	setupRuntimeConfig(t)
 
-	if err := EnableTalkGroupSend(99, true); err == nil {
+	svc := Default()
+
+	if err := svc.EnableTalkGroupSend(99, true); err == nil {
 		t.Error("expected error for out-of-range port index")
 	}
 
-	if err := EnableTalkGroupSend(-1, true); err == nil {
+	if err := svc.EnableTalkGroupSend(-1, true); err == nil {
 		t.Error("expected error for negative port index")
 	}
 }
@@ -137,15 +140,16 @@ func TestEnableTalkGroupSend_OutOfRange(t *testing.T) {
 func TestEnableTalkGroupSend_NotRunning(t *testing.T) {
 	SetDefault(nil)
 
-	if err := EnableTalkGroupSend(0, true); err == nil {
+	if err := Default().EnableTalkGroupSend(0, true); err == nil {
 		t.Error("expected error when comms is not running")
 	}
 }
 
 func TestEnableTalkGroupReceive_TogglesEnabled(t *testing.T) {
 	_, rt := setupRuntimeConfig(t)
+	svc := Default()
 
-	if err := EnableTalkGroupReceive(0, false); err != nil {
+	if err := svc.EnableTalkGroupReceive(0, false); err != nil {
 		t.Fatalf("EnableTalkGroupReceive(0, false): %v", err)
 	}
 
@@ -153,7 +157,7 @@ func TestEnableTalkGroupReceive_TogglesEnabled(t *testing.T) {
 		t.Error("expected port 0 receiveEnabled=false")
 	}
 
-	if err := EnableTalkGroupReceive(0, true); err != nil {
+	if err := svc.EnableTalkGroupReceive(0, true); err != nil {
 		t.Fatalf("EnableTalkGroupReceive(0, true): %v", err)
 	}
 
@@ -165,7 +169,7 @@ func TestEnableTalkGroupReceive_TogglesEnabled(t *testing.T) {
 func TestEnableTalkGroupReceive_OutOfRange(t *testing.T) {
 	setupRuntimeConfig(t)
 
-	if err := EnableTalkGroupReceive(5, false); err == nil {
+	if err := Default().EnableTalkGroupReceive(5, false); err == nil {
 		t.Error("expected error for out-of-range port index")
 	}
 }
@@ -173,7 +177,7 @@ func TestEnableTalkGroupReceive_OutOfRange(t *testing.T) {
 func TestEnableTalkGroupReceive_NotRunning(t *testing.T) {
 	SetDefault(nil)
 
-	if err := EnableTalkGroupReceive(0, false); err == nil {
+	if err := Default().EnableTalkGroupReceive(0, false); err == nil {
 		t.Error("expected error when comms is not running")
 	}
 }
@@ -181,9 +185,9 @@ func TestEnableTalkGroupReceive_NotRunning(t *testing.T) {
 func TestGetTalkGroupStates_ReturnsSnapshot(t *testing.T) {
 	_, rt := setupRuntimeConfig(t)
 
-	states, err := GetTalkGroupStates()
+	states, err := Default().TalkGroupStates()
 	if err != nil {
-		t.Fatalf("GetTalkGroupStates: %v", err)
+		t.Fatalf("TalkGroupStates: %v", err)
 	}
 
 	if len(states) != len(rt.Ports) {
@@ -212,11 +216,13 @@ func TestGetTalkGroupStates_ReturnsSnapshot(t *testing.T) {
 func TestGetTalkGroupStates_ReflectsRuntimeChanges(t *testing.T) {
 	setupRuntimeConfig(t)
 
-	if err := EnableTalkGroupSend(1, false); err != nil {
+	svc := Default()
+
+	if err := svc.EnableTalkGroupSend(1, false); err != nil {
 		t.Fatal(err)
 	}
 
-	states, err := GetTalkGroupStates()
+	states, err := svc.TalkGroupStates()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +235,7 @@ func TestGetTalkGroupStates_ReflectsRuntimeChanges(t *testing.T) {
 func TestGetTalkGroupStates_NotRunning(t *testing.T) {
 	SetDefault(nil)
 
-	if _, err := GetTalkGroupStates(); err == nil {
+	if _, err := Default().TalkGroupStates(); err == nil {
 		t.Error("expected error when comms is not running")
 	}
 }

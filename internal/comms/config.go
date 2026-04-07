@@ -40,12 +40,15 @@ type CommsRuntime struct {
 // ─── CommsConfig ──────────────────────────────────────────────────────────────
 
 // CommsConfig holds the static configuration for the comms subsystem.
-// Allocate one with NewComms and call Start to begin operation.
-// All exported fields must be set before Start is called.
+// Allocate one with NewComms and call Start to begin operation. All
+// exported fields must be set before Start is called.
+//
+// CommsConfig is treated as immutable after Start: the live runtime is
+// owned by *Service (returned by Start via SetDefault) so the static
+// config and the per-startup runtime have distinct lifetimes.
 type CommsConfig struct {
 	Log                      zerolog.Logger
 	Interrupt                chan os.Signal
-	runtime                  *CommsRuntime
 	NanoPTTDevicePath        string
 	CommKey                  string
 	Iface                    string

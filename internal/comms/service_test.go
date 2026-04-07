@@ -11,7 +11,7 @@ import (
 func newTestService(t *testing.T, ports []McastPortConfig) *Service {
 	t.Helper()
 
-	svc := &Service{McastPorts: ports}
+	cfg := &CommsConfig{McastPorts: ports}
 	rt := &CommsRuntime{Ports: make([]*PortChannel, len(ports))}
 
 	for i, pc := range ports {
@@ -20,7 +20,7 @@ func newTestService(t *testing.T, ports []McastPortConfig) *Service {
 		rt.Ports[i].ReceiveEnabled.Store(true)
 	}
 
-	svc.runtime = rt
+	svc := &Service{Cfg: cfg, Rt: rt}
 	SetDefault(svc)
 	t.Cleanup(func() { SetDefault(nil) })
 
@@ -38,39 +38,40 @@ func TestService_ActiveMulticastAccessors(t *testing.T) {
 		t.Errorf("ActiveMulticastPort = %d, want 5004", got)
 	}
 
-	// Shim free functions must reach the same data.
-	if GetActiveMulticastAddr() != "239.1.2.3" {
-		t.Error("GetActiveMulticastAddr shim mismatch")
+	// Default() must reach the same data so handlers that resolve the
+	// service via the package-level lookup observe the published instance.
+	if Default().ActiveMulticastAddr() != "239.1.2.3" {
+		t.Error("Default().ActiveMulticastAddr() mismatch")
 	}
 
-	if GetActiveMulticastPort() != 5004 {
-		t.Error("GetActiveMulticastPort shim mismatch")
+	if Default().ActiveMulticastPort() != 5004 {
+		t.Error("Default().ActiveMulticastPort() mismatch")
 	}
 }
 
 func TestService_NilDefault(t *testing.T) {
 	SetDefault(nil)
 
-	if got := GetActiveMulticastAddr(); got != "" {
+	if got := Default().ActiveMulticastAddr(); got != "" {
 		t.Errorf("nil default addr = %q, want empty", got)
 	}
 
-	if got := GetActiveMulticastPort(); got != 0 {
+	if got := Default().ActiveMulticastPort(); got != 0 {
 		t.Errorf("nil default port = %d, want 0", got)
 	}
 
 	// Service methods on a nil default must surface ErrNotRunning so callers
 	// (handlers, manager, tests) can use errors.Is to distinguish "not yet
 	// started" from other failures.
-	if _, err := GetTalkGroupStates(); !errors.Is(err, ErrNotRunning) {
-		t.Errorf("GetTalkGroupStates on nil default: want ErrNotRunning, got %v", err)
+	if _, err := Default().TalkGroupStates(); !errors.Is(err, ErrNotRunning) {
+		t.Errorf("TalkGroupStates on nil default: want ErrNotRunning, got %v", err)
 	}
 
-	if err := EnableTalkGroupSend(0, true); !errors.Is(err, ErrNotRunning) {
+	if err := Default().EnableTalkGroupSend(0, true); !errors.Is(err, ErrNotRunning) {
 		t.Errorf("EnableTalkGroupSend on nil default: want ErrNotRunning, got %v", err)
 	}
 
-	if err := EnableTalkGroupReceive(0, true); !errors.Is(err, ErrNotRunning) {
+	if err := Default().EnableTalkGroupReceive(0, true); !errors.Is(err, ErrNotRunning) {
 		t.Errorf("EnableTalkGroupReceive on nil default: want ErrNotRunning, got %v", err)
 	}
 }

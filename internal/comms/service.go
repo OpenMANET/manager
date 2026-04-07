@@ -7,29 +7,32 @@ import (
 )
 
 // Service is the live comms subsystem instance returned (conceptually) by
-// Start. It carries configuration, runtime state, and accessor methods for
-// all control-plane operations the HTTP handlers need.
+// Start. It carries an immutable *CommsConfig snapshot and the live
+// *CommsRuntime, and exposes the accessor methods that the HTTP handlers
+// need to read or mutate runtime state.
 //
-// During Phase 4 of the comms refactor Service is a type alias for
-// CommsConfig: the existing CommsConfig already owns the runtime pointer, so
-// aliasing lets us grow method surface on *Service without renaming the many
-// existing receivers on *CommsConfig or re-plumbing every call site in one
-// change. Subsequent phases will separate static config from live service
-// state into distinct types.
-type Service = CommsConfig
+// Cfg is set once at construction and never replaced; Rt is set once after
+// Start finishes building the runtime and is cleared on shutdown via
+// SetDefault(nil). Methods on *Service tolerate nil receivers and a nil
+// Service.Rt so handlers can defensively call them before comms is enabled.
+type Service struct {
+	Cfg *CommsConfig
+	Rt  *CommsRuntime
+}
 
 // defaultService is the process-wide singleton most recently published by
-// Start. It exists only as the Phase 4 shim for external call sites (notably
-// internal/openmanet/server/handlers/comms.go) that still reach into the
-// comms package via free functions. Phase 5+ will thread a *Service through
-// the handler struct and delete this global.
+// Start. It exists so external call sites that do not yet receive a
+// *Service by injection (handlers, tests) can resolve the live instance
+// lazily via Default(). Phase D2 of the comms refactor adds a typed
+// `Service func() *comms.Service` field to the HTTP handler so handlers
+// no longer need to reach in here directly.
 //
 // Access is lock-free via atomic.Pointer: Start publishes with Store, every
 // accessor reads with Load. The pointer itself is the only mutable state;
-// the referent *Service is constructed before publication and its own
+// the referent *Service is fully built before publication and its own
 // fields carry their own synchronization.
 //
-//nolint:gochecknoglobals // shim — Phase 4 of comms refactor; remove in Phase 5+.
+//nolint:gochecknoglobals // injection-point shim — see Default / SetDefault.
 var defaultService atomic.Pointer[Service]
 
 // ErrNotRunning is returned by Service methods when the comms subsystem has
@@ -38,87 +41,79 @@ var defaultService atomic.Pointer[Service]
 var ErrNotRunning = errors.New("comms: subsystem is not running")
 
 // Default returns the Service most recently published by Start, or nil when
-// comms has not been started (or has stopped). Shim for Phase 4; callers in
-// subsequent phases should receive a *Service directly.
+// comms has not been started (or has stopped).
 func Default() *Service {
 	return defaultService.Load()
 }
 
 // SetDefault publishes svc as the process-wide default Service. Start calls
-// this after constructing the runtime; Stop-style cleanup passes nil. It is
-// also used by tests that build a Service directly with newTestService.
+// this after constructing the runtime; shutdown passes nil. Tests that
+// build a Service directly use it the same way to wire up the lazy lookup.
 func SetDefault(svc *Service) {
 	defaultService.Store(svc)
 }
 
 // ─── Service methods ─────────────────────────────────────────────────────────
-//
-// Each method below has a matching package-level free function that
-// delegates to Default(). Handlers will migrate to the methods in a later
-// phase; the free functions remain as the shim surface.
 
 // ActiveMulticastAddr returns the multicast group address of the first
 // configured port. Returns "" when no ports are configured.
 func (s *Service) ActiveMulticastAddr() string {
-	if s == nil || len(s.McastPorts) == 0 {
+	if s == nil || s.Cfg == nil || len(s.Cfg.McastPorts) == 0 {
 		return ""
 	}
 
-	return s.McastPorts[0].Address
+	return s.Cfg.McastPorts[0].Address
 }
 
 // ActiveMulticastPort returns the UDP port of the first configured port.
 // Returns 0 when no ports are configured.
 func (s *Service) ActiveMulticastPort() int {
-	if s == nil || len(s.McastPorts) == 0 {
+	if s == nil || s.Cfg == nil || len(s.Cfg.McastPorts) == 0 {
 		return 0
 	}
 
-	return s.McastPorts[0].Port
+	return s.Cfg.McastPorts[0].Port
 }
 
 // EnableTalkGroupSend toggles RTP transmission on the port at portIdx.
 func (s *Service) EnableTalkGroupSend(portIdx int, enabled bool) error {
-	if s == nil || s.runtime == nil {
+	if s == nil || s.Rt == nil {
 		return ErrNotRunning
 	}
 
-	rt := s.runtime
-	if portIdx < 0 || portIdx >= len(rt.Ports) {
-		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(rt.Ports))
+	if portIdx < 0 || portIdx >= len(s.Rt.Ports) {
+		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(s.Rt.Ports))
 	}
 
-	rt.Ports[portIdx].SendEnabled.Store(enabled)
+	s.Rt.Ports[portIdx].SendEnabled.Store(enabled)
 
 	return nil
 }
 
 // EnableTalkGroupReceive toggles RTP reception on the port at portIdx.
 func (s *Service) EnableTalkGroupReceive(portIdx int, enabled bool) error {
-	if s == nil || s.runtime == nil {
+	if s == nil || s.Rt == nil {
 		return ErrNotRunning
 	}
 
-	rt := s.runtime
-	if portIdx < 0 || portIdx >= len(rt.Ports) {
-		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(rt.Ports))
+	if portIdx < 0 || portIdx >= len(s.Rt.Ports) {
+		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(s.Rt.Ports))
 	}
 
-	rt.Ports[portIdx].ReceiveEnabled.Store(enabled)
+	s.Rt.Ports[portIdx].ReceiveEnabled.Store(enabled)
 
 	return nil
 }
 
 // TalkGroupStates returns a snapshot of per-port direction-toggle state.
 func (s *Service) TalkGroupStates() ([]McastPortState, error) {
-	if s == nil || s.runtime == nil {
+	if s == nil || s.Rt == nil {
 		return nil, ErrNotRunning
 	}
 
-	rt := s.runtime
-	states := make([]McastPortState, len(rt.Ports))
+	states := make([]McastPortState, len(s.Rt.Ports))
 
-	for i, pc := range rt.Ports {
+	for i, pc := range s.Rt.Ports {
 		states[i] = McastPortState{
 			Address:        pc.cfg.Address,
 			Port:           pc.cfg.Port,
@@ -133,50 +128,19 @@ func (s *Service) TalkGroupStates() ([]McastPortState, error) {
 // WebEventSource returns the web control source if one was constructed,
 // otherwise nil.
 func (s *Service) WebEventSource() *webEventSource {
-	if s == nil || s.runtime == nil {
+	if s == nil || s.Rt == nil {
 		return nil
 	}
 
-	return s.runtime.WebEvtSrc
+	return s.Rt.WebEvtSrc
 }
 
 // WebAudioBridge returns the web audio bridge if one was constructed,
 // otherwise nil.
 func (s *Service) WebAudioBridge() *WebAudioBridge {
-	if s == nil || s.runtime == nil {
+	if s == nil || s.Rt == nil {
 		return nil
 	}
 
-	return s.runtime.WebBridge
+	return s.Rt.WebBridge
 }
-
-// ─── Shim free functions ─────────────────────────────────────────────────────
-//
-// These preserve the pre-Phase-4 API that internal/openmanet/server/handlers
-// depends on. They delegate to the current default Service. Remove in
-// Phase 5+ once handlers receive a *Service by injection.
-
-// GetActiveMulticastAddr is the shim for Service.ActiveMulticastAddr.
-func GetActiveMulticastAddr() string { return Default().ActiveMulticastAddr() }
-
-// GetActiveMulticastPort is the shim for Service.ActiveMulticastPort.
-func GetActiveMulticastPort() int { return Default().ActiveMulticastPort() }
-
-// EnableTalkGroupSend is the shim for Service.EnableTalkGroupSend.
-func EnableTalkGroupSend(portIdx int, enabled bool) error {
-	return Default().EnableTalkGroupSend(portIdx, enabled)
-}
-
-// EnableTalkGroupReceive is the shim for Service.EnableTalkGroupReceive.
-func EnableTalkGroupReceive(portIdx int, enabled bool) error {
-	return Default().EnableTalkGroupReceive(portIdx, enabled)
-}
-
-// GetTalkGroupStates is the shim for Service.TalkGroupStates.
-func GetTalkGroupStates() ([]McastPortState, error) { return Default().TalkGroupStates() }
-
-// GetWebEventSource is the shim for Service.WebEventSource.
-func GetWebEventSource() *webEventSource { return Default().WebEventSource() }
-
-// GetWebAudioBridge is the shim for Service.WebAudioBridge.
-func GetWebAudioBridge() *WebAudioBridge { return Default().WebAudioBridge() }

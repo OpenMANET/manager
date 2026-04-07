@@ -440,10 +440,10 @@ func TestReplaceNetwork_NewWriterReceivesSubsequentWrites(t *testing.T) {
 // ─── GetMulticastAddr tests ───────────────────────────────────────────────────
 
 func TestGetActiveMulticastAddr_NotStarted(t *testing.T) {
-	// Ensure no active config is set.
+	// Ensure no active service is set.
 	SetDefault(nil)
 
-	if got := GetActiveMulticastAddr(); got != "" {
+	if got := Default().ActiveMulticastAddr(); got != "" {
 		t.Errorf("expected empty string when comms not started, got %q", got)
 	}
 }
@@ -460,15 +460,13 @@ func TestGetActiveMulticastAddr_ReturnsConfiguredAddr(t *testing.T) {
 		Sender:   rtp.NewSwappableSender(&mockWriter{}),
 		Receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
-	cfg.runtime = &CommsRuntime{
-		Ports: []*PortChannel{pc},
-	}
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
 
-	SetDefault(cfg)
+	SetDefault(&Service{Cfg: cfg, Rt: rt})
 	t.Cleanup(func() { SetDefault(nil) })
 
-	if got := GetActiveMulticastAddr(); got != want {
-		t.Errorf("GetActiveMulticastAddr() = %q, want %q", got, want)
+	if got := Default().ActiveMulticastAddr(); got != want {
+		t.Errorf("ActiveMulticastAddr() = %q, want %q", got, want)
 	}
 }
 
@@ -487,21 +485,19 @@ func TestGetActiveMulticastAddr_ReflectsUpdate(t *testing.T) {
 		Sender:   rtp.NewSwappableSender(&mockWriter{}),
 		Receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
-	cfg.runtime = &CommsRuntime{
-		Ports: []*PortChannel{pc},
-	}
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
 
-	SetDefault(cfg)
+	SetDefault(&Service{Cfg: cfg, Rt: rt})
 	t.Cleanup(func() { SetDefault(nil) })
 
-	if got := GetActiveMulticastAddr(); got != initial {
-		t.Errorf("before update: GetActiveMulticastAddr() = %q, want %q", got, initial)
+	if got := Default().ActiveMulticastAddr(); got != initial {
+		t.Errorf("before update: ActiveMulticastAddr() = %q, want %q", got, initial)
 	}
 
 	cfg.McastPorts[0] = McastPortConfig{Address: updated, Port: 5004, Send: true, Receive: true}
 
-	if got := GetActiveMulticastAddr(); got != updated {
-		t.Errorf("after update: GetActiveMulticastAddr() = %q, want %q", got, updated)
+	if got := Default().ActiveMulticastAddr(); got != updated {
+		t.Errorf("after update: ActiveMulticastAddr() = %q, want %q", got, updated)
 	}
 }
 
@@ -538,7 +534,7 @@ func TestSetMulticastTTL(t *testing.T) {
 func TestGetActiveMulticastPort_NotStarted(t *testing.T) {
 	SetDefault(nil)
 
-	if got := GetActiveMulticastPort(); got != 0 {
+	if got := Default().ActiveMulticastPort(); got != 0 {
 		t.Errorf("expected 0 when comms not started, got %d", got)
 	}
 }
@@ -555,15 +551,13 @@ func TestGetActiveMulticastPort_ReturnsConfiguredPort(t *testing.T) {
 		Sender:   rtp.NewSwappableSender(&mockWriter{}),
 		Receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
-	cfg.runtime = &CommsRuntime{
-		Ports: []*PortChannel{pc},
-	}
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
 
-	SetDefault(cfg)
+	SetDefault(&Service{Cfg: cfg, Rt: rt})
 	t.Cleanup(func() { SetDefault(nil) })
 
-	if got := GetActiveMulticastPort(); got != want {
-		t.Errorf("GetActiveMulticastPort() = %d, want %d", got, want)
+	if got := Default().ActiveMulticastPort(); got != want {
+		t.Errorf("ActiveMulticastPort() = %d, want %d", got, want)
 	}
 }
 
@@ -729,7 +723,10 @@ func TestApplyDefaults_ROIPExplicitValuesPreserved(t *testing.T) {
 
 // ─── EnableTalkGroupSend / Receive / GetTalkGroupStates tests ────────────────
 
-func setupActiveConfigWithPorts(t *testing.T, n int) *CommsConfig {
+// setupActiveServiceWithPorts builds a *Service with n ready PortChannels,
+// publishes it via SetDefault, and registers cleanup. Returns the live
+// service so tests can inspect svc.Rt.Ports directly.
+func setupActiveServiceWithPorts(t *testing.T, n int) *Service {
 	t.Helper()
 
 	ports := make([]*PortChannel, n)
@@ -744,82 +741,84 @@ func setupActiveConfigWithPorts(t *testing.T, n int) *CommsConfig {
 		mcastPorts[i] = ports[i].cfg
 	}
 
-	cfg := &CommsConfig{
-		Log:        zerolog.Nop(),
-		McastPorts: mcastPorts,
-		runtime:    &CommsRuntime{Ports: ports},
+	svc := &Service{
+		Cfg: &CommsConfig{
+			Log:        zerolog.Nop(),
+			McastPorts: mcastPorts,
+		},
+		Rt: &CommsRuntime{Ports: ports},
 	}
 
-	SetDefault(cfg)
+	SetDefault(svc)
 	t.Cleanup(func() { SetDefault(nil) })
 
-	return cfg
+	return svc
 }
 
 func TestEnableTalkGroupSend_TogglesState(t *testing.T) {
-	cfg := setupActiveConfigWithPorts(t, 2)
+	svc := setupActiveServiceWithPorts(t, 2)
 
-	if err := EnableTalkGroupSend(1, false); err != nil {
+	if err := svc.EnableTalkGroupSend(1, false); err != nil {
 		t.Fatal(err)
 	}
 
-	if cfg.runtime.Ports[1].SendEnabled.Load() {
+	if svc.Rt.Ports[1].SendEnabled.Load() {
 		t.Error("send should be disabled")
 	}
 
-	if err := EnableTalkGroupSend(1, true); err != nil {
+	if err := svc.EnableTalkGroupSend(1, true); err != nil {
 		t.Fatal(err)
 	}
 
-	if !cfg.runtime.Ports[1].SendEnabled.Load() {
+	if !svc.Rt.Ports[1].SendEnabled.Load() {
 		t.Error("send should be enabled")
 	}
 }
 
 func TestEnableTalkGroupReceive_TogglesState(t *testing.T) {
-	cfg := setupActiveConfigWithPorts(t, 1)
+	svc := setupActiveServiceWithPorts(t, 1)
 
-	if err := EnableTalkGroupReceive(0, false); err != nil {
+	if err := svc.EnableTalkGroupReceive(0, false); err != nil {
 		t.Fatal(err)
 	}
 
-	if cfg.runtime.Ports[0].ReceiveEnabled.Load() {
+	if svc.Rt.Ports[0].ReceiveEnabled.Load() {
 		t.Error("receive should be disabled")
 	}
 }
 
-// ─── GetWebEventSource / GetWebAudioBridge tests ─────────────────────────────
+// ─── WebEventSource / WebAudioBridge tests ───────────────────────────────────
 
-func TestGetWebEventSource_NotRunning(t *testing.T) {
+func TestWebEventSource_NotRunning(t *testing.T) {
 	SetDefault(nil)
 
-	if got := GetWebEventSource(); got != nil {
+	if got := Default().WebEventSource(); got != nil {
 		t.Errorf("expected nil when not running, got %v", got)
 	}
 }
 
-func TestGetWebAudioBridge_NotRunning(t *testing.T) {
+func TestWebAudioBridge_NotRunning(t *testing.T) {
 	SetDefault(nil)
 
-	if got := GetWebAudioBridge(); got != nil {
+	if got := Default().WebAudioBridge(); got != nil {
 		t.Errorf("expected nil when not running, got %v", got)
 	}
 }
 
-func TestGetWebEventSource_ReturnsNilWhenNoWebSource(t *testing.T) {
-	cfg := setupActiveConfigWithPorts(t, 1)
-	cfg.runtime.WebEvtSrc = nil
+func TestWebEventSource_ReturnsNilWhenNoWebSource(t *testing.T) {
+	svc := setupActiveServiceWithPorts(t, 1)
+	svc.Rt.WebEvtSrc = nil
 
-	if got := GetWebEventSource(); got != nil {
+	if got := svc.WebEventSource(); got != nil {
 		t.Errorf("expected nil when web source not configured, got %v", got)
 	}
 }
 
-func TestGetWebAudioBridge_ReturnsNilWhenNoBridge(t *testing.T) {
-	cfg := setupActiveConfigWithPorts(t, 1)
-	cfg.runtime.WebBridge = nil
+func TestWebAudioBridge_ReturnsNilWhenNoBridge(t *testing.T) {
+	svc := setupActiveServiceWithPorts(t, 1)
+	svc.Rt.WebBridge = nil
 
-	if got := GetWebAudioBridge(); got != nil {
+	if got := svc.WebAudioBridge(); got != nil {
 		t.Errorf("expected nil when bridge not configured, got %v", got)
 	}
 }

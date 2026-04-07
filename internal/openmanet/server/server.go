@@ -82,6 +82,7 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Cfg:          cfg.Cfg,
 		Log:          cfg.Log,
 		CommsManager: cfg.CommsManager,
+		Service:      comms.Default,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(blosconnect.NewBLOSServiceHandler(&handlers.BLOSService{
