@@ -1,4 +1,4 @@
-package comms
+package rtp
 
 import (
 	"testing"
@@ -8,18 +8,18 @@ import (
 )
 
 func TestSSRCFromID_Deterministic(t *testing.T) {
-	a := ssrcFromID("node-alpha")
+	a := SSRCFromID("node-alpha")
 
-	b := ssrcFromID("node-alpha")
+	b := SSRCFromID("node-alpha")
 	if a != b {
-		t.Errorf("ssrcFromID not deterministic; got %d and %d", a, b)
+		t.Errorf("SSRCFromID not deterministic; got %d and %d", a, b)
 	}
 }
 
 func TestSSRCFromID_Different(t *testing.T) {
-	a := ssrcFromID("node-alpha")
+	a := SSRCFromID("node-alpha")
 
-	b := ssrcFromID("node-beta")
+	b := SSRCFromID("node-beta")
 	if a == b {
 		t.Error("different IDs should produce different SSRCs")
 	}
@@ -27,7 +27,7 @@ func TestSSRCFromID_Different(t *testing.T) {
 
 func TestParseIncomingRTP_Valid(t *testing.T) {
 	orig := &pionrtp.Packet{
-		Header:  pionrtp.Header{Version: 2, PayloadType: rtpPayloadTypeOpus, SequenceNumber: 42, Timestamp: 1000, SSRC: 0xDEADBEEF},
+		Header:  pionrtp.Header{Version: 2, PayloadType: PayloadTypeOpus, SequenceNumber: 42, Timestamp: 1000, SSRC: 0xDEADBEEF},
 		Payload: []byte{1, 2, 3, 4},
 	}
 
@@ -36,7 +36,7 @@ func TestParseIncomingRTP_Valid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, err := parseIncomingRTP(raw)
+	parsed, err := ParseIncoming(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,14 +51,14 @@ func TestParseIncomingRTP_Valid(t *testing.T) {
 }
 
 func TestParseIncomingRTP_Invalid(t *testing.T) {
-	_, err := parseIncomingRTP([]byte{0xFF, 0x00, 0x01})
+	_, err := ParseIncoming([]byte{0xFF, 0x00, 0x01})
 	if err == nil {
 		t.Error("expected error for invalid bytes")
 	}
 }
 
 func TestParseIncomingRTP_Nil(t *testing.T) {
-	_, err := parseIncomingRTP(nil)
+	_, err := ParseIncoming(nil)
 	if err == nil {
 		t.Error("expected error for nil input")
 	}
@@ -68,13 +68,13 @@ func TestPionRTPSession_Send(t *testing.T) {
 	rtpW := &mockWriter{}
 	rtcpW := &mockWriter{}
 
-	sess, err := newPionRTPSession(0xABCDEF, rtpW, rtcpW, zerolog.Nop())
+	sess, err := NewSession(0xABCDEF, rtpW, rtcpW, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sess.close() //nolint:errcheck
+	defer sess.Close() //nolint:errcheck
 
-	if err := sess.send([]byte{1, 2, 3}); err != nil {
+	if err := sess.Send([]byte{1, 2, 3}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -87,7 +87,7 @@ func TestPionRTPSession_Send(t *testing.T) {
 		t.Fatalf("invalid RTP: %v", err)
 	}
 
-	if pkt.PayloadType != rtpPayloadTypeOpus {
+	if pkt.PayloadType != PayloadTypeOpus {
 		t.Errorf("PT: got %d", pkt.PayloadType)
 	}
 
@@ -99,14 +99,14 @@ func TestPionRTPSession_Send(t *testing.T) {
 func TestPionRTPSession_SequenceIncrement(t *testing.T) {
 	rtpW := &mockWriter{}
 
-	sess, err := newPionRTPSession(1, rtpW, &mockWriter{}, zerolog.Nop())
+	sess, err := NewSession(1, rtpW, &mockWriter{}, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sess.close() //nolint:errcheck
+	defer sess.Close() //nolint:errcheck
 
 	for range 3 {
-		if err := sess.send([]byte{1}); err != nil {
+		if err := sess.Send([]byte{1}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -136,12 +136,12 @@ func TestPionRTPSession_SequenceIncrement(t *testing.T) {
 }
 
 func TestPionRTPSession_Close(t *testing.T) {
-	sess, err := newPionRTPSession(1, &mockWriter{}, &mockWriter{}, zerolog.Nop())
+	sess, err := NewSession(1, &mockWriter{}, &mockWriter{}, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := sess.close(); err != nil {
+	if err := sess.Close(); err != nil {
 		t.Errorf("close error: %v", err)
 	}
 }

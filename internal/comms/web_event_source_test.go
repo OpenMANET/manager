@@ -7,14 +7,16 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/openmanet/openmanetd/internal/comms/control"
 )
 
 func TestWebEventSource_ImplementsEventSource(t *testing.T) {
-	var _ EventSource = NewWebEventSource(zerolog.Nop())
+	var _ EventSource = control.NewWebEventSource(zerolog.Nop())
 }
 
 func TestWebEventSource_Push_DeliversEvent(t *testing.T) {
-	ws := NewWebEventSource(zerolog.Nop())
+	ws := control.NewWebEventSource(zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -33,7 +35,7 @@ func TestWebEventSource_Push_DeliversEvent(t *testing.T) {
 }
 
 func TestWebEventSource_Push_AllEventTypes(t *testing.T) {
-	ws := NewWebEventSource(zerolog.Nop())
+	ws := control.NewWebEventSource(zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -58,7 +60,7 @@ func TestWebEventSource_Push_AllEventTypes(t *testing.T) {
 }
 
 func TestWebEventSource_Push_DropOnFull(t *testing.T) {
-	ws := NewWebEventSource(zerolog.Nop())
+	ws := control.NewWebEventSource(zerolog.Nop())
 
 	// Fill the channel to capacity (4).
 	for i := 0; i < 4; i++ {
@@ -81,7 +83,7 @@ func TestWebEventSource_Push_DropOnFull(t *testing.T) {
 }
 
 func TestWebEventSource_Events_ClosedOnContextCancel(t *testing.T) {
-	ws := NewWebEventSource(zerolog.Nop())
+	ws := control.NewWebEventSource(zerolog.Nop())
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := ws.Events(ctx)
 
@@ -101,7 +103,7 @@ func TestWebEventSource_Events_ClosedOnContextCancel(t *testing.T) {
 func TestWebEventSource_ConcurrentPush(t *testing.T) {
 	const n = 50
 
-	ws := NewWebEventSource(zerolog.Nop())
+	ws := control.NewWebEventSource(zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -141,7 +143,7 @@ func TestWebEventSource_ConcurrentPush(t *testing.T) {
 }
 
 func TestWebEventSource_RunIntegration(t *testing.T) {
-	ws := NewWebEventSource(zerolog.Nop())
+	ws := control.NewWebEventSource(zerolog.Nop())
 	stream := &mockStream{}
 	rt := newRunRuntime(stream)
 	cfg := &CommsConfig{Log: zerolog.Nop()}

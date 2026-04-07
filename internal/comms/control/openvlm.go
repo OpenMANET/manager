@@ -1,57 +1,52 @@
-package comms
+package control
 
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 	hid "github.com/sstallion/go-hid"
+
+	"github.com/openmanet/openmanetd/internal/comms/device"
 )
 
 // ─── OpenVLM constants ────────────────────────────────────────────────────────
 
 const (
-	// openvlmVendorID is the C-Media Electronics USB vendor identifier.
-	openvlmVendorID uint16 = 0x0D8C
-	// openvlmProductID identifies the OpenVLM (Open Voice Link Module) USB audio dongle.
-	openvlmProductID uint16 = 0x0012
+	// OpenVLMVendorID is the C-Media Electronics USB vendor identifier.
+	OpenVLMVendorID uint16 = 0x0D8C
+	// OpenVLMProductID identifies the OpenVLM (Open Voice Link Module) USB audio dongle.
+	OpenVLMProductID uint16 = 0x0012
 
-	// openvlmReportSize is the total HID input report buffer size.
+	// OpenVLMReportSize is the total HID input report buffer size.
 	// The OS prepends a Report ID byte followed by the 4 OpenVLM data bytes
 	// (IR0..IR3), giving 5 bytes total.
-	openvlmReportSize = 5
+	OpenVLMReportSize = 5
 
-	// openvlmPayloadOffset is the byte index at which the OpenVLM data payload
+	// OpenVLMPayloadOffset is the byte index at which the OpenVLM data payload
 	// begins when the OS has prepended the one-byte Report ID.
-	openvlmPayloadOffset = 1
+	OpenVLMPayloadOffset = 1
 
-	// openvlmGPIO3Mask selects GPIO3 within IR1.
-	// IR1 carries GPIO4..GPIO1 in its lower nibble (bits 3..0):
-	//   bit 3 = GPIO4, bit 2 = GPIO3, bit 1 = GPIO2, bit 0 = GPIO1.
-	openvlmGPIO3Mask byte = 0x04
+	// OpenVLMGPIO3Mask selects GPIO3 within IR1.
+	OpenVLMGPIO3Mask byte = 0x04
 )
 
 // ─── HIDDevice / HIDOpener abstractions ──────────────────────────────────────
 
 // HIDDevice is a minimal interface over a USB HID device.
-// Only the two methods used by openvlmSource are declared, which allows unit
-// tests to inject a mock without reaching the real hardware.
 type HIDDevice interface {
-	// Read fills b with the next HID input report and returns the number of
-	// bytes written. It blocks until a report arrives or an error occurs.
 	Read(b []byte) (int, error)
-	// Close releases the HID device handle.
 	Close() error
 }
 
 // HIDOpener opens a HID device identified by its Vendor/Product ID pair.
-// The production implementation calls hid.Open; tests provide a factory that
-// returns a mock.
 type HIDOpener func(vendorID, productID uint16) (HIDDevice, error)
 
 // hidDeviceWrapper decorates a *hid.Device so that Close also calls hid.Exit,
@@ -76,9 +71,9 @@ func (w *hidDeviceWrapper) Close() error {
 	return err
 }
 
-// defaultHIDOpener is the production HIDOpener. It initializes HIDAPI,
+// DefaultHIDOpener is the production HIDOpener. It initializes HIDAPI,
 // opens the device, and wraps it so that Close() performs cleanup.
-func defaultHIDOpener(vendorID, productID uint16) (HIDDevice, error) {
+func DefaultHIDOpener(vendorID, productID uint16) (HIDDevice, error) {
 	if err := hid.Init(); err != nil {
 		return nil, fmt.Errorf("hid.Init: %w", err)
 	}
@@ -93,55 +88,49 @@ func defaultHIDOpener(vendorID, productID uint16) (HIDDevice, error) {
 	return &hidDeviceWrapper{inner: dev}, nil
 }
 
-// ─── openvlmSource ────────────────────────────────────────────────────────────
+// ─── OpenVLMSource ────────────────────────────────────────────────────────────
 
-// openvlmSource reads GPIO3 state from an OpenVLM (Open Voice Link Module) USB
+// OpenVLMSource reads GPIO3 state from an OpenVLM (Open Voice Link Module) USB
 // HID audio dongle and emits PTTDown when the button is pressed and PTTUp when
 // it is released.
-//
-// The OpenVLM input data format is four bytes IR0..IR3. GPIO3 lives in bit 2
-// of IR1 (the GPIO4..GPIO1 nibble). When the OS prepends a Report ID byte the
-// payload offset shifts by one, and the total report length is 5 bytes.
-type openvlmSource struct {
+type OpenVLMSource struct {
 	log    zerolog.Logger
 	opener HIDOpener
 }
 
-// NewOpenVLMSource constructs an openvlmSource backed by the real HIDAPI library.
-// Exported so callers can wire it up directly when bypassing buildEventSource.
+// NewOpenVLMSource constructs an OpenVLMSource backed by the real HIDAPI library.
 func NewOpenVLMSource(log zerolog.Logger) EventSource {
-	return &openvlmSource{log: log, opener: defaultHIDOpener}
+	return &OpenVLMSource{log: log, opener: DefaultHIDOpener}
 }
 
-// newOpenVLMSourceWithOpener constructs an openvlmSource with an injectable opener.
+// NewOpenVLMSourceWithOpener constructs an OpenVLMSource with an injectable opener.
 // Intended for unit tests only.
-func newOpenVLMSourceWithOpener(opener HIDOpener, log zerolog.Logger) EventSource {
-	return &openvlmSource{log: log, opener: opener}
+func NewOpenVLMSourceWithOpener(opener HIDOpener, log zerolog.Logger) EventSource {
+	return &OpenVLMSource{log: log, opener: opener}
 }
 
 // Events implements EventSource.
-//
-// A goroutine opens the OpenVLM device, polls for HID input reports, and emits
-// PTTDown when GPIO3 transitions LOW→HIGH and PTTUp when it transitions
-// HIGH→LOW. The channel is closed when ctx is canceled or the device becomes
-// unreadable.
-func (s *openvlmSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:gocognit
+func (s *OpenVLMSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:gocognit
 	ch := make(chan PTTEvent, 4)
 
 	go func() {
 		defer close(ch)
 
-		dev, err := s.opener(openvlmVendorID, openvlmProductID)
+		if descs, dErr := device.DiscoverCM108(os.DirFS("/sys"), nil); dErr == nil {
+			s.log.Debug().
+				Int("cm108_count", len(descs)).
+				Msg("OpenVLM: unified CM108 descriptor scan")
+		}
+
+		dev, err := s.opener(OpenVLMVendorID, OpenVLMProductID)
 		if err != nil {
 			s.log.Error().Err(err).
 				Msgf("OpenVLM: failed to open HID device VID=0x%04X PID=0x%04X",
-					openvlmVendorID, openvlmProductID)
+					OpenVLMVendorID, OpenVLMProductID)
 
 			return
 		}
 
-		// closeDevice is idempotent: the first call closes the HID device;
-		// subsequent calls (e.g. from AfterFunc racing with defer) are no-ops.
 		var closeOnce sync.Once
 
 		closeDevice := func() {
@@ -152,26 +141,22 @@ func (s *openvlmSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:g
 			})
 		}
 
-		// When the context is canceled, close the device so that any
-		// in-flight dev.Read unblocks immediately and returns an error.
 		stop := context.AfterFunc(ctx, closeDevice)
 
 		defer func() {
-			stop()        // cancel AfterFunc if we exit before ctx is done
-			closeDevice() // ensure device is closed on all other exit paths
+			stop()
+			closeDevice()
 		}()
 
 		s.log.Info().Msgf("OpenVLM: opened HID device VID=0x%04X PID=0x%04X",
-			openvlmVendorID, openvlmProductID)
+			OpenVLMVendorID, OpenVLMProductID)
 
-		buf := make([]byte, openvlmReportSize)
+		buf := make([]byte, OpenVLMReportSize)
 		prevGPIO3 := false
 
 		for {
 			n, readErr := dev.Read(buf)
 			if readErr != nil {
-				// A read error after context cancellation is expected — the
-				// AfterFunc closed the device to unblock us.
 				if ctx.Err() != nil {
 					return
 				}
@@ -181,15 +166,11 @@ func (s *openvlmSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:g
 				return
 			}
 
-			// Determine where in the buffer the data payload begins.
-			// When the OS prepends a Report ID byte the total length is ≥5
-			// and the payload starts at offset 1.
 			payloadStart := 0
-			if n >= openvlmReportSize {
-				payloadStart = openvlmPayloadOffset
+			if n >= OpenVLMReportSize {
+				payloadStart = OpenVLMPayloadOffset
 			}
 
-			// We need at least IR0 and IR1 after the payload offset.
 			if n < payloadStart+2 {
 				s.log.Debug().Msgf("OpenVLM: short report (%d bytes), skipping", n)
 				time.Sleep(50 * time.Millisecond)
@@ -197,9 +178,8 @@ func (s *openvlmSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:g
 				continue
 			}
 
-			// IR1 is the byte immediately after IR0; GPIO3 is bit 2.
 			ir1 := buf[payloadStart+1]
-			gpio3 := (ir1 & openvlmGPIO3Mask) != 0
+			gpio3 := (ir1 & OpenVLMGPIO3Mask) != 0
 
 			s.log.Trace().Msgf("OpenVLM: IR1=0x%02X  GPIO3=%v", ir1, gpio3)
 
@@ -234,20 +214,63 @@ func (s *openvlmSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:g
 
 // ─── OpenVLM ALSA card detection ──────────────────────────────────────────────
 
-// detectAndSetALSACard probes /proc/asound/card*/usbid to locate the OpenVLM
+// DetectAndSetALSACard probes /proc/asound/card*/usbid to locate the OpenVLM
 // by its VID:PID and sets the ALSA_CARD environment variable to its card
-// number. This must be called before portaudio.Initialize() so that PortAudio
-// and ALSA select the correct card. On OpenWRT the kernel exposes a usbid
-// file under /proc/asound/card<N>/ for every registered USB audio device.
-//
-// If ALSA_CARD is already present in the environment it is left unchanged.
-func detectAndSetALSACard(log zerolog.Logger) {
-	detectAndSetALSACardFromRoot("/proc/asound", log)
+// number. If ALSA_CARD is already present it is left unchanged.
+func DetectAndSetALSACard(log zerolog.Logger) {
+	if DetectAndSetALSACardFromSys(os.DirFS("/sys"), log) {
+		return
+	}
+
+	DetectAndSetALSACardFromRoot("/proc/asound", log)
 }
 
-// detectAndSetALSACardFromRoot is the testable core of detectAndSetALSACard.
+// DetectAndSetALSACardFromSys attempts to set ALSA_CARD from the unified
+// device.DiscoverCM108 walk.
+func DetectAndSetALSACardFromSys(fsys fs.FS, log zerolog.Logger) bool {
+	if v := os.Getenv("ALSA_CARD"); v != "" {
+		log.Debug().Str("ALSA_CARD", v).Msg("OpenVLM: ALSA_CARD already set, skipping auto-detection")
+
+		return true
+	}
+
+	descs, err := device.DiscoverCM108(fsys, nil)
+	if err != nil {
+		log.Debug().Err(err).Msg("OpenVLM: sysfs CM108 discovery failed; falling back")
+
+		return false
+	}
+
+	log.Debug().Int("cm108_count", len(descs)).Msg("OpenVLM: sysfs CM108 discovery")
+
+	for _, d := range descs {
+		if d.ALSACardIdx < 0 {
+			continue
+		}
+
+		cardNum := strconv.Itoa(d.ALSACardIdx)
+		if setErr := os.Setenv("ALSA_CARD", cardNum); setErr != nil {
+			log.Error().Err(setErr).Msg("OpenVLM: failed to set ALSA_CARD")
+
+			return false
+		}
+
+		log.Info().
+			Str("ALSA_CARD", cardNum).
+			Str("hid_path", d.HIDPath).
+			Str("sys_path", d.SysPath).
+			Msgf("OpenVLM: auto-detected card %s via sysfs (VID=0x%04X PID=0x%04X)",
+				cardNum, d.VID, d.PID)
+
+		return true
+	}
+
+	return false
+}
+
+// DetectAndSetALSACardFromRoot is the testable core of DetectAndSetALSACard.
 // root replaces /proc/asound so tests can supply a temporary directory tree.
-func detectAndSetALSACardFromRoot(root string, log zerolog.Logger) {
+func DetectAndSetALSACardFromRoot(root string, log zerolog.Logger) {
 	if v := os.Getenv("ALSA_CARD"); v != "" {
 		log.Debug().Str("ALSA_CARD", v).Msg("OpenVLM: ALSA_CARD already set, skipping auto-detection")
 
@@ -263,7 +286,7 @@ func detectAndSetALSACardFromRoot(root string, log zerolog.Logger) {
 		return
 	}
 
-	target := fmt.Sprintf("%04x:%04x", openvlmVendorID, openvlmProductID)
+	target := fmt.Sprintf("%04x:%04x", OpenVLMVendorID, OpenVLMProductID)
 
 	for _, path := range matches {
 		data, readErr := os.ReadFile(path)
@@ -277,8 +300,7 @@ func detectAndSetALSACardFromRoot(root string, log zerolog.Logger) {
 			continue
 		}
 
-		// Path shape: <root>/card<N>/usbid — extract the numeric suffix.
-		cardDir := filepath.Base(filepath.Dir(path)) // "card<N>"
+		cardDir := filepath.Base(filepath.Dir(path))
 		cardNum := strings.TrimPrefix(cardDir, "card")
 
 		if cardNum == cardDir {
@@ -296,11 +318,11 @@ func detectAndSetALSACardFromRoot(root string, log zerolog.Logger) {
 		log.Info().
 			Str("ALSA_CARD", cardNum).
 			Msgf("OpenVLM: auto-detected card %s for VID=0x%04X PID=0x%04X",
-				cardNum, openvlmVendorID, openvlmProductID)
+				cardNum, OpenVLMVendorID, OpenVLMProductID)
 
 		return
 	}
 
 	log.Warn().Msgf("OpenVLM: no card matching VID=0x%04X PID=0x%04X found in %s; ALSA_CARD not set",
-		openvlmVendorID, openvlmProductID, root)
+		OpenVLMVendorID, OpenVLMProductID, root)
 }

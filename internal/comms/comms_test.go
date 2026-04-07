@@ -1,6 +1,7 @@
 package comms
 
 import (
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"context"
 	"net"
 	"os"
@@ -17,13 +18,13 @@ func makeRTPBytes(t *testing.T, _ uint16) []byte {
 
 	w := &mockWriter{}
 
-	sess, err := newPionRTPSession(0x1234, w, &mockWriter{}, zerolog.Nop())
+	sess, err := rtp.NewSession(0x1234, w, &mockWriter{}, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sess.close() //nolint:errcheck
+	defer sess.Close() //nolint:errcheck
 
-	if err := sess.send([]byte{0xAA, 0xBB}); err != nil {
+	if err := sess.Send([]byte{0xAA, 0xBB}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -38,11 +39,11 @@ func TestReceiveLoop_ExitsOnContextCancel(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	pc := &portChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: newSwappableReceiver(newMockReader()),
+		receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 8)
+	pc.playbackBuffer = make(chan []int16, 8)
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
 		decoder: &mockDecoder{},
@@ -70,7 +71,7 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 
 	var pkts []mockPacket
 
-	for i := 0; i < jitterPrebufferPackets+2; i++ {
+	for i := 0; i < rtp.PrebufferPackets+2; i++ {
 		raw := makeRTPBytes(t, uint16(i))
 		pkts = append(pkts, mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
 	}
@@ -78,14 +79,14 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 	reader := newMockReader(pkts...)
 	pc := &portChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: newSwappableReceiver(reader),
+		receiver: rtp.NewSwappableReceiver(reader),
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 32)
+	pc.playbackBuffer = make(chan []int16, 32)
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
+		decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -135,15 +136,15 @@ func TestPlayoutOneFrame_SuppressedDuringBroadcastOnSendPort(t *testing.T) {
 	}
 	rt.broadcasting.Store(true)
 
-	jb := newRTPJitterBuffer(1, 10)
-	jb.push(0, []byte{0xAA, 0xBB})
+	jb := rtp.NewJitterBuffer(1, 10)
+	jb.Push(0, []byte{0xAA, 0xBB})
 
-	out := make([]float32, frameSize)
+	out := make([]int16, frameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
 	for i, v := range out {
 		if v != 0 {
-			t.Errorf("playoutOneFrame should emit silence during broadcast; sample[%d]=%f", i, v)
+			t.Errorf("playoutOneFrame should emit silence during broadcast; sample[%d]=%d", i, v)
 
 			break
 		}
@@ -162,21 +163,18 @@ func TestPlayoutOneFrame_DecodesPayloadIntoOut(t *testing.T) {
 	dec := &mockDecoder{fillValue: 42, returnN: frameSize}
 	rt := &CommsRuntime{decoder: dec}
 
-	jb := newRTPJitterBuffer(1, 10)
-	jb.push(0, []byte{1, 2, 3})
+	jb := rtp.NewJitterBuffer(1, 10)
+	jb.Push(0, []byte{1, 2, 3})
 
-	out := make([]float32, frameSize)
+	out := make([]int16, frameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
-	// float32 arithmetic may produce minor rounding; verify the value is in the right ballpark.
-	expected := float32(42) / 32768.0
-
-	const eps = 0.0001
+	// int16-native decode fills out with fillValue directly.
+	const expected int16 = 42
 
 	for i, v := range out {
-		diff := v - expected
-		if diff < -eps || diff > eps {
-			t.Errorf("sample[%d]=%f want ~%f", i, v, expected)
+		if v != expected {
+			t.Errorf("sample[%d]=%d want %d", i, v, expected)
 
 			break
 		}
@@ -198,19 +196,17 @@ func TestPlayoutOneFrame_PLCFillsOut(t *testing.T) {
 	// Push and pop to set started=true and a recent lastPush; the next
 	// playoutOneFrame call will hit the conceal branch and call the decoder
 	// with a nil payload (PLC).
-	jb := newRTPJitterBuffer(1, 10)
-	jb.push(0, []byte{0})
-	jb.popReady()
+	jb := rtp.NewJitterBuffer(1, 10)
+	jb.Push(0, []byte{0})
+	jb.PopReady()
 
-	out := make([]float32, frameSize)
+	out := make([]int16, frameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
-	expected := float32(10) / 32768.0
+	const expected int16 = 10
 
-	const eps = 0.0001
-
-	if v := out[0]; v < expected-eps || v > expected+eps {
-		t.Errorf("PLC sample[0]=%f want ~%f", v, expected)
+	if v := out[0]; v != expected {
+		t.Errorf("PLC sample[0]=%d want %d", v, expected)
 	}
 }
 
@@ -361,9 +357,9 @@ func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {
 	oldRTCP := &mockClosingWriter{}
 
 	pc := &portChannel{
-		sender:   newSwappableSender(oldSender),
-		rtcpSend: newSwappableSender(oldRTCP),
-		receiver: newSwappableReceiver(oldReceiver),
+		sender:   rtp.NewSwappableSender(oldSender),
+		rtcpSend: rtp.NewSwappableSender(oldRTCP),
+		receiver: rtp.NewSwappableReceiver(oldReceiver),
 	}
 	rt := &CommsRuntime{
 		ports: []*portChannel{pc},
@@ -372,24 +368,35 @@ func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	cfg.replaceNetwork(rt, &mockWriter{}, &mockWriter{}, newMockReader(), "10.0.0.1")
 
-	if !oldSender.closeCalled {
-		t.Error("old sender Close() should have been called")
-	}
-
+	// sender/rtcp closes are deferred (see swapAndDeferClose); the receiver
+	// close is synchronous so we can assert it immediately.
 	if !oldReceiver.closed {
 		t.Error("old receiver Close() should have been called")
 	}
 
-	if !oldRTCP.closeCalled {
+	deadline := time.Now().Add(rtp.SwapCloseGrace + 500*time.Millisecond)
+	for time.Now().Before(deadline) {
+		if oldSender.closeCalled.Load() && oldRTCP.closeCalled.Load() {
+			break
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if !oldSender.closeCalled.Load() {
+		t.Error("old sender Close() should have been called")
+	}
+
+	if !oldRTCP.closeCalled.Load() {
 		t.Error("old RTCP sender Close() should have been called")
 	}
 }
 
 func TestReplaceNetwork_StoresNewLocalIP(t *testing.T) {
 	pc := &portChannel{
-		sender:   newSwappableSender(&mockWriter{}),
-		rtcpSend: newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
+		sender:   rtp.NewSwappableSender(&mockWriter{}),
+		rtcpSend: rtp.NewSwappableSender(&mockWriter{}),
+		receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
 	rt := &CommsRuntime{
 		ports: []*portChannel{pc},
@@ -408,9 +415,9 @@ func TestReplaceNetwork_NewWriterReceivesSubsequentWrites(t *testing.T) {
 	newSender := &mockWriter{}
 
 	pc := &portChannel{
-		sender:   newSwappableSender(&mockWriter{}),
-		rtcpSend: newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
+		sender:   rtp.NewSwappableSender(&mockWriter{}),
+		rtcpSend: rtp.NewSwappableSender(&mockWriter{}),
+		receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
 	rt := &CommsRuntime{
 		ports: []*portChannel{pc},
@@ -434,7 +441,7 @@ func TestReplaceNetwork_NewWriterReceivesSubsequentWrites(t *testing.T) {
 
 func TestGetActiveMulticastAddr_NotStarted(t *testing.T) {
 	// Ensure no active config is set.
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if got := GetActiveMulticastAddr(); got != "" {
 		t.Errorf("expected empty string when comms not started, got %q", got)
@@ -450,15 +457,15 @@ func TestGetActiveMulticastAddr_ReturnsConfiguredAddr(t *testing.T) {
 	}
 	pc := &portChannel{
 		cfg:      cfg.McastPorts[0],
-		sender:   newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
+		sender:   rtp.NewSwappableSender(&mockWriter{}),
+		receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
 	cfg.runtime = &CommsRuntime{
 		ports: []*portChannel{pc},
 	}
 
-	activeConfig.Store(cfg)
-	t.Cleanup(func() { activeConfig.Store(nil) })
+	SetDefault(cfg)
+	t.Cleanup(func() { SetDefault(nil) })
 
 	if got := GetActiveMulticastAddr(); got != want {
 		t.Errorf("GetActiveMulticastAddr() = %q, want %q", got, want)
@@ -477,15 +484,15 @@ func TestGetActiveMulticastAddr_ReflectsUpdate(t *testing.T) {
 	}
 	pc := &portChannel{
 		cfg:      cfg.McastPorts[0],
-		sender:   newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
+		sender:   rtp.NewSwappableSender(&mockWriter{}),
+		receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
 	cfg.runtime = &CommsRuntime{
 		ports: []*portChannel{pc},
 	}
 
-	activeConfig.Store(cfg)
-	t.Cleanup(func() { activeConfig.Store(nil) })
+	SetDefault(cfg)
+	t.Cleanup(func() { SetDefault(nil) })
 
 	if got := GetActiveMulticastAddr(); got != initial {
 		t.Errorf("before update: GetActiveMulticastAddr() = %q, want %q", got, initial)
@@ -529,7 +536,7 @@ func TestSetMulticastTTL(t *testing.T) {
 // ─── GetActiveMulticastPort tests ───────────────────────────────────────────
 
 func TestGetActiveMulticastPort_NotStarted(t *testing.T) {
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if got := GetActiveMulticastPort(); got != 0 {
 		t.Errorf("expected 0 when comms not started, got %d", got)
@@ -545,15 +552,15 @@ func TestGetActiveMulticastPort_ReturnsConfiguredPort(t *testing.T) {
 	}
 	pc := &portChannel{
 		cfg:      cfg.McastPorts[0],
-		sender:   newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
+		sender:   rtp.NewSwappableSender(&mockWriter{}),
+		receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
 	cfg.runtime = &CommsRuntime{
 		ports: []*portChannel{pc},
 	}
 
-	activeConfig.Store(cfg)
-	t.Cleanup(func() { activeConfig.Store(nil) })
+	SetDefault(cfg)
+	t.Cleanup(func() { SetDefault(nil) })
 
 	if got := GetActiveMulticastPort(); got != want {
 		t.Errorf("GetActiveMulticastPort() = %d, want %d", got, want)
@@ -743,8 +750,8 @@ func setupActiveConfigWithPorts(t *testing.T, n int) *CommsConfig {
 		runtime:    &CommsRuntime{ports: ports},
 	}
 
-	activeConfig.Store(cfg)
-	t.Cleanup(func() { activeConfig.Store(nil) })
+	SetDefault(cfg)
+	t.Cleanup(func() { SetDefault(nil) })
 
 	return cfg
 }
@@ -784,7 +791,7 @@ func TestEnableTalkGroupReceive_TogglesState(t *testing.T) {
 // ─── GetWebEventSource / GetWebAudioBridge tests ─────────────────────────────
 
 func TestGetWebEventSource_NotRunning(t *testing.T) {
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if got := GetWebEventSource(); got != nil {
 		t.Errorf("expected nil when not running, got %v", got)
@@ -792,7 +799,7 @@ func TestGetWebEventSource_NotRunning(t *testing.T) {
 }
 
 func TestGetWebAudioBridge_NotRunning(t *testing.T) {
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if got := GetWebAudioBridge(); got != nil {
 		t.Errorf("expected nil when not running, got %v", got)

@@ -17,7 +17,9 @@ import (
 	"golang.org/x/net/ipv4"
 	"golang.org/x/sys/unix"
 
-	"github.com/openmanet/openmanetd/internal/config"
+	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
+	"github.com/openmanet/openmanetd/internal/comms/device"
 )
 
 // ─── Package-level constants ──────────────────────────────────────────────────
@@ -59,13 +61,9 @@ var (
 			return &s
 		},
 	}
-	float32Pool = sync.Pool{ //nolint:gochecknoglobals
-		New: func() any {
-			s := make([]float32, frameSize)
-
-			return &s
-		},
-	}
+	// float32Pool has been moved to pools.go (sibling file) so future
+	// sub-packages (audio/, control/roip.go) can import it via the parent
+	// package without cross-importing each other.
 	encBufPool = sync.Pool{ //nolint:gochecknoglobals
 		New: func() any {
 			s := make([]byte, encBufSize)
@@ -87,9 +85,16 @@ func returnFloat32(s []float32) {
 	float32Pool.Put(sp)
 }
 
-// activeConfig holds the CommsConfig most recently started via Start().
-// UpdateMulticastEndpoint reads it so callers need not pass the config explicitly.
-var activeConfig atomic.Pointer[CommsConfig] //nolint:gochecknoglobals
+// returnInt16 returns a pooled []int16 slice to int16Pool. Non-pooled slices
+// (capacity != frameSize) are silently ignored.
+func returnInt16(s []int16) {
+	if cap(s) != frameSize {
+		return
+	}
+
+	sp := &s
+	int16Pool.Put(sp)
+}
 
 // ─── McastPortConfig / McastPortState ────────────────────────────────────────
 
@@ -143,190 +148,21 @@ type McastPortState struct {
 // drains it before falling through to playoutOneFrame so beeps preempt one
 // frame of jitter-buffered audio.
 type portChannel struct {
-	rtpSess           rtpSender
+	rtpSess           RTPSender
 	playbackStream    AudioStream
-	sender            *swappableSender
-	rtcpSend          *swappableSender
-	receiver          *swappableReceiver
-	jitter            *rtpJitterBuffer
-	playbackBuffer    chan []float32
+	sender            *SwappableSender
+	rtcpSend          *SwappableSender
+	receiver          *SwappableReceiver
+	jitter            *RTPJitterBuffer
+	playbackBuffer    chan []int16
 	cfg               McastPortConfig
 	consecutivePLC    int
-	lastRemoteRx      atomic.Int64
+	rxGate            halfDuplexGate
 	playbackUnderruns atomic.Int64
 	sendEnabled       atomic.Bool
 	receiveEnabled    atomic.Bool
 }
 
-// ─── CommsRuntime ─────────────────────────────────────────────────────────────
-
-// CommsRuntime holds live resources allocated by Start. All audio/network
-// fields are interfaces so that unit tests can inject fakes without hardware.
-type CommsRuntime struct {
-	decoder         AudioDecoder
-	encoder         AudioEncoder
-	broadcastStream AudioStream
-	webBridge       *WebAudioBridge
-	webEvtSrc       *webEventSource
-	localIP         atomic.Pointer[string]
-	reopenBroadcast func() error
-	broadcastTap    atomic.Pointer[chan []float32]
-	ports           []*portChannel
-	beepBufferStart []float32
-	beepBufferStop  []float32
-	broadcasting    atomic.Bool
-}
-
-// ─── CommsConfig ──────────────────────────────────────────────────────────────
-
-// CommsConfig holds the static configuration for the comms subsystem.
-// Allocate one with NewComms and call Start to begin operation.
-// All exported fields must be set before Start is called.
-type CommsConfig struct {
-	Log                      zerolog.Logger
-	Interrupt                chan os.Signal
-	runtime                  *CommsRuntime
-	NanoPTTDevicePath        string
-	CommKey                  string
-	Iface                    string
-	ROIPInputDevice          string
-	BluetoothInputDevice     string
-	BluetoothOutputDevice    string
-	BluetoothAudioDeviceHint string
-	ControlSource            string
-	NanoPTTDeviceName        string
-	RtpID                    string
-	McastPorts               []McastPortConfig
-	ROIPVOXHoldTime          time.Duration
-	ROIPMaxTXDuration        time.Duration
-	MicGain                  float32
-	ROIPVOXThreshold         float32
-	ROIPCOSGPIOMask          byte
-	EnableNanoPTT            bool
-	Debug                    bool
-	Loopback                 bool
-	Trace                    bool
-	Enable                   bool
-	EnableBluetoothPtt       bool
-	EncoderComplexity        int
-	PlaybackLatencyMs        int
-	CaptureLatencyMs         int
-}
-
-// NewComms copies cfg and returns a pointer ready for Start.
-func NewComms(cfg CommsConfig) *CommsConfig {
-	mcastPorts := make([]McastPortConfig, len(cfg.McastPorts))
-	copy(mcastPorts, cfg.McastPorts)
-
-	return &CommsConfig{
-		Log:                      cfg.Log,
-		Interrupt:                cfg.Interrupt,
-		Enable:                   cfg.Enable,
-		Iface:                    cfg.Iface,
-		McastPorts:               mcastPorts,
-		CommKey:                  cfg.CommKey,
-		RtpID:                    cfg.RtpID,
-		Debug:                    cfg.Debug,
-		Loopback:                 cfg.Loopback,
-		Trace:                    cfg.Trace,
-		ControlSource:            cfg.ControlSource,
-		MicGain:                  cfg.MicGain,
-		EnableNanoPTT:            cfg.EnableNanoPTT,
-		NanoPTTDevicePath:        cfg.NanoPTTDevicePath,
-		NanoPTTDeviceName:        cfg.NanoPTTDeviceName,
-		EnableBluetoothPtt:       cfg.EnableBluetoothPtt,
-		BluetoothAudioDeviceHint: cfg.BluetoothAudioDeviceHint,
-		BluetoothInputDevice:     cfg.BluetoothInputDevice,
-		BluetoothOutputDevice:    cfg.BluetoothOutputDevice,
-		ROIPCOSGPIOMask:          cfg.ROIPCOSGPIOMask,
-		ROIPVOXThreshold:         cfg.ROIPVOXThreshold,
-		ROIPVOXHoldTime:          cfg.ROIPVOXHoldTime,
-		ROIPMaxTXDuration:        cfg.ROIPMaxTXDuration,
-		ROIPInputDevice:          cfg.ROIPInputDevice,
-		EncoderComplexity:        cfg.EncoderComplexity,
-		PlaybackLatencyMs:        cfg.PlaybackLatencyMs,
-		CaptureLatencyMs:         cfg.CaptureLatencyMs,
-	}
-}
-
-// ─── applyDefaults ────────────────────────────────────────────────────────────
-
-func (cfg *CommsConfig) applyDefaults() {
-	if cfg.Iface == "" {
-		cfg.Iface = defaultIface
-	}
-
-	if len(cfg.McastPorts) == 0 {
-		tgs := config.GetMulticastTalkGroups()
-		cfg.McastPorts = make([]McastPortConfig, len(tgs))
-
-		for i, tg := range tgs {
-			// Open sockets for every talk group so that EnableTalkGroupSend /
-			// EnableTalkGroupReceive can activate any port at runtime without
-			// a restart. Only port 0 is active on first startup.
-			active := i == 0
-			cfg.McastPorts[i] = McastPortConfig{
-				Address:            tg.Address,
-				Port:               tg.Port,
-				Send:               true,
-				Receive:            true,
-				InitSendEnabled:    &active,
-				InitReceiveEnabled: &active,
-			}
-		}
-	}
-
-	if cfg.CommKey == "" {
-		cfg.CommKey = defaultKey
-	}
-
-	if cfg.NanoPTTDevicePath == "" {
-		cfg.NanoPTTDevicePath = defaultCommDevice
-	}
-
-	if cfg.NanoPTTDeviceName == "" {
-		cfg.NanoPTTDeviceName = defaultCommName
-	}
-
-	cfg.ControlSource = normalizeControlSource(cfg.ControlSource)
-
-	// Apply ROIP-specific defaults after ControlSource is normalised.
-	if cfg.ControlSource == controlSourceROIP {
-		if cfg.ROIPCOSGPIOMask == 0 && cfg.ROIPVOXThreshold == 0 {
-			// Neither explicitly configured: default to COS-primary, VOX fallback.
-			cfg.ROIPCOSGPIOMask = roipDefaultCOSMask
-			cfg.ROIPVOXThreshold = roipDefaultVOXThresh
-		}
-
-		if cfg.ROIPVOXThreshold > 0 && cfg.ROIPVOXHoldTime == 0 {
-			cfg.ROIPVOXHoldTime = roipDefaultVOXHold
-		}
-
-		if cfg.ROIPMaxTXDuration == 0 {
-			cfg.ROIPMaxTXDuration = roipDefaultMaxTX
-		}
-
-		if cfg.ROIPInputDevice == "" {
-			cfg.ROIPInputDevice = cfg.BluetoothInputDevice
-		}
-	}
-
-	if cfg.RtpID == "" {
-		if hostname, err := os.Hostname(); err == nil && hostname != "" {
-			cfg.RtpID = hostname
-		}
-	}
-
-	if cfg.BluetoothAudioDeviceHint != "" {
-		if cfg.BluetoothInputDevice == "" {
-			cfg.BluetoothInputDevice = cfg.BluetoothAudioDeviceHint
-		}
-
-		if cfg.BluetoothOutputDevice == "" {
-			cfg.BluetoothOutputDevice = cfg.BluetoothAudioDeviceHint
-		}
-	}
-}
 
 // ─── buildCodec ───────────────────────────────────────────────────────────────
 
@@ -451,6 +287,7 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 	ssrc uint32,
 ) (*portChannel, error) {
 	pc := &portChannel{cfg: mpc}
+	pc.rxGate.threshold = cfg.HalfDuplexThreshold
 	pc.sendEnabled.Store(boolPtrVal(mpc.InitSendEnabled, mpc.Send))
 	pc.receiveEnabled.Store(boolPtrVal(mpc.InitReceiveEnabled, mpc.Receive))
 
@@ -488,10 +325,10 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 			return nil, fmt.Errorf("set multicast TTL on RTCP sender %s:%d: %w", mpc.Address, mpc.Port+1, errTTL)
 		}
 
-		sender := newSwappableSender(sendConn)
-		rtcpSend := newSwappableSender(rtcpConn)
+		sender := rtp.NewSwappableSender(sendConn)
+		rtcpSend := rtp.NewSwappableSender(rtcpConn)
 
-		sess, err := newPionRTPSession(ssrc, sender, rtcpSend, cfg.Log)
+		sess, err := rtp.NewSession(ssrc, sender, rtcpSend, cfg.Log)
 		if err != nil {
 			_ = sendConn.Close()
 			_ = rtcpConn.Close()
@@ -516,8 +353,8 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 				_ = pc.sender.Close()
 
 				_ = pc.rtcpSend.Close()
-				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
-					_ = s.close()
+				if s, ok := pc.rtpSess.(*RTPSession); ok {
+					_ = s.Close()
 				}
 			}
 
@@ -531,8 +368,8 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 				_ = pc.sender.Close()
 
 				_ = pc.rtcpSend.Close()
-				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
-					_ = s.close()
+				if s, ok := pc.rtpSess.(*RTPSession); ok {
+					_ = s.Close()
 				}
 			}
 
@@ -552,23 +389,23 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 				Msg("comms: rx socket buffer")
 		}
 
-		if err := joinMulticastGroup(ifi, recvConn, net.ParseIP(mpc.Address)); err != nil {
+		if err := device.JoinMulticastGroup(ifi, recvConn, net.ParseIP(mpc.Address)); err != nil {
 			_ = recvConn.Close()
 
 			if pc.sender != nil {
 				_ = pc.sender.Close()
 
 				_ = pc.rtcpSend.Close()
-				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
-					_ = s.close()
+				if s, ok := pc.rtpSess.(*RTPSession); ok {
+					_ = s.Close()
 				}
 			}
 
 			return nil, err
 		}
 
-		pc.receiver = newSwappableReceiver(recvConn)
-		pc.jitter = newRTPJitterBuffer(jitterPrebufferPackets, jitterMaxDepth)
+		pc.receiver = rtp.NewSwappableReceiver(recvConn)
+		pc.jitter = rtp.NewJitterBuffer(rtp.PrebufferPackets, rtp.MaxDepth)
 
 		cfg.Log.Debug().Msgf("comms: RTP receiver port %d", mpc.Port)
 	}
@@ -583,7 +420,7 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 // localIP as fallback), keeping transmissions from this node identifiable
 // across talk groups.
 func (cfg *CommsConfig) buildNetwork() ([]*portChannel, string, error) {
-	localIP, ifi, err := getIfaceIPv4(cfg.Iface)
+	localIP, ifi, err := device.IfaceIPv4(cfg.Iface)
 	if err != nil {
 		return nil, "", err
 	}
@@ -595,7 +432,7 @@ func (cfg *CommsConfig) buildNetwork() ([]*portChannel, string, error) {
 		rtpID = localIP
 	}
 
-	ssrc := ssrcFromID(rtpID)
+	ssrc := rtp.SSRCFromID(rtpID)
 
 	ports := make([]*portChannel, 0, len(cfg.McastPorts))
 
@@ -613,8 +450,8 @@ func (cfg *CommsConfig) buildNetwork() ([]*portChannel, string, error) {
 					_ = built.rtcpSend.Close()
 				}
 
-				if s, ok := built.rtpSess.(*pionRTPSession); ok && built.rtpSess != nil {
-					_ = s.close()
+				if s, ok := built.rtpSess.(*RTPSession); ok && built.rtpSess != nil {
+					_ = s.Close()
 				}
 			}
 
@@ -638,12 +475,12 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 	inDev *portaudio.DeviceInfo,
 	err error,
 ) {
-	outDev, err := resolveAudioDevice(cfg.BluetoothOutputDevice, false)
+	outDev, err := device.ResolveAudio(cfg.BluetoothOutputDevice, false)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	inDev, err = resolveAudioDevice(cfg.BluetoothInputDevice, true)
+	inDev, err = device.ResolveAudio(cfg.BluetoothInputDevice, true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -695,11 +532,15 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 			continue
 		}
 
-		pc.playbackBuffer = make(chan []float32, beepChannelDepth)
+		pc.playbackBuffer = make(chan []int16, beepChannelDepth)
 
 		pcRef := pc // capture for callback closure
 
-		rawPlayback, openErr := portaudio.OpenStream(playbackParams, func(_, out []float32) {
+		// Phase 5: open the playback stream with an int16 callback so
+		// PortAudio delivers samples in the native codec format. The
+		// gordonklaus/portaudio binding chooses the C sample format
+		// (paInt16) from the callback signature via reflection.
+		rawPlayback, openErr := portaudio.OpenStream(playbackParams, func(_, out []int16) {
 			// Beep injection: TX start/stop tones preempt one frame of
 			// jitter-buffered audio. The select is non-blocking so a
 			// missing beep falls straight through to playoutOneFrame.
@@ -769,7 +610,7 @@ func (cfg *CommsConfig) sendToAllPorts(rt *CommsRuntime, payload []byte) {
 			continue
 		}
 
-		if err := pc.rtpSess.send(payload); err != nil {
+		if err := pc.rtpSess.Send(payload); err != nil {
 			cfg.Log.Debug().Err(err).
 				Str("addr", pc.cfg.Address).
 				Int("port", pc.cfg.Port).
@@ -785,6 +626,18 @@ func (cfg *CommsConfig) sendToAllPorts(rt *CommsRuntime, payload []byte) {
 // encoder spikes / GC pauses / UDP backpressure cannot starve the audio thread
 // and cause ADC overruns at the device.
 func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *CommsRuntime) (AudioStream, error) {
+	// Phase 3 unified discovery: report the current CM108 descriptor count
+	// so the broadcast stream open has the same observable device state as
+	// the HID (PTT) side. PortAudio is not enumerable from /sys, so the
+	// chosen PortAudio device is still supplied by inDev — the walk here is
+	// informational and shares the same code path as openvlmSource.
+	if descs, dErr := device.DiscoverCM108(os.DirFS("/sys"), nil); dErr == nil {
+		cfg.Log.Debug().
+			Int("cm108_count", len(descs)).
+			Str("pa_device", inDev.Name).
+			Msg("comms: unified CM108 descriptor scan at broadcast open")
+	}
+
 	// Suggest a capture device buffer depth to PortAudio. Symmetric to the
 	// playback stream in buildAudio. Floor at inDev.DefaultHighInputLatency
 	// so we never undercut the host API's recommendation. The host API may
@@ -863,12 +716,30 @@ func (cfg *CommsConfig) reopenBroadcastStream(rt *CommsRuntime, inDev *portaudio
 //
 // Returns an error only in the default branch when no matching evdev device is found.
 func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) {
+	// Phase 2 of the comms refactor: prefer the control source registry. The
+	// switch below remains as a safety net while the backends still live in
+	// this package; it should be unreachable for any name the registry knows
+	// about. See .claude/plans/comms-refactor.md.
+	if factory, ok := controlLookup(cfg.ControlSource); ok {
+		deps, src, handled := cfg.buildControlDeps(rt)
+		if handled {
+			es, err := factory(deps)
+			if err != nil {
+				return nil, err
+			}
+
+			cfg.logControlSource(src)
+
+			return es, nil
+		}
+	}
+
 	switch cfg.ControlSource {
 	case defaultCtrlSrc:
 		cfg.Log.Info().Msgf("comms: PTT on OpenVLM HID dongle (VID=0x%04X PID=0x%04X)",
 			openvlmVendorID, openvlmProductID)
 
-		return NewOpenVLMSource(cfg.Log), nil
+		return control.NewOpenVLMSource(cfg.Log), nil
 
 	case controlSourceROIP:
 		cfg.Log.Info().Msgf(
@@ -886,7 +757,7 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 	case controlSourceWeb:
 		cfg.Log.Info().Msg("comms: PTT via web RPC")
 
-		ws := NewWebEventSource(cfg.Log)
+		ws := control.NewWebEventSource(cfg.Log)
 		rt.webEvtSrc = ws
 
 		return ws, nil
@@ -899,7 +770,7 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 
 		cfg.Log.Info().Msgf("comms: PTT on evdev device: %s", dev.Name)
 
-		return NewNanoPTTSource(dev, cfg.CommKey, cfg.Log), nil
+		return control.NewNanoPTTSource(dev, cfg.CommKey, cfg.Log), nil
 	}
 }
 
@@ -919,139 +790,28 @@ func (cfg *CommsConfig) replaceNetwork(
 	pc := rt.ports[0]
 
 	if pc.receiver != nil && newReceiver != nil {
-		old := pc.receiver.swap(newReceiver)
+		old := pc.receiver.Swap(newReceiver)
 		_ = old.Close()
 	}
 
 	if pc.sender != nil && newSender != nil {
-		old := pc.sender.swap(newSender)
-		if c, ok := old.(interface{ Close() error }); ok {
-			_ = c.Close()
-		}
+		// Deferred close: the lock-free Write path on SwappableSender
+		// cannot be drained synchronously, so the previous underlying
+		// connection is closed after rtp.SwapCloseGrace to let any in-flight
+		// sendto(2) on the old fd finish first.
+		pc.sender.SwapAndDeferClose(newSender)
 	}
 
 	if pc.rtcpSend != nil && newRTCPSender != nil {
-		old := pc.rtcpSend.swap(newRTCPSender)
-		if c, ok := old.(interface{ Close() error }); ok {
-			_ = c.Close()
-		}
+		pc.rtcpSend.SwapAndDeferClose(newRTCPSender)
 	}
 
 	rt.localIP.Store(&newLocalIP)
 }
 
-// ─── UpdateMulticastEndpoint ──────────────────────────────────────────────────
-
-// GetActiveMulticastAddr returns the multicast group address of the first
-// configured port in the live comms subsystem. Returns an empty string if
-// comms has not been started or no ports are configured.
-func GetActiveMulticastAddr() string {
-	cfg := activeConfig.Load()
-	if cfg == nil || len(cfg.McastPorts) == 0 {
-		return ""
-	}
-
-	return cfg.McastPorts[0].Address
-}
-
-// GetActiveMulticastPort returns the UDP port of the first configured port in
-// the live comms subsystem. Returns 0 if comms has not been started or no
-// ports are configured.
-func GetActiveMulticastPort() int {
-	cfg := activeConfig.Load()
-	if cfg == nil || len(cfg.McastPorts) == 0 {
-		return 0
-	}
-
-	return cfg.McastPorts[0].Port
-}
-
+// Accessors for the active Service live in service.go.
+//
 // ─── Start ────────────────────────────────────────────────────────────────────
-
-// EnableTalkGroupSend enables or disables RTP transmission on the port at the given
-// zero-based index. It is safe to call concurrently with the send path.
-// Returns an error when comms is not running or portIdx is out of range.
-func EnableTalkGroupSend(portIdx int, enabled bool) error {
-	cfg := activeConfig.Load()
-	if cfg == nil || cfg.runtime == nil {
-		return errors.New("comms: subsystem is not running")
-	}
-
-	rt := cfg.runtime
-	if portIdx < 0 || portIdx >= len(rt.ports) {
-		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(rt.ports))
-	}
-
-	rt.ports[portIdx].sendEnabled.Store(enabled)
-
-	return nil
-}
-
-// EnableTalkGroupReceive enables or disables RTP reception on the port at the given
-// zero-based index. It is safe to call concurrently with the receive path.
-// Returns an error when comms is not running or portIdx is out of range.
-func EnableTalkGroupReceive(portIdx int, enabled bool) error {
-	cfg := activeConfig.Load()
-	if cfg == nil || cfg.runtime == nil {
-		return errors.New("comms: subsystem is not running")
-	}
-
-	rt := cfg.runtime
-	if portIdx < 0 || portIdx >= len(rt.ports) {
-		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(rt.ports))
-	}
-
-	rt.ports[portIdx].receiveEnabled.Store(enabled)
-
-	return nil
-}
-
-// GetTalkGroupStates returns a snapshot of the runtime direction-toggle state for
-// all configured ports. Returns an error when comms is not running.
-func GetTalkGroupStates() ([]McastPortState, error) {
-	cfg := activeConfig.Load()
-	if cfg == nil || cfg.runtime == nil {
-		return nil, errors.New("comms: subsystem is not running")
-	}
-
-	rt := cfg.runtime
-	states := make([]McastPortState, len(rt.ports))
-
-	for i, pc := range rt.ports {
-		states[i] = McastPortState{
-			Address:        pc.cfg.Address,
-			Port:           pc.cfg.Port,
-			SendEnabled:    pc.sendEnabled.Load(),
-			ReceiveEnabled: pc.receiveEnabled.Load(),
-		}
-	}
-
-	return states, nil
-}
-
-// GetWebEventSource returns the webEventSource created when ControlSource is
-// "web". Returns nil when comms is not running or a different control source
-// is active.
-func GetWebEventSource() *webEventSource {
-	cfg := activeConfig.Load()
-	if cfg == nil || cfg.runtime == nil {
-		return nil
-	}
-
-	return cfg.runtime.webEvtSrc
-}
-
-// GetWebAudioBridge returns the WebAudioBridge created when ControlSource is
-// "web". Returns nil when comms is not running or a different control source
-// is active.
-func GetWebAudioBridge() *WebAudioBridge {
-	cfg := activeConfig.Load()
-	if cfg == nil || cfg.runtime == nil {
-		return nil
-	}
-
-	return cfg.runtime.webBridge
-}
 
 // startHardwareAudio initializes PortAudio, opens broadcast and playback
 // streams, and returns a cleanup function that stops and closes them.
@@ -1114,7 +874,7 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 
 	if cfg.ControlSource != controlSourceWeb {
 		if cfg.ControlSource == defaultCtrlSrc || cfg.ControlSource == controlSourceROIP {
-			detectAndSetALSACard(cfg.Log)
+			control.DetectAndSetALSACard(cfg.Log)
 		}
 	}
 
@@ -1142,12 +902,17 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 	}
 
 	// ── beep tones ─────────────────────────────────────────────────────────
-	beepStart := make([]float32, frameSize)
-	beepStop := make([]float32, frameSize)
+	// Phase 5: beep buffers are int16-native so they can be written directly
+	// into the PortAudio int16 playback callback without an extra conversion.
+	// Amplitude 0.2 * 32767 ≈ 6553 matches the previous float32 volume.
+	beepStart := make([]int16, frameSize)
+	beepStop := make([]int16, frameSize)
+
+	const beepAmp = 0.2 * 32767
 
 	for i := range beepStart {
-		beepStart[i] = float32(math.Sin(2*math.Pi*1000*float64(i)/float64(sampleRate))) * 0.2
-		beepStop[i] = float32(math.Sin(2*math.Pi*600*float64(i)/float64(sampleRate))) * 0.2
+		beepStart[i] = int16(math.Sin(2*math.Pi*1000*float64(i)/float64(sampleRate)) * beepAmp)
+		beepStop[i] = int16(math.Sin(2*math.Pi*600*float64(i)/float64(sampleRate)) * beepAmp)
 	}
 
 	// ── network ────────────────────────────────────────────────────────────
@@ -1174,19 +939,19 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 			}
 
 			if pc.rtpSess != nil {
-				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
-					_ = s.close()
+				if s, ok := pc.rtpSess.(*RTPSession); ok {
+					_ = s.Close()
 				}
 			}
 		}
 
 		cfg.runtime = nil
 
-		activeConfig.Store((*CommsConfig)(nil))
+		SetDefault(nil)
 	}()
 
 	cfg.runtime = rt
-	activeConfig.Store(cfg)
+	SetDefault(cfg)
 
 	// ── event source ───────────────────────────────────────────────────────
 	src, srcErr := cfg.buildEventSource(rt)
