@@ -20,12 +20,12 @@ func newTestRuntime(stream AudioStream) *CommsRuntime {
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 16)
+	pc.playbackBuffer = make(chan []int16, 16)
 
 	return &CommsRuntime{
 		ports:           []*portChannel{pc},
-		beepBufferStart: []float32{0.1, 0.2},
-		beepBufferStop:  []float32{0.3, 0.4},
+		beepBufferStart: []int16{100, 200},
+		beepBufferStop:  []int16{300, 400},
 		broadcastStream: stream,
 		decoder:         &mockDecoder{},
 	}
@@ -132,9 +132,9 @@ func TestDrainPlaybackBuffer(t *testing.T) {
 	rt := newTestRuntime(&mockStream{})
 	cfg := newSilentComms()
 
-	rt.ports[0].playbackBuffer <- []float32{1}
+	rt.ports[0].playbackBuffer <- []int16{1}
 
-	rt.ports[0].playbackBuffer <- []float32{2}
+	rt.ports[0].playbackBuffer <- []int16{2}
 
 	cfg.drainPlaybackBuffer(rt)
 
@@ -441,15 +441,15 @@ func TestBeginTransmission_NilStreamAndNilReopen(t *testing.T) {
 // start-beep behavior tested by TestBeginTransmission_BeepSentToAllPorts.
 func TestEndTransmission_QueuesStopBeepToAllPorts(t *testing.T) {
 	pc0 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
-	pc0.playbackBuffer = make(chan []float32, 16)
+	pc0.playbackBuffer = make(chan []int16, 16)
 
 	pc1 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
-	pc1.playbackBuffer = make(chan []float32, 16)
+	pc1.playbackBuffer = make(chan []int16, 16)
 
 	rt := &CommsRuntime{
 		ports:           []*portChannel{pc0, pc1},
-		beepBufferStart: []float32{0.1, 0.2},
-		beepBufferStop:  []float32{0.3, 0.4},
+		beepBufferStart: []int16{100, 200},
+		beepBufferStop:  []int16{300, 400},
 		broadcastStream: &mockStream{},
 		decoder:         &mockDecoder{},
 	}

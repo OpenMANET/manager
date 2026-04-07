@@ -42,7 +42,7 @@ func TestReceiveLoop_ExitsOnContextCancel(t *testing.T) {
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 8)
+	pc.playbackBuffer = make(chan []int16, 8)
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
 		decoder: &mockDecoder{},
@@ -82,7 +82,7 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 32)
+	pc.playbackBuffer = make(chan []int16, 32)
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
 		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
@@ -138,12 +138,12 @@ func TestPlayoutOneFrame_SuppressedDuringBroadcastOnSendPort(t *testing.T) {
 	jb := newRTPJitterBuffer(1, 10)
 	jb.push(0, []byte{0xAA, 0xBB})
 
-	out := make([]float32, frameSize)
+	out := make([]int16, frameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
 	for i, v := range out {
 		if v != 0 {
-			t.Errorf("playoutOneFrame should emit silence during broadcast; sample[%d]=%f", i, v)
+			t.Errorf("playoutOneFrame should emit silence during broadcast; sample[%d]=%d", i, v)
 
 			break
 		}
@@ -165,18 +165,15 @@ func TestPlayoutOneFrame_DecodesPayloadIntoOut(t *testing.T) {
 	jb := newRTPJitterBuffer(1, 10)
 	jb.push(0, []byte{1, 2, 3})
 
-	out := make([]float32, frameSize)
+	out := make([]int16, frameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
-	// float32 arithmetic may produce minor rounding; verify the value is in the right ballpark.
-	expected := float32(42) / 32768.0
-
-	const eps = 0.0001
+	// int16-native decode fills out with fillValue directly.
+	const expected int16 = 42
 
 	for i, v := range out {
-		diff := v - expected
-		if diff < -eps || diff > eps {
-			t.Errorf("sample[%d]=%f want ~%f", i, v, expected)
+		if v != expected {
+			t.Errorf("sample[%d]=%d want %d", i, v, expected)
 
 			break
 		}
@@ -202,15 +199,13 @@ func TestPlayoutOneFrame_PLCFillsOut(t *testing.T) {
 	jb.push(0, []byte{0})
 	jb.popReady()
 
-	out := make([]float32, frameSize)
+	out := make([]int16, frameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
-	expected := float32(10) / 32768.0
+	const expected int16 = 10
 
-	const eps = 0.0001
-
-	if v := out[0]; v < expected-eps || v > expected+eps {
-		t.Errorf("PLC sample[0]=%f want ~%f", v, expected)
+	if v := out[0]; v != expected {
+		t.Errorf("PLC sample[0]=%d want %d", v, expected)
 	}
 }
 

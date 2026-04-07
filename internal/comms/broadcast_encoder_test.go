@@ -68,17 +68,17 @@ func newTestBroadcastEncoder(t *testing.T, enc *mockEncoder) (*broadcastEncoder,
 		s:     stream,
 		cfg:   cfg,
 		rt:    rt,
-		encCh: make(chan *[]float32, broadcastEncoderChanDepth),
+		encCh: make(chan *[]int16, broadcastEncoderChanDepth),
 		done:  make(chan struct{}),
 	}
 
 	return be, pc.rtpSess.(*mockRTPSender), stream
 }
 
-// silentFrame returns a frameSize-long float32 slice filled with zeros so
-// the gain → int16 conversion is exercised but no audible signal is emitted.
-func silentFrame() []float32 {
-	return make([]float32, frameSize)
+// silentFrame returns a frameSize-long int16 slice filled with zeros. Phase 5
+// moved the capture callback to int16; no float32 conversion runs here.
+func silentFrame() []int16 {
+	return make([]int16, frameSize)
 }
 
 func TestBroadcastEncoder_HappyPath(t *testing.T) {
@@ -163,12 +163,12 @@ func TestBroadcastEncoder_ChannelFullDropsAndCounts(t *testing.T) {
 		t.Errorf("encoder calls = %d, want 0 (no consumer)", got)
 	}
 
-	// Drain the channel so the pooled float32 slices are returned to the
+	// Drain the channel so the pooled int16 slices are returned to the
 	// pool rather than leaking. Each fp must be released the same way the
 	// encode loop would.
 	for range broadcastEncoderChanDepth {
 		fp := <-be.encCh
-		float32Pool.Put(fp)
+		int16Pool.Put(fp)
 	}
 }
 

@@ -60,6 +60,10 @@ var (
 			return &s
 		},
 	}
+	// float32Pool is retained only for any legacy consumer boundaries (e.g.
+	// float32 VOX energy scratch paths) that still emit float32. Phase 5 of
+	// the comms refactor moved the audio hot path to int16 end-to-end; new
+	// code should use int16Pool instead.
 	float32Pool = sync.Pool{ //nolint:gochecknoglobals
 		New: func() any {
 			s := make([]float32, frameSize)
@@ -86,6 +90,17 @@ func returnFloat32(s []float32) {
 
 	sp := &s
 	float32Pool.Put(sp)
+}
+
+// returnInt16 returns a pooled []int16 slice to int16Pool. Non-pooled slices
+// (capacity != frameSize) are silently ignored.
+func returnInt16(s []int16) {
+	if cap(s) != frameSize {
+		return
+	}
+
+	sp := &s
+	int16Pool.Put(sp)
 }
 
 // ─── McastPortConfig / McastPortState ────────────────────────────────────────
@@ -146,7 +161,7 @@ type portChannel struct {
 	rtcpSend          *swappableSender
 	receiver          *swappableReceiver
 	jitter            *rtpJitterBuffer
-	playbackBuffer    chan []float32
+	playbackBuffer    chan []int16
 	cfg               McastPortConfig
 	consecutivePLC    int
 	lastRemoteRx      atomic.Int64
@@ -169,8 +184,8 @@ type CommsRuntime struct {
 	reopenBroadcast func() error
 	broadcastTap    atomic.Pointer[chan []float32]
 	ports           []*portChannel
-	beepBufferStart []float32
-	beepBufferStop  []float32
+	beepBufferStart []int16
+	beepBufferStop  []int16
 	broadcasting    atomic.Bool
 }
 
@@ -692,11 +707,15 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 			continue
 		}
 
-		pc.playbackBuffer = make(chan []float32, beepChannelDepth)
+		pc.playbackBuffer = make(chan []int16, beepChannelDepth)
 
 		pcRef := pc // capture for callback closure
 
-		rawPlayback, openErr := portaudio.OpenStream(playbackParams, func(_, out []float32) {
+		// Phase 5: open the playback stream with an int16 callback so
+		// PortAudio delivers samples in the native codec format. The
+		// gordonklaus/portaudio binding chooses the C sample format
+		// (paInt16) from the callback signature via reflection.
+		rawPlayback, openErr := portaudio.OpenStream(playbackParams, func(_, out []int16) {
 			// Beep injection: TX start/stop tones preempt one frame of
 			// jitter-buffered audio. The select is non-blocking so a
 			// missing beep falls straight through to playoutOneFrame.
@@ -1060,12 +1079,17 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 	}
 
 	// ── beep tones ─────────────────────────────────────────────────────────
-	beepStart := make([]float32, frameSize)
-	beepStop := make([]float32, frameSize)
+	// Phase 5: beep buffers are int16-native so they can be written directly
+	// into the PortAudio int16 playback callback without an extra conversion.
+	// Amplitude 0.2 * 32767 ≈ 6553 matches the previous float32 volume.
+	beepStart := make([]int16, frameSize)
+	beepStop := make([]int16, frameSize)
+
+	const beepAmp = 0.2 * 32767
 
 	for i := range beepStart {
-		beepStart[i] = float32(math.Sin(2*math.Pi*1000*float64(i)/float64(sampleRate))) * 0.2
-		beepStop[i] = float32(math.Sin(2*math.Pi*600*float64(i)/float64(sampleRate))) * 0.2
+		beepStart[i] = int16(math.Sin(2*math.Pi*1000*float64(i)/float64(sampleRate)) * beepAmp)
+		beepStop[i] = int16(math.Sin(2*math.Pi*600*float64(i)/float64(sampleRate)) * beepAmp)
 	}
 
 	// ── network ────────────────────────────────────────────────────────────

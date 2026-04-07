@@ -24,9 +24,17 @@ const maxConsecutivePLC = 10
 // is still willing to PLC.
 const concealRecentWindow = 200 * time.Millisecond
 
-// zeroFloat32 fills a float32 slice with zeros. Used by the playout callback
-// to emit silence into the PortAudio output buffer.
+// zeroFloat32 fills a float32 slice with zeros. Retained for any legacy
+// consumer boundaries that still deal in float32.
 func zeroFloat32(out []float32) {
+	for i := range out {
+		out[i] = 0
+	}
+}
+
+// zeroInt16 fills an int16 slice with zeros. Used by the playout callback to
+// emit silence into the PortAudio int16 output buffer.
+func zeroInt16(out []int16) {
 	for i := range out {
 		out[i] = 0
 	}
@@ -203,40 +211,38 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 // this port. Each port has its own PortAudio output stream running on its own
 // audio thread, so the field is single-writer. Tests must respect this by
 // not invoking playoutOneFrame concurrently with the production callback.
-func (cfg *CommsConfig) playoutOneFrame(pc *portChannel, rt *CommsRuntime, jitter *rtpJitterBuffer, out []float32) {
+func (cfg *CommsConfig) playoutOneFrame(pc *portChannel, rt *CommsRuntime, jitter *rtpJitterBuffer, out []int16) {
 	// Half-duplex: emit silence while broadcasting on a send-capable port.
-	// Web mode skips this because the browser handles its own echo cancel,
-	// but web mode does not call this function in the first place.
 	if cfg.isBroadcasting(rt) && pc.sendEnabled.Load() {
-		zeroFloat32(out)
+		zeroInt16(out)
 
 		return
 	}
 
 	if !pc.receiveEnabled.Load() {
-		zeroFloat32(out)
+		zeroInt16(out)
 
 		return
 	}
 
 	if jitter == nil {
-		zeroFloat32(out)
+		zeroInt16(out)
 
 		return
 	}
 
 	payload, conceal := jitter.popOrConceal(concealRecentWindow)
 	if payload != nil {
-		n, err := rt.decoder.DecodeFloat32(payload, out)
+		n, err := rt.decoder.DecodeS16(payload, out)
 		jitter.releasePayload(payload)
 
 		if err != nil {
 			cfg.Log.Debug().Err(err).Msg("comms: opus decode error; falling back to PLC")
 
 			// Try PLC into the same buffer.
-			n, err = rt.decoder.DecodeFloat32(nil, out)
+			n, err = rt.decoder.DecodeS16(nil, out)
 			if err != nil || n != len(out) {
-				zeroFloat32(out)
+				zeroInt16(out)
 				pc.playbackUnderruns.Add(1)
 
 				return
@@ -248,8 +254,6 @@ func (cfg *CommsConfig) playoutOneFrame(pc *portChannel, rt *CommsRuntime, jitte
 		}
 
 		if n != len(out) {
-			// Decoder produced a short frame; zero the tail rather than
-			// emitting whatever stale samples remained in out.
 			for i := n; i < len(out); i++ {
 				out[i] = 0
 			}
@@ -271,22 +275,22 @@ func (cfg *CommsConfig) playoutOneFrame(pc *portChannel, rt *CommsRuntime, jitte
 				cfg.Log.Trace().Int("consecutive_plc", pc.consecutivePLC).Msg("comms: jitter buffer gap → PLC")
 			}
 
-			n, err := rt.decoder.DecodeFloat32(nil, out)
+			n, err := rt.decoder.DecodeS16(nil, out)
 			if err != nil || n != len(out) {
-				zeroFloat32(out)
+				zeroInt16(out)
 			}
 
 			return
 		}
 
 		// Sustained loss: emit clean silence rather than degraded PLC.
-		zeroFloat32(out)
+		zeroInt16(out)
 
 		return
 	}
 
 	// Buffer empty and stream not active → genuine silence (no underrun).
-	zeroFloat32(out)
+	zeroInt16(out)
 }
 
 // webPlayoutLoop is the receive-side consumer used in web mode (rt.webBridge

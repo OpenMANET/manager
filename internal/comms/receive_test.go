@@ -18,7 +18,7 @@ func newReceiveRuntime() (*CommsRuntime, *portChannel) {
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 4)
+	pc.playbackBuffer = make(chan []int16, 4)
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
 		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
@@ -29,7 +29,7 @@ func newReceiveRuntime() (*CommsRuntime, *portChannel) {
 
 // isAllZero reports whether every sample in the slice is exactly zero.
 // Used by playoutOneFrame tests to distinguish silence from decoded audio.
-func isAllZero(out []float32) bool {
+func isAllZero(out []int16) bool {
 	for _, v := range out {
 		if v != 0 {
 			return false
@@ -43,8 +43,8 @@ func isAllZero(out []float32) bool {
 
 // driveOneFrame is a small helper for tests that need to call playoutOneFrame
 // against a fresh PCM output buffer of the standard frame size.
-func driveOneFrame(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime, jb *rtpJitterBuffer) []float32 {
-	out := make([]float32, frameSize)
+func driveOneFrame(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime, jb *rtpJitterBuffer) []int16 {
+	out := make([]int16, frameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
 	return out
@@ -281,7 +281,7 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 16)
+	pc.playbackBuffer = make(chan []int16, 16)
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
 		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
@@ -337,7 +337,7 @@ func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 8)
+	pc.playbackBuffer = make(chan []int16, 8)
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
 		decoder: &mockDecoder{},
@@ -422,7 +422,7 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 32)
+	pc.playbackBuffer = make(chan []int16, 32)
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
 		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
@@ -510,7 +510,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []float32, 64)
+	pc.playbackBuffer = make(chan []int16, 64)
 
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
