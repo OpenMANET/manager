@@ -17,6 +17,7 @@ import (
 	"golang.org/x/net/ipv4"
 	"golang.org/x/sys/unix"
 
+	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/device"
 )
 
@@ -776,7 +777,7 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 
 		cfg.Log.Info().Msgf("comms: PTT on evdev device: %s", dev.Name)
 
-		return NewNanoPTTSource(dev, cfg.CommKey, cfg.Log), nil
+		return control.NewNanoPTTSource(dev, cfg.CommKey, cfg.Log), nil
 	}
 }
 

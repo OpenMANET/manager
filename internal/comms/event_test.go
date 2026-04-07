@@ -8,6 +8,8 @@ import (
 
 	evdev "github.com/gvalkov/golang-evdev"
 	"github.com/rs/zerolog"
+
+	"github.com/openmanet/openmanetd/internal/comms/control"
 )
 
 func TestEvdevSource_PTTToggle(t *testing.T) {
@@ -31,7 +33,7 @@ func TestEvdevSource_PTTToggle(t *testing.T) {
 func TestNewNanoPTTSource_NonNil(t *testing.T) {
 	var dev *evdev.InputDevice
 
-	src := NewNanoPTTSource(dev, "any", zerolog.Nop())
+	src := control.NewNanoPTTSource(dev, "any", zerolog.Nop())
 	if src == nil {
 		t.Error("NewNanoPTTSource should not return nil")
 	}

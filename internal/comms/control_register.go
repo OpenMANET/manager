@@ -81,7 +81,7 @@ func init() {
 
 		deps.Log.Info().Msgf("comms: PTT on evdev device: %s", dev.Name)
 
-		return NewNanoPTTSource(dev, b.Cfg.CommKey, deps.Log), nil
+		return control.NewNanoPTTSource(dev, b.Cfg.CommKey, deps.Log), nil
 	})
 }
 
