@@ -197,3 +197,32 @@ func TestCommsManager_StartError(t *testing.T) {
 		t.Fatal("expected IsRunning() to be false after Disable")
 	}
 }
+
+// TestCommsManager_EnableRejectsUnknownControlSource verifies that Enable
+// runs Validate() before starting the background goroutine, surfacing an
+// invalid ControlSource as a synchronous error to the caller.
+func TestCommsManager_EnableRejectsUnknownControlSource(t *testing.T) {
+	var startCalled atomic.Bool
+
+	m := &CommsManager{
+		logger: zerolog.Nop(),
+		buildFn: func() *CommsConfig {
+			// "bluealsa_xevent" is preserved by normalizeControlSource but
+			// not registered in control.Lookup, so Validate must reject it.
+			return &CommsConfig{ControlSource: "bluealsa_xevent"}
+		},
+		startFn: func(_ *CommsConfig) startFunc {
+			return func(_ context.Context) error {
+				startCalled.Store(true)
+
+				return nil
+			}
+		},
+	}
+
+	err := m.Enable()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown ControlSource")
+	assert.False(t, m.IsRunning(), "manager must not be running after Validate failure")
+	assert.False(t, startCalled.Load(), "start function must not be invoked when Validate fails")
+}

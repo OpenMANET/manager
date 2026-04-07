@@ -32,6 +32,11 @@ type Service = CommsConfig
 //nolint:gochecknoglobals // shim — Phase 4 of comms refactor; remove in Phase 5+.
 var defaultService atomic.Pointer[Service]
 
+// ErrNotRunning is returned by Service methods when the comms subsystem has
+// not been started (or has been stopped). It is exported so callers can use
+// errors.Is to distinguish it from other failure modes.
+var ErrNotRunning = errors.New("comms: subsystem is not running")
+
 // Default returns the Service most recently published by Start, or nil when
 // comms has not been started (or has stopped). Shim for Phase 4; callers in
 // subsequent phases should receive a *Service directly.
@@ -75,7 +80,7 @@ func (s *Service) ActiveMulticastPort() int {
 // EnableTalkGroupSend toggles RTP transmission on the port at portIdx.
 func (s *Service) EnableTalkGroupSend(portIdx int, enabled bool) error {
 	if s == nil || s.runtime == nil {
-		return errors.New("comms: subsystem is not running")
+		return ErrNotRunning
 	}
 
 	rt := s.runtime
@@ -91,7 +96,7 @@ func (s *Service) EnableTalkGroupSend(portIdx int, enabled bool) error {
 // EnableTalkGroupReceive toggles RTP reception on the port at portIdx.
 func (s *Service) EnableTalkGroupReceive(portIdx int, enabled bool) error {
 	if s == nil || s.runtime == nil {
-		return errors.New("comms: subsystem is not running")
+		return ErrNotRunning
 	}
 
 	rt := s.runtime
@@ -107,7 +112,7 @@ func (s *Service) EnableTalkGroupReceive(portIdx int, enabled bool) error {
 // TalkGroupStates returns a snapshot of per-port direction-toggle state.
 func (s *Service) TalkGroupStates() ([]McastPortState, error) {
 	if s == nil || s.runtime == nil {
-		return nil, errors.New("comms: subsystem is not running")
+		return nil, ErrNotRunning
 	}
 
 	rt := s.runtime

@@ -11,11 +11,9 @@ import (
 // ─── OpenVLM constants (mirrored from control package) ──────────────────────
 
 const (
-	openvlmVendorID      = control.OpenVLMVendorID
-	openvlmProductID     = control.OpenVLMProductID
-	openvlmReportSize    = control.OpenVLMReportSize
-	openvlmPayloadOffset = control.OpenVLMPayloadOffset
-	openvlmGPIO3Mask     = control.OpenVLMGPIO3Mask
+	openvlmVendorID  = control.OpenVLMVendorID
+	openvlmProductID = control.OpenVLMProductID
+	openvlmGPIO3Mask = control.OpenVLMGPIO3Mask
 )
 
 // ─── HID abstractions ───────────────────────────────────────────────────────

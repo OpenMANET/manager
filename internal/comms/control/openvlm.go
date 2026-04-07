@@ -100,6 +100,9 @@ type OpenVLMSource struct {
 
 // NewOpenVLMSource constructs an OpenVLMSource backed by the real HIDAPI library.
 func NewOpenVLMSource(log zerolog.Logger) EventSource {
+	log.Info().Msgf("comms: PTT on OpenVLM HID dongle (VID=0x%04X PID=0x%04X)",
+		OpenVLMVendorID, OpenVLMProductID)
+
 	return &OpenVLMSource{log: log, opener: DefaultHIDOpener}
 }
 

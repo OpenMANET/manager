@@ -29,7 +29,10 @@
       "Bash(wc -l /workspaces/openmanetd/internal/blos/*.go)",
       "Bash(find /workspaces/openmanetd/internal/comms -name \"*test*.go\" -exec basename {} \\\\;)",
       "Bash(make build:*)",
-      "Bash(grep -n \"type CommsRuntime struct\" /workspaces/openmanetd/internal/comms/*.go)"
+      "Bash(grep -n \"type CommsRuntime struct\" /workspaces/openmanetd/internal/comms/*.go)",
+      "Bash(find /workspaces/openmanetd/internal/openmanet/server/handlers -name \"*.go\" -exec grep -l \"comms\" {} \\\\;)",
+      "Bash(wc -l /workspaces/openmanetd/internal/comms/control/*.go /workspaces/openmanetd/internal/comms/codec/*.go /workspaces/openmanetd/internal/comms/device/*.go /workspaces/openmanetd/internal/comms/audiopool/*.go /workspaces/openmanetd/internal/comms/rtp/*.go)",
+      "Bash(wc -l /workspaces/openmanetd/internal/comms/control/*.go /workspaces/openmanetd/internal/comms/codec/*.go /workspaces/openmanetd/internal/comms/rtp/*.go /workspaces/openmanetd/internal/comms/device/*.go /workspaces/openmanetd/internal/comms/audiopool/*.go)"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"

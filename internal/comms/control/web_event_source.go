@@ -16,6 +16,8 @@ type WebEventSource struct {
 
 // NewWebEventSource creates a WebEventSource with a small buffered channel.
 func NewWebEventSource(log zerolog.Logger) *WebEventSource {
+	log.Info().Msg("comms: PTT via web RPC")
+
 	return &WebEventSource{
 		ch:  make(chan PTTEvent, 4),
 		log: log,

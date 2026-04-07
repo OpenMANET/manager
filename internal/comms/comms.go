@@ -159,6 +159,33 @@ type PortChannel struct {
 	ReceiveEnabled    atomic.Bool
 }
 
+// closePartial closes any sockets and the RTP session that this PortChannel
+// has acquired so far. It is safe to call on a nil receiver and on a
+// PortChannel where some fields are still nil — used both as the rollback
+// path inside buildSinglePortChannel and as the bulk cleanup path in
+// buildNetwork when a later port fails.
+func (pc *PortChannel) closePartial() {
+	if pc == nil {
+		return
+	}
+
+	if pc.Receiver != nil {
+		_ = pc.Receiver.Close()
+	}
+
+	if s, ok := pc.RTPSess.(*RTPSession); ok && s != nil {
+		_ = s.Close()
+	}
+
+	if pc.Sender != nil {
+		_ = pc.Sender.Close()
+	}
+
+	if pc.RTCPSend != nil {
+		_ = pc.RTCPSend.Close()
+	}
+}
+
 // ─── buildCodec ───────────────────────────────────────────────────────────────
 
 func (cfg *CommsConfig) buildCodec() (AudioEncoder, AudioDecoder, error) {
@@ -275,107 +302,104 @@ func boolPtrVal(p *bool, fallback bool) bool {
 // Receive=false port has nil receiver. The runtime atomic direction flags are
 // initialized from mpc.InitSendEnabled / InitReceiveEnabled (falling back to
 // mpc.Send / Receive) so the hot paths can read them without locking.
-func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
+//
+// On any failure the deferred rollback closes whichever sockets and sessions
+// were already attached to pc and returns (nil, err) to the caller; the
+// individual error sites only need to assign err and bare-return.
+func (cfg *CommsConfig) buildSinglePortChannel(
 	mpc McastPortConfig,
 	localIP string,
 	ifi *net.Interface,
 	ssrc uint32,
-) (*PortChannel, error) {
-	pc := &PortChannel{cfg: mpc}
+) (pc *PortChannel, err error) {
+	pc = &PortChannel{cfg: mpc}
 	pc.RxGate.Threshold = cfg.HalfDuplexThreshold
 	pc.SendEnabled.Store(boolPtrVal(mpc.InitSendEnabled, mpc.Send))
 	pc.ReceiveEnabled.Store(boolPtrVal(mpc.InitReceiveEnabled, mpc.Receive))
+
+	defer func() {
+		if err != nil {
+			pc.closePartial()
+			pc = nil
+		}
+	}()
 
 	if mpc.Send {
 		// ── RTP sender ─────────────────────────────────────────────────
 		dst := &net.UDPAddr{IP: net.ParseIP(mpc.Address), Port: mpc.Port}
 		src := &net.UDPAddr{IP: net.ParseIP(localIP), Port: 0}
 
-		sendConn, err := net.DialUDP("udp4", src, dst)
-		if err != nil {
-			return nil, fmt.Errorf("dial RTP sender %s:%d: %w", mpc.Address, mpc.Port, err)
+		sendConn, dialErr := net.DialUDP("udp4", src, dst)
+		if dialErr != nil {
+			err = fmt.Errorf("dial RTP sender %s:%d: %w", mpc.Address, mpc.Port, dialErr)
+
+			return
 		}
 
-		if errTTL := setMulticastTTL(sendConn, rtpMulticastTTL); errTTL != nil {
-			_ = sendConn.Close()
+		pc.Sender = rtp.NewSwappableSender(sendConn)
 
-			return nil, fmt.Errorf("set multicast TTL on RTP sender %s:%d: %w", mpc.Address, mpc.Port, errTTL)
+		if ttlErr := setMulticastTTL(sendConn, rtpMulticastTTL); ttlErr != nil {
+			err = fmt.Errorf("set multicast TTL on RTP sender %s:%d: %w", mpc.Address, mpc.Port, ttlErr)
+
+			return
 		}
 
 		// ── RTCP sender ────────────────────────────────────────────────
 		rtcpDst := &net.UDPAddr{IP: net.ParseIP(mpc.Address), Port: mpc.Port + 1}
 		rtcpSrc := &net.UDPAddr{IP: net.ParseIP(localIP), Port: 0}
 
-		rtcpConn, err := net.DialUDP("udp4", rtcpSrc, rtcpDst)
-		if err != nil {
-			_ = sendConn.Close()
+		rtcpConn, dialErr := net.DialUDP("udp4", rtcpSrc, rtcpDst)
+		if dialErr != nil {
+			err = fmt.Errorf("dial RTCP sender %s:%d: %w", mpc.Address, mpc.Port+1, dialErr)
 
-			return nil, fmt.Errorf("dial RTCP sender %s:%d: %w", mpc.Address, mpc.Port+1, err)
+			return
 		}
 
-		if errTTL := setMulticastTTL(rtcpConn, rtpMulticastTTL); errTTL != nil {
-			_ = sendConn.Close()
-			_ = rtcpConn.Close()
+		pc.RTCPSend = rtp.NewSwappableSender(rtcpConn)
 
-			return nil, fmt.Errorf("set multicast TTL on RTCP sender %s:%d: %w", mpc.Address, mpc.Port+1, errTTL)
+		if ttlErr := setMulticastTTL(rtcpConn, rtpMulticastTTL); ttlErr != nil {
+			err = fmt.Errorf("set multicast TTL on RTCP sender %s:%d: %w", mpc.Address, mpc.Port+1, ttlErr)
+
+			return
 		}
 
-		sender := rtp.NewSwappableSender(sendConn)
-		rtcpSend := rtp.NewSwappableSender(rtcpConn)
+		sess, sessErr := rtp.NewSession(ssrc, pc.Sender, pc.RTCPSend, cfg.Log)
+		if sessErr != nil {
+			err = fmt.Errorf("pion RTP session for %s:%d: %w", mpc.Address, mpc.Port, sessErr)
 
-		sess, err := rtp.NewSession(ssrc, sender, rtcpSend, cfg.Log)
-		if err != nil {
-			_ = sendConn.Close()
-			_ = rtcpConn.Close()
-
-			return nil, fmt.Errorf("pion RTP session for %s:%d: %w", mpc.Address, mpc.Port, err)
+			return
 		}
 
-		pc.Sender = sender
-		pc.RTCPSend = rtcpSend
 		pc.RTPSess = sess
 
 		cfg.Log.Debug().Msgf("comms: RTP sender %s:%d  RTCP %s:%d", mpc.Address, mpc.Port, mpc.Address, mpc.Port+1)
 	}
 
-	if mpc.Receive { //nolint:nestif
+	if mpc.Receive {
 		// ── RTP receiver ────────────────────────────────────────────────
 		// SO_REUSEPORT lets UpdateMulticastEndpoint open a replacement socket
 		// on the same port while the current receiver is still running.
-		recvConn, err := listenRTPReceiver(&net.UDPAddr{IP: net.IPv4zero, Port: mpc.Port})
-		if err != nil {
-			if pc.Sender != nil {
-				_ = pc.Sender.Close()
+		recvConn, listenErr := listenRTPReceiver(&net.UDPAddr{IP: net.IPv4zero, Port: mpc.Port})
+		if listenErr != nil {
+			err = fmt.Errorf("listen RTP receiver %s:%d: %w", mpc.Address, mpc.Port, listenErr)
 
-				_ = pc.RTCPSend.Close()
-				if s, ok := pc.RTPSess.(*RTPSession); ok {
-					_ = s.Close()
-				}
-			}
-
-			return nil, fmt.Errorf("listen RTP receiver %s:%d: %w", mpc.Address, mpc.Port, err)
+			return
 		}
 
-		if err := recvConn.SetReadBuffer(rxSocketBufBytes); err != nil {
-			_ = recvConn.Close()
+		pc.Receiver = rtp.NewSwappableReceiver(recvConn)
+		pc.Jitter = rtp.NewJitterBuffer(rtp.PrebufferPackets, rtp.MaxDepth)
 
-			if pc.Sender != nil {
-				_ = pc.Sender.Close()
+		if bufErr := recvConn.SetReadBuffer(rxSocketBufBytes); bufErr != nil {
+			err = fmt.Errorf("set RTP read buffer: %w", bufErr)
 
-				_ = pc.RTCPSend.Close()
-				if s, ok := pc.RTPSess.(*RTPSession); ok {
-					_ = s.Close()
-				}
-			}
-
-			return nil, fmt.Errorf("set RTP read buffer: %w", err)
+			return
 		}
 
 		// Verify what the kernel actually granted us. Linux clamps SO_RCVBUF
 		// at net.core.rmem_max and silently caps the request, so logging the
 		// observed value lets an operator see whether sysctl is undersized
 		// for the desired audio safety margin.
-		if got, err := getReadBufferBytes(recvConn); err == nil {
+		if got, gErr := getReadBufferBytes(recvConn); gErr == nil {
 			cfg.Log.Debug().
 				Int("requested_bytes", rxSocketBufBytes).
 				Int("actual_bytes", got).
@@ -384,23 +408,11 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 				Msg("comms: rx socket buffer")
 		}
 
-		if err := device.JoinMulticastGroup(ifi, recvConn, net.ParseIP(mpc.Address)); err != nil {
-			_ = recvConn.Close()
+		if joinErr := device.JoinMulticastGroup(ifi, recvConn, net.ParseIP(mpc.Address)); joinErr != nil {
+			err = joinErr
 
-			if pc.Sender != nil {
-				_ = pc.Sender.Close()
-
-				_ = pc.RTCPSend.Close()
-				if s, ok := pc.RTPSess.(*RTPSession); ok {
-					_ = s.Close()
-				}
-			}
-
-			return nil, err
+			return
 		}
-
-		pc.Receiver = rtp.NewSwappableReceiver(recvConn)
-		pc.Jitter = rtp.NewJitterBuffer(rtp.PrebufferPackets, rtp.MaxDepth)
 
 		cfg.Log.Debug().Msgf("comms: RTP receiver port %d", mpc.Port)
 	}
@@ -436,18 +448,7 @@ func (cfg *CommsConfig) buildNetwork() ([]*PortChannel, string, error) {
 		if err != nil {
 			// Clean up already-built channels before propagating the error.
 			for _, built := range ports {
-				if built.Receiver != nil {
-					_ = built.Receiver.Close()
-				}
-
-				if built.Sender != nil {
-					_ = built.Sender.Close()
-					_ = built.RTCPSend.Close()
-				}
-
-				if s, ok := built.RTPSess.(*RTPSession); ok && built.RTPSess != nil {
-					_ = s.Close()
-				}
+				built.closePartial()
 			}
 
 			return nil, "", err
@@ -625,12 +626,16 @@ func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *C
 	// so the broadcast stream open has the same observable device state as
 	// the HID (PTT) side. PortAudio is not enumerable from /sys, so the
 	// chosen PortAudio device is still supplied by inDev — the walk here is
-	// informational and shares the same code path as openvlmSource.
-	if descs, dErr := device.DiscoverCM108(os.DirFS("/sys"), nil); dErr == nil {
-		cfg.Log.Debug().
-			Int("cm108_count", len(descs)).
-			Str("pa_device", inDev.Name).
-			Msg("comms: unified CM108 descriptor scan at broadcast open")
+	// informational and shares the same code path as openvlmSource. Gated
+	// behind Debug so production reopens (e.g. after a stale handle on
+	// PTTDown) skip the syscall and the descriptor-slice allocation.
+	if cfg.Debug {
+		if descs, dErr := device.DiscoverCM108(os.DirFS("/sys"), nil); dErr == nil {
+			cfg.Log.Debug().
+				Int("cm108_count", len(descs)).
+				Str("pa_device", inDev.Name).
+				Msg("comms: unified CM108 descriptor scan at broadcast open")
+		}
 	}
 
 	// Suggest a capture device buffer depth to PortAudio. Symmetric to the
@@ -698,87 +703,29 @@ func (cfg *CommsConfig) reopenBroadcastStream(rt *CommsRuntime, inDev *portaudio
 
 // ─── buildEventSource ─────────────────────────────────────────────────────────
 
-// buildEventSource constructs the PTT EventSource defined by cfg.ControlSource.
-//
-// Three backends are supported:
-//   - "openvlm" (defaultCtrlSrc): reads PTT state directly from an OpenVLM-compatible
-//     USB audio/HID dongle via its HID interrupt endpoint.
-//   - "roip": ROIP bridge mode — automatic TX/RX on the same OpenVLM hardware
-//     using COS GPIO detection with VOX (audio energy) as fallback.
-//   - anything else (default): searches for a matching evdev input device via
-//     findCommDevice and wraps it in a NanoPTT source that decodes PTT events
-//     using cfg.CommKey.
-//
-// Returns an error only in the default branch when no matching evdev device is found.
+// buildEventSource constructs the PTT EventSource for cfg.ControlSource by
+// looking the name up in the control-source registry. The four supported
+// backends — "openvlm", "roip", "web", "nanoptt" — register themselves via
+// init() in control_register.go. Validate() (called from CommsManager.Enable)
+// rejects unknown sources up front; this function returns an error if a
+// caller still reaches it with an unregistered source.
 func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) {
-	// Phase 2 of the comms refactor: prefer the control source registry. The
-	// switch below remains as a safety net while the backends still live in
-	// this package; it should be unreachable for any name the registry knows
-	// about. See .claude/plans/comms-refactor.md.
-	if factory, ok := controlLookup(cfg.ControlSource); ok {
-		deps, src, handled := cfg.buildControlDeps(rt)
-		if handled {
-			es, err := factory(deps)
-			if err != nil {
-				return nil, err
-			}
-
-			cfg.logControlSource(src)
-
-			return es, nil
-		}
+	factory, ok := controlLookup(cfg.ControlSource)
+	if !ok {
+		return nil, fmt.Errorf("comms: unknown ControlSource %q", cfg.ControlSource)
 	}
 
-	switch cfg.ControlSource {
-	case defaultCtrlSrc:
-		cfg.Log.Info().Msgf("comms: PTT on OpenVLM HID dongle (VID=0x%04X PID=0x%04X)",
-			openvlmVendorID, openvlmProductID)
-
-		return control.NewOpenVLMSource(cfg.Log), nil
-
-	case controlSourceROIP:
-		cfg.Log.Info().Msgf(
-			"comms: ROIP bridge on OpenVLM (VID=0x%04X PID=0x%04X) COSmask=0x%02X VOX=%.3f hold=%s",
-			openvlmVendorID, openvlmProductID, cfg.ROIPCOSGPIOMask, cfg.ROIPVOXThreshold, cfg.ROIPVOXHoldTime,
-		)
-
-		isReceiving := func() bool { return cfg.isReceivingRemote(rt) }
-		isBroadcasting := func() bool { return rt.Broadcasting.Load() }
-		setTap := func(ch chan []float32) { rt.BroadcastTap.Store(&ch) }
-		clearTap := func() { rt.BroadcastTap.Store(nil) }
-
-		return control.NewROIPSource(
-			cfg.Log,
-			cfg.ROIPCOSGPIOMask,
-			cfg.ROIPVOXThreshold,
-			cfg.ROIPVOXHoldTime,
-			cfg.ROIPMaxTXDuration,
-			cfg.ROIPInputDevice,
-			isReceiving,
-			isBroadcasting,
-			setTap,
-			clearTap,
-			nil,
-		), nil
-
-	case controlSourceWeb:
-		cfg.Log.Info().Msg("comms: PTT via web RPC")
-
-		ws := control.NewWebEventSource(cfg.Log)
-		rt.WebEvtSrc = ws
-
-		return ws, nil
-
-	default:
-		dev := cfg.findCommDevice()
-		if dev == nil {
-			return nil, errors.New("comms: PTT device not found")
-		}
-
-		cfg.Log.Info().Msgf("comms: PTT on evdev device: %s", dev.Name)
-
-		return control.NewNanoPTTSource(dev, cfg.CommKey, cfg.Log), nil
+	deps, err := cfg.buildControlDeps(rt)
+	if err != nil {
+		return nil, err
 	}
+
+	es, err := factory(deps)
+	if err != nil {
+		return nil, err
+	}
+
+	return es, nil
 }
 
 // ─── replaceNetwork ───────────────────────────────────────────────────────────

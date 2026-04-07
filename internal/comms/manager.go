@@ -73,7 +73,9 @@ func (m *CommsManager) buildCommsConfig() *CommsConfig {
 
 // Enable starts the comms subsystem. It is idempotent: if comms is already
 // running it returns nil. The subsystem runs in a background goroutine and
-// can be stopped with Disable.
+// can be stopped with Disable. Validate is invoked synchronously so an
+// invalid ControlSource is reported to the caller immediately rather than
+// surfacing later as an asynchronous error inside the background goroutine.
 func (m *CommsManager) Enable() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -83,6 +85,10 @@ func (m *CommsManager) Enable() error {
 	}
 
 	cc := m.buildFn()
+
+	if err := cc.Validate(); err != nil {
+		return err
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

@@ -92,6 +92,11 @@ func NewROIPSource(
 	clearTap func(),
 	openMonitor func() (<-chan []float32, func(), error),
 ) EventSource {
+	log.Info().Msgf(
+		"comms: ROIP bridge on OpenVLM (VID=0x%04X PID=0x%04X) COSmask=0x%02X VOX=%.3f hold=%s",
+		OpenVLMVendorID, OpenVLMProductID, cosGPIOMask, voxThreshold, voxHoldTime,
+	)
+
 	s := &ROIPSource{
 		log:            log,
 		opener:         DefaultHIDOpener,

@@ -1,6 +1,7 @@
 package comms
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -58,12 +59,19 @@ func TestService_NilDefault(t *testing.T) {
 		t.Errorf("nil default port = %d, want 0", got)
 	}
 
-	if _, err := GetTalkGroupStates(); err == nil {
-		t.Error("GetTalkGroupStates on nil default: want error")
+	// Service methods on a nil default must surface ErrNotRunning so callers
+	// (handlers, manager, tests) can use errors.Is to distinguish "not yet
+	// started" from other failures.
+	if _, err := GetTalkGroupStates(); !errors.Is(err, ErrNotRunning) {
+		t.Errorf("GetTalkGroupStates on nil default: want ErrNotRunning, got %v", err)
 	}
 
-	if err := EnableTalkGroupSend(0, true); err == nil {
-		t.Error("EnableTalkGroupSend on nil default: want error")
+	if err := EnableTalkGroupSend(0, true); !errors.Is(err, ErrNotRunning) {
+		t.Errorf("EnableTalkGroupSend on nil default: want ErrNotRunning, got %v", err)
+	}
+
+	if err := EnableTalkGroupReceive(0, true); !errors.Is(err, ErrNotRunning) {
+		t.Errorf("EnableTalkGroupReceive on nil default: want ErrNotRunning, got %v", err)
 	}
 }
 

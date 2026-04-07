@@ -2,6 +2,7 @@ package comms
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/openmanet/openmanetd/internal/comms/control"
@@ -111,18 +112,15 @@ func controlLookup(name string) (control.Factory, bool) {
 }
 
 // buildControlDeps assembles the ControlDeps payload for the configured
-// ControlSource. The handled return value is false when the source name is
-// unknown to this helper, in which case the caller falls back to the legacy
-// switch in buildEventSource.
-func (cfg *CommsConfig) buildControlDeps(rt *CommsRuntime) (control.ControlDeps, string, bool) {
+// ControlSource. Returns an error when the source name is unknown to this
+// helper. Validate() catches unknown sources earlier; the default branch
+// here is a defense-in-depth check for the buildEventSource caller.
+func (cfg *CommsConfig) buildControlDeps(rt *CommsRuntime) (control.ControlDeps, error) {
 	deps := control.ControlDeps{Log: cfg.Log}
 
 	switch cfg.ControlSource {
 	case defaultCtrlSrc:
 		deps.Backend = &openvlmBackend{}
-
-		return deps, defaultCtrlSrc, true
-
 	case controlSourceROIP:
 		deps.Backend = &roipBackend{
 			COSGPIOMask:    cfg.ROIPCOSGPIOMask,
@@ -135,41 +133,17 @@ func (cfg *CommsConfig) buildControlDeps(rt *CommsRuntime) (control.ControlDeps,
 			SetTap:         func(ch chan []float32) { rt.BroadcastTap.Store(&ch) },
 			ClearTap:       func() { rt.BroadcastTap.Store(nil) },
 		}
-
-		return deps, controlSourceROIP, true
-
 	case controlSourceWeb:
 		deps.Backend = &webBackend{
 			Sink: func(ws *webEventSource) { rt.WebEvtSrc = ws },
 		}
-
-		return deps, controlSourceWeb, true
-
 	case defaultControlSourceNanoPTT:
 		deps.Backend = &nanopttBackend{Cfg: cfg}
-
-		return deps, defaultControlSourceNanoPTT, true
+	default:
+		return deps, fmt.Errorf("comms: unknown ControlSource %q", cfg.ControlSource)
 	}
 
-	return deps, "", false
-}
-
-// logControlSource emits the same informational log line that the legacy
-// switch in buildEventSource produced for each backend, preserving operator
-// visibility during the registry rollout.
-func (cfg *CommsConfig) logControlSource(name string) {
-	switch name {
-	case defaultCtrlSrc:
-		cfg.Log.Info().Msgf("comms: PTT on OpenVLM HID dongle (VID=0x%04X PID=0x%04X)",
-			openvlmVendorID, openvlmProductID)
-	case controlSourceROIP:
-		cfg.Log.Info().Msgf(
-			"comms: ROIP bridge on OpenVLM (VID=0x%04X PID=0x%04X) COSmask=0x%02X VOX=%.3f hold=%s",
-			openvlmVendorID, openvlmProductID, cfg.ROIPCOSGPIOMask, cfg.ROIPVOXThreshold, cfg.ROIPVOXHoldTime,
-		)
-	case controlSourceWeb:
-		cfg.Log.Info().Msg("comms: PTT via web RPC")
-	}
+	return deps, nil
 }
 
 // Validate checks the comms configuration for self-consistency. Phase 2 of
