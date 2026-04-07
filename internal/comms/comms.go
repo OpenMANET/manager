@@ -88,10 +88,6 @@ func returnFloat32(s []float32) {
 	float32Pool.Put(sp)
 }
 
-// activeConfig holds the CommsConfig most recently started via Start().
-// UpdateMulticastEndpoint reads it so callers need not pass the config explicitly.
-var activeConfig atomic.Pointer[CommsConfig] //nolint:gochecknoglobals
-
 // ─── McastPortConfig / McastPortState ────────────────────────────────────────
 
 // McastPortConfig describes a single multicast endpoint that the comms
@@ -971,118 +967,9 @@ func (cfg *CommsConfig) replaceNetwork(
 	rt.localIP.Store(&newLocalIP)
 }
 
-// ─── UpdateMulticastEndpoint ──────────────────────────────────────────────────
-
-// GetActiveMulticastAddr returns the multicast group address of the first
-// configured port in the live comms subsystem. Returns an empty string if
-// comms has not been started or no ports are configured.
-func GetActiveMulticastAddr() string {
-	cfg := activeConfig.Load()
-	if cfg == nil || len(cfg.McastPorts) == 0 {
-		return ""
-	}
-
-	return cfg.McastPorts[0].Address
-}
-
-// GetActiveMulticastPort returns the UDP port of the first configured port in
-// the live comms subsystem. Returns 0 if comms has not been started or no
-// ports are configured.
-func GetActiveMulticastPort() int {
-	cfg := activeConfig.Load()
-	if cfg == nil || len(cfg.McastPorts) == 0 {
-		return 0
-	}
-
-	return cfg.McastPorts[0].Port
-}
-
+// Accessors for the active Service live in service.go.
+//
 // ─── Start ────────────────────────────────────────────────────────────────────
-
-// EnableTalkGroupSend enables or disables RTP transmission on the port at the given
-// zero-based index. It is safe to call concurrently with the send path.
-// Returns an error when comms is not running or portIdx is out of range.
-func EnableTalkGroupSend(portIdx int, enabled bool) error {
-	cfg := activeConfig.Load()
-	if cfg == nil || cfg.runtime == nil {
-		return errors.New("comms: subsystem is not running")
-	}
-
-	rt := cfg.runtime
-	if portIdx < 0 || portIdx >= len(rt.ports) {
-		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(rt.ports))
-	}
-
-	rt.ports[portIdx].sendEnabled.Store(enabled)
-
-	return nil
-}
-
-// EnableTalkGroupReceive enables or disables RTP reception on the port at the given
-// zero-based index. It is safe to call concurrently with the receive path.
-// Returns an error when comms is not running or portIdx is out of range.
-func EnableTalkGroupReceive(portIdx int, enabled bool) error {
-	cfg := activeConfig.Load()
-	if cfg == nil || cfg.runtime == nil {
-		return errors.New("comms: subsystem is not running")
-	}
-
-	rt := cfg.runtime
-	if portIdx < 0 || portIdx >= len(rt.ports) {
-		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(rt.ports))
-	}
-
-	rt.ports[portIdx].receiveEnabled.Store(enabled)
-
-	return nil
-}
-
-// GetTalkGroupStates returns a snapshot of the runtime direction-toggle state for
-// all configured ports. Returns an error when comms is not running.
-func GetTalkGroupStates() ([]McastPortState, error) {
-	cfg := activeConfig.Load()
-	if cfg == nil || cfg.runtime == nil {
-		return nil, errors.New("comms: subsystem is not running")
-	}
-
-	rt := cfg.runtime
-	states := make([]McastPortState, len(rt.ports))
-
-	for i, pc := range rt.ports {
-		states[i] = McastPortState{
-			Address:        pc.cfg.Address,
-			Port:           pc.cfg.Port,
-			SendEnabled:    pc.sendEnabled.Load(),
-			ReceiveEnabled: pc.receiveEnabled.Load(),
-		}
-	}
-
-	return states, nil
-}
-
-// GetWebEventSource returns the webEventSource created when ControlSource is
-// "web". Returns nil when comms is not running or a different control source
-// is active.
-func GetWebEventSource() *webEventSource {
-	cfg := activeConfig.Load()
-	if cfg == nil || cfg.runtime == nil {
-		return nil
-	}
-
-	return cfg.runtime.webEvtSrc
-}
-
-// GetWebAudioBridge returns the WebAudioBridge created when ControlSource is
-// "web". Returns nil when comms is not running or a different control source
-// is active.
-func GetWebAudioBridge() *WebAudioBridge {
-	cfg := activeConfig.Load()
-	if cfg == nil || cfg.runtime == nil {
-		return nil
-	}
-
-	return cfg.runtime.webBridge
-}
 
 // startHardwareAudio initializes PortAudio, opens broadcast and playback
 // streams, and returns a cleanup function that stops and closes them.
@@ -1213,11 +1100,11 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 
 		cfg.runtime = nil
 
-		activeConfig.Store((*CommsConfig)(nil))
+		SetDefault(nil)
 	}()
 
 	cfg.runtime = rt
-	activeConfig.Store(cfg)
+	SetDefault(cfg)
 
 	// ── event source ───────────────────────────────────────────────────────
 	src, srcErr := cfg.buildEventSource(rt)

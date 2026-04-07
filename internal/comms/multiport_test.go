@@ -95,8 +95,8 @@ func setupRuntimeConfig(t *testing.T) (*CommsConfig, *CommsRuntime) {
 		McastPorts: []McastPortConfig{pc0.cfg, pc1.cfg},
 	}
 	cfg.runtime = rt
-	activeConfig.Store(cfg)
-	t.Cleanup(func() { activeConfig.Store(nil) })
+	SetDefault(cfg)
+	t.Cleanup(func() { SetDefault(nil) })
 
 	return cfg, rt
 }
@@ -134,7 +134,7 @@ func TestEnableTalkGroupSend_OutOfRange(t *testing.T) {
 }
 
 func TestEnableTalkGroupSend_NotRunning(t *testing.T) {
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if err := EnableTalkGroupSend(0, true); err == nil {
 		t.Error("expected error when comms is not running")
@@ -170,7 +170,7 @@ func TestEnableTalkGroupReceive_OutOfRange(t *testing.T) {
 }
 
 func TestEnableTalkGroupReceive_NotRunning(t *testing.T) {
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if err := EnableTalkGroupReceive(0, false); err == nil {
 		t.Error("expected error when comms is not running")
@@ -226,7 +226,7 @@ func TestGetTalkGroupStates_ReflectsRuntimeChanges(t *testing.T) {
 }
 
 func TestGetTalkGroupStates_NotRunning(t *testing.T) {
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if _, err := GetTalkGroupStates(); err == nil {
 		t.Error("expected error when comms is not running")

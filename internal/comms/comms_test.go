@@ -434,7 +434,7 @@ func TestReplaceNetwork_NewWriterReceivesSubsequentWrites(t *testing.T) {
 
 func TestGetActiveMulticastAddr_NotStarted(t *testing.T) {
 	// Ensure no active config is set.
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if got := GetActiveMulticastAddr(); got != "" {
 		t.Errorf("expected empty string when comms not started, got %q", got)
@@ -457,8 +457,8 @@ func TestGetActiveMulticastAddr_ReturnsConfiguredAddr(t *testing.T) {
 		ports: []*portChannel{pc},
 	}
 
-	activeConfig.Store(cfg)
-	t.Cleanup(func() { activeConfig.Store(nil) })
+	SetDefault(cfg)
+	t.Cleanup(func() { SetDefault(nil) })
 
 	if got := GetActiveMulticastAddr(); got != want {
 		t.Errorf("GetActiveMulticastAddr() = %q, want %q", got, want)
@@ -484,8 +484,8 @@ func TestGetActiveMulticastAddr_ReflectsUpdate(t *testing.T) {
 		ports: []*portChannel{pc},
 	}
 
-	activeConfig.Store(cfg)
-	t.Cleanup(func() { activeConfig.Store(nil) })
+	SetDefault(cfg)
+	t.Cleanup(func() { SetDefault(nil) })
 
 	if got := GetActiveMulticastAddr(); got != initial {
 		t.Errorf("before update: GetActiveMulticastAddr() = %q, want %q", got, initial)
@@ -529,7 +529,7 @@ func TestSetMulticastTTL(t *testing.T) {
 // ─── GetActiveMulticastPort tests ───────────────────────────────────────────
 
 func TestGetActiveMulticastPort_NotStarted(t *testing.T) {
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if got := GetActiveMulticastPort(); got != 0 {
 		t.Errorf("expected 0 when comms not started, got %d", got)
@@ -552,8 +552,8 @@ func TestGetActiveMulticastPort_ReturnsConfiguredPort(t *testing.T) {
 		ports: []*portChannel{pc},
 	}
 
-	activeConfig.Store(cfg)
-	t.Cleanup(func() { activeConfig.Store(nil) })
+	SetDefault(cfg)
+	t.Cleanup(func() { SetDefault(nil) })
 
 	if got := GetActiveMulticastPort(); got != want {
 		t.Errorf("GetActiveMulticastPort() = %d, want %d", got, want)
@@ -743,8 +743,8 @@ func setupActiveConfigWithPorts(t *testing.T, n int) *CommsConfig {
 		runtime:    &CommsRuntime{ports: ports},
 	}
 
-	activeConfig.Store(cfg)
-	t.Cleanup(func() { activeConfig.Store(nil) })
+	SetDefault(cfg)
+	t.Cleanup(func() { SetDefault(nil) })
 
 	return cfg
 }
@@ -784,7 +784,7 @@ func TestEnableTalkGroupReceive_TogglesState(t *testing.T) {
 // ─── GetWebEventSource / GetWebAudioBridge tests ─────────────────────────────
 
 func TestGetWebEventSource_NotRunning(t *testing.T) {
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if got := GetWebEventSource(); got != nil {
 		t.Errorf("expected nil when not running, got %v", got)
@@ -792,7 +792,7 @@ func TestGetWebEventSource_NotRunning(t *testing.T) {
 }
 
 func TestGetWebAudioBridge_NotRunning(t *testing.T) {
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if got := GetWebAudioBridge(); got != nil {
 		t.Errorf("expected nil when not running, got %v", got)
