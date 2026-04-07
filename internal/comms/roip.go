@@ -9,6 +9,8 @@ import (
 
 	"github.com/gordonklaus/portaudio"
 	"github.com/rs/zerolog"
+
+	"github.com/openmanet/openmanetd/internal/comms/device"
 )
 
 // ─── ROIP constants ───────────────────────────────────────────────────────────
@@ -497,7 +499,7 @@ func rmsEnergy(frame []float32) float32 {
 // closer stops and closes the stream and drains any buffered frames.
 func makeROIPMonitorOpener(inputDevice string, log zerolog.Logger) func() (<-chan []float32, func(), error) {
 	return func() (<-chan []float32, func(), error) {
-		inDev, err := resolveAudioDevice(inputDevice, true)
+		inDev, err := device.ResolveAudio(inputDevice, true)
 		if err != nil {
 			return nil, nil, fmt.Errorf("ROIP: resolve audio device: %w", err)
 		}

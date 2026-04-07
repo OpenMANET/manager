@@ -395,7 +395,7 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 				Msg("comms: rx socket buffer")
 		}
 
-		if err := joinMulticastGroup(ifi, recvConn, net.ParseIP(mpc.Address)); err != nil {
+		if err := device.JoinMulticastGroup(ifi, recvConn, net.ParseIP(mpc.Address)); err != nil {
 			_ = recvConn.Close()
 
 			if pc.sender != nil {
@@ -426,7 +426,7 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 // localIP as fallback), keeping transmissions from this node identifiable
 // across talk groups.
 func (cfg *CommsConfig) buildNetwork() ([]*portChannel, string, error) {
-	localIP, ifi, err := getIfaceIPv4(cfg.Iface)
+	localIP, ifi, err := device.IfaceIPv4(cfg.Iface)
 	if err != nil {
 		return nil, "", err
 	}
@@ -481,12 +481,12 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 	inDev *portaudio.DeviceInfo,
 	err error,
 ) {
-	outDev, err := resolveAudioDevice(cfg.BluetoothOutputDevice, false)
+	outDev, err := device.ResolveAudio(cfg.BluetoothOutputDevice, false)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	inDev, err = resolveAudioDevice(cfg.BluetoothInputDevice, true)
+	inDev, err = device.ResolveAudio(cfg.BluetoothInputDevice, true)
 	if err != nil {
 		return nil, nil, err
 	}
