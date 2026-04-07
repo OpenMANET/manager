@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 
 	"github.com/gordonklaus/portaudio"
+
+	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 )
 
 // broadcastEncoderChanDepth bounds the queue between the PortAudio audio
@@ -80,7 +82,7 @@ func (be *broadcastEncoder) captureCallback(in []int16) {
 	// VOX is currently monitoring. Regular TX (openvlm, nanoptt, web) never
 	// enters this branch and pays nothing.
 	if tapPtr := be.rt.broadcastTap.Load(); tapPtr != nil {
-		fp := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
+		fp := audiopool.Float32Pool.Get().(*[]float32) //nolint:forcetypeassert
 		f := (*fp)[:frameSize]
 		for i, v := range in {
 			f[i] = float32(v) / 32768

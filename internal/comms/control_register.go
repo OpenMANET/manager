@@ -2,6 +2,7 @@ package comms
 
 import (
 	"errors"
+	"time"
 
 	"github.com/openmanet/openmanetd/internal/comms/control"
 )
@@ -18,13 +19,19 @@ import (
 type openvlmBackend struct{}
 
 // roipBackend is the ControlDeps.Backend payload for the ROIP bridge source.
-// All fields are required.
+// Step 4 of the comms refactor flattened this from a *CommsConfig field into
+// primitive ROIP config fields so the control sub-package no longer needs to
+// import parent comms types.
 type roipBackend struct {
-	Cfg            *CommsConfig
-	IsReceiving    func() bool
-	IsBroadcasting func() bool
-	SetTap         func(chan []float32)
-	ClearTap       func()
+	IsReceiving       func() bool
+	IsBroadcasting    func() bool
+	SetTap            func(chan []float32)
+	ClearTap          func()
+	InputDevice       string
+	VOXHoldTime       time.Duration
+	MaxTXDuration     time.Duration
+	VOXThreshold      float32
+	COSGPIOMask       byte
 }
 
 // webBackend is the ControlDeps.Backend payload for the web RPC source. The
@@ -51,7 +58,19 @@ func init() {
 			return nil, errors.New("comms: roip control source missing backend deps")
 		}
 
-		return NewROIPSource(b.Cfg, b.IsReceiving, b.IsBroadcasting, b.SetTap, b.ClearTap, deps.Log), nil
+		return control.NewROIPSource(
+			deps.Log,
+			b.COSGPIOMask,
+			b.VOXThreshold,
+			b.VOXHoldTime,
+			b.MaxTXDuration,
+			b.InputDevice,
+			b.IsReceiving,
+			b.IsBroadcasting,
+			b.SetTap,
+			b.ClearTap,
+			nil,
+		), nil
 	})
 
 	control.Register(controlSourceWeb, func(deps control.ControlDeps) (control.EventSource, error) {
@@ -106,7 +125,11 @@ func (cfg *CommsConfig) buildControlDeps(rt *CommsRuntime) (control.ControlDeps,
 
 	case controlSourceROIP:
 		deps.Backend = &roipBackend{
-			Cfg:            cfg,
+			COSGPIOMask:    cfg.ROIPCOSGPIOMask,
+			VOXThreshold:   cfg.ROIPVOXThreshold,
+			VOXHoldTime:    cfg.ROIPVOXHoldTime,
+			MaxTXDuration:  cfg.ROIPMaxTXDuration,
+			InputDevice:    cfg.ROIPInputDevice,
 			IsReceiving:    func() bool { return cfg.isReceivingRemote(rt) },
 			IsBroadcasting: func() bool { return rt.broadcasting.Load() },
 			SetTap:         func(ch chan []float32) { rt.broadcastTap.Store(&ch) },

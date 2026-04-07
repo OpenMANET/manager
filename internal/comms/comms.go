@@ -17,9 +17,10 @@ import (
 	"golang.org/x/net/ipv4"
 	"golang.org/x/sys/unix"
 
+	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/control"
-	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"github.com/openmanet/openmanetd/internal/comms/device"
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
 
 // ─── Package-level constants ──────────────────────────────────────────────────
@@ -73,16 +74,11 @@ var (
 	}
 )
 
-// returnFloat32 returns a pooled []float32 slice to float32Pool.
+// returnFloat32 returns a pooled []float32 slice to audiopool.Float32Pool.
 // Non-pooled slices (e.g. beep buffers) are silently ignored because their
-// capacity will differ from frameSize.
+// capacity will differ from FrameSize.
 func returnFloat32(s []float32) {
-	if cap(s) != frameSize {
-		return // not from the pool (beep buffers, etc.)
-	}
-
-	sp := &s
-	float32Pool.Put(sp)
+	audiopool.ReturnFloat32(s)
 }
 
 // returnInt16 returns a pooled []int16 slice to int16Pool. Non-pooled slices
@@ -752,7 +748,19 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 		setTap := func(ch chan []float32) { rt.broadcastTap.Store(&ch) }
 		clearTap := func() { rt.broadcastTap.Store(nil) }
 
-		return NewROIPSource(cfg, isReceiving, isBroadcasting, setTap, clearTap, cfg.Log), nil
+		return control.NewROIPSource(
+			cfg.Log,
+			cfg.ROIPCOSGPIOMask,
+			cfg.ROIPVOXThreshold,
+			cfg.ROIPVOXHoldTime,
+			cfg.ROIPMaxTXDuration,
+			cfg.ROIPInputDevice,
+			isReceiving,
+			isBroadcasting,
+			setTap,
+			clearTap,
+			nil,
+		), nil
 
 	case controlSourceWeb:
 		cfg.Log.Info().Msg("comms: PTT via web RPC")
