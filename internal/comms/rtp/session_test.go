@@ -1,4 +1,4 @@
-package comms
+package rtp
 
 import (
 	"testing"
@@ -27,7 +27,7 @@ func TestSSRCFromID_Different(t *testing.T) {
 
 func TestParseIncomingRTP_Valid(t *testing.T) {
 	orig := &pionrtp.Packet{
-		Header:  pionrtp.Header{Version: 2, PayloadType: RTPPayloadTypeOpus, SequenceNumber: 42, Timestamp: 1000, SSRC: 0xDEADBEEF},
+		Header:  pionrtp.Header{Version: 2, PayloadType: PayloadTypeOpus, SequenceNumber: 42, Timestamp: 1000, SSRC: 0xDEADBEEF},
 		Payload: []byte{1, 2, 3, 4},
 	}
 
@@ -36,7 +36,7 @@ func TestParseIncomingRTP_Valid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, err := ParseIncomingRTP(raw)
+	parsed, err := ParseIncoming(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,14 +51,14 @@ func TestParseIncomingRTP_Valid(t *testing.T) {
 }
 
 func TestParseIncomingRTP_Invalid(t *testing.T) {
-	_, err := ParseIncomingRTP([]byte{0xFF, 0x00, 0x01})
+	_, err := ParseIncoming([]byte{0xFF, 0x00, 0x01})
 	if err == nil {
 		t.Error("expected error for invalid bytes")
 	}
 }
 
 func TestParseIncomingRTP_Nil(t *testing.T) {
-	_, err := ParseIncomingRTP(nil)
+	_, err := ParseIncoming(nil)
 	if err == nil {
 		t.Error("expected error for nil input")
 	}
@@ -68,7 +68,7 @@ func TestPionRTPSession_Send(t *testing.T) {
 	rtpW := &mockWriter{}
 	rtcpW := &mockWriter{}
 
-	sess, err := NewRTPSession(0xABCDEF, rtpW, rtcpW, zerolog.Nop())
+	sess, err := NewSession(0xABCDEF, rtpW, rtcpW, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestPionRTPSession_Send(t *testing.T) {
 		t.Fatalf("invalid RTP: %v", err)
 	}
 
-	if pkt.PayloadType != RTPPayloadTypeOpus {
+	if pkt.PayloadType != PayloadTypeOpus {
 		t.Errorf("PT: got %d", pkt.PayloadType)
 	}
 
@@ -99,7 +99,7 @@ func TestPionRTPSession_Send(t *testing.T) {
 func TestPionRTPSession_SequenceIncrement(t *testing.T) {
 	rtpW := &mockWriter{}
 
-	sess, err := NewRTPSession(1, rtpW, &mockWriter{}, zerolog.Nop())
+	sess, err := NewSession(1, rtpW, &mockWriter{}, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestPionRTPSession_SequenceIncrement(t *testing.T) {
 }
 
 func TestPionRTPSession_Close(t *testing.T) {
-	sess, err := NewRTPSession(1, &mockWriter{}, &mockWriter{}, zerolog.Nop())
+	sess, err := NewSession(1, &mockWriter{}, &mockWriter{}, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}

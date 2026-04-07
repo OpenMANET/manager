@@ -1,6 +1,7 @@
 package comms
 
 import (
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"context"
 	"errors"
 	"net"
@@ -81,7 +82,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 	// ports. Test code that constructs portChannel directly may leave it
 	// nil, in which case we allocate one here so the loop is self-sufficient.
 	if pc.jitter == nil {
-		pc.jitter = NewRTPJitterBuffer(JitterPrebufferPackets, JitterMaxDepth)
+		pc.jitter = rtp.NewJitterBuffer(rtp.PrebufferPackets, rtp.MaxDepth)
 	}
 
 	jitter := pc.jitter
@@ -146,7 +147,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 		}
 
 		// Parse using pion/rtp for proper header validation.
-		pkt, parseErr := ParseIncomingRTP(buf[:n])
+		pkt, parseErr := rtp.ParseIncoming(buf[:n])
 		if parseErr != nil {
 			cfg.Log.Debug().Err(parseErr).Int("bytes", n).Msg("comms: dropping non-RTP datagram")
 

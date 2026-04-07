@@ -1,4 +1,4 @@
-package comms
+package rtp
 
 import (
 	"testing"
@@ -20,6 +20,6 @@ func FuzzParseIncomingRTP(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Must not panic regardless of input.
-		_, _ = ParseIncomingRTP(data)
+		_, _ = ParseIncoming(data)
 	})
 }

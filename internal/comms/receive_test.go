@@ -1,6 +1,7 @@
 package comms
 
 import (
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"context"
 	"errors"
 	"net"
@@ -21,7 +22,7 @@ func newReceiveRuntime() (*CommsRuntime, *portChannel) {
 	pc.playbackBuffer = make(chan []int16, 4)
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(RTPFrameSamples)},
+		decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
 	}
 
 	return rt, pc
@@ -54,7 +55,7 @@ func TestPlayoutOneFrame_DecodesPayload(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.decoder = &mockDecoder{fillValue: 1234, returnN: frameSize}
 
-	jb := NewRTPJitterBuffer(1, 10) // prebuffer=1: first push triggers start
+	jb := rtp.NewJitterBuffer(1, 10) // prebuffer=1: first push triggers start
 	jb.Push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -78,7 +79,7 @@ func TestPlayoutOneFrame_PLCOnSkippedMissing(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
 
-	jb := NewRTPJitterBuffer(1, 4)
+	jb := rtp.NewJitterBuffer(1, 4)
 
 	jb.Push(0, []byte{0})
 	jb.PopReady() // consume seq=0; started=true, expected=1
@@ -105,7 +106,7 @@ func TestPlayoutOneFrame_PLCOnConceal(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
 
-	jb := NewRTPJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 10)
 
 	jb.Push(0, []byte{0})
 	jb.PopReady() // started=true, expected=1, lastPush set to now
@@ -129,7 +130,7 @@ func TestPlayoutOneFrame_SilenceAfterMaxPLC(t *testing.T) {
 	dec := &mockDecoder{fillValue: 99, returnN: frameSize}
 	rt.decoder = dec
 
-	jb := NewRTPJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0})
 	jb.PopReady() // started=true, lastPush set
 
@@ -156,7 +157,7 @@ func TestPlayoutOneFrame_SilenceWhenBroadcasting(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.broadcasting.Store(true) // isBroadcasting will return true; pc.sendEnabled=true → suppress
 
-	jb := NewRTPJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -171,7 +172,7 @@ func TestPlayoutOneFrame_SilenceWhenReceiveDisabled(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	pc.receiveEnabled.Store(false)
 
-	jb := NewRTPJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0xAA})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -200,7 +201,7 @@ func TestPlayoutOneFrame_NoUnderrunOnIdleStream(t *testing.T) {
 	// Stream that has never started (no packets yet) should write silence
 	// without incrementing the underrun counter — silence != underrun.
 	rt, pc := newReceiveRuntime()
-	jb := NewRTPJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 10)
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
@@ -219,7 +220,7 @@ func TestPlayoutOneFrame_UnderrunOnDecoderError(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.decoder = &mockDecoder{decodeErr: errors.New("bad decode")}
 
-	jb := NewRTPJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -245,7 +246,7 @@ func TestPlayoutOneFrame_DecoderErrorPLCFallback(t *testing.T) {
 		fillValue: 1234,
 	}
 
-	jb := NewRTPJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -269,7 +270,7 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 
 	var pkts []mockPacket
 
-	for i := 0; i < JitterPrebufferPackets+1; i++ {
+	for i := 0; i < rtp.PrebufferPackets+1; i++ {
 		raw := makeRTPBytes(t, uint16(i))
 		pkts = append(pkts, mockPacket{data: raw, src: localAddr})
 	}
@@ -277,14 +278,14 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 	reader := newMockReader(pkts...)
 	pc := &portChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: NewSwappableReceiver(reader),
+		receiver: rtp.NewSwappableReceiver(reader),
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
 	pc.playbackBuffer = make(chan []int16, 16)
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(RTPFrameSamples)},
+		decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
 	}
 	s := localIP.String()
 	rt.localIP.Store(&s)
@@ -333,7 +334,7 @@ func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 
 	pc := &portChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: NewSwappableReceiver(reader),
+		receiver: rtp.NewSwappableReceiver(reader),
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
@@ -418,14 +419,14 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 	reader := newMockReader(mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
 	pc := &portChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: NewSwappableReceiver(reader),
+		receiver: rtp.NewSwappableReceiver(reader),
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
 	pc.playbackBuffer = make(chan []int16, 32)
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(RTPFrameSamples)},
+		decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -487,7 +488,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 	// it will block until explicitly closed (simulating the old socket).
 	var pkts1 []mockPacket
 
-	for i := 0; i < JitterPrebufferPackets+2; i++ {
+	for i := 0; i < rtp.PrebufferPackets+2; i++ {
 		raw := makeRTPBytes(t, uint16(i))
 		pkts1 = append(pkts1, mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
 	}
@@ -497,7 +498,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 	// reader2 holds fresh packets that arrive after the swap.
 	var pkts2 []mockPacket
 
-	for i := 0; i < JitterPrebufferPackets+2; i++ {
+	for i := 0; i < rtp.PrebufferPackets+2; i++ {
 		raw := makeRTPBytes(t, uint16(i))
 		pkts2 = append(pkts2, mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
 	}
@@ -506,7 +507,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 
 	pc := &portChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: NewSwappableReceiver(reader1),
+		receiver: rtp.NewSwappableReceiver(reader1),
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
@@ -514,7 +515,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(RTPFrameSamples)},
+		decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -591,7 +592,7 @@ func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
 	rt.webBridge = bridge
 
-	jb := NewRTPJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0xAA, 0xBB, 0xCC})
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -626,7 +627,7 @@ func TestWebPlayoutLoop_MultipleFrames(t *testing.T) {
 	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
 	rt.webBridge = bridge
 
-	jb := NewRTPJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 10)
 	for i := 0; i < 5; i++ {
 		jb.Push(uint16(i), []byte{byte(i)})
 	}
@@ -659,7 +660,7 @@ func TestWebPlayoutLoop_DeliversWhileBroadcasting(t *testing.T) {
 	rt.webBridge = bridge
 	rt.broadcasting.Store(true)
 
-	jb := NewRTPJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0x01})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -684,7 +685,7 @@ func TestPlayoutOneFrame_ConsecutivePLCLimit(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
 
-	jb := NewRTPJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0})
 	jb.PopReady() // started=true, expected=1, lastPush set
 
@@ -713,7 +714,7 @@ func TestPlayoutOneFrame_ConsecutivePLCResets(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
 
-	jb := NewRTPJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0})
 	jb.PopReady() // started=true, expected=1, lastPush set
 
@@ -747,7 +748,7 @@ func TestPlayoutOneFrame_ConsecutivePLCResets(t *testing.T) {
 // ─── jitter buffer overflow counter test ─────────────────────────────────────
 
 func TestJitterBuffer_OverflowCounter(t *testing.T) {
-	jb := NewRTPJitterBuffer(1, 4)
+	jb := rtp.NewJitterBuffer(1, 4)
 
 	// Fill buffer to maxDepth with seqs 0-3.
 	for i := 0; i < 4; i++ {

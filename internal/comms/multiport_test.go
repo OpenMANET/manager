@@ -1,6 +1,7 @@
 package comms
 
 import (
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"context"
 	"errors"
 	"net"
@@ -290,7 +291,7 @@ func TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled(t *testing.T) {
 
 	pc := &portChannel{
 		cfg:      McastPortConfig{Send: false, Receive: true},
-		receiver: NewSwappableReceiver(reader),
+		receiver: rtp.NewSwappableReceiver(reader),
 	}
 	pc.sendEnabled.Store(false)
 	pc.receiveEnabled.Store(false) // ← disabled
@@ -298,7 +299,7 @@ func TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled(t *testing.T) {
 
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(RTPFrameSamples)},
+		decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -431,7 +432,7 @@ func TestPlayoutOneFrame_ReceiveOnlyPortNotSuppressedDuringBroadcast(t *testing.
 	}
 	rt.broadcasting.Store(true) // simulate active broadcast on another port
 
-	jb := NewRTPJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0xAA, 0xBB}) // prebuffer=1: immediately ready
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}

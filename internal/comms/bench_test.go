@@ -1,6 +1,7 @@
 package comms
 
 import (
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"math"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ type discardWriter struct{}
 func (discardWriter) Write(b []byte) (int, error) { return len(b), nil }
 
 func BenchmarkRTPSessionSend(b *testing.B) {
-	sess, err := NewRTPSession(0xDEADBEEF, discardWriter{}, discardWriter{}, zerolog.Nop())
+	sess, err := rtp.NewSession(0xDEADBEEF, discardWriter{}, discardWriter{}, zerolog.Nop())
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -43,7 +44,7 @@ func BenchmarkRTPSessionSend(b *testing.B) {
 // BenchmarkSwappableSenderWrite measures the lock-free Write path on
 // SwappableSender. Expected: zero allocs, no mutex contention.
 func BenchmarkSwappableSenderWrite(b *testing.B) {
-	s := NewSwappableSender(discardWriter{})
+	s := rtp.NewSwappableSender(discardWriter{})
 	buf := make([]byte, 200)
 
 	b.ResetTimer()
@@ -164,13 +165,13 @@ func BenchmarkDecodeOpusS16(b *testing.B) {
 // iterations, reflecting production behavior.
 func BenchmarkJitterPush(b *testing.B) {
 	payload := make([]byte, 100) // typical Opus frame size
-	jb := NewRTPJitterBuffer(3, JitterMaxDepth)
+	jb := rtp.NewJitterBuffer(3, rtp.MaxDepth)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := range b.N {
-		seq := uint16(i % JitterMaxDepth)
+		seq := uint16(i % rtp.MaxDepth)
 		jb.Push(seq, payload)
 	}
 }
@@ -180,7 +181,7 @@ func BenchmarkJitterPush(b *testing.B) {
 // mirroring what playoutLoop does in production.
 func BenchmarkJitterPushPop(b *testing.B) {
 	payload := make([]byte, 100)
-	jb := NewRTPJitterBuffer(1, JitterMaxDepth)
+	jb := rtp.NewJitterBuffer(1, rtp.MaxDepth)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -201,17 +202,17 @@ func BenchmarkJitterPushPop(b *testing.B) {
 // reuse the same allocations.
 func BenchmarkJitterPopReady(b *testing.B) {
 	payload := make([]byte, 100)
-	jb := NewRTPJitterBuffer(1, JitterMaxDepth)
+	jb := rtp.NewJitterBuffer(1, rtp.MaxDepth)
 
 	// Pre-fill to warm the pool and prime the playout cursor.
-	for i := range uint16(JitterMaxDepth) {
+	for i := range uint16(rtp.MaxDepth) {
 		jb.Push(i, payload)
 	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	seq := uint16(JitterMaxDepth)
+	seq := uint16(rtp.MaxDepth)
 
 	for b.Loop() {
 		p, _, _ := jb.PopReady()
@@ -230,7 +231,7 @@ func BenchmarkParseIncomingRTP(b *testing.B) {
 	orig := &pionrtp.Packet{
 		Header: pionrtp.Header{
 			Version:        2,
-			PayloadType:    RTPPayloadTypeOpus,
+			PayloadType:    rtp.PayloadTypeOpus,
 			SequenceNumber: 42,
 			Timestamp:      1000,
 			SSRC:           0xDEADBEEF,
@@ -247,7 +248,7 @@ func BenchmarkParseIncomingRTP(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		if _, err := ParseIncomingRTP(raw); err != nil {
+		if _, err := rtp.ParseIncoming(raw); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -297,7 +298,7 @@ func BenchmarkPlayoutOneFrame_Mock(b *testing.B) {
 		decoder: &mockDecoder{returnN: frameSize},
 	}
 
-	jb := NewRTPJitterBuffer(1, JitterMaxDepth)
+	jb := rtp.NewJitterBuffer(1, rtp.MaxDepth)
 	payload := make([]byte, 100)
 	out := make([]int16, frameSize)
 
@@ -347,7 +348,7 @@ func BenchmarkPlayoutOneFrame_Real(b *testing.B) {
 
 	rt := &CommsRuntime{decoder: dec}
 
-	jb := NewRTPJitterBuffer(1, JitterMaxDepth)
+	jb := rtp.NewJitterBuffer(1, rtp.MaxDepth)
 	out := make([]int16, frameSize)
 
 	b.ResetTimer()
@@ -403,7 +404,7 @@ func BenchmarkPlayoutOneFrame_PLC(b *testing.B) {
 
 	// Prime the jitter buffer with a single push+pop so started=true and
 	// lastPush is recent; subsequent playoutOneFrame calls will hit conceal.
-	jb := NewRTPJitterBuffer(1, JitterMaxDepth)
+	jb := rtp.NewJitterBuffer(1, rtp.MaxDepth)
 	jb.Push(0, encBuf[:n])
 	jb.PopReady()
 
@@ -428,7 +429,7 @@ func BenchmarkPlayoutOneFrame_PLC(b *testing.B) {
 // shouldConceal path, measuring conceal decision throughput during burst loss.
 func BenchmarkPopOrConceal_BurstLoss(b *testing.B) {
 	payload := make([]byte, 100)
-	jb := NewRTPJitterBuffer(1, JitterMaxDepth)
+	jb := rtp.NewJitterBuffer(1, rtp.MaxDepth)
 
 	// Push and pop one frame to start the buffer and set lastPush.
 	jb.Push(0, payload)
@@ -464,7 +465,7 @@ func BenchmarkPopOrConceal_BurstLoss(b *testing.B) {
 // Setup (push) is done outside b.Loop(); releasePayload mirrors playoutLoop.
 func BenchmarkPopOrConceal(b *testing.B) {
 	payload := make([]byte, 100)
-	jb := NewRTPJitterBuffer(1, JitterMaxDepth)
+	jb := rtp.NewJitterBuffer(1, rtp.MaxDepth)
 
 	// Prime the playout cursor: push seq=0, pop it to start the buffer.
 	jb.Push(0, payload)

@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"github.com/openmanet/openmanetd/internal/comms/device"
 )
 
@@ -332,10 +333,10 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 			return nil, fmt.Errorf("set multicast TTL on RTCP sender %s:%d: %w", mpc.Address, mpc.Port+1, errTTL)
 		}
 
-		sender := NewSwappableSender(sendConn)
-		rtcpSend := NewSwappableSender(rtcpConn)
+		sender := rtp.NewSwappableSender(sendConn)
+		rtcpSend := rtp.NewSwappableSender(rtcpConn)
 
-		sess, err := NewRTPSession(ssrc, sender, rtcpSend, cfg.Log)
+		sess, err := rtp.NewSession(ssrc, sender, rtcpSend, cfg.Log)
 		if err != nil {
 			_ = sendConn.Close()
 			_ = rtcpConn.Close()
@@ -411,8 +412,8 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 			return nil, err
 		}
 
-		pc.receiver = NewSwappableReceiver(recvConn)
-		pc.jitter = NewRTPJitterBuffer(JitterPrebufferPackets, JitterMaxDepth)
+		pc.receiver = rtp.NewSwappableReceiver(recvConn)
+		pc.jitter = rtp.NewJitterBuffer(rtp.PrebufferPackets, rtp.MaxDepth)
 
 		cfg.Log.Debug().Msgf("comms: RTP receiver port %d", mpc.Port)
 	}
@@ -439,7 +440,7 @@ func (cfg *CommsConfig) buildNetwork() ([]*portChannel, string, error) {
 		rtpID = localIP
 	}
 
-	ssrc := SSRCFromID(rtpID)
+	ssrc := rtp.SSRCFromID(rtpID)
 
 	ports := make([]*portChannel, 0, len(cfg.McastPorts))
 
@@ -804,7 +805,7 @@ func (cfg *CommsConfig) replaceNetwork(
 	if pc.sender != nil && newSender != nil {
 		// Deferred close: the lock-free Write path on SwappableSender
 		// cannot be drained synchronously, so the previous underlying
-		// connection is closed after SwapCloseGrace to let any in-flight
+		// connection is closed after rtp.SwapCloseGrace to let any in-flight
 		// sendto(2) on the old fd finish first.
 		pc.sender.SwapAndDeferClose(newSender)
 	}
