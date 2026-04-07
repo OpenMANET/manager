@@ -3,13 +3,13 @@ package comms
 import (
 	"context"
 	"fmt"
-	"math"
 	"sync"
 	"time"
 
 	"github.com/gordonklaus/portaudio"
 	"github.com/rs/zerolog"
 
+	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/device"
 )
 
@@ -389,7 +389,7 @@ func (s *roipSource) voxIdle(ctx context.Context) bool {
 					return false
 				}
 
-				energy := rmsEnergy(frame)
+				energy := audiopool.RMSEnergy(frame)
 				returnFloat32(frame)
 
 				if energy >= s.voxThreshold && !s.isReceiving() {
@@ -447,7 +447,7 @@ func (s *roipSource) voxActive(ctx context.Context, tapCh <-chan []float32, maxT
 				return true
 			}
 
-			energy := rmsEnergy(frame)
+			energy := audiopool.RMSEnergy(frame)
 			returnFloat32(frame)
 
 			if energy >= s.voxThreshold {
@@ -475,23 +475,6 @@ func (s *roipSource) voxActive(ctx context.Context, tapCh <-chan []float32, maxT
 	}
 }
 
-// ─── Audio helpers ────────────────────────────────────────────────────────────
-
-// rmsEnergy computes the root-mean-square energy of a float32 PCM frame.
-func rmsEnergy(frame []float32) float32 {
-	if len(frame) == 0 {
-		return 0
-	}
-
-	var sum float64
-
-	for _, v := range frame {
-		sum += float64(v) * float64(v)
-	}
-
-	return float32(math.Sqrt(sum / float64(len(frame))))
-}
-
 // ─── Production monitor opener ────────────────────────────────────────────────
 
 // makeROIPMonitorOpener returns a factory that opens a PortAudio input stream
@@ -516,7 +499,7 @@ func makeROIPMonitorOpener(inputDevice string, log zerolog.Logger) func() (<-cha
 		}
 
 		stream, openErr := portaudio.OpenStream(params, func(in []float32) {
-			fp := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
+			fp := audiopool.Float32Pool.Get().(*[]float32) //nolint:forcetypeassert
 			f := (*fp)[:frameSize]
 			copy(f, in)
 
