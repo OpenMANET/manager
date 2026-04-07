@@ -42,7 +42,7 @@ type nanopttBackend struct {
 
 func init() {
 	control.Register("openvlm", func(deps control.ControlDeps) (control.EventSource, error) {
-		return NewOpenVLMSource(deps.Log), nil
+		return control.NewOpenVLMSource(deps.Log), nil
 	})
 
 	control.Register(controlSourceROIP, func(deps control.ControlDeps) (control.EventSource, error) {
@@ -60,7 +60,7 @@ func init() {
 			return nil, errors.New("comms: web control source missing backend deps")
 		}
 
-		ws := NewWebEventSource(deps.Log)
+		ws := control.NewWebEventSource(deps.Log)
 		if b.Sink != nil {
 			b.Sink(ws)
 		}

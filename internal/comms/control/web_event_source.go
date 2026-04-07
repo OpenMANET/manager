@@ -1,4 +1,4 @@
-package comms
+package control
 
 import (
 	"context"
@@ -6,17 +6,17 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// webEventSource implements EventSource for web-based PTT control. RPC
+// WebEventSource implements EventSource for web-based PTT control. RPC
 // handlers inject PTT events via Push; the comms Run loop consumes them
 // from the channel returned by Events.
-type webEventSource struct {
+type WebEventSource struct {
 	ch  chan PTTEvent
 	log zerolog.Logger
 }
 
-// NewWebEventSource creates a webEventSource with a small buffered channel.
-func NewWebEventSource(log zerolog.Logger) *webEventSource {
-	return &webEventSource{
+// NewWebEventSource creates a WebEventSource with a small buffered channel.
+func NewWebEventSource(log zerolog.Logger) *WebEventSource {
+	return &WebEventSource{
 		ch:  make(chan PTTEvent, 4),
 		log: log,
 	}
@@ -24,7 +24,7 @@ func NewWebEventSource(log zerolog.Logger) *webEventSource {
 
 // Events implements EventSource. The returned channel is closed when ctx is
 // canceled.
-func (w *webEventSource) Events(ctx context.Context) <-chan PTTEvent {
+func (w *WebEventSource) Events(ctx context.Context) <-chan PTTEvent {
 	go func() {
 		<-ctx.Done()
 		close(w.ch)
@@ -35,7 +35,7 @@ func (w *webEventSource) Events(ctx context.Context) <-chan PTTEvent {
 
 // Push injects a PTT event from an external caller (e.g. an RPC handler).
 // If the channel is full the event is dropped to avoid blocking the caller.
-func (w *webEventSource) Push(ev PTTEvent) {
+func (w *WebEventSource) Push(ev PTTEvent) {
 	select {
 	case w.ch <- ev:
 	default:

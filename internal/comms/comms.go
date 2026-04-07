@@ -746,7 +746,7 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 		cfg.Log.Info().Msgf("comms: PTT on OpenVLM HID dongle (VID=0x%04X PID=0x%04X)",
 			openvlmVendorID, openvlmProductID)
 
-		return NewOpenVLMSource(cfg.Log), nil
+		return control.NewOpenVLMSource(cfg.Log), nil
 
 	case controlSourceROIP:
 		cfg.Log.Info().Msgf(
@@ -764,7 +764,7 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 	case controlSourceWeb:
 		cfg.Log.Info().Msg("comms: PTT via web RPC")
 
-		ws := NewWebEventSource(cfg.Log)
+		ws := control.NewWebEventSource(cfg.Log)
 		rt.webEvtSrc = ws
 
 		return ws, nil
@@ -881,7 +881,7 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 
 	if cfg.ControlSource != controlSourceWeb {
 		if cfg.ControlSource == defaultCtrlSrc || cfg.ControlSource == controlSourceROIP {
-			detectAndSetALSACard(cfg.Log)
+			control.DetectAndSetALSACard(cfg.Log)
 		}
 	}
 
