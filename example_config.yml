@@ -24,6 +24,15 @@ comms:
   # = three 20 ms callback periods. Floored at the device's
   # DefaultHighOutputLatency, so values below the device hint are ignored.
   playbackLatencyMs: 60
+  # PortAudio input device buffer depth (ms). Symmetric to playbackLatencyMs:
+  # bounds the capture audio thread's scheduling slack against OS preemption.
+  # If the thread is preempted longer than the buffer can hold, the ADC
+  # device buffer overruns and samples are silently dropped — heard as
+  # stutter by REMOTE listeners (capture-side stalls don't affect this
+  # device's own playback). Default 60 ms = three 20 ms callback periods.
+  # Floored at the device's DefaultHighInputLatency, so values below the
+  # device hint are ignored.
+  captureLatencyMs: 60
   nanoPTT:
     enable: false
     devicePath: /dev/hidraw0/*

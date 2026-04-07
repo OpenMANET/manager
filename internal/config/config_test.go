@@ -828,6 +828,51 @@ func TestGetCommsPlaybackLatencyMs(t *testing.T) {
 	}
 }
 
+func TestGetCommsCaptureLatencyMs(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *int
+		want     int
+	}{
+		{
+			name:     "returns configured value",
+			setValue: intPtr(80),
+			want:     80,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultCommsCaptureLatencyMs,
+		},
+		{
+			name:     "returns default when zero",
+			setValue: intPtr(0),
+			want:     DefaultCommsCaptureLatencyMs,
+		},
+		{
+			name:     "returns default when negative",
+			setValue: intPtr(-10),
+			want:     DefaultCommsCaptureLatencyMs,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("comms.captureLatencyMs", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetCommsCaptureLatencyMs()
+			if got != tt.want {
+				t.Errorf("GetCommsCaptureLatencyMs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetCommsNanoPTTEnable(t *testing.T) {
 	tests := []struct {
 		setValue *bool

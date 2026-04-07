@@ -52,18 +52,15 @@ The callback chunk size stays at `frameSize` (one Opus frame, 20 ms) so
 
 This is the only layer of buffering that protects against playback-side OS
 scheduling stalls — the Go-side jitter buffer (`pc.jitter`) sits upstream of
-the DAC and cannot help once the audio thread is preempted. The three layers
+the DAC and cannot help once the audio thread is preempted. The four layers
 absorb different classes of stutter:
 
-| Class of stutter | Mitigated by |
-|---|---|
-| Network arrival jitter (out-of-order, late packets) | Go jitter prebuffer |
-| Brief packet loss bursts | Opus PLC + jitter buffer |
-| Playback-side OS scheduling stalls | PortAudio output device buffer |
-
-The mic capture stream uses the default minimum latency: capture-side latency
-only affects mouth-to-ear delay, not stutter, and the Opus encoder is happy to
-consume late frames.
+| Class of stutter | Heard by | Mitigated by |
+|---|---|---|
+| Network arrival jitter (out-of-order, late packets) | Local listener | Go jitter prebuffer |
+| Brief packet loss bursts | Local listener | Opus PLC + jitter buffer |
+| Playback-side OS scheduling stalls | Local listener | PortAudio output device buffer |
+| Capture-side OS scheduling stalls | **Remote** listeners | PortAudio input device buffer |
 
 #### Tuning `comms.playbackLatencyMs`
 
@@ -90,6 +87,50 @@ If `actual_output_latency` is well below `requested_latency` after raising
 `comms.playbackLatencyMs`, the host API is clamping and the only remaining
 PortAudio knob is `FramesPerBuffer` (which would require restructuring
 `playoutOneFrame` to loop).
+
+### Capture device latency
+
+The PortAudio input (mic capture) stream is opened with
+`Latency = max(comms.captureLatencyMs, inDev.DefaultHighInputLatency)`.
+The callback chunk size stays at `frameSize` (one Opus frame, 20 ms) so
+the encode-and-transmit logic is unchanged.
+
+This is the symmetric counterpart of `comms.playbackLatencyMs` for the
+capture side. The failure mode is different in *whose* speaker stutters:
+
+- **Playback preemption**: thread is late → DAC underruns → *this device's*
+  local listener hears a click.
+- **Capture preemption**: thread is late → ADC device buffer **overruns** →
+  samples are silently dropped → the RTP stream sent over the air has a gap
+  → **remote listeners** hear stutter.
+
+So unlike playback, the on-device user is not the one who hears capture-side
+underruns — the people you're talking to are. This makes capture-side stalls
+much harder to detect by ear: a transmitter can sound fine to itself while
+every receiver hears it stuttering.
+
+#### Tuning `comms.captureLatencyMs`
+
+Same logic as `comms.playbackLatencyMs`: hardware that reports a low
+`DefaultHighInputLatency` (e.g. the OpenVLM USB audio class device, which
+reports ~21 ms on both directions) leaves the capture audio thread with
+effectively zero scheduling slack. Default is **60 ms** (three callback
+periods); the floor in `openBroadcastStreamOn` honours the device hint when
+it is genuinely higher.
+
+The actual granted latency is logged at Debug level on stream open as
+`comms: broadcast stream opened` with the same four fields as the playback
+log:
+
+- `configured_latency_ms` — the value from `comms.captureLatencyMs`
+- `device_high_latency` — `inDev.DefaultHighInputLatency` (the floor)
+- `requested_latency` — what we passed to `portaudio.OpenStream`
+- `actual_input_latency` — what the host API actually granted
+
+If `actual_input_latency` is well below `requested_latency` after raising
+`comms.captureLatencyMs`, the host API is clamping the suggestion and the
+only remaining PortAudio knob is `FramesPerBuffer` (which would require
+restructuring the mic callback to encode multiple Opus frames per call).
 
 The mic callback:
 
@@ -324,6 +365,7 @@ ptt:
   BluetoothOutputDevice: ""             # optional; device name substring or index for playback
   micGain: 8.0                 # float32; >1 amplifies, <1 attenuates
   playbackLatencyMs: 60        # PortAudio output device buffer depth (ms); floored at outDev.DefaultHighOutputLatency
+  captureLatencyMs: 60         # PortAudio input device buffer depth (ms); floored at inDev.DefaultHighInputLatency
 ```
 
 `pttDevice` / `pttDeviceName` are only relevant when `controlSource: evdev`.

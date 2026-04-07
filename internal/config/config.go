@@ -62,11 +62,20 @@ const (
 	// a higher DefaultHighOutputLatency than this; in that case the floor
 	// in buildAudio uses the device value instead so we never go below
 	// what the host API itself recommends.
-	DefaultCommsPlaybackLatencyMs int    = 60
-	DefaultAuthEnable             bool   = false
-	DefaultAuthSessionMaxAgeSecs  int    = 86400 // 24 hours
-	DefaultAuthSessionMaxSize     int    = 16
-	DefaultAuthPAMService         string = "login"
+	DefaultCommsPlaybackLatencyMs int = 60
+	// DefaultCommsCaptureLatencyMs is the capture-side device buffer depth
+	// suggested to PortAudio. Mirrors DefaultCommsPlaybackLatencyMs: a
+	// preempted capture audio thread silently drops samples (the ADC device
+	// buffer overruns), which remote listeners hear as a gap in the RTP
+	// stream. 60 ms = three 20 ms callback periods, giving the audio thread
+	// two full periods of slack before sample loss. Floored at the device's
+	// DefaultHighInputLatency in openBroadcastStreamOn so we never undercut
+	// the host API's recommendation.
+	DefaultCommsCaptureLatencyMs int    = 60
+	DefaultAuthEnable            bool   = false
+	DefaultAuthSessionMaxAgeSecs int    = 86400 // 24 hours
+	DefaultAuthSessionMaxSize    int    = 16
+	DefaultAuthPAMService        string = "login"
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -99,6 +108,7 @@ type Config struct {
 	OpenMANETWebsocketPort                    int
 	CommsEncoderComplexity                    int
 	CommsPlaybackLatencyMs                    int
+	CommsCaptureLatencyMs                     int
 	RuntimeGoGC                               int
 	AuthSessionMaxAgeSecs                     int
 	AuthSessionMaxSize                        int
@@ -456,6 +466,20 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsPlaybackLatencyMs = val
 	} else {
 		c.CommsPlaybackLatencyMs = DefaultCommsPlaybackLatencyMs
+	}
+
+	// Load comms capture latency. Suggested to PortAudio as the mic capture
+	// device buffer depth (StreamDeviceParameters.Latency on the Input
+	// params). Symmetric to comms.playbackLatencyMs: protects the capture
+	// audio thread against OS preemption that would otherwise cause the
+	// ADC device buffer to overrun and silently drop samples (heard as
+	// stutter by remote listeners). Values <= 0 fall back to the default;
+	// the actual depth granted by the host API is logged at Debug level
+	// when the broadcast stream is opened.
+	if val := c.v.GetInt("comms.captureLatencyMs"); val > 0 {
+		c.CommsCaptureLatencyMs = val
+	} else {
+		c.CommsCaptureLatencyMs = DefaultCommsCaptureLatencyMs
 	}
 
 	// Load auth configuration
@@ -911,6 +935,17 @@ func (c *Config) GetCommsPlaybackLatencyMs() int {
 	defer c.mu.RUnlock()
 
 	return c.CommsPlaybackLatencyMs
+}
+
+// GetCommsCaptureLatencyMs returns the mic capture device buffer depth
+// suggested to PortAudio, in milliseconds. The actual depth granted by the
+// host API may be smaller; the broadcast stream open log records the granted
+// value at Debug level for verification.
+func (c *Config) GetCommsCaptureLatencyMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsCaptureLatencyMs
 }
 
 // GetAuthEnable returns whether HTTP authentication is enabled.

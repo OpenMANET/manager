@@ -210,6 +210,7 @@ type CommsConfig struct {
 	EnableBluetoothPtt       bool
 	EncoderComplexity        int
 	PlaybackLatencyMs        int
+	CaptureLatencyMs         int
 }
 
 // NewComms copies cfg and returns a pointer ready for Start.
@@ -244,6 +245,7 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		ROIPInputDevice:          cfg.ROIPInputDevice,
 		EncoderComplexity:        cfg.EncoderComplexity,
 		PlaybackLatencyMs:        cfg.PlaybackLatencyMs,
+		CaptureLatencyMs:         cfg.CaptureLatencyMs,
 	}
 }
 
@@ -779,10 +781,28 @@ func (cfg *CommsConfig) sendToAllPorts(rt *CommsRuntime, payload []byte) {
 // openBroadcastStreamOn creates a PortAudio capture stream that encodes mic
 // audio via Opus and transmits it as RTP to all send-enabled ports via sendToAllPorts.
 func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *CommsRuntime) (AudioStream, error) {
+	// Suggest a capture device buffer depth to PortAudio. Symmetric to the
+	// playback stream in buildAudio: a preempted capture audio thread loses
+	// samples (the ADC device buffer overruns), which remote listeners hear
+	// as a gap in the RTP timeline. The callback chunk size stays at
+	// frameSize so the existing per-frame encode logic is unchanged.
+	//
+	// Floor at inDev.DefaultHighInputLatency: some hardware reports a "high"
+	// latency that is essentially the same as one callback period (e.g. the
+	// OpenVLM USB audio class device); other hardware reports a genuinely
+	// higher value, in which case we honor the device hint rather than
+	// overriding it downward. The host API may still clamp the suggestion —
+	// the actual granted latency is logged below.
+	captureLatency := time.Duration(cfg.CaptureLatencyMs) * time.Millisecond
+	if captureLatency < inDev.DefaultHighInputLatency {
+		captureLatency = inDev.DefaultHighInputLatency
+	}
+
 	inParams := portaudio.StreamParameters{
 		Input: portaudio.StreamDeviceParameters{
 			Device:   inDev,
 			Channels: channels,
+			Latency:  captureLatency,
 		},
 		SampleRate:      float64(sampleRate),
 		FramesPerBuffer: frameSize,
@@ -859,6 +879,21 @@ func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *C
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open broadcast stream: %w", err)
+	}
+
+	// Log the actual input latency the host API granted. Mirrors the
+	// playback stream open log so deploy-time verification has the same
+	// four fields on both sides. Capture-side underruns (preempted audio
+	// thread → ADC overrun → dropped samples) manifest as gaps in the RTP
+	// stream that remote listeners hear as stutter, so the granted depth
+	// is what determines whether OS scheduling jitter is absorbed.
+	if info := stream.Info(); info != nil {
+		cfg.Log.Debug().
+			Int("configured_latency_ms", cfg.CaptureLatencyMs).
+			Dur("device_high_latency", inDev.DefaultHighInputLatency).
+			Dur("requested_latency", captureLatency).
+			Dur("actual_input_latency", info.InputLatency).
+			Msg("comms: broadcast stream opened")
 	}
 
 	return &portaudioStream{stream}, nil
