@@ -1,4 +1,8 @@
-package comms
+// Package control defines the PTT event source abstractions consumed by the
+// comms package. Concrete implementations (OpenVLM HID, evdev nanoPTT, ROIP,
+// web) currently still live in internal/comms and will migrate here in later
+// phases of the comms refactor.
+package control
 
 import (
 	"context"

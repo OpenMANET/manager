@@ -1,4 +1,13 @@
-package comms
+// Package codec defines audio encoder/decoder interfaces and an Opus
+// implementation. It is intentionally a leaf package: it depends only on
+// libopus and exposes minimal interfaces so the comms package and its
+// sub-packages can construct codecs without importing each other.
+//
+// This package was extracted from internal/comms during Phase 1 of the comms
+// refactor (see .claude/plans/comms-refactor.md). Later phases will introduce
+// int16-native hot-path entry points; the current API mirrors the original
+// flat-package implementation byte-for-byte to preserve behavior.
+package codec
 
 import (
 	"fmt"
@@ -77,30 +86,10 @@ func (o *opusDecoder) DecodeFloat32(data []byte, pcm []float32) (int, error) {
 	return n, nil
 }
 
-// newOpusEncoder creates and configures a new Opus audio encoder optimized for
-// voice over IP (VoIP) applications.
-//
-// The encoder is configured with the following settings:
-//   - Sample rate: [sampleRate] Hz
-//   - Channels: [channels]
-//   - Application: opus.AppVoIP for voice optimization
-//   - Bitrate: [targetBitrate] bps
-//   - Complexity: [encoderComplexity] (higher values = better quality, more CPU usage)
-//   - In-Band FEC: disabled (no forward error correction)
-//   - Packet Loss Percentage: [packetLossPerc]%
-//   - DTX: disabled (discontinuous transmission)
-//
-// Returns an AudioEncoder interface wrapping the configured Opus encoder,
-// or an error if the encoder could not be created or configured.
-//
-// Possible errors:
-//   - "opus encoder": failed to create the base Opus encoder
-//   - "opus SetBitrate": failed to set the target bitrate
-//   - "opus SetComplexity": failed to set the encoder complexity
-//   - "opus SetInBandFEC": failed to disable in-band FEC
-//   - "opus SetPacketLossPerc": failed to set the packet loss percentage
-//   - "opus SetDTX": failed to disable discontinuous transmission
-func newOpusEncoder(complexity int) (AudioEncoder, error) {
+// NewOpusEncoder creates and configures a new Opus audio encoder optimized for
+// voice over IP (VoIP) applications. All tunable parameters are passed
+// explicitly so this package has no dependency on comms-level constants.
+func NewOpusEncoder(sampleRate, channels, targetBitrate, complexity, packetLossPerc int) (AudioEncoder, error) {
 	enc, err := opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
 	if err != nil {
 		return nil, fmt.Errorf("opus encoder: %w", err)
@@ -129,10 +118,10 @@ func newOpusEncoder(complexity int) (AudioEncoder, error) {
 	return &opusEncoder{enc: enc}, nil
 }
 
-// newOpusDecoder creates an Opus decoder configured for [sampleRate] Hz and
-// [channels] channels. Returns an AudioDecoder interface wrapping the decoder,
+// NewOpusDecoder creates an Opus decoder configured for the given sample rate
+// and channel count. Returns an AudioDecoder interface wrapping the decoder,
 // or an error if the underlying opus.Decoder could not be constructed.
-func newOpusDecoder() (AudioDecoder, error) {
+func NewOpusDecoder(sampleRate, channels int) (AudioDecoder, error) {
 	dec, err := opus.NewDecoder(sampleRate, channels)
 	if err != nil {
 		return nil, fmt.Errorf("opus decoder: %w", err)
