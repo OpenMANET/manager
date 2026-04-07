@@ -14,6 +14,13 @@ import (
 
 // CommsRuntime holds live resources allocated by Start. All audio/network
 // fields are interfaces so that unit tests can inject fakes without hardware.
+//
+// RemoteRxActive is the cached half-duplex receive flag. The PTT TX path
+// reads it via isReceivingRemote in O(1) instead of walking every port's
+// HalfDuplexGate. It is set immediately by receiveLoop on every inbound
+// packet from a send-enabled port (no false negatives at the start of an
+// incoming stream) and cleared by halfDuplexDecayLoop on a coarse 100 ms
+// ticker once every gate's window has expired.
 type CommsRuntime struct {
 	Decoder         AudioDecoder
 	Encoder         AudioEncoder
@@ -27,6 +34,7 @@ type CommsRuntime struct {
 	BeepBufferStart []int16
 	BeepBufferStop  []int16
 	Broadcasting    atomic.Bool
+	RemoteRxActive  atomic.Bool
 }
 
 // ─── CommsConfig ──────────────────────────────────────────────────────────────
@@ -64,6 +72,14 @@ type CommsConfig struct {
 	EncoderComplexity        int
 	PlaybackLatencyMs        int
 	CaptureLatencyMs         int
+	// PttStartDelayMs bounds how long beginTransmission waits between
+	// queueing the start-tone beep and starting the mic capture stream. The
+	// PortAudio output callback drains the beep buffer before falling
+	// through to playoutOneFrame, so the delay is only required to give
+	// hardware that warms its mic stream slowly time to settle before the
+	// first encoded frame goes out. Defaults to defaultPttStartDelayMs
+	// (50 ms) when ≤ 0; set to 0 explicitly to skip the wait entirely.
+	PttStartDelayMs int
 }
 
 // NewComms copies cfg and returns a pointer ready for Start.
@@ -100,6 +116,7 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		EncoderComplexity:        cfg.EncoderComplexity,
 		PlaybackLatencyMs:        cfg.PlaybackLatencyMs,
 		CaptureLatencyMs:         cfg.CaptureLatencyMs,
+		PttStartDelayMs:          cfg.PttStartDelayMs,
 	}
 }
 

@@ -391,8 +391,8 @@ func TestIsReceivingRemote_TrueWhenRecent(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	pc := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
 	pc.SendEnabled.Store(true)
-	pc.RxGate.Mark()
 	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
+	pc.MarkRemoteRx(rt)
 
 	if !cfg.isReceivingRemote(rt) {
 		t.Error("expected true when a packet was just received")
@@ -410,6 +410,88 @@ func TestIsReceivingRemote_FalseWhenStale(t *testing.T) {
 	if cfg.isReceivingRemote(rt) {
 		t.Error("expected false when last received packet is older than rxActiveThreshold")
 	}
+}
+
+// TestHalfDuplexDecayLoop_ClearsCacheWhenAllGatesQuiet exercises the
+// background decay loop: it must clear rt.RemoteRxActive once every gate has
+// fallen outside its threshold window. The gate is stamped with a stale
+// timestamp so the decay tick observes Active() == false on the very next
+// pass and writes false back to the cache.
+func TestHalfDuplexDecayLoop_ClearsCacheWhenAllGatesQuiet(t *testing.T) {
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	pc := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc.SendEnabled.Store(true)
+	// Stale timestamp — gate is no longer Active().
+	pc.RxGate.MarkAt(time.Now().Add(-(rxActiveThreshold + time.Second)))
+
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
+	// Prime the cache as if the gate had just been marked.
+	rt.RemoteRxActive.Store(true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		cfg.halfDuplexDecayLoop(ctx, rt)
+	}()
+
+	// Two decay ticks (~200 ms) should be more than enough to observe the
+	// stale gate and flip the cache to false.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !rt.RemoteRxActive.Load() {
+			break
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if rt.RemoteRxActive.Load() {
+		t.Error("expected halfDuplexDecayLoop to clear the cache when all gates are stale")
+	}
+
+	cancel()
+	<-done
+}
+
+// TestHalfDuplexDecayLoop_KeepsCacheWhileGateActive verifies that the decay
+// loop does NOT clear the cache while at least one send-enabled port has an
+// active gate.
+func TestHalfDuplexDecayLoop_KeepsCacheWhileGateActive(t *testing.T) {
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	pc := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc.SendEnabled.Store(true)
+	pc.RxGate.Mark() // fresh, well within threshold
+
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
+	rt.RemoteRxActive.Store(true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		cfg.halfDuplexDecayLoop(ctx, rt)
+	}()
+
+	// Wait long enough for at least two decay ticks to fire.
+	time.Sleep(halfDuplexDecayInterval*2 + 50*time.Millisecond)
+
+	if !rt.RemoteRxActive.Load() {
+		t.Error("expected halfDuplexDecayLoop to leave the cache set while a gate is still active")
+	}
+
+	cancel()
+	<-done
 }
 
 func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {

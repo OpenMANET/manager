@@ -5,6 +5,31 @@ import (
 	"time"
 )
 
+// defaultPttStartDelayMs is the start-tone settle window applied when
+// CommsConfig.PttStartDelayMs is left unset (≤ 0). 50 ms is short enough to
+// be imperceptible at the operator end and long enough to let USB audio
+// class capture devices commit their first DMA cycle before the encoder
+// starts pulling frames. The previous hard-coded 200 ms was a conservative
+// guess; the PortAudio output callback already drains the beep buffer
+// before falling through to playoutOneFrame so beep + mic samples cannot
+// collide regardless of this duration. To skip the wait entirely set
+// PttStartDelayMs to a negative value.
+const defaultPttStartDelayMs = 50
+
+// pttStartDelay returns the configured start-tone settle duration. A
+// negative PttStartDelayMs means "skip the wait"; a zero or unset value
+// falls back to defaultPttStartDelayMs; positive values are taken as-is.
+func (cfg *CommsConfig) pttStartDelay() time.Duration {
+	switch {
+	case cfg.PttStartDelayMs < 0:
+		return 0
+	case cfg.PttStartDelayMs == 0:
+		return defaultPttStartDelayMs * time.Millisecond
+	default:
+		return time.Duration(cfg.PttStartDelayMs) * time.Millisecond
+	}
+}
+
 // ─── Transmission state ───────────────────────────────────────────────────────
 
 func (cfg *CommsConfig) isBroadcasting(rt *CommsRuntime) bool {
@@ -69,7 +94,14 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 		}
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// Brief settle window before the mic capture stream starts. The
+	// PortAudio output callback drains the beep buffer ahead of
+	// playoutOneFrame so beep and mic samples cannot collide; the wait is
+	// purely for hardware that warms its capture path slowly. Configurable
+	// via CommsConfig.PttStartDelayMs (see pttStartDelay).
+	if d := cfg.pttStartDelay(); d > 0 {
+		time.Sleep(d)
+	}
 
 	if rt.BroadcastStream == nil {
 		cfg.Log.Warn().Msg("Mic stream is nil; attempting to reopen")
@@ -152,14 +184,17 @@ func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 }
 
 // Run is the main event loop. It starts a receiveLoop goroutine for every
-// Receive-capable port and then blocks, dispatching PTT events until ctx is
-// canceled.
+// Receive-capable port plus a single halfDuplexDecayLoop that clears the
+// cached RemoteRxActive flag when every gate has gone quiet, then blocks
+// dispatching PTT events until ctx is canceled.
 func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src EventSource) {
 	for _, pc := range rt.Ports {
 		if pc.Receiver != nil {
 			go cfg.receiveLoop(ctx, pc, rt)
 		}
 	}
+
+	go cfg.halfDuplexDecayLoop(ctx, rt)
 
 	events := src.Events(ctx)
 

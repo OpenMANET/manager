@@ -182,8 +182,25 @@ func TestBroadcastEncoder_EncoderErrorIncrementsCounter(t *testing.T) {
 
 	const frames = 5
 
-	for range frames {
+	// Push one frame at a time and wait for the encode worker to consume it
+	// before queueing the next, so the test is independent of
+	// broadcastEncoderChanDepth: a tighter channel depth still produces the
+	// same total error count, just with more producer↔consumer interleaving.
+	for i := int64(1); i <= frames; i++ {
 		be.captureCallback(in)
+
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) {
+			if enc.calls.Load() >= i {
+				break
+			}
+
+			time.Sleep(time.Millisecond)
+		}
+
+		if got := enc.calls.Load(); got < i {
+			t.Fatalf("encoder calls = %d after frame %d, want at least %d", got, i, i)
+		}
 	}
 
 	close(be.encCh)

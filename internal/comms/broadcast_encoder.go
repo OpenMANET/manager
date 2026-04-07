@@ -11,10 +11,13 @@ import (
 
 // broadcastEncoderChanDepth bounds the queue between the PortAudio audio
 // callback (producer, fires every 20 ms) and the encode-and-send goroutine
-// (consumer). At 8 frames = 160 ms it absorbs ~140 ms of consumer slack
-// before the producer starts dropping frames. Channel-full drops are
-// counted in framesDropped and surfaced in the per-cycle Debug log.
-const broadcastEncoderChanDepth = 8
+// (consumer). 3 frames = 60 ms of consumer slack before the producer starts
+// dropping frames — tight enough that an encoder spike cannot mask more
+// than three frames of unsent audio. Channel-full drops are counted in
+// framesDropped and surfaced in the per-cycle Debug log; if drops appear
+// under load on a target device, raise this and re-bench rather than
+// suppressing the counter.
+const broadcastEncoderChanDepth = 3
 
 // paStream is the minimal subset of *portaudio.Stream that broadcastEncoder
 // depends on. It exists so unit tests can inject a fake stream without

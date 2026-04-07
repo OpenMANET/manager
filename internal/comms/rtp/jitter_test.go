@@ -617,3 +617,82 @@ func TestJitterBuffer_Reset_PrebufferRestartsAfterReset(t *testing.T) {
 		t.Error("expected ready after 3 pushes on reset buffer")
 	}
 }
+
+// TestJitterBuffer_NotifyOnPush exercises the edge-triggered notify channel
+// installed by EnableNotify: a successful push must wake any consumer that
+// has parked on the channel within a single signal interval.
+func TestJitterBuffer_NotifyOnPush(t *testing.T) {
+	jb := NewJitterBuffer(1, 10)
+
+	notify := jb.EnableNotify()
+
+	// Drain any state-zero signal (none expected, but be defensive).
+	select {
+	case <-notify:
+		t.Fatal("notify channel should be empty before any Push")
+	default:
+	}
+
+	jb.Push(0, []byte{0xAB})
+
+	select {
+	case <-notify:
+		// expected
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected notify wake within 100ms after Push")
+	}
+}
+
+// TestJitterBuffer_NotifyCoalescesBurst verifies that a burst of pushes does
+// NOT block the producer: the depth-1 buffered channel coalesces multiple
+// signals into one, and the consumer is responsible for draining all
+// available frames per wake.
+func TestJitterBuffer_NotifyCoalescesBurst(t *testing.T) {
+	jb := NewJitterBuffer(1, 10)
+
+	notify := jb.EnableNotify()
+
+	// Push 5 frames in a tight loop without consuming the notify signal
+	// between them — every Push must return promptly (no blocking).
+	for i := uint16(0); i < 5; i++ {
+		done := make(chan bool)
+
+		go func() {
+			jb.Push(i, []byte{byte(i)})
+
+			done <- true
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(50 * time.Millisecond):
+			t.Fatalf("Push %d blocked; signal channel should coalesce", i)
+		}
+	}
+
+	// At least one signal must be readable.
+	select {
+	case <-notify:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected at least one notify signal after burst")
+	}
+}
+
+// TestJitterBuffer_NotifyDisabledByDefault verifies that consumers which
+// never call EnableNotify pay no signaling cost: pushes succeed silently and
+// no goroutine ever wakes from a notify channel.
+func TestJitterBuffer_NotifyDisabledByDefault(t *testing.T) {
+	jb := NewJitterBuffer(1, 10)
+
+	if jb.notifyCh != nil {
+		t.Fatal("notifyCh should be nil before EnableNotify is called")
+	}
+
+	if !jb.Push(0, []byte{0xCD}) {
+		t.Fatal("Push must succeed even when notify is disabled")
+	}
+
+	if jb.notifyCh != nil {
+		t.Fatal("Push must not allocate notifyCh as a side effect")
+	}
+}

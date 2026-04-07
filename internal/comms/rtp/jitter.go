@@ -44,9 +44,17 @@ type jitterSlot struct {
 //
 // Internally, frames are stored in a fixed-size circular array indexed by
 // (seq % maxDepth), eliminating all map allocations on the hot path.
+//
+// notifyCh is the optional edge-triggered "frame available" wakeup used by
+// consumers that prefer push-driven scheduling over a polling ticker (see
+// EnableNotify and webPlayoutLoop). It is nil until a consumer opts in;
+// PortAudio-driven consumers, which are clocked by the audio hardware, do
+// not call EnableNotify and pay nothing on the push hot path beyond the
+// nil-check.
 type JitterBuffer struct {
 	// now is injectable for deterministic idle-reset tests. nil → time.Now.
 	now         func() time.Time
+	notifyCh    chan struct{}
 	payloadPool sync.Pool
 	lastPush    time.Time
 	slots       [MaxDepth]jitterSlot
@@ -137,13 +145,44 @@ func (jb *JitterBuffer) PushWithSSRC(ssrc uint32, seq uint16, payload []byte, on
 		jb.haveSSRC = true
 	}
 
+	notifyCh := jb.notifyCh
+
 	jb.mu.Unlock()
+
+	if ok && notifyCh != nil {
+		// Edge-triggered wake: send if the consumer is parked, otherwise
+		// coalesce with the existing pending signal. The consumer drains
+		// every available frame after each wake so a coalesced signal
+		// loses no data.
+		select {
+		case notifyCh <- struct{}{}:
+		default:
+		}
+	}
 
 	if ssrcChanged && onSSRCChange != nil {
 		onSSRCChange(oldSSRC, ssrc)
 	}
 
 	return ok
+}
+
+// EnableNotify lazily allocates and returns the edge-triggered "frame
+// available" channel. Consumers that prefer push-driven wakeup over a
+// polling ticker call it once at startup and then select on the returned
+// channel. Each successful Push that follows fires a non-blocking signal
+// (depth-1 buffer, coalesced); the consumer should drain every available
+// payload after each wake. Calling EnableNotify a second time returns the
+// same channel.
+func (jb *JitterBuffer) EnableNotify() <-chan struct{} {
+	jb.mu.Lock()
+	defer jb.mu.Unlock()
+
+	if jb.notifyCh == nil {
+		jb.notifyCh = make(chan struct{}, 1)
+	}
+
+	return jb.notifyCh
 }
 
 // pushLocked is the internal push implementation; caller must hold jb.mu.

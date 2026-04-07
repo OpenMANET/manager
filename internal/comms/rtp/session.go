@@ -54,13 +54,22 @@ type Sender interface {
 // and writes to the provided rtcpTransport. Inbound RTP is parsed externally
 // with ParseIncoming; the session does not handle receive stats (each
 // remote SSRC in a multicast group would require a separate receiver).
+//
+// Concurrency: Send is the sole writer to packetizer and rtpWriter. In
+// production each *Session is owned by exactly one PortChannel, and Send is
+// only called from the per-encoder broadcastEncoder.encodeLoop goroutine
+// (one writer per encodeLoop, one encodeLoop per process). The pion
+// SenderInterceptor's RTCP timer runs on its own goroutine but only writes
+// to the RTCP transport (bound separately at NewSession), not the RTP
+// packetizer or rtpWriter — so there is no contention with Send. Adding a
+// second concurrent Send caller without external synchronization would be a
+// bug; the call invariant is enforced by code review, not a mutex.
 type Session struct {
 	log        zerolog.Logger
 	packetizer pionrtp.Packetizer
 	rtpWriter  interceptor.RTPWriter
 	intercept  interceptor.Interceptor
 	ssrc       uint32
-	mu         sync.Mutex
 }
 
 // SSRCFromID returns a deterministic uint32 SSRC derived from an ID string
@@ -190,10 +199,10 @@ func NewSession(
 // Send encodes payload into one or more RTP packets using the Packetizer and
 // writes them through the interceptor chain (and ultimately the UDP socket).
 // For Opus, Packetize always returns exactly one packet.
+//
+// Send is single-writer; see Session's type comment for the call invariant.
 func (s *Session) Send(payload []byte) error {
-	s.mu.Lock()
 	packets := s.packetizer.Packetize(payload, FrameSamples)
-	s.mu.Unlock()
 
 	for _, pkt := range packets {
 		if _, err := s.rtpWriter.Write(&pkt.Header, pkt.Payload, nil); err != nil {

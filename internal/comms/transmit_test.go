@@ -153,17 +153,70 @@ func TestIsBroadcasting_InitiallyFalse(t *testing.T) {
 	}
 }
 
-func TestBeginTransmission_200msSleep(t *testing.T) {
+// TestBeginTransmission_DefaultStartDelay verifies that beginTransmission
+// honors the default settle window (defaultPttStartDelayMs) so hardware that
+// needs a brief warm-up before the first encoded frame still gets it.
+func TestBeginTransmission_DefaultStartDelay(t *testing.T) {
 	stream := &mockStream{}
 	rt := newTestRuntime(stream)
 	cfg := newSilentComms()
+
+	want := defaultPttStartDelayMs * time.Millisecond
+
 	start := time.Now()
 
 	cfg.beginTransmission(rt)
 
-	if time.Since(start) < 180*time.Millisecond {
-		t.Errorf("beginTransmission should sleep ~200ms")
+	elapsed := time.Since(start)
+
+	// Allow a tiny tolerance: scheduling, mock-stream Start cost, etc.
+	const slop = 10 * time.Millisecond
+	if elapsed+slop < want {
+		t.Errorf("beginTransmission elapsed=%s, want at least %s (default settle)", elapsed, want)
 	}
+}
+
+// TestBeginTransmission_ConfigurablePttStartDelay verifies that an explicit
+// PttStartDelayMs overrides the default and that a negative value skips the
+// wait entirely.
+func TestBeginTransmission_ConfigurablePttStartDelay(t *testing.T) {
+	t.Run("custom", func(t *testing.T) {
+		stream := &mockStream{}
+		rt := newTestRuntime(stream)
+		cfg := newSilentComms()
+		cfg.PttStartDelayMs = 20
+
+		start := time.Now()
+
+		cfg.beginTransmission(rt)
+
+		elapsed := time.Since(start)
+
+		if elapsed < 15*time.Millisecond {
+			t.Errorf("expected ~20ms wait, got %s", elapsed)
+		}
+
+		if elapsed > 200*time.Millisecond {
+			t.Errorf("expected ~20ms wait, got %s (slept too long)", elapsed)
+		}
+	})
+
+	t.Run("disabled", func(t *testing.T) {
+		stream := &mockStream{}
+		rt := newTestRuntime(stream)
+		cfg := newSilentComms()
+		cfg.PttStartDelayMs = -1 // skip the wait entirely
+
+		start := time.Now()
+
+		cfg.beginTransmission(rt)
+
+		elapsed := time.Since(start)
+
+		if elapsed > 30*time.Millisecond {
+			t.Errorf("expected near-zero wait when PttStartDelayMs<0, got %s", elapsed)
+		}
+	})
 }
 
 // ─── beginTransmission error-path tests ──────────────────────────────────────
@@ -255,8 +308,10 @@ func TestBeginTransmission_StartFailureReopenAlsoFails(t *testing.T) {
 func TestBeginTransmission_BlockedWhenReceivingRemote(t *testing.T) {
 	stream := &mockStream{}
 	rt := newTestRuntime(stream)
-	// Simulate a packet that arrived just now from a remote peer.
-	rt.Ports[0].RxGate.Mark()
+	// Simulate a packet that arrived just now from a remote peer. Use the
+	// canonical helper so the half-duplex cache is primed the same way
+	// receiveLoop does it in production.
+	rt.Ports[0].MarkRemoteRx(rt)
 
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
@@ -539,8 +594,9 @@ func TestEndTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
 func TestBeginTransmission_WebMode_HalfDuplexStillWorks(t *testing.T) {
 	rt := newTestRuntime(&mockStream{})
 	rt.WebBridge = &WebAudioBridge{}
-	// Simulate active remote reception.
-	rt.Ports[0].RxGate.Mark()
+	// Simulate active remote reception via the canonical helper so the
+	// half-duplex cache is primed exactly as receiveLoop would.
+	rt.Ports[0].MarkRemoteRx(rt)
 
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)

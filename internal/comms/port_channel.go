@@ -71,6 +71,25 @@ type PortChannel struct {
 	ReceiveEnabled    atomic.Bool
 }
 
+// MarkRemoteRx records that a remote RTP packet has just been received on
+// this port for half-duplex enforcement. It stamps the port's RxGate and,
+// when this port is currently send-enabled, primes the runtime-wide
+// RemoteRxActive cache so the PTT TX path observes a busy channel without
+// waiting for the next halfDuplexDecayLoop tick. Receive-only ports never
+// block our own transmissions, so the cache is left untouched in that case.
+//
+// Production callers reach this from receiveLoop after a successful RTP
+// parse; tests use it as the single canonical way to express "a remote
+// packet arrived" so the cache invariant is exercised the same way it is
+// in production.
+func (pc *PortChannel) MarkRemoteRx(rt *CommsRuntime) {
+	pc.RxGate.Mark()
+
+	if pc.SendEnabled.Load() {
+		rt.RemoteRxActive.Store(true)
+	}
+}
+
 // closePartial closes any sockets and the RTP session that this PortChannel
 // has acquired so far. It is safe to call on a nil receiver and on a
 // PortChannel where some fields are still nil — used both as the rollback
