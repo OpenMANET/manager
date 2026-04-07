@@ -34,7 +34,7 @@ const (
 // cm108ProductIDs enumerates the product IDs considered part of the CM108
 // family for discovery purposes. Kept as a small package-level slice so the
 // per-device loop can scan it without allocation.
-var cm108ProductIDs = [...]uint16{
+var cm108ProductIDs = [...]uint16{ //nolint:gochecknoglobals
 	CM108ProductOpenVLM,
 	CM108ProductCM108AH,
 	CM108ProductCM119,

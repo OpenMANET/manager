@@ -25,14 +25,6 @@ const maxConsecutivePLC = 10
 // is still willing to PLC.
 const concealRecentWindow = 200 * time.Millisecond
 
-// zeroFloat32 fills a float32 slice with zeros. Retained for any legacy
-// consumer boundaries that still deal in float32.
-func zeroFloat32(out []float32) {
-	for i := range out {
-		out[i] = 0
-	}
-}
-
 // zeroInt16 fills an int16 slice with zeros. Used by the playout callback to
 // emit silence into the PortAudio int16 output buffer.
 func zeroInt16(out []int16) {

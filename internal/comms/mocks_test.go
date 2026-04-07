@@ -159,30 +159,6 @@ func (m *mockWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-// safeMockWriter is a goroutine-safe PacketWriter for race-detector tests.
-type safeMockWriter struct {
-	Packets [][]byte
-	mu      sync.Mutex
-}
-
-func (m *safeMockWriter) Write(b []byte) (int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	cp := make([]byte, len(b))
-	copy(cp, b)
-	m.Packets = append(m.Packets, cp)
-
-	return len(b), nil
-}
-
-func (m *safeMockWriter) count() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	return len(m.Packets)
-}
-
 // mockClosingWriter adds a Close() method to mockWriter for testing the
 // "close old sender if it implements io.Closer" swap path. closeCalled is
 // accessed via atomic.Bool so tests that assert deferred closes (scheduled
@@ -322,24 +298,3 @@ func (m *mockRTPSender) Send(payload []byte) error {
 
 	return nil
 }
-
-// safeCountingReader satisfies PacketReader. Every ReadFromUDP call returns
-// immediately with a dummy byte, making it safe for concurrent race-detector
-// tests that need a non-blocking reader.
-type safeCountingReader struct {
-	calls atomic.Int64
-}
-
-func (r *safeCountingReader) ReadFromUDP(b []byte) (int, *net.UDPAddr, error) {
-	r.calls.Add(1)
-
-	if len(b) > 0 {
-		b[0] = 0xAB
-	}
-
-	return 1, &net.UDPAddr{}, nil
-}
-
-func (r *safeCountingReader) Close() error { return nil }
-
-func (r *safeCountingReader) count() int64 { return r.calls.Load() }

@@ -27,7 +27,7 @@ type Factory func(ControlDeps) (EventSource, error)
 // the Go runtime serializes before any user goroutines start. Lookups happen
 // after init() at request time. A plain map is therefore sufficient and no
 // mutex is required.
-var registry = map[string]Factory{}
+var registry = map[string]Factory{} //nolint:gochecknoglobals
 
 // Register installs a Factory under the given name. It is intended to be
 // called from an init() function in the package that owns the backend.

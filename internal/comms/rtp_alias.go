@@ -12,7 +12,6 @@ import (
 // ─── Type aliases ───────────────────────────────────────────────────────────
 
 type (
-	pionRTPSession    = rtp.Session
 	RTPSession        = rtp.Session      //nolint:revive // parent alias from 2A rename
 	RTPJitterBuffer   = rtp.JitterBuffer //nolint:revive // internal ergonomics
 	SwappableSender   = rtp.SwappableSender

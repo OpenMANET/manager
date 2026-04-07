@@ -26,9 +26,6 @@ type HIDDevice = control.HIDDevice
 // HIDOpener is a parent-package alias for control.HIDOpener.
 type HIDOpener = control.HIDOpener
 
-// defaultHIDOpener is the production HIDOpener (delegates to the control package).
-var defaultHIDOpener HIDOpener = control.DefaultHIDOpener
-
 // ─── Web event source alias ─────────────────────────────────────────────────
 
 // webEventSource is a parent-package alias for control.WebEventSource.
