@@ -61,17 +61,9 @@ var (
 			return &s
 		},
 	}
-	// float32Pool is retained only for any legacy consumer boundaries (e.g.
-	// float32 VOX energy scratch paths) that still emit float32. Phase 5 of
-	// the comms refactor moved the audio hot path to int16 end-to-end; new
-	// code should use int16Pool instead.
-	float32Pool = sync.Pool{ //nolint:gochecknoglobals
-		New: func() any {
-			s := make([]float32, frameSize)
-
-			return &s
-		},
-	}
+	// float32Pool has been moved to pools.go (sibling file) so future
+	// sub-packages (audio/, control/roip.go) can import it via the parent
+	// package without cross-importing each other.
 	encBufPool = sync.Pool{ //nolint:gochecknoglobals
 		New: func() any {
 			s := make([]byte, encBufSize)
