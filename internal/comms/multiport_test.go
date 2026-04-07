@@ -290,7 +290,7 @@ func TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled(t *testing.T) {
 
 	pc := &portChannel{
 		cfg:      McastPortConfig{Send: false, Receive: true},
-		receiver: newSwappableReceiver(reader),
+		receiver: NewSwappableReceiver(reader),
 	}
 	pc.sendEnabled.Store(false)
 	pc.receiveEnabled.Store(false) // ← disabled
@@ -298,7 +298,7 @@ func TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled(t *testing.T) {
 
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
+		decoder: &mockDecoder{returnN: int(RTPFrameSamples)},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -431,8 +431,8 @@ func TestPlayoutOneFrame_ReceiveOnlyPortNotSuppressedDuringBroadcast(t *testing.
 	}
 	rt.broadcasting.Store(true) // simulate active broadcast on another port
 
-	jb := newRTPJitterBuffer(1, 10)
-	jb.push(0, []byte{0xAA, 0xBB}) // prebuffer=1: immediately ready
+	jb := NewRTPJitterBuffer(1, 10)
+	jb.Push(0, []byte{0xAA, 0xBB}) // prebuffer=1: immediately ready
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 

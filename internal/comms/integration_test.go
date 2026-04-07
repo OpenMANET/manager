@@ -14,7 +14,7 @@ import (
 
 // These tests exercise the receive path end-to-end:
 //
-//   mockReader → receiveLoop → parseIncomingRTP → pc.jitter →
+//   mockReader → receiveLoop → ParseIncomingRTP → pc.jitter →
 //     playoutOneFrame → mockDecoder → caller-supplied PCM buffer
 //
 // They cannot exercise the TX path end-to-end because the Opus encode lives
@@ -37,7 +37,7 @@ import (
 
 // buildRTPPacket marshals an RTP packet with the given SSRC, seq, and payload.
 // It uses the production pion/rtp library directly so the bytes are bit-for-bit
-// what production parsing code (parseIncomingRTP) expects.
+// what production parsing code (ParseIncomingRTP) expects.
 func buildRTPPacket(t *testing.T, ssrc uint32, seq uint16, payload []byte) []byte {
 	t.Helper()
 
@@ -46,7 +46,7 @@ func buildRTPPacket(t *testing.T, ssrc uint32, seq uint16, payload []byte) []byt
 			Version:        2,
 			PayloadType:    111,
 			SequenceNumber: seq,
-			Timestamp:      uint32(seq) * rtpFrameSamples,
+			Timestamp:      uint32(seq) * RTPFrameSamples,
 			SSRC:           ssrc,
 		},
 		Payload: payload,
@@ -70,15 +70,15 @@ func newIntegrationReceiver(t *testing.T) (*CommsConfig, *portChannel, *CommsRun
 
 	pc := &portChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: newSwappableReceiver(reader),
-		jitter:   newRTPJitterBuffer(jitterPrebufferPackets, jitterMaxDepth),
+		receiver: NewSwappableReceiver(reader),
+		jitter:   NewRTPJitterBuffer(JitterPrebufferPackets, JitterMaxDepth),
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
 
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{fillValue: 1234, returnN: int(rtpFrameSamples)},
+		decoder: &mockDecoder{fillValue: 1234, returnN: int(RTPFrameSamples)},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
@@ -152,7 +152,7 @@ func TestIntegration_RTPReceivePath_BasicFlow(t *testing.T) {
 
 	var raws [][]byte
 
-	for i := 0; i < jitterPrebufferPackets+3; i++ {
+	for i := 0; i < JitterPrebufferPackets+3; i++ {
 		raws = append(raws, buildRTPPacket(t, ssrc, uint16(i), []byte{0xAA, 0xBB, byte(i)}))
 	}
 
@@ -227,7 +227,7 @@ func TestIntegration_RTPReceivePath_SSRCChangeRecovery(t *testing.T) {
 	// stalls forever despite tcpdump showing packets.
 	var rawsB [][]byte
 
-	for i := uint16(0); i < jitterPrebufferPackets+3; i++ {
+	for i := uint16(0); i < JitterPrebufferPackets+3; i++ {
 		rawsB = append(rawsB, buildRTPPacket(t, ssrcB, 0x8005+i, []byte{0xB, byte(i)}))
 	}
 
@@ -253,7 +253,7 @@ func TestIntegration_RTPReceivePath_SameSSRCStaleStillDropped(t *testing.T) {
 	// Push a burst, drain.
 	var raws [][]byte
 
-	for i := 0; i < jitterPrebufferPackets+2; i++ {
+	for i := 0; i < JitterPrebufferPackets+2; i++ {
 		raws = append(raws, buildRTPPacket(t, ssrc, uint16(100+i), []byte{0xC, byte(i)}))
 	}
 

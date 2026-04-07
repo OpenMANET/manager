@@ -20,6 +20,6 @@ func FuzzParseIncomingRTP(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Must not panic regardless of input.
-		_, _ = parseIncomingRTP(data)
+		_, _ = ParseIncomingRTP(data)
 	})
 }

@@ -302,14 +302,14 @@ func (m *mockEventSource) Events(_ context.Context) <-chan PTTEvent {
 
 // ─── mockRTPSender ───────────────────────────────────────────────────────────
 
-// mockRTPSender satisfies rtpSender. Sent payloads accumulate in Payloads.
+// mockRTPSender satisfies RTPSender. Sent payloads accumulate in Payloads.
 type mockRTPSender struct {
 	sendErr  error
 	Payloads [][]byte
 	mu       sync.Mutex
 }
 
-func (m *mockRTPSender) send(payload []byte) error {
+func (m *mockRTPSender) Send(payload []byte) error {
 	if m.sendErr != nil {
 		return m.sendErr
 	}

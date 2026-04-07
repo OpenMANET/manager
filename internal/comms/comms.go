@@ -155,12 +155,12 @@ type McastPortState struct {
 // drains it before falling through to playoutOneFrame so beeps preempt one
 // frame of jitter-buffered audio.
 type portChannel struct {
-	rtpSess           rtpSender
+	rtpSess           RTPSender
 	playbackStream    AudioStream
-	sender            *swappableSender
-	rtcpSend          *swappableSender
-	receiver          *swappableReceiver
-	jitter            *rtpJitterBuffer
+	sender            *SwappableSender
+	rtcpSend          *SwappableSender
+	receiver          *SwappableReceiver
+	jitter            *RTPJitterBuffer
 	playbackBuffer    chan []int16
 	cfg               McastPortConfig
 	consecutivePLC    int
@@ -332,10 +332,10 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 			return nil, fmt.Errorf("set multicast TTL on RTCP sender %s:%d: %w", mpc.Address, mpc.Port+1, errTTL)
 		}
 
-		sender := newSwappableSender(sendConn)
-		rtcpSend := newSwappableSender(rtcpConn)
+		sender := NewSwappableSender(sendConn)
+		rtcpSend := NewSwappableSender(rtcpConn)
 
-		sess, err := newPionRTPSession(ssrc, sender, rtcpSend, cfg.Log)
+		sess, err := NewRTPSession(ssrc, sender, rtcpSend, cfg.Log)
 		if err != nil {
 			_ = sendConn.Close()
 			_ = rtcpConn.Close()
@@ -360,8 +360,8 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 				_ = pc.sender.Close()
 
 				_ = pc.rtcpSend.Close()
-				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
-					_ = s.close()
+				if s, ok := pc.rtpSess.(*RTPSession); ok {
+					_ = s.Close()
 				}
 			}
 
@@ -375,8 +375,8 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 				_ = pc.sender.Close()
 
 				_ = pc.rtcpSend.Close()
-				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
-					_ = s.close()
+				if s, ok := pc.rtpSess.(*RTPSession); ok {
+					_ = s.Close()
 				}
 			}
 
@@ -403,16 +403,16 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 				_ = pc.sender.Close()
 
 				_ = pc.rtcpSend.Close()
-				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
-					_ = s.close()
+				if s, ok := pc.rtpSess.(*RTPSession); ok {
+					_ = s.Close()
 				}
 			}
 
 			return nil, err
 		}
 
-		pc.receiver = newSwappableReceiver(recvConn)
-		pc.jitter = newRTPJitterBuffer(jitterPrebufferPackets, jitterMaxDepth)
+		pc.receiver = NewSwappableReceiver(recvConn)
+		pc.jitter = NewRTPJitterBuffer(JitterPrebufferPackets, JitterMaxDepth)
 
 		cfg.Log.Debug().Msgf("comms: RTP receiver port %d", mpc.Port)
 	}
@@ -439,7 +439,7 @@ func (cfg *CommsConfig) buildNetwork() ([]*portChannel, string, error) {
 		rtpID = localIP
 	}
 
-	ssrc := ssrcFromID(rtpID)
+	ssrc := SSRCFromID(rtpID)
 
 	ports := make([]*portChannel, 0, len(cfg.McastPorts))
 
@@ -457,8 +457,8 @@ func (cfg *CommsConfig) buildNetwork() ([]*portChannel, string, error) {
 					_ = built.rtcpSend.Close()
 				}
 
-				if s, ok := built.rtpSess.(*pionRTPSession); ok && built.rtpSess != nil {
-					_ = s.close()
+				if s, ok := built.rtpSess.(*RTPSession); ok && built.rtpSess != nil {
+					_ = s.Close()
 				}
 			}
 
@@ -617,7 +617,7 @@ func (cfg *CommsConfig) sendToAllPorts(rt *CommsRuntime, payload []byte) {
 			continue
 		}
 
-		if err := pc.rtpSess.send(payload); err != nil {
+		if err := pc.rtpSess.Send(payload); err != nil {
 			cfg.Log.Debug().Err(err).
 				Str("addr", pc.cfg.Address).
 				Int("port", pc.cfg.Port).
@@ -797,20 +797,20 @@ func (cfg *CommsConfig) replaceNetwork(
 	pc := rt.ports[0]
 
 	if pc.receiver != nil && newReceiver != nil {
-		old := pc.receiver.swap(newReceiver)
+		old := pc.receiver.Swap(newReceiver)
 		_ = old.Close()
 	}
 
 	if pc.sender != nil && newSender != nil {
-		// Deferred close: the lock-free Write path on swappableSender
+		// Deferred close: the lock-free Write path on SwappableSender
 		// cannot be drained synchronously, so the previous underlying
-		// connection is closed after swapCloseGrace to let any in-flight
+		// connection is closed after SwapCloseGrace to let any in-flight
 		// sendto(2) on the old fd finish first.
-		pc.sender.swapAndDeferClose(newSender)
+		pc.sender.SwapAndDeferClose(newSender)
 	}
 
 	if pc.rtcpSend != nil && newRTCPSender != nil {
-		pc.rtcpSend.swapAndDeferClose(newRTCPSender)
+		pc.rtcpSend.SwapAndDeferClose(newRTCPSender)
 	}
 
 	rt.localIP.Store(&newLocalIP)
@@ -946,8 +946,8 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 			}
 
 			if pc.rtpSess != nil {
-				if s, ok := pc.rtpSess.(*pionRTPSession); ok {
-					_ = s.close()
+				if s, ok := pc.rtpSess.(*RTPSession); ok {
+					_ = s.Close()
 				}
 			}
 		}

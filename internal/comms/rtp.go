@@ -15,13 +15,13 @@ import (
 )
 
 const (
-	rtpPayloadTypeOpus = uint8(111)
+	RTPPayloadTypeOpus = uint8(111)
 	rtpClockRate       = uint32(48000)
-	rtpFrameSamples    = uint32(960) // 20 ms at 48 kHz
-	rtpMTU             = uint16(1400)
+	RTPFrameSamples    = uint32(960) // 20 ms at 48 kHz
+	RTPMTU             = uint16(1400)
 
 	// rtpBufSize is the pool buffer capacity for RTP packet serialization.
-	// Must be >= rtpMTU + maximum RTP header size (~60 bytes for 15 CSRCs).
+	// Must be >= RTPMTU + maximum RTP header size (~60 bytes for 15 CSRCs).
 	rtpBufSize = 1500
 
 	// streamMIMETypeOpus is the MIME type for Opus audio streams, used in StreamInfo.
@@ -39,22 +39,22 @@ var rtpMarshalPool = sync.Pool{ //nolint:gochecknoglobals
 	},
 }
 
-// rtpSender is the interface the broadcast PortAudio callback uses to ship an
-// encoded Opus frame over the network. Backed by pionRTPSession in production;
+// RTPSender is the interface the broadcast PortAudio callback uses to ship an
+// encoded Opus frame over the network. Backed by RTPSession in production;
 // tests inject mockRTPSender.
-type rtpSender interface {
-	send(payload []byte) error
+type RTPSender interface {
+	Send(payload []byte) error
 }
 
-// pionRTPSession wraps a pion Packetizer and an interceptor chain that
+// RTPSession wraps a pion Packetizer and an interceptor chain that
 // generates periodic RTCP Sender Reports. One session represents one local
 // SSRC (the node running this software).
 //
 // The RTCP path is one-way outbound: the SR generator fires every 5 seconds
 // and writes to the provided rtcpTransport. Inbound RTP is parsed externally
-// with parseIncomingRTP; the session does not handle receive stats (each
+// with ParseIncomingRTP; the session does not handle receive stats (each
 // remote SSRC in a multicast group would require a separate receiver).
-type pionRTPSession struct {
+type RTPSession struct {
 	log        zerolog.Logger
 	packetizer pionrtp.Packetizer
 	rtpWriter  interceptor.RTPWriter
@@ -63,28 +63,28 @@ type pionRTPSession struct {
 	mu         sync.Mutex
 }
 
-// ssrcFromID returns a deterministic uint32 SSRC derived from an ID string
+// SSRCFromID returns a deterministic uint32 SSRC derived from an ID string
 // using the FNV-1a 32-bit hash.
-func ssrcFromID(id string) uint32 {
+func SSRCFromID(id string) uint32 {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(id))
 
 	return h.Sum32()
 }
 
-// newPionRTPSession creates a pionRTPSession that sends RTP via rtpTransport
+// NewRTPSession creates a RTPSession that sends RTP via rtpTransport
 // and RTCP Sender Reports via rtcpTransport.
 //
 // The interceptor chain contains a single report.SenderInterceptor that
 // generates an outbound RTCP SR every 5 seconds. Inbound RTCP (e.g. Receiver
 // Reports from peers) is not processed — in a multicast PTT topology each
 // transmission has multiple receivers and no single feedback path is meaningful.
-func newPionRTPSession(
+func NewRTPSession(
 	ssrc uint32,
 	rtpTransport PacketWriter,
 	rtcpTransport PacketWriter,
 	log zerolog.Logger,
-) (*pionRTPSession, error) {
+) (*RTPSession, error) {
 	registry := &interceptor.Registry{}
 
 	// Sender report: generates RTCP SR packets on a 5-second timer.
@@ -131,7 +131,7 @@ func newPionRTPSession(
 	// StreamInfo describes our outbound Opus stream to the interceptors.
 	streamInfo := &interceptor.StreamInfo{
 		SSRC:        ssrc,
-		PayloadType: rtpPayloadTypeOpus,
+		PayloadType: RTPPayloadTypeOpus,
 		ClockRate:   rtpClockRate,
 		MimeType:    streamMIMETypeOpus,
 	}
@@ -170,15 +170,15 @@ func newPionRTPSession(
 	rtpWriter := i.BindLocalStream(streamInfo, baseRTPWriter)
 
 	packetizer := pionrtp.NewPacketizer(
-		rtpMTU,
-		rtpPayloadTypeOpus,
+		RTPMTU,
+		RTPPayloadTypeOpus,
 		ssrc,
 		&codecs.OpusPayloader{},
 		pionrtp.NewRandomSequencer(),
 		rtpClockRate,
 	)
 
-	return &pionRTPSession{
+	return &RTPSession{
 		log:        log,
 		packetizer: packetizer,
 		rtpWriter:  rtpWriter,
@@ -187,12 +187,12 @@ func newPionRTPSession(
 	}, nil
 }
 
-// send encodes payload into one or more RTP packets using the Packetizer and
+// Send encodes payload into one or more RTP packets using the Packetizer and
 // writes them through the interceptor chain (and ultimately the UDP socket).
 // For Opus, Packetize always returns exactly one packet.
-func (s *pionRTPSession) send(payload []byte) error {
+func (s *RTPSession) Send(payload []byte) error {
 	s.mu.Lock()
-	packets := s.packetizer.Packetize(payload, rtpFrameSamples)
+	packets := s.packetizer.Packetize(payload, RTPFrameSamples)
 	s.mu.Unlock()
 
 	for _, pkt := range packets {
@@ -206,14 +206,14 @@ func (s *pionRTPSession) send(payload []byte) error {
 	return nil
 }
 
-// close shuts down the interceptor chain, stopping internal timer goroutines.
-func (s *pionRTPSession) close() error {
+// Close shuts down the interceptor chain, stopping internal timer goroutines.
+func (s *RTPSession) Close() error {
 	return s.intercept.Close()
 }
 
-// parseIncomingRTP parses a raw UDP datagram into a pion RTP Packet.
+// ParseIncomingRTP parses a raw UDP datagram into a pion RTP Packet.
 // Returns an error if the bytes are not a valid RTP packet.
-func parseIncomingRTP(raw []byte) (*pionrtp.Packet, error) {
+func ParseIncomingRTP(raw []byte) (*pionrtp.Packet, error) {
 	var pkt pionrtp.Packet
 	if err := pkt.Unmarshal(raw); err != nil {
 		return nil, fmt.Errorf("rtp.Packet.Unmarshal: %w", err)

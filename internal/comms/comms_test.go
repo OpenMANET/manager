@@ -17,13 +17,13 @@ func makeRTPBytes(t *testing.T, _ uint16) []byte {
 
 	w := &mockWriter{}
 
-	sess, err := newPionRTPSession(0x1234, w, &mockWriter{}, zerolog.Nop())
+	sess, err := NewRTPSession(0x1234, w, &mockWriter{}, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sess.close() //nolint:errcheck
+	defer sess.Close() //nolint:errcheck
 
-	if err := sess.send([]byte{0xAA, 0xBB}); err != nil {
+	if err := sess.Send([]byte{0xAA, 0xBB}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -38,7 +38,7 @@ func TestReceiveLoop_ExitsOnContextCancel(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	pc := &portChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: newSwappableReceiver(newMockReader()),
+		receiver: NewSwappableReceiver(newMockReader()),
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
@@ -70,7 +70,7 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 
 	var pkts []mockPacket
 
-	for i := 0; i < jitterPrebufferPackets+2; i++ {
+	for i := 0; i < JitterPrebufferPackets+2; i++ {
 		raw := makeRTPBytes(t, uint16(i))
 		pkts = append(pkts, mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
 	}
@@ -78,14 +78,14 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 	reader := newMockReader(pkts...)
 	pc := &portChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: newSwappableReceiver(reader),
+		receiver: NewSwappableReceiver(reader),
 	}
 	pc.sendEnabled.Store(true)
 	pc.receiveEnabled.Store(true)
 	pc.playbackBuffer = make(chan []int16, 32)
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(rtpFrameSamples)},
+		decoder: &mockDecoder{returnN: int(RTPFrameSamples)},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -135,8 +135,8 @@ func TestPlayoutOneFrame_SuppressedDuringBroadcastOnSendPort(t *testing.T) {
 	}
 	rt.broadcasting.Store(true)
 
-	jb := newRTPJitterBuffer(1, 10)
-	jb.push(0, []byte{0xAA, 0xBB})
+	jb := NewRTPJitterBuffer(1, 10)
+	jb.Push(0, []byte{0xAA, 0xBB})
 
 	out := make([]int16, frameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
@@ -162,8 +162,8 @@ func TestPlayoutOneFrame_DecodesPayloadIntoOut(t *testing.T) {
 	dec := &mockDecoder{fillValue: 42, returnN: frameSize}
 	rt := &CommsRuntime{decoder: dec}
 
-	jb := newRTPJitterBuffer(1, 10)
-	jb.push(0, []byte{1, 2, 3})
+	jb := NewRTPJitterBuffer(1, 10)
+	jb.Push(0, []byte{1, 2, 3})
 
 	out := make([]int16, frameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
@@ -195,9 +195,9 @@ func TestPlayoutOneFrame_PLCFillsOut(t *testing.T) {
 	// Push and pop to set started=true and a recent lastPush; the next
 	// playoutOneFrame call will hit the conceal branch and call the decoder
 	// with a nil payload (PLC).
-	jb := newRTPJitterBuffer(1, 10)
-	jb.push(0, []byte{0})
-	jb.popReady()
+	jb := NewRTPJitterBuffer(1, 10)
+	jb.Push(0, []byte{0})
+	jb.PopReady()
 
 	out := make([]int16, frameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
@@ -356,9 +356,9 @@ func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {
 	oldRTCP := &mockClosingWriter{}
 
 	pc := &portChannel{
-		sender:   newSwappableSender(oldSender),
-		rtcpSend: newSwappableSender(oldRTCP),
-		receiver: newSwappableReceiver(oldReceiver),
+		sender:   NewSwappableSender(oldSender),
+		rtcpSend: NewSwappableSender(oldRTCP),
+		receiver: NewSwappableReceiver(oldReceiver),
 	}
 	rt := &CommsRuntime{
 		ports: []*portChannel{pc},
@@ -373,7 +373,7 @@ func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {
 		t.Error("old receiver Close() should have been called")
 	}
 
-	deadline := time.Now().Add(swapCloseGrace + 500*time.Millisecond)
+	deadline := time.Now().Add(SwapCloseGrace + 500*time.Millisecond)
 	for time.Now().Before(deadline) {
 		if oldSender.closeCalled.Load() && oldRTCP.closeCalled.Load() {
 			break
@@ -393,9 +393,9 @@ func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {
 
 func TestReplaceNetwork_StoresNewLocalIP(t *testing.T) {
 	pc := &portChannel{
-		sender:   newSwappableSender(&mockWriter{}),
-		rtcpSend: newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
+		sender:   NewSwappableSender(&mockWriter{}),
+		rtcpSend: NewSwappableSender(&mockWriter{}),
+		receiver: NewSwappableReceiver(newMockReader()),
 	}
 	rt := &CommsRuntime{
 		ports: []*portChannel{pc},
@@ -414,9 +414,9 @@ func TestReplaceNetwork_NewWriterReceivesSubsequentWrites(t *testing.T) {
 	newSender := &mockWriter{}
 
 	pc := &portChannel{
-		sender:   newSwappableSender(&mockWriter{}),
-		rtcpSend: newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
+		sender:   NewSwappableSender(&mockWriter{}),
+		rtcpSend: NewSwappableSender(&mockWriter{}),
+		receiver: NewSwappableReceiver(newMockReader()),
 	}
 	rt := &CommsRuntime{
 		ports: []*portChannel{pc},
@@ -456,8 +456,8 @@ func TestGetActiveMulticastAddr_ReturnsConfiguredAddr(t *testing.T) {
 	}
 	pc := &portChannel{
 		cfg:      cfg.McastPorts[0],
-		sender:   newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
+		sender:   NewSwappableSender(&mockWriter{}),
+		receiver: NewSwappableReceiver(newMockReader()),
 	}
 	cfg.runtime = &CommsRuntime{
 		ports: []*portChannel{pc},
@@ -483,8 +483,8 @@ func TestGetActiveMulticastAddr_ReflectsUpdate(t *testing.T) {
 	}
 	pc := &portChannel{
 		cfg:      cfg.McastPorts[0],
-		sender:   newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
+		sender:   NewSwappableSender(&mockWriter{}),
+		receiver: NewSwappableReceiver(newMockReader()),
 	}
 	cfg.runtime = &CommsRuntime{
 		ports: []*portChannel{pc},
@@ -551,8 +551,8 @@ func TestGetActiveMulticastPort_ReturnsConfiguredPort(t *testing.T) {
 	}
 	pc := &portChannel{
 		cfg:      cfg.McastPorts[0],
-		sender:   newSwappableSender(&mockWriter{}),
-		receiver: newSwappableReceiver(newMockReader()),
+		sender:   NewSwappableSender(&mockWriter{}),
+		receiver: NewSwappableReceiver(newMockReader()),
 	}
 	cfg.runtime = &CommsRuntime{
 		ports: []*portChannel{pc},
