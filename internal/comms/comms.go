@@ -863,6 +863,24 @@ func (cfg *CommsConfig) reopenBroadcastStream(rt *CommsRuntime, inDev *portaudio
 //
 // Returns an error only in the default branch when no matching evdev device is found.
 func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) {
+	// Phase 2 of the comms refactor: prefer the control source registry. The
+	// switch below remains as a safety net while the backends still live in
+	// this package; it should be unreachable for any name the registry knows
+	// about. See .claude/plans/comms-refactor.md.
+	if factory, ok := controlLookup(cfg.ControlSource); ok {
+		deps, src, handled := cfg.buildControlDeps(rt)
+		if handled {
+			es, err := factory(deps)
+			if err != nil {
+				return nil, err
+			}
+
+			cfg.logControlSource(src)
+
+			return es, nil
+		}
+	}
+
 	switch cfg.ControlSource {
 	case defaultCtrlSrc:
 		cfg.Log.Info().Msgf("comms: PTT on OpenVLM HID dongle (VID=0x%04X PID=0x%04X)",
