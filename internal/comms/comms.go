@@ -17,6 +17,7 @@ import (
 	"golang.org/x/net/ipv4"
 	"golang.org/x/sys/unix"
 
+	"github.com/openmanet/openmanetd/internal/comms/device"
 	"github.com/openmanet/openmanetd/internal/config"
 )
 
@@ -785,6 +786,18 @@ func (cfg *CommsConfig) sendToAllPorts(rt *CommsRuntime, payload []byte) {
 // encoder spikes / GC pauses / UDP backpressure cannot starve the audio thread
 // and cause ADC overruns at the device.
 func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *CommsRuntime) (AudioStream, error) {
+	// Phase 3 unified discovery: report the current CM108 descriptor count
+	// so the broadcast stream open has the same observable device state as
+	// the HID (PTT) side. PortAudio is not enumerable from /sys, so the
+	// chosen PortAudio device is still supplied by inDev — the walk here is
+	// informational and shares the same code path as openvlmSource.
+	if descs, dErr := device.DiscoverCM108(os.DirFS("/sys"), nil); dErr == nil {
+		cfg.Log.Debug().
+			Int("cm108_count", len(descs)).
+			Str("pa_device", inDev.Name).
+			Msg("comms: unified CM108 descriptor scan at broadcast open")
+	}
+
 	// Suggest a capture device buffer depth to PortAudio. Symmetric to the
 	// playback stream in buildAudio. Floor at inDev.DefaultHighInputLatency
 	// so we never undercut the host API's recommendation. The host API may

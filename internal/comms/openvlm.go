@@ -3,14 +3,18 @@ package comms
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 	hid "github.com/sstallion/go-hid"
+
+	"github.com/openmanet/openmanetd/internal/comms/device"
 )
 
 // ─── OpenVLM constants ────────────────────────────────────────────────────────
@@ -131,6 +135,18 @@ func (s *openvlmSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:g
 	go func() {
 		defer close(ch)
 
+		// Phase 3 unified discovery: run the sysfs walk once so the log
+		// reports how many CM108 devices were seen alongside the HID open
+		// result. The HID open itself still goes through libhidapi which
+		// performs its own enumeration — the walk here exists purely to
+		// make discovery observable and to share results with ALSA card
+		// selection via the shared device package.
+		if descs, dErr := device.DiscoverCM108(os.DirFS("/sys"), nil); dErr == nil {
+			s.log.Debug().
+				Int("cm108_count", len(descs)).
+				Msg("OpenVLM: unified CM108 descriptor scan")
+		}
+
 		dev, err := s.opener(openvlmVendorID, openvlmProductID)
 		if err != nil {
 			s.log.Error().Err(err).
@@ -242,7 +258,61 @@ func (s *openvlmSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:g
 //
 // If ALSA_CARD is already present in the environment it is left unchanged.
 func detectAndSetALSACard(log zerolog.Logger) {
+	// Phase 3 of the comms refactor: prefer the unified device.DiscoverCM108
+	// walk over /sys/bus/usb/devices so HID discovery (openvlmSource) and
+	// ALSA card selection (this function) share a single source of truth.
+	// On failure or when no descriptors are returned, fall back to the
+	// legacy /proc/asound/card*/usbid walk so behavior on the happy path
+	// is preserved on systems where the sysfs walk yields no match.
+	if detectAndSetALSACardFromSys(os.DirFS("/sys"), log) {
+		return
+	}
+
 	detectAndSetALSACardFromRoot("/proc/asound", log)
+}
+
+// detectAndSetALSACardFromSys attempts to set ALSA_CARD from the unified
+// device.DiscoverCM108 walk. Returns true if ALSA_CARD was set (or was
+// already set), false if the caller should fall back to the legacy walk.
+func detectAndSetALSACardFromSys(fsys fs.FS, log zerolog.Logger) bool {
+	if v := os.Getenv("ALSA_CARD"); v != "" {
+		log.Debug().Str("ALSA_CARD", v).Msg("OpenVLM: ALSA_CARD already set, skipping auto-detection")
+
+		return true
+	}
+
+	descs, err := device.DiscoverCM108(fsys, nil)
+	if err != nil {
+		log.Debug().Err(err).Msg("OpenVLM: sysfs CM108 discovery failed; falling back")
+
+		return false
+	}
+
+	log.Debug().Int("cm108_count", len(descs)).Msg("OpenVLM: sysfs CM108 discovery")
+
+	for _, d := range descs {
+		if d.ALSACardIdx < 0 {
+			continue
+		}
+
+		cardNum := strconv.Itoa(d.ALSACardIdx)
+		if setErr := os.Setenv("ALSA_CARD", cardNum); setErr != nil {
+			log.Error().Err(setErr).Msg("OpenVLM: failed to set ALSA_CARD")
+
+			return false
+		}
+
+		log.Info().
+			Str("ALSA_CARD", cardNum).
+			Str("hid_path", d.HIDPath).
+			Str("sys_path", d.SysPath).
+			Msgf("OpenVLM: auto-detected card %s via sysfs (VID=0x%04X PID=0x%04X)",
+				cardNum, d.VID, d.PID)
+
+		return true
+	}
+
+	return false
 }
 
 // detectAndSetALSACardFromRoot is the testable core of detectAndSetALSACard.
