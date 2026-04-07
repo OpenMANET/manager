@@ -390,7 +390,7 @@ func TestIsReceivingRemote_TrueWhenRecent(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
 	pc.sendEnabled.Store(true)
-	pc.lastRemoteRx.Store(time.Now().UnixNano())
+	pc.rxGate.mark()
 	rt := &CommsRuntime{ports: []*portChannel{pc}}
 
 	if !cfg.isReceivingRemote(rt) {
@@ -403,7 +403,7 @@ func TestIsReceivingRemote_FalseWhenStale(t *testing.T) {
 	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
 	pc.sendEnabled.Store(true)
 	// Store a timestamp older than rxActiveThreshold.
-	pc.lastRemoteRx.Store(time.Now().Add(-(rxActiveThreshold + time.Second)).UnixNano())
+	pc.rxGate.markAt(time.Now().Add(-(rxActiveThreshold + time.Second)))
 	rt := &CommsRuntime{ports: []*portChannel{pc}}
 
 	if cfg.isReceivingRemote(rt) {
@@ -451,8 +451,8 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 
 	<-done
 
-	if pc.lastRemoteRx.Load() == 0 {
-		t.Error("expected lastRemoteRx to be set after receiving a remote packet")
+	if pc.rxGate.lastUnixNano() == 0 {
+		t.Error("expected rxGate to be marked after receiving a remote packet")
 	}
 }
 

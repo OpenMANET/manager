@@ -51,6 +51,7 @@ type CommsConfig struct {
 	McastPorts               []McastPortConfig
 	ROIPVOXHoldTime          time.Duration
 	ROIPMaxTXDuration        time.Duration
+	HalfDuplexThreshold      time.Duration
 	MicGain                  float32
 	ROIPVOXThreshold         float32
 	ROIPCOSGPIOMask          byte
@@ -94,6 +95,7 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		ROIPVOXThreshold:         cfg.ROIPVOXThreshold,
 		ROIPVOXHoldTime:          cfg.ROIPVOXHoldTime,
 		ROIPMaxTXDuration:        cfg.ROIPMaxTXDuration,
+		HalfDuplexThreshold:      cfg.HalfDuplexThreshold,
 		ROIPInputDevice:          cfg.ROIPInputDevice,
 		EncoderComplexity:        cfg.EncoderComplexity,
 		PlaybackLatencyMs:        cfg.PlaybackLatencyMs,

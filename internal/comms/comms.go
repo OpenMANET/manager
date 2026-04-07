@@ -163,7 +163,7 @@ type portChannel struct {
 	playbackBuffer    chan []int16
 	cfg               McastPortConfig
 	consecutivePLC    int
-	lastRemoteRx      atomic.Int64
+	rxGate            halfDuplexGate
 	playbackUnderruns atomic.Int64
 	sendEnabled       atomic.Bool
 	receiveEnabled    atomic.Bool
@@ -293,6 +293,7 @@ func (cfg *CommsConfig) buildSinglePortChannel( //nolint:gocognit
 	ssrc uint32,
 ) (*portChannel, error) {
 	pc := &portChannel{cfg: mpc}
+	pc.rxGate.threshold = cfg.HalfDuplexThreshold
 	pc.sendEnabled.Store(boolPtrVal(mpc.InitSendEnabled, mpc.Send))
 	pc.receiveEnabled.Store(boolPtrVal(mpc.InitReceiveEnabled, mpc.Receive))
 

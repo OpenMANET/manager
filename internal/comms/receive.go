@@ -40,23 +40,22 @@ func zeroInt16(out []int16) {
 	}
 }
 
-// rxActiveThreshold is the window after the last received remote RTP packet
-// during which the channel is considered "actively receiving". Transmission
-// is blocked while receiving is active (half-duplex enforcement).
-const rxActiveThreshold time.Duration = 400 * time.Millisecond
+// rxActiveThreshold is retained as the historical alias for the default
+// half-duplex threshold. New code should use defaultHalfDuplexThreshold or
+// the per-port halfDuplexGate threshold.
+const rxActiveThreshold = defaultHalfDuplexThreshold
 
 // isReceivingRemote returns true when a valid RTP packet was received from a
-// remote peer within the last rxActiveThreshold on any send-enabled port.
-// This is the receive-side component of half-duplex: transmission must not
-// begin while a shared send+receive channel is actively carrying incoming audio.
+// remote peer within the half-duplex window on any send-enabled port. This is
+// the receive-side component of half-duplex: transmission must not begin
+// while a shared send+receive channel is actively carrying incoming audio.
 func (cfg *CommsConfig) isReceivingRemote(rt *CommsRuntime) bool {
 	for _, pc := range rt.ports {
 		if !pc.sendEnabled.Load() {
 			continue
 		}
 
-		last := pc.lastRemoteRx.Load()
-		if last != 0 && time.Since(time.Unix(0, last)) < rxActiveThreshold {
+		if pc.rxGate.active() {
 			return true
 		}
 	}
@@ -170,7 +169,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 		}
 
 		// Record the arrival time for half-duplex enforcement.
-		pc.lastRemoteRx.Store(time.Now().UnixNano())
+		pc.rxGate.mark()
 
 		// Pass the pion payload directly to the jitter buffer; push()
 		// performs its own defensive copy so a separate copy here is

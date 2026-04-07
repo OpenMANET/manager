@@ -255,7 +255,7 @@ func TestBeginTransmission_BlockedWhenReceivingRemote(t *testing.T) {
 	stream := &mockStream{}
 	rt := newTestRuntime(stream)
 	// Simulate a packet that arrived just now from a remote peer.
-	rt.ports[0].lastRemoteRx.Store(time.Now().UnixNano())
+	rt.ports[0].rxGate.mark()
 
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
@@ -273,7 +273,7 @@ func TestBeginTransmission_AllowedWhenRxStale(t *testing.T) {
 	stream := &mockStream{}
 	rt := newTestRuntime(stream)
 	// Store a timestamp well beyond rxActiveThreshold.
-	rt.ports[0].lastRemoteRx.Store(time.Now().Add(-(rxActiveThreshold + time.Second)).UnixNano())
+	rt.ports[0].rxGate.markAt(time.Now().Add(-(rxActiveThreshold + time.Second)))
 
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
@@ -290,7 +290,7 @@ func TestBeginTransmission_AllowedWhenRxStale(t *testing.T) {
 func TestBeginTransmission_AllowedWhenNeverReceived(t *testing.T) {
 	stream := &mockStream{}
 	rt := newTestRuntime(stream)
-	// lastRemoteRx is zero — never received a packet.
+	// rxGate is zero — never received a packet.
 
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
@@ -539,7 +539,7 @@ func TestBeginTransmission_WebMode_HalfDuplexStillWorks(t *testing.T) {
 	rt := newTestRuntime(&mockStream{})
 	rt.webBridge = &WebAudioBridge{}
 	// Simulate active remote reception.
-	rt.ports[0].lastRemoteRx.Store(time.Now().UnixNano())
+	rt.ports[0].rxGate.mark()
 
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)

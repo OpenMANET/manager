@@ -244,7 +244,7 @@ func TestIsReceivingRemote_SendDisabledPortNotChecked(t *testing.T) {
 	// Port with sendEnabled=false has recent rx – should NOT block transmission.
 	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
 	pc.sendEnabled.Store(false)
-	pc.lastRemoteRx.Store(time.Now().UnixNano())
+	pc.rxGate.mark()
 
 	rt := &CommsRuntime{ports: []*portChannel{pc}}
 
@@ -260,7 +260,7 @@ func TestIsReceivingRemote_MultiPortFirstEnabled(t *testing.T) {
 
 	pc0 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
 	pc0.sendEnabled.Store(true)
-	pc0.lastRemoteRx.Store(time.Now().UnixNano())
+	pc0.rxGate.mark()
 
 	pc1 := &portChannel{cfg: McastPortConfig{Send: true, Receive: false}}
 	pc1.sendEnabled.Store(true)
