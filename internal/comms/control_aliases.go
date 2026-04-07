@@ -33,3 +33,13 @@ var defaultHIDOpener HIDOpener = control.DefaultHIDOpener
 
 // webEventSource is a parent-package alias for control.WebEventSource.
 type webEventSource = control.WebEventSource
+
+// ─── ROIP aliases (mirrored from control package for tests) ─────────────────
+
+const (
+	roipDefaultCOSMask   = control.ROIPDefaultCOSMask
+	roipDefaultVOXThresh = control.ROIPDefaultVOXThresh
+	roipDefaultVOXHold   = control.ROIPDefaultVOXHold
+	roipVOXOnsetFrames   = control.ROIPVOXOnsetFrames
+	roipDefaultMaxTX     = control.ROIPDefaultMaxTX
+)

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/openmanet/openmanetd/internal/comms/control"
 )
 
 // errOpenDevice is a sentinel error for tests that need an opener that fails.
@@ -62,7 +64,7 @@ func staticMonitorOpener(frameCh chan []float32) func() (<-chan []float32, func(
 // ─── COS path tests ───────────────────────────────────────────────────────────
 
 func TestROIPSource_COS_OpenerError_ClosesChannelImmediately(t *testing.T) {
-	src := newROIPSourceWithOpener(
+	src := control.NewROIPSourceWithOpener(
 		openerFailing(errOpenDevice),
 		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
@@ -86,7 +88,7 @@ func TestROIPSource_COS_COSLow_NoInitialEvent(t *testing.T) {
 	mock := newMockHIDDevice()
 	mock.queueReport(makeROIPReport(roipDefaultCOSMask, false)) // COS low
 
-	src := newROIPSourceWithOpener(
+	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
 		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
@@ -106,7 +108,7 @@ func TestROIPSource_COS_COSHigh_EmitsPTTDown(t *testing.T) {
 	mock := newMockHIDDevice()
 	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true))
 
-	src := newROIPSourceWithOpener(
+	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
 		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
@@ -131,7 +133,7 @@ func TestROIPSource_COS_HighThenLow_EmitsPTTDownThenPTTUp(t *testing.T) {
 	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true))
 	mock.queueReport(makeROIPReport(roipDefaultCOSMask, false))
 
-	src := newROIPSourceWithOpener(
+	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
 		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
@@ -161,7 +163,7 @@ func TestROIPSource_COS_DuplicateHigh_NoExtraEvent(t *testing.T) {
 	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true))  // HIGH again → no event
 	mock.queueReport(makeROIPReport(roipDefaultCOSMask, false)) // LOW → PTTUp
 
-	src := newROIPSourceWithOpener(
+	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
 		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
@@ -182,7 +184,7 @@ func TestROIPSource_COS_HalfDuplex_SuppressesPTTDownWhileReceiving(t *testing.T)
 	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true))  // COS HIGH while receiving
 	mock.queueReport(makeROIPReport(roipDefaultCOSMask, false)) // COS LOW
 
-	src := newROIPSourceWithOpener(
+	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
 		roipDefaultCOSMask,
 		func() bool { return true }, // network always receiving
@@ -210,7 +212,7 @@ func TestROIPSource_COS_HalfDuplex_EmitsAfterReceivingClears(t *testing.T) {
 	var receivingFlag atomic.Bool
 	receivingFlag.Store(true)
 
-	src := newROIPSourceWithOpener(
+	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
 		roipDefaultCOSMask, receivingFlag.Load, neverBroadcasting, zerolog.Nop(),
 	)
@@ -241,7 +243,7 @@ func TestROIPSource_COS_HalfDuplex_EmitsAfterReceivingClears(t *testing.T) {
 func TestROIPSource_COS_ContextCancel_ClosesChannel(t *testing.T) {
 	mock := newMockHIDDevice() // empty queue — will block on Read
 
-	src := newROIPSourceWithOpener(
+	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
 		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
@@ -264,7 +266,7 @@ func TestROIPSource_COS_ContextCancel_ClosesChannel(t *testing.T) {
 func TestROIPSource_COS_ReadError_ClosesChannel(t *testing.T) {
 	errDev := &errHIDDevice{}
 
-	src := newROIPSourceWithOpener(
+	src := control.NewROIPSourceWithOpener(
 		openerReturning(errDev),
 		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
@@ -293,7 +295,7 @@ func TestROIPSource_COS_CustomGPIOMask(t *testing.T) {
 	// GPIO4 bit set (0x08) — SHOULD trigger PTTDown.
 	mock.queueReport([]byte{0x00, 0x00, 0x08, 0x00, 0x00})
 
-	src := newROIPSourceWithOpener(
+	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
 		gpio4Mask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
@@ -331,7 +333,7 @@ func TestROIPSource_VOX_BelowThreshold_NoEvent(t *testing.T) {
 		frameCh <- frame
 	}
 
-	src := newROIPSourceWithMonitor(
+	src := control.NewROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
 		roipDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
@@ -352,7 +354,7 @@ func TestROIPSource_VOX_OnsetThreshold_PTTDown(t *testing.T) {
 	frameCh := make(chan []float32, 32)
 	pushLoudFrames(frameCh, roipVOXOnsetFrames+1, loudAmplitude)
 
-	src := newROIPSourceWithMonitor(
+	src := control.NewROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
 		roipDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
@@ -382,7 +384,7 @@ func TestROIPSource_VOX_NonConsecutiveFrames_ResetsOnsetCounter(t *testing.T) {
 		pushSilentFrames(frameCh, 1)
 	}
 
-	src := newROIPSourceWithMonitor(
+	src := control.NewROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
 		roipDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
@@ -403,7 +405,7 @@ func TestROIPSource_VOX_HalfDuplex_SuppressesWhileReceiving(t *testing.T) {
 	frameCh := make(chan []float32, 32)
 	pushLoudFrames(frameCh, roipVOXOnsetFrames+2, loudAmplitude)
 
-	src := newROIPSourceWithMonitor(
+	src := control.NewROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
 		roipDefaultVOXHold,
 		func() bool { return true }, // network always receiving
@@ -428,7 +430,7 @@ func TestROIPSource_VOX_TailHold_NoEarlyPTTUp(t *testing.T) {
 
 	holdTime := 300 * time.Millisecond
 
-	src := newROIPSourceWithMonitor(
+	src := control.NewROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
 		holdTime,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
@@ -465,7 +467,7 @@ func TestROIPSource_VOX_PTTUpAfterHoldTime(t *testing.T) {
 
 	holdTime := 80 * time.Millisecond
 
-	src := newROIPSourceWithMonitor(
+	src := control.NewROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
 		holdTime,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
@@ -498,7 +500,7 @@ func TestROIPSource_VOX_PTTUpWhenReceivingWhileActive(t *testing.T) {
 
 	holdTime := 10 * time.Second // long enough that only isReceiving() triggers PTTUp
 
-	src := newROIPSourceWithMonitor(
+	src := control.NewROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
 		holdTime,
 		receivingFlag.Load, neverBroadcasting, zerolog.Nop(),
@@ -536,7 +538,7 @@ func TestROIPSource_VOX_ContextCancel_ClosesChannel(t *testing.T) {
 	frameCh := make(chan []float32, 32)
 	pushLoudFrames(frameCh, roipVOXOnsetFrames+1, loudAmplitude)
 
-	src := newROIPSourceWithMonitor(
+	src := control.NewROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
 		roipDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),

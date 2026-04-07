@@ -748,7 +748,19 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 		setTap := func(ch chan []float32) { rt.broadcastTap.Store(&ch) }
 		clearTap := func() { rt.broadcastTap.Store(nil) }
 
-		return NewROIPSource(cfg, isReceiving, isBroadcasting, setTap, clearTap, cfg.Log), nil
+		return control.NewROIPSource(
+			cfg.Log,
+			cfg.ROIPCOSGPIOMask,
+			cfg.ROIPVOXThreshold,
+			cfg.ROIPVOXHoldTime,
+			cfg.ROIPMaxTXDuration,
+			cfg.ROIPInputDevice,
+			isReceiving,
+			isBroadcasting,
+			setTap,
+			clearTap,
+			nil,
+		), nil
 
 	case controlSourceWeb:
 		cfg.Log.Info().Msg("comms: PTT via web RPC")

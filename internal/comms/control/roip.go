@@ -1,4 +1,4 @@
-package comms
+package control
 
 import (
 	"context"
@@ -16,35 +16,35 @@ import (
 // ─── ROIP constants ───────────────────────────────────────────────────────────
 
 const (
-	// roipDefaultCOSMask selects GPIO1 within IR1 as the default COS input.
-	roipDefaultCOSMask byte = 0x01
+	// ROIPDefaultCOSMask selects GPIO1 within IR1 as the default COS input.
+	ROIPDefaultCOSMask byte = 0x01
 
-	// roipDefaultVOXThresh is the RMS energy level at which the VOX path
+	// ROIPDefaultVOXThresh is the RMS energy level at which the VOX path
 	// considers the radio active. Tuned for a typical USB audio dongle with
 	// line-level input from an analog handheld radio.
-	roipDefaultVOXThresh float32 = 0.02
+	ROIPDefaultVOXThresh float32 = 0.02
 
-	// roipDefaultVOXHold is the silence window after which the VOX emits PTTUp.
-	roipDefaultVOXHold time.Duration = 500 * time.Millisecond
+	// ROIPDefaultVOXHold is the silence window after which the VOX emits PTTUp.
+	ROIPDefaultVOXHold time.Duration = 500 * time.Millisecond
 
-	// roipDefaultMaxTX is the safety ceiling on a single ROIP transmission.
-	roipDefaultMaxTX time.Duration = 60 * time.Second
+	// ROIPDefaultMaxTX is the safety ceiling on a single ROIP transmission.
+	ROIPDefaultMaxTX time.Duration = 60 * time.Second
 
-	// roipVOXOnsetFrames is the number of consecutive loud frames required to
+	// ROIPVOXOnsetFrames is the number of consecutive loud frames required to
 	// trigger PTTDown. Each frame is 20 ms, so 3 frames = 60 ms onset guard.
-	roipVOXOnsetFrames int = 3
+	ROIPVOXOnsetFrames int = 3
 
-	// roipMonitorBufFrames is the depth of the monitor / tap frame channel.
-	roipMonitorBufFrames int = 8
+	// ROIPMonitorBufFrames is the depth of the monitor / tap frame channel.
+	ROIPMonitorBufFrames int = 8
 
-	// roipVOXPollInterval is the ticker period used for isReceiving() polling
+	// ROIPVOXPollInterval is the ticker period used for isReceiving() polling
 	// in the active state when no tap frames are arriving.
-	roipVOXPollInterval time.Duration = 10 * time.Millisecond
+	ROIPVOXPollInterval time.Duration = 10 * time.Millisecond
 )
 
-// ─── roipSource ───────────────────────────────────────────────────────────────
+// ─── ROIPSource ───────────────────────────────────────────────────────────────
 
-// roipSource implements EventSource for a ROIP (Radio over IP) bridge.
+// ROIPSource implements EventSource for a ROIP (Radio over IP) bridge.
 //
 // It uses the same OpenVLM USB audio dongle as openvlmSource but operates without
 // a manual PTT button, automatically bridging an analog handheld radio into
@@ -58,10 +58,10 @@ const (
 //
 //  2. VOX fallback: if the HID device is unavailable or cosGPIOMask is 0, an
 //     audio energy threshold is applied to the OpenVLM input stream.  A
-//     configurable onset window (roipVOXOnsetFrames) prevents false triggers.
+//     configurable onset window (ROIPVOXOnsetFrames) prevents false triggers.
 //     During active transmission the broadcast stream feeds frames into a tap
 //     channel so silence can be detected and PTTUp emitted after voxHoldTime.
-type roipSource struct {
+type ROIPSource struct {
 	log            zerolog.Logger
 	opener         HIDOpener
 	openMonitor    func() (<-chan []float32, func(), error)
@@ -75,48 +75,60 @@ type roipSource struct {
 	cosGPIOMask    byte
 }
 
-// NewROIPSource constructs a production roipSource backed by the real HIDAPI
-// library, real PortAudio, and CommsRuntime callbacks for half-duplex
-// enforcement and broadcast-tap wiring.
+// NewROIPSource constructs a production ROIPSource backed by the real HIDAPI
+// library, real PortAudio, and caller-provided callbacks for half-duplex
+// enforcement and broadcast-tap wiring. Step 4 of the comms refactor flattened
+// the constructor to take primitives + callbacks directly so the control
+// sub-package no longer depends on parent comms types.
 func NewROIPSource(
-	cfg *CommsConfig,
+	log zerolog.Logger,
+	cosGPIOMask byte,
+	voxThreshold float32,
+	voxHoldTime time.Duration,
+	maxTXDuration time.Duration,
+	inputDevice string,
 	isReceiving, isBroadcasting func() bool,
 	setTap func(chan []float32),
 	clearTap func(),
-	log zerolog.Logger,
+	openMonitor func() (<-chan []float32, func(), error),
 ) EventSource {
-	s := &roipSource{
+	s := &ROIPSource{
 		log:            log,
-		opener:         defaultHIDOpener,
-		cosGPIOMask:    cfg.ROIPCOSGPIOMask,
-		voxThreshold:   cfg.ROIPVOXThreshold,
-		voxHoldTime:    cfg.ROIPVOXHoldTime,
-		maxTXDuration:  cfg.ROIPMaxTXDuration,
+		opener:         DefaultHIDOpener,
+		cosGPIOMask:    cosGPIOMask,
+		voxThreshold:   voxThreshold,
+		voxHoldTime:    voxHoldTime,
+		maxTXDuration:  maxTXDuration,
 		isReceiving:    isReceiving,
 		isBroadcasting: isBroadcasting,
 		setTap:         setTap,
 		clearTap:       clearTap,
 	}
-	s.openMonitor = makeROIPMonitorOpener(cfg.ROIPInputDevice, log)
+
+	if openMonitor != nil {
+		s.openMonitor = openMonitor
+	} else {
+		s.openMonitor = makeROIPMonitorOpener(inputDevice, log)
+	}
 
 	return s
 }
 
-// newROIPSourceWithOpener is the testable COS-path constructor.
+// NewROIPSourceWithOpener is the testable COS-path constructor.
 // It injects a custom HIDOpener without touching PortAudio.
-func newROIPSourceWithOpener(
+func NewROIPSourceWithOpener(
 	opener HIDOpener,
 	cosGPIOMask byte,
 	isReceiving, isBroadcasting func() bool,
 	log zerolog.Logger,
 ) EventSource {
-	return &roipSource{
+	return &ROIPSource{
 		log:            log,
 		opener:         opener,
 		cosGPIOMask:    cosGPIOMask,
 		voxThreshold:   0, // COS-only
-		voxHoldTime:    roipDefaultVOXHold,
-		maxTXDuration:  roipDefaultMaxTX,
+		voxHoldTime:    ROIPDefaultVOXHold,
+		maxTXDuration:  ROIPDefaultMaxTX,
 		isReceiving:    isReceiving,
 		isBroadcasting: isBroadcasting,
 		setTap:         func(_ chan []float32) {},
@@ -125,22 +137,22 @@ func newROIPSourceWithOpener(
 	}
 }
 
-// newROIPSourceWithMonitor is the testable VOX-path constructor.
+// NewROIPSourceWithMonitor is the testable VOX-path constructor.
 // openMonitorFn replaces the PortAudio monitor stream so tests can inject a
 // pre-filled frame channel without real hardware.
-func newROIPSourceWithMonitor(
+func NewROIPSourceWithMonitor(
 	openMonitorFn func() (<-chan []float32, func(), error),
 	voxHoldTime time.Duration,
 	isReceiving, isBroadcasting func() bool,
 	log zerolog.Logger,
 ) EventSource {
-	return &roipSource{
+	return &ROIPSource{
 		log:            log,
 		opener:         nil, // cosGPIOMask==0; opener never called
 		cosGPIOMask:    0,
-		voxThreshold:   roipDefaultVOXThresh,
+		voxThreshold:   ROIPDefaultVOXThresh,
 		voxHoldTime:    voxHoldTime,
-		maxTXDuration:  roipDefaultMaxTX,
+		maxTXDuration:  ROIPDefaultMaxTX,
 		isReceiving:    isReceiving,
 		isBroadcasting: isBroadcasting,
 		setTap:         func(_ chan []float32) {},
@@ -166,7 +178,7 @@ func noopMonitorOpener() (<-chan []float32, func(), error) {
 //   - COS mode when cosGPIOMask != 0 and the OpenVLM HID device opens successfully.
 //   - VOX mode as fallback when COS is unavailable.
 //   - Error (channel closed immediately) when neither is available.
-func (s *roipSource) Events(ctx context.Context) <-chan PTTEvent {
+func (s *ROIPSource) Events(ctx context.Context) <-chan PTTEvent {
 	ch := make(chan PTTEvent, 4)
 
 	go func() {
@@ -174,7 +186,7 @@ func (s *roipSource) Events(ctx context.Context) <-chan PTTEvent {
 
 		// COS path: attempt to open the OpenVLM HID device.
 		if s.cosGPIOMask != 0 {
-			dev, err := s.opener(openvlmVendorID, openvlmProductID)
+			dev, err := s.opener(OpenVLMVendorID, OpenVLMProductID)
 			if err == nil {
 				s.log.Info().Msgf("ROIP: COS mode active (mask=0x%02X)", s.cosGPIOMask)
 				s.cosLoop(ctx, dev, ch)
@@ -206,7 +218,7 @@ func (s *roipSource) Events(ctx context.Context) <-chan PTTEvent {
 //
 // Half-duplex: PTTDown is suppressed while isReceiving() returns true.  The
 // COS transition is not latched in that case; the next HIGH will be re-checked.
-func (s *roipSource) cosLoop(ctx context.Context, dev HIDDevice, ch chan<- PTTEvent) { //nolint:gocognit
+func (s *ROIPSource) cosLoop(ctx context.Context, dev HIDDevice, ch chan<- PTTEvent) { //nolint:gocognit
 	var closeOnce sync.Once
 
 	closeDevice := func() {
@@ -224,7 +236,7 @@ func (s *roipSource) cosLoop(ctx context.Context, dev HIDDevice, ch chan<- PTTEv
 		closeDevice()
 	}()
 
-	buf := make([]byte, openvlmReportSize)
+	buf := make([]byte, OpenVLMReportSize)
 	prevCOS := false
 
 	for {
@@ -240,8 +252,8 @@ func (s *roipSource) cosLoop(ctx context.Context, dev HIDDevice, ch chan<- PTTEv
 		}
 
 		payloadStart := 0
-		if n >= openvlmReportSize {
-			payloadStart = openvlmPayloadOffset
+		if n >= OpenVLMReportSize {
+			payloadStart = OpenVLMPayloadOffset
 		}
 
 		if n < payloadStart+2 {
@@ -303,10 +315,10 @@ func (s *roipSource) cosLoop(ctx context.Context, dev HIDDevice, ch chan<- PTTEv
 //
 // Half-duplex: PTTDown is suppressed when isReceiving() is true.  If the
 // network begins receiving during ACTIVE state, PTTUp is emitted immediately.
-func (s *roipSource) voxLoop(ctx context.Context, ch chan<- PTTEvent) {
+func (s *ROIPSource) voxLoop(ctx context.Context, ch chan<- PTTEvent) {
 	maxTX := s.maxTXDuration
 	if maxTX <= 0 {
-		maxTX = roipDefaultMaxTX
+		maxTX = ROIPDefaultMaxTX
 	}
 
 	for {
@@ -316,7 +328,7 @@ func (s *roipSource) voxLoop(ctx context.Context, ch chan<- PTTEvent) {
 
 		// ── Transition: open broadcast tap, emit PTTDown ───────────────────
 
-		tapCh := make(chan []float32, roipMonitorBufFrames)
+		tapCh := make(chan []float32, ROIPMonitorBufFrames)
 		s.setTap(tapCh)
 
 		select {
@@ -347,7 +359,7 @@ func (s *roipSource) voxLoop(ctx context.Context, ch chan<- PTTEvent) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(roipVOXPollInterval):
+			case <-time.After(ROIPVOXPollInterval):
 			}
 		}
 
@@ -359,7 +371,7 @@ func (s *roipSource) voxLoop(ctx context.Context, ch chan<- PTTEvent) {
 // accumulates VOX onset frames, and closes the monitor before returning.
 // Returns true when onset is confirmed (PTTDown should fire),
 // or false when ctx is canceled or the monitor channel closes unexpectedly.
-func (s *roipSource) voxIdle(ctx context.Context) bool {
+func (s *ROIPSource) voxIdle(ctx context.Context) bool {
 	for {
 		monitorCh, closeMonitor, err := s.openMonitor()
 		if err != nil {
@@ -390,12 +402,12 @@ func (s *roipSource) voxIdle(ctx context.Context) bool {
 				}
 
 				energy := audiopool.RMSEnergy(frame)
-				returnFloat32(frame)
+				audiopool.ReturnFloat32(frame)
 
 				if energy >= s.voxThreshold && !s.isReceiving() {
 					onsetCount++
 
-					if onsetCount >= roipVOXOnsetFrames {
+					if onsetCount >= ROIPVOXOnsetFrames {
 						closeMonitor()
 
 						return true
@@ -412,7 +424,7 @@ func (s *roipSource) voxIdle(ctx context.Context) bool {
 // channel for silence or half-duplex RX, enforcing the maxTX deadline.
 // Calls clearTap() before returning.
 // Returns true when PTTUp should be emitted, false when ctx is canceled.
-func (s *roipSource) voxActive(ctx context.Context, tapCh <-chan []float32, maxTX time.Duration) bool {
+func (s *ROIPSource) voxActive(ctx context.Context, tapCh <-chan []float32, maxTX time.Duration) bool {
 	txDeadline := time.NewTimer(maxTX)
 	holdTimer := time.NewTimer(s.voxHoldTime)
 
@@ -448,7 +460,7 @@ func (s *roipSource) voxActive(ctx context.Context, tapCh <-chan []float32, maxT
 			}
 
 			energy := audiopool.RMSEnergy(frame)
-			returnFloat32(frame)
+			audiopool.ReturnFloat32(frame)
 
 			if energy >= s.voxThreshold {
 				// Radio still transmitting: reset the silence hold timer.
@@ -462,7 +474,7 @@ func (s *roipSource) voxActive(ctx context.Context, tapCh <-chan []float32, maxT
 				holdTimer.Reset(s.voxHoldTime)
 			}
 
-		case <-time.After(roipVOXPollInterval):
+		case <-time.After(ROIPVOXPollInterval):
 			// Poll isReceiving() periodically even when no tap frames arrive.
 			if s.isReceiving() {
 				s.log.Debug().Msg("ROIP: network RX started → PTTUp (half-duplex)")
@@ -487,26 +499,26 @@ func makeROIPMonitorOpener(inputDevice string, log zerolog.Logger) func() (<-cha
 			return nil, nil, fmt.Errorf("ROIP: resolve audio device: %w", err)
 		}
 
-		frameCh := make(chan []float32, roipMonitorBufFrames)
+		frameCh := make(chan []float32, ROIPMonitorBufFrames)
 
 		params := portaudio.StreamParameters{
 			Input: portaudio.StreamDeviceParameters{
 				Device:   inDev,
-				Channels: channels,
+				Channels: audiopool.Channels,
 			},
-			SampleRate:      float64(sampleRate),
-			FramesPerBuffer: frameSize,
+			SampleRate:      float64(audiopool.SampleRate),
+			FramesPerBuffer: audiopool.FrameSize,
 		}
 
 		stream, openErr := portaudio.OpenStream(params, func(in []float32) {
 			fp := audiopool.Float32Pool.Get().(*[]float32) //nolint:forcetypeassert
-			f := (*fp)[:frameSize]
+			f := (*fp)[:audiopool.FrameSize]
 			copy(f, in)
 
 			select {
 			case frameCh <- f:
 			default:
-				returnFloat32(f)
+				audiopool.ReturnFloat32(f)
 			}
 		})
 		if openErr != nil {
@@ -530,7 +542,7 @@ func makeROIPMonitorOpener(inputDevice string, log zerolog.Logger) func() (<-cha
 			for {
 				select {
 				case f := <-frameCh:
-					returnFloat32(f)
+					audiopool.ReturnFloat32(f)
 				default:
 					break drain
 				}
