@@ -1,9 +1,20 @@
 package comms
 
 import (
+	"io"
 	"net"
 	"sync"
+	"sync/atomic"
+	"time"
 )
+
+// swapCloseGrace is how long a swap defers closing the previous PacketWriter
+// so any in-flight lock-free Write calls against it can finish their single
+// UDP syscall. Writes on the hot path take no lock at all (they only do an
+// atomic Load), so using a WaitGroup would panic ("Add called concurrently
+// with Wait"); instead we bound the grace period and rely on the fact that
+// Write's critical path is a single non-blocking sendto(2).
+const swapCloseGrace = 50 * time.Millisecond
 
 // PacketWriter abstracts the UDP send path so the broadcast callback can be
 // tested without a live socket.
@@ -19,46 +30,82 @@ type PacketReader interface {
 }
 
 // swappableSender wraps a PacketWriter so it can be atomically replaced at
-// runtime without races with in-flight writes. The hot-path Write method
-// acquires only a read lock, snapshots the current implementation, then
-// releases the lock before performing I/O — so no I/O ever happens under a
-// write lock.
+// runtime without races with in-flight writes.
+//
+// Concurrency model:
+//
+//   - The hot path (Write) is lock-free: it atomically loads the current
+//     PacketWriter pointer and performs the single underlying UDP sendto(2).
+//     No mutex and no WaitGroup increment, so concurrent writers do not
+//     contend against each other or against swappers.
+//   - swap() serializes concurrent swappers via swapMu, publishes the new
+//     PacketWriter via atomic.Pointer.Store(), and returns the previous one.
+//     The caller is responsible for closing the previous PacketWriter.
+//   - Because the hot path holds no lock, swap cannot prove that writers are
+//     done with the previous pointer before it returns. Callers that close
+//     the returned PacketWriter synchronously risk closing a socket out from
+//     under an in-flight sendto(2). To avoid this, swap returns a deferred
+//     closer via swapAndDeferClose which schedules the underlying close
+//     after swapCloseGrace — long enough for any in-flight write syscall to
+//     complete. This is the tradeoff the refactor plan explicitly allows as
+//     the fallback to a WaitGroup-based drain (the WaitGroup approach fails
+//     with "Add called concurrently with Wait" because writers do not take
+//     any lock that could be ordered against Wait).
+//   - Close takes a snapshot and closes it if it implements io.Closer.
 type swappableSender struct {
-	impl PacketWriter
-	mu   sync.RWMutex
+	impl   atomic.Pointer[PacketWriter]
+	swapMu sync.Mutex // serializes swappers; writes do not take this lock
 }
 
 func newSwappableSender(w PacketWriter) *swappableSender {
-	return &swappableSender{impl: w}
+	s := &swappableSender{}
+	s.impl.Store(&w)
+
+	return s
 }
 
-// Write satisfies PacketWriter.
+// Write satisfies PacketWriter. Fully lock-free on the hot path: a single
+// atomic pointer load, then the underlying Write (one sendto(2) on the UDP
+// fast path).
 func (s *swappableSender) Write(b []byte) (int, error) {
-	s.mu.RLock()
-	w := s.impl
-	s.mu.RUnlock()
+	wp := s.impl.Load()
 
-	return w.Write(b)
+	return (*wp).Write(b)
 }
 
 // swap atomically replaces the underlying PacketWriter and returns the
-// previous one so the caller can close it.
+// previous one so the caller can close it. The caller must not close the
+// returned PacketWriter synchronously — see swapAndDeferClose for the safe
+// close path that honours the swapCloseGrace window for in-flight writes.
 func (s *swappableSender) swap(newW PacketWriter) PacketWriter {
-	s.mu.Lock()
-	old := s.impl
-	s.impl = newW
-	s.mu.Unlock()
+	s.swapMu.Lock()
+	defer s.swapMu.Unlock()
 
-	return old
+	oldPtr := s.impl.Load()
+	s.impl.Store(&newW)
+
+	return *oldPtr
+}
+
+// swapAndDeferClose replaces the underlying PacketWriter with newW and
+// schedules the previous one's Close (if it implements io.Closer) after
+// swapCloseGrace. The grace window lets any in-flight lock-free Write on the
+// old impl finish its single sendto(2) before the underlying fd is closed.
+func (s *swappableSender) swapAndDeferClose(newW PacketWriter) {
+	old := s.swap(newW)
+
+	closer, ok := old.(io.Closer)
+	if !ok {
+		return
+	}
+
+	time.AfterFunc(swapCloseGrace, func() { _ = closer.Close() })
 }
 
 // Close closes the current underlying PacketWriter if it implements io.Closer.
 func (s *swappableSender) Close() error {
-	s.mu.RLock()
-	impl := s.impl
-	s.mu.RUnlock()
-
-	if c, ok := impl.(interface{ Close() error }); ok {
+	wp := s.impl.Load()
+	if c, ok := (*wp).(io.Closer); ok {
 		return c.Close()
 	}
 

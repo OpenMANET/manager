@@ -9,6 +9,53 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// ─── RTP hot-path benchmarks ─────────────────────────────────────────────────
+
+// BenchmarkRTPSessionSend measures the per-frame cost of the pion-backed RTP
+// send path: Packetize → interceptor chain → baseRTPWriter → MarshalTo into
+// pooled buffer → PacketWriter.Write. The mockWriter is a no-op sink so only
+// the framing/marshal/pool path is on the critical path.
+// discardWriter is an allocation-free PacketWriter sink used in benchmarks.
+type discardWriter struct{}
+
+func (discardWriter) Write(b []byte) (int, error) { return len(b), nil }
+
+func BenchmarkRTPSessionSend(b *testing.B) {
+	sess, err := newPionRTPSession(0xDEADBEEF, discardWriter{}, discardWriter{}, zerolog.Nop())
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer func() { _ = sess.close() }()
+
+	payload := make([]byte, 160) // typical Opus 20ms frame
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		if err := sess.send(payload); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkSwappableSenderWrite measures the lock-free Write path on
+// swappableSender. Expected: zero allocs, no mutex contention.
+func BenchmarkSwappableSenderWrite(b *testing.B) {
+	s := newSwappableSender(discardWriter{})
+	buf := make([]byte, 200)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		if _, err := s.Write(buf); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // ─── Codec benchmarks ────────────────────────────────────────────────────────
 
 func BenchmarkEncodeOpus(b *testing.B) {

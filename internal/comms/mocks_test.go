@@ -184,18 +184,27 @@ func (m *safeMockWriter) count() int {
 }
 
 // mockClosingWriter adds a Close() method to mockWriter for testing the
-// "close old sender if it implements io.Closer" swap path.
+// "close old sender if it implements io.Closer" swap path. closeCalled is
+// accessed via atomic.Bool so tests that assert deferred closes (scheduled
+// via time.AfterFunc by swapAndDeferClose) do not data-race under -race.
 type mockClosingWriter struct {
 	closeErr error
 	mockWriter
-	closeCalled bool
+	closeCalled atomicBool
 }
 
 func (m *mockClosingWriter) Close() error {
-	m.closeCalled = true
+	m.closeCalled.Store(true)
 
 	return m.closeErr
 }
+
+// atomicBool is a minimal atomic flag (a local alias so we don't pull a new
+// import into mocks_test.go; callers use .Store/.Load).
+type atomicBool struct{ v atomic.Bool }
+
+func (a *atomicBool) Store(b bool) { a.v.Store(b) }
+func (a *atomicBool) Load() bool   { return a.v.Load() }
 
 // ─── trackingReader ───────────────────────────────────────────────────────────
 

@@ -970,17 +970,15 @@ func (cfg *CommsConfig) replaceNetwork(
 	}
 
 	if pc.sender != nil && newSender != nil {
-		old := pc.sender.swap(newSender)
-		if c, ok := old.(interface{ Close() error }); ok {
-			_ = c.Close()
-		}
+		// Deferred close: the lock-free Write path on swappableSender
+		// cannot be drained synchronously, so the previous underlying
+		// connection is closed after swapCloseGrace to let any in-flight
+		// sendto(2) on the old fd finish first.
+		pc.sender.swapAndDeferClose(newSender)
 	}
 
 	if pc.rtcpSend != nil && newRTCPSender != nil {
-		old := pc.rtcpSend.swap(newRTCPSender)
-		if c, ok := old.(interface{ Close() error }); ok {
-			_ = c.Close()
-		}
+		pc.rtcpSend.swapAndDeferClose(newRTCPSender)
 	}
 
 	rt.localIP.Store(&newLocalIP)

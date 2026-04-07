@@ -367,15 +367,26 @@ func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	cfg.replaceNetwork(rt, &mockWriter{}, &mockWriter{}, newMockReader(), "10.0.0.1")
 
-	if !oldSender.closeCalled {
-		t.Error("old sender Close() should have been called")
-	}
-
+	// sender/rtcp closes are deferred (see swapAndDeferClose); the receiver
+	// close is synchronous so we can assert it immediately.
 	if !oldReceiver.closed {
 		t.Error("old receiver Close() should have been called")
 	}
 
-	if !oldRTCP.closeCalled {
+	deadline := time.Now().Add(swapCloseGrace + 500*time.Millisecond)
+	for time.Now().Before(deadline) {
+		if oldSender.closeCalled.Load() && oldRTCP.closeCalled.Load() {
+			break
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if !oldSender.closeCalled.Load() {
+		t.Error("old sender Close() should have been called")
+	}
+
+	if !oldRTCP.closeCalled.Load() {
 		t.Error("old RTCP sender Close() should have been called")
 	}
 }
