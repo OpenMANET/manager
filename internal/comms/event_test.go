@@ -173,6 +173,55 @@ func TestBlueALSARFCOMMPaths(t *testing.T) {
 	}
 }
 
+func TestBlueALSAXEventSource_SyncRFCOMMPathsStartsMonitors(t *testing.T) {
+	src := &blueALSAXEventSource{
+		log: zerolog.Nop(),
+		listRFCOMM: func(*dbus.Conn) ([]dbus.ObjectPath, error) {
+			return []dbus.ObjectPath{
+				dbus.ObjectPath("/org/bluealsa/hci0/dev_AA/rfcomm"),
+				dbus.ObjectPath("/org/bluealsa/hci0/dev_BB/rfcomm"),
+			}, nil
+		},
+	}
+
+	var got []dbus.ObjectPath
+	src.syncRFCOMMPaths(nil, func(path dbus.ObjectPath) {
+		got = append(got, path)
+	})
+
+	want := []dbus.ObjectPath{
+		dbus.ObjectPath("/org/bluealsa/hci0/dev_AA/rfcomm"),
+		dbus.ObjectPath("/org/bluealsa/hci0/dev_BB/rfcomm"),
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("syncRFCOMMPaths() len = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("syncRFCOMMPaths()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBlueALSAXEventSource_SyncRFCOMMPathsListError(t *testing.T) {
+	src := &blueALSAXEventSource{
+		log: zerolog.Nop(),
+		listRFCOMM: func(*dbus.Conn) ([]dbus.ObjectPath, error) {
+			return nil, errors.New("boom")
+		},
+	}
+
+	called := false
+	src.syncRFCOMMPaths(nil, func(dbus.ObjectPath) {
+		called = true
+	})
+
+	if called {
+		t.Fatal("startMonitor should not be called when RFCOMM listing fails")
+	}
+}
+
 func TestBlueALSAInterfacesAddedRFCOMMPath(t *testing.T) {
 	sig := &dbus.Signal{
 		Name: bluealsaInterfacesAddedSignal,

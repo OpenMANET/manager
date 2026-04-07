@@ -30,6 +30,7 @@ const (
 	bluezDeviceInterface            = "org.bluez.Device1"
 	bluezHFPUUID                    = "0000111e-0000-1000-8000-00805f9b34fb"
 	bluealsaJournalMarker           = "AT message: SET: command:+XEVENT, value:"
+	bluealsaRFCOMMRescanInterval    = 2 * time.Second
 )
 
 type systemBusDialer func() (*dbus.Conn, error)
@@ -37,13 +38,14 @@ type rfcommPathLister func(*dbus.Conn) ([]dbus.ObjectPath, error)
 type rfcommOpener func(*dbus.Conn, dbus.ObjectPath) (io.ReadCloser, error)
 
 type blueALSAXEventSource struct {
-	log           zerolog.Logger
-	dial          systemBusDialer
-	listRFCOMM    rfcommPathLister
-	openRFCOMM    rfcommOpener
-	dedupeMu      sync.Mutex
-	lastEventName string
-	lastEventAt   time.Time
+	log            zerolog.Logger
+	dial           systemBusDialer
+	listRFCOMM     rfcommPathLister
+	openRFCOMM     rfcommOpener
+	rescanInterval time.Duration
+	dedupeMu       sync.Mutex
+	lastEventName  string
+	lastEventAt    time.Time
 }
 
 type blueALSARFCOMMMonitor struct {
@@ -111,16 +113,18 @@ func (s *blueALSAXEventSource) Events(ctx context.Context) <-chan PTTEvent {
 			return
 		}
 
+		rescanInterval := s.rescanInterval
+		if rescanInterval <= 0 {
+			rescanInterval = bluealsaRFCOMMRescanInterval
+		}
+		rescanTicker := time.NewTicker(rescanInterval)
+		defer rescanTicker.Stop()
+
 		sigCh := make(chan *dbus.Signal, 16)
 		conn.Signal(sigCh)
 		defer conn.RemoveSignal(sigCh)
 
 		s.log.Info().Msg("Starting BlueALSA XEVENT monitor via RFCOMM1.Open()")
-
-		paths, err := s.listRFCOMM(conn)
-		if err != nil {
-			s.log.Error().Err(err).Msg("BlueALSA: failed to enumerate RFCOMM objects")
-		}
 
 		active := make(map[dbus.ObjectPath]*blueALSARFCOMMMonitor)
 		var activeMu sync.Mutex
@@ -177,15 +181,15 @@ func (s *blueALSAXEventSource) Events(ctx context.Context) <-chan PTTEvent {
 			}
 		}
 
-		for _, path := range paths {
-			startMonitor(path)
-		}
+		s.syncRFCOMMPaths(conn, startMonitor)
 
 		for {
 			select {
 			case <-ctx.Done():
 				stopAll()
 				return
+			case <-rescanTicker.C:
+				s.syncRFCOMMPaths(conn, startMonitor)
 			case sig, ok := <-sigCh:
 				if !ok {
 					stopAll()
@@ -203,6 +207,22 @@ func (s *blueALSAXEventSource) Events(ctx context.Context) <-chan PTTEvent {
 	}()
 
 	return ch
+}
+
+func (s *blueALSAXEventSource) syncRFCOMMPaths(conn *dbus.Conn, startMonitor func(dbus.ObjectPath)) {
+	if s.listRFCOMM == nil {
+		return
+	}
+
+	paths, err := s.listRFCOMM(conn)
+	if err != nil {
+		s.log.Error().Err(err).Msg("BlueALSA: failed to enumerate RFCOMM objects")
+		return
+	}
+
+	for _, path := range paths {
+		startMonitor(path)
+	}
 }
 
 func (s *blueALSAXEventSource) monitorRFCOMM(
