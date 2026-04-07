@@ -53,8 +53,12 @@ type mockDecoder struct {
 	plcOK bool
 }
 
-func (m *mockDecoder) Decode(_ []byte, pcm []int16) (int, error) {
-	if m.decodeErr != nil {
+func (m *mockDecoder) Decode(payload []byte, pcm []int16) (int, error) {
+	return m.DecodeS16(payload, pcm)
+}
+
+func (m *mockDecoder) DecodeS16(payload []byte, pcm []int16) (int, error) {
+	if m.decodeErr != nil && !(m.plcOK && payload == nil) {
 		return 0, m.decodeErr
 	}
 
@@ -68,6 +72,8 @@ func (m *mockDecoder) Decode(_ []byte, pcm []int16) (int, error) {
 
 	return len(pcm), nil
 }
+
+func (m *mockDecoder) Close() error { return nil }
 
 func (m *mockDecoder) DecodeFloat32(payload []byte, pcm []float32) (int, error) {
 	if m.decodeErr != nil && !(m.plcOK && payload == nil) {
@@ -100,7 +106,11 @@ type mockEncoder struct {
 	payloadN  int
 }
 
-func (m *mockEncoder) Encode(_ []int16, data []byte) (int, error) {
+func (m *mockEncoder) Encode(pcm []int16, data []byte) (int, error) {
+	return m.EncodeS16(pcm, data)
+}
+
+func (m *mockEncoder) EncodeS16(_ []int16, data []byte) (int, error) {
 	m.calls.Add(1)
 
 	if m.blockCh != nil {
@@ -126,6 +136,8 @@ func (m *mockEncoder) Encode(_ []int16, data []byte) (int, error) {
 
 	return n, nil
 }
+
+func (m *mockEncoder) Close() error { return nil }
 
 // ─── mockWriter ──────────────────────────────────────────────────────────────
 
@@ -172,18 +184,27 @@ func (m *safeMockWriter) count() int {
 }
 
 // mockClosingWriter adds a Close() method to mockWriter for testing the
-// "close old sender if it implements io.Closer" swap path.
+// "close old sender if it implements io.Closer" swap path. closeCalled is
+// accessed via atomic.Bool so tests that assert deferred closes (scheduled
+// via time.AfterFunc by swapAndDeferClose) do not data-race under -race.
 type mockClosingWriter struct {
 	closeErr error
 	mockWriter
-	closeCalled bool
+	closeCalled atomicBool
 }
 
 func (m *mockClosingWriter) Close() error {
-	m.closeCalled = true
+	m.closeCalled.Store(true)
 
 	return m.closeErr
 }
+
+// atomicBool is a minimal atomic flag (a local alias so we don't pull a new
+// import into mocks_test.go; callers use .Store/.Load).
+type atomicBool struct{ v atomic.Bool }
+
+func (a *atomicBool) Store(b bool) { a.v.Store(b) }
+func (a *atomicBool) Load() bool   { return a.v.Load() }
 
 // ─── trackingReader ───────────────────────────────────────────────────────────
 

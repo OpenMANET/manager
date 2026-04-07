@@ -63,8 +63,41 @@ func TestSwappableSender_Swap_ClosesOldIfCloser(t *testing.T) {
 		_ = c.Close()
 	}
 
-	if !w1.closeCalled {
+	if !w1.closeCalled.Load() {
 		t.Error("Close() should be called on old writer when it implements io.Closer")
+	}
+}
+
+// TestSwappableSender_SwapAndDeferClose verifies that swapAndDeferClose
+// publishes the new writer immediately, subsequent writes go to it, and the
+// previous writer's Close is eventually called after the grace window.
+func TestSwappableSender_SwapAndDeferClose(t *testing.T) {
+	w1 := &mockClosingWriter{}
+	w2 := &mockWriter{}
+	s := newSwappableSender(w1)
+
+	s.swapAndDeferClose(w2)
+
+	if _, err := s.Write([]byte{7}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(w2.Packets) != 1 {
+		t.Error("write after swap should hit new writer")
+	}
+
+	// Wait for the deferred close fire (swapCloseGrace + slack).
+	deadline := time.Now().Add(swapCloseGrace + 500*time.Millisecond)
+	for time.Now().Before(deadline) {
+		if w1.closeCalled.Load() {
+			break
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if !w1.closeCalled.Load() {
+		t.Error("deferred Close() on old writer should have fired")
 	}
 }
 
@@ -99,6 +132,91 @@ func TestSwappableSender_ConcurrentWritesAndSwap(t *testing.T) {
 	wg.Wait()
 
 	total := w1.count() + w2.count()
+	if total != writers*writesEach {
+		t.Errorf("total writes = %d; want %d", total, writers*writesEach)
+	}
+}
+
+// TestSwappableSender_StressWritersAndSwapper runs many concurrent writers
+// alongside a single goroutine that repeatedly swaps the underlying writer.
+// Under -race this exercises the lock-free Write path against atomic pointer
+// publication from swap(). Every write must land on either the pre-swap
+// impl or the post-swap impl — none may be lost or duplicated.
+func TestSwappableSender_StressWritersAndSwapper(t *testing.T) {
+	const (
+		writers      = 8
+		writesEach   = 1000
+		swapInterval = 10 * time.Microsecond
+	)
+
+	impls := []*safeMockWriter{{}, {}, {}, {}}
+	s := newSwappableSender(impls[0])
+
+	var wg sync.WaitGroup
+
+	stop := make(chan struct{})
+
+	// Swapper goroutine.
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		i := 0
+
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+
+			s.swap(impls[i%len(impls)])
+			i++
+
+			time.Sleep(swapInterval)
+		}
+	}()
+
+	// Writer goroutines.
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for j := 0; j < writesEach; j++ {
+				if _, err := s.Write([]byte{byte(j)}); err != nil {
+					t.Errorf("write: %v", err)
+
+					return
+				}
+			}
+		}()
+	}
+
+	// Wait for writers; we don't know which writer finishes last, so poll a
+	// small sleep then stop the swapper.
+	done := make(chan struct{})
+
+	go func() {
+		for i := 0; i < writers; i++ {
+			// no-op; wg.Wait below handles ordering
+		}
+
+		close(done)
+	}()
+
+	// Give writers time to finish, then stop the swapper.
+	time.Sleep(100 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+
+	var total int
+	for _, w := range impls {
+		total += w.count()
+	}
+
 	if total != writers*writesEach {
 		t.Errorf("total writes = %d; want %d", total, writers*writesEach)
 	}

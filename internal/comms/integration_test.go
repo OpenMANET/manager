@@ -92,7 +92,7 @@ func newIntegrationReceiver(t *testing.T) (*CommsConfig, *portChannel, *CommsRun
 // hardware tick rate.
 func pollDecodedFrame(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
-	out := make([]float32, frameSize)
+	out := make([]int16, frameSize)
 
 	for time.Now().Before(deadline) {
 		for i := range out {
@@ -119,7 +119,7 @@ func pollDecodedFrame(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime, timeo
 // "leftover concealment". consecutivePLC is also reset.
 func drainConcealmentFrames(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime) {
 	deadline := time.Now().Add(500 * time.Millisecond)
-	out := make([]float32, frameSize)
+	out := make([]int16, frameSize)
 
 	for time.Now().Before(deadline) {
 		cfg.playoutOneFrame(pc, rt, pc.jitter, out)

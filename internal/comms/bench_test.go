@@ -9,6 +9,53 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// ─── RTP hot-path benchmarks ─────────────────────────────────────────────────
+
+// BenchmarkRTPSessionSend measures the per-frame cost of the pion-backed RTP
+// send path: Packetize → interceptor chain → baseRTPWriter → MarshalTo into
+// pooled buffer → PacketWriter.Write. The mockWriter is a no-op sink so only
+// the framing/marshal/pool path is on the critical path.
+// discardWriter is an allocation-free PacketWriter sink used in benchmarks.
+type discardWriter struct{}
+
+func (discardWriter) Write(b []byte) (int, error) { return len(b), nil }
+
+func BenchmarkRTPSessionSend(b *testing.B) {
+	sess, err := newPionRTPSession(0xDEADBEEF, discardWriter{}, discardWriter{}, zerolog.Nop())
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer func() { _ = sess.close() }()
+
+	payload := make([]byte, 160) // typical Opus 20ms frame
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		if err := sess.send(payload); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkSwappableSenderWrite measures the lock-free Write path on
+// swappableSender. Expected: zero allocs, no mutex contention.
+func BenchmarkSwappableSenderWrite(b *testing.B) {
+	s := newSwappableSender(discardWriter{})
+	buf := make([]byte, 200)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		if _, err := s.Write(buf); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // ─── Codec benchmarks ────────────────────────────────────────────────────────
 
 func BenchmarkEncodeOpus(b *testing.B) {
@@ -72,9 +119,9 @@ func BenchmarkDecodeOpus(b *testing.B) {
 	}
 }
 
-// BenchmarkDecodeOpusFloat32 measures the receive hot path: DecodeFloat32
-// decodes directly to float32, skipping the int16 intermediate stage.
-func BenchmarkDecodeOpusFloat32(b *testing.B) {
+// BenchmarkDecodeOpusS16 measures the receive hot path: DecodeS16 decodes
+// directly into an int16 output buffer (Phase 5 int16-native pipeline).
+func BenchmarkDecodeOpusS16(b *testing.B) {
 	enc, err := newOpusEncoder(encoderComplexity)
 	if err != nil {
 		b.Fatal(err)
@@ -98,13 +145,13 @@ func BenchmarkDecodeOpusFloat32(b *testing.B) {
 	}
 
 	encoded := buf[:n]
-	out := make([]float32, frameSize)
+	out := make([]int16, frameSize)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for b.Loop() {
-		if _, err := dec.DecodeFloat32(encoded, out); err != nil {
+		if _, err := dec.DecodeS16(encoded, out); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -208,28 +255,28 @@ func BenchmarkParseIncomingRTP(b *testing.B) {
 
 // ─── Conversion benchmarks ───────────────────────────────────────────────────
 
-// BenchmarkFloat32ToInt16 measures the mic callback's float32→int16 conversion
-// (broadcast / send path).
-func BenchmarkFloat32ToInt16(b *testing.B) {
-	in := make([]float32, frameSize)
+// BenchmarkMicGainInt16 measures the broadcast encoder's in-place int16 gain
+// stage after Phase 5. No float32↔int16 conversion runs on the hot path.
+func BenchmarkMicGainInt16(b *testing.B) {
+	in := make([]int16, frameSize)
 	for i := range in {
-		in[i] = float32(math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate))) * 0.9
+		in[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate)) * 16000)
 	}
 
-	out := make([]int16, frameSize)
+	const gain = float32(1.5)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for b.Loop() {
 		for i, v := range in {
-			if v > 1.0 {
-				v = 1.0
-			} else if v < -1.0 {
-				v = -1.0
+			scaled := float32(v) * gain
+			if scaled > 32767 {
+				scaled = 32767
+			} else if scaled < -32768 {
+				scaled = -32768
 			}
-
-			out[i] = int16(v * 32767) //nolint:gosec
+			in[i] = int16(scaled)
 		}
 	}
 }
@@ -252,7 +299,7 @@ func BenchmarkPlayoutOneFrame_Mock(b *testing.B) {
 
 	jb := newRTPJitterBuffer(1, jitterMaxDepth)
 	payload := make([]byte, 100)
-	out := make([]float32, frameSize)
+	out := make([]int16, frameSize)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -301,7 +348,7 @@ func BenchmarkPlayoutOneFrame_Real(b *testing.B) {
 	rt := &CommsRuntime{decoder: dec}
 
 	jb := newRTPJitterBuffer(1, jitterMaxDepth)
-	out := make([]float32, frameSize)
+	out := make([]int16, frameSize)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -341,8 +388,8 @@ func BenchmarkPlayoutOneFrame_PLC(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	warmup := make([]float32, frameSize)
-	if _, err := dec.DecodeFloat32(encBuf[:n], warmup); err != nil {
+	warmup := make([]int16, frameSize)
+	if _, err := dec.DecodeS16(encBuf[:n], warmup); err != nil {
 		b.Fatal(err)
 	}
 
@@ -360,7 +407,7 @@ func BenchmarkPlayoutOneFrame_PLC(b *testing.B) {
 	jb.push(0, encBuf[:n])
 	jb.popReady()
 
-	out := make([]float32, frameSize)
+	out := make([]int16, frameSize)
 
 	b.ResetTimer()
 	b.ReportAllocs()

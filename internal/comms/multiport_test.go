@@ -95,8 +95,8 @@ func setupRuntimeConfig(t *testing.T) (*CommsConfig, *CommsRuntime) {
 		McastPorts: []McastPortConfig{pc0.cfg, pc1.cfg},
 	}
 	cfg.runtime = rt
-	activeConfig.Store(cfg)
-	t.Cleanup(func() { activeConfig.Store(nil) })
+	SetDefault(cfg)
+	t.Cleanup(func() { SetDefault(nil) })
 
 	return cfg, rt
 }
@@ -134,7 +134,7 @@ func TestEnableTalkGroupSend_OutOfRange(t *testing.T) {
 }
 
 func TestEnableTalkGroupSend_NotRunning(t *testing.T) {
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if err := EnableTalkGroupSend(0, true); err == nil {
 		t.Error("expected error when comms is not running")
@@ -170,7 +170,7 @@ func TestEnableTalkGroupReceive_OutOfRange(t *testing.T) {
 }
 
 func TestEnableTalkGroupReceive_NotRunning(t *testing.T) {
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if err := EnableTalkGroupReceive(0, false); err == nil {
 		t.Error("expected error when comms is not running")
@@ -226,7 +226,7 @@ func TestGetTalkGroupStates_ReflectsRuntimeChanges(t *testing.T) {
 }
 
 func TestGetTalkGroupStates_NotRunning(t *testing.T) {
-	activeConfig.Store(nil)
+	SetDefault(nil)
 
 	if _, err := GetTalkGroupStates(); err == nil {
 		t.Error("expected error when comms is not running")
@@ -244,7 +244,7 @@ func TestIsReceivingRemote_SendDisabledPortNotChecked(t *testing.T) {
 	// Port with sendEnabled=false has recent rx – should NOT block transmission.
 	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
 	pc.sendEnabled.Store(false)
-	pc.lastRemoteRx.Store(time.Now().UnixNano())
+	pc.rxGate.mark()
 
 	rt := &CommsRuntime{ports: []*portChannel{pc}}
 
@@ -260,7 +260,7 @@ func TestIsReceivingRemote_MultiPortFirstEnabled(t *testing.T) {
 
 	pc0 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
 	pc0.sendEnabled.Store(true)
-	pc0.lastRemoteRx.Store(time.Now().UnixNano())
+	pc0.rxGate.mark()
 
 	pc1 := &portChannel{cfg: McastPortConfig{Send: true, Receive: false}}
 	pc1.sendEnabled.Store(true)
@@ -294,7 +294,7 @@ func TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled(t *testing.T) {
 	}
 	pc.sendEnabled.Store(false)
 	pc.receiveEnabled.Store(false) // ← disabled
-	pc.playbackBuffer = make(chan []float32, 8)
+	pc.playbackBuffer = make(chan []int16, 8)
 
 	rt := &CommsRuntime{
 		ports:   []*portChannel{pc},
@@ -338,15 +338,15 @@ func TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled(t *testing.T) {
 func TestDrainPlaybackBuffer_MultiPort(t *testing.T) {
 	pc0 := &portChannel{}
 
-	pc0.playbackBuffer = make(chan []float32, 4)
-	pc0.playbackBuffer <- []float32{1}
+	pc0.playbackBuffer = make(chan []int16, 4)
+	pc0.playbackBuffer <- []int16{1}
 
-	pc0.playbackBuffer <- []float32{2}
+	pc0.playbackBuffer <- []int16{2}
 
 	pc1 := &portChannel{}
 
-	pc1.playbackBuffer = make(chan []float32, 4)
-	pc1.playbackBuffer <- []float32{3}
+	pc1.playbackBuffer = make(chan []int16, 4)
+	pc1.playbackBuffer <- []int16{3}
 
 	rt := &CommsRuntime{ports: []*portChannel{pc0, pc1}}
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -367,18 +367,18 @@ func TestBeginTransmission_BeepSentToAllPorts(t *testing.T) {
 	pc0 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
 	pc0.sendEnabled.Store(true)
 	pc0.receiveEnabled.Store(true)
-	pc0.playbackBuffer = make(chan []float32, 4)
+	pc0.playbackBuffer = make(chan []int16, 4)
 
 	pc1 := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
 	pc1.sendEnabled.Store(true)
 	pc1.receiveEnabled.Store(true)
-	pc1.playbackBuffer = make(chan []float32, 4)
+	pc1.playbackBuffer = make(chan []int16, 4)
 
 	rt := &CommsRuntime{
 		ports:           []*portChannel{pc0, pc1},
 		broadcastStream: &mockStream{},
-		beepBufferStart: []float32{0.1, 0.2},
-		beepBufferStop:  []float32{0.3, 0.4},
+		beepBufferStart: []int16{100, 200},
+		beepBufferStop:  []int16{300, 400},
 		decoder:         &mockDecoder{},
 	}
 
@@ -436,7 +436,7 @@ func TestPlayoutOneFrame_ReceiveOnlyPortNotSuppressedDuringBroadcast(t *testing.
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	out := make([]float32, frameSize)
+	out := make([]int16, frameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
 	// The decoder fills with fillValue/32768; receive-only ports bypass

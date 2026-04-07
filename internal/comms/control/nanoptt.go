@@ -1,4 +1,4 @@
-package comms
+package control
 
 import (
 	"context"
@@ -8,22 +8,24 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// ─── evdev backend ───────────────────────────────────────────────────────────
-
-// nanoPTTSource reads Linux input events from an evdev device and emits
+// NanoPTTSource reads Linux input events from an evdev device and emits
 // PTTToggle on each key-press that matches the configured key code.
-type nanoPTTSource struct {
+type NanoPTTSource struct {
 	log    zerolog.Logger
 	dev    *evdev.InputDevice
 	pttKey string
 }
 
-// NewNanoPTTSource constructs a nanoPTTSource. Exported for use in tests.
+// NewNanoPTTSource constructs a NanoPTTSource that reads from dev and emits
+// a PTTToggle on each press of pttKey ("any" matches any key code, otherwise
+// the decimal evdev key code).
 func NewNanoPTTSource(dev *evdev.InputDevice, pttKey string, log zerolog.Logger) EventSource {
-	return &nanoPTTSource{dev: dev, pttKey: pttKey, log: log}
+	return &NanoPTTSource{dev: dev, pttKey: pttKey, log: log}
 }
 
-func (s *nanoPTTSource) Events(ctx context.Context) <-chan PTTEvent {
+// Events returns the PTT event channel for this source. The channel is closed
+// when ctx is cancelled.
+func (s *NanoPTTSource) Events(ctx context.Context) <-chan PTTEvent {
 	ch := make(chan PTTEvent, 4)
 
 	go func() {
@@ -45,7 +47,6 @@ func (s *nanoPTTSource) Events(ctx context.Context) <-chan PTTEvent {
 				continue
 			}
 
-			// Determine if this key code is the configured PTT key.
 			match := false
 			if s.pttKey == "any" {
 				match = true
@@ -58,7 +59,7 @@ func (s *nanoPTTSource) Events(ctx context.Context) <-chan PTTEvent {
 			}
 
 			switch ev.Value {
-			case 1: // key-press: emit toggle
+			case 1:
 				s.log.Debug().Msgf("Comm key press (code=%d)", ev.Code)
 
 				select {
@@ -66,7 +67,7 @@ func (s *nanoPTTSource) Events(ctx context.Context) <-chan PTTEvent {
 				case <-ctx.Done():
 					return
 				}
-			case 0: // key-release: no action for toggle-style
+			case 0:
 				s.log.Debug().Msgf("Comm key release (code=%d)", ev.Code)
 			}
 		}

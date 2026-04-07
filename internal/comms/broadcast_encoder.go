@@ -29,35 +29,18 @@ type paStream interface {
 // never runs the Opus encoder or a blocking UDP write — both of those move
 // to the goroutine, which has its own scheduling slack absorbed by encCh.
 //
-// The audio callback only copies the captured float32 frame into a pooled
-// slice and non-blockingly hands it off; if the consumer cannot keep up the
-// frame is counted as dropped and discarded. Gain → int16 → Opus encode →
-// sendToAllPorts all run on the encode goroutine, isolated from any cgo
-// latency, GC pause, or UDP backpressure that would otherwise starve the
-// audio thread and cause ADC overruns at the device.
-//
-// Lifecycle:
-//   - newBroadcastEncoder opens the PortAudio stream (callback registered)
-//     and spawns the encode goroutine.
-//   - Start resets per-cycle counters and starts the audio thread; the
-//     callback begins firing every ~20 ms.
-//   - Stop halts the audio thread (no more frames enter encCh) and logs
-//     per-cycle counters at Debug level. The encode goroutine remains
-//     blocked on <-encCh ready for the next Start, so PTT cycles do not
-//     pay a goroutine recreate cost.
-//   - Close stops the audio thread, closes encCh (signaling the goroutine
-//     to drain remaining frames and exit), waits on done, and releases the
-//     PortAudio stream.
+// Phase 5 of the comms refactor switched the capture hot path from float32
+// to int16: the audio callback registers an int16 signature so PortAudio
+// delivers samples in the native codec format, the encode worker calls
+// EncodeS16 directly, and the float32↔int16 conversion is eliminated. The
+// pooled []int16 frame is released via defer after each send.
 type broadcastEncoder struct {
 	s     paStream
 	cfg   *CommsConfig
 	rt    *CommsRuntime
-	encCh chan *[]float32
+	encCh chan *[]int16
 	done  chan struct{}
 
-	// Counters reset in Start, logged in Stop. framesCaptured is written by
-	// the audio callback only; framesEncoded / framesDropped / encodeErrors
-	// are written by the encode goroutine only; both are read in Stop.
 	framesCaptured atomic.Int64
 	framesEncoded  atomic.Int64
 	framesDropped  atomic.Int64
@@ -65,12 +48,12 @@ type broadcastEncoder struct {
 }
 
 // newBroadcastEncoder constructs the wrapper, opens the PortAudio capture
-// stream with the callback, and spawns the encode goroutine.
+// stream with the int16 callback, and spawns the encode goroutine.
 func newBroadcastEncoder(cfg *CommsConfig, rt *CommsRuntime, inParams portaudio.StreamParameters) (*broadcastEncoder, error) {
 	be := &broadcastEncoder{
 		cfg:   cfg,
 		rt:    rt,
-		encCh: make(chan *[]float32, broadcastEncoderChanDepth),
+		encCh: make(chan *[]int16, broadcastEncoderChanDepth),
 		done:  make(chan struct{}),
 	}
 
@@ -88,17 +71,20 @@ func newBroadcastEncoder(cfg *CommsConfig, rt *CommsRuntime, inParams portaudio.
 
 // captureCallback runs on the PortAudio audio callback thread and MUST NOT
 // block, allocate from the heap, or hold any mutex other than briefly. Its
-// only jobs are: optional VOX tap (preserved unchanged), copy the input
-// frame into a pooled buffer, and non-blockingly hand the buffer to the
-// encode goroutine.
-func (be *broadcastEncoder) captureCallback(in []float32) {
-	// Optional VOX tap, identical to the previous inline behavior. The VOX
-	// path consumes the raw float32 frame for energy monitoring; it is
-	// independent of the encode pipeline.
+// only jobs are: optional VOX tap, copy the input frame into a pooled int16
+// buffer, and non-blockingly hand the buffer to the encode goroutine.
+func (be *broadcastEncoder) captureCallback(in []int16) {
+	// Optional VOX tap. The ROIP VOX consumer (roip.go) operates on float32
+	// frames for RMS energy. This is a boundary conversion off the hot path
+	// — the tap is only active when the ROIP control source is selected and
+	// VOX is currently monitoring. Regular TX (openvlm, nanoptt, web) never
+	// enters this branch and pays nothing.
 	if tapPtr := be.rt.broadcastTap.Load(); tapPtr != nil {
 		fp := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
 		f := (*fp)[:frameSize]
-		copy(f, in)
+		for i, v := range in {
+			f[i] = float32(v) / 32768
+		}
 
 		select {
 		case *tapPtr <- f:
@@ -109,23 +95,23 @@ func (be *broadcastEncoder) captureCallback(in []float32) {
 
 	be.framesCaptured.Add(1)
 
-	fp := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
+	fp := int16Pool.Get().(*[]int16) //nolint:forcetypeassert
 	f := (*fp)[:frameSize]
 	copy(f, in)
+	*fp = f
 
 	// Non-blocking hand-off. If the consumer is so far behind that
 	// broadcastEncoderChanDepth frames of slack are exhausted, drop this
-	// frame and count it. The audio callback MUST NOT block — blocking
-	// here would cause the symptom we are trying to fix.
+	// frame and count it. The audio callback MUST NOT block.
 	select {
 	case be.encCh <- fp:
 	default:
 		be.framesDropped.Add(1)
-		float32Pool.Put(fp)
+		int16Pool.Put(fp)
 	}
 }
 
-// encodeLoop drains encCh, applying gain → int16 → Opus encode → RTP send.
+// encodeLoop drains encCh, applying gain → Opus EncodeS16 → RTP send.
 // Exits when encCh is closed by Close.
 func (be *broadcastEncoder) encodeLoop() {
 	defer close(be.done)
@@ -135,36 +121,27 @@ func (be *broadcastEncoder) encodeLoop() {
 	}
 }
 
-// encodeOne processes a single captured frame: applies mic gain, converts
-// float32 → int16 with hard clipping, encodes to Opus, and ships the
-// payload via sendToAllPorts. Pool buffers are released via defer so a
-// panic in the encoder still returns them.
-func (be *broadcastEncoder) encodeOne(fp *[]float32) {
-	in := *fp
-	defer float32Pool.Put(fp)
+// encodeOne processes a single captured frame: applies mic gain in the
+// integer domain (clipping to int16 range), encodes via EncodeS16, and
+// ships the payload via sendToAllPorts. Pool buffers are released via
+// defer so a panic in the encoder still returns them.
+func (be *broadcastEncoder) encodeOne(fp *[]int16) {
+	defer int16Pool.Put(fp)
+
+	pcm := *fp
 
 	gain := be.cfg.MicGain
-	if gain <= 0 {
-		gain = 1.0
-	}
-
-	pcmPtr := int16Pool.Get().(*[]int16) //nolint:forcetypeassert
-
-	pcm := (*pcmPtr)[:len(in)]
-	defer int16Pool.Put(pcmPtr)
-
-	// Convert float32 samples [-1.0, 1.0] → int16 [-32767, 32767].
-	// MicGain is applied first; the result is hard-clipped to the legal
-	// float range before scaling to prevent int16 overflow.
-	for i, v := range in {
-		v *= gain
-		if v > 1.0 {
-			v = 1.0
-		} else if v < -1.0 {
-			v = -1.0
+	if gain != 1.0 && gain > 0 {
+		// Apply gain in int32 space with hard clipping to int16 range.
+		for i, v := range pcm {
+			scaled := float32(v) * gain
+			if scaled > 32767 {
+				scaled = 32767
+			} else if scaled < -32768 {
+				scaled = -32768
+			}
+			pcm[i] = int16(scaled)
 		}
-
-		pcm[i] = int16(v * 32767)
 	}
 
 	bufPtr := encBufPool.Get().(*[]byte) //nolint:forcetypeassert
@@ -172,12 +149,9 @@ func (be *broadcastEncoder) encodeOne(fp *[]float32) {
 	buf := *bufPtr
 	defer encBufPool.Put(bufPtr)
 
-	n, encErr := be.rt.encoder.Encode(pcm, buf)
+	n, encErr := be.rt.encoder.EncodeS16(pcm, buf)
 	if encErr != nil {
 		be.encodeErrors.Add(1)
-		// Surface the previously-silent error so on-device testing can
-		// see whether encode is failing under pressure. Debug-level so
-		// it does not spam Info in healthy operation.
 		be.cfg.Log.Debug().Err(encErr).Msg("comms: opus encode failed")
 
 		return
@@ -192,8 +166,6 @@ func (be *broadcastEncoder) encodeOne(fp *[]float32) {
 }
 
 // Start resets per-cycle counters and starts the PortAudio capture stream.
-// Counters are reset before s.Start() so the audio callback sees zero on
-// its first invocation.
 func (be *broadcastEncoder) Start() error {
 	be.framesCaptured.Store(0)
 	be.framesEncoded.Store(0)
@@ -207,9 +179,7 @@ func (be *broadcastEncoder) Start() error {
 	return nil
 }
 
-// Stop halts the audio callback (PortAudio's Stop blocks until any
-// in-flight callback finishes) and logs the per-PTT-cycle counter values
-// so on-device tail -f shows one summary line per transmission.
+// Stop halts the audio callback and logs per-cycle counter values.
 func (be *broadcastEncoder) Stop() error {
 	stopErr := be.s.Stop()
 
@@ -228,8 +198,7 @@ func (be *broadcastEncoder) Stop() error {
 }
 
 // Close stops the audio thread, terminates the encode goroutine, and
-// releases the PortAudio resources. After Close returns, the
-// broadcastEncoder must not be used.
+// releases the PortAudio resources.
 func (be *broadcastEncoder) Close() error {
 	_ = be.s.Stop()
 	close(be.encCh)
