@@ -27,7 +27,7 @@ type Service = CommsConfig
 // Access is lock-free via atomic.Pointer: Start publishes with Store, every
 // accessor reads with Load. The pointer itself is the only mutable state;
 // the referent *Service is constructed before publication and its own
-// fields carry their own synchronisation.
+// fields carry their own synchronization.
 //
 //nolint:gochecknoglobals // shim — Phase 4 of comms refactor; remove in Phase 5+.
 var defaultService atomic.Pointer[Service]

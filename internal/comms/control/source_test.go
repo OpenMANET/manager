@@ -35,6 +35,7 @@ func TestRegisterAndLookup(t *testing.T) {
 	resetRegistry(t)
 
 	want := &stubSource{name: "foo"}
+
 	Register("foo", func(_ ControlDeps) (EventSource, error) { return want, nil })
 
 	f, ok := Lookup("foo")

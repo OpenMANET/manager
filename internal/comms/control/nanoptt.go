@@ -24,7 +24,7 @@ func NewNanoPTTSource(dev *evdev.InputDevice, pttKey string, log zerolog.Logger)
 }
 
 // Events returns the PTT event channel for this source. The channel is closed
-// when ctx is cancelled.
+// when ctx is canceled.
 func (s *NanoPTTSource) Events(ctx context.Context) <-chan PTTEvent {
 	ch := make(chan PTTEvent, 4)
 

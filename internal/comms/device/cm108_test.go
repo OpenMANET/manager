@@ -15,24 +15,30 @@ import (
 // the optional parameters may be empty to omit the corresponding subtree.
 func mkFS(name, vendor, product, serial, iface, hidraw, alsaCard string) fstest.MapFS {
 	fsys := fstest.MapFS{}
+
 	base := "bus/usb/devices/" + name
 	if vendor != "" {
 		fsys[base+"/idVendor"] = &fstest.MapFile{Data: []byte(vendor + "\n")}
 	}
+
 	if product != "" {
 		fsys[base+"/idProduct"] = &fstest.MapFile{Data: []byte(product + "\n")}
 	}
+
 	if serial != "" {
 		fsys[base+"/serial"] = &fstest.MapFile{Data: []byte(serial + "\n")}
 	}
+
 	if iface != "" && hidraw != "" {
 		fsys[base+"/"+iface+"/0003:0D8C:0012.0001/hidraw/"+hidraw+"/dev"] =
 			&fstest.MapFile{Data: []byte("180:0\n")}
 	}
+
 	if iface != "" && alsaCard != "" {
 		fsys[base+"/"+iface+"/sound/"+alsaCard+"/id"] =
 			&fstest.MapFile{Data: []byte("OpenVLM\n")}
 	}
+
 	return fsys
 }
 
@@ -41,6 +47,7 @@ func TestDiscoverCM108_HappyPath(t *testing.T) {
 
 	descs, err := device.DiscoverCM108(fsys, func(card int) (int, bool) {
 		assert.Equal(t, 2, card)
+
 		return 7, true
 	})
 	require.NoError(t, err)
@@ -81,6 +88,7 @@ func TestDiscoverCM108_MultipleDevices(t *testing.T) {
 	for k, v := range mkFS("1-1", "0d8c", "0012", "AAA", "1-1:1.3", "hidraw0", "card2") {
 		fsys[k] = v
 	}
+
 	for k, v := range mkFS("2-1", "0d8c", "013c", "BBB", "2-1:1.3", "hidraw1", "card3") {
 		fsys[k] = v
 	}
@@ -99,6 +107,7 @@ func TestDiscoverCM108_MultipleDevices(t *testing.T) {
 	for _, d := range descs {
 		bySerial[d.Serial] = d
 	}
+
 	assert.Equal(t, "/dev/hidraw0", bySerial["AAA"].HIDPath)
 	assert.Equal(t, 12, bySerial["AAA"].PADeviceIdx)
 	assert.Equal(t, "/dev/hidraw1", bySerial["BBB"].HIDPath)
@@ -130,7 +139,7 @@ func TestDiscoverCM108_InterfaceDirsSkipped(t *testing.T) {
 	// An entry whose name contains ':' is an interface dir and must be
 	// skipped by the top-level walk.
 	fsys := fstest.MapFS{
-		"bus/usb/devices/1-1:1.0/idVendor": &fstest.MapFile{Data: []byte("0d8c\n")},
+		"bus/usb/devices/1-1:1.0/idVendor":  &fstest.MapFile{Data: []byte("0d8c\n")},
 		"bus/usb/devices/1-1:1.0/idProduct": &fstest.MapFile{Data: []byte("0012\n")},
 	}
 	descs, err := device.DiscoverCM108(fsys, nil)
@@ -143,6 +152,7 @@ func TestCache_LazyAndInvalidate(t *testing.T) {
 	fsys := mkFS("1-1", "0d8c", "0012", "X", "1-1:1.3", "hidraw0", "card2")
 	paLookup := func(card int) (int, bool) {
 		calls++
+
 		return 0, true
 	}
 

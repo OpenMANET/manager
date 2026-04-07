@@ -16,7 +16,7 @@ import (
 
 const (
 	PayloadTypeOpus = uint8(111)
-	rtpClockRate       = uint32(48000)
+	rtpClockRate    = uint32(48000)
 	FrameSamples    = uint32(960) // 20 ms at 48 kHz
 	MTU             = uint16(1400)
 

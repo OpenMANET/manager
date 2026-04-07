@@ -277,6 +277,7 @@ func BenchmarkMicGainInt16(b *testing.B) {
 			} else if scaled < -32768 {
 				scaled = -32768
 			}
+
 			in[i] = int16(scaled)
 		}
 	}

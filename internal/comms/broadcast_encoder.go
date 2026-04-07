@@ -83,6 +83,7 @@ func (be *broadcastEncoder) captureCallback(in []int16) {
 	// enters this branch and pays nothing.
 	if tapPtr := be.rt.broadcastTap.Load(); tapPtr != nil {
 		fp := audiopool.Float32Pool.Get().(*[]float32) //nolint:forcetypeassert
+
 		f := (*fp)[:frameSize]
 		for i, v := range in {
 			f[i] = float32(v) / 32768
@@ -142,6 +143,7 @@ func (be *broadcastEncoder) encodeOne(fp *[]int16) {
 			} else if scaled < -32768 {
 				scaled = -32768
 			}
+
 			pcm[i] = int16(scaled)
 		}
 	}

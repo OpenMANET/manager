@@ -159,7 +159,6 @@ type portChannel struct {
 	receiveEnabled    atomic.Bool
 }
 
-
 // ─── buildCodec ───────────────────────────────────────────────────────────────
 
 func (cfg *CommsConfig) buildCodec() (AudioEncoder, AudioDecoder, error) {

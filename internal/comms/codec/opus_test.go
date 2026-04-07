@@ -18,19 +18,23 @@ const (
 
 func newEnc(t *testing.T) codec.AudioEncoder {
 	t.Helper()
+
 	enc, err := codec.NewOpusEncoder(testSampleRate, testChannels, testBitrate, testComplexity, testPacketLossPerc)
 	if err != nil {
 		t.Fatalf("NewOpusEncoder error: %v", err)
 	}
+
 	return enc
 }
 
 func newDec(t *testing.T) codec.AudioDecoder {
 	t.Helper()
+
 	dec, err := codec.NewOpusDecoder(testSampleRate, testChannels)
 	if err != nil {
 		t.Fatalf("NewOpusDecoder error: %v", err)
 	}
+
 	return dec
 }
 
@@ -101,6 +105,7 @@ func TestOpusRoundTrip(t *testing.T) {
 func TestOpusEncodeS16DecodeS16_RoundTrip(t *testing.T) {
 	enc := newEnc(t)
 	dec := newDec(t)
+
 	defer enc.Close()
 	defer dec.Close()
 
@@ -115,6 +120,7 @@ func TestOpusEncodeS16DecodeS16_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeS16: %v", err)
 	}
+
 	if n <= 0 {
 		t.Fatal("EncodeS16 produced 0 bytes")
 	}
@@ -125,16 +131,19 @@ func TestOpusEncodeS16DecodeS16_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeS16: %v", err)
 	}
+
 	if decoded != testFrameSize {
 		t.Errorf("decoded %d samples, want %d", decoded, testFrameSize)
 	}
 
 	// PLC path: passing nil payload triggers Packet Loss Concealment.
 	plcOut := make([]int16, testFrameSize)
+
 	plcN, plcErr := dec.DecodeS16(nil, plcOut)
 	if plcErr != nil {
 		t.Fatalf("DecodeS16 PLC: %v", plcErr)
 	}
+
 	if plcN != testFrameSize {
 		t.Errorf("PLC decoded %d samples, want %d", plcN, testFrameSize)
 	}
@@ -147,6 +156,7 @@ func TestOpusEncodeS16_RejectsShortBuffers(t *testing.T) {
 	if _, err := enc.EncodeS16(nil, make([]byte, 4000)); err == nil {
 		t.Error("EncodeS16(nil pcm) should error")
 	}
+
 	if _, err := enc.EncodeS16(make([]int16, testFrameSize), nil); err == nil {
 		t.Error("EncodeS16(nil out) should error")
 	}
@@ -168,12 +178,15 @@ func TestOpusClose_Idempotent(t *testing.T) {
 	if err := enc.Close(); err != nil {
 		t.Errorf("enc.Close: %v", err)
 	}
+
 	if err := enc.Close(); err != nil {
 		t.Errorf("enc.Close (2nd): %v", err)
 	}
+
 	if err := dec.Close(); err != nil {
 		t.Errorf("dec.Close: %v", err)
 	}
+
 	if err := dec.Close(); err != nil {
 		t.Errorf("dec.Close (2nd): %v", err)
 	}

@@ -45,27 +45,13 @@ var cm108ProductIDs = [...]uint16{
 // ALSA sound card child; fields are zero-valued when the corresponding child
 // could not be resolved.
 type CM108Descriptor struct {
-	// HIDPath is the absolute path to the hidraw character device
-	// (e.g. "/dev/hidraw0"), or empty if no hidraw child was found.
-	HIDPath string
-	// ALSACardIdx is the ALSA card index (e.g. 2 for "card2"), or -1 if
-	// the device exposes no ALSA sound card child.
+	HIDPath     string
+	Serial      string
+	SysPath     string
 	ALSACardIdx int
-	// PADeviceIdx is the PortAudio device index associated with the ALSA
-	// card. -1 when no PortAudio mapping was supplied or the lookup
-	// returned no match (PortAudio is not enumerable from /sys so this
-	// value must be supplied by the caller via paLookup).
 	PADeviceIdx int
-	// VID is the USB vendor ID (always cmediaVendorID for matches).
-	VID uint16
-	// PID is the USB product ID.
-	PID uint16
-	// Serial is the value of the /sys "serial" attribute, or empty when
-	// not present.
-	Serial string
-	// SysPath is the relative path (inside the supplied fs.FS) of the
-	// top-level USB device directory, useful for diagnostics.
-	SysPath string
+	VID         uint16
+	PID         uint16
 }
 
 // PALookupFunc maps an ALSA card index to a PortAudio device index. It must
@@ -308,12 +294,12 @@ func findALSACard(fsys fs.FS, devPath string) int {
 //
 // Cache is safe for concurrent use.
 type Cache struct {
-	mu       sync.Mutex // protects descriptors and cached
-	cached   bool
-	paLookup PALookupFunc
 	fsys     fs.FS
-	descs    []CM108Descriptor
 	err      error
+	paLookup PALookupFunc
+	descs    []CM108Descriptor
+	mu       sync.Mutex
+	cached   bool
 }
 
 // NewCache constructs a Cache that will call DiscoverCM108(fsys, paLookup)

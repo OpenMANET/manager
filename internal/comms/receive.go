@@ -1,9 +1,9 @@
 package comms
 
 import (
-	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"context"
 	"errors"
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"net"
 	"time"
 )

@@ -43,6 +43,7 @@ func TestHalfDuplexGate_CustomThreshold(t *testing.T) {
 	}
 
 	g.mark()
+
 	if !g.active() {
 		t.Error("gate should be active immediately after mark with custom threshold")
 	}

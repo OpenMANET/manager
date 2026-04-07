@@ -1,8 +1,8 @@
 package comms
 
 import (
-	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"context"
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"net"
 	"os"
 	"testing"

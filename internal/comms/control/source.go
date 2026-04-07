@@ -52,6 +52,7 @@ func Register(name string, f Factory) {
 // Lookup returns the Factory registered under the given name, if any.
 func Lookup(name string) (Factory, bool) {
 	f, ok := registry[name]
+
 	return f, ok
 }
 

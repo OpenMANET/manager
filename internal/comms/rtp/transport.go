@@ -76,7 +76,7 @@ func (s *SwappableSender) Write(b []byte) (int, error) {
 // Swap atomically replaces the underlying PacketWriter and returns the
 // previous one so the caller can close it. The caller must not close the
 // returned PacketWriter synchronously — see swapAndDeferClose for the safe
-// close path that honours the SwapCloseGrace window for in-flight writes.
+// close path that honors the SwapCloseGrace window for in-flight writes.
 func (s *SwappableSender) Swap(newW PacketWriter) PacketWriter {
 	s.swapMu.Lock()
 	defer s.swapMu.Unlock()

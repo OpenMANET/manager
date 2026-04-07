@@ -23,15 +23,15 @@ type openvlmBackend struct{}
 // primitive ROIP config fields so the control sub-package no longer needs to
 // import parent comms types.
 type roipBackend struct {
-	IsReceiving       func() bool
-	IsBroadcasting    func() bool
-	SetTap            func(chan []float32)
-	ClearTap          func()
-	InputDevice       string
-	VOXHoldTime       time.Duration
-	MaxTXDuration     time.Duration
-	VOXThreshold      float32
-	COSGPIOMask       byte
+	IsReceiving    func() bool
+	IsBroadcasting func() bool
+	SetTap         func(chan []float32)
+	ClearTap       func()
+	InputDevice    string
+	VOXHoldTime    time.Duration
+	MaxTXDuration  time.Duration
+	VOXThreshold   float32
+	COSGPIOMask    byte
 }
 
 // webBackend is the ControlDeps.Backend payload for the web RPC source. The
@@ -186,4 +186,3 @@ func (cfg *CommsConfig) Validate() error {
 
 	return nil
 }
-
