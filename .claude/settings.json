@@ -28,7 +28,8 @@
       "Bash(make integration-test:*)",
       "Bash(wc -l /workspaces/openmanetd/internal/blos/*.go)",
       "Bash(find /workspaces/openmanetd/internal/comms -name \"*test*.go\" -exec basename {} \\\\;)",
-      "Bash(make build:*)"
+      "Bash(make build:*)",
+      "Bash(grep -n \"type CommsRuntime struct\" /workspaces/openmanetd/internal/comms/*.go)"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"

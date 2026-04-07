@@ -43,6 +43,9 @@ comms/
 │                   findCommDevice; getIfaceIPv4; joinMulticastGroup
 ├── codec.go        AudioEncoder/AudioDecoder interfaces; Opus constructors
 ├── stream.go       AudioStream interface; portaudioStream wrapper
+├── broadcast_encoder.go  broadcastEncoder: PortAudio mic capture + dedicated
+│                         encode/send goroutine, decoupling Opus encode and
+│                         RTP send from the audio callback thread
 ├── transport.go    PacketWriter/PacketReader interfaces;
 │                   swappableSender / swappableReceiver (atomic-swap wrappers)
 ├── alsa_silence.go CGo helpers — silence ALSA probe noise during PA init
@@ -139,7 +142,7 @@ CommsRuntime
 ├── localIP          atomic.Value (string)   source IP for loopback filter
 ├── rtpSess          *pionRTPSession         Packetizer + RTCP SR chain
 │
-├── broadcastStream  AudioStream             mic capture (start/stop per tx)
+├── broadcastStream  AudioStream             mic capture (*broadcastEncoder; encode + RTP send run on a dedicated goroutine, NOT the audio callback thread)
 ├── playbackBuffer   chan []float32          decoded PCM frames → speaker
 ├── beepBufferStart  []float32              1000 Hz tone (tx start)
 ├── beepBufferStop   []float32              600 Hz tone (tx end)
@@ -287,13 +290,46 @@ interceptor chain is shut down by `sess.close()` (also deferred).
 
 ## 6. Transmission Path
 
-The capture side is driven by a PortAudio callback (not a goroutine) that fires
-every 20 ms when the broadcast stream is running.
+The capture side has two stages separated by a bounded channel:
+
+1. The **PortAudio mic callback** fires every 20 ms on the audio callback
+   thread (not a Go goroutine). It only copies the captured float32 frame
+   into a pooled slice and non-blockingly enqueues it. It does no cgo work,
+   no Opus encoding, no UDP I/O — these would block the audio thread and
+   cause ADC overruns at the device.
+2. The **encode goroutine** (`broadcastEncoder.encodeLoop`) drains the
+   channel and runs gain → int16 → Opus encode → `sendToAllPorts`. This
+   stage has its own scheduling slack absorbed by the channel, so encoder
+   spikes / GC pauses / UDP backpressure cannot starve the audio thread.
 
 ```
-PortAudio mic callback (every 20 ms while broadcastStream.Start() active)
+PortAudio mic callback (audio thread, every 20 ms while broadcastStream.Start() active)
   │
   │  []float32  (in, frameSize=960 samples)
+  │
+  ▼
+  optional VOX tap: float32Pool.Get(); copy(in); non-blocking → tap chan
+  │
+  ▼
+  framesCaptured.Add(1)
+  │
+  ▼
+  fp := float32Pool.Get(); copy(fp, in)
+  │
+  ▼
+  select {
+    case encCh <- fp:                        ← non-blocking
+    default: framesDropped.Add(1)            ← consumer fell > 160 ms behind
+             float32Pool.Put(fp)
+  }
+  return — audio callback exits.
+
+──── goroutine boundary (encCh, capacity = broadcastEncoderChanDepth = 8) ────
+
+encodeLoop goroutine (separate goroutine, lives for the open stream's lifetime)
+  │
+  ▼
+  for fp := range encCh:
   │
   ▼
   apply MicGain: v *= gain; clamp to [-1.0, 1.0]
@@ -303,18 +339,31 @@ PortAudio mic callback (every 20 ms while broadcastStream.Start() active)
   │
   ▼
   AudioEncoder.Encode(pcm []int16, buf []byte) → n bytes (Opus frame)
+    │
+    ├─ error → encodeErrors.Add(1); Debug log; drop frame
+    │
+    └─ ok → framesEncoded.Add(1)
   │
   ▼
-  rt.rtpSess.send(buf[:n])
+  cfg.sendToAllPorts(rt, buf[:n])
     │
-    ├─ packetizer.Packetize(payload, rtpFrameSamples=960)
-    │    adds RTP header: V=2, PT=111, seq++, ts+=960, SSRC
-    │
-    └─ rtpWriter.Write(header, payload, nil)
-         │ (through interceptor chain — updates SR stats)
-         ▼
-         baseRTPWriter → pkt.Marshal() → PacketWriter.Write() → UDP socket
+    ▼
+    for each send-enabled port:
+      pc.rtpSess.send(payload)
+        │
+        ├─ packetizer.Packetize(payload, rtpFrameSamples=960)
+        │    adds RTP header: V=2, PT=111, seq++, ts+=960, SSRC
+        │
+        └─ rtpWriter.Write(header, payload, nil)
+             │ (through interceptor chain — updates SR stats)
+             ▼
+             baseRTPWriter → pkt.Marshal() → PacketWriter.Write() → UDP socket
 ```
+
+`broadcastEncoder.Stop()` (called on PTT release) logs cumulative per-cycle
+counters at Debug level: `captured`, `encoded`, `dropped`, `encode_errors`.
+See `internal/comms/README.md` for the diagnostic decision tree from those
+values.
 
 ### SSRC derivation
 

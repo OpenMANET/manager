@@ -779,20 +779,17 @@ func (cfg *CommsConfig) sendToAllPorts(rt *CommsRuntime, payload []byte) {
 }
 
 // openBroadcastStreamOn creates a PortAudio capture stream that encodes mic
-// audio via Opus and transmits it as RTP to all send-enabled ports via sendToAllPorts.
+// audio via Opus and transmits it as RTP to all send-enabled ports via
+// sendToAllPorts. The actual encode and RTP send run on a dedicated goroutine
+// inside broadcastEncoder, NOT on the PortAudio audio callback thread, so
+// encoder spikes / GC pauses / UDP backpressure cannot starve the audio thread
+// and cause ADC overruns at the device.
 func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *CommsRuntime) (AudioStream, error) {
 	// Suggest a capture device buffer depth to PortAudio. Symmetric to the
-	// playback stream in buildAudio: a preempted capture audio thread loses
-	// samples (the ADC device buffer overruns), which remote listeners hear
-	// as a gap in the RTP timeline. The callback chunk size stays at
-	// frameSize so the existing per-frame encode logic is unchanged.
-	//
-	// Floor at inDev.DefaultHighInputLatency: some hardware reports a "high"
-	// latency that is essentially the same as one callback period (e.g. the
-	// OpenVLM USB audio class device); other hardware reports a genuinely
-	// higher value, in which case we honor the device hint rather than
-	// overriding it downward. The host API may still clamp the suggestion —
-	// the actual granted latency is logged below.
+	// playback stream in buildAudio. Floor at inDev.DefaultHighInputLatency
+	// so we never undercut the host API's recommendation. The host API may
+	// still clamp the suggestion — the actual granted latency is logged
+	// below.
 	captureLatency := time.Duration(cfg.CaptureLatencyMs) * time.Millisecond
 	if captureLatency < inDev.DefaultHighInputLatency {
 		captureLatency = inDev.DefaultHighInputLatency
@@ -808,95 +805,26 @@ func (cfg *CommsConfig) openBroadcastStreamOn(inDev *portaudio.DeviceInfo, rt *C
 		FramesPerBuffer: frameSize,
 	}
 
-	// PortAudio calls this callback every 20 ms with a frameSize (960-sample)
-	// float32 buffer captured from the input device. The callback runs on a
-	// real-time audio thread, so it must not block or allocate on the heap.
-	stream, err := portaudio.OpenStream(inParams, func(in []float32) {
-		// Optional tap for ROIP VOX energy monitoring. When set, a copy of the
-		// raw input frame is pushed non-blockingly so the VOX loop can detect
-		// silence during transmission without a separate PortAudio stream.
-		if tapPtr := rt.broadcastTap.Load(); tapPtr != nil {
-			fp := float32Pool.Get().(*[]float32) //nolint:forcetypeassert
-			f := (*fp)[:frameSize]
-			copy(f, in)
-
-			select {
-			case *tapPtr <- f:
-			default:
-				returnFloat32(f)
-			}
-		}
-
-		// Default gain to unity if the caller left MicGain unset or zero.
-		gain := cfg.MicGain
-		if gain <= 0 {
-			gain = 1.0
-		}
-
-		// Borrow a pooled int16 slice for the PCM conversion. Using a pool
-		// avoids a per-frame heap allocation on the audio hot path.
-		pcmPtr := int16Pool.Get().(*[]int16) //nolint:forcetypeassert
-		pcm := (*pcmPtr)[:len(in)]
-
-		// Convert float32 samples [-1.0, 1.0] → int16 [-32767, 32767].
-		// MicGain is applied first; the result is hard-clipped to the legal
-		// float range before scaling to prevent int16 overflow.
-		for i, v := range in {
-			v *= gain
-			if v > 1.0 {
-				v = 1.0
-			} else if v < -1.0 {
-				v = -1.0
-			}
-
-			pcm[i] = int16(v * 32767)
-		}
-
-		// Borrow a pooled output buffer for the Opus encoder.
-		bufPtr := encBufPool.Get().(*[]byte) //nolint:forcetypeassert
-		buf := *bufPtr
-
-		// Encode the int16 PCM frame to Opus. The PCM pool slice is returned
-		// immediately after encoding because it is no longer needed.
-		n, encErr := rt.encoder.Encode(pcm, buf)
-
-		int16Pool.Put(pcmPtr)
-
-		if encErr != nil {
-			encBufPool.Put(bufPtr)
-
-			return
-		}
-
-		// Transmit the encoded Opus payload as RTP to every send-enabled port.
-		cfg.sendToAllPorts(rt, buf[:n])
-
-		encBufPool.Put(bufPtr)
-
-		if cfg.Trace {
-			cfg.Log.Trace().Int("encoded_bytes", n).Msg("comms: multicast packet sent")
-		}
-	})
+	be, err := newBroadcastEncoder(cfg, rt, inParams)
 	if err != nil {
-		return nil, fmt.Errorf("open broadcast stream: %w", err)
+		return nil, err
 	}
 
 	// Log the actual input latency the host API granted. Mirrors the
 	// playback stream open log so deploy-time verification has the same
-	// four fields on both sides. Capture-side underruns (preempted audio
-	// thread → ADC overrun → dropped samples) manifest as gaps in the RTP
-	// stream that remote listeners hear as stutter, so the granted depth
-	// is what determines whether OS scheduling jitter is absorbed.
-	if info := stream.Info(); info != nil {
+	// fields on both sides. encode_chan_depth makes the new goroutine-based
+	// architecture self-documenting on first deploy.
+	if info := be.s.Info(); info != nil {
 		cfg.Log.Debug().
 			Int("configured_latency_ms", cfg.CaptureLatencyMs).
 			Dur("device_high_latency", inDev.DefaultHighInputLatency).
 			Dur("requested_latency", captureLatency).
 			Dur("actual_input_latency", info.InputLatency).
+			Int("encode_chan_depth", broadcastEncoderChanDepth).
 			Msg("comms: broadcast stream opened")
 	}
 
-	return &portaudioStream{stream}, nil
+	return be, nil
 }
 
 // reopenBroadcastStream closes the current broadcast stream and opens a new one.

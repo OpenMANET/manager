@@ -130,16 +130,75 @@ log:
 If `actual_input_latency` is well below `requested_latency` after raising
 `comms.captureLatencyMs`, the host API is clamping the suggestion and the
 only remaining PortAudio knob is `FramesPerBuffer` (which would require
-restructuring the mic callback to encode multiple Opus frames per call).
+restructuring `broadcastEncoder` to consume multi-frame chunks).
 
-The mic callback:
+### Encode + send goroutine
 
-1. Receives `[]float32` PCM from PortAudio.
-2. Applies `MicGain` (clamp to ±1.0).
-3. Converts to `[]int16`.
-4. Opus-encodes into a byte slice.
-5. Sends via `rt.rtpSess.send(payload)` — the pion Packetizer adds the RTP
-   header and the interceptor chain appends RTCP SR stats.
+The PortAudio mic callback **does not** run the Opus encoder or
+`sendToAllPorts`. Both moved off the audio callback thread into a dedicated
+goroutine inside `broadcastEncoder` ([broadcast_encoder.go](broadcast_encoder.go)),
+mirroring how the receive side already isolates Opus decode from the
+PortAudio playback callback.
+
+Why: the audio callback fires every 20 ms with no scheduling slack beyond
+the device buffer depth above. If the work it does ever takes longer than
+that — Opus encode at complexity 10 with FEC, blocking UDP multicast write
+to multiple ports, GC pause, cgo thread handoff — the next callback misses
+its deadline, the ADC ring buffer overruns, and samples are silently
+dropped at the device. Web mode (`controlSource: web`) sidesteps this
+because the browser does the encoding and the server only receives
+pre-encoded bytes; PortAudio modes did not, until this change.
+
+Pipeline:
+
+```
+PortAudio mic callback (audio thread, every 20 ms)
+  ├─ Optional VOX tap (one frame copy → atomic-pointer channel)
+  ├─ float32Pool.Get(); copy(in)                                ← cheap
+  └─ non-blocking send → encCh (cap = broadcastEncoderChanDepth)
+       │  on full: framesDropped++, return slice to pool
+
+encodeLoop goroutine (separate goroutine)
+  └─ for fp := range encCh:
+       ├─ apply MicGain, clamp ±1.0, convert float32 → int16
+       ├─ rt.encoder.Encode(pcm, buf)         ← cgo into libopus
+       │     on error: encodeErrors++, log Debug, drop frame
+       └─ cfg.sendToAllPorts(rt, buf[:n])     ← per-port UDP write
+             ├─ pion Packetizer + RTCP SR interceptor
+             └─ net.UDPConn.Write
+```
+
+`broadcastEncoderChanDepth` = 8 frames = 160 ms. That gives the encode
+goroutine ~140 ms of slack to absorb encoder spikes / UDP backpressure /
+GC pauses before the producer starts dropping. Drops on the producer side
+are counted, not silenced.
+
+### Per-cycle cycle stats
+
+Every PTT cycle, `broadcastEncoder.Stop()` logs a Debug line summarizing
+what happened during the transmission:
+
+```
+comms: broadcast cycle stats captured=1500 encoded=1500 dropped=0 encode_errors=0
+```
+
+- `captured` — frames delivered by PortAudio to the audio callback
+  (≈ 50 × seconds-of-PTT at frameSize=960 / sampleRate=48 kHz)
+- `encoded` — frames the consumer goroutine successfully Opus-encoded and
+  shipped via `sendToAllPorts`
+- `dropped` — frames the producer dropped because `encCh` was full (the
+  consumer fell more than 160 ms behind cumulatively)
+- `encode_errors` — frames where `rt.encoder.Encode` returned an error;
+  the underlying error is also logged at Debug level
+
+Diagnostic decision tree from the cycle stats:
+
+| Pattern | Meaning | Next lever |
+|---------|---------|------------|
+| `dropped=0 encode_errors=0`, no stutter at remote | Pipeline healthy. | Done. |
+| `dropped=0 encode_errors=0`, remote still stutters | Bottleneck is downstream of the encode goroutine. | Tune SO_SNDBUF on the multicast sockets; pcap on the wire to look for jitter or loss. |
+| `dropped > 0` | Encode-and-send loop occasionally takes >160 ms cumulative. | Lower Opus complexity (currently 10 → try 5), disable FEC, or grow `broadcastEncoderChanDepth`. |
+| `encode_errors > 0` | libopus is failing under pressure; the surfaced error message says why. | Address the specific error. |
 
 The receive path:
 
@@ -387,6 +446,7 @@ ptt:
 | `device.go` | `normalizeControlSource`; `resolveAudioDevice`; `findCommDevice`; `getIfaceIPv4`; `joinMulticastGroup` |
 | `codec.go` | `AudioEncoder`/`AudioDecoder` interfaces; Opus encoder/decoder constructors |
 | `stream.go` | `AudioStream` interface; `portaudioStream` wrapper |
+| `broadcast_encoder.go` | `broadcastEncoder`: PortAudio mic capture + dedicated encode/send goroutine; per-cycle counters (`framesCaptured`, `framesEncoded`, `framesDropped`, `encodeErrors`) |
 | `transport.go` | `PacketWriter`/`PacketReader` interfaces; `swappableSender`/`swappableReceiver` atomic-swap wrappers |
 | `alsa_silence.go` | CGo helpers — `silenceALSAProbeNoise` / `restoreALSAErrorHandler` |
 | `doc.go` | Package-level doc comment; build-tag stub for `omd_omit_comms` |
