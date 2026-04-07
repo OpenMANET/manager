@@ -15,7 +15,7 @@ import (
 
 // These tests exercise the receive path end-to-end:
 //
-//   mockReader → receiveLoop → rtp.ParseIncoming → pc.jitter →
+//   mockReader → receiveLoop → rtp.ParseIncoming → pc.Jitter →
 //     playoutOneFrame → mockDecoder → caller-supplied PCM buffer
 //
 // They cannot exercise the TX path end-to-end because the Opus encode lives
@@ -61,25 +61,25 @@ func buildRTPPacket(t *testing.T, ssrc uint32, seq uint16, payload []byte) []byt
 	return raw
 }
 
-// newIntegrationReceiver builds a minimal portChannel + CommsRuntime backed
+// newIntegrationReceiver builds a minimal PortChannel + CommsRuntime backed
 // by a mockReader so a test can push RTP datagrams through the real
 // receiveLoop and observe decoded frames via playoutOneFrame.
-func newIntegrationReceiver(t *testing.T) (*CommsConfig, *portChannel, *CommsRuntime, *mockReader) {
+func newIntegrationReceiver(t *testing.T) (*CommsConfig, *PortChannel, *CommsRuntime, *mockReader) {
 	t.Helper()
 
 	reader := newMockReader()
 
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: rtp.NewSwappableReceiver(reader),
-		jitter:   rtp.NewJitterBuffer(rtp.PrebufferPackets, rtp.MaxDepth),
+		Receiver: rtp.NewSwappableReceiver(reader),
+		Jitter:   rtp.NewJitterBuffer(rtp.PrebufferPackets, rtp.MaxDepth),
 	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
 
 	rt := &CommsRuntime{
-		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{fillValue: 1234, returnN: int(rtp.FrameSamples)},
+		Ports:   []*PortChannel{pc},
+		Decoder: &mockDecoder{fillValue: 1234, returnN: int(rtp.FrameSamples)},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
@@ -91,7 +91,7 @@ func newIntegrationReceiver(t *testing.T) (*CommsConfig, *portChannel, *CommsRun
 // buffer until non-zero samples appear or the deadline is reached. It mirrors
 // what the PortAudio output callback does in production at the 20 ms
 // hardware tick rate.
-func pollDecodedFrame(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime, timeout time.Duration) bool {
+func pollDecodedFrame(cfg *CommsConfig, pc *PortChannel, rt *CommsRuntime, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	out := make([]int16, frameSize)
 
@@ -100,7 +100,7 @@ func pollDecodedFrame(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime, timeo
 			out[i] = 0
 		}
 
-		cfg.playoutOneFrame(pc, rt, pc.jitter, out)
+		cfg.playoutOneFrame(pc, rt, pc.Jitter, out)
 
 		for _, v := range out {
 			if v != 0 {
@@ -118,16 +118,16 @@ func pollDecodedFrame(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime, timeo
 // has elapsed for the conceal window (~100 ms) plus a margin to expire, so
 // the next pollDecodedFrame call can distinguish "fresh decoded audio" from
 // "leftover concealment". consecutivePLC is also reset.
-func drainConcealmentFrames(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime) {
+func drainConcealmentFrames(cfg *CommsConfig, pc *PortChannel, rt *CommsRuntime) {
 	deadline := time.Now().Add(500 * time.Millisecond)
 	out := make([]int16, frameSize)
 
 	for time.Now().Before(deadline) {
-		cfg.playoutOneFrame(pc, rt, pc.jitter, out)
+		cfg.playoutOneFrame(pc, rt, pc.Jitter, out)
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	pc.consecutivePLC = 0
+	pc.ConsecutivePLC = 0
 }
 
 // pushPackets enqueues raw datagrams onto the mockReader so the next
@@ -174,7 +174,7 @@ func TestIntegration_RTPReceivePath_BasicFlow(t *testing.T) {
 	}
 
 	cancel()
-	pc.receiver.Close()
+	pc.Receiver.Close()
 	<-done
 }
 
@@ -239,7 +239,7 @@ func TestIntegration_RTPReceivePath_SSRCChangeRecovery(t *testing.T) {
 	}
 
 	cancel()
-	pc.receiver.Close()
+	pc.Receiver.Close()
 	<-done
 }
 
@@ -279,17 +279,17 @@ func TestIntegration_RTPReceivePath_SameSSRCStaleStillDropped(t *testing.T) {
 	// did not reset. The stale packet itself is silently dropped at the
 	// seqLess gate inside pushLocked, which is the existing reorder
 	// protection. We assert no SSRC reset was counted.
-	resetsBefore := pc.jitter.SSRCResets.Load()
+	resetsBefore := pc.Jitter.SSRCResets.Load()
 	pushPackets(reader, buildRTPPacket(t, ssrc, 50, []byte{0xDE}))
 
 	// Give the receive loop a moment to process the stale packet.
 	time.Sleep(100 * time.Millisecond)
 
 	cancel()
-	pc.receiver.Close()
+	pc.Receiver.Close()
 	<-done
 
-	if got := pc.jitter.SSRCResets.Load(); got != resetsBefore {
+	if got := pc.Jitter.SSRCResets.Load(); got != resetsBefore {
 		t.Errorf("stale same-SSRC packet should not trigger an SSRC reset; got resets=%d (was %d)",
 			got, resetsBefore)
 	}

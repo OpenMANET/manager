@@ -37,16 +37,16 @@ func makeRTPBytes(t *testing.T, _ uint16) []byte {
 
 func TestReceiveLoop_ExitsOnContextCancel(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: rtp.NewSwappableReceiver(newMockReader()),
+		Receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []int16, 8)
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
+	pc.PlaybackBuffer = make(chan []int16, 8)
 	rt := &CommsRuntime{
-		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{},
+		Ports:   []*PortChannel{pc},
+		Decoder: &mockDecoder{},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -77,16 +77,16 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 	}
 
 	reader := newMockReader(pkts...)
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: rtp.NewSwappableReceiver(reader),
+		Receiver: rtp.NewSwappableReceiver(reader),
 	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []int16, 32)
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
+	pc.PlaybackBuffer = make(chan []int16, 32)
 	rt := &CommsRuntime{
-		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
+		Ports:   []*PortChannel{pc},
+		Decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -107,7 +107,7 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 	}
 
 	cancel()
-	pc.receiver.Close() // unblocks ReadFromUDP in mockReader
+	pc.Receiver.Close() // unblocks ReadFromUDP in mockReader
 
 	select {
 	case <-done:
@@ -124,17 +124,17 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 func TestPlayoutOneFrame_SuppressedDuringBroadcastOnSendPort(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg: McastPortConfig{Send: true, Receive: true},
 	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
 
 	rt := &CommsRuntime{
-		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{fillValue: 42, returnN: frameSize},
+		Ports:   []*PortChannel{pc},
+		Decoder: &mockDecoder{fillValue: 42, returnN: frameSize},
 	}
-	rt.broadcasting.Store(true)
+	rt.Broadcasting.Store(true)
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0xAA, 0xBB})
@@ -154,14 +154,14 @@ func TestPlayoutOneFrame_SuppressedDuringBroadcastOnSendPort(t *testing.T) {
 func TestPlayoutOneFrame_DecodesPayloadIntoOut(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg: McastPortConfig{Send: true, Receive: true},
 	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
 
 	dec := &mockDecoder{fillValue: 42, returnN: frameSize}
-	rt := &CommsRuntime{decoder: dec}
+	rt := &CommsRuntime{Decoder: dec}
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{1, 2, 3})
@@ -184,14 +184,14 @@ func TestPlayoutOneFrame_DecodesPayloadIntoOut(t *testing.T) {
 func TestPlayoutOneFrame_PLCFillsOut(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg: McastPortConfig{Send: true, Receive: true},
 	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
 
 	dec := &mockDecoder{fillValue: 10, returnN: frameSize}
-	rt := &CommsRuntime{decoder: dec}
+	rt := &CommsRuntime{Decoder: dec}
 
 	// Push and pop to set started=true and a recent lastPush; the next
 	// playoutOneFrame call will hit the conceal branch and call the decoder
@@ -356,13 +356,13 @@ func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {
 	oldReceiver := &trackingReader{}
 	oldRTCP := &mockClosingWriter{}
 
-	pc := &portChannel{
-		sender:   rtp.NewSwappableSender(oldSender),
-		rtcpSend: rtp.NewSwappableSender(oldRTCP),
-		receiver: rtp.NewSwappableReceiver(oldReceiver),
+	pc := &PortChannel{
+		Sender:   rtp.NewSwappableSender(oldSender),
+		RTCPSend: rtp.NewSwappableSender(oldRTCP),
+		Receiver: rtp.NewSwappableReceiver(oldReceiver),
 	}
 	rt := &CommsRuntime{
-		ports: []*portChannel{pc},
+		Ports: []*PortChannel{pc},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -393,45 +393,45 @@ func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {
 }
 
 func TestReplaceNetwork_StoresNewLocalIP(t *testing.T) {
-	pc := &portChannel{
-		sender:   rtp.NewSwappableSender(&mockWriter{}),
-		rtcpSend: rtp.NewSwappableSender(&mockWriter{}),
-		receiver: rtp.NewSwappableReceiver(newMockReader()),
+	pc := &PortChannel{
+		Sender:   rtp.NewSwappableSender(&mockWriter{}),
+		RTCPSend: rtp.NewSwappableSender(&mockWriter{}),
+		Receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
 	rt := &CommsRuntime{
-		ports: []*portChannel{pc},
+		Ports: []*PortChannel{pc},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	cfg.replaceNetwork(rt, &mockWriter{}, &mockWriter{}, newMockReader(), "10.0.0.2")
 
-	v, ok := rt.localIP.Load(), rt.localIP.Load() != nil
+	v, ok := rt.LocalIP.Load(), rt.LocalIP.Load() != nil
 	if !ok || *v != "10.0.0.2" {
-		t.Errorf("localIP: got %v, want 10.0.0.2", rt.localIP.Load())
+		t.Errorf("localIP: got %v, want 10.0.0.2", rt.LocalIP.Load())
 	}
 }
 
 func TestReplaceNetwork_NewWriterReceivesSubsequentWrites(t *testing.T) {
 	newSender := &mockWriter{}
 
-	pc := &portChannel{
-		sender:   rtp.NewSwappableSender(&mockWriter{}),
-		rtcpSend: rtp.NewSwappableSender(&mockWriter{}),
-		receiver: rtp.NewSwappableReceiver(newMockReader()),
+	pc := &PortChannel{
+		Sender:   rtp.NewSwappableSender(&mockWriter{}),
+		RTCPSend: rtp.NewSwappableSender(&mockWriter{}),
+		Receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
 	rt := &CommsRuntime{
-		ports: []*portChannel{pc},
+		Ports: []*PortChannel{pc},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	cfg.replaceNetwork(rt, newSender, &mockWriter{}, newMockReader(), "10.0.0.3")
 
-	if _, err := pc.sender.Write([]byte{1, 2, 3}); err != nil {
+	if _, err := pc.Sender.Write([]byte{1, 2, 3}); err != nil {
 		t.Fatal(err)
 	}
 
 	if len(newSender.Packets) != 1 {
-		t.Errorf("new sender: got %d packets, want 1", len(newSender.Packets))
+		t.Errorf("new Sender: got %d packets, want 1", len(newSender.Packets))
 	}
 }
 
@@ -455,13 +455,13 @@ func TestGetActiveMulticastAddr_ReturnsConfiguredAddr(t *testing.T) {
 		Log:        zerolog.Nop(),
 		McastPorts: []McastPortConfig{{Address: want, Port: 5004, Send: true, Receive: true}},
 	}
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg:      cfg.McastPorts[0],
-		sender:   rtp.NewSwappableSender(&mockWriter{}),
-		receiver: rtp.NewSwappableReceiver(newMockReader()),
+		Sender:   rtp.NewSwappableSender(&mockWriter{}),
+		Receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
 	cfg.runtime = &CommsRuntime{
-		ports: []*portChannel{pc},
+		Ports: []*PortChannel{pc},
 	}
 
 	SetDefault(cfg)
@@ -482,13 +482,13 @@ func TestGetActiveMulticastAddr_ReflectsUpdate(t *testing.T) {
 		Log:        zerolog.Nop(),
 		McastPorts: []McastPortConfig{{Address: initial, Port: 5004, Send: true, Receive: true}},
 	}
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg:      cfg.McastPorts[0],
-		sender:   rtp.NewSwappableSender(&mockWriter{}),
-		receiver: rtp.NewSwappableReceiver(newMockReader()),
+		Sender:   rtp.NewSwappableSender(&mockWriter{}),
+		Receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
 	cfg.runtime = &CommsRuntime{
-		ports: []*portChannel{pc},
+		Ports: []*PortChannel{pc},
 	}
 
 	SetDefault(cfg)
@@ -550,13 +550,13 @@ func TestGetActiveMulticastPort_ReturnsConfiguredPort(t *testing.T) {
 		Log:        zerolog.Nop(),
 		McastPorts: []McastPortConfig{{Address: "239.1.2.3", Port: want, Send: true, Receive: true}},
 	}
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg:      cfg.McastPorts[0],
-		sender:   rtp.NewSwappableSender(&mockWriter{}),
-		receiver: rtp.NewSwappableReceiver(newMockReader()),
+		Sender:   rtp.NewSwappableSender(&mockWriter{}),
+		Receiver: rtp.NewSwappableReceiver(newMockReader()),
 	}
 	cfg.runtime = &CommsRuntime{
-		ports: []*portChannel{pc},
+		Ports: []*PortChannel{pc},
 	}
 
 	SetDefault(cfg)
@@ -732,22 +732,22 @@ func TestApplyDefaults_ROIPExplicitValuesPreserved(t *testing.T) {
 func setupActiveConfigWithPorts(t *testing.T, n int) *CommsConfig {
 	t.Helper()
 
-	ports := make([]*portChannel, n)
+	ports := make([]*PortChannel, n)
 	mcastPorts := make([]McastPortConfig, n)
 
 	for i := 0; i < n; i++ {
-		ports[i] = &portChannel{
+		ports[i] = &PortChannel{
 			cfg: McastPortConfig{Address: "239.0.0.1", Port: 5004 + i*2},
 		}
-		ports[i].sendEnabled.Store(true)
-		ports[i].receiveEnabled.Store(true)
+		ports[i].SendEnabled.Store(true)
+		ports[i].ReceiveEnabled.Store(true)
 		mcastPorts[i] = ports[i].cfg
 	}
 
 	cfg := &CommsConfig{
 		Log:        zerolog.Nop(),
 		McastPorts: mcastPorts,
-		runtime:    &CommsRuntime{ports: ports},
+		runtime:    &CommsRuntime{Ports: ports},
 	}
 
 	SetDefault(cfg)
@@ -763,7 +763,7 @@ func TestEnableTalkGroupSend_TogglesState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if cfg.runtime.ports[1].sendEnabled.Load() {
+	if cfg.runtime.Ports[1].SendEnabled.Load() {
 		t.Error("send should be disabled")
 	}
 
@@ -771,7 +771,7 @@ func TestEnableTalkGroupSend_TogglesState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !cfg.runtime.ports[1].sendEnabled.Load() {
+	if !cfg.runtime.Ports[1].SendEnabled.Load() {
 		t.Error("send should be enabled")
 	}
 }
@@ -783,7 +783,7 @@ func TestEnableTalkGroupReceive_TogglesState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if cfg.runtime.ports[0].receiveEnabled.Load() {
+	if cfg.runtime.Ports[0].ReceiveEnabled.Load() {
 		t.Error("receive should be disabled")
 	}
 }
@@ -808,7 +808,7 @@ func TestGetWebAudioBridge_NotRunning(t *testing.T) {
 
 func TestGetWebEventSource_ReturnsNilWhenNoWebSource(t *testing.T) {
 	cfg := setupActiveConfigWithPorts(t, 1)
-	cfg.runtime.webEvtSrc = nil
+	cfg.runtime.WebEvtSrc = nil
 
 	if got := GetWebEventSource(); got != nil {
 		t.Errorf("expected nil when web source not configured, got %v", got)
@@ -817,7 +817,7 @@ func TestGetWebEventSource_ReturnsNilWhenNoWebSource(t *testing.T) {
 
 func TestGetWebAudioBridge_ReturnsNilWhenNoBridge(t *testing.T) {
 	cfg := setupActiveConfigWithPorts(t, 1)
-	cfg.runtime.webBridge = nil
+	cfg.runtime.WebBridge = nil
 
 	if got := GetWebAudioBridge(); got != nil {
 		t.Errorf("expected nil when bridge not configured, got %v", got)

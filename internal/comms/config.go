@@ -15,18 +15,18 @@ import (
 // CommsRuntime holds live resources allocated by Start. All audio/network
 // fields are interfaces so that unit tests can inject fakes without hardware.
 type CommsRuntime struct {
-	decoder         AudioDecoder
-	encoder         AudioEncoder
-	broadcastStream AudioStream
-	webBridge       *WebAudioBridge
-	webEvtSrc       *webEventSource
-	localIP         atomic.Pointer[string]
-	reopenBroadcast func() error
-	broadcastTap    atomic.Pointer[chan []float32]
-	ports           []*portChannel
-	beepBufferStart []int16
-	beepBufferStop  []int16
-	broadcasting    atomic.Bool
+	Decoder         AudioDecoder
+	Encoder         AudioEncoder
+	BroadcastStream AudioStream
+	WebBridge       *WebAudioBridge
+	WebEvtSrc       *webEventSource
+	LocalIP         atomic.Pointer[string]
+	ReopenBroadcast func() error
+	BroadcastTap    atomic.Pointer[chan []float32]
+	Ports           []*PortChannel
+	BeepBufferStart []int16
+	BeepBufferStop  []int16
+	Broadcasting    atomic.Bool
 }
 
 // ─── CommsConfig ──────────────────────────────────────────────────────────────

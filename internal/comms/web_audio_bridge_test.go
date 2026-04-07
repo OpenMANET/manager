@@ -11,14 +11,14 @@ func TestWebAudioBridge_InjectTxFrame_SendsToAllPorts(t *testing.T) {
 	rtp0 := &mockRTPSender{}
 	rtp1 := &mockRTPSender{}
 
-	pc0 := &portChannel{cfg: McastPortConfig{Send: true}, rtpSess: rtp0}
-	pc0.sendEnabled.Store(true)
+	pc0 := &PortChannel{cfg: McastPortConfig{Send: true}, RTPSess: rtp0}
+	pc0.SendEnabled.Store(true)
 
-	pc1 := &portChannel{cfg: McastPortConfig{Send: true}, rtpSess: rtp1}
-	pc1.sendEnabled.Store(true)
+	pc1 := &PortChannel{cfg: McastPortConfig{Send: true}, RTPSess: rtp1}
+	pc1.SendEnabled.Store(true)
 
 	cfg := newSilentComms()
-	rt := &CommsRuntime{ports: []*portChannel{pc0, pc1}}
+	rt := &CommsRuntime{Ports: []*PortChannel{pc0, pc1}}
 	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
 
 	payload := []byte{0xDE, 0xAD, 0xBE, 0xEF}
@@ -39,14 +39,14 @@ func TestWebAudioBridge_InjectTxFrame_SkipsDisabledPorts(t *testing.T) {
 	rtp0 := &mockRTPSender{}
 	rtp1 := &mockRTPSender{}
 
-	pc0 := &portChannel{cfg: McastPortConfig{Send: true}, rtpSess: rtp0}
-	pc0.sendEnabled.Store(true)
+	pc0 := &PortChannel{cfg: McastPortConfig{Send: true}, RTPSess: rtp0}
+	pc0.SendEnabled.Store(true)
 
-	pc1 := &portChannel{cfg: McastPortConfig{Send: true}, rtpSess: rtp1}
-	pc1.sendEnabled.Store(false) // disabled
+	pc1 := &PortChannel{cfg: McastPortConfig{Send: true}, RTPSess: rtp1}
+	pc1.SendEnabled.Store(false) // disabled
 
 	cfg := newSilentComms()
-	rt := &CommsRuntime{ports: []*portChannel{pc0, pc1}}
+	rt := &CommsRuntime{Ports: []*PortChannel{pc0, pc1}}
 	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
 
 	bridge.InjectTxFrame([]byte{0x01})

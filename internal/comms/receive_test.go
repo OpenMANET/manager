@@ -13,16 +13,16 @@ import (
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-func newReceiveRuntime() (*CommsRuntime, *portChannel) {
-	pc := &portChannel{
+func newReceiveRuntime() (*CommsRuntime, *PortChannel) {
+	pc := &PortChannel{
 		cfg: McastPortConfig{Send: true, Receive: true},
 	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []int16, 4)
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
+	pc.PlaybackBuffer = make(chan []int16, 4)
 	rt := &CommsRuntime{
-		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
+		Ports:   []*PortChannel{pc},
+		Decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
 	}
 
 	return rt, pc
@@ -44,7 +44,7 @@ func isAllZero(out []int16) bool {
 
 // driveOneFrame is a small helper for tests that need to call playoutOneFrame
 // against a fresh PCM output buffer of the standard frame size.
-func driveOneFrame(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime, jb *RTPJitterBuffer) []int16 {
+func driveOneFrame(cfg *CommsConfig, pc *PortChannel, rt *CommsRuntime, jb *RTPJitterBuffer) []int16 {
 	out := make([]int16, frameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
@@ -53,7 +53,7 @@ func driveOneFrame(cfg *CommsConfig, pc *portChannel, rt *CommsRuntime, jb *RTPJ
 
 func TestPlayoutOneFrame_DecodesPayload(t *testing.T) {
 	rt, pc := newReceiveRuntime()
-	rt.decoder = &mockDecoder{fillValue: 1234, returnN: frameSize}
+	rt.Decoder = &mockDecoder{fillValue: 1234, returnN: frameSize}
 
 	jb := rtp.NewJitterBuffer(1, 10) // prebuffer=1: first push triggers start
 	jb.Push(0, []byte{0xAA, 0xBB})
@@ -65,8 +65,8 @@ func TestPlayoutOneFrame_DecodesPayload(t *testing.T) {
 		t.Fatal("expected decoded samples, got silence")
 	}
 
-	if pc.consecutivePLC != 0 {
-		t.Errorf("consecutivePLC should be 0 after a decoded payload; got %d", pc.consecutivePLC)
+	if pc.ConsecutivePLC != 0 {
+		t.Errorf("consecutivePLC should be 0 after a decoded payload; got %d", pc.ConsecutivePLC)
 	}
 }
 
@@ -77,7 +77,7 @@ func TestPlayoutOneFrame_PLCOnSkippedMissing(t *testing.T) {
 	// len >= maxDepth/2) so popOrConceal returns conceal=true → PLC must
 	// be invoked via the decoder with nil payload.
 	rt, pc := newReceiveRuntime()
-	rt.decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
+	rt.Decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
 
 	jb := rtp.NewJitterBuffer(1, 4)
 
@@ -94,8 +94,8 @@ func TestPlayoutOneFrame_PLCOnSkippedMissing(t *testing.T) {
 		t.Fatal("expected a PLC frame when jitter buffer skips missing seq, got silence")
 	}
 
-	if pc.consecutivePLC != 1 {
-		t.Errorf("consecutivePLC should be 1 after one PLC frame; got %d", pc.consecutivePLC)
+	if pc.ConsecutivePLC != 1 {
+		t.Errorf("consecutivePLC should be 1 after one PLC frame; got %d", pc.ConsecutivePLC)
 	}
 }
 
@@ -104,7 +104,7 @@ func TestPlayoutOneFrame_PLCOnConceal(t *testing.T) {
 	// The jitter buffer is then empty, so shouldConceal fires on the next
 	// playoutOneFrame call and the decoder is invoked with nil payload.
 	rt, pc := newReceiveRuntime()
-	rt.decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
+	rt.Decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
 
 	jb := rtp.NewJitterBuffer(1, 10)
 
@@ -118,8 +118,8 @@ func TestPlayoutOneFrame_PLCOnConceal(t *testing.T) {
 		t.Fatal("expected a PLC concealment frame while stream is active but empty, got silence")
 	}
 
-	if pc.consecutivePLC != 1 {
-		t.Errorf("consecutivePLC should increment to 1 after concealment; got %d", pc.consecutivePLC)
+	if pc.ConsecutivePLC != 1 {
+		t.Errorf("consecutivePLC should increment to 1 after concealment; got %d", pc.ConsecutivePLC)
 	}
 }
 
@@ -128,7 +128,7 @@ func TestPlayoutOneFrame_SilenceAfterMaxPLC(t *testing.T) {
 	// silence rather than calling the (now degraded) decoder PLC.
 	rt, pc := newReceiveRuntime()
 	dec := &mockDecoder{fillValue: 99, returnN: frameSize}
-	rt.decoder = dec
+	rt.Decoder = dec
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0})
@@ -155,7 +155,7 @@ func TestPlayoutOneFrame_SilenceAfterMaxPLC(t *testing.T) {
 
 func TestPlayoutOneFrame_SilenceWhenBroadcasting(t *testing.T) {
 	rt, pc := newReceiveRuntime()
-	rt.broadcasting.Store(true) // isBroadcasting will return true; pc.sendEnabled=true → suppress
+	rt.Broadcasting.Store(true) // isBroadcasting will return true; pc.SendEnabled=true → suppress
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0xAA, 0xBB})
@@ -170,7 +170,7 @@ func TestPlayoutOneFrame_SilenceWhenBroadcasting(t *testing.T) {
 
 func TestPlayoutOneFrame_SilenceWhenReceiveDisabled(t *testing.T) {
 	rt, pc := newReceiveRuntime()
-	pc.receiveEnabled.Store(false)
+	pc.ReceiveEnabled.Store(false)
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0xAA})
@@ -192,8 +192,8 @@ func TestPlayoutOneFrame_NilJitter(t *testing.T) {
 		t.Errorf("playoutOneFrame with nil jitter should emit silence; got non-zero samples")
 	}
 
-	if pc.playbackUnderruns.Load() != 0 {
-		t.Errorf("nil jitter should not count as underrun; got %d", pc.playbackUnderruns.Load())
+	if pc.PlaybackUnderruns.Load() != 0 {
+		t.Errorf("nil jitter should not count as underrun; got %d", pc.PlaybackUnderruns.Load())
 	}
 }
 
@@ -210,15 +210,15 @@ func TestPlayoutOneFrame_NoUnderrunOnIdleStream(t *testing.T) {
 		t.Errorf("expected silence on idle stream; got non-zero samples")
 	}
 
-	if pc.playbackUnderruns.Load() != 0 {
-		t.Errorf("idle stream should not increment playbackUnderruns; got %d", pc.playbackUnderruns.Load())
+	if pc.PlaybackUnderruns.Load() != 0 {
+		t.Errorf("idle stream should not increment playbackUnderruns; got %d", pc.PlaybackUnderruns.Load())
 	}
 }
 
 func TestPlayoutOneFrame_UnderrunOnDecoderError(t *testing.T) {
 	// Decoder returning an error AND PLC also failing → silence + underrun++.
 	rt, pc := newReceiveRuntime()
-	rt.decoder = &mockDecoder{decodeErr: errors.New("bad decode")}
+	rt.Decoder = &mockDecoder{decodeErr: errors.New("bad decode")}
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0xAA, 0xBB})
@@ -230,8 +230,8 @@ func TestPlayoutOneFrame_UnderrunOnDecoderError(t *testing.T) {
 		t.Errorf("expected silence on decoder error; got non-zero samples")
 	}
 
-	if pc.playbackUnderruns.Load() != 1 {
-		t.Errorf("expected playbackUnderruns=1 after decoder error; got %d", pc.playbackUnderruns.Load())
+	if pc.PlaybackUnderruns.Load() != 1 {
+		t.Errorf("expected playbackUnderruns=1 after decoder error; got %d", pc.PlaybackUnderruns.Load())
 	}
 }
 
@@ -239,7 +239,7 @@ func TestPlayoutOneFrame_DecoderErrorPLCFallback(t *testing.T) {
 	// Real decode fails but PLC succeeds → playoutOneFrame should emit the
 	// PLC samples, reset consecutivePLC, and NOT count an underrun.
 	rt, pc := newReceiveRuntime()
-	rt.decoder = &mockDecoder{
+	rt.Decoder = &mockDecoder{
 		decodeErr: errors.New("bad decode"),
 		plcOK:     true,
 		returnN:   frameSize,
@@ -256,8 +256,8 @@ func TestPlayoutOneFrame_DecoderErrorPLCFallback(t *testing.T) {
 		t.Errorf("expected PLC samples on decoder error fallback; got silence")
 	}
 
-	if pc.playbackUnderruns.Load() != 0 {
-		t.Errorf("PLC fallback success should not count as underrun; got %d", pc.playbackUnderruns.Load())
+	if pc.PlaybackUnderruns.Load() != 0 {
+		t.Errorf("PLC fallback success should not count as underrun; got %d", pc.PlaybackUnderruns.Load())
 	}
 }
 
@@ -276,19 +276,19 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 	}
 
 	reader := newMockReader(pkts...)
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: rtp.NewSwappableReceiver(reader),
+		Receiver: rtp.NewSwappableReceiver(reader),
 	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []int16, 16)
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
+	pc.PlaybackBuffer = make(chan []int16, 16)
 	rt := &CommsRuntime{
-		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
+		Ports:   []*PortChannel{pc},
+		Decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
 	}
 	s := localIP.String()
-	rt.localIP.Store(&s)
+	rt.LocalIP.Store(&s)
 
 	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: false}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -313,7 +313,7 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 	time.Sleep(60 * time.Millisecond) // allow one playout tick
 
 	cancel()
-	pc.receiver.Close()
+	pc.Receiver.Close()
 
 	select {
 	case <-done:
@@ -321,9 +321,9 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 		t.Fatal("receiveLoop did not exit")
 	}
 
-	if len(pc.playbackBuffer) != 0 {
+	if len(pc.PlaybackBuffer) != 0 {
 		t.Errorf("own packets should be dropped; got %d frames in buffer",
-			len(pc.playbackBuffer))
+			len(pc.PlaybackBuffer))
 	}
 }
 
@@ -332,16 +332,16 @@ func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 	garbled := mockPacket{data: []byte{0xFF, 0x00, 0x01}, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}}
 	reader := newMockReader(garbled)
 
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: rtp.NewSwappableReceiver(reader),
+		Receiver: rtp.NewSwappableReceiver(reader),
 	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []int16, 8)
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
+	pc.PlaybackBuffer = make(chan []int16, 8)
 	rt := &CommsRuntime{
-		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{},
+		Ports:   []*PortChannel{pc},
+		Decoder: &mockDecoder{},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
@@ -366,7 +366,7 @@ func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 
 	// The loop survived; cancel and ensure clean shutdown.
 	cancel()
-	pc.receiver.Close()
+	pc.Receiver.Close()
 
 	select {
 	case <-done:
@@ -389,10 +389,10 @@ func TestIsReceivingRemote_FalseWhenNeverReceived(t *testing.T) {
 
 func TestIsReceivingRemote_TrueWhenRecent(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
-	pc.sendEnabled.Store(true)
-	pc.rxGate.mark()
-	rt := &CommsRuntime{ports: []*portChannel{pc}}
+	pc := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc.SendEnabled.Store(true)
+	pc.RxGate.Mark()
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
 
 	if !cfg.isReceivingRemote(rt) {
 		t.Error("expected true when a packet was just received")
@@ -401,11 +401,11 @@ func TestIsReceivingRemote_TrueWhenRecent(t *testing.T) {
 
 func TestIsReceivingRemote_FalseWhenStale(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
-	pc := &portChannel{cfg: McastPortConfig{Send: true, Receive: true}}
-	pc.sendEnabled.Store(true)
+	pc := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
+	pc.SendEnabled.Store(true)
 	// Store a timestamp older than rxActiveThreshold.
-	pc.rxGate.markAt(time.Now().Add(-(rxActiveThreshold + time.Second)))
-	rt := &CommsRuntime{ports: []*portChannel{pc}}
+	pc.RxGate.MarkAt(time.Now().Add(-(rxActiveThreshold + time.Second)))
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
 
 	if cfg.isReceivingRemote(rt) {
 		t.Error("expected false when last received packet is older than rxActiveThreshold")
@@ -417,16 +417,16 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 
 	raw := makeRTPBytes(t, 0)
 	reader := newMockReader(mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: rtp.NewSwappableReceiver(reader),
+		Receiver: rtp.NewSwappableReceiver(reader),
 	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []int16, 32)
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
+	pc.PlaybackBuffer = make(chan []int16, 32)
 	rt := &CommsRuntime{
-		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
+		Ports:   []*PortChannel{pc},
+		Decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -448,11 +448,11 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 	}
 
 	cancel()
-	pc.receiver.Close()
+	pc.Receiver.Close()
 
 	<-done
 
-	if pc.rxGate.lastUnixNano() == 0 {
+	if pc.RxGate.LastUnixNano() == 0 {
 		t.Error("expected rxGate to be marked after receiving a remote packet")
 	}
 }
@@ -505,17 +505,17 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 
 	reader2 := newMockReader(pkts2...)
 
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
-		receiver: rtp.NewSwappableReceiver(reader1),
+		Receiver: rtp.NewSwappableReceiver(reader1),
 	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
-	pc.playbackBuffer = make(chan []int16, 64)
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
+	pc.PlaybackBuffer = make(chan []int16, 64)
 
 	rt := &CommsRuntime{
-		ports:   []*portChannel{pc},
-		decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
+		Ports:   []*PortChannel{pc},
+		Decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -542,14 +542,14 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 	}
 
 	// Drain any frames already queued from reader1.
-	for len(pc.playbackBuffer) > 0 {
-		<-pc.playbackBuffer
+	for len(pc.PlaybackBuffer) > 0 {
+		<-pc.PlaybackBuffer
 	}
 
 	// Swap in reader2 then close reader1 to unblock the stale ReadFromUDP.
 	// receiveLoop will get net.ErrClosed, call jitter.Reset(), then pick up
 	// reader2 on the next iteration.
-	pc.receiver.Swap(reader2)
+	pc.Receiver.Swap(reader2)
 	reader1.Close()
 
 	// Wait for reader2 packets to be delivered to receiveLoop.
@@ -563,7 +563,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 	}
 
 	cancel()
-	pc.receiver.Close()
+	pc.Receiver.Close()
 
 	select {
 	case <-done:
@@ -590,7 +590,7 @@ func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 	rt, _ := newReceiveRuntime()
 
 	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
-	rt.webBridge = bridge
+	rt.WebBridge = bridge
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0xAA, 0xBB, 0xCC})
@@ -616,16 +616,16 @@ func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 func TestWebPlayoutLoop_MultipleFrames(t *testing.T) {
 	cfg := newSilentComms()
 
-	pc := &portChannel{
+	pc := &PortChannel{
 		cfg: McastPortConfig{Send: true, Receive: true},
 	}
-	pc.sendEnabled.Store(true)
-	pc.receiveEnabled.Store(true)
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
 
-	rt := &CommsRuntime{ports: []*portChannel{pc}}
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
 
 	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
-	rt.webBridge = bridge
+	rt.WebBridge = bridge
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	for i := 0; i < 5; i++ {
@@ -657,8 +657,8 @@ func TestWebPlayoutLoop_DeliversWhileBroadcasting(t *testing.T) {
 	rt, _ := newReceiveRuntime()
 
 	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
-	rt.webBridge = bridge
-	rt.broadcasting.Store(true)
+	rt.WebBridge = bridge
+	rt.Broadcasting.Store(true)
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0x01})
@@ -683,7 +683,7 @@ func TestPlayoutOneFrame_ConsecutivePLCLimit(t *testing.T) {
 	// but all subsequent frames are missing. playoutOneFrame should emit
 	// exactly maxConsecutivePLC PLC frames followed by silence.
 	rt, pc := newReceiveRuntime()
-	rt.decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
+	rt.Decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0})
@@ -712,7 +712,7 @@ func TestPlayoutOneFrame_ConsecutivePLCResets(t *testing.T) {
 	// After a burst of PLC, decoding a real frame should reset the
 	// consecutivePLC counter so a subsequent gap produces PLC again.
 	rt, pc := newReceiveRuntime()
-	rt.decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
+	rt.Decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0})
@@ -726,7 +726,7 @@ func TestPlayoutOneFrame_ConsecutivePLCResets(t *testing.T) {
 		_ = driveOneFrame(cfg, pc, rt, jb)
 	}
 
-	if pc.consecutivePLC == 0 {
+	if pc.ConsecutivePLC == 0 {
 		t.Fatal("expected consecutivePLC > 0 after PLC frames")
 	}
 
@@ -740,8 +740,8 @@ func TestPlayoutOneFrame_ConsecutivePLCResets(t *testing.T) {
 		t.Fatal("expected decoded samples after pushing real frame")
 	}
 
-	if pc.consecutivePLC != 0 {
-		t.Errorf("consecutivePLC should reset to 0 after a real frame; got %d", pc.consecutivePLC)
+	if pc.ConsecutivePLC != 0 {
+		t.Errorf("consecutivePLC should reset to 0 after a real frame; got %d", pc.ConsecutivePLC)
 	}
 }
 

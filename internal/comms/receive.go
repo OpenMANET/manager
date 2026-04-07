@@ -43,7 +43,7 @@ func zeroInt16(out []int16) {
 
 // rxActiveThreshold is retained as the historical alias for the default
 // half-duplex threshold. New code should use defaultHalfDuplexThreshold or
-// the per-port halfDuplexGate threshold.
+// the per-port HalfDuplexGate threshold.
 const rxActiveThreshold = defaultHalfDuplexThreshold
 
 // isReceivingRemote returns true when a valid RTP packet was received from a
@@ -51,12 +51,12 @@ const rxActiveThreshold = defaultHalfDuplexThreshold
 // the receive-side component of half-duplex: transmission must not begin
 // while a shared send+receive channel is actively carrying incoming audio.
 func (cfg *CommsConfig) isReceivingRemote(rt *CommsRuntime) bool {
-	for _, pc := range rt.ports {
-		if !pc.sendEnabled.Load() {
+	for _, pc := range rt.Ports {
+		if !pc.SendEnabled.Load() {
 			continue
 		}
 
-		if pc.rxGate.active() {
+		if pc.RxGate.Active() {
 			return true
 		}
 	}
@@ -66,7 +66,7 @@ func (cfg *CommsConfig) isReceivingRemote(rt *CommsRuntime) bool {
 
 // ─── Receive path ─────────────────────────────────────────────────────────────
 
-// receiveLoop reads datagrams from pc.receiver, parses them as RTP packets
+// receiveLoop reads datagrams from pc.Receiver, parses them as RTP packets
 // using pion/rtp, and pushes the payloads into the per-port jitter buffer.
 //
 // In non-web mode the PortAudio output callback is the consumer (driven by
@@ -74,24 +74,24 @@ func (cfg *CommsConfig) isReceivingRemote(rt *CommsRuntime) bool {
 // stripped-down webPlayoutLoop forwards raw Opus payloads to the WebAudioBridge.
 //
 // The loop discards packets from our own IP (loopback prevention) unless
-// cfg.Loopback is true, and skips queuing frames when pc.receiveEnabled is false.
-func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *CommsRuntime) { //nolint:gocognit
+// cfg.Loopback is true, and skips queuing frames when pc.ReceiveEnabled is false.
+func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *CommsRuntime) { //nolint:gocognit
 	buf := make([]byte, 1500)
 
-	// pc.jitter is allocated in buildSinglePortChannel for receive-capable
-	// ports. Test code that constructs portChannel directly may leave it
+	// pc.Jitter is allocated in buildSinglePortChannel for receive-capable
+	// ports. Test code that constructs PortChannel directly may leave it
 	// nil, in which case we allocate one here so the loop is self-sufficient.
-	if pc.jitter == nil {
-		pc.jitter = rtp.NewJitterBuffer(rtp.PrebufferPackets, rtp.MaxDepth)
+	if pc.Jitter == nil {
+		pc.Jitter = rtp.NewJitterBuffer(rtp.PrebufferPackets, rtp.MaxDepth)
 	}
 
-	jitter := pc.jitter
+	jitter := pc.Jitter
 
-	if rt.webBridge != nil {
+	if rt.WebBridge != nil {
 		go cfg.webPlayoutLoop(ctx, jitter, rt)
 	}
 
-	// cachedLocalIP caches the parsed form of rt.localIP so that the loopback
+	// cachedLocalIP caches the parsed form of rt.LocalIP so that the loopback
 	// filter can use a byte-level net.IP.Equal comparison instead of calling
 	// src.IP.String() (which allocates) on every received packet. The cached
 	// value is refreshed only when the string changes (i.e. on endpoint swap).
@@ -107,7 +107,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 		default:
 		}
 
-		n, src, err := pc.receiver.ReadFromUDP(buf)
+		n, src, err := pc.Receiver.ReadFromUDP(buf)
 		if err != nil {
 			select {
 			case <-ctx.Done():
@@ -129,7 +129,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 			}
 		}
 
-		if p := rt.localIP.Load(); p != nil {
+		if p := rt.LocalIP.Load(); p != nil {
 			if s := *p; s != cachedLocalIPStr {
 				cachedLocalIPStr = s
 				cachedLocalIP = net.ParseIP(s)
@@ -165,12 +165,12 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 		}
 
 		// Skip payload delivery when receive is disabled at runtime.
-		if !pc.receiveEnabled.Load() {
+		if !pc.ReceiveEnabled.Load() {
 			continue
 		}
 
 		// Record the arrival time for half-duplex enforcement.
-		pc.rxGate.mark()
+		pc.RxGate.Mark()
 
 		// Pass the pion payload directly to the jitter buffer; push()
 		// performs its own defensive copy so a separate copy here is
@@ -207,19 +207,19 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *portChannel, rt *Co
 // play back. Web mode is irrelevant here because the PortAudio callback is
 // not opened in web mode at all (web RX uses webPlayoutLoop instead).
 //
-// State: pc.consecutivePLC is owned exclusively by the callback closure for
+// State: pc.ConsecutivePLC is owned exclusively by the callback closure for
 // this port. Each port has its own PortAudio output stream running on its own
 // audio thread, so the field is single-writer. Tests must respect this by
 // not invoking playoutOneFrame concurrently with the production callback.
-func (cfg *CommsConfig) playoutOneFrame(pc *portChannel, rt *CommsRuntime, jitter *RTPJitterBuffer, out []int16) {
+func (cfg *CommsConfig) playoutOneFrame(pc *PortChannel, rt *CommsRuntime, jitter *RTPJitterBuffer, out []int16) {
 	// Half-duplex: emit silence while broadcasting on a send-capable port.
-	if cfg.isBroadcasting(rt) && pc.sendEnabled.Load() {
+	if cfg.isBroadcasting(rt) && pc.SendEnabled.Load() {
 		zeroInt16(out)
 
 		return
 	}
 
-	if !pc.receiveEnabled.Load() {
+	if !pc.ReceiveEnabled.Load() {
 		zeroInt16(out)
 
 		return
@@ -233,22 +233,22 @@ func (cfg *CommsConfig) playoutOneFrame(pc *portChannel, rt *CommsRuntime, jitte
 
 	payload, conceal := jitter.PopOrConceal(concealRecentWindow)
 	if payload != nil {
-		n, err := rt.decoder.DecodeS16(payload, out)
+		n, err := rt.Decoder.DecodeS16(payload, out)
 		jitter.ReleasePayload(payload)
 
 		if err != nil {
 			cfg.Log.Debug().Err(err).Msg("comms: opus decode error; falling back to PLC")
 
 			// Try PLC into the same buffer.
-			n, err = rt.decoder.DecodeS16(nil, out)
+			n, err = rt.Decoder.DecodeS16(nil, out)
 			if err != nil || n != len(out) {
 				zeroInt16(out)
-				pc.playbackUnderruns.Add(1)
+				pc.PlaybackUnderruns.Add(1)
 
 				return
 			}
 
-			pc.consecutivePLC = 0
+			pc.ConsecutivePLC = 0
 
 			return
 		}
@@ -263,19 +263,19 @@ func (cfg *CommsConfig) playoutOneFrame(pc *portChannel, rt *CommsRuntime, jitte
 			cfg.Log.Trace().Msgf("comms: decoded %d samples", n)
 		}
 
-		pc.consecutivePLC = 0
+		pc.ConsecutivePLC = 0
 
 		return
 	}
 
 	if conceal {
-		pc.consecutivePLC++
-		if pc.consecutivePLC <= maxConsecutivePLC {
+		pc.ConsecutivePLC++
+		if pc.ConsecutivePLC <= maxConsecutivePLC {
 			if cfg.Trace {
-				cfg.Log.Trace().Int("consecutive_plc", pc.consecutivePLC).Msg("comms: jitter buffer gap → PLC")
+				cfg.Log.Trace().Int("consecutive_plc", pc.ConsecutivePLC).Msg("comms: jitter buffer gap → PLC")
 			}
 
-			n, err := rt.decoder.DecodeS16(nil, out)
+			n, err := rt.Decoder.DecodeS16(nil, out)
 			if err != nil || n != len(out) {
 				zeroInt16(out)
 			}
@@ -293,7 +293,7 @@ func (cfg *CommsConfig) playoutOneFrame(pc *portChannel, rt *CommsRuntime, jitte
 	zeroInt16(out)
 }
 
-// webPlayoutLoop is the receive-side consumer used in web mode (rt.webBridge
+// webPlayoutLoop is the receive-side consumer used in web mode (rt.WebBridge
 // non-nil). PortAudio is not active in web mode, so the loop runs on a 20 ms
 // software ticker and forwards raw Opus payloads to the WebAudioBridge for
 // streaming to the browser. PLC, half-duplex enforcement, and decoding all
@@ -316,7 +316,7 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *RTPJitterBuf
 
 		cp := make([]byte, len(payload))
 		copy(cp, payload)
-		rt.webBridge.PushRxFrame(cp)
+		rt.WebBridge.PushRxFrame(cp)
 		jitter.ReleasePayload(payload)
 	}
 }
