@@ -79,6 +79,7 @@ func TestBlueALSAEventName(t *testing.T) {
 		{name: "colon delimiter", msg: "+XEVENT:PTT_DOWN", want: "PTT_DOWN", ok: true},
 		{name: "equals delimiter", msg: "AT+XEVENT=PTT_UP", want: "PTT_UP", ok: true},
 		{name: "comma delimiter", msg: "+XEVENT,PREV_CH", want: "PREV_CH", ok: true},
+		{name: "framed rfcomm packet", msg: "\x11\xef&\x00AT+XEVENT=PTT_DOWN\r\xbf", want: "PTT_DOWN", ok: true},
 		{name: "missing marker", msg: "garbage", want: "", ok: false},
 	}
 
@@ -134,6 +135,22 @@ func TestBlueALSAJournalEventName(t *testing.T) {
 func TestBlueALSAEventNames(t *testing.T) {
 	got := blueALSAEventNames("\r\n+XEVENT:PTT_DOWN\r\nAT+XEVENT=PTT_UP\r\nignored\r\n")
 	want := []string{"PTT_DOWN", "PTT_UP"}
+	if len(got) != len(want) {
+		t.Fatalf("blueALSAEventNames() len = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("blueALSAEventNames()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBlueALSAEventNames_FramedRFCOMMPackets(t *testing.T) {
+	packet := "\x11\xef&\x00AT+XEVENT=PTT_DOWN\r\xbf\r\n\x11\xef\"\x00AT+XEVENT=PTT_UP\r\xbf\r\n"
+
+	got := blueALSAEventNames(packet)
+	want := []string{"PTT_DOWN", "PTT_UP"}
+
 	if len(got) != len(want) {
 		t.Fatalf("blueALSAEventNames() len = %d, want %d", len(got), len(want))
 	}
@@ -265,7 +282,7 @@ func TestBlueALSAXEventSource_ConsumesRFCOMM(t *testing.T) {
 	src := &blueALSAXEventSource{
 		log: zerolog.Nop(),
 		openRFCOMM: func(*dbus.Conn, dbus.ObjectPath) (io.ReadCloser, error) {
-			return io.NopCloser(strings.NewReader("\r\n+XEVENT:PTT_DOWN\r\nAT+XEVENT=PTT_UP\r\n")), nil
+			return io.NopCloser(strings.NewReader("\x11\xef&\x00AT+XEVENT=PTT_DOWN\r\xbf\r\n\x11\xef\"\x00AT+XEVENT=PTT_UP\r\xbf\r\n")), nil
 		},
 	}
 

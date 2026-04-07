@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/rs/zerolog"
@@ -512,7 +513,7 @@ func blueALSAInterfacesRemovedRFCOMMPath(sig *dbus.Signal) (dbus.ObjectPath, boo
 func blueALSAEventName(msg string) (string, bool) {
 	const marker = "+XEVENT"
 
-	idx := strings.Index(strings.ToUpper(msg), marker)
+	idx := indexASCIIFold(msg, marker)
 	if idx == -1 {
 		return "", false
 	}
@@ -526,7 +527,12 @@ func blueALSAEventName(msg string) (string, bool) {
 		return "", false
 	}
 
-	return strings.ToUpper(parts[0]), true
+	eventName := normalizeBlueALSAEventToken(parts[0])
+	if eventName == "" {
+		return "", false
+	}
+
+	return eventName, true
 }
 
 func blueALSAEventNames(packet string) []string {
@@ -558,12 +564,52 @@ func blueALSAJournalEventName(line string) (string, bool) {
 		return "", false
 	}
 
-	raw := strings.TrimSpace(line[idx+len(bluealsaJournalMarker):])
+	raw := normalizeBlueALSAEventToken(line[idx+len(bluealsaJournalMarker):])
 	if raw == "" {
 		return "", false
 	}
 
-	return strings.ToUpper(raw), true
+	return raw, true
+}
+
+func normalizeBlueALSAEventToken(token string) string {
+	token = strings.ToUpper(strings.TrimSpace(token))
+	token = strings.TrimFunc(token, func(r rune) bool {
+		return !(unicode.IsDigit(r) || unicode.IsLetter(r) || r == '_')
+	})
+	return token
+}
+
+func indexASCIIFold(s, substr string) int {
+	if len(substr) == 0 {
+		return 0
+	}
+	if len(substr) > len(s) {
+		return -1
+	}
+
+	for i := 0; i <= len(s)-len(substr); i++ {
+		match := true
+		for j := 0; j < len(substr); j++ {
+			sb := s[i+j]
+			tb := substr[j]
+			if 'a' <= sb && sb <= 'z' {
+				sb -= 'a' - 'A'
+			}
+			if 'a' <= tb && tb <= 'z' {
+				tb -= 'a' - 'A'
+			}
+			if sb != tb {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i
+		}
+	}
+
+	return -1
 }
 
 func sendPTTEvent(ctx context.Context, out chan<- PTTEvent, ev PTTEvent) bool {
