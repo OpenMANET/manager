@@ -1,57 +1,86 @@
 # Comms (Push-to-Talk) internals
 
 This directory implements a multicast PTT audio pipeline in Go using PortAudio,
-Opus, and the [pion](https://github.com/pion) RTP/RTCP stack.  It is the
-successor to the `ptt` package and replaces hand-rolled RTP framing with
-standard pion packetization and built-in RTCP Sender Report generation.
+Opus, and the [pion](https://github.com/pion) RTP/RTCP stack. It supports
+multiple parallel multicast talk groups, half-duplex enforcement, four
+selectable PTT control sources (OpenVLM HID dongle, ROIP analog-radio bridge,
+web/RPC, and Linux evdev keys), and a browser-driven web mode that bypasses
+PortAudio entirely. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full
+internal walkthrough; this README is the field-operator reference.
 
 Build with `-tags omd_omit_comms` to exclude the entire package from the
 binary (a stub `doc.go` kept behind the matching positive tag satisfies the
-import graph).
+import graph). The full build requires CGo (libopus, portaudio, hidapi,
+libasound).
 
 ---
 
 ## High-level flow
 
-1. **Configuration** is loaded from `ptt.*` keys (see `internal/config/config.go`).
+1. **Configuration** is loaded via [`config`](../config/) (`comms.*` keys).
+   `McastPorts` carries one entry per multicast talk group; per-port send /
+   receive direction can be toggled at runtime via
+   `Service.EnableTalkGroupSend` / `EnableTalkGroupReceive`.
 2. **Audio**:
    - Opus encoder/decoder are created with the VoIP profile.
-   - PortAudio playback stream runs continuously.
-   - PortAudio mic capture stream is opened/started on PTT press and stopped on release.
+   - In hardware modes, one shared PortAudio capture stream feeds an
+     [`audio.BroadcastEncoder`](audio/encoder.go) whose dedicated encode
+     goroutine runs Opus + UDP send off the audio callback thread.
+   - One PortAudio playback stream is opened **per port**; each runs its
+     own int16-native callback that drains a TX-beep side channel ahead
+     of falling through to `playoutOneFrame`.
+   - In `web` mode PortAudio is skipped entirely; the browser is the I/O
+     device and all audio crosses through [`webaudio.Bridge`](webaudio/bridge.go).
 3. **Network**:
-   - A UDP sender is dialled to the multicast group from the selected interface IP.
-   - A UDP receiver listens on `0.0.0.0:<port>` and joins the multicast group.
-   - A second UDP socket on `<port>+1` carries outbound RTCP Sender Reports.
-4. **PTT control source** (selected by `controlSource`):
-   - `openvlm` (default): monitors GPIO3 on an OpenVLM (Open Voice Link Module) USB HID dongle;
-     GPIO3 HIGH → `PTTDown`, LOW → `PTTUp` (hold-to-talk).
-   - `evdev`: monitors a Linux input device; key press → `PTTToggle`
-     (press-to-toggle).
+   - Each `McastPortConfig` entry opens its own UDP sender (dialled from the
+     interface IP), receiver (`SO_REUSEPORT` listener on `0.0.0.0:<port>`),
+     and RTCP sender on `<port>+1`. All three are wrapped in
+     [`rtp.SwappableSender`](rtp/transport.go) /
+     [`rtp.SwappableReceiver`](rtp/transport.go) so the underlying connections
+     can be replaced without locking the hot path.
+   - Each port also gets its own [`rtp.JitterBuffer`](rtp/jitter.go) and
+     [`rtp.Session`](rtp/session.go) (one local SSRC per node).
+4. **PTT control source** (selected by `controlSource`, dispatched via the
+   [`control.Register`](control/source.go) registry):
+   - `openvlm` (default): GPIO3 on the OpenVLM USB HID dongle —
+     `PTTDown` on press, `PTTUp` on release (hold-to-talk).
+   - `roip`: same dongle, no manual button — squelch GPIO (COS) with VOX
+     fallback for analog radio bridging.
+   - `web`: events injected via RPC handlers; the browser owns audio I/O.
+   - `nanoptt`: Linux evdev key press → `PTTToggle` (press-to-toggle).
 
 ---
 
 ## Audio/codec parameters
 
-These constants are defined in `comms.go`:
+The constants live in [`audiopool/audiopool.go`](audiopool/audiopool.go):
 
-- Sample rate: **48 000 Hz**
-- Channels: **1 (mono)**
-- Frame size: **960 samples** (20 ms at 48 kHz)
-- Opus bitrate: **32 000 bps**
-- Opus complexity: **10**
-- Packet loss percent: **30**
+- `audiopool.SampleRate` = **48 000 Hz**
+- `audiopool.Channels` = **1 (mono)**
+- `audiopool.FrameSize` = **960 samples** (20 ms at 48 kHz)
+- `audiopool.EncBufSize` = **1450 bytes** (matches UDP MTU)
+- Opus bitrate (`comms.go` `targetBitrate`) = **32 000 bps**
+- Opus complexity (`comms.go` `encoderComplexity`) = **10**, capped at 10
+  and overridable per `CommsConfig.EncoderComplexity` (1..10)
+- Packet loss percent (`comms.go` `packetLossPerc`) = **20**
 - In-band FEC: **disabled**
 - DTX: **disabled**
 
+`audiopool` also exports the `Float32Pool` / `Int16Pool` / `EncBufPool`
+`sync.Pool`s used by the capture / playback / encode hot paths to avoid
+per-frame allocations.
+
 ### Playback device latency
 
-The PortAudio output stream is opened with
+The PortAudio output stream for each port is opened with
 `Latency = max(comms.playbackLatencyMs, outDev.DefaultHighOutputLatency)`.
-The callback chunk size stays at `frameSize` (one Opus frame, 20 ms) so
-`playoutOneFrame` produces exactly one frame per call.
+The callback chunk size stays at `audiopool.FrameSize` (one Opus frame, 20 ms)
+so [`playoutOneFrame`](receive.go) produces exactly one frame per call. Per
+port one PortAudio output stream runs on its own audio thread; their state
+is fully independent.
 
 This is the only layer of buffering that protects against playback-side OS
-scheduling stalls — the Go-side jitter buffer (`pc.jitter`) sits upstream of
+scheduling stalls — the Go-side jitter buffer (`pc.Jitter`) sits upstream of
 the DAC and cannot help once the audio thread is preempted. The four layers
 absorb different classes of stutter:
 
@@ -71,17 +100,18 @@ audio thread effectively zero scheduling slack and on-device stutter persists
 even with a healthy Go-side jitter buffer. The `comms.playbackLatencyMs`
 config knob lets you suggest a larger value directly (default: **60 ms** =
 three callback periods, two periods of slack). Other devices may report a
-genuinely higher hint, in which case the floor in `buildAudio` honours the
-device value rather than overriding it downward.
+genuinely higher hint, in which case the floor in
+[`audio.Init.BuildAudio`](audio/init.go) honours the device value rather than
+overriding it downward.
 
 The host API may still clamp the suggestion. The actual granted latency is
-logged at Debug level on stream open as `comms: playback stream opened` with
-the following fields:
+logged at Debug level on stream open as `comms: playback stream opened` with:
 
 - `configured_latency_ms` — the value from `comms.playbackLatencyMs`
 - `device_high_latency` — `outDev.DefaultHighOutputLatency` (the floor)
 - `requested_latency` — what we passed to `portaudio.OpenStream`
 - `actual_output_latency` — what the host API actually granted
+- `port` — the multicast port the playback stream belongs to
 
 If `actual_output_latency` is well below `requested_latency` after raising
 `comms.playbackLatencyMs`, the host API is clamping and the only remaining
@@ -92,8 +122,8 @@ PortAudio knob is `FramesPerBuffer` (which would require restructuring
 
 The PortAudio input (mic capture) stream is opened with
 `Latency = max(comms.captureLatencyMs, inDev.DefaultHighInputLatency)`.
-The callback chunk size stays at `frameSize` (one Opus frame, 20 ms) so
-the encode-and-transmit logic is unchanged.
+The callback chunk size stays at `audiopool.FrameSize` (one Opus frame, 20 ms)
+so the encode-and-transmit logic is unchanged.
 
 This is the symmetric counterpart of `comms.playbackLatencyMs` for the
 capture side. The failure mode is different in *whose* speaker stutters:
@@ -115,80 +145,90 @@ Same logic as `comms.playbackLatencyMs`: hardware that reports a low
 `DefaultHighInputLatency` (e.g. the OpenVLM USB audio class device, which
 reports ~21 ms on both directions) leaves the capture audio thread with
 effectively zero scheduling slack. Default is **60 ms** (three callback
-periods); the floor in `openBroadcastStreamOn` honours the device hint when
-it is genuinely higher.
+periods); the floor in [`audio.Init.OpenBroadcastStream`](audio/init.go)
+honours the device hint when it is genuinely higher.
 
 The actual granted latency is logged at Debug level on stream open as
-`comms: broadcast stream opened` with the same four fields as the playback
-log:
+`comms: broadcast stream opened` with:
 
 - `configured_latency_ms` — the value from `comms.captureLatencyMs`
 - `device_high_latency` — `inDev.DefaultHighInputLatency` (the floor)
 - `requested_latency` — what we passed to `portaudio.OpenStream`
 - `actual_input_latency` — what the host API actually granted
+- `encode_chan_depth` — `broadcastEncoderChanDepth` (currently 3)
 
 If `actual_input_latency` is well below `requested_latency` after raising
 `comms.captureLatencyMs`, the host API is clamping the suggestion and the
 only remaining PortAudio knob is `FramesPerBuffer` (which would require
-restructuring `broadcastEncoder` to consume multi-frame chunks).
+restructuring `BroadcastEncoder` to consume multi-frame chunks).
 
 ### Encode + send goroutine
 
 The PortAudio mic callback **does not** run the Opus encoder or
 `sendToAllPorts`. Both moved off the audio callback thread into a dedicated
-goroutine inside `broadcastEncoder` ([broadcast_encoder.go](broadcast_encoder.go)),
-mirroring how the receive side already isolates Opus decode from the
-PortAudio playback callback.
+goroutine inside [`audio.BroadcastEncoder`](audio/encoder.go), mirroring how
+the receive side already isolates Opus decode from each port's PortAudio
+playback callback.
 
 Why: the audio callback fires every 20 ms with no scheduling slack beyond
-the device buffer depth above. If the work it does ever takes longer than
-that — Opus encode at complexity 10 with FEC, blocking UDP multicast write
-to multiple ports, GC pause, cgo thread handoff — the next callback misses
+the device buffer above. If the work it does ever takes longer than that —
+Opus encode at complexity 10 with FEC, blocking UDP multicast write to
+multiple ports, GC pause, cgo thread handoff — the next callback misses
 its deadline, the ADC ring buffer overruns, and samples are silently
 dropped at the device. Web mode (`controlSource: web`) sidesteps this
 because the browser does the encoding and the server only receives
 pre-encoded bytes; PortAudio modes did not, until this change.
 
+The hot path is **int16-native**: PortAudio delivers `[]int16` directly,
+the encode goroutine calls `EncodeS16` directly, and there is no
+float32↔int16 round-trip on mipsle softfloat targets.
+
 Pipeline:
 
 ```
-PortAudio mic callback (audio thread, every 20 ms)
-  ├─ Optional VOX tap (one frame copy → atomic-pointer channel)
-  ├─ float32Pool.Get(); copy(in)                                ← cheap
-  └─ non-blocking send → encCh (cap = broadcastEncoderChanDepth)
-       │  on full: framesDropped++, return slice to pool
+PortAudio mic callback (audio thread, every 20 ms) — func(in []int16)
+  ├─ Optional VOX tap (ROIP only): float32 conversion + non-blocking
+  │     send to atomic-pointer chan via audiopool.Float32Pool
+  ├─ audiopool.Int16Pool.Get(); copy(in)               ← cheap
+  └─ non-blocking send → encCh (cap = broadcastEncoderChanDepth = 3)
+       on full: framesDropped++, return slice to pool
 
 encodeLoop goroutine (separate goroutine)
   └─ for fp := range encCh:
-       ├─ apply MicGain, clamp ±1.0, convert float32 → int16
-       ├─ rt.encoder.Encode(pcm, buf)         ← cgo into libopus
+       ├─ apply MicGain in int16 space, clamp to [-32768, 32767]
+       ├─ deps.Encoder.EncodeS16(pcm, buf)         ← cgo into libopus
        │     on error: encodeErrors++, log Debug, drop frame
-       └─ cfg.sendToAllPorts(rt, buf[:n])     ← per-port UDP write
-             ├─ pion Packetizer + RTCP SR interceptor
-             └─ net.UDPConn.Write
+       └─ deps.Send(buf[:n])                       ← cfg.sendToAllPorts
+             walks rt.Ports; for each pc with SendEnabled and
+             RTPSess != nil:
+               pc.RTPSess.Send(payload)
+                 ├─ pion Packetizer + RTCP SR interceptor
+                 └─ rtp.SwappableSender.Write → net.UDPConn.Write
 ```
 
-`broadcastEncoderChanDepth` = 8 frames = 160 ms. That gives the encode
-goroutine ~140 ms of slack to absorb encoder spikes / UDP backpressure /
-GC pauses before the producer starts dropping. Drops on the producer side
-are counted, not silenced.
+`broadcastEncoderChanDepth = 3` frames = **60 ms** of slack. Under
+healthy load the channel sits at 0 or 1; the slack absorbs encoder
+spikes / UDP backpressure / GC pauses without dropping. To raise the
+slack, edit `broadcastEncoderChanDepth` in
+[`audio/encoder.go`](audio/encoder.go) and re-bench. Drops are counted,
+not silenced.
 
 ### Per-cycle cycle stats
 
-Every PTT cycle, `broadcastEncoder.Stop()` logs a Debug line summarizing
-what happened during the transmission:
+Every PTT cycle, [`audio.BroadcastEncoder.Stop`](audio/encoder.go) logs a
+Debug line summarizing what happened during the transmission:
 
 ```
 comms: broadcast cycle stats captured=1500 encoded=1500 dropped=0 encode_errors=0
 ```
 
 - `captured` — frames delivered by PortAudio to the audio callback
-  (≈ 50 × seconds-of-PTT at frameSize=960 / sampleRate=48 kHz)
+  (≈ 50 × seconds-of-PTT at `audiopool.FrameSize` / `audiopool.SampleRate`)
 - `encoded` — frames the consumer goroutine successfully Opus-encoded and
   shipped via `sendToAllPorts`
 - `dropped` — frames the producer dropped because `encCh` was full (the
-  consumer fell more than 160 ms behind cumulatively)
-- `encode_errors` — frames where `rt.encoder.Encode` returned an error;
+  consumer fell more than 60 ms behind cumulatively)
+- `encode_errors` — frames where `EncodeS16` returned an error;
   the underlying error is also logged at Debug level
 
 Diagnostic decision tree from the cycle stats:
@@ -196,80 +236,112 @@ Diagnostic decision tree from the cycle stats:
 | Pattern | Meaning | Next lever |
 |---------|---------|------------|
 | `dropped=0 encode_errors=0`, no stutter at remote | Pipeline healthy. | Done. |
-| `dropped=0 encode_errors=0`, remote still stutters | Bottleneck is downstream of the encode goroutine. | Tune SO_SNDBUF on the multicast sockets; pcap on the wire to look for jitter or loss. |
-| `dropped > 0` | Encode-and-send loop occasionally takes >160 ms cumulative. | Lower Opus complexity (currently 10 → try 5), disable FEC, or grow `broadcastEncoderChanDepth`. |
+| `dropped=0 encode_errors=0`, remote still stutters | Bottleneck is downstream of the encode goroutine. | Tune `SO_SNDBUF` on the multicast sockets; pcap on the wire to look for jitter or loss. |
+| `dropped > 0` | Encode-and-send loop occasionally takes >60 ms cumulative. | Lower `EncoderComplexity` (try 5), grow `broadcastEncoderChanDepth`, or check `actual_input_latency` vs. requested. |
 | `encode_errors > 0` | libopus is failing under pressure; the surfaced error message says why. | Address the specific error. |
 
-The receive path:
+### Receive path
 
-1. Reads UDP datagrams from the multicast group.
-2. Parses them as RTP using `pion/rtp.Packet.Unmarshal`.
-3. Pushes the payload + sequence number into the jitter buffer.
-4. The playout loop (`playoutLoop`) drains the jitter buffer at 20 ms ticks,
-   applying PLC for gaps.
-5. Opus decodes into PCM, converts to `[]float32`, queues to the playback channel.
+1. One [`receiveLoop`](receive.go) goroutine per receive-capable port reads UDP
+   datagrams from `pc.Receiver` (a `*rtp.SwappableReceiver`).
+2. Parses them as RTP via [`rtp.ParseIncoming`](rtp/session.go).
+3. Calls [`pc.MarkRemoteRx(rt)`](port_channel.go) to stamp the per-port
+   `HalfDuplexGate` and prime `rt.RemoteRxActive`.
+4. Pushes the payload via [`jitter.PushWithSSRC`](rtp/jitter.go) so an SSRC
+   change (new talker) cleanly resets the buffer rather than silently
+   dropping the new stream.
+5. **Hardware mode**: each port's PortAudio output callback calls
+   `playoutOneFrame` once per ~20 ms, decoding into an int16 buffer; the
+   callback first drains the per-port `PlaybackBuffer` (TX-beep side
+   channel) before falling through.
+6. **Web mode**: a `webPlayoutLoop` per port uses
+   [`jitter.EnableNotify`](rtp/jitter.go) for edge-triggered wakeups and
+   forwards raw Opus payloads to `rt.WebBridge.PushRxFrame` for the
+   browser to decode and play.
+
+[`halfDuplexDecayLoop`](receive.go) runs alongside the receive loops on a
+100 ms ticker. It walks every send-enabled port's `RxGate.Active()` and
+clears `rt.RemoteRxActive` when no gate is within its window — so the
+PTT TX path can read the half-duplex flag in O(1) via
+`isReceivingRemote(rt)`.
 
 ---
 
 ## Multicast UDP
 
-The sender is dialled from the interface IP so outbound multicast egresses the
-chosen interface.  The receiver:
+For each `McastPortConfig` entry, [`buildSinglePortChannel`](network.go)
+opens:
 
-- Binds to `0.0.0.0:<port>` and then
-- Joins the multicast group on the interface (`ipv4.NewConn.JoinGroup`).
-
-An RTCP socket is opened on `<port>+1` (standard RTP port-pairing) for RTCP
-Sender Reports only; inbound RTCP is not processed.
+- **RTP sender** — `net.DialUDP("udp4", localIP, mcastAddr:port)`. Dialling
+  from the interface IP guarantees outbound multicast egresses the chosen
+  interface. Wrapped in `*rtp.SwappableSender`. Multicast TTL = 1
+  (subnet-local) by default.
+- **RTCP sender** — same address with `port+1`. Standard RTP port-pairing.
+  Wrapped in a separate `*rtp.SwappableSender`.
+- **RTP receiver** — `net.ListenConfig{Control: SO_REUSEPORT} →
+  ListenPacket("udp4", "0.0.0.0:port")`, then
+  [`device.JoinMulticastGroup`](device/network.go). `SO_REUSEPORT` lets a
+  replacement socket bind to the same port while the current receiver is
+  still open (so swap plumbing can acquire the new socket before closing
+  the old). Wrapped in `*rtp.SwappableReceiver`. The socket requests
+  `SO_RCVBUF = 1 MiB` (`rxSocketBufBytes` in [network.go](network.go))
+  and logs the actual granted value at Debug level — Linux clamps at
+  `net.core.rmem_max`, so an undersized sysctl is observable in the
+  startup log without external tools.
 
 Loopback suppression:
 
-- If `loopback` is `false`, packets from any loopback address or from the local
-  interface IP are silently dropped.
+- If `loopback` is `false`, packets from any loopback address or from the
+  local interface IP are silently dropped. The receive loop caches the
+  parsed `net.IP` so the comparison is allocation-free per packet.
 
 Trace logging:
 
 - When `trace` is `true`, each incoming RTP packet is logged with source
   address, sequence number, timestamp, SSRC, and payload size.
 
-### Changing the multicast endpoint at runtime
+### Runtime endpoint changes
 
-`UpdateMulticastEndpoint` can be called from anywhere in the application to
-move the live subsystem to a different multicast address or port without
-restarting it:
+Per-port direction toggling at runtime is exposed via the public Service
+API:
 
 ```go
-if err := comms.UpdateMulticastEndpoint("239.255.0.1", 5010); err != nil {
-    log.Error().Err(err).Msg("failed to change multicast endpoint")
-}
+svc := comms.Default()
+_ = svc.EnableTalkGroupSend(idx, true)
+_ = svc.EnableTalkGroupReceive(idx, false)
+states, _ := svc.TalkGroupStates()
 ```
 
-The function:
-1. Validates that `addr` is an IPv4 multicast address and `port` is in `[1, 65535]`.
-2. Opens a new UDP sender, receiver, and RTCP sender for the new endpoint.
-3. Creates a fresh pion RTP session with the new sockets.
-4. Atomically replaces the sender and receiver inside the running runtime.
-5. Closes the old sockets (unblocking any in-flight `ReadFromUDP` immediately).
-6. On error, leaves config and sockets unchanged (the old endpoint continues).
+The `SendEnabled` / `ReceiveEnabled` atomics on each `PortChannel` are
+checked by `sendToAllPorts`, `receiveLoop`, and `halfDuplexDecayLoop`,
+so direction changes take effect on the next packet without restarting
+any goroutine or socket.
 
-`McastAddr` and `McastPort` in `CommsConfig` are updated on success so
-subsequent calls to `buildNetwork` use the new values.
+The lower-level endpoint-swap plumbing
+([`network.replaceNetwork`](network.go) +
+[`rtp.SwappableSender.SwapAndDeferClose`](rtp/transport.go)) still
+exists for future use. The previous public `UpdateMulticastEndpoint`
+helper was removed during the refactor; if it returns, the
+`SwapCloseGrace` window in the swap path means callers do not have to
+synchronize against in-flight `Write` calls.
 
 ---
 
 ## RTP / RTCP stack
 
-The comms package uses [pion](https://github.com/pion) for all RTP/RTCP work:
+The comms package uses [pion](https://github.com/pion) for all RTP/RTCP work
+through the [`rtp`](rtp/) sub-package:
 
-- **`pion/rtp`** — `Packetizer` adds sequence numbers, timestamps, and the RTP
-  header; `Packet.Unmarshal` parses inbound datagrams.
-- **`pion/interceptor`** — interceptor chain sits between the Packetizer and the
-  wire.  The only interceptor registered is:
-  - `report.SenderInterceptor` (interval: 5 s) — generates outbound RTCP
-    Sender Reports that give receivers clock reference and packet count.
-- Inbound RTCP is **not** processed: in a multicast PTT topology there is no
-  single feedback path and each transmission may have many simultaneous
+- [`rtp.Session`](rtp/session.go) wraps a pion `Packetizer` and an
+  interceptor chain. One session per `PortChannel` (one local SSRC).
+- The interceptor chain registers `report.SenderInterceptor` (interval:
+  5 s) which generates outbound RTCP Sender Reports that give receivers
+  clock reference and packet count.
+- Inbound RTCP is **not** processed: in a multicast PTT topology there is
+  no single feedback path and each transmission may have many simultaneous
   receivers.
+- Inbound RTP packets are parsed by `rtp.ParseIncoming` (a thin wrapper
+  around `pionrtp.Packet.Unmarshal`).
 
 RTP encapsulation details:
 
@@ -286,44 +358,67 @@ RTP encapsulation details:
 |                       Opus payload…                           |
 ```
 
-- **Payload type**: `111` (standard dynamic PT for Opus)
+- **Payload type**: `rtp.PayloadTypeOpus = 111` (standard dynamic PT for Opus)
 - **Clock rate**: `48 000 Hz`
-- **MTU**: `1400 bytes`
-- **SSRC**: FNV-1a hash of `RtpID` (falls back to hostname, then local IP)
+- **MTU**: `rtp.MTU = 1400` bytes
+- **Frame samples**: `rtp.FrameSamples = 960` (20 ms)
+- **SSRC**: `rtp.SSRCFromID(RtpID)` (FNV-1a 32-bit hash; falls back to
+  hostname, then local IP)
 
 ### RTP ID and SSRC
 
-`ptt.rtpId` controls SSRC derivation:
+`comms.rtpId` controls SSRC derivation:
 
-1. Uses `ptt.rtpId` if set.
-2. Otherwise uses the system hostname.
+1. Uses `comms.rtpId` if set.
+2. Otherwise uses the system hostname (filled in by `applyDefaults`).
 3. If neither is available, falls back to the local interface IP.
 
-SSRC is computed as the **FNV-1a 32-bit hash** of the chosen string.
+SSRC is computed as the **FNV-1a 32-bit hash** of the chosen string via
+`rtp.SSRCFromID`.
 
 ---
 
 ## RTP jitter buffer
 
-A sequence-number-ordered jitter buffer (`rtpJitterBuffer` in `jitter.go`)
-smooths network reordering and provides Packet Loss Concealment:
+[`rtp.JitterBuffer`](rtp/jitter.go) is a sequence-number-ordered buffer
+backed by a **fixed-size ring of slots** (no map allocations on the hot
+path). It smooths network reordering and provides Packet Loss Concealment.
 
-- **Prebuffer**: waits for `jitterPrebufferPackets` (5) frames before beginning
-  playout, absorbing early-arrival jitter (~100 ms safety margin).
-- **Max depth**: drops newly arriving packets once `jitterMaxDepth` (24) frames
-  are already buffered — prevents unbounded memory growth.
-- **Gap detection**: if the expected sequence number is missing and ≥ half the
-  max depth is occupied, the frame is skipped and PLC is applied.
-- **Idle concealment**: `shouldConceal` returns true when any packet arrived
-  within the last 200 ms (`concealRecentWindow`), allowing playout to generate
-  Opus PLC frames during a gap in an otherwise active stream. Capped at
-  `maxConsecutivePLC` (10 frames ≈ 200 ms) before falling back to silence.
-- **Playout clock**: the PortAudio output callback drives playout directly,
-  calling `playoutOneFrame` once per audio period (20 ms). One frame is
-  produced per call regardless of whether a real payload or a PLC frame is used.
+- **Prebuffer**: `rtp.PrebufferPackets = 5` frames before playout begins
+  (≈100 ms safety margin).
+- **Max depth**: `rtp.MaxDepth = 24`. Newly arriving packets that find a
+  full buffer increment `Overflows` and are dropped.
+- **Slot indexing**: `seq % maxDepth` — duplicates and stale slots are
+  detected without iterating the buffer.
+- **Payload pool**: a per-buffer `sync.Pool` of `[]byte` sized to
+  `MaxOpusPayloadSize = 1275` (RFC 6716 §3.2.1 maximum) eliminates
+  per-packet heap allocations. Consumers **must** call
+  `jitter.ReleasePayload(p)` after `DecodeS16` finishes with the buffer.
+- **SSRC tracking**: `PushWithSSRC(ssrc, seq, payload, onChange)` resets
+  the buffer cleanly when a new talker arrives, calling the change
+  callback for logging. Without this, a new talker whose starting
+  sequence number happens to lie in the "past half" of the previous
+  talker's frozen cursor would be silently rejected forever.
+- **Idle reset**: a 2 s gap (`jitterIdleResetThreshold`) since the last
+  push triggers a fresh-stream reset on the next packet, catching edge
+  cases the SSRC check cannot (sender resets seq without rotating SSRC,
+  RFC 3550 §8.2 collision-driven SSRC rotation, …).
+- **Gap detection**: `PopOrConceal(window)` returns `(payload, false)`
+  for an in-order frame, `(nil, true)` for a recent-stream gap that
+  warrants PLC, or `(nil, false)` for genuine silence. The PLC concealment
+  cap `maxConsecutivePLC = 10` (≈200 ms) lives in [receive.go](receive.go).
+- **Edge-triggered notify**: `EnableNotify()` returns a coalesced
+  wakeup channel for push-driven consumers (web mode); PortAudio-driven
+  consumers do not call it and pay only a nil-check on the push hot path.
+- **Counters** (`atomic.Int64`): `Overflows`, `SSRCResets`, `IdleResets`.
 
-Sequence numbers use **uint16 wrap-around-aware** comparison (`seqLess`) so
-streams that cross the 65 535 → 0 boundary are handled correctly.
+Sequence numbers use **uint16 wrap-around-aware** comparison (`seqLess`)
+so streams that cross the 65 535 → 0 boundary are handled correctly.
+
+The playout clock for hardware mode is the per-port PortAudio output
+callback — calling `playoutOneFrame` once per audio period (20 ms). One
+frame is produced per call regardless of whether a real payload or a
+PLC frame is used.
 
 ---
 
@@ -332,7 +427,8 @@ streams that cross the 65 535 → 0 boundary are handled correctly.
 ### `openvlm` backend (default)
 
 The OpenVLM (Open Voice Link Module) is a USB HID audio dongle widely used as a
-push-to-talk controller.  The source maps GPIO3 in the HID report to PTT state:
+push-to-talk controller. [`control.OpenVLMSource`](control/openvlm.go) maps
+GPIO3 in the HID report to PTT state:
 
 | IR1 bit 2 (GPIO3) | Transition | PTTEvent emitted |
 |---|---|---|
@@ -349,56 +445,127 @@ Byte 3: IR2
 Byte 4: IR3
 ```
 
-ALSA card auto-detection runs before `portaudio.Initialize()` when
-`controlSource` is `openvlm`: it scans `/proc/asound/card*/usbid` for
-`0d8c:013c` and sets `ALSA_CARD` to the matching card number so PortAudio
-selects the correct sound card.  If `ALSA_CARD` is already set, it is left
-unchanged.
+ALSA card auto-detection (`control.DetectAndSetALSACard`) runs before
+`portaudio.Initialize()` when `controlSource` is `openvlm` or `roip`. It
+walks `/sys` via `device.DiscoverCM108` to locate the dongle, then sets
+`ALSA_CARD` to the matching card index so PortAudio selects the correct
+sound card. If `ALSA_CARD` is already set, it is left unchanged. A
+fallback path scans `/proc/asound/card*/usbid` for `0d8c:0012`.
 
 `PTTDown` → `beginTransmission`; `PTTUp` → `endTransmission`.
 
-### `evdev` backend
+### `roip` backend
 
-The input device is selected by matching `NanoPTTDeviceName` against devices
-discovered via the `NanoPTTDevicePath` pattern.
+[`control.ROIPSource`](control/roip.go) uses the **same** OpenVLM USB
+audio dongle but operates without a manual PTT button — it
+automatically bridges an analog handheld radio into the multicast comms
+network. Detection strategy (half-duplex enforced throughout):
+
+1. **COS** (Carrier-Operated Squelch): the radio squelch output is
+   wired to an OpenVLM GPIO pin. The HID report is polled;
+   `ROIPCOSGPIOMask` selects the IR1 bit. PTTDown on the HIGH→LOW
+   squelch edge, PTTUp on LOW→HIGH.
+2. **VOX fallback**: if the HID device is unavailable or
+   `ROIPCOSGPIOMask` is 0, an audio energy threshold
+   (`audiopool.RMSEnergy`) is applied to the OpenVLM input stream.
+   `ROIPVOXOnsetFrames = 3` (60 ms) prevents false triggers. During
+   active TX the broadcast tap (`rt.BroadcastTap`, an `atomic.Pointer
+   [chan []float32]`) feeds float32 frames so silence can be detected
+   and `PTTUp` emitted after `ROIPVOXHoldTime`.
+
+`ROIPMaxTXDuration` caps a single transmission as a safety ceiling.
+The half-duplex callbacks (`isReceiving` / `isBroadcasting`) and the
+broadcast tap setters (`setTap` / `clearTap`) are passed in as plain
+function values from [`control_register.go`](control_register.go) so
+the `control` package never imports the parent.
+
+### `web` backend
+
+[`control.WebEventSource`](control/web_event_source.go) is a lightweight
+buffered channel backend whose `Push(ev PTTEvent)` method is called from
+the RPC handler when a browser client presses or releases the on-screen
+PTT button. `Service.WebEventSource()` returns the live instance for
+the handler to inject events into.
+
+In web mode the entire PortAudio pipeline is **bypassed**:
+
+- `rt.BroadcastStream` is left nil; `beginTransmission` and
+  `endTransmission` short-circuit on `rt.WebBridge != nil`.
+- Per-port playback streams are not opened.
+- Inbound audio is forwarded raw via [`webaudio.Bridge.PushRxFrame`](webaudio/bridge.go)
+  → `RxFrames()` channel → RPC stream → browser decoder.
+- Outbound audio is injected via `webaudio.Bridge.InjectTxFrame`
+  → bound `SendFn` → `cfg.sendToAllPorts(rt, payload)`.
+
+This makes web mode usable on hardware without a sound card or in CGo-free
+builds where libportaudio is not linked.
+
+### `nanoptt` backend
+
+[`control.NanoPTTSource`](control/nanoptt.go) reads from a Linux evdev
+input device matched by `NanoPTTDeviceName` within the
+`NanoPTTDevicePath` glob (handled by
+[`device.FindEvdev`](device/evdev.go)).
 
 - If `commKey` is `any`, any key press emits `PTTToggle`.
 - Otherwise the key code must match the decimal `EV_KEY` code.
 
-On each matching **key press** (`EV_KEY` value = 1), a `PTTToggle` event is
-emitted.  The `Run` loop checks current broadcasting state and calls
-`beginTransmission` or `endTransmission` accordingly — a **press-to-toggle**
-model.  Key releases are logged at debug level but produce no event.
+On each matching **key press** (`EV_KEY` value = 1), a `PTTToggle`
+event is emitted. The `Run` loop checks current `Broadcasting` state
+and calls `beginTransmission` or `endTransmission` accordingly — a
+**press-to-toggle** model. Key releases are logged at debug level but
+produce no event.
 
 ### Transmission lifecycle
 
-`beginTransmission`:
+`beginTransmission` (in [transmit.go](transmit.go)):
 
-1. Acquires lock, sets `broadcasting = true`, releases lock.
-2. `drainPlaybackBuffer()` — discards queued audio to avoid stale frames.
-3. Queues the 1 000 Hz start-tone (0.2 amplitude, 20 ms = `frameSize` samples).
-4. Sleeps 200 ms (lets the tone play before the mic opens).
-5. Ensures `broadcastStream` is non-nil; reopens via `rt.reopenBroadcast` if nil.
-6. Calls `broadcastStream.Start()`; on failure attempts one reopen-and-retry.
+1. Returns immediately if `rt.Broadcasting` is already true.
+2. Returns immediately if `cfg.isReceivingRemote(rt)` is true
+   (half-duplex; reads `rt.RemoteRxActive` in O(1)).
+3. `rt.Broadcasting.Store(true)`.
+4. Web mode short-circuit: if `rt.WebBridge != nil`, log "Begin web
+   transmission" and return.
+5. `drainPlaybackBuffer(rt)` — discards stale beep frames in every port.
+6. Queues the 1 000 Hz start-tone (`rt.BeepBufferStart`, `[]int16`,
+   amplitude `0.2 * 32767`) into every port's `PlaybackBuffer`.
+7. Sleeps `cfg.pttStartDelay()` (default 50 ms; configurable via
+   `PttStartDelayMs`; set negative to skip entirely). The PortAudio
+   output callback drains the beep buffer ahead of `playoutOneFrame`
+   so beep + mic samples cannot collide regardless of duration; the
+   wait is purely to give USB audio class capture devices time to
+   commit their first DMA cycle.
+8. Ensures `rt.BroadcastStream` is non-nil; if it is, calls
+   `rt.ReopenBroadcast()` to rebuild it.
+9. Calls `rt.BroadcastStream.Start()`; on failure attempts one
+   reopen-and-retry before giving up and clearing `Broadcasting`.
 
 `endTransmission`:
 
-1. Checks `broadcasting`; returns immediately if already idle (idempotent).
-2. Calls `broadcastStream.Stop()`.
-3. `drainPlaybackBuffer()`.
-4. Queues the 600 Hz stop-tone (0.2 amplitude, 20 ms).
-5. Acquires lock, sets `broadcasting = false`, releases lock.
+1. Returns immediately if `rt.Broadcasting` is already false.
+2. Web mode short-circuit: clear `Broadcasting`, log, return.
+3. Calls `rt.BroadcastStream.Stop()` (best-effort; logs error and
+   continues on failure).
+4. `drainPlaybackBuffer(rt)`.
+5. Queues the 600 Hz stop-tone into every port's `PlaybackBuffer`.
+6. `rt.Broadcasting.Store(false)`.
 
 ---
 
 ## ALSA noise suppression
 
-`alsa_silence.go` uses CGo to temporarily replace the ALSA error handler with
-a no-op for the duration of `portaudio.Initialize()`.  PortAudio's ALSA backend
-probes every virtual PCM alias in `/usr/share/alsa/alsa.conf` (rear, hdmi, etc.)
-and logs "Unknown PCM" for each alias not present in the active card's profile.
-These are expected probe failures, not real errors.  The default handler is
-restored by `restoreALSAErrorHandler()` immediately after initialization.
+[`device/alsa_silence.go`](device/alsa_silence.go) uses CGo to temporarily
+replace the ALSA error handler with a no-op for the duration of
+`portaudio.Initialize()`. PortAudio's ALSA backend probes every virtual
+PCM alias in `/usr/share/alsa/alsa.conf` (rear, hdmi, etc.) and logs
+"Unknown PCM" for each alias not present in the active card's profile.
+These are expected probe failures, not real errors. The default handler
+is restored by `RestoreALSAErrorHandler()` immediately after
+initialization. Both functions are called from
+[`audio.Init.StartHardware`](audio/init.go).
+
+The CGo file carries `#cgo LDFLAGS: -lasound`, so the full build
+requires libasound; the `omd_omit_comms` lite build skips it.
 
 ---
 
@@ -407,46 +574,80 @@ restored by `restoreALSAErrorHandler()` immediately after initialization.
 Example in `example_config.yml`:
 
 ```yaml
-ptt:
+comms:
   enable: false
-  mcastAddr: 224.0.0.1
-  mcastPort: 5007
-  rtpId: ""              # optional; defaults to hostname
-  pttKey: any            # "any" or decimal EV_KEY code (evdev only)
+  controlSource: openvlm     # openvlm | roip | web | nanoptt
   debug: true
   trace: false
   loopback: true
-  pttDevice: /dev/hidraw0/*    # glob for evdev device enumeration (NanoPTTDevicePath)
-  pttDeviceName: AllInOneCable # exact evdev device name (NanoPTTDeviceName)
-  controlSource: openvlm         # openvlm (default) or evdev
-  BluetoothAudioDeviceHint: ""          # optional shared substring for both input/output (e.g. "OpenVLM")
-  BluetoothInputDevice: ""              # optional; device name substring or index for capture
-  BluetoothOutputDevice: ""             # optional; device name substring or index for playback
-  micGain: 8.0                 # float32; >1 amplifies, <1 attenuates
-  playbackLatencyMs: 60        # PortAudio output device buffer depth (ms); floored at outDev.DefaultHighOutputLatency
-  captureLatencyMs: 60         # PortAudio input device buffer depth (ms); floored at inDev.DefaultHighInputLatency
+  micGain: 8.0               # float32; >1 amplifies, <1 attenuates
+  encoderComplexity: 10      # 1..10 (defaults to 10)
+  playbackLatencyMs: 60      # PortAudio output device buffer (ms);
+                             # floored at outDev.DefaultHighOutputLatency
+  captureLatencyMs: 60       # PortAudio input device buffer (ms);
+                             # floored at inDev.DefaultHighInputLatency
+
+  nanoPTT:
+    enable: false
+    devicePath: /dev/input/event*    # glob for evdev device enumeration
+    deviceName: AllInOneCable        # exact evdev device name to match
+
+  bluetoothPtt:
+    enable: false
+    BluetoothAudioDeviceHint: ""     # optional shared substring (e.g. "OpenVLM")
+    BluetoothInputDevice: ""         # capture device substring or index
+    BluetoothOutputDevice: ""        # playback device substring or index
 ```
 
-`pttDevice` / `pttDeviceName` are only relevant when `controlSource: evdev`.
-`ALSA_CARD` auto-detection is only performed when `controlSource: openvlm`.
+The interface comes from the global `meshNet.interface` key (read by
+`CommsManager.buildCommsConfig` via `cfg.GetMeshNetInterface()`), and
+multicast talk-group entries (`McastPorts`) are sourced from the global
+`config.GetMulticastTalkGroups()` helper rather than living under the
+`comms:` namespace, so a single config defines them once for all
+subsystems that need them.
+
+`nanoPTT.*` keys are only relevant when `controlSource: nanoptt`. The
+`bluetoothPtt.*` keys carry the PortAudio device names used by both
+`openvlm` and `roip` modes (the historical name predates the wider
+audio refactor). ALSA card auto-detection runs for both `openvlm` and
+`roip`.
+
+> **Configurable Go fields without yaml keys** (yet): `CommKey`,
+> `RtpID`, `HalfDuplexThreshold`, `PttStartDelayMs`, and the entire
+> `ROIP*` group are present on `CommsConfig` but not currently loaded
+> by `CommsManager.buildCommsConfig`. They use their compile-time
+> defaults today; wire them through `internal/config/config.go` if you
+> need them externally tunable.
 
 ---
 
 ## Source files
 
+### Top-level orchestration
+
 | File | Responsibility |
 |---|---|
-| `comms.go` | `CommsConfig`/`CommsRuntime` structs; `NewComms`; `applyDefaults`; `buildCodec`, `buildNetwork`, `buildAudio`, `buildEventSource`; `replaceNetwork`; `UpdateMulticastEndpoint`; `Start` |
-| `receive.go` | `receiveLoop`, `playoutLoop`, `decodeAndQueue`, `decodeAndQueuePLC` |
-| `transmit.go` | `isBroadcasting`, `drainPlaybackBuffer`, `beginTransmission`, `endTransmission`, `Run` |
-| `rtp.go` | `pionRTPSession` (pion Packetizer + interceptor chain); `ssrcFromID`; `parseIncomingRTP` |
-| `jitter.go` | `rtpJitterBuffer`: sequence-ordered playout buffer with PLC gap detection |
-| `event.go` | `PTTEvent` constants (`PTTDown`, `PTTUp`, `PTTToggle`); `EventSource` interface; `evdevSource` backend |
-| `openvlm.go` | `openvlmSource`; `HIDDevice`/`HIDOpener` abstractions; `detectAndSetALSACard` |
-| `device.go` | `normalizeControlSource`; `resolveAudioDevice`; `findCommDevice`; `getIfaceIPv4`; `joinMulticastGroup` |
-| `codec.go` | `AudioEncoder`/`AudioDecoder` interfaces; Opus encoder/decoder constructors |
-| `stream.go` | `AudioStream` interface; `portaudioStream` wrapper |
-| `broadcast_encoder.go` | `broadcastEncoder`: PortAudio mic capture + dedicated encode/send goroutine; per-cycle counters (`framesCaptured`, `framesEncoded`, `framesDropped`, `encodeErrors`) |
-| `transport.go` | `PacketWriter`/`PacketReader` interfaces; `swappableSender`/`swappableReceiver` atomic-swap wrappers |
-| `alsa_silence.go` | CGo helpers — `silenceALSAProbeNoise` / `restoreALSAErrorHandler` |
-| `doc.go` | Package-level doc comment; build-tag stub for `omd_omit_comms` |
+| [comms.go](comms.go) | `buildCodec`, `sendToAllPorts`, `buildEventSource`, package-level constants |
+| [config.go](config.go) | `CommsConfig`, `CommsRuntime`, `NewComms`, `applyDefaults` |
+| [lifecycle.go](lifecycle.go) | `Start`, `startHardwareAudio` (`audio.Init` wiring) |
+| [manager.go](manager.go) | `CommsManager` (`Enable`/`Disable`/`IsRunning`) |
+| [service.go](service.go) | `Service` + `Default()`/`SetDefault()` singleton; per-handler accessors |
+| [transmit.go](transmit.go) | `Run`, `beginTransmission`, `endTransmission`, `drainPlaybackBuffer`, `pttStartDelay` |
+| [receive.go](receive.go) | `receiveLoop`, `playoutOneFrame`, `webPlayoutLoop`, `halfDuplexDecayLoop`, `isReceivingRemote` |
+| [network.go](network.go) | `buildNetwork`, `buildSinglePortChannel`, `replaceNetwork`, `listenRTPReceiver` |
+| [port_channel.go](port_channel.go) | `McastPortConfig`, `McastPortState`, `PortChannel`, `MarkRemoteRx`, `closePartial` |
+| [control_register.go](control_register.go) | `init()` registering the four backends; `buildControlDeps`; `Validate` |
+| [device.go](device.go) | `normalizeControlSource`, `findCommDevice`, `logInputDeviceList` |
+| [doc.go](doc.go) | Package doc + `omd_omit_comms` build stub |
+
+### Sub-packages
+
+| Path | Responsibility |
+|---|---|
+| [audio/](audio/) | `BroadcastEncoder` (PortAudio capture + dedicated encode goroutine), `Init` (hardware startup), `PortSlot`, `Deps`, `SendFn` |
+| [audiopool/](audiopool/) | Audio constants (`FrameSize`, `SampleRate`, `Channels`, `EncBufSize`), buffer pools (`Float32Pool`, `Int16Pool`, `EncBufPool`), `RMSEnergy` |
+| [codec/](codec/) | `AudioEncoder`/`AudioDecoder` interfaces, Opus implementation (`NewOpusEncoder`/`NewOpusDecoder`/`EncodeS16`/`DecodeS16`/`DecodeFloat32`) |
+| [control/](control/) | `EventSource`, `PTTEvent`, four backends (`OpenVLMSource`, `ROIPSource`, `NanoPTTSource`, `WebEventSource`), `HalfDuplexGate`, registry (`Register`/`Lookup`/`Factory`/`ControlDeps`), `HIDDevice`/`HIDOpener`, `DetectAndSetALSACard` |
+| [device/](device/) | `AudioStream` interface + `NewPortAudioStream`, `SilenceALSAProbeNoise` (CGo), `DiscoverCM108` (sysfs walk), `FindEvdev`, `IfaceIPv4`/`JoinMulticastGroup`, `ResolveAudio`/`LogPortAudioDevices` |
+| [rtp/](rtp/) | `Session` (pion Packetizer + RTCP SR), `Sender`, `JitterBuffer` (ring buffer + SSRC tracking + `EnableNotify`), `PacketWriter`/`PacketReader`, `SwappableSender` (lock-free + `SwapAndDeferClose`)/`SwappableReceiver`, `SSRCFromID`, `ParseIncoming` |
+| [webaudio/](webaudio/) | `Bridge` (RPC ↔ comms runtime plumbing for web mode), `NewBridge`, `SendFn`, `InjectTxFrame`, `PushRxFrame`, `RxFrames` |
