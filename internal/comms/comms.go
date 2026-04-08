@@ -776,7 +776,9 @@ func (cfg *CommsConfig) reopenBroadcastStream(rt *CommsRuntime, inDev *portaudio
 //   - "cm108" (defaultCtrlSrc): reads PTT state directly from a CM108-compatible
 //     USB audio/HID dongle via its HID interrupt endpoint.
 //   - "bluealsa_xevent": monitors BlueALSA DBus signals for headset button events.
-//   - "bluetooth": monitors BlueZ device state and forwards BlueALSA XEVENT presses.
+//   - "bs22": monitors the BS-22 BLE HM control link and forwards BlueALSA
+//     XEVENT presses from the Classic HFP link. "bluetooth" remains a
+//     compatibility alias for older configs.
 //   - "roip": ROIP bridge mode — automatic TX/RX on the same CM108 hardware
 //     using COS GPIO detection with VOX (audio energy) as fallback.
 //   - anything else (default): searches for a matching evdev input device via
@@ -810,10 +812,10 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 
 		return NewBlueALSAXEventSource(cfg.Log), nil
 
-	case controlSourceBluetooth:
-		cfg.Log.Info().Msg("comms: PTT via Bluetooth monitor with BlueALSA XEVENT fallback")
+	case controlSourceBS22:
+		cfg.Log.Info().Msg("comms: PTT via BS-22 BLE HM control with BlueALSA XEVENT fallback")
 
-		return NewBluetoothEventSource(cfg.Log), nil
+		return NewBS22EventSource(cfg.Log), nil
 
 	case controlSourceWeb:
 		cfg.Log.Info().Msg("comms: PTT via web RPC")

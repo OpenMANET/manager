@@ -53,12 +53,6 @@ type blueALSARFCOMMMonitor struct {
 	cancel context.CancelFunc
 }
 
-type bluetoothEventSource struct {
-	log           zerolog.Logger
-	dial          systemBusDialer
-	xeventFactory func(zerolog.Logger) EventSource
-}
-
 // NewBlueALSAXEventSource monitors BlueALSA DBus messages and emits PTT press/release events.
 func NewBlueALSAXEventSource(log zerolog.Logger) EventSource {
 	return &blueALSAXEventSource{
@@ -68,17 +62,6 @@ func NewBlueALSAXEventSource(log zerolog.Logger) EventSource {
 		},
 		listRFCOMM: listBlueALSARFCOMMPaths,
 		openRFCOMM: openBlueALSARFCOMM,
-	}
-}
-
-// NewBluetoothEventSource monitors BlueZ device state and forwards BlueALSA XEVENT presses.
-func NewBluetoothEventSource(log zerolog.Logger) EventSource {
-	return &bluetoothEventSource{
-		log: log,
-		dial: func() (*dbus.Conn, error) {
-			return dbus.ConnectSystemBus()
-		},
-		xeventFactory: NewBlueALSAXEventSource,
 	}
 }
 
@@ -315,93 +298,6 @@ func (s *blueALSAXEventSource) consumeRFCOMM(ctx context.Context, out chan<- PTT
 
 			s.log.Debug().Err(err).Msg("BlueALSA: RFCOMM read failed")
 			return
-		}
-	}
-}
-
-func (s *bluetoothEventSource) Events(ctx context.Context) <-chan PTTEvent {
-	ch := make(chan PTTEvent, 4)
-
-	go func() {
-		defer close(ch)
-
-		var wg sync.WaitGroup
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			s.monitorBlueZ(ctx)
-		}()
-
-		if s.xeventFactory != nil {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				s.forwardBlueALSAFallback(ctx, ch)
-			}()
-		}
-
-		wg.Wait()
-	}()
-
-	return ch
-}
-
-func (s *bluetoothEventSource) forwardBlueALSAFallback(ctx context.Context, out chan<- PTTEvent) {
-	src := s.xeventFactory(s.log)
-	if src == nil {
-		return
-	}
-
-	events := src.Events(ctx)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case ev, ok := <-events:
-			if !ok {
-				return
-			}
-
-			if !sendPTTEvent(ctx, out, ev) {
-				return
-			}
-		}
-	}
-}
-
-func (s *bluetoothEventSource) monitorBlueZ(ctx context.Context) {
-	conn, err := s.dial()
-	if err != nil {
-		s.log.Error().Err(err).Msg("Bluetooth: failed to connect to system DBus")
-
-		return
-	}
-	defer conn.Close()
-
-	if err := addDBusMatch(conn, bluezPropertiesChangedRule); err != nil {
-		s.log.Error().Err(err).Msg("Bluetooth: failed to add BlueZ DBus match rule")
-
-		return
-	}
-
-	sigCh := make(chan *dbus.Signal, 16)
-	conn.Signal(sigCh)
-	defer conn.RemoveSignal(sigCh)
-
-	s.log.Info().Msg("Starting native Bluetooth monitor using BlueZ DBus signals")
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case sig, ok := <-sigCh:
-			if !ok {
-				return
-			}
-
-			logBlueZSignal(s.log, sig)
 		}
 	}
 }

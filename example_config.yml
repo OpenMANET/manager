@@ -17,7 +17,7 @@ comms:
   debug: true
   trace: false
   loopback: false
-  # cm108, nanoptt, bluealsa_xevent, bluetooth, roip, or web
+  # cm108, nanoptt, bluealsa_xevent, bs22 (or legacy bluetooth), roip, or web
   controlSource: cm108
   playbackBuffer: 2
   # Microphone gain multiplier (1.0 = unity, 2.0 = +6 dB, 0.5 = -6 dB)

@@ -680,7 +680,12 @@ func TestGetCommsControlSource(t *testing.T) {
 			want:     "bluealsa_xevent",
 		},
 		{
-			name:     "returns bluetooth control source",
+			name:     "returns bs22 control source",
+			setValue: strPtr("bs22"),
+			want:     "bs22",
+		},
+		{
+			name:     "returns bluetooth compatibility alias",
 			setValue: strPtr("bluetooth"),
 			want:     "bluetooth",
 		},

@@ -50,8 +50,10 @@ func TestNormalizeControlSource(t *testing.T) {
 		{"NANOPTT", "nanoptt"},
 		{"bluealsa_xevent", "bluealsa_xevent"},
 		{"BLUEALSA_XEVENT", "bluealsa_xevent"},
-		{"bluetooth", "bluetooth"},
-		{"BLUETOOTH", "bluetooth"},
+		{"bs22", "bs22"},
+		{"BS22", "bs22"},
+		{"bluetooth", "bs22"},
+		{"BLUETOOTH", "bs22"},
 		{"roip", "roip"},
 		{"ROIP", "roip"},
 		{"  roip  ", "roip"},
@@ -300,11 +302,16 @@ func TestBlueALSAXEventSource_ConsumesRFCOMM(t *testing.T) {
 	}
 }
 
-func TestBluetoothEventSource_ForwardsBlueALSAFallback(t *testing.T) {
+func TestBS22EventSource_ForwardsBlueALSAFallback(t *testing.T) {
 	fallback := &mockEventSource{ch: make(chan PTTEvent, 1)}
-	src := &bluetoothEventSource{
+	src := &bs22EventSource{
 		log:  zerolog.Nop(),
 		dial: func() (*dbus.Conn, error) { return nil, errors.New("no bluez") },
+		listManaged: func(*dbus.Conn) (bluezManagedObjectMap, error) {
+			return nil, nil
+		},
+		startNotify: func(*dbus.Conn, dbus.ObjectPath) error { return nil },
+		writeValue:  func(*dbus.Conn, dbus.ObjectPath, []byte) error { return nil },
 		xeventFactory: func(zerolog.Logger) EventSource {
 			return fallback
 		},

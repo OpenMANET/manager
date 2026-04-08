@@ -15,6 +15,7 @@ const (
 	defaultControlSourceCM108   = "cm108"
 	defaultControlSourceNanoPTT = "nanoptt"
 	controlSourceBlueALSAXEvent = "bluealsa_xevent"
+	controlSourceBS22           = "bs22"
 	controlSourceBluetooth      = "bluetooth"
 	controlSourceROIP           = "roip"
 	controlSourceWeb            = "web"
@@ -26,8 +27,10 @@ func normalizeControlSource(src string) string {
 	switch strings.ToLower(strings.TrimSpace(src)) {
 	case controlSourceBlueALSAXEvent:
 		return controlSourceBlueALSAXEvent
+	case controlSourceBS22:
+		return controlSourceBS22
 	case controlSourceBluetooth:
-		return controlSourceBluetooth
+		return controlSourceBS22
 	case defaultControlSourceNanoPTT:
 		return defaultControlSourceNanoPTT
 	case controlSourceROIP:

@@ -362,9 +362,9 @@ func TestBuildEventSource_BlueALSA(t *testing.T) {
 	}
 }
 
-func TestBuildEventSource_Bluetooth(t *testing.T) {
+func TestBuildEventSource_BS22(t *testing.T) {
 	cfg := &CommsConfig{
-		ControlSource: controlSourceBluetooth,
+		ControlSource: controlSourceBS22,
 		Log:           zerolog.Nop(),
 	}
 
@@ -373,8 +373,8 @@ func TestBuildEventSource_Bluetooth(t *testing.T) {
 		t.Fatalf("buildEventSource() error = %v", err)
 	}
 
-	if _, ok := src.(*bluetoothEventSource); !ok {
-		t.Fatalf("buildEventSource() = %T, want *bluetoothEventSource", src)
+	if _, ok := src.(*bs22EventSource); !ok {
+		t.Fatalf("buildEventSource() = %T, want *bs22EventSource", src)
 	}
 }
 
