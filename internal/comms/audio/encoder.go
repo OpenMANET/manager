@@ -111,6 +111,23 @@ type BroadcastEncoder struct {
 	// most once per Start/Stop cycle so a sustained overrun does not
 	// flood the log. Reset to false in Start.
 	overBudgetWarned atomic.Bool
+
+	// lastCaptureNs / captureGapMaxNs / captureLateCount track the
+	// wall-clock inter-arrival time between consecutive PortAudio
+	// capture callbacks. On constrained hardware PortAudio can
+	// deliver frames in bursts with gaps even when the encoder
+	// reports zero drops — the frames still arrive and still encode,
+	// but their emission onto the wire carries the capture jitter,
+	// which can exceed the receive-side prebuffer (100 ms) and cause
+	// stutter at the remote playout clock. captureGapMaxNs is the
+	// worst observed inter-arrival; captureLateCount is the number
+	// of callbacks whose delta exceeded 2 * frameDuration (40 ms).
+	// The captureCallback is single-producer (one PortAudio stream
+	// thread), so the Load/Store/CAS sequence races only against
+	// resets in Start, which happens while the stream is stopped.
+	lastCaptureNs    atomic.Int64
+	captureGapMaxNs  atomic.Int64
+	captureLateCount atomic.Int64
 }
 
 // Compile-time assertion: BroadcastEncoder satisfies device.AudioStream so
@@ -143,6 +160,8 @@ func NewBroadcastEncoder(deps Deps, inParams portaudio.StreamParameters) (*Broad
 // only jobs are: optional VOX tap, copy the input frame into a pooled int16
 // buffer, and non-blockingly hand the buffer to the encode goroutine.
 func (be *BroadcastEncoder) captureCallback(in []int16) {
+	be.recordCaptureArrival(time.Now())
+
 	// Optional VOX tap. The ROIP VOX consumer (control/roip.go) operates on
 	// float32 frames for RMS energy. This is a boundary conversion off the
 	// hot path — the tap is only active when the ROIP control source is
@@ -243,6 +262,45 @@ func (be *BroadcastEncoder) encodeOne(fp *[]int16) {
 	}
 }
 
+// recordCaptureArrival tracks inter-arrival timing between consecutive
+// PortAudio capture callbacks. The first callback in a cycle has no
+// previous timestamp to compare against, so it only seeds lastCaptureNs
+// and returns. Subsequent callbacks compute the delta from the previous
+// arrival, update the running max via a CAS loop, and increment the
+// late-callback counter if the gap ≥ 2 * frameDuration.
+//
+// captureCallback is single-producer (one PortAudio stream thread), so
+// the Load/Store/CAS sequence races only against resets in Start, which
+// is guaranteed to run with the stream stopped.
+func (be *BroadcastEncoder) recordCaptureArrival(now time.Time) {
+	nowNs := now.UnixNano()
+
+	prevNs := be.lastCaptureNs.Swap(nowNs)
+	if prevNs == 0 {
+		return
+	}
+
+	deltaNs := nowNs - prevNs
+	if deltaNs <= 0 {
+		return
+	}
+
+	for {
+		cur := be.captureGapMaxNs.Load()
+		if deltaNs <= cur {
+			break
+		}
+
+		if be.captureGapMaxNs.CompareAndSwap(cur, deltaNs) {
+			break
+		}
+	}
+
+	if deltaNs >= 2*frameDuration.Nanoseconds() {
+		be.captureLateCount.Add(1)
+	}
+}
+
 // recordEncodeDuration accumulates the encode-time stats and emits a
 // one-shot Warn the first time a frame crosses the per-frame budget
 // within a Start/Stop cycle. Lock-free: max is updated via a CAS loop,
@@ -283,6 +341,9 @@ func (be *BroadcastEncoder) Start() error {
 	be.encodeDurSumNs.Store(0)
 	be.encodeDurCount.Store(0)
 	be.overBudgetWarned.Store(false)
+	be.lastCaptureNs.Store(0)
+	be.captureGapMaxNs.Store(0)
+	be.captureLateCount.Store(0)
 
 	if err := be.s.Start(); err != nil {
 		return fmt.Errorf("portaudio stream start: %w", err)
@@ -302,6 +363,8 @@ func (be *BroadcastEncoder) Stop() error {
 		avgDur = time.Duration(be.encodeDurSumNs.Load() / count)
 	}
 
+	captureGapMax := time.Duration(be.captureGapMaxNs.Load())
+
 	be.deps.Log.Debug().
 		Int64("captured", be.framesCaptured.Load()).
 		Int64("encoded", be.framesEncoded.Load()).
@@ -310,6 +373,8 @@ func (be *BroadcastEncoder) Stop() error {
 		Dur("encode_dur_max", maxDur).
 		Dur("encode_dur_avg", avgDur).
 		Dur("frame_budget", frameDuration).
+		Dur("capture_gap_max", captureGapMax).
+		Int64("capture_late", be.captureLateCount.Load()).
 		Msg("comms: broadcast cycle stats")
 
 	if stopErr != nil {

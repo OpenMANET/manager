@@ -202,6 +202,9 @@ func TestBroadcastEncoder_StartResetsCountersAndCallsStream(t *testing.T) {
 	be.encodeDurSumNs.Store(987654)
 	be.encodeDurCount.Store(11)
 	be.overBudgetWarned.Store(true)
+	be.lastCaptureNs.Store(42424242)
+	be.captureGapMaxNs.Store(13579)
+	be.captureLateCount.Store(7)
 
 	if err := be.Start(); err != nil {
 		t.Fatalf("Start returned error: %v", err)
@@ -241,6 +244,18 @@ func TestBroadcastEncoder_StartResetsCountersAndCallsStream(t *testing.T) {
 
 	if got := be.overBudgetWarned.Load(); got {
 		t.Errorf("overBudgetWarned = true, want false")
+	}
+
+	if got := be.lastCaptureNs.Load(); got != 0 {
+		t.Errorf("lastCaptureNs = %d, want 0", got)
+	}
+
+	if got := be.captureGapMaxNs.Load(); got != 0 {
+		t.Errorf("captureGapMaxNs = %d, want 0", got)
+	}
+
+	if got := be.captureLateCount.Load(); got != 0 {
+		t.Errorf("captureLateCount = %d, want 0", got)
 	}
 }
 
@@ -651,6 +666,97 @@ func TestBroadcastEncoder_OverBudgetWarnFiresOncePerCycle(t *testing.T) {
 
 	if !be.overBudgetWarned.Load() {
 		t.Error("warn latch should re-arm after Start")
+	}
+}
+
+// TestBroadcastEncoder_CaptureArrivalFirstCallSeedsOnly verifies that
+// the very first captureCallback in a cycle only seeds lastCaptureNs
+// and does not produce a synthetic large gap against the zero baseline.
+func TestBroadcastEncoder_CaptureArrivalFirstCallSeedsOnly(t *testing.T) {
+	be, _, _ := newTestBroadcastEncoder(t, &mockEncoder{})
+
+	t0 := time.Unix(0, int64(time.Hour))
+	be.recordCaptureArrival(t0)
+
+	if got := be.lastCaptureNs.Load(); got != t0.UnixNano() {
+		t.Errorf("lastCaptureNs = %d, want %d", got, t0.UnixNano())
+	}
+
+	if got := be.captureGapMaxNs.Load(); got != 0 {
+		t.Errorf("captureGapMaxNs = %d, want 0 (first call only seeds)", got)
+	}
+
+	if got := be.captureLateCount.Load(); got != 0 {
+		t.Errorf("captureLateCount = %d, want 0", got)
+	}
+}
+
+// TestBroadcastEncoder_CaptureArrivalTracksMaxAndLate verifies that the
+// inter-arrival tracker updates the running max on each delta and counts
+// callbacks whose delta meets or exceeds 2 * frameDuration.
+func TestBroadcastEncoder_CaptureArrivalTracksMaxAndLate(t *testing.T) {
+	be, _, _ := newTestBroadcastEncoder(t, &mockEncoder{})
+
+	base := time.Unix(0, int64(time.Hour))
+	be.recordCaptureArrival(base)
+
+	deltas := []time.Duration{
+		frameDuration,                      // on-time (20 ms)
+		frameDuration + 3*time.Millisecond, // slightly late (< threshold)
+		2 * frameDuration,                  // exactly threshold — counts as late
+		frameDuration / 2,                  // early / burst (not late)
+		3 * frameDuration,                  // very late — new max
+	}
+
+	var (
+		cursor  = base
+		wantMax time.Duration
+	)
+
+	const lateThreshold = 2 * frameDuration
+
+	wantLate := int64(0)
+
+	for _, d := range deltas {
+		cursor = cursor.Add(d)
+		be.recordCaptureArrival(cursor)
+
+		if d > wantMax {
+			wantMax = d
+		}
+
+		if d >= lateThreshold {
+			wantLate++
+		}
+	}
+
+	if got := time.Duration(be.captureGapMaxNs.Load()); got != wantMax {
+		t.Errorf("captureGapMaxNs = %v, want %v", got, wantMax)
+	}
+
+	if got := be.captureLateCount.Load(); got != wantLate {
+		t.Errorf("captureLateCount = %d, want %d", got, wantLate)
+	}
+}
+
+// TestBroadcastEncoder_CaptureArrivalRejectsNonMonotonic verifies that a
+// non-monotonic clock reading (delta <= 0) does not corrupt the max.
+// Should never happen with time.Now on Linux but we guard against it
+// to keep the CAS loop robust.
+func TestBroadcastEncoder_CaptureArrivalRejectsNonMonotonic(t *testing.T) {
+	be, _, _ := newTestBroadcastEncoder(t, &mockEncoder{})
+
+	t0 := time.Unix(0, int64(time.Hour))
+	be.recordCaptureArrival(t0)
+
+	// Same timestamp — delta is 0, must be ignored.
+	be.recordCaptureArrival(t0)
+
+	// Earlier timestamp — delta is negative, must be ignored.
+	be.recordCaptureArrival(t0.Add(-time.Millisecond))
+
+	if got := be.captureGapMaxNs.Load(); got != 0 {
+		t.Errorf("captureGapMaxNs = %d, want 0 (non-monotonic deltas must not update max)", got)
 	}
 }
 
