@@ -35,7 +35,8 @@
       "Bash(wc -l /workspaces/openmanetd/internal/comms/control/*.go /workspaces/openmanetd/internal/comms/codec/*.go /workspaces/openmanetd/internal/comms/rtp/*.go /workspaces/openmanetd/internal/comms/device/*.go /workspaces/openmanetd/internal/comms/audiopool/*.go)",
       "Bash(grep -E \"^-.*\\\\.go$\")",
       "Bash(wc -l /workspaces/openmanetd/internal/comms/*.go)",
-      "Bash(wc -l /workspaces/openmanetd/internal/comms/audio/*.go /workspaces/openmanetd/internal/comms/audiopool/*.go /workspaces/openmanetd/internal/comms/codec/*.go /workspaces/openmanetd/internal/comms/control/*.go /workspaces/openmanetd/internal/comms/device/*.go /workspaces/openmanetd/internal/comms/rtp/*.go /workspaces/openmanetd/internal/comms/webaudio/*.go)"
+      "Bash(wc -l /workspaces/openmanetd/internal/comms/audio/*.go /workspaces/openmanetd/internal/comms/audiopool/*.go /workspaces/openmanetd/internal/comms/codec/*.go /workspaces/openmanetd/internal/comms/control/*.go /workspaces/openmanetd/internal/comms/device/*.go /workspaces/openmanetd/internal/comms/rtp/*.go /workspaces/openmanetd/internal/comms/webaudio/*.go)",
+      "Read(//usr/bin/**)"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"
