@@ -3,6 +3,7 @@ package audio
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gordonklaus/portaudio"
 )
@@ -42,9 +43,12 @@ func (f *fakePAStream) Info() *portaudio.StreamInfo { return f.info }
 
 // mockEncoder satisfies codec.AudioEncoder. Each call records the input
 // PCM frame (length only, to avoid copying samples) and returns either
-// encodeErr or a fake fixed-size payload.
+// encodeErr or a fake fixed-size payload. sleepDur, if non-zero, makes
+// every EncodeS16 sleep for that duration so encode-duration tracking
+// can be exercised deterministically.
 type mockEncoder struct {
 	encodeErr error
+	sleepDur  time.Duration
 	calls     atomic.Int64
 	payloadN  int
 }
@@ -55,6 +59,10 @@ func (m *mockEncoder) Encode(pcm []int16, data []byte) (int, error) {
 
 func (m *mockEncoder) EncodeS16(_ []int16, data []byte) (int, error) {
 	m.calls.Add(1)
+
+	if m.sleepDur > 0 {
+		time.Sleep(m.sleepDur)
+	}
 
 	if m.encodeErr != nil {
 		return 0, m.encodeErr

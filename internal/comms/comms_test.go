@@ -229,6 +229,94 @@ func TestNewComms_Defaults(t *testing.T) {
 	}
 }
 
+// TestEncoderComplexity_DefaultIsMIPSFriendly pins the default Opus encoder
+// complexity at a value the slowest target hardware (MIPS edge routers) can
+// keep up with in real time. Complexity 10 saturated the per-frame budget
+// and surfaced as RX stutter — see the comment block at the constant
+// definition for the full incident context. Bumping this back up requires
+// re-validating against the target hardware.
+func TestEncoderComplexity_DefaultIsMIPSFriendly(t *testing.T) {
+	const maxAllowed = 5
+
+	if encoderComplexity > maxAllowed {
+		t.Fatalf("encoderComplexity = %d, want <= %d "+
+			"(MIPS targets cannot keep up with higher values)",
+			encoderComplexity, maxAllowed)
+	}
+}
+
+// TestBuildCodec_UsesDefaultComplexity verifies that buildCodec falls back
+// to the package default when CommsConfig.EncoderComplexity is unset, and
+// that the default produces a working encoder/decoder pair.
+func TestBuildCodec_UsesDefaultComplexity(t *testing.T) {
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	enc, dec, err := cfg.buildCodec()
+	if err != nil {
+		t.Fatalf("buildCodec with default complexity: %v", err)
+	}
+
+	if enc == nil {
+		t.Fatal("buildCodec returned nil encoder")
+	}
+
+	if dec == nil {
+		t.Fatal("buildCodec returned nil decoder")
+	}
+
+	t.Cleanup(func() {
+		_ = enc.Close()
+		_ = dec.Close()
+	})
+
+	// Smoke test: a single frame round-trip succeeds with the default
+	// complexity. Encoded length is non-deterministic but must be > 0.
+	pcm := make([]int16, audiopool.FrameSize)
+	out := make([]byte, 4000)
+
+	n, err := enc.EncodeS16(pcm, out)
+	if err != nil {
+		t.Fatalf("EncodeS16 with default complexity: %v", err)
+	}
+
+	if n <= 0 {
+		t.Fatalf("EncodeS16 produced %d bytes, want > 0", n)
+	}
+}
+
+// TestBuildCodec_HonorsExplicitComplexity verifies that an in-range
+// CommsConfig.EncoderComplexity overrides the default. The 0 / >10 / negative
+// branches all fall through to the default.
+func TestBuildCodec_HonorsExplicitComplexity(t *testing.T) {
+	tests := []struct {
+		name string
+		in   int
+	}{
+		{"explicit_low", 1},
+		{"explicit_mid", 5},
+		{"explicit_high", 10},
+		{"zero_falls_back", 0},
+		{"negative_falls_back", -3},
+		{"too_high_falls_back", 11},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &CommsConfig{Log: zerolog.Nop(), EncoderComplexity: tc.in}
+
+			enc, dec, err := cfg.buildCodec()
+			if err != nil {
+				t.Fatalf("buildCodec(%d): %v", tc.in, err)
+			}
+
+			t.Cleanup(func() {
+				_ = enc.Close()
+				_ = dec.Close()
+			})
+		})
+	}
+}
+
 // ─── applyDefaults tests ──────────────────────────────────────────────────────
 
 func TestApplyDefaults_AllEmptyGetsDefaults(t *testing.T) {

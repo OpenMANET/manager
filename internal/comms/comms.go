@@ -11,8 +11,23 @@ import (
 // ─── Package-level constants ──────────────────────────────────────────────────
 
 const (
-	targetBitrate     int    = 32000
-	encoderComplexity int    = 10
+	targetBitrate int = 32000
+	// encoderComplexity is the default Opus encoder complexity used when
+	// CommsConfig.EncoderComplexity is unset or out of range. Complexity is
+	// the libopus quality/CPU tradeoff knob: 0 is fastest, 10 is highest
+	// quality. The libopus reference default for VoIP is 5.
+	//
+	// We default to 5 because the deployment target includes constrained
+	// MIPS/ARM edge routers (per CLAUDE.md the binary must run on
+	// linux/mipsle). Empirically, complexity 10 at 48 kHz mono can take
+	// 20-30 ms per 20 ms frame on those CPUs, which saturates the
+	// per-frame budget and causes the PortAudio capture callback to
+	// overflow encCh and drop frames — surfacing as audible stutter on
+	// the receive side. Web mode bypasses this entirely (the browser
+	// supplies pre-encoded Opus), which is why the symptom is PortAudio-
+	// only. Operators on faster CPUs can opt back in to complexity 10
+	// via cfg.EncoderComplexity.
+	encoderComplexity int    = 5
 	packetLossPerc    int    = 20
 	defaultKey        string = "any"
 	defaultIface      string = "br-ahwlan"

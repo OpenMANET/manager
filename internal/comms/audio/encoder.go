@@ -14,6 +14,7 @@ package audio
 import (
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/gordonklaus/portaudio"
 	"github.com/rs/zerolog"
@@ -23,15 +24,25 @@ import (
 	"github.com/openmanet/openmanetd/internal/comms/device"
 )
 
+// frameDuration is the wall-clock length of one captured frame at the
+// configured sample rate (20 ms at 48 kHz). Used as the per-frame budget
+// against which we flag over-budget encodes.
+const frameDuration = time.Duration(audiopool.FrameSize) * time.Second /
+	time.Duration(audiopool.SampleRate)
+
 // broadcastEncoderChanDepth bounds the queue between the PortAudio audio
 // callback (producer, fires every 20 ms) and the encode-and-send goroutine
-// (consumer). 3 frames = 60 ms of consumer slack before the producer starts
-// dropping frames — tight enough that an encoder spike cannot mask more
-// than three frames of unsent audio. Channel-full drops are counted in
-// framesDropped and surfaced in the per-cycle Debug log; if drops appear
-// under load on a target device, raise this and re-bench rather than
-// suppressing the counter.
-const broadcastEncoderChanDepth = 3
+// (consumer). 10 frames = 200 ms of consumer slack before the producer
+// starts dropping frames. The depth is sized to match the receive-side
+// jitter buffer prebuffer (rtp.PrebufferPackets * 20 ms) so that any
+// transient encoder spike the receiver can absorb downstream the producer
+// can absorb upstream too. The previous depth of 3 (60 ms) was too tight
+// for slow MIPS targets where Opus encoding plus GC pauses regularly
+// crossed the per-frame budget; channel-full drops then manifested as
+// stutter on the receive side. Channel-full drops are still counted in
+// framesDropped and surfaced in the per-cycle Debug log so a regression
+// is loud, not silent.
+const broadcastEncoderChanDepth = 10
 
 // SendFn delivers an Opus payload to every send-enabled multicast port.
 // The parent comms package binds it to its sendToAllPorts helper at
@@ -85,6 +96,21 @@ type BroadcastEncoder struct {
 	framesEncoded  atomic.Int64
 	framesDropped  atomic.Int64
 	encodeErrors   atomic.Int64
+
+	// encodeDurMaxNs / encodeDurSumNs / encodeDurCount track the
+	// per-frame Opus encode time so the per-cycle Stop() debug log can
+	// report max and average encode latency. On constrained MIPS/ARM
+	// targets this is the canonical signal that the encoder is starving
+	// the consumer (per-frame budget = frameDuration ≈ 20 ms).
+	// CAS-loop max + atomic accumulators keep encodeOne lock-free.
+	encodeDurMaxNs atomic.Int64
+	encodeDurSumNs atomic.Int64
+	encodeDurCount atomic.Int64
+
+	// overBudgetWarned ensures the over-budget encode warning fires at
+	// most once per Start/Stop cycle so a sustained overrun does not
+	// flood the log. Reset to false in Start.
+	overBudgetWarned atomic.Bool
 }
 
 // Compile-time assertion: BroadcastEncoder satisfies device.AudioStream so
@@ -196,7 +222,12 @@ func (be *BroadcastEncoder) encodeOne(fp *[]int16) {
 	buf := *bufPtr
 	defer audiopool.EncBufPool.Put(bufPtr)
 
+	encStart := time.Now()
 	n, encErr := be.deps.Encoder.EncodeS16(pcm, buf)
+	encDur := time.Since(encStart)
+
+	be.recordEncodeDuration(encDur)
+
 	if encErr != nil {
 		be.encodeErrors.Add(1)
 		be.deps.Log.Debug().Err(encErr).Msg("comms: opus encode failed")
@@ -212,12 +243,46 @@ func (be *BroadcastEncoder) encodeOne(fp *[]int16) {
 	}
 }
 
+// recordEncodeDuration accumulates the encode-time stats and emits a
+// one-shot Warn the first time a frame crosses the per-frame budget
+// within a Start/Stop cycle. Lock-free: max is updated via a CAS loop,
+// sum/count via plain Add, the warn flag via CompareAndSwap.
+func (be *BroadcastEncoder) recordEncodeDuration(d time.Duration) {
+	ns := d.Nanoseconds()
+
+	be.encodeDurSumNs.Add(ns)
+	be.encodeDurCount.Add(1)
+
+	for {
+		cur := be.encodeDurMaxNs.Load()
+		if ns <= cur {
+			break
+		}
+
+		if be.encodeDurMaxNs.CompareAndSwap(cur, ns) {
+			break
+		}
+	}
+
+	if d >= frameDuration && be.overBudgetWarned.CompareAndSwap(false, true) {
+		be.deps.Log.Warn().
+			Dur("encode_dur", d).
+			Dur("frame_budget", frameDuration).
+			Msg("comms: opus encode exceeded per-frame budget; expect TX frame drops " +
+				"and RX stutter — lower cfg.EncoderComplexity")
+	}
+}
+
 // Start resets per-cycle counters and starts the PortAudio capture stream.
 func (be *BroadcastEncoder) Start() error {
 	be.framesCaptured.Store(0)
 	be.framesEncoded.Store(0)
 	be.framesDropped.Store(0)
 	be.encodeErrors.Store(0)
+	be.encodeDurMaxNs.Store(0)
+	be.encodeDurSumNs.Store(0)
+	be.encodeDurCount.Store(0)
+	be.overBudgetWarned.Store(false)
 
 	if err := be.s.Start(); err != nil {
 		return fmt.Errorf("portaudio stream start: %w", err)
@@ -230,11 +295,21 @@ func (be *BroadcastEncoder) Start() error {
 func (be *BroadcastEncoder) Stop() error {
 	stopErr := be.s.Stop()
 
+	maxDur := time.Duration(be.encodeDurMaxNs.Load())
+
+	var avgDur time.Duration
+	if count := be.encodeDurCount.Load(); count > 0 {
+		avgDur = time.Duration(be.encodeDurSumNs.Load() / count)
+	}
+
 	be.deps.Log.Debug().
 		Int64("captured", be.framesCaptured.Load()).
 		Int64("encoded", be.framesEncoded.Load()).
 		Int64("dropped", be.framesDropped.Load()).
 		Int64("encode_errors", be.encodeErrors.Load()).
+		Dur("encode_dur_max", maxDur).
+		Dur("encode_dur_avg", avgDur).
+		Dur("frame_budget", frameDuration).
 		Msg("comms: broadcast cycle stats")
 
 	if stopErr != nil {

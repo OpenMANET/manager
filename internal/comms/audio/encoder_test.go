@@ -198,6 +198,10 @@ func TestBroadcastEncoder_StartResetsCountersAndCallsStream(t *testing.T) {
 	be.framesEncoded.Store(17)
 	be.framesDropped.Store(3)
 	be.encodeErrors.Store(9)
+	be.encodeDurMaxNs.Store(123456)
+	be.encodeDurSumNs.Store(987654)
+	be.encodeDurCount.Store(11)
+	be.overBudgetWarned.Store(true)
 
 	if err := be.Start(); err != nil {
 		t.Fatalf("Start returned error: %v", err)
@@ -221,6 +225,22 @@ func TestBroadcastEncoder_StartResetsCountersAndCallsStream(t *testing.T) {
 
 	if got := be.encodeErrors.Load(); got != 0 {
 		t.Errorf("encodeErrors = %d, want 0", got)
+	}
+
+	if got := be.encodeDurMaxNs.Load(); got != 0 {
+		t.Errorf("encodeDurMaxNs = %d, want 0", got)
+	}
+
+	if got := be.encodeDurSumNs.Load(); got != 0 {
+		t.Errorf("encodeDurSumNs = %d, want 0", got)
+	}
+
+	if got := be.encodeDurCount.Load(); got != 0 {
+		t.Errorf("encodeDurCount = %d, want 0", got)
+	}
+
+	if got := be.overBudgetWarned.Load(); got {
+		t.Errorf("overBudgetWarned = true, want false")
 	}
 }
 
@@ -519,5 +539,159 @@ func TestBroadcastEncoder_CloseTerminatesGoroutine(t *testing.T) {
 	case <-be.done:
 	case <-time.After(time.Second):
 		t.Fatal("Close did not wait for encode goroutine to exit")
+	}
+}
+
+// ─── encCh depth + encode-duration tracking ──────────────────────────────────
+
+// TestBroadcastEncoderChanDepth_AbsorbsHardwareSpike pins the channel depth
+// at a value large enough to absorb a transient encoder stall on slow target
+// hardware. The previous depth of 3 (60 ms) was too tight; sustained stutter
+// on MIPS was traced back to encoder spikes that exceeded that window. The
+// new floor (10 = 200 ms) matches the receive-side prebuffer so the producer
+// and consumer agree on the spike envelope.
+func TestBroadcastEncoderChanDepth_AbsorbsHardwareSpike(t *testing.T) {
+	const minDepth = 10
+
+	if broadcastEncoderChanDepth < minDepth {
+		t.Fatalf("broadcastEncoderChanDepth = %d, want >= %d "+
+			"(do not shrink without re-validating against MIPS targets)",
+			broadcastEncoderChanDepth, minDepth)
+	}
+}
+
+// TestBroadcastEncoder_EncodeDurationCountersAccumulate verifies that
+// recordEncodeDuration updates the running max, sum, and count. The
+// CAS-loop max must reflect the largest observed duration regardless of
+// arrival order.
+func TestBroadcastEncoder_EncodeDurationCountersAccumulate(t *testing.T) {
+	be, _, _ := newTestBroadcastEncoder(t, &mockEncoder{})
+
+	durations := []time.Duration{
+		2 * time.Millisecond,
+		7 * time.Millisecond,
+		1 * time.Millisecond,
+		5 * time.Millisecond,
+	}
+
+	var totalNs int64
+
+	for _, d := range durations {
+		be.recordEncodeDuration(d)
+		totalNs += d.Nanoseconds()
+	}
+
+	if got := be.encodeDurCount.Load(); got != int64(len(durations)) {
+		t.Errorf("encodeDurCount = %d, want %d", got, len(durations))
+	}
+
+	if got := be.encodeDurSumNs.Load(); got != totalNs {
+		t.Errorf("encodeDurSumNs = %d, want %d", got, totalNs)
+	}
+
+	wantMaxNs := (7 * time.Millisecond).Nanoseconds()
+	if got := be.encodeDurMaxNs.Load(); got != wantMaxNs {
+		t.Errorf("encodeDurMaxNs = %d, want %d", got, wantMaxNs)
+	}
+
+	if got := be.overBudgetWarned.Load(); got {
+		t.Error("overBudgetWarned = true, want false (all durations under budget)")
+	}
+}
+
+// TestBroadcastEncoder_OverBudgetWarnFiresOncePerCycle verifies that
+// crossing the per-frame budget sets the latch exactly once per Start
+// cycle. Repeated over-budget durations within the same cycle must NOT
+// re-arm the warning, and Start must reset the latch so the next cycle
+// can warn again.
+func TestBroadcastEncoder_OverBudgetWarnFiresOncePerCycle(t *testing.T) {
+	be, _, _ := newTestBroadcastEncoder(t, &mockEncoder{})
+
+	// Below-budget durations leave the latch alone.
+	be.recordEncodeDuration(frameDuration - time.Millisecond)
+	be.recordEncodeDuration(frameDuration / 2)
+
+	if be.overBudgetWarned.Load() {
+		t.Fatal("warn latch set by sub-budget durations")
+	}
+
+	// First over-budget duration arms the latch.
+	be.recordEncodeDuration(frameDuration + time.Millisecond)
+
+	if !be.overBudgetWarned.Load() {
+		t.Fatal("warn latch should be set after first over-budget duration")
+	}
+
+	// Subsequent over-budget durations within the cycle do NOT clear or
+	// re-fire the latch — it stays armed exactly once.
+	for range 5 {
+		be.recordEncodeDuration(frameDuration * 2)
+	}
+
+	if !be.overBudgetWarned.Load() {
+		t.Fatal("warn latch lost across repeated over-budget durations")
+	}
+
+	// Counters still accumulate normally.
+	const totalCalls = 2 + 1 + 5
+	if got := be.encodeDurCount.Load(); got != totalCalls {
+		t.Errorf("encodeDurCount = %d, want %d", got, totalCalls)
+	}
+
+	// Start resets the latch so the next cycle can warn again.
+	if err := be.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if be.overBudgetWarned.Load() {
+		t.Error("Start did not reset overBudgetWarned")
+	}
+
+	be.recordEncodeDuration(frameDuration + time.Millisecond)
+
+	if !be.overBudgetWarned.Load() {
+		t.Error("warn latch should re-arm after Start")
+	}
+}
+
+// TestBroadcastEncoder_EncodeOneRecordsDuration verifies that encodeOne
+// observes a slow encoder via the duration counters and that the slow
+// path triggers the over-budget warn. Uses a mockEncoder configured to
+// sleep slightly longer than frameDuration so the assertion is robust
+// against scheduling jitter.
+func TestBroadcastEncoder_EncodeOneRecordsDuration(t *testing.T) {
+	enc := &mockEncoder{
+		payloadN: 4,
+		sleepDur: frameDuration + 5*time.Millisecond,
+	}
+	be, sink, _ := newTestBroadcastEncoder(t, enc)
+
+	go be.encodeLoop()
+
+	be.captureCallback(silentFrame())
+
+	// Wait for the encode goroutine to consume the frame.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if sink.count() > 0 {
+			break
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+
+	close(be.encCh)
+	<-be.done
+
+	if got := be.encodeDurCount.Load(); got != 1 {
+		t.Errorf("encodeDurCount = %d, want 1", got)
+	}
+
+	if got := time.Duration(be.encodeDurMaxNs.Load()); got < frameDuration {
+		t.Errorf("encodeDurMaxNs = %v, want >= %v", got, frameDuration)
+	}
+
+	if !be.overBudgetWarned.Load() {
+		t.Error("overBudgetWarned should be set after over-budget encode")
 	}
 }
