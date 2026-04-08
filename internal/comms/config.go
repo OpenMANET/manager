@@ -7,6 +7,8 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/openmanet/openmanetd/internal/comms/codec"
+	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/config"
 )
 
@@ -22,11 +24,11 @@ import (
 // incoming stream) and cleared by halfDuplexDecayLoop on a coarse 100 ms
 // ticker once every gate's window has expired.
 type CommsRuntime struct {
-	Decoder         AudioDecoder
-	Encoder         AudioEncoder
+	Decoder         codec.AudioDecoder
+	Encoder         codec.AudioEncoder
 	BroadcastStream AudioStream
 	WebBridge       *WebAudioBridge
-	WebEvtSrc       *webEventSource
+	WebEvtSrc       *control.WebEventSource
 	LocalIP         atomic.Pointer[string]
 	ReopenBroadcast func() error
 	BroadcastTap    atomic.Pointer[chan []float32]
@@ -168,16 +170,16 @@ func (cfg *CommsConfig) applyDefaults() {
 	if cfg.ControlSource == controlSourceROIP {
 		if cfg.ROIPCOSGPIOMask == 0 && cfg.ROIPVOXThreshold == 0 {
 			// Neither explicitly configured: default to COS-primary, VOX fallback.
-			cfg.ROIPCOSGPIOMask = roipDefaultCOSMask
-			cfg.ROIPVOXThreshold = roipDefaultVOXThresh
+			cfg.ROIPCOSGPIOMask = control.ROIPDefaultCOSMask
+			cfg.ROIPVOXThreshold = control.ROIPDefaultVOXThresh
 		}
 
 		if cfg.ROIPVOXThreshold > 0 && cfg.ROIPVOXHoldTime == 0 {
-			cfg.ROIPVOXHoldTime = roipDefaultVOXHold
+			cfg.ROIPVOXHoldTime = control.ROIPDefaultVOXHold
 		}
 
 		if cfg.ROIPMaxTXDuration == 0 {
-			cfg.ROIPMaxTXDuration = roipDefaultMaxTX
+			cfg.ROIPMaxTXDuration = control.ROIPDefaultMaxTX
 		}
 
 		if cfg.ROIPInputDevice == "" {

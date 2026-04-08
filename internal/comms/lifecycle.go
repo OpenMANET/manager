@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
 
 // Start initializes all comms subsystems and blocks until ctx is canceled.
@@ -96,7 +97,7 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 			}
 
 			if pc.RTPSess != nil {
-				if s, ok := pc.RTPSess.(*RTPSession); ok {
+				if s, ok := pc.RTPSess.(*rtp.Session); ok {
 					_ = s.Close()
 				}
 			}

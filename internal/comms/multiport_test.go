@@ -3,12 +3,13 @@ package comms
 import (
 	"context"
 	"errors"
-	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"net"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
 
 // ─── sendToAllPorts tests ─────────────────────────────────────────────────────

@@ -6,6 +6,8 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+
+	"github.com/openmanet/openmanetd/internal/comms/control"
 )
 
 // ─── mockStream ───────────────────────────────────────────────────────────────
@@ -266,13 +268,14 @@ func (m *mockReader) remaining() int {
 
 // ─── mockEventSource ─────────────────────────────────────────────────────────
 
-// mockEventSource satisfies EventSource. Pre-loaded events are sent on ch;
-// closing ch causes Events to return a closed channel so Run exits cleanly.
+// mockEventSource satisfies control.EventSource. Pre-loaded events are sent
+// on ch; closing ch causes Events to return a closed channel so Run exits
+// cleanly.
 type mockEventSource struct {
-	ch chan PTTEvent
+	ch chan control.PTTEvent
 }
 
-func (m *mockEventSource) Events(_ context.Context) <-chan PTTEvent {
+func (m *mockEventSource) Events(_ context.Context) <-chan control.PTTEvent {
 	return m.ch
 }
 

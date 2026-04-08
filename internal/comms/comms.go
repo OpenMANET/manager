@@ -5,6 +5,8 @@ import (
 	"sync"
 
 	"github.com/openmanet/openmanetd/internal/comms/audiopool"
+	"github.com/openmanet/openmanetd/internal/comms/codec"
+	"github.com/openmanet/openmanetd/internal/comms/control"
 )
 
 // ─── Package-level constants ──────────────────────────────────────────────────
@@ -73,18 +75,18 @@ func ReturnInt16(s []int16) {
 
 // ─── buildCodec ───────────────────────────────────────────────────────────────
 
-func (cfg *CommsConfig) buildCodec() (AudioEncoder, AudioDecoder, error) {
+func (cfg *CommsConfig) buildCodec() (codec.AudioEncoder, codec.AudioDecoder, error) {
 	complexity := cfg.EncoderComplexity
 	if complexity <= 0 || complexity > 10 {
 		complexity = encoderComplexity
 	}
 
-	enc, err := newOpusEncoder(complexity)
+	enc, err := codec.NewOpusEncoder(sampleRate, channels, targetBitrate, complexity, packetLossPerc)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	dec, err := newOpusDecoder()
+	dec, err := codec.NewOpusDecoder(sampleRate, channels)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -118,7 +120,7 @@ func (cfg *CommsConfig) sendToAllPorts(rt *CommsRuntime, payload []byte) {
 // init() in control_register.go. Validate() (called from CommsManager.Enable)
 // rejects unknown sources up front; this function returns an error if a
 // caller still reaches it with an unregistered source.
-func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) {
+func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (control.EventSource, error) {
 	factory, ok := controlLookup(cfg.ControlSource)
 	if !ok {
 		return nil, fmt.Errorf("comms: unknown ControlSource %q", cfg.ControlSource)

@@ -1,13 +1,15 @@
 package comms
 
 import (
-	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"math"
 	"testing"
 	"time"
 
 	pionrtp "github.com/pion/rtp"
 	"github.com/rs/zerolog"
+
+	"github.com/openmanet/openmanetd/internal/comms/codec"
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
 
 // ─── RTP hot-path benchmarks ─────────────────────────────────────────────────
@@ -60,7 +62,7 @@ func BenchmarkSwappableSenderWrite(b *testing.B) {
 // ─── Codec benchmarks ────────────────────────────────────────────────────────
 
 func BenchmarkEncodeOpus(b *testing.B) {
-	enc, err := newOpusEncoder(encoderComplexity)
+	enc, err := codec.NewOpusEncoder(sampleRate, channels, targetBitrate, encoderComplexity, packetLossPerc)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -85,12 +87,12 @@ func BenchmarkEncodeOpus(b *testing.B) {
 // BenchmarkDecodeOpus measures the Encode→Decode (int16) round-trip used by
 // the send path.
 func BenchmarkDecodeOpus(b *testing.B) {
-	enc, err := newOpusEncoder(encoderComplexity)
+	enc, err := codec.NewOpusEncoder(sampleRate, channels, targetBitrate, encoderComplexity, packetLossPerc)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	dec, err := newOpusDecoder()
+	dec, err := codec.NewOpusDecoder(sampleRate, channels)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -123,12 +125,12 @@ func BenchmarkDecodeOpus(b *testing.B) {
 // BenchmarkDecodeOpusS16 measures the receive hot path: DecodeS16 decodes
 // directly into an int16 output buffer (Phase 5 int16-native pipeline).
 func BenchmarkDecodeOpusS16(b *testing.B) {
-	enc, err := newOpusEncoder(encoderComplexity)
+	enc, err := codec.NewOpusEncoder(sampleRate, channels, targetBitrate, encoderComplexity, packetLossPerc)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	dec, err := newOpusDecoder()
+	dec, err := codec.NewOpusDecoder(sampleRate, channels)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -317,12 +319,12 @@ func BenchmarkPlayoutOneFrame_Mock(b *testing.B) {
 // decoder, confirming that DecodeFloat32 directly into a caller-supplied
 // buffer yields 0 allocs/op.
 func BenchmarkPlayoutOneFrame_Real(b *testing.B) {
-	enc, err := newOpusEncoder(encoderComplexity)
+	enc, err := codec.NewOpusEncoder(sampleRate, channels, targetBitrate, encoderComplexity, packetLossPerc)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	dec, err := newOpusDecoder()
+	dec, err := codec.NewOpusDecoder(sampleRate, channels)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -367,12 +369,12 @@ func BenchmarkPlayoutOneFrame_Real(b *testing.B) {
 // playoutOneFrame using the real Opus decoder. The jitter buffer is set up
 // so that every call hits the conceal branch and invokes DecodePLCFloat32.
 func BenchmarkPlayoutOneFrame_PLC(b *testing.B) {
-	enc, err := newOpusEncoder(encoderComplexity)
+	enc, err := codec.NewOpusEncoder(sampleRate, channels, targetBitrate, encoderComplexity, packetLossPerc)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	dec, err := newOpusDecoder()
+	dec, err := codec.NewOpusDecoder(sampleRate, channels)
 	if err != nil {
 		b.Fatal(err)
 	}

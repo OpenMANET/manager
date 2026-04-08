@@ -244,7 +244,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 // this port. Each port has its own PortAudio output stream running on its own
 // audio thread, so the field is single-writer. Tests must respect this by
 // not invoking playoutOneFrame concurrently with the production callback.
-func (cfg *CommsConfig) playoutOneFrame(pc *PortChannel, rt *CommsRuntime, jitter *RTPJitterBuffer, out []int16) {
+func (cfg *CommsConfig) playoutOneFrame(pc *PortChannel, rt *CommsRuntime, jitter *rtp.JitterBuffer, out []int16) {
 	// Half-duplex: emit silence while broadcasting on a send-capable port.
 	if cfg.isBroadcasting(rt) && pc.SendEnabled.Load() {
 		zeroInt16(out)
@@ -336,7 +336,7 @@ func (cfg *CommsConfig) playoutOneFrame(pc *PortChannel, rt *CommsRuntime, jitte
 // A safety-net poll fires every 100 ms so the loop can still flush a frame
 // in the unlikely event that a notify signal coalesced with a missed wake.
 // In steady state the ticker case should never run.
-func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *RTPJitterBuffer, rt *CommsRuntime) {
+func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *rtp.JitterBuffer, rt *CommsRuntime) {
 	notify := jitter.EnableNotify()
 
 	const safetyPoll = 100 * time.Millisecond

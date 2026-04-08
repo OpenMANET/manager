@@ -276,9 +276,9 @@ func (cfg *CommsConfig) buildNetwork() ([]*PortChannel, string, error) {
 // receiver unblocks any in-flight ReadFromUDP in receiveLoop.
 func (cfg *CommsConfig) replaceNetwork(
 	rt *CommsRuntime,
-	newSender PacketWriter,
-	newRTCPSender PacketWriter,
-	newReceiver PacketReader,
+	newSender rtp.PacketWriter,
+	newRTCPSender rtp.PacketWriter,
+	newReceiver rtp.PacketReader,
 	newLocalIP string,
 ) {
 	pc := rt.Ports[0]

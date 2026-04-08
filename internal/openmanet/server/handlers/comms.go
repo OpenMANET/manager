@@ -7,11 +7,13 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
-	commsv1 "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1"
-	"github.com/openmanet/openmanetd/internal/comms"
-	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/emptypb"
+
+	commsv1 "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1"
+	"github.com/openmanet/openmanetd/internal/comms"
+	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/config"
 )
 
 // CommsService implements the commsv1connect.CommsServiceHandler interface,
@@ -263,15 +265,15 @@ func (c *CommsService) SendPTTEvent(_ context.Context, req *commsv1.SendPTTEvent
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("web control source not active"))
 	}
 
-	var ev comms.PTTEvent
+	var ev control.PTTEvent
 
 	switch req.GetEvent() {
 	case 0:
-		ev = comms.PTTDown
+		ev = control.PTTDown
 	case 1:
-		ev = comms.PTTUp
+		ev = control.PTTUp
 	case 2:
-		ev = comms.PTTToggle
+		ev = control.PTTToggle
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid PTT event type"))
 	}

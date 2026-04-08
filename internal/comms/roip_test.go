@@ -66,7 +66,7 @@ func staticMonitorOpener(frameCh chan []float32) func() (<-chan []float32, func(
 func TestROIPSource_COS_OpenerError_ClosesChannelImmediately(t *testing.T) {
 	src := control.NewROIPSourceWithOpener(
 		openerFailing(errOpenDevice),
-		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
+		control.ROIPDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -86,11 +86,11 @@ func TestROIPSource_COS_OpenerError_ClosesChannelImmediately(t *testing.T) {
 
 func TestROIPSource_COS_COSLow_NoInitialEvent(t *testing.T) {
 	mock := newMockHIDDevice()
-	mock.queueReport(makeROIPReport(roipDefaultCOSMask, false)) // COS low
+	mock.queueReport(makeROIPReport(control.ROIPDefaultCOSMask, false)) // COS low
 
 	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
-		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
+		control.ROIPDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
@@ -106,11 +106,11 @@ func TestROIPSource_COS_COSLow_NoInitialEvent(t *testing.T) {
 
 func TestROIPSource_COS_COSHigh_EmitsPTTDown(t *testing.T) {
 	mock := newMockHIDDevice()
-	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true))
+	mock.queueReport(makeROIPReport(control.ROIPDefaultCOSMask, true))
 
 	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
-		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
+		control.ROIPDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -120,22 +120,22 @@ func TestROIPSource_COS_COSHigh_EmitsPTTDown(t *testing.T) {
 
 	select {
 	case ev := <-ch:
-		if ev != PTTDown {
-			t.Errorf("expected PTTDown; got %v", ev)
+		if ev != control.PTTDown {
+			t.Errorf("expected control.PTTDown; got %v", ev)
 		}
 	case <-time.After(400 * time.Millisecond):
-		t.Error("timed out waiting for PTTDown")
+		t.Error("timed out waiting for control.PTTDown")
 	}
 }
 
 func TestROIPSource_COS_HighThenLow_EmitsPTTDownThenPTTUp(t *testing.T) {
 	mock := newMockHIDDevice()
-	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true))
-	mock.queueReport(makeROIPReport(roipDefaultCOSMask, false))
+	mock.queueReport(makeROIPReport(control.ROIPDefaultCOSMask, true))
+	mock.queueReport(makeROIPReport(control.ROIPDefaultCOSMask, false))
 
 	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
-		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
+		control.ROIPDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -148,24 +148,24 @@ func TestROIPSource_COS_HighThenLow_EmitsPTTDownThenPTTUp(t *testing.T) {
 		t.Fatalf("expected 2 events; got %d: %v", len(events), events)
 	}
 
-	if events[0] != PTTDown {
-		t.Errorf("event[0]: got %v, want PTTDown", events[0])
+	if events[0] != control.PTTDown {
+		t.Errorf("event[0]: got %v, want control.PTTDown", events[0])
 	}
 
-	if events[1] != PTTUp {
-		t.Errorf("event[1]: got %v, want PTTUp", events[1])
+	if events[1] != control.PTTUp {
+		t.Errorf("event[1]: got %v, want control.PTTUp", events[1])
 	}
 }
 
 func TestROIPSource_COS_DuplicateHigh_NoExtraEvent(t *testing.T) {
 	mock := newMockHIDDevice()
-	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true))  // HIGH → PTTDown
-	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true))  // HIGH again → no event
-	mock.queueReport(makeROIPReport(roipDefaultCOSMask, false)) // LOW → PTTUp
+	mock.queueReport(makeROIPReport(control.ROIPDefaultCOSMask, true))  // HIGH → control.PTTDown
+	mock.queueReport(makeROIPReport(control.ROIPDefaultCOSMask, true))  // HIGH again → no event
+	mock.queueReport(makeROIPReport(control.ROIPDefaultCOSMask, false)) // LOW → PTTUp
 
 	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
-		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
+		control.ROIPDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -181,12 +181,12 @@ func TestROIPSource_COS_DuplicateHigh_NoExtraEvent(t *testing.T) {
 
 func TestROIPSource_COS_HalfDuplex_SuppressesPTTDownWhileReceiving(t *testing.T) {
 	mock := newMockHIDDevice()
-	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true))  // COS HIGH while receiving
-	mock.queueReport(makeROIPReport(roipDefaultCOSMask, false)) // COS LOW
+	mock.queueReport(makeROIPReport(control.ROIPDefaultCOSMask, true))  // COS HIGH while receiving
+	mock.queueReport(makeROIPReport(control.ROIPDefaultCOSMask, false)) // COS LOW
 
 	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
-		roipDefaultCOSMask,
+		control.ROIPDefaultCOSMask,
 		func() bool { return true }, // network always receiving
 		neverBroadcasting,
 		zerolog.Nop(),
@@ -205,16 +205,16 @@ func TestROIPSource_COS_HalfDuplex_SuppressesPTTDownWhileReceiving(t *testing.T)
 
 func TestROIPSource_COS_HalfDuplex_EmitsAfterReceivingClears(t *testing.T) {
 	// First COS HIGH whilst receiving is suppressed (and prevCOS reset to false).
-	// After receiving stops, a second COS HIGH transition must emit PTTDown.
+	// After receiving stops, a second COS HIGH transition must emit control.PTTDown.
 	mock := newMockHIDDevice()
-	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true)) // HIGH while receiving → suppressed
+	mock.queueReport(makeROIPReport(control.ROIPDefaultCOSMask, true)) // HIGH while receiving → suppressed
 
 	var receivingFlag atomic.Bool
 	receivingFlag.Store(true)
 
 	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
-		roipDefaultCOSMask, receivingFlag.Load, neverBroadcasting, zerolog.Nop(),
+		control.ROIPDefaultCOSMask, receivingFlag.Load, neverBroadcasting, zerolog.Nop(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -228,15 +228,15 @@ func TestROIPSource_COS_HalfDuplex_EmitsAfterReceivingClears(t *testing.T) {
 	// Clear receiving flag first, then queue a new COS HIGH.
 	receivingFlag.Store(false)
 
-	mock.queueReport(makeROIPReport(roipDefaultCOSMask, true)) // should now emit PTTDown
+	mock.queueReport(makeROIPReport(control.ROIPDefaultCOSMask, true)) // should now emit control.PTTDown
 
 	select {
 	case ev := <-ch:
-		if ev != PTTDown {
-			t.Errorf("expected PTTDown after receiving cleared; got %v", ev)
+		if ev != control.PTTDown {
+			t.Errorf("expected control.PTTDown after receiving cleared; got %v", ev)
 		}
 	case <-time.After(400 * time.Millisecond):
-		t.Error("timed out waiting for PTTDown after receiving cleared")
+		t.Error("timed out waiting for control.PTTDown after receiving cleared")
 	}
 }
 
@@ -245,7 +245,7 @@ func TestROIPSource_COS_ContextCancel_ClosesChannel(t *testing.T) {
 
 	src := control.NewROIPSourceWithOpener(
 		openerReturning(mock),
-		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
+		control.ROIPDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -268,7 +268,7 @@ func TestROIPSource_COS_ReadError_ClosesChannel(t *testing.T) {
 
 	src := control.NewROIPSourceWithOpener(
 		openerReturning(errDev),
-		roipDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
+		control.ROIPDefaultCOSMask, neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -292,7 +292,7 @@ func TestROIPSource_COS_CustomGPIOMask(t *testing.T) {
 	mock := newMockHIDDevice()
 	// GPIO3 bit set (0x04) — should NOT trigger with gpio4Mask.
 	mock.queueReport([]byte{0x00, 0x00, 0x04, 0x00, 0x00})
-	// GPIO4 bit set (0x08) — SHOULD trigger PTTDown.
+	// GPIO4 bit set (0x08) — SHOULD trigger control.PTTDown.
 	mock.queueReport([]byte{0x00, 0x00, 0x08, 0x00, 0x00})
 
 	src := control.NewROIPSourceWithOpener(
@@ -307,11 +307,11 @@ func TestROIPSource_COS_CustomGPIOMask(t *testing.T) {
 
 	select {
 	case ev := <-ch:
-		if ev != PTTDown {
-			t.Errorf("expected PTTDown on GPIO4; got %v", ev)
+		if ev != control.PTTDown {
+			t.Errorf("expected control.PTTDown on GPIO4; got %v", ev)
 		}
 	case <-time.After(400 * time.Millisecond):
-		t.Error("timed out waiting for PTTDown on custom GPIO mask")
+		t.Error("timed out waiting for control.PTTDown on custom GPIO mask")
 	}
 }
 
@@ -324,7 +324,7 @@ func TestROIPSource_VOX_BelowThreshold_NoEvent(t *testing.T) {
 	frameCh := make(chan []float32, 32)
 
 	// Push onset frames that are BELOW threshold (amplitude 0.005, threshold 0.02).
-	for range roipVOXOnsetFrames + 2 {
+	for range control.ROIPVOXOnsetFrames + 2 {
 		frame := make([]float32, frameSize)
 		for i := range frame {
 			frame[i] = 0.005
@@ -335,7 +335,7 @@ func TestROIPSource_VOX_BelowThreshold_NoEvent(t *testing.T) {
 
 	src := control.NewROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
-		roipDefaultVOXHold,
+		control.ROIPDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
@@ -352,11 +352,11 @@ func TestROIPSource_VOX_BelowThreshold_NoEvent(t *testing.T) {
 
 func TestROIPSource_VOX_OnsetThreshold_PTTDown(t *testing.T) {
 	frameCh := make(chan []float32, 32)
-	pushLoudFrames(frameCh, roipVOXOnsetFrames+1, loudAmplitude)
+	pushLoudFrames(frameCh, control.ROIPVOXOnsetFrames+1, loudAmplitude)
 
 	src := control.NewROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
-		roipDefaultVOXHold,
+		control.ROIPDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
@@ -367,26 +367,26 @@ func TestROIPSource_VOX_OnsetThreshold_PTTDown(t *testing.T) {
 
 	select {
 	case ev := <-ch:
-		if ev != PTTDown {
-			t.Errorf("expected PTTDown; got %v", ev)
+		if ev != control.PTTDown {
+			t.Errorf("expected control.PTTDown; got %v", ev)
 		}
 	case <-time.After(400 * time.Millisecond):
-		t.Error("timed out waiting for PTTDown on VOX onset")
+		t.Error("timed out waiting for control.PTTDown on VOX onset")
 	}
 }
 
 func TestROIPSource_VOX_NonConsecutiveFrames_ResetsOnsetCounter(t *testing.T) {
 	frameCh := make(chan []float32, 32)
 
-	// Alternate loud / silent: onset counter should never reach roipVOXOnsetFrames.
-	for range roipVOXOnsetFrames * 4 {
+	// Alternate loud / silent: onset counter should never reach control.ROIPVOXOnsetFrames.
+	for range control.ROIPVOXOnsetFrames * 4 {
 		pushLoudFrames(frameCh, 1, loudAmplitude)
 		pushSilentFrames(frameCh, 1)
 	}
 
 	src := control.NewROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
-		roipDefaultVOXHold,
+		control.ROIPDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
@@ -397,17 +397,17 @@ func TestROIPSource_VOX_NonConsecutiveFrames_ResetsOnsetCounter(t *testing.T) {
 	events := collectPTTEvents(ch, 250*time.Millisecond)
 
 	if len(events) != 0 {
-		t.Errorf("expected no PTTDown for non-consecutive frames; got %v", events)
+		t.Errorf("expected no control.PTTDown for non-consecutive frames; got %v", events)
 	}
 }
 
 func TestROIPSource_VOX_HalfDuplex_SuppressesWhileReceiving(t *testing.T) {
 	frameCh := make(chan []float32, 32)
-	pushLoudFrames(frameCh, roipVOXOnsetFrames+2, loudAmplitude)
+	pushLoudFrames(frameCh, control.ROIPVOXOnsetFrames+2, loudAmplitude)
 
 	src := control.NewROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
-		roipDefaultVOXHold,
+		control.ROIPDefaultVOXHold,
 		func() bool { return true }, // network always receiving
 		neverBroadcasting,
 		zerolog.Nop(),
@@ -420,13 +420,13 @@ func TestROIPSource_VOX_HalfDuplex_SuppressesWhileReceiving(t *testing.T) {
 	events := collectPTTEvents(ch, 250*time.Millisecond)
 
 	if len(events) != 0 {
-		t.Errorf("expected PTTDown suppressed while receiving; got %v", events)
+		t.Errorf("expected control.PTTDown suppressed while receiving; got %v", events)
 	}
 }
 
 func TestROIPSource_VOX_TailHold_NoEarlyPTTUp(t *testing.T) {
 	frameCh := make(chan []float32, 32)
-	pushLoudFrames(frameCh, roipVOXOnsetFrames+1, loudAmplitude)
+	pushLoudFrames(frameCh, control.ROIPVOXOnsetFrames+1, loudAmplitude)
 
 	holdTime := 300 * time.Millisecond
 
@@ -441,14 +441,14 @@ func TestROIPSource_VOX_TailHold_NoEarlyPTTUp(t *testing.T) {
 
 	ch := src.Events(ctx)
 
-	// First event must be PTTDown.
+	// First event must be control.PTTDown.
 	select {
 	case ev := <-ch:
-		if ev != PTTDown {
-			t.Fatalf("expected PTTDown; got %v", ev)
+		if ev != control.PTTDown {
+			t.Fatalf("expected control.PTTDown; got %v", ev)
 		}
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timed out waiting for PTTDown")
+		t.Fatal("timed out waiting for control.PTTDown")
 	}
 
 	// PTTUp must NOT arrive before the hold time expires.
@@ -462,7 +462,7 @@ func TestROIPSource_VOX_TailHold_NoEarlyPTTUp(t *testing.T) {
 
 func TestROIPSource_VOX_PTTUpAfterHoldTime(t *testing.T) {
 	frameCh := make(chan []float32, 32)
-	pushLoudFrames(frameCh, roipVOXOnsetFrames+1, loudAmplitude)
+	pushLoudFrames(frameCh, control.ROIPVOXOnsetFrames+1, loudAmplitude)
 	// No more frames after onset: tap channel is empty → hold timer fires.
 
 	holdTime := 80 * time.Millisecond
@@ -480,21 +480,21 @@ func TestROIPSource_VOX_PTTUpAfterHoldTime(t *testing.T) {
 	events := collectPTTEvents(ch, holdTime+300*time.Millisecond)
 
 	if len(events) < 2 {
-		t.Fatalf("expected [PTTDown, PTTUp]; got %v", events)
+		t.Fatalf("expected [control.PTTDown, PTTUp]; got %v", events)
 	}
 
-	if events[0] != PTTDown {
-		t.Errorf("events[0]: got %v, want PTTDown", events[0])
+	if events[0] != control.PTTDown {
+		t.Errorf("events[0]: got %v, want control.PTTDown", events[0])
 	}
 
-	if events[1] != PTTUp {
-		t.Errorf("events[1]: got %v, want PTTUp", events[1])
+	if events[1] != control.PTTUp {
+		t.Errorf("events[1]: got %v, want control.PTTUp", events[1])
 	}
 }
 
 func TestROIPSource_VOX_PTTUpWhenReceivingWhileActive(t *testing.T) {
 	frameCh := make(chan []float32, 32)
-	pushLoudFrames(frameCh, roipVOXOnsetFrames+1, loudAmplitude)
+	pushLoudFrames(frameCh, control.ROIPVOXOnsetFrames+1, loudAmplitude)
 
 	var receivingFlag atomic.Bool
 
@@ -511,14 +511,14 @@ func TestROIPSource_VOX_PTTUpWhenReceivingWhileActive(t *testing.T) {
 
 	ch := src.Events(ctx)
 
-	// Wait for PTTDown.
+	// Wait for control.PTTDown.
 	select {
 	case ev := <-ch:
-		if ev != PTTDown {
-			t.Fatalf("expected PTTDown; got %v", ev)
+		if ev != control.PTTDown {
+			t.Fatalf("expected control.PTTDown; got %v", ev)
 		}
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timed out waiting for PTTDown")
+		t.Fatal("timed out waiting for control.PTTDown")
 	}
 
 	// Simulate network RX starting.
@@ -526,8 +526,8 @@ func TestROIPSource_VOX_PTTUpWhenReceivingWhileActive(t *testing.T) {
 
 	select {
 	case ev := <-ch:
-		if ev != PTTUp {
-			t.Errorf("expected PTTUp on network RX; got %v", ev)
+		if ev != control.PTTUp {
+			t.Errorf("expected control.PTTUp on network RX; got %v", ev)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Error("timed out waiting for PTTUp after network RX started")
@@ -536,25 +536,25 @@ func TestROIPSource_VOX_PTTUpWhenReceivingWhileActive(t *testing.T) {
 
 func TestROIPSource_VOX_ContextCancel_ClosesChannel(t *testing.T) {
 	frameCh := make(chan []float32, 32)
-	pushLoudFrames(frameCh, roipVOXOnsetFrames+1, loudAmplitude)
+	pushLoudFrames(frameCh, control.ROIPVOXOnsetFrames+1, loudAmplitude)
 
 	src := control.NewROIPSourceWithMonitor(
 		staticMonitorOpener(frameCh),
-		roipDefaultVOXHold,
+		control.ROIPDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := src.Events(ctx)
 
-	// Wait for PTTDown to confirm the source is in ACTIVE state, then cancel.
+	// Wait for control.PTTDown to confirm the source is in ACTIVE state, then cancel.
 	select {
 	case ev := <-ch:
-		if ev != PTTDown {
-			t.Fatalf("expected PTTDown; got %v", ev)
+		if ev != control.PTTDown {
+			t.Fatalf("expected control.PTTDown; got %v", ev)
 		}
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timed out waiting for PTTDown before cancel")
+		t.Fatal("timed out waiting for control.PTTDown before cancel")
 	}
 
 	cancel()

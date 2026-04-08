@@ -3,6 +3,8 @@ package comms
 import (
 	"context"
 	"time"
+
+	"github.com/openmanet/openmanetd/internal/comms/control"
 )
 
 // defaultPttStartDelayMs is the start-tone settle window applied when
@@ -187,7 +189,7 @@ func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 // Receive-capable port plus a single halfDuplexDecayLoop that clears the
 // cached RemoteRxActive flag when every gate has gone quiet, then blocks
 // dispatching PTT events until ctx is canceled.
-func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src EventSource) {
+func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src control.EventSource) {
 	for _, pc := range rt.Ports {
 		if pc.Receiver != nil {
 			go cfg.receiveLoop(ctx, pc, rt)
@@ -210,11 +212,11 @@ func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src EventSour
 			}
 
 			switch ev {
-			case PTTDown:
+			case control.PTTDown:
 				cfg.beginTransmission(rt)
-			case PTTUp:
+			case control.PTTUp:
 				cfg.endTransmission(rt)
-			case PTTToggle:
+			case control.PTTToggle:
 				if cfg.isBroadcasting(rt) {
 					cfg.Log.Debug().Msg("Comm toggle: stopping transmission")
 					cfg.endTransmission(rt)

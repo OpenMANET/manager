@@ -12,7 +12,7 @@ import (
 )
 
 func TestWebEventSource_ImplementsEventSource(t *testing.T) {
-	var _ EventSource = control.NewWebEventSource(zerolog.Nop())
+	var _ control.EventSource = control.NewWebEventSource(zerolog.Nop())
 }
 
 func TestWebEventSource_Push_DeliversEvent(t *testing.T) {
@@ -22,12 +22,12 @@ func TestWebEventSource_Push_DeliversEvent(t *testing.T) {
 	defer cancel()
 
 	ch := ws.Events(ctx)
-	ws.Push(PTTDown)
+	ws.Push(control.PTTDown)
 
 	select {
 	case ev := <-ch:
-		if ev != PTTDown {
-			t.Errorf("expected PTTDown; got %v", ev)
+		if ev != control.PTTDown {
+			t.Errorf("expected control.PTTDown; got %v", ev)
 		}
 	case <-time.After(200 * time.Millisecond):
 		t.Error("timed out waiting for PTTDown event")
@@ -42,7 +42,7 @@ func TestWebEventSource_Push_AllEventTypes(t *testing.T) {
 
 	ch := ws.Events(ctx)
 
-	events := []PTTEvent{PTTDown, PTTUp, PTTToggle}
+	events := []control.PTTEvent{control.PTTDown, control.PTTUp, control.PTTToggle}
 	for _, ev := range events {
 		ws.Push(ev)
 	}
@@ -64,14 +64,14 @@ func TestWebEventSource_Push_DropOnFull(t *testing.T) {
 
 	// Fill the channel to capacity (4).
 	for i := 0; i < 4; i++ {
-		ws.Push(PTTToggle)
+		ws.Push(control.PTTToggle)
 	}
 
 	// This push must not block; the event is silently dropped.
 	done := make(chan struct{})
 
 	go func() {
-		ws.Push(PTTToggle)
+		ws.Push(control.PTTToggle)
 		close(done)
 	}()
 
@@ -118,7 +118,7 @@ func TestWebEventSource_ConcurrentPush(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			ws.Push(PTTToggle)
+			ws.Push(control.PTTToggle)
 		}()
 	}
 
@@ -160,12 +160,12 @@ func TestWebEventSource_RunIntegration(t *testing.T) {
 	// Give the Run loop time to start before pushing events.
 	time.Sleep(50 * time.Millisecond)
 
-	ws.Push(PTTDown)
+	ws.Push(control.PTTDown)
 
 	// Wait for the broadcast stream to be started (beginTransmission sleeps 200ms).
 	time.Sleep(300 * time.Millisecond)
 
-	ws.Push(PTTUp)
+	ws.Push(control.PTTUp)
 
 	// Wait for the Run loop to process PTTUp.
 	time.Sleep(100 * time.Millisecond)

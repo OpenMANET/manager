@@ -15,8 +15,8 @@ import (
 
 // ─── mockHIDDevice ────────────────────────────────────────────────────────────
 
-// mockHIDDevice satisfies HIDDevice. Each call to Read returns the next queued
-// report; when the queue is empty it blocks until Close is called.
+// mockHIDDevice satisfies control.HIDDevice. Each call to Read returns the
+// next queued report; when the queue is empty it blocks until Close is called.
 type mockHIDDevice struct {
 	reports    chan []byte
 	closed     chan struct{}
@@ -72,14 +72,14 @@ func (e *errHIDDevice) Close() error               { return nil }
 func makeOpenVLMReport(gpio3High bool) []byte {
 	ir1 := byte(0x00)
 	if gpio3High {
-		ir1 |= openvlmGPIO3Mask
+		ir1 |= control.OpenVLMGPIO3Mask
 	}
 
 	return []byte{0x00, 0x00, ir1, 0x00, 0x00}
 }
 
-func collectPTTEvents(ch <-chan PTTEvent, timeout time.Duration) []PTTEvent {
-	var events []PTTEvent
+func collectPTTEvents(ch <-chan control.PTTEvent, timeout time.Duration) []control.PTTEvent {
+	var events []control.PTTEvent
 
 	deadline := time.After(timeout)
 
@@ -97,14 +97,14 @@ func collectPTTEvents(ch <-chan PTTEvent, timeout time.Duration) []PTTEvent {
 	}
 }
 
-func openerReturning(dev HIDDevice) HIDOpener {
-	return func(_, _ uint16) (HIDDevice, error) {
+func openerReturning(dev control.HIDDevice) control.HIDOpener {
+	return func(_, _ uint16) (control.HIDDevice, error) {
 		return dev, nil
 	}
 }
 
-func openerFailing(err error) HIDOpener {
-	return func(_, _ uint16) (HIDDevice, error) {
+func openerFailing(err error) control.HIDOpener {
+	return func(_, _ uint16) (control.HIDDevice, error) {
 		return nil, err
 	}
 }
@@ -135,7 +135,7 @@ func TestOpenVLMSource_OpenerCalledWithCorrectVIDPID(t *testing.T) {
 	resultCh := make(chan vidpid, 1)
 
 	mock := newMockHIDDevice()
-	opener := func(vid, pid uint16) (HIDDevice, error) {
+	opener := func(vid, pid uint16) (control.HIDDevice, error) {
 		resultCh <- vidpid{vid, pid}
 
 		return mock, nil
@@ -150,12 +150,12 @@ func TestOpenVLMSource_OpenerCalledWithCorrectVIDPID(t *testing.T) {
 
 	select {
 	case r := <-resultCh:
-		if r.vid != openvlmVendorID {
-			t.Errorf("VendorID: got 0x%04X, want 0x%04X", r.vid, openvlmVendorID)
+		if r.vid != control.OpenVLMVendorID {
+			t.Errorf("VendorID: got 0x%04X, want 0x%04X", r.vid, control.OpenVLMVendorID)
 		}
 
-		if r.pid != openvlmProductID {
-			t.Errorf("ProductID: got 0x%04X, want 0x%04X", r.pid, openvlmProductID)
+		if r.pid != control.OpenVLMProductID {
+			t.Errorf("ProductID: got 0x%04X, want 0x%04X", r.pid, control.OpenVLMProductID)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Error("opener was not called within timeout")
@@ -192,7 +192,7 @@ func TestOpenVLMSource_GPIO3_HighReport_EmitsPTTDown(t *testing.T) {
 
 	select {
 	case ev := <-ch:
-		if ev != PTTDown {
+		if ev != control.PTTDown {
 			t.Errorf("expected PTTDown; got %v", ev)
 		}
 	case <-time.After(400 * time.Millisecond):
@@ -217,11 +217,11 @@ func TestOpenVLMSource_HighThenLow_EmitsPTTDownThenPTTUp(t *testing.T) {
 		t.Fatalf("expected 2 events; got %d: %v", len(events), events)
 	}
 
-	if events[0] != PTTDown {
+	if events[0] != control.PTTDown {
 		t.Errorf("event[0]: got %v, want PTTDown", events[0])
 	}
 
-	if events[1] != PTTUp {
+	if events[1] != control.PTTUp {
 		t.Errorf("event[1]: got %v, want PTTUp", events[1])
 	}
 }
@@ -389,7 +389,7 @@ func TestOpenVLMSource_ShortReport_SkippedAndContinues(t *testing.T) {
 
 	select {
 	case ev := <-ch:
-		if ev != PTTDown {
+		if ev != control.PTTDown {
 			t.Errorf("expected PTTDown after short report skipped; got %v", ev)
 		}
 	case <-time.After(700 * time.Millisecond):

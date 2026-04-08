@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
+
+	"github.com/openmanet/openmanetd/internal/comms/control"
 )
 
 // Service is the live comms subsystem instance returned (conceptually) by
@@ -127,7 +129,7 @@ func (s *Service) TalkGroupStates() ([]McastPortState, error) {
 
 // WebEventSource returns the web control source if one was constructed,
 // otherwise nil.
-func (s *Service) WebEventSource() *webEventSource {
+func (s *Service) WebEventSource() *control.WebEventSource {
 	if s == nil || s.Rt == nil {
 		return nil
 	}

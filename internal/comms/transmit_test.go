@@ -3,11 +3,13 @@ package comms
 import (
 	"context"
 	"errors"
-	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
 
 func newSilentComms() *CommsConfig {
@@ -370,7 +372,7 @@ func TestRun_ExitsOnContextCancel(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		cfg.Run(ctx, rt, &mockEventSource{ch: make(chan PTTEvent)})
+		cfg.Run(ctx, rt, &mockEventSource{ch: make(chan control.PTTEvent)})
 	}()
 
 	select {
@@ -386,7 +388,7 @@ func TestRun_ClosedEventChannelExits(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	rt := newRunRuntime(&mockStream{})
 
-	ch := make(chan PTTEvent)
+	ch := make(chan control.PTTEvent)
 	close(ch) // closed before Run is called
 
 	done := make(chan struct{})
@@ -411,8 +413,8 @@ func TestRun_PTTDownStartsTransmission(t *testing.T) {
 	rt := newRunRuntime(stream)
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	evCh := make(chan PTTEvent, 1)
-	evCh <- PTTDown
+	evCh := make(chan control.PTTEvent, 1)
+	evCh <- control.PTTDown
 
 	close(evCh)
 
@@ -430,10 +432,10 @@ func TestRun_PTTUpStopsTransmission(t *testing.T) {
 	rt := newRunRuntime(stream)
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	evCh := make(chan PTTEvent, 2)
-	evCh <- PTTDown
+	evCh := make(chan control.PTTEvent, 2)
+	evCh <- control.PTTDown
 
-	evCh <- PTTUp
+	evCh <- control.PTTUp
 
 	close(evCh)
 
@@ -455,10 +457,10 @@ func TestRun_PTTToggleFlips(t *testing.T) {
 	rt := newRunRuntime(stream)
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	evCh := make(chan PTTEvent, 2)
-	evCh <- PTTToggle // → beginTransmission
+	evCh := make(chan control.PTTEvent, 2)
+	evCh <- control.PTTToggle // → beginTransmission
 
-	evCh <- PTTToggle // → endTransmission
+	evCh <- control.PTTToggle // → endTransmission
 
 	close(evCh)
 

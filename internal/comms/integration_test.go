@@ -4,13 +4,14 @@ package comms
 
 import (
 	"context"
-	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"net"
 	"testing"
 	"time"
 
 	pionrtp "github.com/pion/rtp"
 	"github.com/rs/zerolog"
+
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
 
 // These tests exercise the receive path end-to-end:

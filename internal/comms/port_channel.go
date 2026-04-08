@@ -2,6 +2,8 @@ package comms
 
 import (
 	"sync/atomic"
+
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
 
 // ─── McastPortConfig / McastPortState ────────────────────────────────────────
@@ -56,12 +58,12 @@ type McastPortState struct {
 // drains it before falling through to playoutOneFrame so beeps preempt one
 // frame of jitter-buffered audio.
 type PortChannel struct {
-	RTPSess           RTPSender
+	RTPSess           rtp.Sender
 	PlaybackStream    AudioStream
-	Sender            *SwappableSender
-	RTCPSend          *SwappableSender
-	Receiver          *SwappableReceiver
-	Jitter            *RTPJitterBuffer
+	Sender            *rtp.SwappableSender
+	RTCPSend          *rtp.SwappableSender
+	Receiver          *rtp.SwappableReceiver
+	Jitter            *rtp.JitterBuffer
 	PlaybackBuffer    chan []int16
 	cfg               McastPortConfig
 	ConsecutivePLC    int
@@ -104,7 +106,7 @@ func (pc *PortChannel) closePartial() {
 		_ = pc.Receiver.Close()
 	}
 
-	if s, ok := pc.RTPSess.(*RTPSession); ok && s != nil {
+	if s, ok := pc.RTPSess.(*rtp.Session); ok && s != nil {
 		_ = s.Close()
 	}
 

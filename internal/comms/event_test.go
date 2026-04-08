@@ -13,8 +13,8 @@ import (
 )
 
 func TestEvdevSource_PTTToggle(t *testing.T) {
-	src := &mockEventSource{ch: make(chan PTTEvent, 4)}
-	src.ch <- PTTToggle
+	src := &mockEventSource{ch: make(chan control.PTTEvent, 4)}
+	src.ch <- control.PTTToggle
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
@@ -22,7 +22,7 @@ func TestEvdevSource_PTTToggle(t *testing.T) {
 	ch := src.Events(ctx)
 	select {
 	case ev := <-ch:
-		if ev != PTTToggle {
+		if ev != control.PTTToggle {
 			t.Errorf("expected PTTToggle; got %v", ev)
 		}
 	case <-time.After(100 * time.Millisecond):
@@ -66,21 +66,21 @@ func TestNormalizeControlSource(t *testing.T) {
 }
 
 func TestPTTEvent_Values(t *testing.T) {
-	if PTTDown != 0 {
-		t.Errorf("PTTDown = %d; want 0", PTTDown)
+	if control.PTTDown != 0 {
+		t.Errorf("PTTDown = %d; want 0", control.PTTDown)
 	}
 
-	if PTTUp != 1 {
-		t.Errorf("PTTUp = %d; want 1", PTTUp)
+	if control.PTTUp != 1 {
+		t.Errorf("PTTUp = %d; want 1", control.PTTUp)
 	}
 
-	if PTTToggle != 2 {
-		t.Errorf("PTTToggle = %d; want 2", PTTToggle)
+	if control.PTTToggle != 2 {
+		t.Errorf("PTTToggle = %d; want 2", control.PTTToggle)
 	}
 }
 
 func TestMockEventSource_ClosedChannel(t *testing.T) {
-	src := &mockEventSource{ch: make(chan PTTEvent)}
+	src := &mockEventSource{ch: make(chan control.PTTEvent)}
 	close(src.ch)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -100,9 +100,9 @@ func TestMockEventSource_ClosedChannel(t *testing.T) {
 func TestMockEventSource_ConcurrentDelivery(t *testing.T) {
 	const n = 50
 
-	src := &mockEventSource{ch: make(chan PTTEvent, n)}
+	src := &mockEventSource{ch: make(chan control.PTTEvent, n)}
 	for i := 0; i < n; i++ {
-		src.ch <- PTTToggle
+		src.ch <- control.PTTToggle
 	}
 
 	close(src.ch)

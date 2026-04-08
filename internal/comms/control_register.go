@@ -36,10 +36,10 @@ type roipBackend struct {
 }
 
 // webBackend is the ControlDeps.Backend payload for the web RPC source. The
-// factory writes the constructed *webEventSource back into Sink so the rest
+// factory writes the constructed *control.WebEventSource back into Sink so the rest
 // of the comms runtime can find it.
 type webBackend struct {
-	Sink func(*webEventSource)
+	Sink func(*control.WebEventSource)
 }
 
 // nanopttBackend is the ControlDeps.Backend payload for the evdev NanoPTT
@@ -135,7 +135,7 @@ func (cfg *CommsConfig) buildControlDeps(rt *CommsRuntime) (control.ControlDeps,
 		}
 	case controlSourceWeb:
 		deps.Backend = &webBackend{
-			Sink: func(ws *webEventSource) { rt.WebEvtSrc = ws },
+			Sink: func(ws *control.WebEventSource) { rt.WebEvtSrc = ws },
 		}
 	case defaultControlSourceNanoPTT:
 		deps.Backend = &nanopttBackend{Cfg: cfg}

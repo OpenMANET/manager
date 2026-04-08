@@ -2,15 +2,17 @@ package comms
 
 import (
 	"context"
-	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"net"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
 	"golang.org/x/net/ipv4"
+
+	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
+	"github.com/openmanet/openmanetd/internal/config"
 )
 
 func makeRTPBytes(t *testing.T, _ uint16) []byte {
@@ -660,20 +662,20 @@ func TestApplyDefaults_ROIPDefaults(t *testing.T) {
 	cfg := &CommsConfig{ControlSource: "roip"}
 	cfg.applyDefaults()
 
-	if cfg.ROIPCOSGPIOMask != roipDefaultCOSMask {
-		t.Errorf("ROIPCOSGPIOMask: got %d, want %d", cfg.ROIPCOSGPIOMask, roipDefaultCOSMask)
+	if cfg.ROIPCOSGPIOMask != control.ROIPDefaultCOSMask {
+		t.Errorf("ROIPCOSGPIOMask: got %d, want %d", cfg.ROIPCOSGPIOMask, control.ROIPDefaultCOSMask)
 	}
 
-	if cfg.ROIPVOXThreshold != roipDefaultVOXThresh {
-		t.Errorf("ROIPVOXThreshold: got %f, want %f", cfg.ROIPVOXThreshold, roipDefaultVOXThresh)
+	if cfg.ROIPVOXThreshold != control.ROIPDefaultVOXThresh {
+		t.Errorf("ROIPVOXThreshold: got %f, want %f", cfg.ROIPVOXThreshold, control.ROIPDefaultVOXThresh)
 	}
 
-	if cfg.ROIPVOXHoldTime != roipDefaultVOXHold {
-		t.Errorf("ROIPVOXHoldTime: got %v, want %v", cfg.ROIPVOXHoldTime, roipDefaultVOXHold)
+	if cfg.ROIPVOXHoldTime != control.ROIPDefaultVOXHold {
+		t.Errorf("ROIPVOXHoldTime: got %v, want %v", cfg.ROIPVOXHoldTime, control.ROIPDefaultVOXHold)
 	}
 
-	if cfg.ROIPMaxTXDuration != roipDefaultMaxTX {
-		t.Errorf("ROIPMaxTXDuration: got %v, want %v", cfg.ROIPMaxTXDuration, roipDefaultMaxTX)
+	if cfg.ROIPMaxTXDuration != control.ROIPDefaultMaxTX {
+		t.Errorf("ROIPMaxTXDuration: got %v, want %v", cfg.ROIPMaxTXDuration, control.ROIPDefaultMaxTX)
 	}
 }
 

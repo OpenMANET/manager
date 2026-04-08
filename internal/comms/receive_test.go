@@ -3,12 +3,13 @@ package comms
 import (
 	"context"
 	"errors"
-	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"net"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -44,7 +45,7 @@ func isAllZero(out []int16) bool {
 
 // driveOneFrame is a small helper for tests that need to call playoutOneFrame
 // against a fresh PCM output buffer of the standard frame size.
-func driveOneFrame(cfg *CommsConfig, pc *PortChannel, rt *CommsRuntime, jb *RTPJitterBuffer) []int16 {
+func driveOneFrame(cfg *CommsConfig, pc *PortChannel, rt *CommsRuntime, jb *rtp.JitterBuffer) []int16 {
 	out := make([]int16, frameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
