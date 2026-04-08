@@ -63,9 +63,16 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 	cfg.Log.Debug().Msg("Begin transmission: playing start tone and starting mic stream")
 	cfg.drainPlaybackBuffer(rt)
 
-	for _, pc := range rt.ports {
-		if pc.playbackBuffer != nil {
-			pc.playbackBuffer <- rt.beepBufferStart
+	playedDeviceTone := false
+	if rt.tonePlayer != nil {
+		playedDeviceTone = rt.tonePlayer.PlayStartTone()
+	}
+
+	if !playedDeviceTone {
+		for _, pc := range rt.ports {
+			if pc.playbackBuffer != nil {
+				pc.playbackBuffer <- rt.beepBufferStart
+			}
 		}
 	}
 
@@ -142,9 +149,16 @@ func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 
 	cfg.drainPlaybackBuffer(rt)
 
-	for _, pc := range rt.ports {
-		if pc.playbackBuffer != nil {
-			pc.playbackBuffer <- rt.beepBufferStop
+	playedDeviceTone := false
+	if rt.tonePlayer != nil {
+		playedDeviceTone = rt.tonePlayer.PlayStopTone()
+	}
+
+	if !playedDeviceTone {
+		for _, pc := range rt.ports {
+			if pc.playbackBuffer != nil {
+				pc.playbackBuffer <- rt.beepBufferStop
+			}
 		}
 	}
 

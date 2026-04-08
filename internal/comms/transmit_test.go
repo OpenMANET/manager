@@ -9,6 +9,23 @@ import (
 	"github.com/rs/zerolog"
 )
 
+type mockTonePlayer struct {
+	startCalls int
+	stopCalls  int
+	startOK    bool
+	stopOK     bool
+}
+
+func (m *mockTonePlayer) PlayStartTone() bool {
+	m.startCalls++
+	return m.startOK
+}
+
+func (m *mockTonePlayer) PlayStopTone() bool {
+	m.stopCalls++
+	return m.stopOK
+}
+
 func newSilentComms() *CommsConfig {
 	return &CommsConfig{Log: zerolog.Nop()}
 }
@@ -64,6 +81,30 @@ func TestBeginTransmission_QueuesStartBeep(t *testing.T) {
 		}
 	default:
 		t.Error("expected start beep in buffer")
+	}
+}
+
+func TestBeginTransmission_BS22ToneSkipsLocalStartBeep(t *testing.T) {
+	rt := newTestRuntime(&mockStream{})
+	rt.tonePlayer = &mockTonePlayer{startOK: true}
+	cfg := newSilentComms()
+	cfg.beginTransmission(rt)
+
+	if len(rt.ports[0].playbackBuffer) != 0 {
+		t.Fatalf("playback buffer len=%d, want 0", len(rt.ports[0].playbackBuffer))
+	}
+}
+
+func TestBeginTransmission_BS22ToneFallbacksToLocalBeep(t *testing.T) {
+	rt := newTestRuntime(&mockStream{})
+	rt.tonePlayer = &mockTonePlayer{startOK: false}
+	cfg := newSilentComms()
+	cfg.beginTransmission(rt)
+
+	select {
+	case <-rt.ports[0].playbackBuffer:
+	default:
+		t.Fatal("expected local start beep when BS-22 tone playback is unavailable")
 	}
 }
 
@@ -479,6 +520,34 @@ func TestEndTransmission_QueuesStopBeepToAllPorts(t *testing.T) {
 		default:
 			t.Errorf("port %d: expected stop beep in buffer", i)
 		}
+	}
+}
+
+func TestEndTransmission_BS22ToneSkipsLocalStopBeep(t *testing.T) {
+	rt := newTestRuntime(&mockStream{})
+	rt.tonePlayer = &mockTonePlayer{startOK: true, stopOK: true}
+	cfg := newSilentComms()
+	cfg.beginTransmission(rt)
+	cfg.drainPlaybackBuffer(rt)
+	cfg.endTransmission(rt)
+
+	if len(rt.ports[0].playbackBuffer) != 0 {
+		t.Fatalf("playback buffer len=%d, want 0", len(rt.ports[0].playbackBuffer))
+	}
+}
+
+func TestEndTransmission_BS22ToneFallbacksToLocalBeep(t *testing.T) {
+	rt := newTestRuntime(&mockStream{})
+	rt.tonePlayer = &mockTonePlayer{startOK: true, stopOK: false}
+	cfg := newSilentComms()
+	cfg.beginTransmission(rt)
+	cfg.drainPlaybackBuffer(rt)
+	cfg.endTransmission(rt)
+
+	select {
+	case <-rt.ports[0].playbackBuffer:
+	default:
+		t.Fatal("expected local stop beep when BS-22 tone playback is unavailable")
 	}
 }
 

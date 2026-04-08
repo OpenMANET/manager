@@ -153,6 +153,7 @@ type CommsRuntime struct {
 	broadcastStream AudioStream
 	webBridge       *WebAudioBridge
 	webEvtSrc       *webEventSource
+	tonePlayer      DeviceTonePlayer
 	localIP         atomic.Pointer[string]
 	reopenBroadcast func() error
 	broadcastTap    atomic.Pointer[chan []float32]
@@ -815,7 +816,12 @@ func (cfg *CommsConfig) buildEventSource(rt *CommsRuntime) (EventSource, error) 
 	case controlSourceBS22:
 		cfg.Log.Info().Msg("comms: PTT via BS-22 BLE HM control with BlueALSA XEVENT fallback")
 
-		return NewBS22EventSource(cfg.Log), nil
+		src := NewBS22EventSource(cfg.Log)
+		if player, ok := src.(DeviceTonePlayer); ok {
+			rt.tonePlayer = player
+		}
+
+		return src, nil
 
 	case controlSourceWeb:
 		cfg.Log.Info().Msg("comms: PTT via web RPC")

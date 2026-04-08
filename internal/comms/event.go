@@ -23,3 +23,10 @@ const (
 type EventSource interface {
 	Events(ctx context.Context) <-chan PTTEvent
 }
+
+// DeviceTonePlayer is an optional extension for device-specific backends that
+// can emit TX feedback tones on the remote device itself.
+type DeviceTonePlayer interface {
+	PlayStartTone() bool
+	PlayStopTone() bool
+}

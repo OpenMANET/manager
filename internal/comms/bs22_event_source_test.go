@@ -197,6 +197,57 @@ func TestBS22EventSource_PrimeBLE(t *testing.T) {
 	}
 }
 
+func TestBS22EventSource_PlayToneUsesPrimedBinding(t *testing.T) {
+	var writes [][]byte
+	src := &bs22EventSource{
+		log: zerolog.Nop(),
+		writeValue: func(_ *dbus.Conn, path dbus.ObjectPath, data []byte) error {
+			if path != dbus.ObjectPath("/org/bluez/hci0/dev_test/service/char") {
+				t.Fatalf("write path = %q", path)
+			}
+			writes = append(writes, append([]byte(nil), data...))
+			return nil
+		},
+	}
+
+	src.setToneState(&dbus.Conn{}, bs22BLEBinding{
+		WritePath: dbus.ObjectPath("/org/bluez/hci0/dev_test/service/char"),
+	}, true)
+
+	if !src.PlayStartTone() {
+		t.Fatal("PlayStartTone() = false, want true")
+	}
+	if !src.PlayStopTone() {
+		t.Fatal("PlayStopTone() = false, want true")
+	}
+
+	want := [][]byte{
+		{0x10, 0x0A, 0x00, 0x0A, 0x00, 0x01},
+		{0x10, 0x0A, 0x00, 0x0A, 0x00, 0x02},
+	}
+	if len(writes) != len(want) {
+		t.Fatalf("len(writes) = %d, want %d", len(writes), len(want))
+	}
+	for i := range want {
+		for j := range want[i] {
+			if writes[i][j] != want[i][j] {
+				t.Fatalf("writes[%d][%d] = %#x, want %#x", i, j, writes[i][j], want[i][j])
+			}
+		}
+	}
+}
+
+func TestBS22EventSource_PlayToneRequiresPrimedBinding(t *testing.T) {
+	src := &bs22EventSource{log: zerolog.Nop()}
+	src.setToneState(&dbus.Conn{}, bs22BLEBinding{
+		WritePath: dbus.ObjectPath("/org/bluez/hci0/dev_test/service/char"),
+	}, false)
+
+	if src.PlayStartTone() {
+		t.Fatal("PlayStartTone() = true, want false when not primed")
+	}
+}
+
 func TestBS22EventSource_DedupesMergedEvents(t *testing.T) {
 	src := &bs22EventSource{log: zerolog.Nop()}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

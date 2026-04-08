@@ -32,10 +32,13 @@ const (
 	bs22HMNotifyUUID                   = "00001102-d102-11e1-9b23-00025b00a5a5"
 	bs22HMVendorID                     = 0x100A
 	bs22HMReadSettings                 = 13
+	bs22HMPlayTone                     = 10
 	bs22HMSetBLEAudio                  = 15
 	bs22HMKeyEventInd                  = 257
 	bs22HMResponseBit                  = 0x8000
 	bs22HMSetBLEAudioEnabled           = 1
+	bs22HMStartTone                    = 1
+	bs22HMStopTone                     = 2
 	bs22BLEConnectRetryInterval        = 5 * time.Second
 	bs22BLERescanInterval              = 2 * time.Second
 )
@@ -89,6 +92,10 @@ type bs22EventSource struct {
 	dedupeMu       sync.Mutex
 	lastEvent      PTTEvent
 	lastEventAt    time.Time
+	stateMu        sync.RWMutex
+	toneConn       *dbus.Conn
+	toneBinding    bs22BLEBinding
+	tonePrimed     bool
 }
 
 // NewBS22EventSource monitors the BS-22 BLE HM control path and falls back to
@@ -159,6 +166,14 @@ func (s *bs22EventSource) Events(ctx context.Context) <-chan PTTEvent {
 	return out
 }
 
+func (s *bs22EventSource) PlayStartTone() bool {
+	return s.playTone(bs22HMStartTone)
+}
+
+func (s *bs22EventSource) PlayStopTone() bool {
+	return s.playTone(bs22HMStopTone)
+}
+
 func (s *bs22EventSource) emitMergedEvent(ctx context.Context, out chan<- PTTEvent, ev PTTEvent) bool {
 	if s.shouldSuppressDuplicate(ev) {
 		return true
@@ -215,6 +230,8 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 		s.log.Error().Err(err).Msg("BS-22 BLE: failed to connect to system DBus")
 		return
 	}
+	s.setToneState(conn, bs22BLEBinding{}, false)
+	defer s.setToneState(nil, bs22BLEBinding{}, false)
 	defer conn.Close()
 
 	for _, rule := range []string{
@@ -260,6 +277,7 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 		if !ok {
 			haveCurrent = false
 			primed = false
+			s.setToneState(conn, bs22BLEBinding{}, false)
 			return
 		}
 
@@ -273,6 +291,7 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 			}
 			haveCurrent = false
 			primed = false
+			s.setToneState(conn, bs22BLEBinding{}, false)
 			return
 		}
 
@@ -285,6 +304,7 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 			current = binding
 			haveCurrent = true
 			primed = false
+			s.setToneState(conn, current, false)
 			s.log.Info().
 				Str("device", current.Device.Address).
 				Str("notify", string(current.NotifyPath)).
@@ -298,10 +318,12 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 
 		if err := s.primeBLE(conn, current); err != nil {
 			s.log.Debug().Err(err).Str("device", current.Device.Address).Msg("BS-22 BLE: failed to prime HM control channel")
+			s.setToneState(conn, current, false)
 			return
 		}
 
 		primed = true
+		s.setToneState(conn, current, true)
 		s.log.Info().Str("device", current.Device.Address).Msg("BS-22 BLE: primed BLE audio mode")
 	}
 
@@ -352,6 +374,38 @@ func (s *bs22EventSource) primeBLE(conn *dbus.Conn, binding bs22BLEBinding) erro
 	}
 
 	return nil
+}
+
+func (s *bs22EventSource) playTone(toneID uint16) bool {
+	s.stateMu.RLock()
+	conn := s.toneConn
+	binding := s.toneBinding
+	primed := s.tonePrimed
+	writer := s.writeValue
+	s.stateMu.RUnlock()
+
+	if conn == nil || !primed || binding.WritePath == "" || writer == nil {
+		return false
+	}
+
+	payload := make([]byte, 2)
+	binary.BigEndian.PutUint16(payload, toneID)
+	packet := bs22HMCommandBytes(bs22HMVendorID, bs22HMPlayTone, payload...)
+	if err := writer(conn, binding.WritePath, packet); err != nil {
+		s.log.Debug().Err(err).Uint16("tone", toneID).Msg("BS-22 BLE: PLAY_TONE failed")
+		return false
+	}
+
+	return true
+}
+
+func (s *bs22EventSource) setToneState(conn *dbus.Conn, binding bs22BLEBinding, primed bool) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+
+	s.toneConn = conn
+	s.toneBinding = binding
+	s.tonePrimed = primed
 }
 
 func listBlueZManagedObjects(conn *dbus.Conn) (bluezManagedObjectMap, error) {
