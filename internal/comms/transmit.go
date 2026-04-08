@@ -4,23 +4,41 @@ import (
 	"context"
 	"time"
 
+	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/control"
 )
 
-// defaultPttStartDelayMs is the start-tone settle window applied when
-// CommsConfig.PttStartDelayMs is left unset (≤ 0). 50 ms is short enough to
-// be imperceptible at the operator end and long enough to let USB audio
-// class capture devices commit their first DMA cycle before the encoder
-// starts pulling frames. The previous hard-coded 200 ms was a conservative
-// guess; the PortAudio output callback already drains the beep buffer
-// before falling through to playoutOneFrame so beep + mic samples cannot
-// collide regardless of this duration. To skip the wait entirely set
-// PttStartDelayMs to a negative value.
+// defaultPttStartDelayMs is the mic-warmup floor applied when
+// CommsConfig.PttStartDelayMs is left unset (== 0). 50 ms is long enough
+// to let USB audio class capture devices commit their first DMA cycle
+// before the encoder starts pulling frames. The previous hard-coded
+// 200 ms was a conservative guess. The actual time beginTransmission
+// sleeps may be larger than this value when the playback output latency
+// requires a longer beep settle window — see transmitSettleWait. To
+// skip the wait entirely (and accept the start-tone leak risk on
+// hardware with speaker→mic coupling) set PttStartDelayMs to a
+// negative value.
 const defaultPttStartDelayMs = 50
 
-// pttStartDelay returns the configured start-tone settle duration. A
-// negative PttStartDelayMs means "skip the wait"; a zero or unset value
-// falls back to defaultPttStartDelayMs; positive values are taken as-is.
+// frameDuration is the wall-clock length of one Opus frame at the
+// capture/playback sample rate (20 ms). The start/stop beeps are
+// exactly one frame long.
+const frameDuration = time.Duration(audiopool.FrameSize) * time.Second /
+	time.Duration(audiopool.SampleRate)
+
+// beepSettleMargin is the extra slack added on top of the playback
+// output latency and the beep frame duration when waiting for the
+// start tone to fully clear the speaker before the mic capture stream
+// goes live. Accounts for playback-callback scheduling jitter and
+// room reverb tail.
+const beepSettleMargin = 20 * time.Millisecond
+
+// pttStartDelay returns the configured mic-warmup duration. A negative
+// PttStartDelayMs means "skip the wait"; a zero or unset value falls
+// back to defaultPttStartDelayMs; positive values are taken as-is.
+// Callers should generally use transmitSettleWait, which also accounts
+// for the playback output latency required to keep the start beep out
+// of the transmitted stream.
 func (cfg *CommsConfig) pttStartDelay() time.Duration {
 	switch {
 	case cfg.PttStartDelayMs < 0:
@@ -30,6 +48,33 @@ func (cfg *CommsConfig) pttStartDelay() time.Duration {
 	default:
 		return time.Duration(cfg.PttStartDelayMs) * time.Millisecond
 	}
+}
+
+// transmitSettleWait returns the duration beginTransmission should
+// sleep between queueing the start-tone beep and calling
+// BroadcastStream.Start(). It is the greater of:
+//
+//   - the configured mic-warmup delay (pttStartDelay), and
+//   - the beep's physical emission window: the actual playback output
+//     latency reported by PortAudio plus one frame (the beep duration)
+//     plus a small margin for scheduling jitter and room reverb.
+//
+// Without the second term the mic stream goes live before the beep has
+// physically emerged from the speaker; any acoustic or device sidetone
+// path from speaker → mic then captures the beep and it gets encoded
+// into the transmitted RTP stream so the remote side hears it.
+//
+// When PttStartDelayMs is negative the caller has explicitly opted out
+// of the settle wait, so this returns 0 even if the beep has not yet
+// cleared the speaker.
+func (cfg *CommsConfig) transmitSettleWait(rt *CommsRuntime) time.Duration {
+	if cfg.PttStartDelayMs < 0 {
+		return 0
+	}
+
+	beepSettle := rt.PlaybackOutputLatency + frameDuration + beepSettleMargin
+
+	return max(cfg.pttStartDelay(), beepSettle)
 }
 
 // ─── Transmission state ───────────────────────────────────────────────────────
@@ -96,12 +141,14 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 		}
 	}
 
-	// Brief settle window before the mic capture stream starts. The
-	// PortAudio output callback drains the beep buffer ahead of
-	// playoutOneFrame so beep and mic samples cannot collide; the wait is
-	// purely for hardware that warms its capture path slowly. Configurable
-	// via CommsConfig.PttStartDelayMs (see pttStartDelay).
-	if d := cfg.pttStartDelay(); d > 0 {
+	// Settle window before the mic capture stream starts. Holds the mic
+	// closed until the start-tone beep has fully emerged from the
+	// speaker — otherwise an acoustic (or device sidetone) path from
+	// speaker → mic captures the beep and the remote side hears it.
+	// The wait also covers hardware that warms its capture path slowly.
+	// Sized by transmitSettleWait from the playback output latency and
+	// CommsConfig.PttStartDelayMs.
+	if d := cfg.transmitSettleWait(rt); d > 0 {
 		time.Sleep(d)
 	}
 

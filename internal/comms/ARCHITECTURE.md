@@ -212,7 +212,14 @@ CommsConfig
 ├── PlaybackLatencyMs         int                   PortAudio playback hint
 ├── CaptureLatencyMs          int                   PortAudio capture hint
 ├── EncoderComplexity         int                   1..10; defaults to 10
-├── PttStartDelayMs           int                   beep → mic settle window
+├── PttStartDelayMs           int                   mic warmup floor; the
+│                                                   actual settle is
+│                                                   max(this, playback
+│                                                   output latency +
+│                                                   beep + margin) so
+│                                                   the start tone
+│                                                   cannot leak via
+│                                                   speaker→mic coupling
 ├── MicGain                   float32               int16 gain w/ clipping
 │
 └── Debug, Loopback, Trace    bool
@@ -621,8 +628,12 @@ for each pc in rt.Ports with PlaybackBuffer != nil:
   pc.PlaybackBuffer <- rt.BeepBufferStart    ← []int16 beep into output cb
   │
   ▼
-sleep cfg.pttStartDelay()                    ← 50 ms default; configurable
-                                                via PttStartDelayMs
+sleep cfg.transmitSettleWait(rt)             ← max(pttStartDelay,
+                                                rt.PlaybackOutputLatency
+                                                + 20 ms beep + 20 ms
+                                                margin); holds mic
+                                                closed until beep has
+                                                cleared the speaker
   │
   ▼
 rt.BroadcastStream == nil?
@@ -1478,12 +1489,17 @@ exercises both the COS and VOX paths against the same mock).
 
 ### Testing transmission timing
 
-`beginTransmission` calls `time.Sleep(cfg.pttStartDelay())` once, with a
-default of 50 ms (configurable via `PttStartDelayMs`; set to a negative
-value to skip entirely). Tests that need to observe the post-sleep state
-either set `PttStartDelayMs = -1` to bypass the sleep or wait long
-enough to step over it. The sleep is a deliberate hardware-settle
-window, not a synchronization primitive.
+`beginTransmission` calls `time.Sleep(cfg.transmitSettleWait(rt))`
+once. The settle wait is the greater of `cfg.pttStartDelay()` (default
+50 ms; configurable via `PttStartDelayMs`; set to a negative value to
+skip entirely) and `rt.PlaybackOutputLatency + 20 ms beep + 20 ms
+margin`. The second term keeps the start tone from leaking into the
+transmitted RTP stream via acoustic or device sidetone coupling between
+the speaker and the mic. Tests that need to observe the post-sleep
+state either set `PttStartDelayMs = -1` (which short-circuits both
+contributions) or wait long enough to step over the configured floor.
+The sleep is a deliberate hardware-settle window, not a synchronization
+primitive.
 
 ### Testing Run() dispatch
 

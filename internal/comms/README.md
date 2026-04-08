@@ -529,12 +529,19 @@ produce no event.
 5. `drainPlaybackBuffer(rt)` — discards stale beep frames in every port.
 6. Queues the 1 000 Hz start-tone (`rt.BeepBufferStart`, `[]int16`,
    amplitude `0.2 * 32767`) into every port's `PlaybackBuffer`.
-7. Sleeps `cfg.pttStartDelay()` (default 50 ms; configurable via
-   `PttStartDelayMs`; set negative to skip entirely). The PortAudio
-   output callback drains the beep buffer ahead of `playoutOneFrame`
-   so beep + mic samples cannot collide regardless of duration; the
-   wait is purely to give USB audio class capture devices time to
-   commit their first DMA cycle.
+7. Sleeps `cfg.transmitSettleWait(rt)` — the greater of
+   `cfg.pttStartDelay()` (default 50 ms; configurable via
+   `PttStartDelayMs`; set negative to skip entirely) and
+   `rt.PlaybackOutputLatency + 20 ms beep + 20 ms margin`. The second
+   term is required so the start tone has fully emerged from the
+   speaker before the mic capture stream goes live; without it any
+   acoustic or device sidetone path from speaker → mic captures the
+   beep and the remote side hears it on the next transmission. The
+   first term covers USB audio class capture devices that need extra
+   time to commit their first DMA cycle. The actual latency value is
+   captured from `rawPlayback.Info().OutputLatency` in
+   `audio.Init.BuildAudio` and copied onto the runtime in
+   `startHardwareAudio`.
 8. Ensures `rt.BroadcastStream` is non-nil; if it is, calls
    `rt.ReopenBroadcast()` to rebuild it.
 9. Calls `rt.BroadcastStream.Start()`; on failure attempts one

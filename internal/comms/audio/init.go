@@ -22,6 +22,7 @@ type Init struct {
 	inputDevice      *portaudio.DeviceInfo
 	playbackStreams  []device.AudioStream
 	Deps
+	PlaybackOutputLatency time.Duration
 }
 
 // BuildAudio resolves PortAudio devices, opens a dedicated playback stream
@@ -54,10 +55,10 @@ func (in *Init) BuildAudio(slots []PortSlot) (broadcast *BroadcastEncoder, inDev
 	// genuinely higher value, in which case we honor the device hint
 	// rather than overriding it downward. The host API may still clamp
 	// the suggestion — the actual granted latency is logged below.
-	playbackLatency := time.Duration(in.PlaybackLatencyMs) * time.Millisecond
-	if playbackLatency < outDev.DefaultHighOutputLatency {
-		playbackLatency = outDev.DefaultHighOutputLatency
-	}
+	playbackLatency := max(
+		time.Duration(in.PlaybackLatencyMs)*time.Millisecond,
+		outDev.DefaultHighOutputLatency,
+	)
 
 	playbackParams := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
@@ -119,7 +120,14 @@ func (in *Init) BuildAudio(slots []PortSlot) (broadcast *BroadcastEncoder, inDev
 		// fell back to the device's idea of "high latency". The
 		// device_high field is the floor we used (so it is obvious when
 		// the configured value was overridden by a higher device hint).
+		//
+		// The actual_output_latency is also captured into
+		// in.PlaybackOutputLatency so the parent's TX path can hold
+		// the mic stream closed until the start-tone beep has fully
+		// emerged from the speaker (see beginTransmission).
 		if info := rawPlayback.Info(); info != nil {
+			in.PlaybackOutputLatency = max(in.PlaybackOutputLatency, info.OutputLatency)
+
 			in.Log.Debug().
 				Int("configured_latency_ms", in.PlaybackLatencyMs).
 				Dur("device_high_latency", outDev.DefaultHighOutputLatency).
@@ -173,10 +181,10 @@ func (in *Init) OpenBroadcastStream(inDev *portaudio.DeviceInfo) (*BroadcastEnco
 	// so we never undercut the host API's recommendation. The host API may
 	// still clamp the suggestion — the actual granted latency is logged
 	// below.
-	captureLatency := time.Duration(in.CaptureLatencyMs) * time.Millisecond
-	if captureLatency < inDev.DefaultHighInputLatency {
-		captureLatency = inDev.DefaultHighInputLatency
-	}
+	captureLatency := max(
+		time.Duration(in.CaptureLatencyMs)*time.Millisecond,
+		inDev.DefaultHighInputLatency,
+	)
 
 	inParams := portaudio.StreamParameters{
 		Input: portaudio.StreamDeviceParameters{

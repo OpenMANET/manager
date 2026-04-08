@@ -180,6 +180,94 @@ func TestBeginTransmission_DefaultStartDelay(t *testing.T) {
 	}
 }
 
+// TestBeginTransmission_SettleCoversPlaybackLatency verifies that when the
+// runtime carries a non-zero PlaybackOutputLatency (mirroring what
+// audio.Init.BuildAudio captures from PortAudio on real hardware),
+// beginTransmission sleeps long enough to cover the start-beep's physical
+// emission window before starting the mic stream. This is the regression
+// guard against the start-beep leaking into the transmitted RTP stream via
+// acoustic coupling between the speaker and the mic.
+func TestBeginTransmission_SettleCoversPlaybackLatency(t *testing.T) {
+	stream := &mockStream{}
+	rt := newTestRuntime(stream)
+	rt.PlaybackOutputLatency = 100 * time.Millisecond
+
+	cfg := newSilentComms()
+
+	// Expected floor: PlaybackOutputLatency + frameDuration (20 ms) +
+	// beepSettleMargin (20 ms) = 140 ms.
+	wantFloor := 100*time.Millisecond + frameDuration + beepSettleMargin
+
+	start := time.Now()
+
+	cfg.beginTransmission(rt)
+
+	elapsed := time.Since(start)
+
+	// Allow a small slop below the floor for clock granularity.
+	const slop = 10 * time.Millisecond
+	if elapsed+slop < wantFloor {
+		t.Errorf("beginTransmission elapsed=%s, want at least %s (beep settle floor)", elapsed, wantFloor)
+	}
+
+	// Sanity upper bound — settle should not balloon.
+	if elapsed > 400*time.Millisecond {
+		t.Errorf("beginTransmission elapsed=%s, slept far longer than expected", elapsed)
+	}
+
+	if stream.startCalls != 1 {
+		t.Errorf("Start called %d times after settle, want 1", stream.startCalls)
+	}
+}
+
+// TestTransmitSettleWait_NegativeSkips verifies that an explicit negative
+// PttStartDelayMs causes transmitSettleWait to return zero even when the
+// runtime carries a large PlaybackOutputLatency. The negative value is the
+// operator opt-out for low-latency PTT-to-ready and implies acceptance of
+// the beep-leak risk.
+func TestTransmitSettleWait_NegativeSkips(t *testing.T) {
+	rt := newTestRuntime(&mockStream{})
+	rt.PlaybackOutputLatency = 500 * time.Millisecond
+
+	cfg := newSilentComms()
+	cfg.PttStartDelayMs = -1
+
+	if got := cfg.transmitSettleWait(rt); got != 0 {
+		t.Errorf("transmitSettleWait = %s, want 0 when PttStartDelayMs<0", got)
+	}
+}
+
+// TestTransmitSettleWait_PicksMaxOfWarmupAndBeepSettle verifies the max()
+// behavior across the two contributing components: warmup (from
+// pttStartDelay) and beep settle (from PlaybackOutputLatency).
+func TestTransmitSettleWait_PicksMaxOfWarmupAndBeepSettle(t *testing.T) {
+	t.Run("warmup_dominates", func(t *testing.T) {
+		rt := newTestRuntime(&mockStream{})
+		rt.PlaybackOutputLatency = 0 // beep settle = 0+20+20 = 40 ms
+
+		cfg := newSilentComms()
+		cfg.PttStartDelayMs = 100 // explicit warmup
+
+		want := 100 * time.Millisecond
+		if got := cfg.transmitSettleWait(rt); got != want {
+			t.Errorf("transmitSettleWait = %s, want %s (warmup should win)", got, want)
+		}
+	})
+
+	t.Run("beep_settle_dominates", func(t *testing.T) {
+		rt := newTestRuntime(&mockStream{})
+		rt.PlaybackOutputLatency = 80 * time.Millisecond // beep settle = 80+20+20 = 120 ms
+
+		cfg := newSilentComms()
+		cfg.PttStartDelayMs = 30 // small warmup
+
+		want := 80*time.Millisecond + frameDuration + beepSettleMargin
+		if got := cfg.transmitSettleWait(rt); got != want {
+			t.Errorf("transmitSettleWait = %s, want %s (beep settle should win)", got, want)
+		}
+	})
+}
+
 // TestBeginTransmission_ConfigurablePttStartDelay verifies that an explicit
 // PttStartDelayMs overrides the default and that a negative value skips the
 // wait entirely.

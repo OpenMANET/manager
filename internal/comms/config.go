@@ -37,8 +37,15 @@ type CommsRuntime struct {
 	Ports           []*PortChannel
 	BeepBufferStart []int16
 	BeepBufferStop  []int16
-	Broadcasting    atomic.Bool
-	RemoteRxActive  atomic.Bool
+	// PlaybackOutputLatency is the actual output latency PortAudio
+	// granted when the per-port playback streams were opened. The TX
+	// path uses it in beginTransmission to hold the mic capture stream
+	// closed until the start-tone beep has fully emerged from the
+	// speaker, so an acoustic (or device sidetone) path from speaker
+	// → mic cannot pick the beep up and transmit it.
+	PlaybackOutputLatency time.Duration
+	Broadcasting          atomic.Bool
+	RemoteRxActive        atomic.Bool
 }
 
 // ─── CommsConfig ──────────────────────────────────────────────────────────────
