@@ -2,15 +2,12 @@ package control
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
-	"github.com/gordonklaus/portaudio"
 	"github.com/rs/zerolog"
 
 	"github.com/openmanet/openmanetd/internal/comms/audiopool"
-	"github.com/openmanet/openmanetd/internal/comms/device"
 )
 
 // ─── ROIP constants ───────────────────────────────────────────────────────────
@@ -53,18 +50,19 @@ const (
 // Detection strategy (half-duplex enforced throughout):
 //
 //  1. COS (Carrier-Operated Squelch): the radio squelch output is wired to an
-//     OpenVLM GPIO pin.  The HID report is polled; cosGPIOMask selects the IR1
-//     bit.  PTTDown on the HIGH→LOW squelch edge, PTTUp on LOW→HIGH.
+//     OpenVLM GPIO pin. The HID report is polled; cosGPIOMask selects the IR1
+//     bit. PTTDown on the HIGH→LOW squelch edge, PTTUp on LOW→HIGH.
 //
 //  2. VOX fallback: if the HID device is unavailable or cosGPIOMask is 0, an
-//     audio energy threshold is applied to the OpenVLM input stream.  A
-//     configurable onset window (ROIPVOXOnsetFrames) prevents false triggers.
-//     During active transmission the broadcast stream feeds frames into a tap
-//     channel so silence can be detected and PTTUp emitted after voxHoldTime.
+//     audio energy threshold is applied to frames the always-on broadcast
+//     capture stream forwards through the ROIP tap. A configurable onset
+//     window (ROIPVOXOnsetFrames) prevents false triggers. The same tap
+//     channel drives the ACTIVE phase silence detection — under the unified
+//     capture design there is only one input device open at a time, and the
+//     ROIP VOX path consumes the same frames the broadcast encoder sees.
 type ROIPSource struct {
 	log            zerolog.Logger
 	opener         HIDOpener
-	openMonitor    func() (<-chan []float32, func(), error)
 	isReceiving    func() bool
 	isBroadcasting func() bool
 	setTap         func(chan []float32)
@@ -76,28 +74,26 @@ type ROIPSource struct {
 }
 
 // NewROIPSource constructs a production ROIPSource backed by the real HIDAPI
-// library, real PortAudio, and caller-provided callbacks for half-duplex
-// enforcement and broadcast-tap wiring. Step 4 of the comms refactor flattened
-// the constructor to take primitives + callbacks directly so the control
-// sub-package no longer depends on parent comms types.
+// library and caller-provided callbacks for half-duplex enforcement and
+// broadcast-tap wiring. Under the unified capture design the VOX monitor no
+// longer opens a second audio device — it subscribes to the always-on
+// broadcast capture via setTap / clearTap.
 func NewROIPSource(
 	log zerolog.Logger,
 	cosGPIOMask byte,
 	voxThreshold float32,
 	voxHoldTime time.Duration,
 	maxTXDuration time.Duration,
-	inputDevice string,
 	isReceiving, isBroadcasting func() bool,
 	setTap func(chan []float32),
 	clearTap func(),
-	openMonitor func() (<-chan []float32, func(), error),
 ) EventSource {
 	log.Info().Msgf(
 		"comms: ROIP bridge on OpenVLM (VID=0x%04X PID=0x%04X) COSmask=0x%02X VOX=%.3f hold=%s",
 		OpenVLMVendorID, OpenVLMProductID, cosGPIOMask, voxThreshold, voxHoldTime,
 	)
 
-	s := &ROIPSource{
+	return &ROIPSource{
 		log:            log,
 		opener:         DefaultHIDOpener,
 		cosGPIOMask:    cosGPIOMask,
@@ -109,14 +105,6 @@ func NewROIPSource(
 		setTap:         setTap,
 		clearTap:       clearTap,
 	}
-
-	if openMonitor != nil {
-		s.openMonitor = openMonitor
-	} else {
-		s.openMonitor = makeROIPMonitorOpener(inputDevice, log)
-	}
-
-	return s
 }
 
 // NewROIPSourceWithOpener is the testable COS-path constructor.
@@ -138,15 +126,25 @@ func NewROIPSourceWithOpener(
 		isBroadcasting: isBroadcasting,
 		setTap:         func(_ chan []float32) {},
 		clearTap:       func() {},
-		openMonitor:    noopMonitorOpener,
 	}
 }
 
-// NewROIPSourceWithMonitor is the testable VOX-path constructor.
-// openMonitorFn replaces the PortAudio monitor stream so tests can inject a
-// pre-filled frame channel without real hardware.
-func NewROIPSourceWithMonitor(
-	openMonitorFn func() (<-chan []float32, func(), error),
+// TapBinding bundles the (setTap, clearTap) callback pair as a single
+// value so test helpers can return one composite from one expression.
+// Production code constructs it inline at the wiring layer; tests
+// build it from a pre-filled frame channel via the helper in
+// roip_test.go.
+type TapBinding struct {
+	Set   func(chan []float32)
+	Clear func()
+}
+
+// NewROIPSourceWithTap is the testable VOX-path constructor. The
+// supplied TapBinding replaces the production tap wiring, allowing
+// tests to capture the tap channel and drive it with a pre-built
+// frame sequence without real audio hardware.
+func NewROIPSourceWithTap(
+	tap TapBinding,
 	voxHoldTime time.Duration,
 	isReceiving, isBroadcasting func() bool,
 	log zerolog.Logger,
@@ -160,19 +158,9 @@ func NewROIPSourceWithMonitor(
 		maxTXDuration:  ROIPDefaultMaxTX,
 		isReceiving:    isReceiving,
 		isBroadcasting: isBroadcasting,
-		setTap:         func(_ chan []float32) {},
-		clearTap:       func() {},
-		openMonitor:    openMonitorFn,
+		setTap:         tap.Set,
+		clearTap:       tap.Clear,
 	}
-}
-
-// noopMonitorOpener returns an immediately-closed channel. Used in COS-only
-// tests where openMonitor is wired but never reached.
-func noopMonitorOpener() (<-chan []float32, func(), error) {
-	ch := make(chan []float32)
-	close(ch)
-
-	return ch, func() {}, nil
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────
@@ -312,35 +300,42 @@ func (s *ROIPSource) cosLoop(ctx context.Context, dev HIDDevice, ch chan<- PTTEv
 
 // ─── VOX loop ─────────────────────────────────────────────────────────────────
 
-// voxLoop monitors audio energy from the OpenVLM input.  It operates as a
-// two-phase state machine:
+// voxLoop monitors audio energy from the broadcast capture tap. Under
+// the unified design there is a single always-on capture stream; the
+// ROIP VOX loop subscribes to it via setTap for the entire source
+// lifetime (registered once here, unregistered on ctx.Done) and uses
+// the same frame stream for both onset detection (IDLE) and silence
+// detection (ACTIVE).
 //
-//	IDLE → open monitor stream, accumulate onset frames → PTTDown → ACTIVE
-//	ACTIVE → broadcast tap provides frames; silence for voxHoldTime → PTTUp → IDLE
+//	IDLE → accumulate onset frames from tap → PTTDown → ACTIVE
+//	ACTIVE → silence for voxHoldTime → PTTUp → IDLE
 //
-// Half-duplex: PTTDown is suppressed when isReceiving() is true.  If the
-// network begins receiving during ACTIVE state, PTTUp is emitted immediately.
+// Half-duplex: PTTDown is suppressed when isReceiving() is true. If the
+// network begins receiving during ACTIVE state, PTTUp is emitted
+// immediately.
 func (s *ROIPSource) voxLoop(ctx context.Context, ch chan<- PTTEvent) {
 	maxTX := s.maxTXDuration
 	if maxTX <= 0 {
 		maxTX = ROIPDefaultMaxTX
 	}
 
+	// Single tap subscription for the lifetime of the ROIP source. The
+	// always-on broadcast capture pushes every frame through this
+	// channel regardless of TX gate state, so the VOX loop sees the
+	// same frame cadence in both IDLE and ACTIVE phases.
+	tapCh := make(chan []float32, ROIPMonitorBufFrames)
+	s.setTap(tapCh)
+
+	defer s.clearTap()
+
 	for {
-		if !s.voxIdle(ctx) {
+		if !s.voxIdle(ctx, tapCh) {
 			return
 		}
-
-		// ── Transition: open broadcast tap, emit PTTDown ───────────────────
-
-		tapCh := make(chan []float32, ROIPMonitorBufFrames)
-		s.setTap(tapCh)
 
 		select {
 		case ch <- PTTDown:
 		case <-ctx.Done():
-			s.clearTap()
-
 			return
 		}
 
@@ -372,54 +367,34 @@ func (s *ROIPSource) voxLoop(ctx context.Context, ch chan<- PTTEvent) {
 	}
 }
 
-// voxIdle runs the IDLE phase of voxLoop. It opens the monitor stream,
-// accumulates VOX onset frames, and closes the monitor before returning.
-// Returns true when onset is confirmed (PTTDown should fire),
-// or false when ctx is canceled or the monitor channel closes unexpectedly.
-func (s *ROIPSource) voxIdle(ctx context.Context) bool {
+// voxIdle runs the IDLE phase of voxLoop. It reads frames from the
+// shared tap channel, accumulates VOX onset frames, and returns true
+// when onset is confirmed (PTTDown should fire) or false when ctx is
+// canceled or the tap channel closes unexpectedly.
+func (s *ROIPSource) voxIdle(ctx context.Context, tapCh <-chan []float32) bool {
+	onsetCount := 0
+
 	for {
-		monitorCh, closeMonitor, err := s.openMonitor()
-		if err != nil {
-			s.log.Error().Err(err).Msg("ROIP: failed to open VOX monitor stream; retrying")
+		select {
+		case <-ctx.Done():
+			return false
 
-			select {
-			case <-ctx.Done():
+		case frame, ok := <-tapCh:
+			if !ok {
 				return false
-			case <-time.After(2 * time.Second):
-				continue
 			}
-		}
 
-		onsetCount := 0
+			energy := audiopool.RMSEnergy(frame)
+			audiopool.ReturnFloat32(frame)
 
-		for {
-			select {
-			case <-ctx.Done():
-				closeMonitor()
+			if energy >= s.voxThreshold && !s.isReceiving() {
+				onsetCount++
 
-				return false
-
-			case frame, ok := <-monitorCh:
-				if !ok {
-					closeMonitor()
-
-					return false
+				if onsetCount >= ROIPVOXOnsetFrames {
+					return true
 				}
-
-				energy := audiopool.RMSEnergy(frame)
-				audiopool.ReturnFloat32(frame)
-
-				if energy >= s.voxThreshold && !s.isReceiving() {
-					onsetCount++
-
-					if onsetCount >= ROIPVOXOnsetFrames {
-						closeMonitor()
-
-						return true
-					}
-				} else {
-					onsetCount = 0
-				}
+			} else {
+				onsetCount = 0
 			}
 		}
 	}
@@ -432,8 +407,6 @@ func (s *ROIPSource) voxIdle(ctx context.Context) bool {
 func (s *ROIPSource) voxActive(ctx context.Context, tapCh <-chan []float32, maxTX time.Duration) bool {
 	txDeadline := time.NewTimer(maxTX)
 	holdTimer := time.NewTimer(s.voxHoldTime)
-
-	defer s.clearTap()
 
 	for {
 		select {
@@ -492,70 +465,11 @@ func (s *ROIPSource) voxActive(ctx context.Context, tapCh <-chan []float32, maxT
 	}
 }
 
-// ─── Production monitor opener ────────────────────────────────────────────────
-
-// makeROIPMonitorOpener returns a factory that opens a PortAudio input stream
-// on inputDevice and pushes raw float32 frames into a channel. The returned
-// closer stops and closes the stream and drains any buffered frames.
-func makeROIPMonitorOpener(inputDevice string, log zerolog.Logger) func() (<-chan []float32, func(), error) {
-	return func() (<-chan []float32, func(), error) {
-		inDev, err := device.ResolveAudio(inputDevice, true)
-		if err != nil {
-			return nil, nil, fmt.Errorf("ROIP: resolve audio device: %w", err)
-		}
-
-		frameCh := make(chan []float32, ROIPMonitorBufFrames)
-
-		params := portaudio.StreamParameters{
-			Input: portaudio.StreamDeviceParameters{
-				Device:   inDev,
-				Channels: audiopool.Channels,
-			},
-			SampleRate:      float64(audiopool.SampleRate),
-			FramesPerBuffer: audiopool.FrameSize,
-		}
-
-		stream, openErr := portaudio.OpenStream(params, func(in []float32) {
-			fp := audiopool.Float32Pool.Get().(*[]float32) //nolint:forcetypeassert
-			f := (*fp)[:audiopool.FrameSize]
-			copy(f, in)
-
-			select {
-			case frameCh <- f:
-			default:
-				audiopool.ReturnFloat32(f)
-			}
-		})
-		if openErr != nil {
-			return nil, nil, fmt.Errorf("ROIP: open monitor stream: %w", openErr)
-		}
-
-		if startErr := stream.Start(); startErr != nil {
-			_ = stream.Close()
-
-			return nil, nil, fmt.Errorf("ROIP: start monitor stream: %w", startErr)
-		}
-
-		log.Debug().Str("device", inDev.Name).Msg("ROIP: VOX monitor stream opened")
-
-		closer := func() {
-			_ = stream.Stop()
-			_ = stream.Close()
-
-			// Drain any buffered frames to return pool allocations.
-		drain:
-			for {
-				select {
-				case f := <-frameCh:
-					audiopool.ReturnFloat32(f)
-				default:
-					break drain
-				}
-			}
-
-			log.Debug().Msg("ROIP: VOX monitor stream closed")
-		}
-
-		return frameCh, closer, nil
-	}
-}
+// Under the unified capture design the ROIP VOX path subscribes to the
+// always-on broadcast capture stream via setTap/clearTap instead of
+// opening a second input device. The broadcast stream's capture
+// callback forwards every frame to the registered tap channel,
+// converted from int16 to float32 at the tap boundary, so the VOX
+// loop sees the same sample data without a second concurrent ALSA
+// open. See internal/comms/audio/encoder.go captureCallback for the
+// tap producer side.

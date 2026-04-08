@@ -2,7 +2,6 @@ package audio
 
 import (
 	"errors"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,7 +17,7 @@ import (
 // fake stream, encoder, and recording sink. It does NOT spawn the encode
 // goroutine — tests opt in by calling go be.encodeLoop() when they need to
 // exercise the consumer side.
-func newTestBroadcastEncoder(t *testing.T, enc *mockEncoder) (*BroadcastEncoder, *recordingSink, *fakePAStream) {
+func newTestBroadcastEncoder(t *testing.T, enc *mockEncoder) (*BroadcastEncoder, *recordingSink, *fakeCaptureStream) {
 	t.Helper()
 
 	sink := &recordingSink{}
@@ -32,7 +31,7 @@ func newTestBroadcastEncoder(t *testing.T, enc *mockEncoder) (*BroadcastEncoder,
 		Tap:     &tap,
 	}
 
-	stream := &fakePAStream{}
+	stream := &fakeCaptureStream{}
 
 	be := &BroadcastEncoder{
 		s:     stream,
@@ -40,6 +39,12 @@ func newTestBroadcastEncoder(t *testing.T, enc *mockEncoder) (*BroadcastEncoder,
 		encCh: make(chan *[]int16, broadcastEncoderChanDepth),
 		done:  make(chan struct{}),
 	}
+
+	// Tests exercise the post-gate path (frame → encoder); under the
+	// unified design this requires SetTxEnabled(true) before any frame
+	// reaches the encode channel. Individual tests that want to
+	// exercise the gate-closed behavior can call SetTxEnabled(false).
+	be.txEnabled.Store(true)
 
 	return be, sink, stream
 }
@@ -192,8 +197,31 @@ func TestBroadcastEncoder_EncoderErrorIncrementsCounter(t *testing.T) {
 	}
 }
 
-func TestBroadcastEncoder_StartResetsCountersAndCallsStream(t *testing.T) {
+// TestBroadcastEncoder_StartCallsStream verifies Start forwards to the
+// underlying capture device. Under the unified design Start is called
+// once per comms run (not per TX cycle), so it no longer resets the
+// per-cycle counters — SetTxEnabled(true) owns that concern.
+func TestBroadcastEncoder_StartCallsStream(t *testing.T) {
 	be, _, stream := newTestBroadcastEncoder(t, &mockEncoder{})
+
+	if err := be.Start(); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+
+	if stream.startCalls != 1 {
+		t.Errorf("stream.startCalls = %d, want 1", stream.startCalls)
+	}
+}
+
+// TestBroadcastEncoder_SetTxEnabledResetsCounters verifies that opening
+// the TX gate (the per-PTT transition) clears the per-cycle counters so
+// the Stop-log for the cycle reflects just the current PTT cycle and
+// not any stale state from a prior cycle.
+func TestBroadcastEncoder_SetTxEnabledResetsCounters(t *testing.T) {
+	be, _, _ := newTestBroadcastEncoder(t, &mockEncoder{})
+
+	// Start gate-closed so SetTxEnabled(true) is a real transition.
+	be.txEnabled.Store(false)
 
 	be.framesCaptured.Store(42)
 	be.framesEncoded.Store(17)
@@ -207,13 +235,7 @@ func TestBroadcastEncoder_StartResetsCountersAndCallsStream(t *testing.T) {
 	be.captureGapMaxNs.Store(13579)
 	be.captureLateCount.Store(7)
 
-	if err := be.Start(); err != nil {
-		t.Fatalf("Start returned error: %v", err)
-	}
-
-	if stream.startCalls != 1 {
-		t.Errorf("stream.startCalls = %d, want 1", stream.startCalls)
-	}
+	be.SetTxEnabled(true)
 
 	if got := be.framesCaptured.Load(); got != 0 {
 		t.Errorf("framesCaptured = %d, want 0", got)
@@ -343,11 +365,13 @@ func newGainTestEncoder(t *testing.T, gain float32) (*BroadcastEncoder, *gainCap
 	}
 
 	be := &BroadcastEncoder{
-		s:     &fakePAStream{},
+		s:     &fakeCaptureStream{},
 		deps:  deps,
 		encCh: make(chan *[]int16, broadcastEncoderChanDepth),
 		done:  make(chan struct{}),
 	}
+
+	be.txEnabled.Store(true)
 
 	return be, enc
 }
@@ -654,19 +678,20 @@ func TestBroadcastEncoder_OverBudgetWarnFiresOncePerCycle(t *testing.T) {
 		t.Errorf("encodeDurCount = %d, want %d", got, totalCalls)
 	}
 
-	// Start resets the latch so the next cycle can warn again.
-	if err := be.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
+	// SetTxEnabled(true) resets the latch so the next TX cycle can
+	// warn again — under the unified design the TX gate is the
+	// per-cycle boundary, not Start().
+	be.txEnabled.Store(false)
+	be.SetTxEnabled(true)
 
 	if be.overBudgetWarned.Load() {
-		t.Error("Start did not reset overBudgetWarned")
+		t.Error("SetTxEnabled(true) did not reset overBudgetWarned")
 	}
 
 	be.recordEncodeDuration(frameDuration + time.Millisecond)
 
 	if !be.overBudgetWarned.Load() {
-		t.Error("warn latch should re-arm after Start")
+		t.Error("warn latch should re-arm after SetTxEnabled(true)")
 	}
 }
 
@@ -803,149 +828,68 @@ func TestBroadcastEncoder_EncodeOneRecordsDuration(t *testing.T) {
 	}
 }
 
-// fakeElevator records invocations of the audio-thread elevator so Phase B
-// tests can assert exactly-once behavior without touching the real
-// sched_setattr syscall (which requires CAP_SYS_NICE and would fail in CI).
-// Mutex-protected so concurrent captureCallback invocations remain safe
-// under -race.
-type fakeElevator struct {
-	mu     sync.Mutex
-	labels []string
-}
-
-func (f *fakeElevator) fn(_ zerolog.Logger, label string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	f.labels = append(f.labels, label)
-}
-
-func (f *fakeElevator) calls() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	return len(f.labels)
-}
-
-func (f *fakeElevator) lastLabel() string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	if len(f.labels) == 0 {
-		return ""
-	}
-
-	return f.labels[len(f.labels)-1]
-}
-
-// swapElevator replaces the package-level elevateAudioThread with a fake
-// for the duration of the test. Uses t.Cleanup for restoration so a test
-// failure never leaves the original shadowed.
-func swapElevator(t *testing.T, fake *fakeElevator) {
-	t.Helper()
-
-	orig := elevateAudioThread
-	elevateAudioThread = fake.fn
-
-	t.Cleanup(func() {
-		elevateAudioThread = orig
-	})
-}
-
-func TestBroadcastEncoder_CaptureCallbackElevatesThreadOnce(t *testing.T) {
-	// Drive three captureCallback invocations and assert the elevator
-	// fired exactly once, with the "capture" label. The sync.Once inside
-	// BroadcastEncoder is the contract under test.
-	fake := &fakeElevator{}
-	swapElevator(t, fake)
-
-	enc := &mockEncoder{payloadN: 4}
-	be, _, _ := newTestBroadcastEncoder(t, enc)
-
-	go be.encodeLoop()
-
-	in := silentFrame()
-	for range 3 {
-		be.captureCallback(in)
-	}
-
-	close(be.encCh)
-	<-be.done
-
-	if got := fake.calls(); got != 1 {
-		t.Errorf("elevator called %d times, want 1", got)
-	}
-
-	if got := fake.lastLabel(); got != "capture" {
-		t.Errorf("elevator label = %q, want %q", got, "capture")
-	}
-}
-
-func TestBroadcastEncoder_StartResetsElevationGuard(t *testing.T) {
-	// Start() must reset the sync.Once so a new Start/Stop cycle re-runs
-	// the elevator on the first callback of the new cycle. PortAudio
-	// does not guarantee that the audio thread persists across
-	// Stop/Start, so re-elevation is mandatory for safety.
-	fake := &fakeElevator{}
-	swapElevator(t, fake)
-
-	enc := &mockEncoder{payloadN: 4}
-	be, _, _ := newTestBroadcastEncoder(t, enc)
-
-	// Cycle 1: one elevation.
-	be.captureCallback(silentFrame())
-
-	if got := fake.calls(); got != 1 {
-		t.Fatalf("after cycle 1: elevator called %d times, want 1", got)
-	}
-
-	// Drain the frame so the next callback doesn't hit channel-full.
-	fp := <-be.encCh
-	audiopool.Int16Pool.Put(fp)
-
-	// Start resets the Once; a new capture should elevate again.
-	require.NoError(t, be.Start())
-
-	be.captureCallback(silentFrame())
-
-	if got := fake.calls(); got != 2 {
-		t.Errorf("after cycle 2: elevator called %d times, want 2", got)
-	}
-
-	// Drain the second frame so pooled slice is returned.
-	fp = <-be.encCh
-	audiopool.Int16Pool.Put(fp)
-}
-
-func TestBroadcastEncoder_ElevationFailureDoesNotBlockCallback(t *testing.T) {
-	// The real elevator gracefully degrades on EPERM (missing
-	// CAP_SYS_NICE). The fake that represents a "failed elevation" is
-	// simply one that returns without doing anything — the contract is
-	// that the callback must continue processing frames regardless.
-	// This test pins that contract so a future refactor that panics or
-	// returns early from captureCallback on elevator failure is caught.
-	fake := &fakeElevator{} // no-op elevator = simulated graceful failure
-	swapElevator(t, fake)
-
+// TestBroadcastEncoder_TxGateBlocksEncoderButNotTap exercises the unified
+// capture path: when SetTxEnabled is false the captureCallback still
+// runs the VOX tap (so the ROIP control source can drive PTT decisions
+// off the always-on stream) but never enqueues frames into encCh, so
+// the Opus encoder remains idle.
+func TestBroadcastEncoder_TxGateBlocksEncoderButNotTap(t *testing.T) {
 	enc := &mockEncoder{payloadN: 4}
 	be, sink, _ := newTestBroadcastEncoder(t, enc)
 
+	// Wire a tap channel and start gate-closed.
+	tapCh := make(chan []float32, 4)
+	be.deps.Tap.Store(&tapCh)
+	be.txEnabled.Store(false)
+
 	go be.encodeLoop()
 
-	in := silentFrame()
-	for range 5 {
-		be.captureCallback(in)
+	// Push three frames with the gate closed: tap should receive them
+	// all, encoder should see none.
+	for range 3 {
+		be.captureCallback(silentFrame())
+	}
+
+	// Drain the tap to confirm frames flowed there.
+	gotTap := 0
+
+drainTap:
+	for {
+		select {
+		case f := <-tapCh:
+			audiopool.ReturnFloat32(f)
+
+			gotTap++
+		default:
+			break drainTap
+		}
+	}
+
+	if gotTap != 3 {
+		t.Errorf("tap received %d frames, want 3 with gate closed", gotTap)
+	}
+
+	if got := be.framesCaptured.Load(); got != 3 {
+		t.Errorf("framesCaptured = %d, want 3 (counter advances even when gated)", got)
+	}
+
+	// Open the gate and push three more frames; encoder should see them.
+	be.SetTxEnabled(true)
+
+	for range 3 {
+		be.captureCallback(silentFrame())
 	}
 
 	close(be.encCh)
 	<-be.done
 
-	assert.Equal(t, int64(5), be.framesCaptured.Load(),
-		"framesCaptured should be 5 even when elevator is a no-op")
-	assert.Equal(t, int64(5), be.framesEncoded.Load(),
-		"framesEncoded should be 5 even when elevator is a no-op")
-	assert.Equal(t, 5, sink.count(),
-		"sink should have received 5 payloads even when elevator is a no-op")
-	assert.Equal(t, 1, fake.calls(),
-		"elevator should still be called exactly once")
+	// SetTxEnabled(true) zeroed the counters so framesCaptured now
+	// reflects only the post-gate cycle.
+	if got := be.framesCaptured.Load(); got != 3 {
+		t.Errorf("framesCaptured = %d, want 3 after re-enable", got)
+	}
+
+	if got := sink.count(); got != 3 {
+		t.Errorf("sink received %d frames, want 3 with gate open", got)
+	}
 }

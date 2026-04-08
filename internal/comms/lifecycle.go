@@ -74,16 +74,6 @@ func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) (cleanup func(), er
 
 	rt.BroadcastStream = broadcast
 	rt.PlaybackOutputLatency = audioInit.PlaybackOutputLatency
-	rt.ReopenBroadcast = func() error {
-		be, reopenErr := audioInit.ReopenBroadcast()
-		if reopenErr != nil {
-			return reopenErr
-		}
-
-		rt.BroadcastStream = be
-
-		return nil
-	}
 
 	return cleanup, nil
 }
@@ -111,10 +101,6 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 		cfg.Log = cfg.Log.Level(zerolog.TraceLevel)
 	case cfg.Debug:
 		cfg.Log = cfg.Log.Level(zerolog.DebugLevel)
-	}
-
-	if cfg.Debug && cfg.ControlSource != controlSourceWeb {
-		cfg.logInputDeviceList()
 	}
 
 	cfg.Log.Info().Msgf(

@@ -37,8 +37,3 @@ func normalizeControlSource(src string) string {
 func (cfg *CommsConfig) findCommDevice() *evdev.InputDevice {
 	return device.FindEvdev(cfg.NanoPTTDevicePath, cfg.NanoPTTDeviceName)
 }
-
-// logInputDeviceList logs all PortAudio devices at Debug level.
-func (cfg *CommsConfig) logInputDeviceList() {
-	device.LogPortAudioDevices(cfg.Log)
-}

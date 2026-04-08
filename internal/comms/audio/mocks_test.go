@@ -4,42 +4,40 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/gordonklaus/portaudio"
 )
 
-// fakePAStream satisfies paStream so encoder tests can run without opening
-// real audio hardware. Start/Stop/Close error injection works the same way
-// as the parent's mockStream.
-type fakePAStream struct {
+// fakeCaptureStream satisfies captureStream so encoder tests can run
+// without opening real audio hardware. Start/Stop/Close error injection
+// works the same way as the parent package's mockStream.
+type fakeCaptureStream struct {
 	startErr   error
 	stopErr    error
 	closeErr   error
-	info       *portaudio.StreamInfo
+	info       streamInfo
 	startCalls int
 	stopCalls  int
 	closeCalls int
 }
 
-func (f *fakePAStream) Start() error {
+func (f *fakeCaptureStream) Start() error {
 	f.startCalls++
 
 	return f.startErr
 }
 
-func (f *fakePAStream) Stop() error {
+func (f *fakeCaptureStream) Stop() error {
 	f.stopCalls++
 
 	return f.stopErr
 }
 
-func (f *fakePAStream) Close() error {
+func (f *fakeCaptureStream) Close() error {
 	f.closeCalls++
 
 	return f.closeErr
 }
 
-func (f *fakePAStream) Info() *portaudio.StreamInfo { return f.info }
+func (f *fakeCaptureStream) Info() streamInfo { return f.info }
 
 // mockEncoder satisfies codec.AudioEncoder. Each call records the input
 // PCM frame (length only, to avoid copying samples) and returns either

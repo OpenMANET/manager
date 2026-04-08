@@ -53,11 +53,22 @@ func pushSilentFrames(ch chan<- []float32, n int) {
 	}
 }
 
-// staticMonitorOpener returns an openMonitor function that always provides the
-// same pre-created channel. The closer is a no-op so tests retain control.
-func staticMonitorOpener(frameCh chan []float32) func() (<-chan []float32, func(), error) {
-	return func() (<-chan []float32, func(), error) {
-		return frameCh, func() {}, nil
+// tapFromChannel builds a TapBinding suitable for NewROIPSourceWithTap.
+// On first Set invocation it spawns a forwarding goroutine that drains
+// frames from feedCh into the VOX-side tap channel created inside
+// voxLoop. Tests pre-fill feedCh with pushLoudFrames / pushSilentFrames
+// before constructing the source, just as they did with the prior
+// staticMonitorOpener pattern.
+func tapFromChannel(feedCh chan []float32) TapBinding {
+	return TapBinding{
+		Set: func(tapCh chan []float32) {
+			go func() {
+				for f := range feedCh {
+					tapCh <- f
+				}
+			}()
+		},
+		Clear: func() {},
 	}
 }
 
@@ -333,8 +344,8 @@ func TestROIPSource_VOX_BelowThreshold_NoEvent(t *testing.T) {
 		frameCh <- frame
 	}
 
-	src := NewROIPSourceWithMonitor(
-		staticMonitorOpener(frameCh),
+	src := NewROIPSourceWithTap(
+		tapFromChannel(frameCh),
 		ROIPDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
@@ -354,8 +365,8 @@ func TestROIPSource_VOX_OnsetThreshold_PTTDown(t *testing.T) {
 	frameCh := make(chan []float32, 32)
 	pushLoudFrames(frameCh, ROIPVOXOnsetFrames+1, loudAmplitude)
 
-	src := NewROIPSourceWithMonitor(
-		staticMonitorOpener(frameCh),
+	src := NewROIPSourceWithTap(
+		tapFromChannel(frameCh),
 		ROIPDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
@@ -384,8 +395,8 @@ func TestROIPSource_VOX_NonConsecutiveFrames_ResetsOnsetCounter(t *testing.T) {
 		pushSilentFrames(frameCh, 1)
 	}
 
-	src := NewROIPSourceWithMonitor(
-		staticMonitorOpener(frameCh),
+	src := NewROIPSourceWithTap(
+		tapFromChannel(frameCh),
 		ROIPDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
@@ -405,8 +416,8 @@ func TestROIPSource_VOX_HalfDuplex_SuppressesWhileReceiving(t *testing.T) {
 	frameCh := make(chan []float32, 32)
 	pushLoudFrames(frameCh, ROIPVOXOnsetFrames+2, loudAmplitude)
 
-	src := NewROIPSourceWithMonitor(
-		staticMonitorOpener(frameCh),
+	src := NewROIPSourceWithTap(
+		tapFromChannel(frameCh),
 		ROIPDefaultVOXHold,
 		func() bool { return true }, // network always receiving
 		neverBroadcasting,
@@ -430,8 +441,8 @@ func TestROIPSource_VOX_TailHold_NoEarlyPTTUp(t *testing.T) {
 
 	holdTime := 300 * time.Millisecond
 
-	src := NewROIPSourceWithMonitor(
-		staticMonitorOpener(frameCh),
+	src := NewROIPSourceWithTap(
+		tapFromChannel(frameCh),
 		holdTime,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
@@ -467,8 +478,8 @@ func TestROIPSource_VOX_PTTUpAfterHoldTime(t *testing.T) {
 
 	holdTime := 80 * time.Millisecond
 
-	src := NewROIPSourceWithMonitor(
-		staticMonitorOpener(frameCh),
+	src := NewROIPSourceWithTap(
+		tapFromChannel(frameCh),
 		holdTime,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)
@@ -500,8 +511,8 @@ func TestROIPSource_VOX_PTTUpWhenReceivingWhileActive(t *testing.T) {
 
 	holdTime := 10 * time.Second // long enough that only isReceiving() triggers PTTUp
 
-	src := NewROIPSourceWithMonitor(
-		staticMonitorOpener(frameCh),
+	src := NewROIPSourceWithTap(
+		tapFromChannel(frameCh),
 		holdTime,
 		receivingFlag.Load, neverBroadcasting, zerolog.Nop(),
 	)
@@ -538,8 +549,8 @@ func TestROIPSource_VOX_ContextCancel_ClosesChannel(t *testing.T) {
 	frameCh := make(chan []float32, 32)
 	pushLoudFrames(frameCh, ROIPVOXOnsetFrames+1, loudAmplitude)
 
-	src := NewROIPSourceWithMonitor(
-		staticMonitorOpener(frameCh),
+	src := NewROIPSourceWithTap(
+		tapFromChannel(frameCh),
 		ROIPDefaultVOXHold,
 		neverReceiving, neverBroadcasting, zerolog.Nop(),
 	)

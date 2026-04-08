@@ -16,6 +16,18 @@ import (
 
 // ─── CommsRuntime ─────────────────────────────────────────────────────────────
 
+// BroadcastCapture is the unified capture stream interface the runtime
+// exposes to the TX path. It extends device.AudioStream (lifecycle
+// Start/Stop/Close, called once per StartHardware cycle) with a per-PTT
+// SetTxEnabled gate. Captured frames always flow to the optional VOX tap;
+// they only flow to the Opus encoder + RTP send when SetTxEnabled(true)
+// is the most recent call. The stream is opened once at StartHardware
+// and stays open for the lifetime of the comms run.
+type BroadcastCapture interface {
+	device.AudioStream
+	SetTxEnabled(bool)
+}
+
 // CommsRuntime holds live resources allocated by Start. All audio/network
 // fields are interfaces so that unit tests can inject fakes without hardware.
 //
@@ -28,21 +40,20 @@ import (
 type CommsRuntime struct {
 	Decoder         codec.AudioDecoder
 	Encoder         codec.AudioEncoder
-	BroadcastStream device.AudioStream
+	BroadcastStream BroadcastCapture
 	WebBridge       *webaudio.Bridge
 	WebEvtSrc       *control.WebEventSource
 	LocalIP         atomic.Pointer[string]
-	ReopenBroadcast func() error
 	BroadcastTap    atomic.Pointer[chan []float32]
 	Ports           []*PortChannel
 	BeepBufferStart []int16
 	BeepBufferStop  []int16
-	// PlaybackOutputLatency is the actual output latency PortAudio
+	// PlaybackOutputLatency is the actual output latency the backend
 	// granted when the per-port playback streams were opened. The TX
-	// path uses it in beginTransmission to hold the mic capture stream
-	// closed until the start-tone beep has fully emerged from the
-	// speaker, so an acoustic (or device sidetone) path from speaker
-	// → mic cannot pick the beep up and transmit it.
+	// path uses it in beginTransmission to delay SetTxEnabled(true)
+	// until the start-tone beep has fully emerged from the speaker so
+	// an acoustic (or device sidetone) path from speaker → mic cannot
+	// pick the beep up and transmit it.
 	PlaybackOutputLatency time.Duration
 	Broadcasting          atomic.Bool
 	RemoteRxActive        atomic.Bool
@@ -63,7 +74,6 @@ type CommsConfig struct {
 	NanoPTTDevicePath        string
 	CommKey                  string
 	Iface                    string
-	ROIPInputDevice          string
 	BluetoothInputDevice     string
 	BluetoothOutputDevice    string
 	BluetoothAudioDeviceHint string
@@ -136,7 +146,6 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		ROIPVOXHoldTime:          cfg.ROIPVOXHoldTime,
 		ROIPMaxTXDuration:        cfg.ROIPMaxTXDuration,
 		HalfDuplexThreshold:      cfg.HalfDuplexThreshold,
-		ROIPInputDevice:          cfg.ROIPInputDevice,
 		EncoderComplexity:        cfg.EncoderComplexity,
 		PlaybackLatencyMs:        cfg.PlaybackLatencyMs,
 		CaptureLatencyMs:         cfg.CaptureLatencyMs,
@@ -200,10 +209,6 @@ func (cfg *CommsConfig) applyDefaults() {
 
 		if cfg.ROIPMaxTXDuration == 0 {
 			cfg.ROIPMaxTXDuration = control.ROIPDefaultMaxTX
-		}
-
-		if cfg.ROIPInputDevice == "" {
-			cfg.ROIPInputDevice = cfg.BluetoothInputDevice
 		}
 	}
 

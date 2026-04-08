@@ -13,11 +13,9 @@ package audio
 
 import (
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/gordonklaus/portaudio"
 	"github.com/rs/zerolog"
 
 	"github.com/openmanet/openmanetd/internal/comms/audiopool"
@@ -74,94 +72,88 @@ type Deps struct {
 	Debug                  bool
 }
 
-// paStream is the minimal subset of *portaudio.Stream that BroadcastEncoder
-// depends on. It exists so unit tests can inject a fake stream without
-// opening real audio hardware. It is intentionally NOT device.AudioStream
-// because Info() *portaudio.StreamInfo is portaudio-specific and does not
-// belong on the public surface.
-type paStream interface {
+// streamInfo is a backend-neutral snapshot of a capture stream's negotiated
+// buffering characteristics. miniaudio does not expose a runtime-reported
+// "actual latency" so the values carried here reflect the period size we
+// configured at open time, converted to a duration. It is enough to drive
+// the stream-open diagnostic log line (period_frames, equivalent latency)
+// without leaking *malgo.Device internals up to the parent package.
+type streamInfo struct {
+	InputLatency  time.Duration
+	OutputLatency time.Duration
+}
+
+// captureStream is the minimal subset of an audio input device lifecycle
+// that BroadcastEncoder depends on. It exists so unit tests can inject a
+// fake stream without opening real audio hardware and so the encoder is
+// not coupled to a particular backend (miniaudio / malgo today, PortAudio
+// previously).
+type captureStream interface {
 	Start() error
 	Stop() error
 	Close() error
-	Info() *portaudio.StreamInfo
+	Info() streamInfo
 }
 
-// BroadcastEncoder owns the PortAudio capture stream and a dedicated
+// captureOpener builds a concrete captureStream wired to the encoder's
+// captureCallback. The closure is supplied at NewBroadcastEncoder time so
+// the encoder itself never imports the backend binding — audio/init.go
+// owns the malgo open and wraps it in a closure that matches this type.
+type captureOpener func(onFrame func(samples []int16)) (captureStream, error)
+
+// BroadcastEncoder owns the always-on capture stream and a dedicated
 // encode-and-send goroutine. It exists so that the audio callback thread
 // never runs the Opus encoder or a blocking UDP write — both of those move
 // to the goroutine, which has its own scheduling slack absorbed by encCh.
 //
-// The capture hot path is int16-native: the audio callback registers an
-// int16 signature so PortAudio delivers samples in the native codec format,
-// the encode worker calls EncodeS16 directly, and the float32↔int16
-// conversion is eliminated. The pooled []int16 frame is released via defer
-// after each send.
+// The capture hot path is int16-native: the audio callback receives an
+// int16 view over the buffer the backend handed it (via unsafe.Slice
+// reinterpret in malgo_capture.go), the encode worker calls EncodeS16
+// directly, and the float32↔int16 conversion is eliminated. The pooled
+// []int16 frame is released via defer after each send.
+//
+// Under the unified design the underlying audio device is opened once at
+// StartHardware and stays open for the lifetime of the comms run. The
+// captureCallback always fires; txEnabled (an atomic bool toggled by
+// beginTransmission / endTransmission) gates whether captured frames
+// reach the Opus encoder. The VOX tap runs regardless of the gate so the
+// ROIP control source can drive PTT off the same always-on capture.
 type BroadcastEncoder struct {
-	s              paStream
-	encCh          chan *[]int16
-	done           chan struct{}
-	deps           Deps
-	framesCaptured atomic.Int64
-	framesEncoded  atomic.Int64
-	framesDropped  atomic.Int64
-	encodeErrors   atomic.Int64
-
-	// encodeDurMaxNs / encodeDurSumNs / encodeDurCount track the
-	// per-frame Opus encode time so the per-cycle Stop() debug log can
-	// report max and average encode latency. On constrained MIPS/ARM
-	// targets this is the canonical signal that the encoder is starving
-	// the consumer (per-frame budget = frameDuration ≈ 20 ms).
-	// CAS-loop max + atomic accumulators keep encodeOne lock-free.
-	encodeDurMaxNs atomic.Int64
-	encodeDurSumNs atomic.Int64
-	encodeDurCount atomic.Int64
-
-	// overBudgetWarned ensures the over-budget encode warning fires at
-	// most once per Start/Stop cycle so a sustained overrun does not
-	// flood the log. Reset to false in Start.
-	overBudgetWarned atomic.Bool
-
-	// captureThreadElevateOnce guards the first-call elevation of the
-	// PortAudio capture callback thread to SCHED_FIFO. The elevator is
-	// package-level so tests can replace it with a fake. sync.Once is
-	// used instead of an atomic bool because the Once guarantees the
-	// elevator has finished running before any subsequent caller
-	// observes the done flag, which matters for the deterministic
-	// "elevator called exactly once per cycle" assertion in the tests.
-	captureThreadElevateOnce sync.Once
-
-	// lastCaptureNs / captureGapMaxNs / captureLateCount track the
-	// wall-clock inter-arrival time between consecutive PortAudio
-	// capture callbacks. On constrained hardware PortAudio can
-	// deliver frames in bursts with gaps even when the encoder
-	// reports zero drops — the frames still arrive and still encode,
-	// but their emission onto the wire carries the capture jitter,
-	// which can exceed the receive-side prebuffer (100 ms) and cause
-	// stutter at the remote playout clock. captureGapMaxNs is the
-	// worst observed inter-arrival; captureLateCount is the number
-	// of callbacks whose delta exceeded 2 * frameDuration (40 ms).
-	// The captureCallback is single-producer (one PortAudio stream
-	// thread), so the Load/Store/CAS sequence races only against
-	// resets in Start, which happens while the stream is stopped.
-	lastCaptureNs    atomic.Int64
+	s                captureStream
+	encCh            chan *[]int16
+	done             chan struct{}
+	deps             Deps
+	framesDropped    atomic.Int64
+	framesEncoded    atomic.Int64
 	captureGapMaxNs  atomic.Int64
+	encodeErrors     atomic.Int64
+	framesCaptured   atomic.Int64
+	encodeDurMaxNs   atomic.Int64
+	encodeDurSumNs   atomic.Int64
+	encodeDurCount   atomic.Int64
 	captureLateCount atomic.Int64
+	lastCaptureNs    atomic.Int64
+	txEnabled        atomic.Bool
+	overBudgetWarned atomic.Bool
 }
 
 // Compile-time assertion: BroadcastEncoder satisfies device.AudioStream so
 // the parent's CommsRuntime.BroadcastStream field accepts it directly.
 var _ device.AudioStream = (*BroadcastEncoder)(nil)
 
-// NewBroadcastEncoder constructs the wrapper, opens the PortAudio capture
-// stream with the int16 callback, and spawns the encode goroutine.
-func NewBroadcastEncoder(deps Deps, inParams portaudio.StreamParameters) (*BroadcastEncoder, error) {
+// NewBroadcastEncoder constructs the wrapper, opens the capture stream
+// via the supplied opener closure with be.captureCallback as the
+// per-frame hook, and spawns the encode goroutine. The opener is
+// provided by audio/init.go (which owns the malgo context) so the
+// encoder itself has no dependency on the audio backend.
+func NewBroadcastEncoder(deps Deps, open captureOpener) (*BroadcastEncoder, error) {
 	be := &BroadcastEncoder{
 		deps:  deps,
 		encCh: make(chan *[]int16, broadcastEncoderChanDepth),
 		done:  make(chan struct{}),
 	}
 
-	s, err := portaudio.OpenStream(inParams, be.captureCallback)
+	s, err := open(be.captureCallback)
 	if err != nil {
 		return nil, fmt.Errorf("open broadcast stream: %w", err)
 	}
@@ -173,26 +165,80 @@ func NewBroadcastEncoder(deps Deps, inParams portaudio.StreamParameters) (*Broad
 	return be, nil
 }
 
-// captureCallback runs on the PortAudio audio callback thread and MUST NOT
-// block, allocate from the heap, or hold any mutex other than briefly. Its
-// only jobs are: elevate the thread to SCHED_FIFO once, optional VOX tap,
-// copy the input frame into a pooled int16 buffer, and non-blockingly hand
-// the buffer to the encode goroutine.
-func (be *BroadcastEncoder) captureCallback(in []int16) {
-	// First-call thread elevation. We run this inside the callback rather
-	// than at stream-open time because the PortAudio audio thread is
-	// created by the host API and the Go side only observes it when it
-	// calls us back for the first time. gordonklaus/portaudio uses a
-	// direct //export streamCallback (no Go-side channel indirection),
-	// so the current OS thread inside this function IS the PortAudio
-	// audio thread — elevating pid 0 to SCHED_FIFO therefore elevates
-	// the correct thread and the elevation persists across subsequent
-	// callback invocations from the same C thread. See thread_linux.go
-	// for the syscall details and the graceful-EPERM fallback.
-	be.captureThreadElevateOnce.Do(func() {
-		elevateAudioThread(be.deps.Log, "capture")
-	})
+// SetTxEnabled toggles the TX gate. When v is true, captured frames
+// begin flowing into the Opus encoder + RTP send pipeline; when v is
+// false the callback continues to run the VOX tap and advance
+// framesCaptured but drops frames before the encCh hand-off. Safe to
+// call from any goroutine — the underlying atomic transition is
+// observed by the next captureCallback invocation from the audio thread.
+//
+// SetTxEnabled is the canonical per-PTT toggle. The comms package's
+// transmit.beginTransmission / endTransmission drive it. Start/Stop
+// on BroadcastEncoder control the underlying device lifecycle and are
+// called once per StartHardware cycle, not per PTT.
+func (be *BroadcastEncoder) SetTxEnabled(v bool) {
+	prev := be.txEnabled.Swap(v)
+	if prev == v {
+		return
+	}
 
+	if v {
+		// Fresh TX cycle — reset the per-cycle counters so the Stop
+		// log reflects just the current cycle. recordCaptureArrival
+		// resets lastCaptureNs on the "first callback" path via the
+		// Swap idiom, so the first captured frame under the new gate
+		// does not report a spurious gap derived from the pre-gate
+		// callback.
+		be.framesCaptured.Store(0)
+		be.framesEncoded.Store(0)
+		be.framesDropped.Store(0)
+		be.encodeErrors.Store(0)
+		be.encodeDurMaxNs.Store(0)
+		be.encodeDurSumNs.Store(0)
+		be.encodeDurCount.Store(0)
+		be.overBudgetWarned.Store(false)
+		be.lastCaptureNs.Store(0)
+		be.captureGapMaxNs.Store(0)
+		be.captureLateCount.Store(0)
+
+		return
+	}
+
+	// Gate closed — log the cycle stats the same way Stop() used to.
+	maxDur := time.Duration(be.encodeDurMaxNs.Load())
+
+	var avgDur time.Duration
+	if count := be.encodeDurCount.Load(); count > 0 {
+		avgDur = time.Duration(be.encodeDurSumNs.Load() / count)
+	}
+
+	captureGapMax := time.Duration(be.captureGapMaxNs.Load())
+
+	be.deps.Log.Debug().
+		Int64("captured", be.framesCaptured.Load()).
+		Int64("encoded", be.framesEncoded.Load()).
+		Int64("dropped", be.framesDropped.Load()).
+		Int64("encode_errors", be.encodeErrors.Load()).
+		Dur("encode_dur_max", maxDur).
+		Dur("encode_dur_avg", avgDur).
+		Dur("frame_budget", frameDuration).
+		Dur("capture_gap_max", captureGapMax).
+		Int64("capture_late", be.captureLateCount.Load()).
+		Msg("comms: broadcast cycle stats")
+}
+
+// captureCallback runs on the audio callback thread and MUST NOT block,
+// allocate from the heap, or hold any mutex other than briefly. It does
+// three things in order:
+//
+//  1. Run the VOX tap (always — not gated by TX). The ROIP control source
+//     reads from this tap to drive PTT. When no tap is subscribed the
+//     branch is a zero-overhead atomic.Load + nil check.
+//  2. If the TX gate is closed, return early without copying into the
+//     encode channel. framesCaptured and gap statistics still advance.
+//  3. Copy the int16 frame into a pooled buffer and non-blockingly hand
+//     it to the encode goroutine via encCh.
+func (be *BroadcastEncoder) captureCallback(in []int16) {
 	be.recordCaptureArrival(time.Now())
 
 	// Optional VOX tap. The ROIP VOX consumer (control/roip.go) operates on
@@ -218,6 +264,14 @@ func (be *BroadcastEncoder) captureCallback(in []int16) {
 	}
 
 	be.framesCaptured.Add(1)
+
+	// TX gate: when closed, the encoder pipeline is dormant. The capture
+	// stream itself stays active so the VOX tap above keeps observing
+	// mic audio, which is what lets the ROIP control source make PTT
+	// decisions while otherwise "idle".
+	if !be.txEnabled.Load() {
+		return
+	}
 
 	fp := audiopool.Int16Pool.Get().(*[]int16) //nolint:forcetypeassert
 	f := (*fp)[:audiopool.FrameSize]
@@ -364,76 +418,40 @@ func (be *BroadcastEncoder) recordEncodeDuration(d time.Duration) {
 	}
 }
 
-// Start resets per-cycle counters and starts the PortAudio capture stream.
+// Start activates the underlying capture device. Called once per comms
+// run from audio.StartHardware, not per PTT cycle. Per-PTT state (frame
+// counters, gap statistics, TX gate) is handled in SetTxEnabled. Under
+// the unified design the capture callback runs continuously from Start
+// to Stop; SetTxEnabled gates whether captured frames are forwarded to
+// the Opus encoder.
 func (be *BroadcastEncoder) Start() error {
-	// Reset the thread-elevation guard so the first callback of the new
-	// Start/Stop cycle re-runs elevateAudioThread. PortAudio does not
-	// guarantee that the audio thread persists across Stop/Start, so a
-	// re-elevation is mandatory for safety. Safe to reassign without a
-	// mutex because Start is not called concurrently with the capture
-	// callback (the stream is stopped at this point).
-	be.captureThreadElevateOnce = sync.Once{}
-
-	be.framesCaptured.Store(0)
-	be.framesEncoded.Store(0)
-	be.framesDropped.Store(0)
-	be.encodeErrors.Store(0)
-	be.encodeDurMaxNs.Store(0)
-	be.encodeDurSumNs.Store(0)
-	be.encodeDurCount.Store(0)
-	be.overBudgetWarned.Store(false)
-	be.lastCaptureNs.Store(0)
-	be.captureGapMaxNs.Store(0)
-	be.captureLateCount.Store(0)
-
 	if err := be.s.Start(); err != nil {
-		return fmt.Errorf("portaudio stream start: %w", err)
+		return fmt.Errorf("broadcast stream start: %w", err)
 	}
 
 	return nil
 }
 
-// Stop halts the audio callback and logs per-cycle counter values.
+// Stop halts the underlying capture device. Called once per comms run
+// from the StartHardware cleanup closure.
 func (be *BroadcastEncoder) Stop() error {
-	stopErr := be.s.Stop()
-
-	maxDur := time.Duration(be.encodeDurMaxNs.Load())
-
-	var avgDur time.Duration
-	if count := be.encodeDurCount.Load(); count > 0 {
-		avgDur = time.Duration(be.encodeDurSumNs.Load() / count)
-	}
-
-	captureGapMax := time.Duration(be.captureGapMaxNs.Load())
-
-	be.deps.Log.Debug().
-		Int64("captured", be.framesCaptured.Load()).
-		Int64("encoded", be.framesEncoded.Load()).
-		Int64("dropped", be.framesDropped.Load()).
-		Int64("encode_errors", be.encodeErrors.Load()).
-		Dur("encode_dur_max", maxDur).
-		Dur("encode_dur_avg", avgDur).
-		Dur("frame_budget", frameDuration).
-		Dur("capture_gap_max", captureGapMax).
-		Int64("capture_late", be.captureLateCount.Load()).
-		Msg("comms: broadcast cycle stats")
-
-	if stopErr != nil {
-		return fmt.Errorf("portaudio stream stop: %w", stopErr)
+	if err := be.s.Stop(); err != nil {
+		return fmt.Errorf("broadcast stream stop: %w", err)
 	}
 
 	return nil
 }
 
 // Close stops the audio thread, terminates the encode goroutine, and
-// releases the PortAudio resources.
+// releases the underlying device resources. Called once per comms run
+// from the StartHardware cleanup closure.
 func (be *BroadcastEncoder) Close() error {
 	_ = be.s.Stop()
 	close(be.encCh)
 	<-be.done
 
 	if err := be.s.Close(); err != nil {
-		return fmt.Errorf("portaudio stream close: %w", err)
+		return fmt.Errorf("broadcast stream close: %w", err)
 	}
 
 	return nil

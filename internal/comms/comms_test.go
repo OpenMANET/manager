@@ -768,18 +768,6 @@ func TestApplyDefaults_ROIPDefaults(t *testing.T) {
 	}
 }
 
-func TestApplyDefaults_ROIPInputDeviceFallsBackToBluetooth(t *testing.T) {
-	cfg := &CommsConfig{
-		ControlSource:        "roip",
-		BluetoothInputDevice: "hw:1",
-	}
-	cfg.applyDefaults()
-
-	if cfg.ROIPInputDevice != "hw:1" {
-		t.Errorf("ROIPInputDevice: got %q, want %q", cfg.ROIPInputDevice, "hw:1")
-	}
-}
-
 func TestApplyDefaults_ROIPExplicitValuesPreserved(t *testing.T) {
 	cfg := &CommsConfig{
 		ControlSource:     "roip",
@@ -787,7 +775,6 @@ func TestApplyDefaults_ROIPExplicitValuesPreserved(t *testing.T) {
 		ROIPVOXThreshold:  0.5,
 		ROIPVOXHoldTime:   2 * time.Second,
 		ROIPMaxTXDuration: 30 * time.Second,
-		ROIPInputDevice:   "hw:2",
 	}
 	cfg.applyDefaults()
 
@@ -805,10 +792,6 @@ func TestApplyDefaults_ROIPExplicitValuesPreserved(t *testing.T) {
 
 	if cfg.ROIPMaxTXDuration != 30*time.Second {
 		t.Errorf("ROIPMaxTXDuration overwritten; got %v", cfg.ROIPMaxTXDuration)
-	}
-
-	if cfg.ROIPInputDevice != "hw:2" {
-		t.Errorf("ROIPInputDevice overwritten; got %q", cfg.ROIPInputDevice)
 	}
 }
 

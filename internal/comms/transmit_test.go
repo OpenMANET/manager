@@ -2,14 +2,12 @@ package comms
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
 
 	"github.com/openmanet/openmanetd/internal/comms/control"
-	"github.com/openmanet/openmanetd/internal/comms/device"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 )
@@ -18,7 +16,7 @@ func newSilentComms() *CommsConfig {
 	return &CommsConfig{Log: zerolog.Nop()}
 }
 
-func newTestRuntime(stream device.AudioStream) *CommsRuntime {
+func newTestRuntime(stream BroadcastCapture) *CommsRuntime {
 	pc := &PortChannel{
 		cfg:     McastPortConfig{Send: true, Receive: true},
 		RTPSess: &mockRTPSender{},
@@ -42,8 +40,8 @@ func TestBeginTransmission_StartsStream(t *testing.T) {
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
 
-	if stream.startCalls != 1 {
-		t.Errorf("Start called %d times, want 1", stream.startCalls)
+	if stream.txEnableCalls != 1 {
+		t.Errorf("SetTxEnabled(true) called %d times, want 1", stream.txEnableCalls)
 	}
 }
 
@@ -84,8 +82,8 @@ func TestBeginTransmission_DoublePressIgnored(t *testing.T) {
 
 	cfg.beginTransmission(rt)
 
-	if stream.startCalls != 1 {
-		t.Errorf("Start called %d times, want 1", stream.startCalls)
+	if stream.txEnableCalls != 1 {
+		t.Errorf("SetTxEnabled(true) called %d times, want 1", stream.txEnableCalls)
 	}
 }
 
@@ -101,8 +99,8 @@ func TestEndTransmission_StopsStream(t *testing.T) {
 
 	cfg.endTransmission(rt)
 
-	if stream.stopCalls != 1 {
-		t.Errorf("Stop called %d times, want 1", stream.stopCalls)
+	if stream.txDisableCalls != 1 {
+		t.Errorf("SetTxEnabled(false) called %d times, want 1", stream.txDisableCalls)
 	}
 }
 
@@ -128,8 +126,8 @@ func TestEndTransmission_WhenNotBroadcasting_Noop(t *testing.T) {
 	cfg := newSilentComms()
 	cfg.endTransmission(rt)
 
-	if stream.stopCalls != 0 {
-		t.Errorf("Stop called %d times, want 0", stream.stopCalls)
+	if stream.txDisableCalls != 0 {
+		t.Errorf("SetTxEnabled(false) called %d times, want 0", stream.txDisableCalls)
 	}
 }
 
@@ -215,8 +213,8 @@ func TestBeginTransmission_SettleCoversPlaybackLatency(t *testing.T) {
 		t.Errorf("beginTransmission elapsed=%s, slept far longer than expected", elapsed)
 	}
 
-	if stream.startCalls != 1 {
-		t.Errorf("Start called %d times after settle, want 1", stream.startCalls)
+	if stream.txEnableCalls != 1 {
+		t.Errorf("SetTxEnabled(true) called %d times after settle, want 1", stream.txEnableCalls)
 	}
 }
 
@@ -311,11 +309,11 @@ func TestBeginTransmission_ConfigurablePttStartDelay(t *testing.T) {
 	})
 }
 
-// ─── beginTransmission error-path tests ──────────────────────────────────────
+// ─── beginTransmission nil-stream test ───────────────────────────────────────
 
 // newRunRuntime extends newTestRuntime with a receiver/sender so receiveLoop
 // started inside Run does not panic.
-func newRunRuntime(stream device.AudioStream) *CommsRuntime {
+func newRunRuntime(stream BroadcastCapture) *CommsRuntime {
 	rt := newTestRuntime(stream)
 	rt.Ports[0].Receiver = rtp.NewSwappableReceiver(newMockReader())
 	rt.Ports[0].Sender = rtp.NewSwappableSender(&mockWriter{})
@@ -323,75 +321,18 @@ func newRunRuntime(stream device.AudioStream) *CommsRuntime {
 	return rt
 }
 
-func TestBeginTransmission_NilStreamCallsReopen(t *testing.T) {
-	reopened := &mockStream{}
-	rt := newTestRuntime(nil) // nil broadcastStream triggers reopen path
-	rt.ReopenBroadcast = func() error {
-		rt.BroadcastStream = reopened
-
-		return nil
-	}
-
-	cfg := newSilentComms()
-	cfg.beginTransmission(rt)
-
-	if reopened.startCalls != 1 {
-		t.Errorf("Start called %d times on reopened stream, want 1", reopened.startCalls)
-	}
-
-	if !cfg.isBroadcasting(rt) {
-		t.Error("should be broadcasting after successful reopen")
-	}
-}
-
-func TestBeginTransmission_ReopenFailureClearsBroadcasting(t *testing.T) {
-	rt := newTestRuntime(nil) // nil broadcastStream triggers reopen path
-	rt.ReopenBroadcast = func() error {
-		return errors.New("hardware fault")
-	}
-
+// TestBeginTransmission_NilStreamClearsBroadcasting verifies that begin with
+// a nil BroadcastStream fails cleanly (no panic) and leaves Broadcasting
+// false. Under the unified always-on design the stream is opened once at
+// StartHardware so a nil here indicates an initialization error, not a
+// recoverable runtime condition — there is no reopen-on-demand path.
+func TestBeginTransmission_NilStreamClearsBroadcasting(t *testing.T) {
+	rt := newTestRuntime(nil)
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
 
 	if cfg.isBroadcasting(rt) {
-		t.Error("should NOT be broadcasting when reopen fails")
-	}
-}
-
-func TestBeginTransmission_StartFailureReopensAndSucceeds(t *testing.T) {
-	badStream := &mockStream{startErr: errors.New("start failed")}
-	goodStream := &mockStream{}
-
-	rt := newTestRuntime(badStream)
-	rt.ReopenBroadcast = func() error {
-		rt.BroadcastStream = goodStream
-
-		return nil
-	}
-
-	cfg := newSilentComms()
-	cfg.beginTransmission(rt)
-
-	if goodStream.startCalls != 1 {
-		t.Errorf("good stream Start called %d times, want 1", goodStream.startCalls)
-	}
-
-	if !cfg.isBroadcasting(rt) {
-		t.Error("should be broadcasting after start-fail + reopen + restart")
-	}
-}
-
-func TestBeginTransmission_StartFailureReopenAlsoFails(t *testing.T) {
-	rt := newTestRuntime(&mockStream{startErr: errors.New("start failed")})
-	rt.ReopenBroadcast = func() error {
-		return errors.New("reopen error")
-	}
-
-	cfg := newSilentComms()
-	cfg.beginTransmission(rt)
-
-	if cfg.isBroadcasting(rt) {
-		t.Error("should NOT be broadcasting when start and reopen both fail")
+		t.Error("should NOT be broadcasting when BroadcastStream is nil")
 	}
 }
 
@@ -408,8 +349,8 @@ func TestBeginTransmission_BlockedWhenReceivingRemote(t *testing.T) {
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
 
-	if stream.startCalls != 0 {
-		t.Errorf("Start called %d times, want 0 (channel busy)", stream.startCalls)
+	if stream.txEnableCalls != 0 {
+		t.Errorf("SetTxEnabled(true) called %d times, want 0 (channel busy)", stream.txEnableCalls)
 	}
 
 	if cfg.isBroadcasting(rt) {
@@ -426,8 +367,8 @@ func TestBeginTransmission_AllowedWhenRxStale(t *testing.T) {
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
 
-	if stream.startCalls != 1 {
-		t.Errorf("Start called %d times, want 1 (rx is stale)", stream.startCalls)
+	if stream.txEnableCalls != 1 {
+		t.Errorf("SetTxEnabled(true) called %d times, want 1 (rx is stale)", stream.txEnableCalls)
 	}
 
 	if !cfg.isBroadcasting(rt) {
@@ -443,8 +384,8 @@ func TestBeginTransmission_AllowedWhenNeverReceived(t *testing.T) {
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
 
-	if stream.startCalls != 1 {
-		t.Errorf("Start called %d times, want 1 (never received)", stream.startCalls)
+	if stream.txEnableCalls != 1 {
+		t.Errorf("SetTxEnabled(true) called %d times, want 1 (never received)", stream.txEnableCalls)
 	}
 }
 
@@ -512,8 +453,8 @@ func TestRun_PTTDownStartsTransmission(t *testing.T) {
 
 	rt.Ports[0].Receiver.Close()
 
-	if stream.startCalls != 1 {
-		t.Errorf("Start called %d times, want 1", stream.startCalls)
+	if stream.txEnableCalls != 1 {
+		t.Errorf("SetTxEnabled(true) called %d times, want 1", stream.txEnableCalls)
 	}
 }
 
@@ -533,12 +474,12 @@ func TestRun_PTTUpStopsTransmission(t *testing.T) {
 
 	rt.Ports[0].Receiver.Close()
 
-	if stream.startCalls != 1 {
-		t.Errorf("Start called %d times, want 1", stream.startCalls)
+	if stream.txEnableCalls != 1 {
+		t.Errorf("SetTxEnabled(true) called %d times, want 1", stream.txEnableCalls)
 	}
 
-	if stream.stopCalls != 1 {
-		t.Errorf("Stop called %d times, want 1", stream.stopCalls)
+	if stream.txDisableCalls != 1 {
+		t.Errorf("SetTxEnabled(false) called %d times, want 1", stream.txDisableCalls)
 	}
 }
 
@@ -558,31 +499,16 @@ func TestRun_PTTToggleFlips(t *testing.T) {
 
 	rt.Ports[0].Receiver.Close()
 
-	if stream.startCalls != 1 {
-		t.Errorf("Start called %d times, want 1", stream.startCalls)
+	if stream.txEnableCalls != 1 {
+		t.Errorf("SetTxEnabled(true) called %d times, want 1", stream.txEnableCalls)
 	}
 
-	if stream.stopCalls != 1 {
-		t.Errorf("Stop called %d times, want 1", stream.stopCalls)
+	if stream.txDisableCalls != 1 {
+		t.Errorf("SetTxEnabled(false) called %d times, want 1", stream.txDisableCalls)
 	}
 }
 
 // ─── Additional beginTransmission / endTransmission edge cases ────────────────
-
-// TestBeginTransmission_NilStreamAndNilReopen verifies that beginTransmission
-// does not panic and leaves broadcasting=false when both broadcastStream and
-// reopenBroadcast are nil.
-func TestBeginTransmission_NilStreamAndNilReopen(t *testing.T) {
-	rt := newTestRuntime(nil) // nil broadcastStream
-	rt.ReopenBroadcast = nil  // also nil
-
-	cfg := newSilentComms()
-	cfg.beginTransmission(rt)
-
-	if cfg.isBroadcasting(rt) {
-		t.Error("should NOT be broadcasting when both stream and reopenBroadcast are nil")
-	}
-}
 
 // TestEndTransmission_QueuesStopBeepToAllPorts verifies that endTransmission
 // queues beepBufferStop to every configured port, mirroring the multi-port
@@ -644,8 +570,8 @@ func TestBeginTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
 		t.Error("should be broadcasting in web mode")
 	}
 
-	if stream.startCalls != 0 {
-		t.Errorf("Start called %d times, want 0 in web mode", stream.startCalls)
+	if stream.txEnableCalls != 0 {
+		t.Errorf("SetTxEnabled(true) called %d times, want 0 in web mode", stream.txEnableCalls)
 	}
 
 	// No beep should be queued.
@@ -671,8 +597,8 @@ func TestEndTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
 		t.Error("should not be broadcasting after endTransmission in web mode")
 	}
 
-	if stream.stopCalls != 0 {
-		t.Errorf("Stop called %d times, want 0 in web mode", stream.stopCalls)
+	if stream.txDisableCalls != 0 {
+		t.Errorf("SetTxEnabled(false) called %d times, want 0 in web mode", stream.txDisableCalls)
 	}
 
 	// No beep should be queued.

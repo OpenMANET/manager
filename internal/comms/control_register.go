@@ -20,15 +20,14 @@ import (
 type openvlmBackend struct{}
 
 // roipBackend is the ControlDeps.Backend payload for the ROIP bridge source.
-// Step 4 of the comms refactor flattened this from a *CommsConfig field into
-// primitive ROIP config fields so the control sub-package no longer needs to
-// import parent comms types.
+// Under the unified capture design the ROIP VOX path subscribes to the
+// always-on broadcast capture stream via SetTap/ClearTap; there is no
+// separate input device to resolve.
 type roipBackend struct {
 	IsReceiving    func() bool
 	IsBroadcasting func() bool
 	SetTap         func(chan []float32)
 	ClearTap       func()
-	InputDevice    string
 	VOXHoldTime    time.Duration
 	MaxTXDuration  time.Duration
 	VOXThreshold   float32
@@ -65,12 +64,10 @@ func init() {
 			b.VOXThreshold,
 			b.VOXHoldTime,
 			b.MaxTXDuration,
-			b.InputDevice,
 			b.IsReceiving,
 			b.IsBroadcasting,
 			b.SetTap,
 			b.ClearTap,
-			nil,
 		), nil
 	})
 
@@ -127,7 +124,6 @@ func (cfg *CommsConfig) buildControlDeps(rt *CommsRuntime) (control.ControlDeps,
 			VOXThreshold:   cfg.ROIPVOXThreshold,
 			VOXHoldTime:    cfg.ROIPVOXHoldTime,
 			MaxTXDuration:  cfg.ROIPMaxTXDuration,
-			InputDevice:    cfg.ROIPInputDevice,
 			IsReceiving:    func() bool { return cfg.isReceivingRemote(rt) },
 			IsBroadcasting: func() bool { return rt.Broadcasting.Load() },
 			SetTap:         func(ch chan []float32) { rt.BroadcastTap.Store(&ch) },

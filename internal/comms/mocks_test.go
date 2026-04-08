@@ -12,15 +12,25 @@ import (
 
 // ─── mockStream ───────────────────────────────────────────────────────────────
 
-// mockStream satisfies AudioStream. Start/Stop/Close failures can be injected
-// by setting the corresponding error fields before the call.
+// mockStream satisfies BroadcastCapture. Start/Stop/Close failures can be
+// injected by setting the corresponding error fields before the call. The
+// TX gate state is recorded separately so tests can assert that
+// beginTransmission / endTransmission toggle it correctly.
+//
+// Under the unified-capture design, Start/Stop/Close are called at
+// StartHardware / cleanup time (not per PTT cycle). The per-PTT gate is
+// driven through SetTxEnabled, and txEnableCalls / txDisableCalls are
+// the counters individual tests should assert against.
 type mockStream struct {
-	startErr   error
-	stopErr    error
-	closeErr   error
-	startCalls int
-	stopCalls  int
-	closeCalls int
+	startErr        error
+	stopErr         error
+	closeErr        error
+	startCalls      int
+	stopCalls       int
+	closeCalls      int
+	txEnableCalls   int
+	txDisableCalls  int
+	txEnabledLatest bool
 }
 
 func (m *mockStream) Start() error {
@@ -39,6 +49,16 @@ func (m *mockStream) Close() error {
 	m.closeCalls++
 
 	return m.closeErr
+}
+
+func (m *mockStream) SetTxEnabled(v bool) {
+	if v {
+		m.txEnableCalls++
+	} else {
+		m.txDisableCalls++
+	}
+
+	m.txEnabledLatest = v
 }
 
 // ─── mockDecoder ─────────────────────────────────────────────────────────────

@@ -102,11 +102,16 @@ func (cfg *CommsConfig) drainPlaybackBuffer(rt *CommsRuntime) {
 	}
 }
 
-// beginTransmission starts the mic capture stream and plays the start-tone
-// into the local speaker to signal the start of transmission.
+// beginTransmission opens the TX gate on the always-on capture stream and
+// plays the start-tone into the local speaker to signal the start of
+// transmission.
 //
-// If the broadcast stream is nil or fails to start, rt.ReopenBroadcast is
-// called to rebuild it using the input device that was resolved at startup.
+// The broadcast capture stream is opened once at StartHardware and stays
+// open for the lifetime of the comms run. beginTransmission flips an atomic
+// gate inside BroadcastCapture so the captureCallback begins forwarding
+// frames to the Opus encoder + RTP send pipeline. When the gate is closed
+// the capture callback still runs (the VOX tap continues to observe mic
+// frames) but encoded frames never hit the wire.
 func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 	if rt.Broadcasting.Load() {
 		cfg.Log.Debug().Msg("PTTDown ignored; already broadcasting")
@@ -125,14 +130,14 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 	rt.Broadcasting.Store(true)
 
 	// Web mode: the browser provides its own audio I/O and UI feedback,
-	// so skip beep tones, playback drain, and PortAudio stream management.
+	// so skip beep tones, playback drain, and capture-gate management.
 	if rt.WebBridge != nil {
 		cfg.Log.Debug().Msg("Begin web transmission")
 
 		return
 	}
 
-	cfg.Log.Debug().Msg("Begin transmission: playing start tone and starting mic stream")
+	cfg.Log.Debug().Msg("Begin transmission: playing start tone and opening TX gate")
 	cfg.drainPlaybackBuffer(rt)
 
 	for _, pc := range rt.Ports {
@@ -141,61 +146,32 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 		}
 	}
 
-	// Settle window before the mic capture stream starts. Holds the mic
-	// closed until the start-tone beep has fully emerged from the
-	// speaker — otherwise an acoustic (or device sidetone) path from
-	// speaker → mic captures the beep and the remote side hears it.
-	// The wait also covers hardware that warms its capture path slowly.
-	// Sized by transmitSettleWait from the playback output latency and
+	// Settle window before the TX gate opens. Holds the gate closed
+	// until the start-tone beep has fully emerged from the speaker —
+	// otherwise an acoustic (or device sidetone) path from speaker →
+	// mic captures the beep and the remote side hears it. The wait
+	// also covers hardware that warms its capture path slowly. Sized
+	// by transmitSettleWait from the playback output latency and
 	// CommsConfig.PttStartDelayMs.
 	if d := cfg.transmitSettleWait(rt); d > 0 {
 		time.Sleep(d)
 	}
 
 	if rt.BroadcastStream == nil {
-		cfg.Log.Warn().Msg("Mic stream is nil; attempting to reopen")
-
-		if rt.ReopenBroadcast != nil {
-			if err := rt.ReopenBroadcast(); err != nil {
-				cfg.Log.Error().Err(err).Msg("Failed to reopen mic stream")
-				rt.Broadcasting.Store(false)
-
-				return
-			}
-		}
-	}
-
-	if rt.BroadcastStream == nil {
-		cfg.Log.Error().Msg("Mic stream still nil after reopen attempt")
+		cfg.Log.Error().Msg("BroadcastStream is nil; cannot begin transmission")
 		rt.Broadcasting.Store(false)
 
 		return
 	}
 
-	if err := rt.BroadcastStream.Start(); err != nil {
-		cfg.Log.Error().Err(err).Msg("Failed to start mic stream; attempting to reopen stream")
+	rt.BroadcastStream.SetTxEnabled(true)
 
-		if rt.ReopenBroadcast != nil {
-			if reErr := rt.ReopenBroadcast(); reErr != nil {
-				cfg.Log.Error().Err(reErr).Msg("Failed to reopen mic stream")
-				rt.Broadcasting.Store(false)
-
-				return
-			}
-		}
-
-		if err := rt.BroadcastStream.Start(); err != nil {
-			cfg.Log.Error().Err(err).Msg("Failed to start mic stream after reopen")
-			rt.Broadcasting.Store(false)
-
-			return
-		}
-	}
-
-	cfg.Log.Debug().Msg("Mic stream started")
+	cfg.Log.Debug().Msg("TX gate opened")
 }
 
-// endTransmission stops the mic capture stream and plays the stop-tone.
+// endTransmission closes the TX gate on the always-on capture stream and
+// plays the stop-tone. The capture stream itself keeps running after
+// endTransmission so the VOX tap (if any) continues to observe the mic.
 func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 	if !rt.Broadcasting.Load() {
 		cfg.Log.Debug().Msg("PTTUp ignored; mic already idle")
@@ -203,7 +179,7 @@ func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 		return
 	}
 
-	// Web mode: skip PortAudio stream management and beep tones.
+	// Web mode: skip capture-gate management and beep tones.
 	if rt.WebBridge != nil {
 		cfg.Log.Debug().Msg("End web transmission")
 		rt.Broadcasting.Store(false)
@@ -211,14 +187,12 @@ func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 		return
 	}
 
-	cfg.Log.Debug().Msg("End transmission: stopping mic stream and playing stop tone")
+	cfg.Log.Debug().Msg("End transmission: closing TX gate and playing stop tone")
 
 	if rt.BroadcastStream == nil {
-		cfg.Log.Warn().Msg("Mic stream was nil during stop")
-	} else if err := rt.BroadcastStream.Stop(); err != nil {
-		cfg.Log.Error().Err(err).Msg("stop mic")
+		cfg.Log.Warn().Msg("BroadcastStream was nil during end transmission")
 	} else {
-		cfg.Log.Debug().Msg("Mic stream stopped")
+		rt.BroadcastStream.SetTxEnabled(false)
 	}
 
 	cfg.drainPlaybackBuffer(rt)

@@ -59,7 +59,6 @@ func TestBuildControlDeps_ROIPBackend(t *testing.T) {
 		ROIPVOXThreshold:  0.05,
 		ROIPVOXHoldTime:   0,
 		ROIPMaxTXDuration: 0,
-		ROIPInputDevice:   "hw:1,0",
 	}
 	rt := &CommsRuntime{}
 
@@ -71,7 +70,6 @@ func TestBuildControlDeps_ROIPBackend(t *testing.T) {
 
 	assert.Equal(t, byte(0x04), b.COSGPIOMask)
 	assert.InDelta(t, 0.05, b.VOXThreshold, 1e-6)
-	assert.Equal(t, "hw:1,0", b.InputDevice)
 	assert.NotNil(t, b.IsReceiving)
 	assert.NotNil(t, b.IsBroadcasting)
 	assert.NotNil(t, b.SetTap)

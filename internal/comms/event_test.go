@@ -135,12 +135,12 @@ func TestWebEventSource_RunIntegration(t *testing.T) {
 
 	rt.Ports[0].Receiver.Close()
 
-	if stream.startCalls != 1 {
-		t.Errorf("Start called %d times, want 1", stream.startCalls)
+	if stream.txEnableCalls != 1 {
+		t.Errorf("SetTxEnabled(true) called %d times, want 1", stream.txEnableCalls)
 	}
 
-	if stream.stopCalls != 1 {
-		t.Errorf("Stop called %d times, want 1", stream.stopCalls)
+	if stream.txDisableCalls != 1 {
+		t.Errorf("SetTxEnabled(false) called %d times, want 1", stream.txDisableCalls)
 	}
 }
 
