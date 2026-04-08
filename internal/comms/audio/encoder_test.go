@@ -2,6 +2,7 @@ package audio
 
 import (
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -800,4 +801,151 @@ func TestBroadcastEncoder_EncodeOneRecordsDuration(t *testing.T) {
 	if !be.overBudgetWarned.Load() {
 		t.Error("overBudgetWarned should be set after over-budget encode")
 	}
+}
+
+// fakeElevator records invocations of the audio-thread elevator so Phase B
+// tests can assert exactly-once behavior without touching the real
+// sched_setattr syscall (which requires CAP_SYS_NICE and would fail in CI).
+// Mutex-protected so concurrent captureCallback invocations remain safe
+// under -race.
+type fakeElevator struct {
+	mu     sync.Mutex
+	labels []string
+}
+
+func (f *fakeElevator) fn(_ zerolog.Logger, label string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.labels = append(f.labels, label)
+}
+
+func (f *fakeElevator) calls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return len(f.labels)
+}
+
+func (f *fakeElevator) lastLabel() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if len(f.labels) == 0 {
+		return ""
+	}
+
+	return f.labels[len(f.labels)-1]
+}
+
+// swapElevator replaces the package-level elevateAudioThread with a fake
+// for the duration of the test. Uses t.Cleanup for restoration so a test
+// failure never leaves the original shadowed.
+func swapElevator(t *testing.T, fake *fakeElevator) {
+	t.Helper()
+
+	orig := elevateAudioThread
+	elevateAudioThread = fake.fn
+
+	t.Cleanup(func() {
+		elevateAudioThread = orig
+	})
+}
+
+func TestBroadcastEncoder_CaptureCallbackElevatesThreadOnce(t *testing.T) {
+	// Drive three captureCallback invocations and assert the elevator
+	// fired exactly once, with the "capture" label. The sync.Once inside
+	// BroadcastEncoder is the contract under test.
+	fake := &fakeElevator{}
+	swapElevator(t, fake)
+
+	enc := &mockEncoder{payloadN: 4}
+	be, _, _ := newTestBroadcastEncoder(t, enc)
+
+	go be.encodeLoop()
+
+	in := silentFrame()
+	for range 3 {
+		be.captureCallback(in)
+	}
+
+	close(be.encCh)
+	<-be.done
+
+	if got := fake.calls(); got != 1 {
+		t.Errorf("elevator called %d times, want 1", got)
+	}
+
+	if got := fake.lastLabel(); got != "capture" {
+		t.Errorf("elevator label = %q, want %q", got, "capture")
+	}
+}
+
+func TestBroadcastEncoder_StartResetsElevationGuard(t *testing.T) {
+	// Start() must reset the sync.Once so a new Start/Stop cycle re-runs
+	// the elevator on the first callback of the new cycle. PortAudio
+	// does not guarantee that the audio thread persists across
+	// Stop/Start, so re-elevation is mandatory for safety.
+	fake := &fakeElevator{}
+	swapElevator(t, fake)
+
+	enc := &mockEncoder{payloadN: 4}
+	be, _, _ := newTestBroadcastEncoder(t, enc)
+
+	// Cycle 1: one elevation.
+	be.captureCallback(silentFrame())
+
+	if got := fake.calls(); got != 1 {
+		t.Fatalf("after cycle 1: elevator called %d times, want 1", got)
+	}
+
+	// Drain the frame so the next callback doesn't hit channel-full.
+	fp := <-be.encCh
+	audiopool.Int16Pool.Put(fp)
+
+	// Start resets the Once; a new capture should elevate again.
+	require.NoError(t, be.Start())
+
+	be.captureCallback(silentFrame())
+
+	if got := fake.calls(); got != 2 {
+		t.Errorf("after cycle 2: elevator called %d times, want 2", got)
+	}
+
+	// Drain the second frame so pooled slice is returned.
+	fp = <-be.encCh
+	audiopool.Int16Pool.Put(fp)
+}
+
+func TestBroadcastEncoder_ElevationFailureDoesNotBlockCallback(t *testing.T) {
+	// The real elevator gracefully degrades on EPERM (missing
+	// CAP_SYS_NICE). The fake that represents a "failed elevation" is
+	// simply one that returns without doing anything — the contract is
+	// that the callback must continue processing frames regardless.
+	// This test pins that contract so a future refactor that panics or
+	// returns early from captureCallback on elevator failure is caught.
+	fake := &fakeElevator{} // no-op elevator = simulated graceful failure
+	swapElevator(t, fake)
+
+	enc := &mockEncoder{payloadN: 4}
+	be, sink, _ := newTestBroadcastEncoder(t, enc)
+
+	go be.encodeLoop()
+
+	in := silentFrame()
+	for range 5 {
+		be.captureCallback(in)
+	}
+
+	close(be.encCh)
+	<-be.done
+
+	assert.Equal(t, int64(5), be.framesCaptured.Load(),
+		"framesCaptured should be 5 even when elevator is a no-op")
+	assert.Equal(t, int64(5), be.framesEncoded.Load(),
+		"framesEncoded should be 5 even when elevator is a no-op")
+	assert.Equal(t, 5, sink.count(),
+		"sink should have received 5 payloads even when elevator is a no-op")
+	assert.Equal(t, 1, fake.calls(),
+		"elevator should still be called exactly once")
 }

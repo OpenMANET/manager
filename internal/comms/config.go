@@ -86,6 +86,16 @@ type CommsConfig struct {
 	EncoderComplexity        int
 	PlaybackLatencyMs        int
 	CaptureLatencyMs         int
+	// CaptureFramesPerBuffer is the per-callback frame count suggested to
+	// PortAudio (StreamParameters.FramesPerBuffer). 960 matches the Opus
+	// frame size so every callback produces exactly one RTP packet. A
+	// value of 0 is translated to paFramesPerBufferUnspecified and lets
+	// PortAudio choose a frame count that aligns with the native ALSA
+	// period; the capture callback still emits 20 ms frames downstream
+	// via an accumulation step. Defaults to audiopool.FrameSize (960)
+	// when the config layer supplies a zero value through a non-viper
+	// path (e.g. tests constructing CommsConfig directly).
+	CaptureFramesPerBuffer int
 	// PttStartDelayMs bounds how long beginTransmission waits between
 	// queueing the start-tone beep and starting the mic capture stream. The
 	// PortAudio output callback drains the beep buffer before falling
@@ -130,6 +140,7 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		EncoderComplexity:        cfg.EncoderComplexity,
 		PlaybackLatencyMs:        cfg.PlaybackLatencyMs,
 		CaptureLatencyMs:         cfg.CaptureLatencyMs,
+		CaptureFramesPerBuffer:   cfg.CaptureFramesPerBuffer,
 		PttStartDelayMs:          cfg.PttStartDelayMs,
 	}
 }

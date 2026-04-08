@@ -71,11 +71,22 @@ const (
 	// two full periods of slack before sample loss. Floored at the device's
 	// DefaultHighInputLatency in openBroadcastStreamOn so we never undercut
 	// the host API's recommendation.
-	DefaultCommsCaptureLatencyMs int    = 60
-	DefaultAuthEnable            bool   = false
-	DefaultAuthSessionMaxAgeSecs int    = 86400 // 24 hours
-	DefaultAuthSessionMaxSize    int    = 16
-	DefaultAuthPAMService        string = "login"
+	DefaultCommsCaptureLatencyMs int = 60
+	// DefaultCommsCaptureFramesPerBuffer is the per-callback frame count
+	// suggested to PortAudio (StreamParameters.FramesPerBuffer). 960 @
+	// 48 kHz mono matches the Opus encoder frame (20 ms) so each callback
+	// produces exactly one RTP packet with no accumulation step. Operators
+	// on hardware where PortAudio's callback pacing is jittery can set
+	// comms.captureFramesPerBuffer to 0 in YAML — that translates to
+	// paFramesPerBufferUnspecified, which lets PortAudio choose a frame
+	// count that aligns with the native ALSA period and often delivers
+	// tighter wake-ups at the cost of an extra accumulation step inside
+	// the capture callback.
+	DefaultCommsCaptureFramesPerBuffer int    = 960
+	DefaultAuthEnable                  bool   = false
+	DefaultAuthSessionMaxAgeSecs       int    = 86400 // 24 hours
+	DefaultAuthSessionMaxSize          int    = 16
+	DefaultAuthPAMService              string = "login"
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -109,6 +120,7 @@ type Config struct {
 	CommsEncoderComplexity                    int
 	CommsPlaybackLatencyMs                    int
 	CommsCaptureLatencyMs                     int
+	CommsCaptureFramesPerBuffer               int
 	RuntimeGoGC                               int
 	AuthSessionMaxAgeSecs                     int
 	AuthSessionMaxSize                        int
@@ -480,6 +492,20 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsCaptureLatencyMs = val
 	} else {
 		c.CommsCaptureLatencyMs = DefaultCommsCaptureLatencyMs
+	}
+
+	// Load comms capture frames-per-buffer override. This is the per-
+	// callback frame count suggested to PortAudio. Unlike most numeric
+	// config knobs we use viper.IsSet here so that an explicit value of 0
+	// in YAML (paFramesPerBufferUnspecified — let PortAudio choose) can be
+	// distinguished from "not set in YAML" (fall back to the default of
+	// 960). The escape hatch is only useful on hardware where PortAudio's
+	// native callback pacing is jittery; see the audio/init.go stream
+	// open log for the granted latency and derived period frames.
+	if c.v.IsSet("comms.captureFramesPerBuffer") {
+		c.CommsCaptureFramesPerBuffer = c.v.GetInt("comms.captureFramesPerBuffer")
+	} else {
+		c.CommsCaptureFramesPerBuffer = DefaultCommsCaptureFramesPerBuffer
 	}
 
 	// Load auth configuration
@@ -946,6 +972,20 @@ func (c *Config) GetCommsCaptureLatencyMs() int {
 	defer c.mu.RUnlock()
 
 	return c.CommsCaptureLatencyMs
+}
+
+// GetCommsCaptureFramesPerBuffer returns the frame count per capture
+// callback suggested to PortAudio. A value of 0 means
+// paFramesPerBufferUnspecified — the host API picks a frame count aligned
+// with the native ALSA period. Any positive value is passed through
+// verbatim. The default is 960 (20 ms @ 48 kHz mono), which matches the
+// Opus encoder frame size so each callback produces exactly one RTP
+// packet.
+func (c *Config) GetCommsCaptureFramesPerBuffer() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsCaptureFramesPerBuffer
 }
 
 // GetAuthEnable returns whether HTTP authentication is enabled.

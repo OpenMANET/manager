@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/gordonklaus/portaudio"
@@ -88,12 +89,26 @@ func (in *Init) BuildAudio(slots []PortSlot) (broadcast *BroadcastEncoder, inDev
 
 		beepBuf := slot.BeepBuf
 		playoutFrame := slot.PlayoutFrame
+		log := in.Log
+
+		// Per-slot thread-elevation guard. Each PortAudio playback stream
+		// gets its own audio callback thread, so each needs its own Once
+		// to elevate that specific thread to SCHED_FIFO on the first
+		// callback invocation. See captureCallback in encoder.go for the
+		// rationale; the same //export streamCallback cgo path applies
+		// here, so pid 0 == the PortAudio playback thread at the moment
+		// the elevator runs.
+		var elevateOnce sync.Once
 
 		// Open the playback stream with an int16 callback so PortAudio
 		// delivers samples in the native codec format. The
 		// gordonklaus/portaudio binding chooses the C sample format
 		// (paInt16) from the callback signature via reflection.
 		rawPlayback, openErr := portaudio.OpenStream(playbackParams, func(_, out []int16) {
+			elevateOnce.Do(func() {
+				elevateAudioThread(log, "playback")
+			})
+
 			// Beep injection: TX start/stop tones preempt one frame of
 			// jitter-buffered audio. The select is non-blocking so a
 			// missing beep falls straight through to playoutFrame.
@@ -128,11 +143,12 @@ func (in *Init) BuildAudio(slots []PortSlot) (broadcast *BroadcastEncoder, inDev
 		if info := rawPlayback.Info(); info != nil {
 			in.PlaybackOutputLatency = max(in.PlaybackOutputLatency, info.OutputLatency)
 
-			in.Log.Debug().
+			in.Log.Info().
 				Int("configured_latency_ms", in.PlaybackLatencyMs).
 				Dur("device_high_latency", outDev.DefaultHighOutputLatency).
 				Dur("requested_latency", playbackLatency).
 				Dur("actual_output_latency", info.OutputLatency).
+				Int("actual_output_latency_frames", latencyToFrames(info.OutputLatency)).
 				Int("port", slot.Port).
 				Msg("comms: playback stream opened")
 		}
@@ -176,46 +192,92 @@ func (in *Init) OpenBroadcastStream(inDev *portaudio.DeviceInfo) (*BroadcastEnco
 		}
 	}
 
-	// Suggest a capture device buffer depth to PortAudio. Symmetric to the
-	// playback stream in BuildAudio. Floor at inDev.DefaultHighInputLatency
-	// so we never undercut the host API's recommendation. The host API may
-	// still clamp the suggestion — the actual granted latency is logged
-	// below.
-	captureLatency := max(
-		time.Duration(in.CaptureLatencyMs)*time.Millisecond,
-		inDev.DefaultHighInputLatency,
-	)
-
-	inParams := portaudio.StreamParameters{
-		Input: portaudio.StreamDeviceParameters{
-			Device:   inDev,
-			Channels: audiopool.Channels,
-			Latency:  captureLatency,
-		},
-		SampleRate:      float64(audiopool.SampleRate),
-		FramesPerBuffer: audiopool.FrameSize,
-	}
+	inParams := buildCaptureStreamParameters(inDev, in.CaptureLatencyMs, in.CaptureFramesPerBuffer)
 
 	be, err := NewBroadcastEncoder(in.Deps, inParams)
 	if err != nil {
 		return nil, err
 	}
 
-	// Log the actual input latency the host API granted. Mirrors the
-	// playback stream open log so deploy-time verification has the same
-	// fields on both sides. encode_chan_depth makes the new
-	// goroutine-based architecture self-documenting on first deploy.
+	// Log the actual input latency the host API granted and derive the
+	// equivalent frame count. The derived actual_input_latency_frames is
+	// the single most useful diagnostic on hardware where the PortAudio
+	// capture callback is jittery: it shows whether PortAudio has actually
+	// reserved a buffer that is several 20 ms frames deep (good) or only
+	// one (jitter-prone) regardless of the latency_ms we asked for. Emit
+	// at Info so the value is visible without enabling Debug — this runs
+	// once per Start cycle so it is not noisy.
 	if info := be.s.Info(); info != nil {
-		in.Log.Debug().
+		in.Log.Info().
 			Int("configured_latency_ms", in.CaptureLatencyMs).
+			Int("requested_frames_per_buffer", inParams.FramesPerBuffer).
 			Dur("device_high_latency", inDev.DefaultHighInputLatency).
-			Dur("requested_latency", captureLatency).
+			Dur("requested_latency", inParams.Input.Latency).
 			Dur("actual_input_latency", info.InputLatency).
+			Int("actual_input_latency_frames", latencyToFrames(info.InputLatency)).
 			Int("encode_chan_depth", broadcastEncoderChanDepth).
 			Msg("comms: broadcast stream opened")
 	}
 
 	return be, nil
+}
+
+// buildCaptureStreamParameters constructs the portaudio.StreamParameters for
+// the broadcast capture stream. Extracted from OpenBroadcastStream so a unit
+// test can exercise the latency-floor and frames-per-buffer translation
+// rules without opening a real PortAudio stream.
+//
+// Rules:
+//
+//   - Latency is floored at inDev.DefaultHighInputLatency so we never
+//     undercut the host API's own recommendation. The host API may still
+//     clamp the suggestion downward — the actual granted latency is
+//     logged by the caller.
+//
+//   - framesPerBuffer == 0 is treated as "not configured": substitute
+//     audiopool.FrameSize (960 = 20 ms @ 48 kHz) so each callback still
+//     produces exactly one Opus frame. This preserves legacy behavior
+//     for tests and programmatic callers that construct Deps directly.
+//
+//   - framesPerBuffer < 0 maps to 0 in the returned struct, which
+//     PortAudio interprets as paFramesPerBufferUnspecified: the host API
+//     picks a frame count aligned with the native ALSA period. The
+//     capture callback is responsible for accumulating into 20 ms frames
+//     downstream.
+//
+//   - framesPerBuffer > 0 is passed through verbatim.
+func buildCaptureStreamParameters(inDev *portaudio.DeviceInfo, captureLatencyMs, framesPerBuffer int) portaudio.StreamParameters {
+	captureLatency := max(
+		time.Duration(captureLatencyMs)*time.Millisecond,
+		inDev.DefaultHighInputLatency,
+	)
+
+	effectiveFPB := framesPerBuffer
+	switch {
+	case effectiveFPB == 0:
+		effectiveFPB = audiopool.FrameSize
+	case effectiveFPB < 0:
+		effectiveFPB = 0 // paFramesPerBufferUnspecified
+	}
+
+	return portaudio.StreamParameters{
+		Input: portaudio.StreamDeviceParameters{
+			Device:   inDev,
+			Channels: audiopool.Channels,
+			Latency:  captureLatency,
+		},
+		SampleRate:      float64(audiopool.SampleRate),
+		FramesPerBuffer: effectiveFPB,
+	}
+}
+
+// latencyToFrames converts a PortAudio-reported latency duration into an
+// equivalent frame count at the codec sample rate. Used to render
+// info.InputLatency / info.OutputLatency as a frame count in the stream
+// open log so the diagnostic reads as "PortAudio reserved N frames of
+// buffering" rather than as a raw nanosecond number.
+func latencyToFrames(latency time.Duration) int {
+	return int(latency.Seconds() * float64(audiopool.SampleRate))
 }
 
 // ReopenBroadcast closes the prior broadcast encoder (if any) and opens a

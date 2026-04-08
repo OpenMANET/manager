@@ -25,17 +25,18 @@ import (
 func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) (cleanup func(), err error) {
 	audioInit := &audio.Init{
 		Deps: audio.Deps{
-			Log:               cfg.Log,
-			Trace:             cfg.Trace,
-			Debug:             cfg.Debug,
-			MicGain:           cfg.MicGain,
-			CaptureLatencyMs:  cfg.CaptureLatencyMs,
-			PlaybackLatencyMs: cfg.PlaybackLatencyMs,
-			InputDeviceSpec:   cfg.BluetoothInputDevice,
-			OutputDeviceSpec:  cfg.BluetoothOutputDevice,
-			Encoder:           rt.Encoder,
-			Send:              func(payload []byte) { cfg.sendToAllPorts(rt, payload) },
-			Tap:               &rt.BroadcastTap,
+			Log:                    cfg.Log,
+			Trace:                  cfg.Trace,
+			Debug:                  cfg.Debug,
+			MicGain:                cfg.MicGain,
+			CaptureLatencyMs:       cfg.CaptureLatencyMs,
+			PlaybackLatencyMs:      cfg.PlaybackLatencyMs,
+			CaptureFramesPerBuffer: cfg.CaptureFramesPerBuffer,
+			InputDeviceSpec:        cfg.BluetoothInputDevice,
+			OutputDeviceSpec:       cfg.BluetoothOutputDevice,
+			Encoder:                rt.Encoder,
+			Send:                   func(payload []byte) { cfg.sendToAllPorts(rt, payload) },
+			Tap:                    &rt.BroadcastTap,
 		},
 	}
 

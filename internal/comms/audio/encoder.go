@@ -13,6 +13,7 @@ package audio
 
 import (
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -60,9 +61,17 @@ type Deps struct {
 	OutputDeviceSpec  string
 	CaptureLatencyMs  int
 	PlaybackLatencyMs int
-	MicGain           float32
-	Trace             bool
-	Debug             bool
+	// CaptureFramesPerBuffer is the per-callback frame count passed to
+	// PortAudio as StreamParameters.FramesPerBuffer. A value of 0 means
+	// paFramesPerBufferUnspecified (let PortAudio choose a frame count
+	// aligned with the native ALSA period). A positive value is passed
+	// through verbatim. The default (audiopool.FrameSize = 960 @ 48 kHz
+	// mono = 20 ms) matches the Opus encoder frame so every callback
+	// produces exactly one RTP packet with no accumulation step.
+	CaptureFramesPerBuffer int
+	MicGain                float32
+	Trace                  bool
+	Debug                  bool
 }
 
 // paStream is the minimal subset of *portaudio.Stream that BroadcastEncoder
@@ -112,6 +121,15 @@ type BroadcastEncoder struct {
 	// flood the log. Reset to false in Start.
 	overBudgetWarned atomic.Bool
 
+	// captureThreadElevateOnce guards the first-call elevation of the
+	// PortAudio capture callback thread to SCHED_FIFO. The elevator is
+	// package-level so tests can replace it with a fake. sync.Once is
+	// used instead of an atomic bool because the Once guarantees the
+	// elevator has finished running before any subsequent caller
+	// observes the done flag, which matters for the deterministic
+	// "elevator called exactly once per cycle" assertion in the tests.
+	captureThreadElevateOnce sync.Once
+
 	// lastCaptureNs / captureGapMaxNs / captureLateCount track the
 	// wall-clock inter-arrival time between consecutive PortAudio
 	// capture callbacks. On constrained hardware PortAudio can
@@ -157,9 +175,24 @@ func NewBroadcastEncoder(deps Deps, inParams portaudio.StreamParameters) (*Broad
 
 // captureCallback runs on the PortAudio audio callback thread and MUST NOT
 // block, allocate from the heap, or hold any mutex other than briefly. Its
-// only jobs are: optional VOX tap, copy the input frame into a pooled int16
-// buffer, and non-blockingly hand the buffer to the encode goroutine.
+// only jobs are: elevate the thread to SCHED_FIFO once, optional VOX tap,
+// copy the input frame into a pooled int16 buffer, and non-blockingly hand
+// the buffer to the encode goroutine.
 func (be *BroadcastEncoder) captureCallback(in []int16) {
+	// First-call thread elevation. We run this inside the callback rather
+	// than at stream-open time because the PortAudio audio thread is
+	// created by the host API and the Go side only observes it when it
+	// calls us back for the first time. gordonklaus/portaudio uses a
+	// direct //export streamCallback (no Go-side channel indirection),
+	// so the current OS thread inside this function IS the PortAudio
+	// audio thread — elevating pid 0 to SCHED_FIFO therefore elevates
+	// the correct thread and the elevation persists across subsequent
+	// callback invocations from the same C thread. See thread_linux.go
+	// for the syscall details and the graceful-EPERM fallback.
+	be.captureThreadElevateOnce.Do(func() {
+		elevateAudioThread(be.deps.Log, "capture")
+	})
+
 	be.recordCaptureArrival(time.Now())
 
 	// Optional VOX tap. The ROIP VOX consumer (control/roip.go) operates on
@@ -333,6 +366,14 @@ func (be *BroadcastEncoder) recordEncodeDuration(d time.Duration) {
 
 // Start resets per-cycle counters and starts the PortAudio capture stream.
 func (be *BroadcastEncoder) Start() error {
+	// Reset the thread-elevation guard so the first callback of the new
+	// Start/Stop cycle re-runs elevateAudioThread. PortAudio does not
+	// guarantee that the audio thread persists across Stop/Start, so a
+	// re-elevation is mandatory for safety. Safe to reassign without a
+	// mutex because Start is not called concurrently with the capture
+	// callback (the stream is stopped at this point).
+	be.captureThreadElevateOnce = sync.Once{}
+
 	be.framesCaptured.Store(0)
 	be.framesEncoded.Store(0)
 	be.framesDropped.Store(0)

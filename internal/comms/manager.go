@@ -68,6 +68,7 @@ func (m *CommsManager) buildCommsConfig() *CommsConfig {
 		EncoderComplexity:        m.cfg.GetCommsEncoderComplexity(),
 		PlaybackLatencyMs:        m.cfg.GetCommsPlaybackLatencyMs(),
 		CaptureLatencyMs:         m.cfg.GetCommsCaptureLatencyMs(),
+		CaptureFramesPerBuffer:   m.cfg.GetCommsCaptureFramesPerBuffer(),
 	})
 }
 

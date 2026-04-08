@@ -873,6 +873,56 @@ func TestGetCommsCaptureLatencyMs(t *testing.T) {
 	}
 }
 
+func TestGetCommsCaptureFramesPerBuffer(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *int
+		want     int
+	}{
+		{
+			name:     "returns configured positive value",
+			setValue: intPtr(1920),
+			want:     1920,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultCommsCaptureFramesPerBuffer,
+		},
+		{
+			// Unlike most numeric knobs, 0 is an explicit operator choice
+			// meaning paFramesPerBufferUnspecified — let PortAudio choose a
+			// frame count aligned with the native ALSA period. The reload
+			// path uses viper.IsSet to distinguish "not set" (→ default)
+			// from "set to 0" (→ pass through).
+			name:     "returns zero when explicitly set to zero",
+			setValue: intPtr(0),
+			want:     0,
+		},
+		{
+			name:     "returns negative value verbatim when explicitly set",
+			setValue: intPtr(-1),
+			want:     -1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("comms.captureFramesPerBuffer", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetCommsCaptureFramesPerBuffer()
+			if got != tt.want {
+				t.Errorf("GetCommsCaptureFramesPerBuffer() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetCommsNanoPTTEnable(t *testing.T) {
 	tests := []struct {
 		setValue *bool
