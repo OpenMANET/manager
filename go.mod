@@ -17,6 +17,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.37
 	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875
 	github.com/mdlayher/wifi v0.7.2
+	github.com/msteinert/pam/v2 v2.1.0
 	github.com/openmanet/go-alfred v0.0.0-20240429120015-8f3f3f4e2f4e
 	github.com/pion/interceptor v0.1.44
 	github.com/pion/rtcp v1.2.16
@@ -35,7 +36,6 @@ require (
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
 	tailscale.com v1.94.2
-	github.com/msteinert/pam/v2 v2.1.0
 )
 
 require (
