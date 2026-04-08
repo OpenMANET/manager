@@ -9,14 +9,16 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/device"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
+	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 )
 
 func newSilentComms() *CommsConfig {
 	return &CommsConfig{Log: zerolog.Nop()}
 }
 
-func newTestRuntime(stream AudioStream) *CommsRuntime {
+func newTestRuntime(stream device.AudioStream) *CommsRuntime {
 	pc := &PortChannel{
 		cfg:     McastPortConfig{Send: true, Receive: true},
 		RTPSess: &mockRTPSender{},
@@ -225,7 +227,7 @@ func TestBeginTransmission_ConfigurablePttStartDelay(t *testing.T) {
 
 // newRunRuntime extends newTestRuntime with a receiver/sender so receiveLoop
 // started inside Run does not panic.
-func newRunRuntime(stream AudioStream) *CommsRuntime {
+func newRunRuntime(stream device.AudioStream) *CommsRuntime {
 	rt := newTestRuntime(stream)
 	rt.Ports[0].Receiver = rtp.NewSwappableReceiver(newMockReader())
 	rt.Ports[0].Sender = rtp.NewSwappableSender(&mockWriter{})
@@ -545,7 +547,7 @@ func TestEndTransmission_QueuesStopBeepToAllPorts(t *testing.T) {
 func TestBeginTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
 	stream := &mockStream{}
 	rt := newTestRuntime(stream)
-	rt.WebBridge = &WebAudioBridge{} // non-nil activates web mode
+	rt.WebBridge = &webaudio.Bridge{} // non-nil activates web mode
 
 	cfg := newSilentComms()
 	cfg.beginTransmission(rt)
@@ -569,7 +571,7 @@ func TestBeginTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
 func TestEndTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
 	stream := &mockStream{}
 	rt := newTestRuntime(stream)
-	rt.WebBridge = &WebAudioBridge{}
+	rt.WebBridge = &webaudio.Bridge{}
 
 	cfg := newSilentComms()
 
@@ -595,7 +597,7 @@ func TestEndTransmission_WebMode_SkipsBroadcastStream(t *testing.T) {
 
 func TestBeginTransmission_WebMode_HalfDuplexStillWorks(t *testing.T) {
 	rt := newTestRuntime(&mockStream{})
-	rt.WebBridge = &WebAudioBridge{}
+	rt.WebBridge = &webaudio.Bridge{}
 	// Simulate active remote reception via the canonical helper so the
 	// half-duplex cache is primed exactly as receiveLoop would.
 	rt.Ports[0].MarkRemoteRx(rt)

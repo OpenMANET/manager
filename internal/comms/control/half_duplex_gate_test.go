@@ -1,4 +1,4 @@
-package comms
+package control
 
 import (
 	"testing"
@@ -27,7 +27,7 @@ func TestHalfDuplexGate_MarkActivatesWithinDefaultThreshold(t *testing.T) {
 
 func TestHalfDuplexGate_StaleMarkInactive(t *testing.T) {
 	var g HalfDuplexGate
-	g.MarkAt(time.Now().Add(-(defaultHalfDuplexThreshold + time.Second)))
+	g.MarkAt(time.Now().Add(-(DefaultHalfDuplexThreshold + time.Second)))
 
 	if g.Active() {
 		t.Error("gate should be inactive when last mark is stale")

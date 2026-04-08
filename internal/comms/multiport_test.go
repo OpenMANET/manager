@@ -9,6 +9,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
 
@@ -435,7 +436,7 @@ func TestPlayoutOneFrame_ReceiveOnlyPortNotSuppressedDuringBroadcast(t *testing.
 
 	rt := &CommsRuntime{
 		Ports:   []*PortChannel{pc},
-		Decoder: &mockDecoder{fillValue: 42, returnN: frameSize},
+		Decoder: &mockDecoder{fillValue: 42, returnN: audiopool.FrameSize},
 	}
 	rt.Broadcasting.Store(true) // simulate active broadcast on another port
 
@@ -444,7 +445,7 @@ func TestPlayoutOneFrame_ReceiveOnlyPortNotSuppressedDuringBroadcast(t *testing.
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
-	out := make([]int16, frameSize)
+	out := make([]int16, audiopool.FrameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
 	// The decoder fills with fillValue/32768; receive-only ports bypass

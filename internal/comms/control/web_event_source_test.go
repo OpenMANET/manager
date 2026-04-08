@@ -1,4 +1,4 @@
-package comms
+package control
 
 import (
 	"context"
@@ -7,27 +7,25 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-
-	"github.com/openmanet/openmanetd/internal/comms/control"
 )
 
 func TestWebEventSource_ImplementsEventSource(t *testing.T) {
-	var _ control.EventSource = control.NewWebEventSource(zerolog.Nop())
+	var _ EventSource = NewWebEventSource(zerolog.Nop())
 }
 
 func TestWebEventSource_Push_DeliversEvent(t *testing.T) {
-	ws := control.NewWebEventSource(zerolog.Nop())
+	ws := NewWebEventSource(zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
 	ch := ws.Events(ctx)
-	ws.Push(control.PTTDown)
+	ws.Push(PTTDown)
 
 	select {
 	case ev := <-ch:
-		if ev != control.PTTDown {
-			t.Errorf("expected control.PTTDown; got %v", ev)
+		if ev != PTTDown {
+			t.Errorf("expected PTTDown; got %v", ev)
 		}
 	case <-time.After(200 * time.Millisecond):
 		t.Error("timed out waiting for PTTDown event")
@@ -35,14 +33,14 @@ func TestWebEventSource_Push_DeliversEvent(t *testing.T) {
 }
 
 func TestWebEventSource_Push_AllEventTypes(t *testing.T) {
-	ws := control.NewWebEventSource(zerolog.Nop())
+	ws := NewWebEventSource(zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
 	ch := ws.Events(ctx)
 
-	events := []control.PTTEvent{control.PTTDown, control.PTTUp, control.PTTToggle}
+	events := []PTTEvent{PTTDown, PTTUp, PTTToggle}
 	for _, ev := range events {
 		ws.Push(ev)
 	}
@@ -60,18 +58,18 @@ func TestWebEventSource_Push_AllEventTypes(t *testing.T) {
 }
 
 func TestWebEventSource_Push_DropOnFull(t *testing.T) {
-	ws := control.NewWebEventSource(zerolog.Nop())
+	ws := NewWebEventSource(zerolog.Nop())
 
 	// Fill the channel to capacity (4).
-	for i := 0; i < 4; i++ {
-		ws.Push(control.PTTToggle)
+	for range 4 {
+		ws.Push(PTTToggle)
 	}
 
 	// This push must not block; the event is silently dropped.
 	done := make(chan struct{})
 
 	go func() {
-		ws.Push(control.PTTToggle)
+		ws.Push(PTTToggle)
 		close(done)
 	}()
 
@@ -83,7 +81,7 @@ func TestWebEventSource_Push_DropOnFull(t *testing.T) {
 }
 
 func TestWebEventSource_Events_ClosedOnContextCancel(t *testing.T) {
-	ws := control.NewWebEventSource(zerolog.Nop())
+	ws := NewWebEventSource(zerolog.Nop())
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := ws.Events(ctx)
 
@@ -103,7 +101,7 @@ func TestWebEventSource_Events_ClosedOnContextCancel(t *testing.T) {
 func TestWebEventSource_ConcurrentPush(t *testing.T) {
 	const n = 50
 
-	ws := control.NewWebEventSource(zerolog.Nop())
+	ws := NewWebEventSource(zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -114,11 +112,11 @@ func TestWebEventSource_ConcurrentPush(t *testing.T) {
 
 	wg.Add(n)
 
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer wg.Done()
 
-			ws.Push(control.PTTToggle)
+			ws.Push(PTTToggle)
 		}()
 	}
 
@@ -139,53 +137,5 @@ func TestWebEventSource_ConcurrentPush(t *testing.T) {
 
 			return
 		}
-	}
-}
-
-func TestWebEventSource_RunIntegration(t *testing.T) {
-	ws := control.NewWebEventSource(zerolog.Nop())
-	stream := &mockStream{}
-	rt := newRunRuntime(stream)
-	cfg := &CommsConfig{Log: zerolog.Nop()}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-
-		cfg.Run(ctx, rt, ws)
-	}()
-
-	// Give the Run loop time to start before pushing events.
-	time.Sleep(50 * time.Millisecond)
-
-	ws.Push(control.PTTDown)
-
-	// Wait for the broadcast stream to be started (beginTransmission sleeps 200ms).
-	time.Sleep(300 * time.Millisecond)
-
-	ws.Push(control.PTTUp)
-
-	// Wait for the Run loop to process PTTUp.
-	time.Sleep(100 * time.Millisecond)
-
-	// Cancel context to terminate Run.
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Error("Run did not exit in time")
-	}
-
-	rt.Ports[0].Receiver.Close()
-
-	if stream.startCalls != 1 {
-		t.Errorf("Start called %d times, want 1", stream.startCalls)
-	}
-
-	if stream.stopCalls != 1 {
-		t.Errorf("Stop called %d times, want 1", stream.stopCalls)
 	}
 }

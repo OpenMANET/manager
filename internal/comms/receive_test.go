@@ -9,7 +9,9 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
+	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 )
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -46,7 +48,7 @@ func isAllZero(out []int16) bool {
 // driveOneFrame is a small helper for tests that need to call playoutOneFrame
 // against a fresh PCM output buffer of the standard frame size.
 func driveOneFrame(cfg *CommsConfig, pc *PortChannel, rt *CommsRuntime, jb *rtp.JitterBuffer) []int16 {
-	out := make([]int16, frameSize)
+	out := make([]int16, audiopool.FrameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
 	return out
@@ -54,7 +56,7 @@ func driveOneFrame(cfg *CommsConfig, pc *PortChannel, rt *CommsRuntime, jb *rtp.
 
 func TestPlayoutOneFrame_DecodesPayload(t *testing.T) {
 	rt, pc := newReceiveRuntime()
-	rt.Decoder = &mockDecoder{fillValue: 1234, returnN: frameSize}
+	rt.Decoder = &mockDecoder{fillValue: 1234, returnN: audiopool.FrameSize}
 
 	jb := rtp.NewJitterBuffer(1, 10) // prebuffer=1: first push triggers start
 	jb.Push(0, []byte{0xAA, 0xBB})
@@ -78,7 +80,7 @@ func TestPlayoutOneFrame_PLCOnSkippedMissing(t *testing.T) {
 	// len >= maxDepth/2) so popOrConceal returns conceal=true → PLC must
 	// be invoked via the decoder with nil payload.
 	rt, pc := newReceiveRuntime()
-	rt.Decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
+	rt.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
 
 	jb := rtp.NewJitterBuffer(1, 4)
 
@@ -105,7 +107,7 @@ func TestPlayoutOneFrame_PLCOnConceal(t *testing.T) {
 	// The jitter buffer is then empty, so shouldConceal fires on the next
 	// playoutOneFrame call and the decoder is invoked with nil payload.
 	rt, pc := newReceiveRuntime()
-	rt.Decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
+	rt.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
 
 	jb := rtp.NewJitterBuffer(1, 10)
 
@@ -128,7 +130,7 @@ func TestPlayoutOneFrame_SilenceAfterMaxPLC(t *testing.T) {
 	// After maxConsecutivePLC frames, playoutOneFrame should emit clean
 	// silence rather than calling the (now degraded) decoder PLC.
 	rt, pc := newReceiveRuntime()
-	dec := &mockDecoder{fillValue: 99, returnN: frameSize}
+	dec := &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
 	rt.Decoder = dec
 
 	jb := rtp.NewJitterBuffer(1, 10)
@@ -243,7 +245,7 @@ func TestPlayoutOneFrame_DecoderErrorPLCFallback(t *testing.T) {
 	rt.Decoder = &mockDecoder{
 		decodeErr: errors.New("bad decode"),
 		plcOK:     true,
-		returnN:   frameSize,
+		returnN:   audiopool.FrameSize,
 		fillValue: 1234,
 	}
 
@@ -672,7 +674,9 @@ func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 	cfg := newSilentComms()
 	rt, _ := newReceiveRuntime()
 
-	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
+	bridge := webaudio.NewBridge(zerolog.Nop(), func(payload []byte) {
+		cfg.sendToAllPorts(rt, payload)
+	})
 	rt.WebBridge = bridge
 
 	jb := rtp.NewJitterBuffer(1, 10)
@@ -707,7 +711,9 @@ func TestWebPlayoutLoop_MultipleFrames(t *testing.T) {
 
 	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
 
-	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
+	bridge := webaudio.NewBridge(zerolog.Nop(), func(payload []byte) {
+		cfg.sendToAllPorts(rt, payload)
+	})
 	rt.WebBridge = bridge
 
 	jb := rtp.NewJitterBuffer(1, 10)
@@ -739,7 +745,9 @@ func TestWebPlayoutLoop_DeliversWhileBroadcasting(t *testing.T) {
 	cfg := newSilentComms()
 	rt, _ := newReceiveRuntime()
 
-	bridge := NewWebAudioBridge(cfg, rt, zerolog.Nop())
+	bridge := webaudio.NewBridge(zerolog.Nop(), func(payload []byte) {
+		cfg.sendToAllPorts(rt, payload)
+	})
 	rt.WebBridge = bridge
 	rt.Broadcasting.Store(true)
 
@@ -766,7 +774,7 @@ func TestPlayoutOneFrame_ConsecutivePLCLimit(t *testing.T) {
 	// but all subsequent frames are missing. playoutOneFrame should emit
 	// exactly maxConsecutivePLC PLC frames followed by silence.
 	rt, pc := newReceiveRuntime()
-	rt.Decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
+	rt.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0})
@@ -795,7 +803,7 @@ func TestPlayoutOneFrame_ConsecutivePLCResets(t *testing.T) {
 	// After a burst of PLC, decoding a real frame should reset the
 	// consecutivePLC counter so a subsequent gap produces PLC again.
 	rt, pc := newReceiveRuntime()
-	rt.Decoder = &mockDecoder{fillValue: 99, returnN: frameSize}
+	rt.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0})

@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/net/ipv4"
 
+	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"github.com/openmanet/openmanetd/internal/config"
@@ -134,14 +135,14 @@ func TestPlayoutOneFrame_SuppressedDuringBroadcastOnSendPort(t *testing.T) {
 
 	rt := &CommsRuntime{
 		Ports:   []*PortChannel{pc},
-		Decoder: &mockDecoder{fillValue: 42, returnN: frameSize},
+		Decoder: &mockDecoder{fillValue: 42, returnN: audiopool.FrameSize},
 	}
 	rt.Broadcasting.Store(true)
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{0xAA, 0xBB})
 
-	out := make([]int16, frameSize)
+	out := make([]int16, audiopool.FrameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
 	for i, v := range out {
@@ -162,13 +163,13 @@ func TestPlayoutOneFrame_DecodesPayloadIntoOut(t *testing.T) {
 	pc.SendEnabled.Store(true)
 	pc.ReceiveEnabled.Store(true)
 
-	dec := &mockDecoder{fillValue: 42, returnN: frameSize}
+	dec := &mockDecoder{fillValue: 42, returnN: audiopool.FrameSize}
 	rt := &CommsRuntime{Decoder: dec}
 
 	jb := rtp.NewJitterBuffer(1, 10)
 	jb.Push(0, []byte{1, 2, 3})
 
-	out := make([]int16, frameSize)
+	out := make([]int16, audiopool.FrameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
 	// int16-native decode fills out with fillValue directly.
@@ -192,7 +193,7 @@ func TestPlayoutOneFrame_PLCFillsOut(t *testing.T) {
 	pc.SendEnabled.Store(true)
 	pc.ReceiveEnabled.Store(true)
 
-	dec := &mockDecoder{fillValue: 10, returnN: frameSize}
+	dec := &mockDecoder{fillValue: 10, returnN: audiopool.FrameSize}
 	rt := &CommsRuntime{Decoder: dec}
 
 	// Push and pop to set started=true and a recent lastPush; the next
@@ -202,7 +203,7 @@ func TestPlayoutOneFrame_PLCFillsOut(t *testing.T) {
 	jb.Push(0, []byte{0})
 	jb.PopReady()
 
-	out := make([]int16, frameSize)
+	out := make([]int16, audiopool.FrameSize)
 	cfg.playoutOneFrame(pc, rt, jb, out)
 
 	const expected int16 = 10

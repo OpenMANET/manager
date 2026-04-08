@@ -1,4 +1,4 @@
-package comms
+package device
 
 // This file uses CGo to temporarily suppress ALSA diagnostic noise that is
 // printed to stderr during portaudio.Initialize(). PortAudio's ALSA backend
@@ -8,8 +8,8 @@ package comms
 // OpenVLM-compatible dongle only exposes a basic stereo device) ALSA prints "Unknown PCM"
 // for every missing alias. These are probe failures, not real errors.
 //
-// silenceALSAProbeNoise() replaces the ALSA error handler with a no-op for
-// the duration of PortAudio initialisation. restoreALSAErrorHandler() puts
+// SilenceALSAProbeNoise() replaces the ALSA error handler with a no-op for
+// the duration of PortAudio initialisation. RestoreALSAErrorHandler() puts
 // the default handler back so that genuine ALSA errors are still reported.
 
 /*
@@ -35,16 +35,16 @@ static void restoreALSAErrors(void) {
 */
 import "C"
 
-// silenceALSAProbeNoise replaces the ALSA error handler with a no-op.
+// SilenceALSAProbeNoise replaces the ALSA error handler with a no-op.
 // Call this immediately before portaudio.Initialize() and pair it with
-// restoreALSAErrorHandler() immediately after.
-func silenceALSAProbeNoise() {
+// RestoreALSAErrorHandler() immediately after.
+func SilenceALSAProbeNoise() {
 	C.silenceALSAErrors()
 }
 
-// restoreALSAErrorHandler reinstates the default ALSA error handler so that
+// RestoreALSAErrorHandler reinstates the default ALSA error handler so that
 // genuine ALSA errors continue to be reported after PortAudio has finished
 // its device enumeration.
-func restoreALSAErrorHandler() {
+func RestoreALSAErrorHandler() {
 	C.restoreALSAErrors()
 }

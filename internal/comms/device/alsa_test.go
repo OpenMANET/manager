@@ -1,4 +1,4 @@
-package comms
+package device
 
 import "testing"
 
@@ -6,7 +6,7 @@ import "testing"
 // wrappers can be called without panicking. This covers the CGo paths in
 // alsa_silence.go that are never exercised during normal testing because
 // PortAudio is not initialized.
-func TestSilenceAndRestoreALSAHandler_DoNotPanic(t *testing.T) {
-	silenceALSAProbeNoise()
-	restoreALSAErrorHandler()
+func TestSilenceAndRestoreALSAHandler_DoNotPanic(_ *testing.T) {
+	SilenceALSAProbeNoise()
+	RestoreALSAErrorHandler()
 }

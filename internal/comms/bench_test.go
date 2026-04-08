@@ -8,6 +8,7 @@ import (
 	pionrtp "github.com/pion/rtp"
 	"github.com/rs/zerolog"
 
+	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/codec"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
@@ -62,14 +63,14 @@ func BenchmarkSwappableSenderWrite(b *testing.B) {
 // ─── Codec benchmarks ────────────────────────────────────────────────────────
 
 func BenchmarkEncodeOpus(b *testing.B) {
-	enc, err := codec.NewOpusEncoder(sampleRate, channels, targetBitrate, encoderComplexity, packetLossPerc)
+	enc, err := codec.NewOpusEncoder(audiopool.SampleRate, audiopool.Channels, targetBitrate, encoderComplexity, packetLossPerc)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	pcm := make([]int16, frameSize)
+	pcm := make([]int16, audiopool.FrameSize)
 	for i := range pcm {
-		pcm[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate)) * 16000)
+		pcm[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(audiopool.SampleRate)) * 16000)
 	}
 
 	buf := make([]byte, 1500)
@@ -87,19 +88,19 @@ func BenchmarkEncodeOpus(b *testing.B) {
 // BenchmarkDecodeOpus measures the Encode→Decode (int16) round-trip used by
 // the send path.
 func BenchmarkDecodeOpus(b *testing.B) {
-	enc, err := codec.NewOpusEncoder(sampleRate, channels, targetBitrate, encoderComplexity, packetLossPerc)
+	enc, err := codec.NewOpusEncoder(audiopool.SampleRate, audiopool.Channels, targetBitrate, encoderComplexity, packetLossPerc)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	dec, err := codec.NewOpusDecoder(sampleRate, channels)
+	dec, err := codec.NewOpusDecoder(audiopool.SampleRate, audiopool.Channels)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	pcm := make([]int16, frameSize)
+	pcm := make([]int16, audiopool.FrameSize)
 	for i := range pcm {
-		pcm[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate)) * 16000)
+		pcm[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(audiopool.SampleRate)) * 16000)
 	}
 
 	buf := make([]byte, 1500)
@@ -110,7 +111,7 @@ func BenchmarkDecodeOpus(b *testing.B) {
 	}
 
 	encoded := buf[:n]
-	out := make([]int16, frameSize)
+	out := make([]int16, audiopool.FrameSize)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -125,19 +126,19 @@ func BenchmarkDecodeOpus(b *testing.B) {
 // BenchmarkDecodeOpusS16 measures the receive hot path: DecodeS16 decodes
 // directly into an int16 output buffer (Phase 5 int16-native pipeline).
 func BenchmarkDecodeOpusS16(b *testing.B) {
-	enc, err := codec.NewOpusEncoder(sampleRate, channels, targetBitrate, encoderComplexity, packetLossPerc)
+	enc, err := codec.NewOpusEncoder(audiopool.SampleRate, audiopool.Channels, targetBitrate, encoderComplexity, packetLossPerc)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	dec, err := codec.NewOpusDecoder(sampleRate, channels)
+	dec, err := codec.NewOpusDecoder(audiopool.SampleRate, audiopool.Channels)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	pcm := make([]int16, frameSize)
+	pcm := make([]int16, audiopool.FrameSize)
 	for i := range pcm {
-		pcm[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate)) * 16000)
+		pcm[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(audiopool.SampleRate)) * 16000)
 	}
 
 	buf := make([]byte, 1500)
@@ -148,7 +149,7 @@ func BenchmarkDecodeOpusS16(b *testing.B) {
 	}
 
 	encoded := buf[:n]
-	out := make([]int16, frameSize)
+	out := make([]int16, audiopool.FrameSize)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -261,9 +262,9 @@ func BenchmarkParseIncomingRTP(b *testing.B) {
 // BenchmarkMicGainInt16 measures the broadcast encoder's in-place int16 gain
 // stage after Phase 5. No float32↔int16 conversion runs on the hot path.
 func BenchmarkMicGainInt16(b *testing.B) {
-	in := make([]int16, frameSize)
+	in := make([]int16, audiopool.FrameSize)
 	for i := range in {
-		in[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate)) * 16000)
+		in[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(audiopool.SampleRate)) * 16000)
 	}
 
 	const gain = float32(1.5)
@@ -298,12 +299,12 @@ func BenchmarkPlayoutOneFrame_Mock(b *testing.B) {
 	pc.ReceiveEnabled.Store(true)
 
 	rt := &CommsRuntime{
-		Decoder: &mockDecoder{returnN: frameSize},
+		Decoder: &mockDecoder{returnN: audiopool.FrameSize},
 	}
 
 	jb := rtp.NewJitterBuffer(1, rtp.MaxDepth)
 	payload := make([]byte, 100)
-	out := make([]int16, frameSize)
+	out := make([]int16, audiopool.FrameSize)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -319,19 +320,19 @@ func BenchmarkPlayoutOneFrame_Mock(b *testing.B) {
 // decoder, confirming that DecodeFloat32 directly into a caller-supplied
 // buffer yields 0 allocs/op.
 func BenchmarkPlayoutOneFrame_Real(b *testing.B) {
-	enc, err := codec.NewOpusEncoder(sampleRate, channels, targetBitrate, encoderComplexity, packetLossPerc)
+	enc, err := codec.NewOpusEncoder(audiopool.SampleRate, audiopool.Channels, targetBitrate, encoderComplexity, packetLossPerc)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	dec, err := codec.NewOpusDecoder(sampleRate, channels)
+	dec, err := codec.NewOpusDecoder(audiopool.SampleRate, audiopool.Channels)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	pcm := make([]int16, frameSize)
+	pcm := make([]int16, audiopool.FrameSize)
 	for i := range pcm {
-		pcm[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate)) * 16000)
+		pcm[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(audiopool.SampleRate)) * 16000)
 	}
 
 	encBuf := make([]byte, 1500)
@@ -352,7 +353,7 @@ func BenchmarkPlayoutOneFrame_Real(b *testing.B) {
 	rt := &CommsRuntime{Decoder: dec}
 
 	jb := rtp.NewJitterBuffer(1, rtp.MaxDepth)
-	out := make([]int16, frameSize)
+	out := make([]int16, audiopool.FrameSize)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -369,20 +370,20 @@ func BenchmarkPlayoutOneFrame_Real(b *testing.B) {
 // playoutOneFrame using the real Opus decoder. The jitter buffer is set up
 // so that every call hits the conceal branch and invokes DecodePLCFloat32.
 func BenchmarkPlayoutOneFrame_PLC(b *testing.B) {
-	enc, err := codec.NewOpusEncoder(sampleRate, channels, targetBitrate, encoderComplexity, packetLossPerc)
+	enc, err := codec.NewOpusEncoder(audiopool.SampleRate, audiopool.Channels, targetBitrate, encoderComplexity, packetLossPerc)
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	dec, err := codec.NewOpusDecoder(sampleRate, channels)
+	dec, err := codec.NewOpusDecoder(audiopool.SampleRate, audiopool.Channels)
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	// Feed the decoder one real frame first so PLC has state to work with.
-	pcm := make([]int16, frameSize)
+	pcm := make([]int16, audiopool.FrameSize)
 	for i := range pcm {
-		pcm[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate)) * 16000)
+		pcm[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(audiopool.SampleRate)) * 16000)
 	}
 
 	encBuf := make([]byte, 1500)
@@ -392,7 +393,7 @@ func BenchmarkPlayoutOneFrame_PLC(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	warmup := make([]int16, frameSize)
+	warmup := make([]int16, audiopool.FrameSize)
 	if _, err := dec.DecodeS16(encBuf[:n], warmup); err != nil {
 		b.Fatal(err)
 	}
@@ -411,7 +412,7 @@ func BenchmarkPlayoutOneFrame_PLC(b *testing.B) {
 	jb.Push(0, encBuf[:n])
 	jb.PopReady()
 
-	out := make([]int16, frameSize)
+	out := make([]int16, audiopool.FrameSize)
 
 	b.ResetTimer()
 	b.ReportAllocs()

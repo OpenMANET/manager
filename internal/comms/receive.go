@@ -3,9 +3,11 @@ package comms
 import (
 	"context"
 	"errors"
-	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"net"
 	"time"
+
+	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
 
 // maxConsecutivePLC caps the number of consecutive Packet-Loss-Concealment
@@ -34,9 +36,9 @@ func zeroInt16(out []int16) {
 }
 
 // rxActiveThreshold is retained as the historical alias for the default
-// half-duplex threshold. New code should use defaultHalfDuplexThreshold or
-// the per-port HalfDuplexGate threshold.
-const rxActiveThreshold = defaultHalfDuplexThreshold
+// half-duplex threshold. New code should use control.DefaultHalfDuplexThreshold
+// or the per-port HalfDuplexGate threshold.
+const rxActiveThreshold = control.DefaultHalfDuplexThreshold
 
 // halfDuplexDecayInterval is the period at which halfDuplexDecayLoop walks
 // every port's HalfDuplexGate and clears CommsRuntime.RemoteRxActive when no

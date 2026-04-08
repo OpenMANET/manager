@@ -7,9 +7,8 @@ import (
 	"time"
 
 	evdev "github.com/gvalkov/golang-evdev"
-	"github.com/rs/zerolog"
-
 	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/rs/zerolog"
 )
 
 func TestEvdevSource_PTTToggle(t *testing.T) {
@@ -94,6 +93,54 @@ func TestMockEventSource_ClosedChannel(t *testing.T) {
 		}
 	case <-time.After(100 * time.Millisecond):
 		t.Error("timed out")
+	}
+}
+
+func TestWebEventSource_RunIntegration(t *testing.T) {
+	ws := control.NewWebEventSource(zerolog.Nop())
+	stream := &mockStream{}
+	rt := newRunRuntime(stream)
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		cfg.Run(ctx, rt, ws)
+	}()
+
+	// Give the Run loop time to start before pushing events.
+	time.Sleep(50 * time.Millisecond)
+
+	ws.Push(control.PTTDown)
+
+	// Wait for the broadcast stream to be started (beginTransmission sleeps 200ms).
+	time.Sleep(300 * time.Millisecond)
+
+	ws.Push(control.PTTUp)
+
+	// Wait for the Run loop to process PTTUp.
+	time.Sleep(100 * time.Millisecond)
+
+	// Cancel context to terminate Run.
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Error("Run did not exit in time")
+	}
+
+	rt.Ports[0].Receiver.Close()
+
+	if stream.startCalls != 1 {
+		t.Errorf("Start called %d times, want 1", stream.startCalls)
+	}
+
+	if stream.stopCalls != 1 {
+		t.Errorf("Stop called %d times, want 1", stream.stopCalls)
 	}
 }
 

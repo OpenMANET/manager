@@ -1,4 +1,4 @@
-package comms
+package device
 
 import (
 	"fmt"
@@ -8,16 +8,27 @@ import (
 
 // AudioStream wraps a PortAudio stream with a minimal lifecycle interface so
 // that audio streams can be started, stopped, and closed without exposing
-// PortAudio types to the rest of the package.
+// PortAudio types to the rest of the codebase.
 type AudioStream interface {
 	Start() error
 	Stop() error
 	Close() error
 }
 
-// portaudioStream satisfies AudioStream by wrapping *portaudio.Stream.
+// portaudioStream satisfies AudioStream by wrapping *portaudio.Stream. It is
+// unexported so the portaudio binding does not leak into the public surface;
+// callers obtain instances via NewPortAudioStream.
 type portaudioStream struct {
 	s *portaudio.Stream
+}
+
+// NewPortAudioStream wraps s as an AudioStream. Returns nil if s is nil.
+func NewPortAudioStream(s *portaudio.Stream) AudioStream {
+	if s == nil {
+		return nil
+	}
+
+	return &portaudioStream{s: s}
 }
 
 // Start begins audio processing on the underlying PortAudio stream.

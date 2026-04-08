@@ -27,6 +27,10 @@ const (
 	// end-of-stream. Callers needing a time.Duration should multiply by
 	// time.Millisecond.
 	ConcealRecentWindow int = 200
+	// EncBufSize is the maximum Opus encode output buffer. 1450 bytes matches
+	// the UDP MTU and is far larger than typical Opus output (~80–160 B at
+	// 32 kbps).
+	EncBufSize int = 1450
 )
 
 // Float32Pool pools fixed-size []float32 frames used by float32 boundaries
@@ -34,6 +38,26 @@ const (
 var Float32Pool = sync.Pool{ //nolint:gochecknoglobals
 	New: func() any {
 		s := make([]float32, FrameSize)
+
+		return &s
+	},
+}
+
+// Int16Pool pools fixed-size []int16 frames used by the int16-native capture
+// and playback hot paths. The PortAudio output callback and broadcast encoder
+// both borrow frames every 20 ms; pooling eliminates per-frame GC pressure.
+var Int16Pool = sync.Pool{ //nolint:gochecknoglobals
+	New: func() any {
+		s := make([]int16, FrameSize)
+
+		return &s
+	},
+}
+
+// EncBufPool pools Opus encode output buffers sized for the UDP MTU.
+var EncBufPool = sync.Pool{ //nolint:gochecknoglobals
+	New: func() any {
+		s := make([]byte, EncBufSize)
 
 		return &s
 	},
@@ -49,6 +73,17 @@ func ReturnFloat32(s []float32) {
 
 	sp := &s
 	Float32Pool.Put(sp)
+}
+
+// ReturnInt16 returns a pooled []int16 slice to Int16Pool. Non-pooled slices
+// (capacity != FrameSize) are silently ignored.
+func ReturnInt16(s []int16) {
+	if cap(s) != FrameSize {
+		return
+	}
+
+	sp := &s
+	Int16Pool.Put(sp)
 }
 
 // RMSEnergy computes the root-mean-square energy of a float32 PCM frame.

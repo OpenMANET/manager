@@ -1,22 +1,22 @@
-package comms
+package control
 
 import (
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/rs/zerolog"
-
-	"github.com/openmanet/openmanetd/internal/comms/control"
 )
 
 // ─── mockHIDDevice ────────────────────────────────────────────────────────────
 
-// mockHIDDevice satisfies control.HIDDevice. Each call to Read returns the
-// next queued report; when the queue is empty it blocks until Close is called.
+// mockHIDDevice satisfies HIDDevice. Each call to Read returns the next queued
+// report; when the queue is empty it blocks until Close is called.
 type mockHIDDevice struct {
 	reports    chan []byte
 	closed     chan struct{}
@@ -72,14 +72,14 @@ func (e *errHIDDevice) Close() error               { return nil }
 func makeOpenVLMReport(gpio3High bool) []byte {
 	ir1 := byte(0x00)
 	if gpio3High {
-		ir1 |= control.OpenVLMGPIO3Mask
+		ir1 |= OpenVLMGPIO3Mask
 	}
 
 	return []byte{0x00, 0x00, ir1, 0x00, 0x00}
 }
 
-func collectPTTEvents(ch <-chan control.PTTEvent, timeout time.Duration) []control.PTTEvent {
-	var events []control.PTTEvent
+func collectPTTEvents(ch <-chan PTTEvent, timeout time.Duration) []PTTEvent {
+	var events []PTTEvent
 
 	deadline := time.After(timeout)
 
@@ -97,14 +97,14 @@ func collectPTTEvents(ch <-chan control.PTTEvent, timeout time.Duration) []contr
 	}
 }
 
-func openerReturning(dev control.HIDDevice) control.HIDOpener {
-	return func(_, _ uint16) (control.HIDDevice, error) {
+func openerReturning(dev HIDDevice) HIDOpener {
+	return func(_, _ uint16) (HIDDevice, error) {
 		return dev, nil
 	}
 }
 
-func openerFailing(err error) control.HIDOpener {
-	return func(_, _ uint16) (control.HIDDevice, error) {
+func openerFailing(err error) HIDOpener {
+	return func(_, _ uint16) (HIDDevice, error) {
 		return nil, err
 	}
 }
@@ -112,7 +112,7 @@ func openerFailing(err error) control.HIDOpener {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 func TestOpenVLMSource_OpenerError_ClosesChannelImmediately(t *testing.T) {
-	src := control.NewOpenVLMSourceWithOpener(openerFailing(errors.New("no device")), zerolog.Nop())
+	src := NewOpenVLMSourceWithOpener(openerFailing(errors.New("no device")), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
@@ -135,27 +135,24 @@ func TestOpenVLMSource_OpenerCalledWithCorrectVIDPID(t *testing.T) {
 	resultCh := make(chan vidpid, 1)
 
 	mock := newMockHIDDevice()
-	opener := func(vid, pid uint16) (control.HIDDevice, error) {
+	opener := func(vid, pid uint16) (HIDDevice, error) {
 		resultCh <- vidpid{vid, pid}
 
 		return mock, nil
 	}
 
-	src := control.NewOpenVLMSourceWithOpener(opener, zerolog.Nop())
+	src := NewOpenVLMSourceWithOpener(opener, zerolog.Nop())
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	src.Events(ctx)
+	src.Events(t.Context())
 
 	select {
 	case r := <-resultCh:
-		if r.vid != control.OpenVLMVendorID {
-			t.Errorf("VendorID: got 0x%04X, want 0x%04X", r.vid, control.OpenVLMVendorID)
+		if r.vid != OpenVLMVendorID {
+			t.Errorf("VendorID: got 0x%04X, want 0x%04X", r.vid, OpenVLMVendorID)
 		}
 
-		if r.pid != control.OpenVLMProductID {
-			t.Errorf("ProductID: got 0x%04X, want 0x%04X", r.pid, control.OpenVLMProductID)
+		if r.pid != OpenVLMProductID {
+			t.Errorf("ProductID: got 0x%04X, want 0x%04X", r.pid, OpenVLMProductID)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Error("opener was not called within timeout")
@@ -166,7 +163,7 @@ func TestOpenVLMSource_GPIO3_LowReport_NoEvent(t *testing.T) {
 	mock := newMockHIDDevice()
 	mock.queueReport(makeOpenVLMReport(false))
 
-	src := control.NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
+	src := NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
@@ -183,7 +180,7 @@ func TestOpenVLMSource_GPIO3_HighReport_EmitsPTTDown(t *testing.T) {
 	mock := newMockHIDDevice()
 	mock.queueReport(makeOpenVLMReport(true))
 
-	src := control.NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
+	src := NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -192,7 +189,7 @@ func TestOpenVLMSource_GPIO3_HighReport_EmitsPTTDown(t *testing.T) {
 
 	select {
 	case ev := <-ch:
-		if ev != control.PTTDown {
+		if ev != PTTDown {
 			t.Errorf("expected PTTDown; got %v", ev)
 		}
 	case <-time.After(400 * time.Millisecond):
@@ -205,7 +202,7 @@ func TestOpenVLMSource_HighThenLow_EmitsPTTDownThenPTTUp(t *testing.T) {
 	mock.queueReport(makeOpenVLMReport(true))
 	mock.queueReport(makeOpenVLMReport(false))
 
-	src := control.NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
+	src := NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -217,11 +214,11 @@ func TestOpenVLMSource_HighThenLow_EmitsPTTDownThenPTTUp(t *testing.T) {
 		t.Fatalf("expected 2 events; got %d: %v", len(events), events)
 	}
 
-	if events[0] != control.PTTDown {
+	if events[0] != PTTDown {
 		t.Errorf("event[0]: got %v, want PTTDown", events[0])
 	}
 
-	if events[1] != control.PTTUp {
+	if events[1] != PTTUp {
 		t.Errorf("event[1]: got %v, want PTTUp", events[1])
 	}
 }
@@ -232,7 +229,7 @@ func TestOpenVLMSource_DuplicateState_NoExtraEvent(t *testing.T) {
 	mock.queueReport(makeOpenVLMReport(true))  // HIGH again → no event
 	mock.queueReport(makeOpenVLMReport(false)) // LOW → PTTUp
 
-	src := control.NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
+	src := NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -248,7 +245,7 @@ func TestOpenVLMSource_DuplicateState_NoExtraEvent(t *testing.T) {
 func TestOpenVLMSource_ContextCancel_ClosesChannel(t *testing.T) {
 	mock := newMockHIDDevice() // empty queue — will block
 
-	src := control.NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
+	src := NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := src.Events(ctx)
@@ -269,7 +266,7 @@ func TestOpenVLMSource_ContextCancel_ClosesChannel(t *testing.T) {
 func TestOpenVLMSource_ReadError_ClosesChannel(t *testing.T) {
 	errDev := &errHIDDevice{}
 
-	src := control.NewOpenVLMSourceWithOpener(openerReturning(errDev), zerolog.Nop())
+	src := NewOpenVLMSourceWithOpener(openerReturning(errDev), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -294,7 +291,7 @@ func TestDetectAndSetALSACardFromRoot_NoCards(t *testing.T) {
 
 	tmp := t.TempDir()
 
-	control.DetectAndSetALSACardFromRoot(tmp, zerolog.Nop())
+	DetectAndSetALSACardFromRoot(tmp, zerolog.Nop())
 
 	if v := os.Getenv("ALSA_CARD"); v != "" {
 		t.Errorf("expected ALSA_CARD to remain unset; got %q", v)
@@ -318,7 +315,7 @@ func TestDetectAndSetALSACardFromRoot_MatchingCard(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	control.DetectAndSetALSACardFromRoot(tmp, zerolog.Nop())
+	DetectAndSetALSACardFromRoot(tmp, zerolog.Nop())
 
 	if v := os.Getenv("ALSA_CARD"); v != "3" {
 		t.Errorf("expected ALSA_CARD=3; got %q", v)
@@ -339,7 +336,7 @@ func TestDetectAndSetALSACardFromRoot_NonMatchingCard(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	control.DetectAndSetALSACardFromRoot(tmp, zerolog.Nop())
+	DetectAndSetALSACardFromRoot(tmp, zerolog.Nop())
 
 	if v := os.Getenv("ALSA_CARD"); v != "" {
 		t.Errorf("expected ALSA_CARD to remain unset for non-OpenVLM card; got %q", v)
@@ -362,12 +359,123 @@ func TestDetectAndSetALSACardFromRoot_AlreadySet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	control.DetectAndSetALSACardFromRoot(tmp, zerolog.Nop())
+	DetectAndSetALSACardFromRoot(tmp, zerolog.Nop())
 
 	// Should not overwrite the existing value.
 	if v := os.Getenv("ALSA_CARD"); v != "7" {
 		t.Errorf("expected ALSA_CARD=7 (unchanged); got %q", v)
 	}
+}
+
+// ─── DetectAndSetALSACardFromSys tests ──────────────────────────────────────
+
+// mkOpenVLMSysFS builds a minimal sysfs tree containing one CM108-family USB
+// device located under bus/usb/devices/<name>. The sound child names a
+// "card<idx>" so DiscoverCM108 returns ALSACardIdx=idx for the descriptor.
+func mkOpenVLMSysFS(name, vendor, product, iface string, alsaCardIdx int) fstest.MapFS {
+	fsys := fstest.MapFS{}
+	base := "bus/usb/devices/" + name
+
+	fsys[base+"/idVendor"] = &fstest.MapFile{Data: []byte(vendor + "\n")}
+	fsys[base+"/idProduct"] = &fstest.MapFile{Data: []byte(product + "\n")}
+	fsys[base+"/"+iface+"/sound/card"+strconv.Itoa(alsaCardIdx)+"/id"] =
+		&fstest.MapFile{Data: []byte("OpenVLM\n")}
+
+	return fsys
+}
+
+func TestDetectAndSetALSACardFromSys_AlreadySet(t *testing.T) {
+	t.Setenv("ALSA_CARD", "9")
+
+	fsys := mkOpenVLMSysFS("1-1", "0d8c", "0012", "1-1:1.3", 4)
+
+	if !DetectAndSetALSACardFromSys(fsys, zerolog.Nop()) {
+		t.Error("expected true (already-set short-circuit)")
+	}
+
+	if v := os.Getenv("ALSA_CARD"); v != "9" {
+		t.Errorf("ALSA_CARD = %q, want %q (unchanged)", v, "9")
+	}
+}
+
+func TestDetectAndSetALSACardFromSys_MatchingCard(t *testing.T) {
+	os.Unsetenv("ALSA_CARD")                       //nolint:errcheck
+	t.Cleanup(func() { os.Unsetenv("ALSA_CARD") }) //nolint:errcheck
+
+	fsys := mkOpenVLMSysFS("1-1", "0d8c", "0012", "1-1:1.3", 4)
+
+	if !DetectAndSetALSACardFromSys(fsys, zerolog.Nop()) {
+		t.Error("expected true after matching card found")
+	}
+
+	if v := os.Getenv("ALSA_CARD"); v != "4" {
+		t.Errorf("ALSA_CARD = %q, want %q", v, "4")
+	}
+}
+
+func TestDetectAndSetALSACardFromSys_NoCM108Devices(t *testing.T) {
+	os.Unsetenv("ALSA_CARD")                       //nolint:errcheck
+	t.Cleanup(func() { os.Unsetenv("ALSA_CARD") }) //nolint:errcheck
+
+	// Empty sysfs — DiscoverCM108 returns no descriptors and the function
+	// must report false (caller falls back to FromRoot).
+	if DetectAndSetALSACardFromSys(fstest.MapFS{}, zerolog.Nop()) {
+		t.Error("expected false on empty sysfs")
+	}
+
+	if v := os.Getenv("ALSA_CARD"); v != "" {
+		t.Errorf("ALSA_CARD = %q, want unset", v)
+	}
+}
+
+func TestDetectAndSetALSACardFromSys_NonCM108DeviceSkipped(t *testing.T) {
+	os.Unsetenv("ALSA_CARD")                       //nolint:errcheck
+	t.Cleanup(func() { os.Unsetenv("ALSA_CARD") }) //nolint:errcheck
+
+	// Vendor matches CM108 family but product ID does not — should be skipped.
+	fsys := mkOpenVLMSysFS("1-1", "1d6b", "0002", "1-1:1.0", 1)
+
+	if DetectAndSetALSACardFromSys(fsys, zerolog.Nop()) {
+		t.Error("expected false for non-CM108 device")
+	}
+
+	if v := os.Getenv("ALSA_CARD"); v != "" {
+		t.Errorf("ALSA_CARD = %q, want unset", v)
+	}
+}
+
+func TestDetectAndSetALSACardFromSys_DeviceWithoutALSACard(t *testing.T) {
+	os.Unsetenv("ALSA_CARD")                       //nolint:errcheck
+	t.Cleanup(func() { os.Unsetenv("ALSA_CARD") }) //nolint:errcheck
+
+	// CM108 device with no sound child → ALSACardIdx == -1, must be skipped
+	// (the function only sets ALSA_CARD for descriptors with ALSACardIdx>=0).
+	fsys := fstest.MapFS{
+		"bus/usb/devices/1-1/idVendor":  &fstest.MapFile{Data: []byte("0d8c\n")},
+		"bus/usb/devices/1-1/idProduct": &fstest.MapFile{Data: []byte("0012\n")},
+	}
+
+	if DetectAndSetALSACardFromSys(fsys, zerolog.Nop()) {
+		t.Error("expected false when no ALSA card child present")
+	}
+
+	if v := os.Getenv("ALSA_CARD"); v != "" {
+		t.Errorf("ALSA_CARD = %q, want unset", v)
+	}
+}
+
+func TestDetectAndSetALSACard_FallsBackToRoot(t *testing.T) {
+	// Top-level wrapper: Sys path returns false (empty MapFS would be
+	// returned by DirFS("/sys") in production, but we cannot fake DirFS
+	// here). Instead, verify the wrapper does not panic and produces a
+	// stable observable state when no card is found anywhere.
+	os.Unsetenv("ALSA_CARD")                       //nolint:errcheck
+	t.Cleanup(func() { os.Unsetenv("ALSA_CARD") }) //nolint:errcheck
+
+	// Just call it — on a CI host without OpenVLM hardware this exercises
+	// both the FromSys (likely false) and FromRoot fallback paths without
+	// crashing.
+	DetectAndSetALSACard(zerolog.Nop())
 }
 
 // ─── OpenVLM short-report test ─────────────────────────────────────────────────
@@ -380,7 +488,7 @@ func TestOpenVLMSource_ShortReport_SkippedAndContinues(t *testing.T) {
 	mock.queueReport([]byte{0x00})            // 1-byte short report — skipped
 	mock.queueReport(makeOpenVLMReport(true)) // valid HIGH report → PTTDown
 
-	src := control.NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
+	src := NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
 	defer cancel()
@@ -389,7 +497,7 @@ func TestOpenVLMSource_ShortReport_SkippedAndContinues(t *testing.T) {
 
 	select {
 	case ev := <-ch:
-		if ev != control.PTTDown {
+		if ev != PTTDown {
 			t.Errorf("expected PTTDown after short report skipped; got %v", ev)
 		}
 	case <-time.After(700 * time.Millisecond):

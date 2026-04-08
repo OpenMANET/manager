@@ -171,6 +171,88 @@ func TestOpusDecodeS16_RejectsShortBuffers(t *testing.T) {
 	}
 }
 
+func TestOpusDecodeFloat32_RoundTrip(t *testing.T) {
+	enc := newEnc(t)
+	dec := newDec(t)
+
+	defer enc.Close()
+	defer dec.Close()
+
+	pcmIn := make([]int16, testFrameSize)
+	for i := range pcmIn {
+		pcmIn[i] = int16(math.Sin(2*math.Pi*440*float64(i)/float64(testSampleRate)) * 16000)
+	}
+
+	encoded := make([]byte, 4000)
+
+	n, err := enc.EncodeS16(pcmIn, encoded)
+	if err != nil {
+		t.Fatalf("EncodeS16: %v", err)
+	}
+
+	pcmOut := make([]float32, testFrameSize)
+
+	decoded, err := dec.DecodeFloat32(encoded[:n], pcmOut)
+	if err != nil {
+		t.Fatalf("DecodeFloat32: %v", err)
+	}
+
+	if decoded != testFrameSize {
+		t.Errorf("DecodeFloat32 returned %d samples, want %d", decoded, testFrameSize)
+	}
+
+	// Decoded float32 samples must lie within the [-1, 1] normalized range.
+	for i, v := range pcmOut {
+		if v < -1.0 || v > 1.0 {
+			t.Fatalf("pcmOut[%d] = %v out of [-1, 1] range", i, v)
+		}
+	}
+}
+
+func TestOpusDecodeFloat32_PLC(t *testing.T) {
+	dec := newDec(t)
+	defer dec.Close()
+
+	pcmOut := make([]float32, testFrameSize)
+
+	// nil data triggers Packet Loss Concealment.
+	n, err := dec.DecodeFloat32(nil, pcmOut)
+	if err != nil {
+		t.Fatalf("DecodeFloat32(nil) PLC: %v", err)
+	}
+
+	if n != testFrameSize {
+		t.Errorf("PLC decoded %d samples, want %d", n, testFrameSize)
+	}
+}
+
+func TestOpusDecodeFloat32_RejectsEmptyDst(t *testing.T) {
+	dec := newDec(t)
+	defer dec.Close()
+
+	if _, err := dec.DecodeFloat32(nil, nil); err == nil {
+		t.Error("DecodeFloat32(nil dst) should error")
+	}
+
+	if _, err := dec.DecodeFloat32(nil, []float32{}); err == nil {
+		t.Error("DecodeFloat32(empty dst) should error")
+	}
+}
+
+func TestOpusDecodeFloat32_DecodeError(t *testing.T) {
+	dec := newDec(t)
+	defer dec.Close()
+
+	// An empty (non-nil) byte slice is a length-0 packet, which Opus
+	// rejects with "buffer too small". This exercises the error-wrapping
+	// branch in DecodeFloat32 without faking the underlying decoder.
+	pcmOut := make([]float32, testFrameSize)
+
+	if _, err := dec.DecodeFloat32([]byte{}, pcmOut); err == nil {
+		t.Error("DecodeFloat32(empty payload) should return an error")
+	}
+}
+
 func TestOpusClose_Idempotent(t *testing.T) {
 	enc := newEnc(t)
 	dec := newDec(t)

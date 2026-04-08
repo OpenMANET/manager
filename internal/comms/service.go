@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 )
 
 // Service is the live comms subsystem instance returned (conceptually) by
@@ -139,7 +140,7 @@ func (s *Service) WebEventSource() *control.WebEventSource {
 
 // WebAudioBridge returns the web audio bridge if one was constructed,
 // otherwise nil.
-func (s *Service) WebAudioBridge() *WebAudioBridge {
+func (s *Service) WebAudioBridge() *webaudio.Bridge {
 	if s == nil || s.Rt == nil {
 		return nil
 	}

@@ -11,6 +11,7 @@ import (
 	pionrtp "github.com/pion/rtp"
 	"github.com/rs/zerolog"
 
+	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
 
@@ -94,7 +95,7 @@ func newIntegrationReceiver(t *testing.T) (*CommsConfig, *PortChannel, *CommsRun
 // hardware tick rate.
 func pollDecodedFrame(cfg *CommsConfig, pc *PortChannel, rt *CommsRuntime, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
-	out := make([]int16, frameSize)
+	out := make([]int16, audiopool.FrameSize)
 
 	for time.Now().Before(deadline) {
 		for i := range out {
@@ -121,7 +122,7 @@ func pollDecodedFrame(cfg *CommsConfig, pc *PortChannel, rt *CommsRuntime, timeo
 // "leftover concealment". consecutivePLC is also reset.
 func drainConcealmentFrames(cfg *CommsConfig, pc *PortChannel, rt *CommsRuntime) {
 	deadline := time.Now().Add(500 * time.Millisecond)
-	out := make([]int16, frameSize)
+	out := make([]int16, audiopool.FrameSize)
 
 	for time.Now().Before(deadline) {
 		cfg.playoutOneFrame(pc, rt, pc.Jitter, out)

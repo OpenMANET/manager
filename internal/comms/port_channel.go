@@ -3,6 +3,8 @@ package comms
 import (
 	"sync/atomic"
 
+	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/device"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
 
@@ -59,7 +61,7 @@ type McastPortState struct {
 // frame of jitter-buffered audio.
 type PortChannel struct {
 	RTPSess           rtp.Sender
-	PlaybackStream    AudioStream
+	PlaybackStream    device.AudioStream
 	Sender            *rtp.SwappableSender
 	RTCPSend          *rtp.SwappableSender
 	Receiver          *rtp.SwappableReceiver
@@ -67,7 +69,7 @@ type PortChannel struct {
 	PlaybackBuffer    chan []int16
 	cfg               McastPortConfig
 	ConsecutivePLC    int
-	RxGate            HalfDuplexGate
+	RxGate            control.HalfDuplexGate
 	PlaybackUnderruns atomic.Int64
 	SendEnabled       atomic.Bool
 	ReceiveEnabled    atomic.Bool

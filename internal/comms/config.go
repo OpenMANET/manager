@@ -9,6 +9,8 @@ import (
 
 	"github.com/openmanet/openmanetd/internal/comms/codec"
 	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/device"
+	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 	"github.com/openmanet/openmanetd/internal/config"
 )
 
@@ -26,8 +28,8 @@ import (
 type CommsRuntime struct {
 	Decoder         codec.AudioDecoder
 	Encoder         codec.AudioEncoder
-	BroadcastStream AudioStream
-	WebBridge       *WebAudioBridge
+	BroadcastStream device.AudioStream
+	WebBridge       *webaudio.Bridge
 	WebEvtSrc       *control.WebEventSource
 	LocalIP         atomic.Pointer[string]
 	ReopenBroadcast func() error

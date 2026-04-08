@@ -7,9 +7,84 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/openmanet/openmanetd/internal/comms/audio"
+	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/device"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
+	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 )
+
+// startHardwareAudio constructs an audio.Init bound to cfg/rt, builds the
+// per-port playback slots, and starts PortAudio. Returns the cleanup
+// function that StartHardware produced (which the caller defers).
+//
+// Extracted from Start so that Start's cognitive complexity stays under the
+// linter threshold and the audio sub-package wiring lives next to its other
+// per-port helpers.
+func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) (cleanup func(), err error) {
+	audioInit := &audio.Init{
+		Deps: audio.Deps{
+			Log:               cfg.Log,
+			Trace:             cfg.Trace,
+			Debug:             cfg.Debug,
+			MicGain:           cfg.MicGain,
+			CaptureLatencyMs:  cfg.CaptureLatencyMs,
+			PlaybackLatencyMs: cfg.PlaybackLatencyMs,
+			InputDeviceSpec:   cfg.BluetoothInputDevice,
+			OutputDeviceSpec:  cfg.BluetoothOutputDevice,
+			Encoder:           rt.Encoder,
+			Send:              func(payload []byte) { cfg.sendToAllPorts(rt, payload) },
+			Tap:               &rt.BroadcastTap,
+		},
+	}
+
+	// beepChannelDepth is the one-shot side channel that the TX path
+	// (transmit.go beginTransmission/endTransmission) uses to inject
+	// start/stop beep tones. The PortAudio output callback drains it
+	// before falling through to playoutOneFrame.
+	const beepChannelDepth = 4
+
+	slots := make([]audio.PortSlot, 0, len(rt.Ports))
+
+	for i := range rt.Ports {
+		pc := rt.Ports[i]
+		if pc.Receiver == nil {
+			continue
+		}
+
+		pc.PlaybackBuffer = make(chan []int16, beepChannelDepth)
+
+		pcRef := pc
+
+		slots = append(slots, audio.PortSlot{
+			HasReceiver:  true,
+			Port:         pc.cfg.Port,
+			BeepBuf:      pc.PlaybackBuffer,
+			SetStream:    func(s device.AudioStream) { pcRef.PlaybackStream = s },
+			PlayoutFrame: func(out []int16) { cfg.playoutOneFrame(pcRef, rt, pcRef.Jitter, out) },
+		})
+	}
+
+	broadcast, cleanup, hwErr := audioInit.StartHardware(slots)
+	if hwErr != nil {
+		return nil, hwErr
+	}
+
+	rt.BroadcastStream = broadcast
+	rt.ReopenBroadcast = func() error {
+		be, reopenErr := audioInit.ReopenBroadcast()
+		if reopenErr != nil {
+			return reopenErr
+		}
+
+		rt.BroadcastStream = be
+
+		return nil
+	}
+
+	return cleanup, nil
+}
 
 // Start initializes all comms subsystems and blocks until ctx is canceled.
 // Returns nil on clean shutdown, or an error if initialization fails.
@@ -56,14 +131,14 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 	// Phase 5: beep buffers are int16-native so they can be written directly
 	// into the PortAudio int16 playback callback without an extra conversion.
 	// Amplitude 0.2 * 32767 ≈ 6553 matches the previous float32 volume.
-	beepStart := make([]int16, frameSize)
-	beepStop := make([]int16, frameSize)
+	beepStart := make([]int16, audiopool.FrameSize)
+	beepStop := make([]int16, audiopool.FrameSize)
 
 	const beepAmp = 0.2 * 32767
 
 	for i := range beepStart {
-		beepStart[i] = int16(math.Sin(2*math.Pi*1000*float64(i)/float64(sampleRate)) * beepAmp)
-		beepStop[i] = int16(math.Sin(2*math.Pi*600*float64(i)/float64(sampleRate)) * beepAmp)
+		beepStart[i] = int16(math.Sin(2*math.Pi*1000*float64(i)/float64(audiopool.SampleRate)) * beepAmp)
+		beepStop[i] = int16(math.Sin(2*math.Pi*600*float64(i)/float64(audiopool.SampleRate)) * beepAmp)
 	}
 
 	// ── network ────────────────────────────────────────────────────────────
@@ -117,7 +192,9 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 	// ── audio I/O ─────────────────────────────────────────────────────────
 	if cfg.ControlSource == controlSourceWeb {
 		// Web mode: skip PortAudio entirely; the browser provides audio I/O.
-		rt.WebBridge = NewWebAudioBridge(cfg, rt, cfg.Log)
+		rt.WebBridge = webaudio.NewBridge(cfg.Log, func(payload []byte) {
+			cfg.sendToAllPorts(rt, payload)
+		})
 	} else {
 		cleanup, hwErr := cfg.startHardwareAudio(rt)
 		if hwErr != nil {

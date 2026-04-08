@@ -95,52 +95,6 @@ func (m *mockDecoder) DecodeFloat32(payload []byte, pcm []float32) (int, error) 
 	return len(pcm), nil
 }
 
-// ─── mockEncoder ─────────────────────────────────────────────────────────────
-
-// mockEncoder satisfies AudioEncoder. Each call records the input PCM frame
-// (length only, to avoid copying samples) and returns either encodeErr or a
-// fake fixed-size payload. blockCh, when non-nil, is received from before
-// returning — used by channel-full tests to stall the consumer goroutine.
-type mockEncoder struct {
-	encodeErr error
-	blockCh   chan struct{}
-	calls     atomic.Int64
-	payloadN  int
-}
-
-func (m *mockEncoder) Encode(pcm []int16, data []byte) (int, error) {
-	return m.EncodeS16(pcm, data)
-}
-
-func (m *mockEncoder) EncodeS16(_ []int16, data []byte) (int, error) {
-	m.calls.Add(1)
-
-	if m.blockCh != nil {
-		<-m.blockCh
-	}
-
-	if m.encodeErr != nil {
-		return 0, m.encodeErr
-	}
-
-	n := m.payloadN
-	if n == 0 {
-		n = 8
-	}
-
-	if n > len(data) {
-		n = len(data)
-	}
-
-	for i := range n {
-		data[i] = byte(i)
-	}
-
-	return n, nil
-}
-
-func (m *mockEncoder) Close() error { return nil }
-
 // ─── mockWriter ──────────────────────────────────────────────────────────────
 
 // mockWriter satisfies PacketWriter. Written packets accumulate in Packets.
