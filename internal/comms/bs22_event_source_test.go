@@ -2,6 +2,7 @@ package comms
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ func TestFindBS22Device_PrefersConnectedDevice(t *testing.T) {
 			bluezDeviceInterface: {
 				"Alias":       dbus.MakeVariant("BS-22"),
 				"Connected":   dbus.MakeVariant(false),
+				"Paired":      dbus.MakeVariant(false),
 				"Address":     dbus.MakeVariant("AA"),
 				"AddressType": dbus.MakeVariant("public"),
 				"Adapter":     dbus.MakeVariant(dbus.ObjectPath("/org/bluez/hci0")),
@@ -24,6 +26,7 @@ func TestFindBS22Device_PrefersConnectedDevice(t *testing.T) {
 			bluezDeviceInterface: {
 				"Alias":       dbus.MakeVariant("BS-22"),
 				"Connected":   dbus.MakeVariant(true),
+				"Paired":      dbus.MakeVariant(true),
 				"Address":     dbus.MakeVariant("BB"),
 				"AddressType": dbus.MakeVariant("random"),
 				"Adapter":     dbus.MakeVariant(dbus.ObjectPath("/org/bluez/hci0")),
@@ -44,6 +47,9 @@ func TestFindBS22Device_PrefersConnectedDevice(t *testing.T) {
 	}
 	if device.AddressType != "random" {
 		t.Fatalf("findBS22Device().AddressType = %q, want %q", device.AddressType, "random")
+	}
+	if !device.Paired {
+		t.Fatal("findBS22Device().Paired = false, want true")
 	}
 }
 
@@ -204,6 +210,44 @@ func TestNormalizeBS22AddressType(t *testing.T) {
 	for _, tt := range tests {
 		if got := normalizeBS22AddressType(tt.in); got != tt.want {
 			t.Fatalf("normalizeBS22AddressType(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestIsIgnorableBlueZPairError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "already exists", err: dbus.MakeFailedError(&dbus.Error{Name: "org.bluez.Error.AlreadyExists"}), want: true},
+		{name: "already paired text", err: errors.New("already paired"), want: true},
+		{name: "in progress", err: errors.New("operation in progress"), want: true},
+		{name: "other", err: errors.New("failed"), want: false},
+	}
+
+	for _, tt := range tests {
+		if got := isIgnorableBlueZPairError(tt.err); got != tt.want {
+			t.Fatalf("%s: isIgnorableBlueZPairError() = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestIsMissingBlueZMethodError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "doesn't exist", err: errors.New(`Method "ConnectDevice" with signature "a{sv}" on interface "org.bluez.Adapter1" doesn't exist`) , want: true},
+		{name: "does not exist", err: errors.New("method does not exist"), want: true},
+		{name: "unknown method", err: errors.New("Unknown method"), want: true},
+		{name: "other", err: errors.New("failed"), want: false},
+	}
+
+	for _, tt := range tests {
+		if got := isMissingBlueZMethodError(tt.err); got != tt.want {
+			t.Fatalf("%s: isMissingBlueZMethodError() = %v, want %v", tt.name, got, tt.want)
 		}
 	}
 }

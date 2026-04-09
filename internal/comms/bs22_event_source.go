@@ -26,6 +26,7 @@ const (
 	bluezGattCharacteristicStartNotify = bluezGattCharacteristicInterface + ".StartNotify"
 	bluezGattCharacteristicWriteValue  = bluezGattCharacteristicInterface + ".WriteValue"
 	bluezDeviceConnectMethod           = bluezDeviceInterface + ".Connect"
+	bluezDevicePairMethod              = bluezDeviceInterface + ".Pair"
 	bluezAdapterConnectDeviceMethod    = "org.bluez.Adapter1.ConnectDevice"
 	bs22Name                           = "BS-22"
 	bs22HMServiceUUID                  = "00001100-d102-11e1-9b23-00025b00a5a5"
@@ -50,6 +51,7 @@ type bluezManagedLister func(*dbus.Conn) (bluezManagedObjectMap, error)
 type bluezCharacteristicNotifier func(*dbus.Conn, dbus.ObjectPath) error
 type bluezCharacteristicWriter func(*dbus.Conn, dbus.ObjectPath, []byte) error
 type bluezDeviceConnector func(*dbus.Conn, bs22DeviceInfo) error
+type bluezDevicePairer func(*dbus.Conn, bs22DeviceInfo) error
 
 type bs22DeviceInfo struct {
 	Path        dbus.ObjectPath
@@ -59,6 +61,7 @@ type bs22DeviceInfo struct {
 	Address     string
 	AddressType string
 	Connected   bool
+	Paired      bool
 }
 
 type bs22BLEBinding struct {
@@ -89,6 +92,7 @@ type bs22EventSource struct {
 	startNotify    bluezCharacteristicNotifier
 	writeValue     bluezCharacteristicWriter
 	connectDevice  bluezDeviceConnector
+	pairDevice     bluezDevicePairer
 	xeventFactory  func(zerolog.Logger) EventSource
 	rescanInterval time.Duration
 	connectRetry   time.Duration
@@ -113,6 +117,7 @@ func NewBS22EventSource(log zerolog.Logger) EventSource {
 		startNotify:   startBlueZNotify,
 		writeValue:    writeBlueZCharacteristicValue,
 		connectDevice: connectBlueZClassicDevice,
+		pairDevice:    pairBlueZDevice,
 		xeventFactory: NewBlueALSAXEventSource,
 	}
 }
@@ -268,6 +273,8 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 	var haveCurrent bool
 	var primed bool
 	var lastConnectAttempt time.Time
+	var adapterConnectUnsupported bool
+	var pairAttempted bool
 
 	syncBinding := func() {
 		managed, err := s.listManaged(conn)
@@ -280,6 +287,7 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 		if !ok {
 			haveCurrent = false
 			primed = false
+			pairAttempted = false
 			s.setToneState(conn, bs22BLEBinding{}, false)
 			return
 		}
@@ -294,6 +302,7 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 					Str("adapter", string(device.Adapter)).
 					Str("address_type", normalizeBS22AddressType(device.AddressType)).
 					Bool("classic_connected", device.Connected).
+					Bool("paired", device.Paired).
 					Msg("BS-22 BLE: HM service not present, attempting attach")
 				if !device.Connected && s.connectDevice != nil {
 					if err := s.connectDevice(conn, device); err != nil {
@@ -311,28 +320,61 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 					}
 				}
 
-				if err := connectBlueZLEDevice(conn, device); err != nil {
-					if isIgnorableBlueZConnectError(err) {
-						s.log.Info().
-							Err(err).
-							Str("device", device.Address).
-							Str("adapter", string(device.Adapter)).
-							Str("address_type", normalizeBS22AddressType(device.AddressType)).
-							Msg("BS-22 BLE: LE connect request already in progress")
+				if !adapterConnectUnsupported {
+					if err := connectBlueZLEDevice(conn, device); err != nil {
+						if isMissingBlueZMethodError(err) {
+							adapterConnectUnsupported = true
+							s.log.Warn().
+								Err(err).
+								Str("device", device.Address).
+								Str("adapter", string(device.Adapter)).
+								Msg("BS-22 BLE: Adapter1.ConnectDevice unsupported, falling back to Device1.Pair")
+						} else if isIgnorableBlueZConnectError(err) {
+							s.log.Info().
+								Err(err).
+								Str("device", device.Address).
+								Str("adapter", string(device.Adapter)).
+								Str("address_type", normalizeBS22AddressType(device.AddressType)).
+								Msg("BS-22 BLE: LE connect request already in progress")
+						} else {
+							s.log.Warn().
+								Err(err).
+								Str("device", device.Address).
+								Str("adapter", string(device.Adapter)).
+								Str("address_type", normalizeBS22AddressType(device.AddressType)).
+								Msg("BS-22 BLE: LE connect request failed")
+						}
 					} else {
-						s.log.Warn().
-							Err(err).
+						s.log.Info().
 							Str("device", device.Address).
 							Str("adapter", string(device.Adapter)).
 							Str("address_type", normalizeBS22AddressType(device.AddressType)).
-							Msg("BS-22 BLE: LE connect request failed")
+							Msg("BS-22 BLE: LE connect request sent")
 					}
-				} else {
-					s.log.Info().
-						Str("device", device.Address).
-						Str("adapter", string(device.Adapter)).
-						Str("address_type", normalizeBS22AddressType(device.AddressType)).
-						Msg("BS-22 BLE: LE connect request sent")
+				}
+
+				if adapterConnectUnsupported && s.pairDevice != nil && !pairAttempted {
+					pairAttempted = true
+					if err := s.pairDevice(conn, device); err != nil {
+						if isIgnorableBlueZPairError(err) {
+							s.log.Info().
+								Err(err).
+								Str("device", string(device.Path)).
+								Bool("paired", device.Paired).
+								Msg("BS-22 BLE: Pair() request already satisfied")
+						} else {
+							s.log.Warn().
+								Err(err).
+								Str("device", string(device.Path)).
+								Bool("paired", device.Paired).
+								Msg("BS-22 BLE: Pair() request failed")
+						}
+					} else {
+						s.log.Info().
+							Str("device", string(device.Path)).
+							Bool("paired", device.Paired).
+							Msg("BS-22 BLE: Pair() request sent")
+					}
 				}
 			}
 			haveCurrent = false
@@ -504,6 +546,17 @@ func connectBlueZClassicDevice(conn *dbus.Conn, device bs22DeviceInfo) error {
 	return connectBlueZDevice(conn, device.Path)
 }
 
+func pairBlueZDevice(conn *dbus.Conn, device bs22DeviceInfo) error {
+	if conn == nil {
+		return errors.New("nil DBus connection")
+	}
+	if device.Path == "" {
+		return errors.New("empty BlueZ device path")
+	}
+
+	return conn.Object(bluezService, device.Path).Call(bluezDevicePairMethod, 0).Err
+}
+
 func connectBlueZLEDevice(conn *dbus.Conn, device bs22DeviceInfo) error {
 	if conn == nil {
 		return errors.New("nil DBus connection")
@@ -535,6 +588,7 @@ func findBS22Device(managed bluezManagedObjectMap) (bs22DeviceInfo, bool) {
 			Address:     variantString(props, "Address"),
 			AddressType: variantString(props, "AddressType"),
 			Connected:   variantBool(props, "Connected"),
+			Paired:      variantBool(props, "Paired"),
 		}
 
 		if !isBS22Device(info, props) {
@@ -765,6 +819,28 @@ func isIgnorableBlueZConnectError(err error) bool {
 	return strings.Contains(msg, "already connected") ||
 		strings.Contains(msg, "already exists") ||
 		strings.Contains(msg, "in progress")
+}
+
+func isIgnorableBlueZPairError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already exists") ||
+		strings.Contains(msg, "already paired") ||
+		strings.Contains(msg, "in progress")
+}
+
+func isMissingBlueZMethodError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "doesn't exist") ||
+		strings.Contains(msg, "does not exist") ||
+		strings.Contains(msg, "unknown method")
 }
 
 func normalizeBS22AddressType(addressType string) string {
