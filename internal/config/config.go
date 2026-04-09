@@ -73,16 +73,15 @@ const (
 	// the host API's recommendation.
 	DefaultCommsCaptureLatencyMs int = 60
 	// DefaultCommsCaptureFramesPerBuffer is the per-callback frame count
-	// suggested to PortAudio (StreamParameters.FramesPerBuffer). 960 @
-	// 48 kHz mono matches the Opus encoder frame (20 ms) so each callback
-	// produces exactly one RTP packet with no accumulation step. Operators
-	// on hardware where PortAudio's callback pacing is jittery can set
-	// comms.captureFramesPerBuffer to 0 in YAML — that translates to
-	// paFramesPerBufferUnspecified, which lets PortAudio choose a frame
-	// count that aligns with the native ALSA period and often delivers
-	// tighter wake-ups at the cost of an extra accumulation step inside
-	// the capture callback.
-	DefaultCommsCaptureFramesPerBuffer int    = 960
+	// suggested to malgo (DeviceConfig.PeriodSizeInFrames). 0 means
+	// "derive from comms.captureLatencyMs" — a 60 ms latency at 48 kHz
+	// gives a 2880-frame period, which leaves ALSA enough headroom on
+	// USB audio class devices to avoid poll() failures and capture gaps.
+	// The captureChunker re-aligns whatever ALSA actually delivers onto
+	// 960-sample (20 ms) Opus frames, so the encoder pipeline never sees
+	// the discrepancy. Operators can override with a positive value to
+	// pin the period explicitly, or with -1 to let miniaudio pick.
+	DefaultCommsCaptureFramesPerBuffer int    = 0
 	DefaultAuthEnable                  bool   = false
 	DefaultAuthSessionMaxAgeSecs       int    = 86400 // 24 hours
 	DefaultAuthSessionMaxSize          int    = 16

@@ -9,31 +9,33 @@ import (
 	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 )
 
-func TestBuildCapturePeriodFrames_DefaultWhenZero(t *testing.T) {
-	// framesPerBuffer == 0 means "not configured" (legacy / test /
-	// programmatic path) — substitute audiopool.FrameSize (960) so each
-	// callback still produces exactly one Opus frame.
-	got := buildCapturePeriodFrames(0)
+func TestBuildCapturePeriodFrames_DefaultDerivesFromLatency(t *testing.T) {
+	// framesPerBuffer == 0 means "not configured" — derive the period
+	// from CaptureLatencyMs (mirrors playback). 60 ms @ 48 kHz = 2880
+	// frames. The captureChunker re-aligns whatever ALSA gives back onto
+	// 960-sample chunks, so a larger period is invisible to the encoder.
+	assert.Equal(t, 2880, buildCapturePeriodFrames(0, 60),
+		"framesPerBuffer == 0 should derive period from latencyMs")
+}
 
-	assert.Equal(t, audiopool.FrameSize, got,
-		"framesPerBuffer == 0 should be substituted with audiopool.FrameSize")
+func TestBuildCapturePeriodFrames_DefaultFallbackWhenLatencyUnset(t *testing.T) {
+	// When neither knob is set, fall back to one Opus frame.
+	assert.Equal(t, audiopool.FrameSize, buildCapturePeriodFrames(0, 0),
+		"framesPerBuffer == 0 and latencyMs == 0 should fall back to FrameSize")
+	assert.Equal(t, audiopool.FrameSize, buildCapturePeriodFrames(0, -1),
+		"framesPerBuffer == 0 and negative latencyMs should fall back to FrameSize")
 }
 
 func TestBuildCapturePeriodFrames_UnspecifiedWhenNegative(t *testing.T) {
 	// framesPerBuffer < 0 is the operator's explicit escape hatch:
 	// returning 0 tells malgo "let miniaudio pick a period aligned with
-	// the native ALSA period" (DeviceConfig.PeriodSizeInFrames == 0 is
-	// the miniaudio sentinel for "default period").
-	got := buildCapturePeriodFrames(-1)
-
-	assert.Equal(t, 0, got,
-		"negative framesPerBuffer should map to 0 (miniaudio default period)")
+	// the native ALSA period".
+	assert.Equal(t, 0, buildCapturePeriodFrames(-1, 60),
+		"negative framesPerBuffer should map to 0 regardless of latencyMs")
 }
 
 func TestBuildCapturePeriodFrames_PositivePassthrough(t *testing.T) {
-	got := buildCapturePeriodFrames(1920)
-
-	assert.Equal(t, 1920, got,
+	assert.Equal(t, 1920, buildCapturePeriodFrames(1920, 60),
 		"positive framesPerBuffer should be passed through verbatim")
 }
 

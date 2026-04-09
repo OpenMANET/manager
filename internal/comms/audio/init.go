@@ -144,7 +144,7 @@ func (in *Init) OpenBroadcastStream(inDev device.AudioDeviceInfo) (*BroadcastEnc
 		}
 	}
 
-	periodFrames := uint32(buildCapturePeriodFrames(in.CaptureFramesPerBuffer))
+	periodFrames := uint32(buildCapturePeriodFrames(in.CaptureFramesPerBuffer, in.CaptureLatencyMs))
 
 	opener := func(onFrame func(samples []int16)) (captureStream, error) {
 		return openMalgoCapture(
@@ -189,18 +189,24 @@ func (in *Init) OpenBroadcastStream(inDev device.AudioDeviceInfo) (*BroadcastEnc
 // Rules (mirrors the previous PortAudio semantics to keep existing
 // YAML configs working unchanged):
 //
-//   - framesPerBuffer == 0 → substitute audiopool.FrameSize (960 =
-//     20 ms @ 48 kHz) so each callback still produces exactly one Opus
-//     frame.
+//   - framesPerBuffer == 0 → derive the period from latencyMs (mirrors
+//     playback). The captureChunker re-aligns whatever ALSA gives back
+//     onto audiopool.FrameSize chunks, so a larger period is invisible
+//     to the encoder. Falls back to audiopool.FrameSize when latencyMs
+//     is non-positive.
 //   - framesPerBuffer < 0 → pass 0 to malgo, letting miniaudio pick a
 //     period aligned with the native ALSA period. BroadcastEncoder's
 //     capture callback is responsible for handling the resulting
 //     variable-length frame cadence downstream.
 //   - framesPerBuffer > 0 → passthrough verbatim.
-func buildCapturePeriodFrames(framesPerBuffer int) int {
+func buildCapturePeriodFrames(framesPerBuffer, latencyMs int) int {
 	switch {
 	case framesPerBuffer == 0:
-		return audiopool.FrameSize
+		if latencyMs <= 0 {
+			return audiopool.FrameSize
+		}
+
+		return latencyMs * audiopool.SampleRate / 1000
 	case framesPerBuffer < 0:
 		return 0
 	default:
