@@ -228,42 +228,59 @@ func TestCommsManager_EnableRejectsUnknownControlSource(t *testing.T) {
 }
 
 // TestCommsManager_IfaceOverride verifies that buildCommsConfig prefers
-// comms.iface when set and falls back to meshNetInterface otherwise.
-// This is the round-4 fix that lets operators bind the multicast RTP
-// socket to the batman-adv mesh interface (bat0) instead of the bridge
-// interface (br-ahwlan), where bridge mcast flooding was dropping ~30 %
-// of incoming RTP packets as IgnoredMulti on the receiver host.
+// comms.iface / comms.localIPIface when set and falls back to
+// meshNetInterface otherwise. This is the round-4 fix that lets
+// operators bind the multicast RTP socket to the batman-adv mesh
+// interface (bat0, L2) while keeping the L3 IPv4 lookup on a bridge
+// interface (br-ahwlan) — because bat0 carries mcast at L2 but cannot
+// have an IPv4 address of its own.
 func TestCommsManager_IfaceOverride(t *testing.T) {
 	tests := []struct {
-		name       string
-		configYAML string
-		wantIface  string
+		name             string
+		configYAML       string
+		wantIface        string
+		wantLocalIPIface string
 	}{
 		{
-			name: "override wins when comms.iface is set",
+			name: "both overrides win when comms.iface and comms.localIPIface are set",
+			configYAML: "meshNetInterface: eth0\n" +
+				"comms:\n" +
+				"  enable: true\n" +
+				"  controlSource: openvlm\n" +
+				"  iface: bat0\n" +
+				"  localIPIface: br-ahwlan\n",
+			wantIface:        "bat0",
+			wantLocalIPIface: "br-ahwlan",
+		},
+		{
+			name: "comms.iface override with localIPIface unset falls back to meshNetInterface for L3",
 			configYAML: "meshNetInterface: br-ahwlan\n" +
 				"comms:\n" +
 				"  enable: true\n" +
 				"  controlSource: openvlm\n" +
 				"  iface: bat0\n",
-			wantIface: "bat0",
+			wantIface:        "bat0",
+			wantLocalIPIface: "br-ahwlan",
 		},
 		{
-			name: "falls back to meshNetInterface when comms.iface is unset",
+			name: "both unset falls back to meshNetInterface for both",
 			configYAML: "meshNetInterface: br-ahwlan\n" +
 				"comms:\n" +
 				"  enable: true\n" +
 				"  controlSource: openvlm\n",
-			wantIface: "br-ahwlan",
+			wantIface:        "br-ahwlan",
+			wantLocalIPIface: "br-ahwlan",
 		},
 		{
-			name: "empty comms.iface string is treated as unset and falls back",
+			name: "empty-string overrides are treated as unset and fall back",
 			configYAML: "meshNetInterface: br-ahwlan\n" +
 				"comms:\n" +
 				"  enable: true\n" +
 				"  controlSource: openvlm\n" +
-				"  iface: \"\"\n",
-			wantIface: "br-ahwlan",
+				"  iface: \"\"\n" +
+				"  localIPIface: \"\"\n",
+			wantIface:        "br-ahwlan",
+			wantLocalIPIface: "br-ahwlan",
 		},
 	}
 
@@ -285,7 +302,8 @@ func TestCommsManager_IfaceOverride(t *testing.T) {
 
 			cc := m.buildCommsConfig()
 
-			assert.Equal(t, tc.wantIface, cc.Iface)
+			assert.Equal(t, tc.wantIface, cc.Iface, "Iface (L2 join)")
+			assert.Equal(t, tc.wantLocalIPIface, cc.LocalIPIface, "LocalIPIface (L3 IPv4)")
 		})
 	}
 }

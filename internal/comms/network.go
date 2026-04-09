@@ -307,18 +307,43 @@ func (cfg *CommsConfig) buildSinglePortChannel(
 }
 
 // buildNetwork opens sockets for every McastPortConfig entry and returns the
-// assembled PortChannel slice plus the local IP address of cfg.Iface.
+// assembled PortChannel slice plus the local IP address resolved from
+// cfg.LocalIPIface (falling back to cfg.Iface on single-interface setups).
+//
+// Interface roles:
+//   - cfg.Iface is the L2 interface the multicast RTP sockets JOIN their
+//     group on. On batman-adv deployments this is bat0, which carries the
+//     mesh traffic at L2 but has no IPv4 address of its own.
+//   - cfg.LocalIPIface is the L3 interface whose IPv4 address is used as
+//     the TX source, loopback filter reference, and RTP ID fallback.
+//     Typically br-ahwlan on OpenMANET nodes. When empty it falls back to
+//     cfg.Iface so simpler (single-interface) deployments keep working.
 //
 // The SSRC used for all Send-enabled ports is derived from cfg.RtpID (or
 // localIP as fallback), keeping transmissions from this node identifiable
 // across talk groups.
 func (cfg *CommsConfig) buildNetwork() ([]*PortChannel, string, error) {
-	localIP, ifi, err := device.IfaceIPv4(cfg.Iface)
+	// Resolve the join interface (L2). Required — every multicast
+	// join needs a *net.Interface handle.
+	ifi, err := device.IfaceByName(cfg.Iface)
 	if err != nil {
 		return nil, "", err
 	}
 
-	cfg.Log.Debug().Msgf("comms: interface %s localIP %s", cfg.Iface, localIP)
+	// Resolve the local IPv4 address from the L3 interface. Fall back
+	// to cfg.Iface when LocalIPIface is empty so single-interface
+	// deployments do not need to set both fields.
+	localIPIface := cfg.LocalIPIface
+	if localIPIface == "" {
+		localIPIface = cfg.Iface
+	}
+
+	localIP, _, err := device.IfaceIPv4(localIPIface)
+	if err != nil {
+		return nil, "", err
+	}
+
+	cfg.Log.Debug().Msgf("comms: join iface=%s localIP=%s (from %s)", cfg.Iface, localIP, localIPIface)
 
 	rtpID := cfg.RtpID
 	if rtpID == "" {

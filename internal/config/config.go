@@ -30,7 +30,16 @@ const (
 	// the group on the mesh data interface (where traffic actually
 	// arrives) rather than the bridge interface (where it is flooded
 	// unreliably via bridge mcast snooping).
-	DefaultCommsIface                                string  = ""
+	DefaultCommsIface string = ""
+	// DefaultCommsLocalIPIface is empty by design: when unset, the
+	// comms subsystem falls back to the top-level meshNetInterface
+	// setting. This is the L3 interface whose IPv4 address is used as
+	// the RTP TX source and loopback filter reference — distinct from
+	// comms.iface, which is the L2 interface the multicast socket
+	// joins its group on. On batman-adv deployments bat0 carries L2
+	// traffic but holds no IPv4 address; the bridge interface
+	// (br-ahwlan) is the one with the address.
+	DefaultCommsLocalIPIface                         string  = ""
 	DefaultCommsDebug                                bool    = false
 	DefaultCommsLoopback                             bool    = false
 	DefaultCommsTrace                                bool    = false
@@ -122,6 +131,7 @@ type Config struct {
 	CommsControlSource                        string
 	CommsProtocol                             string
 	CommsIface                                string
+	CommsLocalIPIface                         string
 	CommsBluetoothPttBluetoothInputDevice     string
 	CommsBluetoothPttBluetoothAudioDeviceHint string
 	OpenMANETFrontendHostPort                 string
@@ -334,6 +344,12 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsIface = val
 	} else {
 		c.CommsIface = DefaultCommsIface
+	}
+
+	if val := c.v.GetString("comms.localIPIface"); val != "" {
+		c.CommsLocalIPIface = val
+	} else {
+		c.CommsLocalIPIface = DefaultCommsLocalIPIface
 	}
 
 	if c.v.IsSet("comms.debug") {
@@ -721,17 +737,30 @@ func (c *Config) GetCommsProtocol() string {
 	return c.CommsProtocol
 }
 
-// GetCommsIface returns the comms-subsystem interface override. When
-// empty the caller should fall back to GetMeshNetInterface. The override
-// exists so the multicast RTP socket can be bound to a different
-// interface than the rest of the mesh stack — specifically, on
-// batman-adv deployments where multicast traffic arrives on bat0 and
-// is only unreliably flooded into br-ahwlan.
+// GetCommsIface returns the comms-subsystem L2 interface override. When
+// empty the caller should fall back to GetMeshNetInterface. This is the
+// interface the multicast RTP socket joins its group on — on batman-adv
+// deployments it should be set to bat0 so the socket sees every frame
+// that batman-adv delivers, rather than the lossy bridge-flooded copy
+// on br-ahwlan.
 func (c *Config) GetCommsIface() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	return c.CommsIface
+}
+
+// GetCommsLocalIPIface returns the comms-subsystem L3 interface override
+// whose IPv4 address is used as the RTP TX source, the loopback filter
+// reference, and the RTP ID fallback. When empty the caller should fall
+// back to GetMeshNetInterface. This is distinct from GetCommsIface
+// because on batman-adv deployments bat0 is a L2 carrier with no IPv4
+// address and the IP lives on a bridge interface (e.g. br-ahwlan).
+func (c *Config) GetCommsLocalIPIface() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsLocalIPIface
 }
 
 // GetCommsDebug returns whether comms debug mode is enabled.

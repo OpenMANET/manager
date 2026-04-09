@@ -73,7 +73,19 @@ type CommsConfig struct {
 	Interrupt                chan os.Signal
 	NanoPTTDevicePath        string
 	CommKey                  string
-	Iface                    string
+	// Iface is the L2 interface the multicast RTP socket joins its
+	// group on. On batman-adv deployments this is typically bat0
+	// (which has no IPv4 address of its own — that's on LocalIPIface).
+	// On simpler deployments where a single interface carries both
+	// L2 and L3, set Iface to that interface and leave LocalIPIface
+	// empty to reuse Iface.
+	Iface string
+	// LocalIPIface is the L3 interface whose IPv4 address is used for
+	// the RTP TX source, loopback filtering, and RTP ID derivation.
+	// When empty, buildNetwork falls back to Iface (single-interface
+	// deployments). Typically "br-ahwlan" on OpenMANET nodes where
+	// the batman-adv bat0 interface is bridged to br-ahwlan for L3.
+	LocalIPIface             string
 	BluetoothInputDevice     string
 	BluetoothOutputDevice    string
 	BluetoothAudioDeviceHint string
@@ -126,6 +138,7 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		Interrupt:                cfg.Interrupt,
 		Enable:                   cfg.Enable,
 		Iface:                    cfg.Iface,
+		LocalIPIface:             cfg.LocalIPIface,
 		McastPorts:               mcastPorts,
 		CommKey:                  cfg.CommKey,
 		RtpID:                    cfg.RtpID,

@@ -173,6 +173,46 @@ func TestGetCommsIface(t *testing.T) {
 	}
 }
 
+func TestGetCommsLocalIPIface(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured localIPIface override",
+			setValue: strPtr("br-ahwlan"),
+			want:     "br-ahwlan",
+		},
+		{
+			name:     "returns empty default when unset so callers fall back",
+			setValue: nil,
+			want:     DefaultCommsLocalIPIface,
+		},
+		{
+			name:     "empty-string explicit is treated same as unset",
+			setValue: strPtr(""),
+			want:     DefaultCommsLocalIPIface,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("comms.localIPIface", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetCommsLocalIPIface()
+			if got != tt.want {
+				t.Errorf("GetCommsLocalIPIface() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetCommsEnable(t *testing.T) {
 	tests := []struct {
 		setValue *bool
