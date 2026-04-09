@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"golang.org/x/net/ipv4"
@@ -66,6 +69,77 @@ func setMulticastTTL(conn *net.UDPConn, ttl int) error {
 	}
 
 	return nil
+}
+
+// readUDPSocketDrops returns the kernel's per-socket drop counter for the
+// UDP socket bound to localPort, parsed out of /proc/net/udp and
+// /proc/net/udp6. Returns -1 with no error if no matching row is found
+// (e.g. on a non-Linux test host or before the socket is fully bound).
+//
+// The drops column is the canonical kernel counter for "packets dropped
+// because the per-socket receive queue was full" — the only definitive
+// signal that SO_RCVBUF or scheduling jitter is starving the receiver.
+func readUDPSocketDrops(localPort int) (int64, error) {
+	// /proc/net/udp{,6} format (one row per socket):
+	//   sl  local_address rem_address st tx_q rx_q tr tm->when retrnsmt
+	//     uid  timeout inode ref pointer drops
+	// local_address is "IP:PORT" in big-endian hex; we only need the PORT
+	// half so we don't have to byte-swap an IP. Drops is the last field.
+	for _, path := range [...]string{"/proc/net/udp", "/proc/net/udp6"} {
+		drops, err := scanUDPDropsFile(path, localPort)
+		if err != nil {
+			return -1, err
+		}
+
+		if drops >= 0 {
+			return drops, nil
+		}
+	}
+
+	return -1, nil
+}
+
+// scanUDPDropsFile parses one /proc/net/udp[6] file looking for a row
+// whose local_address ends with ":<localPort>" (port in big-endian hex)
+// and returns the drops column. Returns -1 with no error when the row is
+// missing — the caller falls through to the next file.
+func scanUDPDropsFile(path string, localPort int) (int64, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return -1, nil
+		}
+
+		return -1, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	wantSuffix := fmt.Sprintf(":%04X", localPort)
+
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		if i == 0 {
+			continue // header
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 13 {
+			continue
+		}
+
+		if !strings.HasSuffix(fields[1], wantSuffix) {
+			continue
+		}
+
+		// drops is the last field on the row.
+		drops, parseErr := strconv.ParseInt(fields[len(fields)-1], 10, 64)
+		if parseErr != nil {
+			return -1, fmt.Errorf("parse drops in %s: %w", path, parseErr)
+		}
+
+		return drops, nil
+	}
+
+	return -1, nil
 }
 
 // getReadBufferBytes returns the kernel's actual SO_RCVBUF for conn. Linux
@@ -210,9 +284,11 @@ func (cfg *CommsConfig) buildSinglePortChannel(
 		// observed value lets an operator see whether sysctl is undersized
 		// for the desired audio safety margin.
 		if got, gErr := getReadBufferBytes(recvConn); gErr == nil {
+			drops, _ := readUDPSocketDrops(mpc.Port)
 			cfg.Log.Debug().
 				Int("requested_bytes", rxSocketBufBytes).
 				Int("actual_bytes", got).
+				Int64("kernel_drops", drops).
 				Str("addr", mpc.Address).
 				Int("port", mpc.Port).
 				Msg("comms: rx socket buffer")

@@ -121,7 +121,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 	jitter := pc.Jitter
 
 	if rt.WebBridge != nil {
-		go cfg.webPlayoutLoop(ctx, jitter, rt)
+		go cfg.webPlayoutLoop(ctx, pc, jitter, rt)
 	}
 
 	// cachedLocalIP caches the parsed form of rt.LocalIP so that the loopback
@@ -141,6 +141,10 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 		}
 
 		n, src, err := pc.Receiver.ReadFromUDP(buf)
+		if err == nil {
+			pc.RxPkts.Add(1)
+		}
+
 		if err != nil {
 			select {
 			case <-ctx.Done():
@@ -172,6 +176,8 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 		loopbackDrop := !cfg.Loopback && (src.IP.IsLoopback() || src.IP.Equal(cachedLocalIP))
 
 		if loopbackDrop {
+			pc.RxLoopback.Add(1)
+
 			if cfg.Trace {
 				cfg.Log.Trace().Str("src", src.String()).Msg("comms: dropping own packet")
 			}
@@ -182,6 +188,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 		// Parse using pion/rtp for proper header validation.
 		pkt, parseErr := rtp.ParseIncoming(buf[:n])
 		if parseErr != nil {
+			pc.RxParseErrs.Add(1)
 			cfg.Log.Debug().Err(parseErr).Int("bytes", n).Msg("comms: dropping non-RTP datagram")
 
 			continue
@@ -214,12 +221,16 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 		// joining the multicast group does not get silently dropped
 		// because their starting sequence number happens to lie in the
 		// "past half" of the previous talker's frozen cursor.
-		if !jitter.PushWithSSRC(pkt.SSRC, pkt.SequenceNumber, pkt.Payload, func(oldSSRC, newSSRC uint32) {
+		if jitter.PushWithSSRC(pkt.SSRC, pkt.SequenceNumber, pkt.Payload, func(oldSSRC, newSSRC uint32) {
 			cfg.Log.Info().
 				Uint32("old_ssrc", oldSSRC).
 				Uint32("new_ssrc", newSSRC).
 				Msg("comms: RTP SSRC changed; jitter buffer reset")
 		}) {
+			pc.RxPushed.Add(1)
+		} else {
+			pc.RxPushRejected.Add(1)
+
 			if n := jitter.Overflows.Load(); n > 0 && n%50 == 0 {
 				cfg.Log.Warn().Int64("total_overflows", n).Msg("comms: jitter buffer overflow")
 			}
@@ -338,7 +349,7 @@ func (cfg *CommsConfig) playoutOneFrame(pc *PortChannel, rt *CommsRuntime, jitte
 // A safety-net poll fires every 100 ms so the loop can still flush a frame
 // in the unlikely event that a notify signal coalesced with a missed wake.
 // In steady state the ticker case should never run.
-func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *rtp.JitterBuffer, rt *CommsRuntime) {
+func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jitter *rtp.JitterBuffer, rt *CommsRuntime) { //nolint:gocognit
 	notify := jitter.EnableNotify()
 
 	const safetyPoll = 100 * time.Millisecond
@@ -348,18 +359,22 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *rtp.JitterBu
 
 	// Diagnostic counters local to this loop. popped tracks frames the
 	// jitter buffer handed us; concealed tracks PopOrConceal returning a
-	// PLC tick (no payload but stream active). Combined with the bridge's
-	// RxPushIn / RxPushDrop counters and the jitter buffer's Overflows,
-	// they localize where RX frames are being lost on the server side.
+	// PLC tick (no payload but stream active). Combined with the per-port
+	// RxPkts/RxLoopback/RxParseErrs/RxPushed/RxPushRejected counters and
+	// the jitter buffer's Overflows/SSRCResets/IdleResets, they localize
+	// where RX frames are being lost on the server side.
 	var popped, concealed int64
 
 	statTicker := time.NewTicker(2 * time.Second)
 	defer statTicker.Stop()
 
 	var (
-		lastPopped, lastConcealed int64
-		lastPushIn, lastPushDrop  int64
-		lastOverflows             int64
+		lastPopped, lastConcealed                    int64
+		lastPushIn, lastPushDrop                     int64
+		lastOverflows, lastSSRCResets, lastIdleReset int64
+		lastRxPkts, lastRxLoopback, lastRxParseErrs  int64
+		lastRxPushed, lastRxPushRejected             int64
+		lastKernelDrops                              int64
 	)
 
 	drain := func() {
@@ -394,20 +409,57 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *rtp.JitterBu
 			pushIn := rt.WebBridge.RxPushIn.Load()
 			pushDrop := rt.WebBridge.RxPushDrop.Load()
 			overflows := jitter.Overflows.Load()
+			ssrcResets := jitter.SSRCResets.Load()
+			idleResets := jitter.IdleResets.Load()
+
+			rxPkts := pc.RxPkts.Load()
+			rxLoopback := pc.RxLoopback.Load()
+			rxParseErrs := pc.RxParseErrs.Load()
+			rxPushed := pc.RxPushed.Load()
+			rxPushRejected := pc.RxPushRejected.Load()
+
+			// kernel_drops is the per-socket drop counter from /proc/net/udp.
+			// readUDPSocketDrops returns -1 with no error when no row matches
+			// (e.g. on a non-Linux test host) — treat that as zero so the
+			// delta arithmetic stays sane.
+			kernelDrops, _ := readUDPSocketDrops(pc.cfg.Port)
+			if kernelDrops < 0 {
+				kernelDrops = 0
+			}
 
 			dPopped := popped - lastPopped
 			dConcealed := concealed - lastConcealed
 			dPushIn := pushIn - lastPushIn
 			dPushDrop := pushDrop - lastPushDrop
 			dOverflows := overflows - lastOverflows
+			dSSRCResets := ssrcResets - lastSSRCResets
+			dIdleResets := idleResets - lastIdleReset
+			dRxPkts := rxPkts - lastRxPkts
+			dRxLoopback := rxLoopback - lastRxLoopback
+			dRxParseErrs := rxParseErrs - lastRxParseErrs
+			dRxPushed := rxPushed - lastRxPushed
+			dRxPushRejected := rxPushRejected - lastRxPushRejected
+			dKernelDrops := kernelDrops - lastKernelDrops
 
-			if dPopped > 0 || dConcealed > 0 || dPushIn > 0 || dPushDrop > 0 || dOverflows > 0 {
-				cfg.Log.Info().
+			// Suppress idle ports: only emit a line when this port had any
+			// RX activity in the last window. Eliminates the 5-port spam
+			// where 4 inactive ports each printed an all-zero line.
+			if dRxPkts > 0 || dPopped > 0 || dConcealed > 0 || dKernelDrops > 0 {
+				cfg.Log.Debug().
+					Int("port", pc.cfg.Port).
+					Int64("pkt_rx", dRxPkts).
+					Int64("pkt_loopback", dRxLoopback).
+					Int64("pkt_parse_err", dRxParseErrs).
+					Int64("pkt_pushed", dRxPushed).
+					Int64("push_rejected", dRxPushRejected).
 					Int64("popped", dPopped).
 					Int64("concealed", dConcealed).
 					Int64("push_in", dPushIn).
 					Int64("push_drop", dPushDrop).
 					Int64("jitter_overflow", dOverflows).
+					Int64("ssrc_resets", dSSRCResets).
+					Int64("idle_resets", dIdleResets).
+					Int64("kernel_drops", dKernelDrops).
 					Msg("comms: web rx stats 2s")
 			}
 
@@ -416,6 +468,14 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *rtp.JitterBu
 			lastPushIn = pushIn
 			lastPushDrop = pushDrop
 			lastOverflows = overflows
+			lastSSRCResets = ssrcResets
+			lastIdleReset = idleResets
+			lastRxPkts = rxPkts
+			lastRxLoopback = rxLoopback
+			lastRxParseErrs = rxParseErrs
+			lastRxPushed = rxPushed
+			lastRxPushRejected = rxPushRejected
+			lastKernelDrops = kernelDrops
 		}
 	}
 }

@@ -672,7 +672,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 
 func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 	cfg := newSilentComms()
-	rt, _ := newReceiveRuntime()
+	rt, pc := newReceiveRuntime()
 
 	bridge := webaudio.NewBridge(zerolog.Nop(), func(payload []byte) {
 		cfg.sendToAllPorts(rt, payload)
@@ -685,7 +685,7 @@ func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	go cfg.webPlayoutLoop(ctx, jb, rt)
+	go cfg.webPlayoutLoop(ctx, pc, jb, rt)
 
 	// The raw Opus bytes should arrive on the bridge's RX channel.
 	select {
@@ -724,7 +724,7 @@ func TestWebPlayoutLoop_MultipleFrames(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	go cfg.webPlayoutLoop(ctx, jb, rt)
+	go cfg.webPlayoutLoop(ctx, pc, jb, rt)
 
 	for i := 0; i < 5; i++ {
 		select {
@@ -743,7 +743,7 @@ func TestWebPlayoutLoop_MultipleFrames(t *testing.T) {
 // even while the local node is broadcasting.
 func TestWebPlayoutLoop_DeliversWhileBroadcasting(t *testing.T) {
 	cfg := newSilentComms()
-	rt, _ := newReceiveRuntime()
+	rt, pc := newReceiveRuntime()
 
 	bridge := webaudio.NewBridge(zerolog.Nop(), func(payload []byte) {
 		cfg.sendToAllPorts(rt, payload)
@@ -757,7 +757,7 @@ func TestWebPlayoutLoop_DeliversWhileBroadcasting(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	go cfg.webPlayoutLoop(ctx, jb, rt)
+	go cfg.webPlayoutLoop(ctx, pc, jb, rt)
 
 	select {
 	case <-bridge.RxFrames():

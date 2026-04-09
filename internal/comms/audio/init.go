@@ -201,14 +201,17 @@ func (in *Init) OpenBroadcastStream(inDev device.AudioDeviceInfo) (*BroadcastEnc
 //   - framesPerBuffer < 0 → pass 0 to malgo, letting miniaudio pick a
 //     period aligned with the native ALSA period.
 //   - framesPerBuffer > 0 → passthrough verbatim.
+//
 // buildCapturePeriods derives the ALSA periods count from
 // CaptureLatencyMs. The total ring depth is periodFrames * periods,
 // so we pick the smallest count that gives at least latencyMs of
 // headroom. Floor of 3 (miniaudio's default) and a ceiling of 16 to
 // keep the worst-case latency bounded if an operator sets a huge value.
 func buildCapturePeriods(latencyMs, periodFrames int) int {
-	const minPeriods = 3
-	const maxPeriods = 16
+	const (
+		minPeriods = 3
+		maxPeriods = 16
+	)
 
 	if latencyMs <= 0 || periodFrames <= 0 {
 		return minPeriods

@@ -71,8 +71,22 @@ type PortChannel struct {
 	ConsecutivePLC    int
 	RxGate            control.HalfDuplexGate
 	PlaybackUnderruns atomic.Int64
-	SendEnabled       atomic.Bool
-	ReceiveEnabled    atomic.Bool
+
+	// Diagnostic RX-path counters. All monotonic since startup; reporters
+	// compute deltas across windows. RxPkts is the raw "kernel handed us a
+	// packet" count from receiveLoop's ReadFromUDP; the remaining counters
+	// segment that count by what happened next. RxPushed + RxPushRejected
+	// only sum to RxPkts - RxLoopback - RxParseErrs (and only when the port
+	// is receive-enabled). Used to localize RX stutter to one specific
+	// stage of the per-port pipeline.
+	RxPkts         atomic.Int64
+	RxParseErrs    atomic.Int64
+	RxLoopback     atomic.Int64
+	RxPushed       atomic.Int64
+	RxPushRejected atomic.Int64
+
+	SendEnabled    atomic.Bool
+	ReceiveEnabled atomic.Bool
 }
 
 // MarkRemoteRx records that a remote RTP packet has just been received on
