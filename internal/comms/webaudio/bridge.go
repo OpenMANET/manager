@@ -7,6 +7,8 @@
 package webaudio
 
 import (
+	"sync/atomic"
+
 	"github.com/rs/zerolog"
 )
 
@@ -27,6 +29,14 @@ type Bridge struct {
 	log      zerolog.Logger
 	send     SendFn
 	rxFrames chan []byte
+
+	// Diagnostic counters for the RX side. Both are monotonic since
+	// bridge construction; consumers compute deltas across reporting
+	// windows. RxPushIn counts every PushRxFrame call (frames offered
+	// by webPlayoutLoop); RxPushDrop counts the subset that the
+	// non-blocking channel send dropped because rxFrames was full.
+	RxPushIn   atomic.Int64
+	RxPushDrop atomic.Int64
 }
 
 // NewBridge creates a bridge wired to the given send callback and logger.
@@ -68,9 +78,12 @@ func (b *Bridge) PushRxFrame(opusData []byte) {
 		return
 	}
 
+	b.RxPushIn.Add(1)
+
 	select {
 	case b.rxFrames <- opusData:
 	default:
+		b.RxPushDrop.Add(1)
 		b.log.Debug().Msg("web: RX frame channel full; dropping")
 	}
 }

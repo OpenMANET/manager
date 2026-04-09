@@ -346,12 +346,34 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *rtp.JitterBu
 	ticker := time.NewTicker(safetyPoll)
 	defer ticker.Stop()
 
+	// Diagnostic counters local to this loop. popped tracks frames the
+	// jitter buffer handed us; concealed tracks PopOrConceal returning a
+	// PLC tick (no payload but stream active). Combined with the bridge's
+	// RxPushIn / RxPushDrop counters and the jitter buffer's Overflows,
+	// they localize where RX frames are being lost on the server side.
+	var popped, concealed int64
+
+	statTicker := time.NewTicker(2 * time.Second)
+	defer statTicker.Stop()
+
+	var (
+		lastPopped, lastConcealed int64
+		lastPushIn, lastPushDrop  int64
+		lastOverflows             int64
+	)
+
 	drain := func() {
 		for {
-			payload, _ := jitter.PopOrConceal(concealRecentWindow)
+			payload, conceal := jitter.PopOrConceal(concealRecentWindow)
 			if payload == nil {
+				if conceal {
+					concealed++
+				}
+
 				return
 			}
+
+			popped++
 
 			cp := make([]byte, len(payload))
 			copy(cp, payload)
@@ -368,6 +390,32 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, jitter *rtp.JitterBu
 			drain()
 		case <-ticker.C:
 			drain()
+		case <-statTicker.C:
+			pushIn := rt.WebBridge.RxPushIn.Load()
+			pushDrop := rt.WebBridge.RxPushDrop.Load()
+			overflows := jitter.Overflows.Load()
+
+			dPopped := popped - lastPopped
+			dConcealed := concealed - lastConcealed
+			dPushIn := pushIn - lastPushIn
+			dPushDrop := pushDrop - lastPushDrop
+			dOverflows := overflows - lastOverflows
+
+			if dPopped > 0 || dConcealed > 0 || dPushIn > 0 || dPushDrop > 0 || dOverflows > 0 {
+				cfg.Log.Info().
+					Int64("popped", dPopped).
+					Int64("concealed", dConcealed).
+					Int64("push_in", dPushIn).
+					Int64("push_drop", dPushDrop).
+					Int64("jitter_overflow", dOverflows).
+					Msg("comms: web rx stats 2s")
+			}
+
+			lastPopped = popped
+			lastConcealed = concealed
+			lastPushIn = pushIn
+			lastPushDrop = pushDrop
+			lastOverflows = overflows
 		}
 	}
 }
