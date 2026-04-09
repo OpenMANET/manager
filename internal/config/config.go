@@ -86,6 +86,17 @@ const (
 	DefaultAuthSessionMaxAgeSecs       int    = 86400 // 24 hours
 	DefaultAuthSessionMaxSize          int    = 16
 	DefaultAuthPAMService              string = "login"
+	// DefaultInstrumentationEnable controls whether the periodic
+	// instrumentation snapshot worker is started at daemon boot.
+	DefaultInstrumentationEnable bool = false
+	// DefaultInstrumentationIntervalSecs is the capture period used when
+	// InstrumentationEnable is true and no override is supplied. 60
+	// seconds keeps file churn low while still giving enough resolution
+	// for operator triage.
+	DefaultInstrumentationIntervalSecs int = 60
+	// DefaultInstrumentationSnapshotDir is the filesystem directory new
+	// snapshot files are written into.
+	DefaultInstrumentationSnapshotDir string = "/tmp"
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -113,8 +124,10 @@ type Config struct {
 	DebugPprofAddress                         string
 	AuthPAMService                            string
 	GNSSCoTUID                                string
+	InstrumentationSnapshotDir                string
 	onChangeCallbacks                         []func(*Config)
 	BLOSStatusWorkerInterval                  int
+	InstrumentationIntervalSecs               int
 	OpenMANETWebsocketPort                    int
 	CommsEncoderComplexity                    int
 	CommsPlaybackLatencyMs                    int
@@ -145,6 +158,7 @@ type Config struct {
 	CommsLoopback                             bool
 	BLOSEnable                                bool
 	AuthEnable                                bool
+	InstrumentationEnable                     bool
 }
 
 // New creates a new Config instance with the given viper instance.
@@ -530,6 +544,25 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.AuthPAMService = val
 	} else {
 		c.AuthPAMService = DefaultAuthPAMService
+	}
+
+	// Load instrumentation snapshot configuration.
+	if c.v.IsSet("instrumentation.enable") {
+		c.InstrumentationEnable = c.v.GetBool("instrumentation.enable")
+	} else {
+		c.InstrumentationEnable = DefaultInstrumentationEnable
+	}
+
+	if val := c.v.GetInt("instrumentation.intervalSecs"); val > 0 {
+		c.InstrumentationIntervalSecs = val
+	} else {
+		c.InstrumentationIntervalSecs = DefaultInstrumentationIntervalSecs
+	}
+
+	if val := c.v.GetString("instrumentation.snapshotDir"); val != "" {
+		c.InstrumentationSnapshotDir = val
+	} else {
+		c.InstrumentationSnapshotDir = DefaultInstrumentationSnapshotDir
 	}
 }
 
@@ -1017,4 +1050,31 @@ func (c *Config) GetAuthPAMService() string {
 	defer c.mu.RUnlock()
 
 	return c.AuthPAMService
+}
+
+// GetInstrumentationEnable returns whether the periodic instrumentation
+// snapshot worker should be started at daemon boot.
+func (c *Config) GetInstrumentationEnable() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.InstrumentationEnable
+}
+
+// GetInstrumentationIntervalSecs returns the capture period, in seconds,
+// used by the instrumentation snapshot worker when enabled.
+func (c *Config) GetInstrumentationIntervalSecs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.InstrumentationIntervalSecs
+}
+
+// GetInstrumentationSnapshotDir returns the filesystem directory that
+// instrumentation snapshot files are written into.
+func (c *Config) GetInstrumentationSnapshotDir() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.InstrumentationSnapshotDir
 }

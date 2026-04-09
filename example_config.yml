@@ -42,3 +42,12 @@ comms:
     BluetoothAudioDeviceHint: ""
     BluetoothInputDevice: ""
     BluetoothOutputDevice: ""
+# Periodic instrumentation snapshot. When enable is true the daemon writes a
+# JSON snapshot of every runtime counter/metric to snapshotDir every
+# intervalSecs. See docs/instrumentation-snapshot.md for the field reference.
+# Snapshots are NOT rotated — pick an interval that matches the deployment
+# and clean up /tmp manually. Disabled by default.
+instrumentation:
+  enable: false
+  intervalSecs: 60
+  snapshotDir: /tmp
