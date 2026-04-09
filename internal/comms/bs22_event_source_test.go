@@ -13,16 +13,20 @@ func TestFindBS22Device_PrefersConnectedDevice(t *testing.T) {
 	managed := bluezManagedObjectMap{
 		dbus.ObjectPath("/org/bluez/hci0/dev_AA"): {
 			bluezDeviceInterface: {
-				"Alias":     dbus.MakeVariant("BS-22"),
-				"Connected": dbus.MakeVariant(false),
-				"Address":   dbus.MakeVariant("AA"),
+				"Alias":       dbus.MakeVariant("BS-22"),
+				"Connected":   dbus.MakeVariant(false),
+				"Address":     dbus.MakeVariant("AA"),
+				"AddressType": dbus.MakeVariant("public"),
+				"Adapter":     dbus.MakeVariant(dbus.ObjectPath("/org/bluez/hci0")),
 			},
 		},
 		dbus.ObjectPath("/org/bluez/hci0/dev_BB"): {
 			bluezDeviceInterface: {
-				"Alias":     dbus.MakeVariant("BS-22"),
-				"Connected": dbus.MakeVariant(true),
-				"Address":   dbus.MakeVariant("BB"),
+				"Alias":       dbus.MakeVariant("BS-22"),
+				"Connected":   dbus.MakeVariant(true),
+				"Address":     dbus.MakeVariant("BB"),
+				"AddressType": dbus.MakeVariant("random"),
+				"Adapter":     dbus.MakeVariant(dbus.ObjectPath("/org/bluez/hci0")),
 			},
 		},
 	}
@@ -34,6 +38,12 @@ func TestFindBS22Device_PrefersConnectedDevice(t *testing.T) {
 
 	if device.Path != dbus.ObjectPath("/org/bluez/hci0/dev_BB") {
 		t.Fatalf("findBS22Device().Path = %q, want %q", device.Path, "/org/bluez/hci0/dev_BB")
+	}
+	if device.Adapter != dbus.ObjectPath("/org/bluez/hci0") {
+		t.Fatalf("findBS22Device().Adapter = %q, want %q", device.Adapter, "/org/bluez/hci0")
+	}
+	if device.AddressType != "random" {
+		t.Fatalf("findBS22Device().AddressType = %q, want %q", device.AddressType, "random")
 	}
 }
 
@@ -160,6 +170,40 @@ func TestBS22HMCommandBytes(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("bs22HMCommandBytes()[%d] = %#x, want %#x", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBS22LEConnectProperties(t *testing.T) {
+	props := bs22LEConnectProperties(bs22DeviceInfo{
+		Address:     "41:42:86:99:1D:61",
+		AddressType: "PUBLIC",
+	})
+
+	if got := props["Address"].Value().(string); got != "41:42:86:99:1D:61" {
+		t.Fatalf("Address = %q", got)
+	}
+	if got := props["AddressType"].Value().(string); got != "public" {
+		t.Fatalf("AddressType = %q, want public", got)
+	}
+}
+
+func TestNormalizeBS22AddressType(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{in: "", want: "public"},
+		{in: "public", want: "public"},
+		{in: "PUBLIC", want: "public"},
+		{in: "random", want: "random"},
+		{in: "RANDOM", want: "random"},
+		{in: "other", want: "public"},
+	}
+
+	for _, tt := range tests {
+		if got := normalizeBS22AddressType(tt.in); got != tt.want {
+			t.Fatalf("normalizeBS22AddressType(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 	}
 }

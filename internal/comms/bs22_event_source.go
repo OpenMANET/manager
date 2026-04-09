@@ -26,6 +26,7 @@ const (
 	bluezGattCharacteristicStartNotify = bluezGattCharacteristicInterface + ".StartNotify"
 	bluezGattCharacteristicWriteValue  = bluezGattCharacteristicInterface + ".WriteValue"
 	bluezDeviceConnectMethod           = bluezDeviceInterface + ".Connect"
+	bluezAdapterConnectDeviceMethod    = "org.bluez.Adapter1.ConnectDevice"
 	bs22Name                           = "BS-22"
 	bs22HMServiceUUID                  = "00001100-d102-11e1-9b23-00025b00a5a5"
 	bs22HMWriteUUID                    = "00001101-d102-11e1-9b23-00025b00a5a5"
@@ -48,14 +49,16 @@ type bluezManagedObjectMap map[dbus.ObjectPath]map[string]map[string]dbus.Varian
 type bluezManagedLister func(*dbus.Conn) (bluezManagedObjectMap, error)
 type bluezCharacteristicNotifier func(*dbus.Conn, dbus.ObjectPath) error
 type bluezCharacteristicWriter func(*dbus.Conn, dbus.ObjectPath, []byte) error
-type bluezDeviceConnector func(*dbus.Conn, dbus.ObjectPath) error
+type bluezDeviceConnector func(*dbus.Conn, bs22DeviceInfo) error
 
 type bs22DeviceInfo struct {
-	Path      dbus.ObjectPath
-	Alias     string
-	Name      string
-	Address   string
-	Connected bool
+	Path        dbus.ObjectPath
+	Adapter     dbus.ObjectPath
+	Alias       string
+	Name        string
+	Address     string
+	AddressType string
+	Connected   bool
 }
 
 type bs22BLEBinding struct {
@@ -109,7 +112,7 @@ func NewBS22EventSource(log zerolog.Logger) EventSource {
 		listManaged:   listBlueZManagedObjects,
 		startNotify:   startBlueZNotify,
 		writeValue:    writeBlueZCharacteristicValue,
-		connectDevice: connectBlueZDevice,
+		connectDevice: connectBlueZClassicDevice,
 		xeventFactory: NewBlueALSAXEventSource,
 	}
 }
@@ -283,10 +286,16 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 
 		binding, ok := findBS22BLEBindingForDevice(managed, device)
 		if !ok {
-			if s.connectDevice != nil && time.Since(lastConnectAttempt) >= connectRetry {
+			if time.Since(lastConnectAttempt) >= connectRetry {
 				lastConnectAttempt = time.Now()
-				if err := s.connectDevice(conn, device.Path); err != nil && !isIgnorableBlueZConnectError(err) {
-					s.log.Debug().Err(err).Str("device", string(device.Path)).Msg("BS-22 BLE: connect request failed")
+				if !device.Connected && s.connectDevice != nil {
+					if err := s.connectDevice(conn, device); err != nil && !isIgnorableBlueZConnectError(err) {
+						s.log.Debug().Err(err).Str("device", string(device.Path)).Msg("BS-22 BLE: classic connect request failed")
+					}
+				}
+
+				if err := connectBlueZLEDevice(conn, device); err != nil && !isIgnorableBlueZConnectError(err) {
+					s.log.Debug().Err(err).Str("device", device.Address).Msg("BS-22 BLE: LE connect request failed")
 				}
 			}
 			haveCurrent = false
@@ -450,6 +459,28 @@ func connectBlueZDevice(conn *dbus.Conn, path dbus.ObjectPath) error {
 	return conn.Object(bluezService, path).Call(bluezDeviceConnectMethod, 0).Err
 }
 
+func connectBlueZClassicDevice(conn *dbus.Conn, device bs22DeviceInfo) error {
+	if device.Path == "" {
+		return errors.New("empty BlueZ device path")
+	}
+
+	return connectBlueZDevice(conn, device.Path)
+}
+
+func connectBlueZLEDevice(conn *dbus.Conn, device bs22DeviceInfo) error {
+	if conn == nil {
+		return errors.New("nil DBus connection")
+	}
+	if device.Adapter == "" {
+		return errors.New("empty BlueZ adapter path")
+	}
+	if device.Address == "" {
+		return errors.New("empty BlueZ device address")
+	}
+
+	return conn.Object(bluezService, device.Adapter).Call(bluezAdapterConnectDeviceMethod, 0, bs22LEConnectProperties(device)).Err
+}
+
 func findBS22Device(managed bluezManagedObjectMap) (bs22DeviceInfo, bool) {
 	devices := make([]bs22DeviceInfo, 0)
 
@@ -460,11 +491,13 @@ func findBS22Device(managed bluezManagedObjectMap) (bs22DeviceInfo, bool) {
 		}
 
 		info := bs22DeviceInfo{
-			Path:      path,
-			Alias:     variantString(props, "Alias"),
-			Name:      variantString(props, "Name"),
-			Address:   variantString(props, "Address"),
-			Connected: variantBool(props, "Connected"),
+			Path:        path,
+			Adapter:     variantObjectPath(props, "Adapter"),
+			Alias:       variantString(props, "Alias"),
+			Name:        variantString(props, "Name"),
+			Address:     variantString(props, "Address"),
+			AddressType: variantString(props, "AddressType"),
+			Connected:   variantBool(props, "Connected"),
 		}
 
 		if !isBS22Device(info, props) {
@@ -692,7 +725,25 @@ func isIgnorableBlueZConnectError(err error) bool {
 	}
 
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "already connected") || strings.Contains(msg, "in progress")
+	return strings.Contains(msg, "already connected") ||
+		strings.Contains(msg, "already exists") ||
+		strings.Contains(msg, "in progress")
+}
+
+func normalizeBS22AddressType(addressType string) string {
+	switch strings.ToLower(strings.TrimSpace(addressType)) {
+	case "random":
+		return "random"
+	default:
+		return "public"
+	}
+}
+
+func bs22LEConnectProperties(device bs22DeviceInfo) map[string]dbus.Variant {
+	return map[string]dbus.Variant{
+		"Address":     dbus.MakeVariant(device.Address),
+		"AddressType": dbus.MakeVariant(normalizeBS22AddressType(device.AddressType)),
+	}
 }
 
 func variantString(props map[string]dbus.Variant, key string) string {
