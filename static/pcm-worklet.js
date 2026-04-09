@@ -35,9 +35,14 @@ class PCMWorkletProcessor extends AudioWorkletProcessor {
     const n = Math.min(out.length, avail);
     for (let i = 0; i < n; i++) out[i] = this.ring[(rd + i) % this.ringSize];
     Atomics.store(this.state, 1, (rd + n) % this.ringSize);
-    for (let i = n; i < out.length; i++) out[i] = 0;
+    if (n < out.length) {
+      // Underrun: zero-fill the tail and bump the diagnostic counter so
+      // the main thread can surface sustained underruns.
+      Atomics.add(this.state, 4, out.length - n);
+      for (let i = n; i < out.length; i++) out[i] = 0;
+    }
     // Prefill is a one-shot gate: once set at the start of the stream it
-    // stays set. Transient underruns fall through to the zero-fill loop
+    // stays set. Transient underruns fall through to the zero-fill path
     // above; resetting prefill on drain used to amplify every hiccup into
     // a 60 ms audible stall.
     return true;

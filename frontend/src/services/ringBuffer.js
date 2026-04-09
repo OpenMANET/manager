@@ -42,13 +42,16 @@ import { PCM_RING_SIZE, JITTER_PREFILL } from '../constants.js';
 //   ringBuf — the underlying ArrayBuffer / SharedArrayBuffer (needed to post
 //             to the AudioWorklet)
 //   ring    — Float32Array view over ringBuf for sample data
-//   state   — Int32Array with 4 elements:
+//   state   — Int32Array with 5 elements:
 //             [0] writeIndex
 //             [1] readIndex
 //             [2] prefilled — 0 or 1, flips to 1 once jitter threshold is met
 //             [3] droppedFrames — monotonically increasing count of frames
 //                 dropped by ringWrite because the ring was full. Diagnostic
 //                 only; the audio path never reads this field itself.
+//             [4] underrunSamples — monotonically increasing count of
+//                 samples that had to be zero-filled by ringRead because
+//                 the ring was empty (after prefill). Diagnostic only.
 export function createRingBuffer(shared) {
   let ringBuf, ring, state;
 
@@ -56,20 +59,21 @@ export function createRingBuffer(shared) {
     // SharedArrayBuffer allows the AudioWorklet thread to read directly.
     ringBuf = new SharedArrayBuffer(PCM_RING_SIZE * 4); // 4 bytes per Float32
     ring = new Float32Array(ringBuf);
-    const stateBuf = new SharedArrayBuffer(4 * 4); // 4 Int32 slots
+    const stateBuf = new SharedArrayBuffer(5 * 4); // 5 Int32 slots
     state = new Int32Array(stateBuf);
   } else {
     // Plain buffers — only accessed from the main thread.
     ring = new Float32Array(PCM_RING_SIZE);
     ringBuf = ring.buffer;
-    state = new Int32Array(4); // [writeIndex, readIndex, prefilled, droppedFrames]
+    state = new Int32Array(5);
   }
 
-  // Zero out indices, prefill flag, and drop counter.
+  // Zero out indices, prefill flag, and diagnostic counters.
   Atomics.store(state, 0, 0); // writeIndex
   Atomics.store(state, 1, 0); // readIndex
   Atomics.store(state, 2, 0); // prefilled
   Atomics.store(state, 3, 0); // droppedFrames
+  Atomics.store(state, 4, 0); // underrunSamples
 
   return { ringBuf, ring, state };
 }
@@ -164,8 +168,12 @@ export function ringRead(ring, state, ringSize, dst, count) {
   }
   Atomics.store(state, 1, (rd + n) % ringSize);
 
-  // Zero-fill any remaining slots if we underran.
-  for (let i = n; i < count; i++) {
-    dst[i] = 0;
+  // Zero-fill any remaining slots if we underran, and record the gap for
+  // diagnostics so audioEngine can surface sustained underruns.
+  if (n < count) {
+    Atomics.add(state, 4, count - n);
+    for (let i = n; i < count; i++) {
+      dst[i] = 0;
+    }
   }
 }

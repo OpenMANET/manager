@@ -18,12 +18,13 @@ describe('TestCreateRingBuffer', () => {
     expect(ring).toBeInstanceOf(Float32Array);
     expect(ring.length).toBe(PCM_RING_SIZE);
     expect(state).toBeInstanceOf(Int32Array);
-    expect(state.length).toBe(4);
+    expect(state.length).toBe(5);
     // All indices start at zero.
     expect(Atomics.load(state, 0)).toBe(0); // writeIndex
     expect(Atomics.load(state, 1)).toBe(0); // readIndex
     expect(Atomics.load(state, 2)).toBe(0); // prefilled
     expect(Atomics.load(state, 3)).toBe(0); // droppedFrames
+    expect(Atomics.load(state, 4)).toBe(0); // underrunSamples
   });
 
   it('creates SharedArrayBuffer when available', () => {
@@ -33,7 +34,7 @@ describe('TestCreateRingBuffer', () => {
     expect(ring).toBeInstanceOf(Float32Array);
     expect(ring.length).toBe(PCM_RING_SIZE);
     expect(state).toBeInstanceOf(Int32Array);
-    expect(state.length).toBe(4);
+    expect(state.length).toBe(5);
   });
 });
 
@@ -110,7 +111,7 @@ describe('TestRingRead', () => {
     }
   });
 
-  it('zero-fills on underrun', () => {
+  it('zero-fills on underrun and increments underrun counter', () => {
     const { ring, state } = createRingBuffer(false);
     // Write JITTER_PREFILL to enable playback
     const src = new Float32Array(JITTER_PREFILL);
@@ -130,6 +131,19 @@ describe('TestRingRead', () => {
     for (let i = JITTER_PREFILL; i < readCount; i++) {
       expect(dst[i]).toBe(0);
     }
+    // Underrun counter bumped by the gap size.
+    expect(Atomics.load(state, 4)).toBe(100);
+  });
+
+  it('does not bump underrun counter when the read is fully satisfied', () => {
+    const { ring, state } = createRingBuffer(false);
+    const src = new Float32Array(JITTER_PREFILL);
+    ringWrite(ring, state, PCM_RING_SIZE, src);
+
+    const dst = new Float32Array(JITTER_PREFILL);
+    ringRead(ring, state, PCM_RING_SIZE, dst, JITTER_PREFILL);
+
+    expect(Atomics.load(state, 4)).toBe(0);
   });
 });
 

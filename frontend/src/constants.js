@@ -44,12 +44,15 @@ export const CHANNELS_DEF = [
 export const PCM_RING_SIZE = 16384;
 
 // Number of samples that must accumulate in the ring before playback begins.
-// This is 6 Opus frames (6 * 960 = 5760 samples = 120 ms).  The RX delivery
-// chain (backend jitter buffer → webaudio bridge → RPC stream → websocket
-// hub → browser) is bursty, so a deeper cushion lets the ring absorb
-// multi-frame bursts without underrunning between them.  120 ms of startup
-// latency is imperceptible for push-to-talk voice.
-export const JITTER_PREFILL = 5760;
+// This is 12 Opus frames (12 * 960 = 11520 samples = 240 ms). The RX
+// delivery chain (backend jitter buffer → webaudio bridge → RPC stream
+// → websocket hub → browser) is bursty: frames are coalesced at the
+// webPlayoutLoop safety-poll tick (100 ms), then at TCP coalescing, then
+// again by browser event-loop scheduling. A shallower cushion bottomed
+// out the ring between bursts and produced the audible stutter. 240 ms
+// of startup latency is still imperceptible for push-to-talk voice, and
+// leaves ~100 ms of headroom in the 341 ms ring capacity.
+export const JITTER_PREFILL = 11520;
 
 // -----------------------------------------------------------------------------
 // Whisper speech-to-text thresholds
