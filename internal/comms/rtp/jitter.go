@@ -61,15 +61,34 @@ type JitterBuffer struct {
 	Overflows   atomic.Int64
 	SSRCResets  atomic.Int64
 	IdleResets  atomic.Int64
-	count       int
-	prebuffer   int
-	maxDepth    int
-	mu          sync.Mutex
-	ssrc        uint32
-	expected    uint16
-	init        bool
-	started     bool
-	haveSSRC    bool
+	// GapRuns{N} counts contiguous sequence-gap runs observed by the
+	// skip-missing branch of popReadyLocked. Each gap is bucketed once
+	// at the point the consumer first skips into it — subsequent
+	// single-step cursor advances over the same run are not re-counted.
+	// The buckets distinguish isolated loss (GapRuns1, GapRuns2to5)
+	// from long contiguous bursts (GapRuns11to20 and up) so operators
+	// can tell whether FEC/redundancy or masking is the right recovery
+	// strategy. MaxDepth caps any single measured run at maxDepth, so
+	// the larger buckets will only fire if MaxDepth is raised.
+	GapRuns1      atomic.Int64
+	GapRuns2to5   atomic.Int64
+	GapRuns6to10  atomic.Int64
+	GapRuns11to20 atomic.Int64
+	GapRuns21to50 atomic.Int64
+	GapRunsOver50 atomic.Int64
+	count         int
+	prebuffer     int
+	maxDepth      int
+	mu            sync.Mutex
+	ssrc          uint32
+	expected      uint16
+	init          bool
+	started       bool
+	haveSSRC      bool
+	// inGap is true when the consumer is currently walking through a
+	// contiguous missing-sequence run. Cleared on every successful pop
+	// and on reset. Used to ensure each run is bucketed exactly once.
+	inGap bool
 }
 
 func NewJitterBuffer(prebuffer, maxDepth int) *JitterBuffer {
@@ -273,12 +292,19 @@ func (jb *JitterBuffer) popReadyLocked() (payload []byte, ready bool, skippedMis
 		jb.count--
 
 		jb.expected++
+		jb.inGap = false
 
 		return p, true, false
 	}
 
 	// If we've buffered a lot and still don't have the expected packet, skip it.
 	if jb.count >= jb.maxDepth/2 {
+		// Bucket the run exactly once on the first skip into a new gap.
+		if !jb.inGap {
+			jb.bucketGapRunLocked(jb.measureGapRunLocked())
+			jb.inGap = true
+		}
+
 		jb.expected++
 
 		return nil, false, true
@@ -389,7 +415,45 @@ func (jb *JitterBuffer) resetLocked() {
 	jb.expected = 0
 	jb.init = false
 	jb.started = false
+	jb.inGap = false
 	jb.lastPush = time.Time{}
+}
+
+// measureGapRunLocked walks forward from jb.expected looking for the next
+// valid slot whose seq matches the walked position, and returns the number
+// of missing slots before it. Bounded by jb.maxDepth (the ring never holds
+// a gap larger than its own size). Caller must hold jb.mu.
+func (jb *JitterBuffer) measureGapRunLocked() int {
+	for k := 0; k < jb.maxDepth; k++ {
+		seq := jb.expected + uint16(k)
+		idx := int(seq) % jb.maxDepth
+		slot := &jb.slots[idx]
+
+		if slot.valid && slot.seq == seq {
+			return k
+		}
+	}
+
+	return jb.maxDepth
+}
+
+// bucketGapRunLocked increments the gap-run counter bucket matching n.
+// n is the number of contiguous missing frames at the head of the run.
+func (jb *JitterBuffer) bucketGapRunLocked(n int) {
+	switch {
+	case n <= 1:
+		jb.GapRuns1.Add(1)
+	case n <= 5:
+		jb.GapRuns2to5.Add(1)
+	case n <= 10:
+		jb.GapRuns6to10.Add(1)
+	case n <= 20:
+		jb.GapRuns11to20.Add(1)
+	case n <= 50:
+		jb.GapRuns21to50.Add(1)
+	default:
+		jb.GapRunsOver50.Add(1)
+	}
 }
 
 // releasePayload returns a jitter-buffer payload slice back to the pool.

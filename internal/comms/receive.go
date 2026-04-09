@@ -376,6 +376,8 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 		lastRxPkts, lastRxLoopback, lastRxParseErrs  int64
 		lastRxPushed, lastRxPushRejected             int64
 		lastKernelDrops                              int64
+		lastGap1, lastGap2to5, lastGap6to10          int64
+		lastGap11to20, lastGap21to50, lastGapOver50  int64
 	)
 
 	// drain uses PopReady (not PopOrConceal) because the web consumer has
@@ -442,6 +444,20 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 				kernelDrops = 0
 			}
 
+			gap1 := jitter.GapRuns1.Load()
+			gap2to5 := jitter.GapRuns2to5.Load()
+			gap6to10 := jitter.GapRuns6to10.Load()
+			gap11to20 := jitter.GapRuns11to20.Load()
+			gap21to50 := jitter.GapRuns21to50.Load()
+			gapOver50 := jitter.GapRunsOver50.Load()
+
+			dGap1 := gap1 - lastGap1
+			dGap2to5 := gap2to5 - lastGap2to5
+			dGap6to10 := gap6to10 - lastGap6to10
+			dGap11to20 := gap11to20 - lastGap11to20
+			dGap21to50 := gap21to50 - lastGap21to50
+			dGapOver50 := gapOver50 - lastGapOver50
+
 			dPopped := popped - lastPopped
 			dPoppedSkipped := poppedSkipped - lastPoppedSkipped
 			dPushIn := pushIn - lastPushIn
@@ -475,6 +491,12 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 					Int64("ssrc_resets", dSSRCResets).
 					Int64("idle_resets", dIdleResets).
 					Int64("kernel_drops", dKernelDrops).
+					Int64("gap_runs_1", dGap1).
+					Int64("gap_runs_2_5", dGap2to5).
+					Int64("gap_runs_6_10", dGap6to10).
+					Int64("gap_runs_11_20", dGap11to20).
+					Int64("gap_runs_21_50", dGap21to50).
+					Int64("gap_runs_over_50", dGapOver50).
 					Msg("comms: web rx stats 2s")
 			}
 
@@ -491,6 +513,12 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 			lastRxPushed = rxPushed
 			lastRxPushRejected = rxPushRejected
 			lastKernelDrops = kernelDrops
+			lastGap1 = gap1
+			lastGap2to5 = gap2to5
+			lastGap6to10 = gap6to10
+			lastGap11to20 = gap11to20
+			lastGap21to50 = gap21to50
+			lastGapOver50 = gapOver50
 		}
 	}
 }

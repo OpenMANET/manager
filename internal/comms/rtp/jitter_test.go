@@ -696,3 +696,105 @@ func TestJitterBuffer_NotifyDisabledByDefault(t *testing.T) {
 		t.Fatal("Push must not allocate notifyCh as a side effect")
 	}
 }
+
+// TestJitterBuffer_GapHistogram verifies that sequence-gap runs are
+// bucketed by length exactly once per run at the first skip-missing
+// event, not once per skipped frame, and that a successful pop
+// terminates a run so the next gap is counted independently.
+func TestJitterBuffer_GapHistogram(t *testing.T) {
+	maxDepth := 24
+	jb := NewJitterBuffer(1, maxDepth)
+
+	// Initialize expected=0, prebuffer satisfied.
+	jb.Push(0, []byte{0})
+
+	if _, ready, _ := jb.PopReady(); !ready {
+		t.Fatal("seq=0 must be ready")
+	}
+	// expected is now 1.
+
+	// Craft a single 3-frame gap at 1..3, with 4..13 present (10 frames,
+	// ≥ maxDepth/2 = 12... not quite. Push enough to trip the skip.)
+	// We need jb.count >= 12 to enter the skip branch. Push seqs
+	// 4..15 (12 packets) leaving 1..3 missing.
+	for s := uint16(4); s <= 15; s++ {
+		if !jb.Push(s, []byte{byte(s)}) {
+			t.Fatalf("push seq=%d must succeed", s)
+		}
+	}
+
+	// First PopReady: expected=1, slot empty, count=12 ≥ 12 → skip.
+	// measureGapRunLocked should return 3 (seqs 1,2,3 missing before 4).
+	if _, _, skipped := jb.PopReady(); !skipped {
+		t.Fatal("expected skipped=true at head of gap")
+	}
+
+	// The gap should have been bucketed exactly once into 2_5.
+	if got := jb.GapRuns2to5.Load(); got != 1 {
+		t.Errorf("GapRuns2to5 = %d, want 1", got)
+	}
+
+	// Subsequent skips across the same run must NOT re-bucket.
+	// expected is now 2; slot 2 still missing; count=12 still ≥ 12? No,
+	// count didn't change because we just incremented expected. Count is
+	// still 12. Next PopReady skips again.
+	if _, _, skipped := jb.PopReady(); !skipped {
+		t.Fatal("expected skipped=true continuing through gap")
+	}
+
+	if got := jb.GapRuns2to5.Load(); got != 1 {
+		t.Errorf("GapRuns2to5 after second skip = %d, want 1 (no re-bucket)", got)
+	}
+
+	if _, _, skipped := jb.PopReady(); !skipped {
+		t.Fatal("expected skipped=true on third skip")
+	}
+
+	// Now expected=4 and slot 4 is valid → successful pop ends the run.
+	if _, ready, _ := jb.PopReady(); !ready {
+		t.Fatal("expected ready=true at seq=4")
+	}
+
+	// Drain 5..15 cleanly. No new gap runs should be counted.
+	for i := 0; i < 11; i++ {
+		if _, ready, _ := jb.PopReady(); !ready {
+			t.Fatalf("drain iter %d: expected ready=true", i)
+		}
+	}
+
+	// Totals across all buckets should be exactly 1.
+	total := jb.GapRuns1.Load() + jb.GapRuns2to5.Load() +
+		jb.GapRuns6to10.Load() + jb.GapRuns11to20.Load() +
+		jb.GapRuns21to50.Load() + jb.GapRunsOver50.Load()
+	if total != 1 {
+		t.Errorf("total gap runs = %d, want 1", total)
+	}
+}
+
+// TestJitterBuffer_GapHistogram_SingleFrame verifies that a 1-frame
+// gap lands in the GapRuns1 bucket.
+func TestJitterBuffer_GapHistogram_SingleFrame(t *testing.T) {
+	maxDepth := 24
+	jb := NewJitterBuffer(1, maxDepth)
+
+	jb.Push(0, []byte{0})
+
+	if _, ready, _ := jb.PopReady(); !ready {
+		t.Fatal("seq=0 must be ready")
+	}
+	// expected=1.
+
+	// Single missing frame at seq=1, followed by 2..13 (12 packets)
+	// so count=12 meets skip threshold.
+	for s := uint16(2); s <= 13; s++ {
+		jb.Push(s, []byte{byte(s)})
+	}
+
+	if _, _, skipped := jb.PopReady(); !skipped {
+		t.Fatal("expected skipped=true")
+	}
+
+	if got := jb.GapRuns1.Load(); got != 1 {
+		t.Errorf("GapRuns1 = %d, want 1", got)
+	}
+}

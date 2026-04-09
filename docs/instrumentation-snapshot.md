@@ -172,6 +172,12 @@ One entry per configured multicast talk group. The slice order mirrors
 | `jitter.overflows` | count | Incoming packets rejected because the jitter buffer was full. Sustained non-zero deltas across snapshots mean the receiver is behind the sender or the network is bursting. |
 | `jitter.ssrc_resets` | count | Mid-stream SSRC transitions the jitter buffer handled by resetting. High values (multiple per minute) suggest multiple talkers or sender restarts. |
 | `jitter.idle_resets` | count | Gap-driven buffer resets (same SSRC, silence longer than the idle threshold). |
+| `jitter.gap_runs_1` | count | Contiguous sequence-gap runs of length 1 frame (~20 ms) observed at the jitter buffer's skip-missing branch. Each run is counted exactly once at the skip point, not once per skipped frame. |
+| `jitter.gap_runs_2_5` | count | Gap runs of 2–5 frames (40–100 ms). |
+| `jitter.gap_runs_6_10` | count | Gap runs of 6–10 frames (120–200 ms). |
+| `jitter.gap_runs_11_20` | count | Gap runs of 11–20 frames (220–400 ms). |
+| `jitter.gap_runs_21_50` | count | Gap runs of 21–50 frames (420 ms–1 s). Will only fire if `MaxDepth` is raised above 24. |
+| `jitter.gap_runs_over_50` | count | Gap runs of 51+ frames (>1 s). Will only fire if `MaxDepth` is raised above 50. |
 | `rx_gate.last_mark_unix_nano` | unix-nanoseconds | Timestamp of the most recent Mark call; 0 = never marked. |
 | `rx_gate.threshold_ns` | nanoseconds | Half-duplex receive window. Default is 400 ms. |
 | `rx_gate.active` | bool | `true` iff `last_mark_unix_nano` is within `threshold_ns` of now. |
@@ -228,7 +234,18 @@ thumb in order and flag anything that fits.
    `comms.ports[*].rx_pkts` (did the kernel actually deliver the packets?)
    and `comms.ports[*].web_popped_skipped` (did `webPlayoutLoop` advance
    the cursor past a gap?).
-10. **Comms disabled but expected.** If the user reports a broken PTT
+10. **RX loss topology.** The `jitter.gap_runs_*` buckets distinguish
+    isolated packet loss from contiguous burst loss. A distribution
+    weighted in `gap_runs_1` and `gap_runs_2_5` indicates short,
+    recoverable losses — Opus in-band FEC (LBRR) and RFC 2198-style
+    redundant payloads can mitigate these. A distribution weighted in
+    `gap_runs_11_20` and higher indicates long contiguous bursts
+    (>200 ms) that no bounded-latency FEC scheme can recover; this is
+    typical of WiFi broadcast/multicast on interference-prone links
+    and usually means the mitigation has to be masking (longer jitter
+    buffer, PLC) rather than recovery. Always read these buckets
+    alongside `rx_pkts` so you know the absolute scale.
+11. **Comms disabled but expected.** If the user reports a broken PTT
    workflow but `comms.enabled == false`, the subsystem was either
    disabled in config or failed to start. Check daemon logs for the
    corresponding startup error.

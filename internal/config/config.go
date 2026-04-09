@@ -10,18 +10,18 @@ import (
 
 // Default configuration values
 const (
-	DefaultMeshNetInterface                   string = "br-ahwlan"
-	DefaultDBFile                             string = "/etc/openmanetd/openmanetd.db"
-	DefaultAlfredMode                         string = "primary"
-	DefaultAlfredBatInterface                 string = "bat0"
-	DefaultBatmanMulticastEnhancementsEnabled bool   = true
-	DefaultAlfredSocketPath                   string = "/var/run/alfred.sock"
-	DefaultAlfredEnable                       bool   = true
-	DefaultAlfredDataTypeGateway              bool   = true
-	DefaultAlfredDataTypeNode                 bool   = true
-	DefaultAlfredDataTypePosition             bool   = true
-	DefaultAlfredDataTypeAddressReserv        bool   = true
-	DefaultCommsEnable                        bool   = false
+	DefaultMeshNetInterface                          string  = "br-ahwlan"
+	DefaultDBFile                                    string  = "/etc/openmanetd/openmanetd.db"
+	DefaultAlfredMode                                string  = "primary"
+	DefaultAlfredBatInterface                        string  = "bat0"
+	DefaultBatmanMulticastEnhancementsEnabled        bool    = true
+	DefaultAlfredSocketPath                          string  = "/var/run/alfred.sock"
+	DefaultAlfredEnable                              bool    = true
+	DefaultAlfredDataTypeGateway                     bool    = true
+	DefaultAlfredDataTypeNode                        bool    = true
+	DefaultAlfredDataTypePosition                    bool    = true
+	DefaultAlfredDataTypeAddressReserv               bool    = true
+	DefaultCommsEnable                               bool    = false
 	DefaultCommsProtocol                             string  = "rtp"
 	DefaultCommsDebug                                bool    = false
 	DefaultCommsLoopback                             bool    = false

@@ -34,5 +34,5 @@ comms:
 # and clean up /tmp manually. Disabled by default.
 instrumentation:
   enable: false
-  intervalSecs: 60
+  intervalSecs: 300
   snapshotDir: /tmp

@@ -226,4 +226,3 @@ func TestCommsManager_EnableRejectsUnknownControlSource(t *testing.T) {
 	assert.False(t, m.IsRunning(), "manager must not be running after Validate failure")
 	assert.False(t, startCalled.Load(), "start function must not be invoked when Validate fails")
 }
-

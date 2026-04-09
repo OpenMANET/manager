@@ -38,7 +38,8 @@
       "Bash(wc -l /workspaces/openmanetd/internal/comms/audio/*.go /workspaces/openmanetd/internal/comms/audiopool/*.go /workspaces/openmanetd/internal/comms/codec/*.go /workspaces/openmanetd/internal/comms/control/*.go /workspaces/openmanetd/internal/comms/device/*.go /workspaces/openmanetd/internal/comms/rtp/*.go /workspaces/openmanetd/internal/comms/webaudio/*.go)",
       "Read(//usr/bin/**)",
       "Bash(go get:*)",
-      "Read(//home/vscode/go/pkg/mod/github.com/**)"
+      "Read(//home/vscode/go/pkg/mod/github.com/**)",
+      "Bash(ls /workspaces/openmanetd/internal/comms/rtp/*test*.go)"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"
