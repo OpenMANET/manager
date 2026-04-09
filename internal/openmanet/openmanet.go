@@ -242,13 +242,13 @@ func startInstrumentationWorker(ctx context.Context, cfg *config.Config, blosMan
 		Hostname: hostname,
 	})
 
-	if err := reg.Register("comms", &comms.CommsSnapshotter{}); err != nil {
+	if err = reg.Register("comms", &comms.CommsSnapshotter{}); err != nil {
 		log.Error().Err(err).Msg("instrumentation: failed to register comms snapshotter")
 
 		return
 	}
 
-	if err := reg.Register("blos", &blos.BLOSSnapshotter{Manager: blosManager}); err != nil {
+	if err = reg.Register("blos", &blos.BLOSSnapshotter{Manager: blosManager}); err != nil {
 		log.Error().Err(err).Msg("instrumentation: failed to register blos snapshotter")
 
 		return
