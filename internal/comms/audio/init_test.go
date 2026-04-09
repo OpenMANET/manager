@@ -92,38 +92,3 @@ func TestPeriodFramesToDuration(t *testing.T) {
 		})
 	}
 }
-
-func TestLatencyToFrames(t *testing.T) {
-	tests := []struct {
-		name    string
-		latency time.Duration
-		want    int
-	}{
-		{
-			name:    "zero latency is zero frames",
-			latency: 0,
-			want:    0,
-		},
-		{
-			name:    "one frame period",
-			latency: 20 * time.Millisecond,
-			want:    audiopool.FrameSize,
-		},
-		{
-			name:    "three frame periods",
-			latency: 60 * time.Millisecond,
-			want:    3 * audiopool.FrameSize,
-		},
-		{
-			name:    "arbitrary value",
-			latency: 21 * time.Millisecond,
-			want:    1008,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, latencyToFrames(tt.latency))
-		})
-	}
-}

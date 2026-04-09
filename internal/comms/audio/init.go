@@ -88,17 +88,21 @@ func (in *Init) BuildAudio(slots []PortSlot) (*BroadcastEncoder, device.AudioDev
 
 		// Record the period-derived playback latency so the TX path's
 		// beep-emergence wait (transmitSettleWait) has something to
-		// anchor on. miniaudio does not expose a runtime "actual" output
-		// latency the way PortAudio did, so the diagnostic is the
-		// configured period duration — a conservative lower bound that
-		// is generally correct for ALSA.
+		// anchor on. miniaudio does not expose the negotiated runtime
+		// period (and ALSA's USB audio class driver typically rounds
+		// the requested period up to a power of two — e.g. it gives
+		// 1024 frames when we ask for 960), so the diagnostic is the
+		// configured period duration. The playbackChunker in
+		// malgo_playback.go re-aligns whatever period ALSA picks back
+		// onto audiopool.FrameSize chunks, so the downstream playoutFrame
+		// closure never sees the discrepancy.
 		period := periodFramesToDuration(playbackPeriod, uint32(audiopool.SampleRate))
 		in.PlaybackOutputLatency = max(in.PlaybackOutputLatency, period)
 
 		in.Log.Info().
 			Int("configured_latency_ms", in.PlaybackLatencyMs).
-			Int("period_frames", int(playbackPeriod)).
-			Dur("period_duration", period).
+			Int("requested_period_frames", int(playbackPeriod)).
+			Dur("requested_period_duration", period).
 			Int("port", slot.Port).
 			Str("device", outDev.Name).
 			Msg("comms: playback stream opened")
@@ -158,13 +162,20 @@ func (in *Init) OpenBroadcastStream(inDev device.AudioDeviceInfo) (*BroadcastEnc
 		return nil, err
 	}
 
+	// info.InputLatency is the period_frames value we requested converted
+	// to a duration; miniaudio does not expose the negotiated runtime
+	// period after InitDevice. ALSA's USB audio class driver typically
+	// rounds the requested period up to a power of two (e.g. it gives us
+	// 1024 frames when we ask for 960). The captureChunker in
+	// malgo_capture.go re-aligns whatever period ALSA picks back onto
+	// audiopool.FrameSize chunks before the encoder ever sees them, so
+	// the discrepancy is invisible to the encode pipeline.
 	info := be.s.Info()
 
 	in.Log.Info().
 		Int("configured_latency_ms", in.CaptureLatencyMs).
 		Int("requested_period_frames", int(periodFrames)).
-		Dur("period_duration", info.InputLatency).
-		Int("period_frames", latencyToFrames(info.InputLatency)).
+		Dur("requested_period_duration", info.InputLatency).
 		Int("encode_chan_depth", broadcastEncoderChanDepth).
 		Str("device", inDev.Name).
 		Msg("comms: broadcast stream opened")
@@ -212,13 +223,6 @@ func computePlaybackPeriodFrames(latencyMs int) int {
 	}
 
 	return latencyMs * audiopool.SampleRate / 1000
-}
-
-// latencyToFrames converts a duration into an equivalent frame count at
-// the codec sample rate. Used to render diagnostic latencies as a frame
-// count in the stream open log.
-func latencyToFrames(latency time.Duration) int {
-	return int(latency.Seconds() * float64(audiopool.SampleRate))
 }
 
 // StartHardware initializes the malgo context, opens the broadcast and

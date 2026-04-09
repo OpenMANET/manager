@@ -7,6 +7,7 @@ import (
 
 	"github.com/gen2brain/malgo"
 
+	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/device"
 )
 
@@ -16,9 +17,20 @@ import (
 // view of the same buffer miniaudio allocated (reinterpret via
 // unsafe.Slice; safe because FormatS16 guarantees 2-byte alignment, the
 // host is little-endian, and the buffer outlives the callback call).
+//
+// The stream owns a small int16 accumulator that re-aligns variable-
+// length malgo callbacks onto fixed audiopool.FrameSize chunks. ALSA's
+// USB audio class driver typically rounds period sizes up to a power of
+// two (e.g. it gives us 1024-frame periods when we ask for 960), so the
+// raw malgo callback length cannot be assumed to equal the Opus encoder
+// frame. The accumulator hides that mismatch from BroadcastEncoder,
+// which still sees one 960-sample frame per onFrame call.
 type malgoCaptureStream struct {
-	dev  *malgo.Device
-	info streamInfo
+	dev       *malgo.Device
+	accum     []int16
+	info      streamInfo
+	accumLen  int
+	chunkSize int
 }
 
 // openMalgoCapture configures and initializes a malgo capture device in
@@ -45,13 +57,21 @@ func openMalgoCapture(
 	cfg.PerformanceProfile = malgo.LowLatency
 	cfg.Alsa.NoMMap = 0
 
+	stream := &malgoCaptureStream{
+		accum:     make([]int16, audiopool.FrameSize),
+		chunkSize: audiopool.FrameSize,
+		info: streamInfo{
+			InputLatency: periodFramesToDuration(periodFrames, sampleRate),
+		},
+	}
+
 	onData := func(_, in []byte, frameCount uint32) {
 		if len(in) == 0 || frameCount == 0 {
 			return
 		}
 
-		samples := int16View(in, int(frameCount)*int(channels))
-		onFrame(samples)
+		src := int16View(in, int(frameCount)*int(channels))
+		captureChunk(stream, src, onFrame)
 	}
 
 	d, err := malgo.InitDevice(ctx.Context, cfg, malgo.DeviceCallbacks{Data: onData})
@@ -59,12 +79,54 @@ func openMalgoCapture(
 		return nil, fmt.Errorf("malgo init capture device: %w", err)
 	}
 
-	return &malgoCaptureStream{
-		dev: d,
-		info: streamInfo{
-			InputLatency: periodFramesToDuration(periodFrames, sampleRate),
-		},
-	}, nil
+	stream.dev = d
+
+	return stream, nil
+}
+
+// captureChunk re-aligns a single malgo callback's worth of samples onto
+// stream.chunkSize boundaries, invoking onFrame for each complete chunk.
+// Pulled out of the onData closure so the chunker can be unit-tested
+// against synthetic input without opening a real malgo device.
+//
+// Single-producer: must only ever be called from the miniaudio worker
+// thread that owns stream.accum / stream.accumLen.
+func captureChunk(stream *malgoCaptureStream, src []int16, onFrame func(samples []int16)) {
+	if len(src) == 0 {
+		return
+	}
+
+	// Fast path: nothing buffered AND src is an exact multiple of the
+	// chunk size. Emit each chunk in place without copying through the
+	// accumulator. This is what fires when the underlying ALSA period
+	// happens to be 960 (or any multiple), so a well-behaved backend
+	// pays no extra cost.
+	if stream.accumLen == 0 && len(src)%stream.chunkSize == 0 {
+		for off := 0; off < len(src); off += stream.chunkSize {
+			onFrame(src[off : off+stream.chunkSize])
+		}
+
+		return
+	}
+
+	// Slow path: glue accum + src and emit chunks until src is drained.
+	// onFrame is BroadcastEncoder.captureCallback, which copies the slice
+	// into its own pooled frame before returning, so reusing
+	// stream.accum across iterations is safe.
+	for len(src) > 0 {
+		space := stream.chunkSize - stream.accumLen
+
+		n := min(len(src), space)
+
+		copy(stream.accum[stream.accumLen:], src[:n])
+		stream.accumLen += n
+		src = src[n:]
+
+		if stream.accumLen == stream.chunkSize {
+			onFrame(stream.accum)
+			stream.accumLen = 0
+		}
+	}
 }
 
 // Start kicks off the miniaudio callback thread for this capture device.
