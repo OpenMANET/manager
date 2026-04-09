@@ -85,6 +85,14 @@ type PortChannel struct {
 	RxPushed       atomic.Int64
 	RxPushRejected atomic.Int64
 
+	// WebPoppedSkipped is bumped by webPlayoutLoop when the jitter
+	// buffer's PopReady returns skippedMissing=true (an out-of-order
+	// sequence gap wide enough that the buffer advanced the cursor past
+	// the hole). Diagnostic only; the audio path never reads this field
+	// itself. Zero on the portaudio playout path, which does not use
+	// webPlayoutLoop.
+	WebPoppedSkipped atomic.Int64
+
 	SendEnabled    atomic.Bool
 	ReceiveEnabled atomic.Bool
 }

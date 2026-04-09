@@ -163,6 +163,12 @@ One entry per configured multicast talk group. The slice order mirrors
 | `send_enabled` | bool | Runtime toggle — if `false`, the TX path skips this talk group. |
 | `receive_enabled` | bool | Runtime toggle — if `false`, incoming RTP is not pushed into the jitter buffer. |
 | `playback_underruns` | count | Number of playback-side decode failures that had to recover via PLC (packet loss concealment). |
+| `rx_pkts` | count | Monotonic count of successful `ReadFromUDP` returns on this port's receive socket (packets the kernel handed userspace). |
+| `rx_loopback` | count | Packets dropped by the loopback filter (own-IP suppression) before reaching the RTP parser. |
+| `rx_parse_errs` | count | Packets that failed `rtp.ParseIncoming`. Sustained nonzero deltas indicate a non-RTP sender aliasing the port. |
+| `rx_pushed` | count | Packets that `PushWithSSRC` accepted into the jitter buffer. In a healthy stream, `rx_pushed ≈ rx_pkts - rx_loopback - rx_parse_errs`. |
+| `rx_push_rejected` | count | Packets that `PushWithSSRC` rejected as stale-cursor, duplicate, or overflow. A sustained nonzero delta with `jitter.ssrc_resets` flat indicates a consumer-side cursor-advance bug or sender reordering. |
+| `web_popped_skipped` | count | `webPlayoutLoop` observed the jitter buffer advancing past a missing sequence number (only happens when the buffer is half-full of out-of-order packets). Zero on the portaudio playout path. |
 | `jitter.overflows` | count | Incoming packets rejected because the jitter buffer was full. Sustained non-zero deltas across snapshots mean the receiver is behind the sender or the network is bursting. |
 | `jitter.ssrc_resets` | count | Mid-stream SSRC transitions the jitter buffer handled by resetting. High values (multiple per minute) suggest multiple talkers or sender restarts. |
 | `jitter.idle_resets` | count | Gap-driven buffer resets (same SSRC, silence longer than the idle threshold). |
@@ -214,7 +220,15 @@ thumb in order and flag anything that fits.
 8. **GC pressure.** `runtime.gc_pause_last_ns > 20_000_000` (20 ms)
    means the most recent GC pause straddled an audio frame boundary and
    may have caused a stutter.
-9. **Comms disabled but expected.** If the user reports a broken PTT
+9. **RX push rejection.** `comms.ports[*].rx_push_rejected` increasing
+   across two snapshots while `jitter.ssrc_resets` and `jitter.idle_resets`
+   stay flat means packets are being rejected by the jitter buffer as
+   stale-cursor — typically a sign of a consumer-side cursor-advance bug
+   or severe sender reordering. Cross-reference with
+   `comms.ports[*].rx_pkts` (did the kernel actually deliver the packets?)
+   and `comms.ports[*].web_popped_skipped` (did `webPlayoutLoop` advance
+   the cursor past a gap?).
+10. **Comms disabled but expected.** If the user reports a broken PTT
    workflow but `comms.enabled == false`, the subsystem was either
    disabled in config or failed to start. Check daemon logs for the
    corresponding startup error.

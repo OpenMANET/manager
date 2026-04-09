@@ -34,10 +34,10 @@ type Snapshotter interface {
 // DaemonInfo carries immutable process-level metadata included in every
 // Envelope. Populated once at Registry construction.
 type DaemonInfo struct {
+	StartedAt time.Time `json:"started_at"`
 	Version   string    `json:"version"`
 	Hostname  string    `json:"hostname"`
 	PID       int       `json:"pid"`
-	StartedAt time.Time `json:"started_at"`
 }
 
 // NamedSection is one entry in an Envelope. Data is a pointer into a
@@ -45,8 +45,8 @@ type DaemonInfo struct {
 // Refresh refreshes the same struct in place. Consumers that want to
 // retain a snapshot across captures must copy or marshal Data.
 type NamedSection struct {
-	Name string `json:"name"`
 	Data any    `json:"data"`
+	Name string `json:"name"`
 }
 
 // Envelope is the top-level snapshot document. Callers own Envelope values
@@ -54,12 +54,12 @@ type NamedSection struct {
 // be amortized. The framework never holds an Envelope pointer beyond a
 // single Capture call.
 type Envelope struct {
-	SchemaVersion   string         `json:"schema_version"`
+	Daemon          DaemonInfo     `json:"daemon"`
 	CapturedAtStart time.Time      `json:"captured_at_start"`
 	CapturedAtEnd   time.Time      `json:"captured_at_end"`
-	Daemon          DaemonInfo     `json:"daemon"`
-	Runtime         RuntimeStats   `json:"runtime"`
+	SchemaVersion   string         `json:"schema_version"`
 	Sections        []NamedSection `json:"sections"`
+	Runtime         RuntimeStats   `json:"runtime"`
 }
 
 // Options configures a new Registry.
@@ -83,8 +83,8 @@ type Registry struct {
 
 // registration is the Registry's internal view of a registered Snapshotter.
 type registration struct {
-	Name string
 	Snap Snapshotter
+	Name string
 }
 
 // NewRegistry constructs a Registry ready for Register / Capture calls.

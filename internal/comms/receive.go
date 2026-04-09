@@ -358,18 +358,19 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 	defer ticker.Stop()
 
 	// Diagnostic counters local to this loop. popped tracks frames the
-	// jitter buffer handed us; concealed tracks PopOrConceal returning a
-	// PLC tick (no payload but stream active). Combined with the per-port
-	// RxPkts/RxLoopback/RxParseErrs/RxPushed/RxPushRejected counters and
-	// the jitter buffer's Overflows/SSRCResets/IdleResets, they localize
-	// where RX frames are being lost on the server side.
-	var popped, concealed int64
+	// jitter buffer handed us; poppedSkipped tracks PopReady returning a
+	// skippedMissing=true tick (out-of-order gap wide enough that the
+	// jitter buffer advanced the cursor past the hole). Combined with
+	// the per-port RxPkts/RxLoopback/RxParseErrs/RxPushed/RxPushRejected
+	// counters and the jitter buffer's Overflows/SSRCResets/IdleResets,
+	// they localize where RX frames are being lost on the server side.
+	var popped, poppedSkipped int64
 
 	statTicker := time.NewTicker(2 * time.Second)
 	defer statTicker.Stop()
 
 	var (
-		lastPopped, lastConcealed                    int64
+		lastPopped, lastPoppedSkipped                int64
 		lastPushIn, lastPushDrop                     int64
 		lastOverflows, lastSSRCResets, lastIdleReset int64
 		lastRxPkts, lastRxLoopback, lastRxParseErrs  int64
@@ -377,14 +378,28 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 		lastKernelDrops                              int64
 	)
 
+	// drain uses PopReady (not PopOrConceal) because the web consumer has
+	// no sample-clocked output that requires phase-locked playout. A
+	// safety-poll tick that fires against an empty-but-recent buffer must
+	// NOT advance the jitter buffer cursor: that was the round-4 bug where
+	// advancePastLocked ran every 100 ms and caused late-but-correct
+	// arrivals to be rejected by pushLocked's seqLess(seq, expected)
+	// check. PopReady never advances the cursor without popping a frame.
+	// The only legitimate cursor advance is PopReady's internal "buffer
+	// half-full of out-of-order packets, skip the missing one" branch,
+	// which bumps poppedSkipped.
 	drain := func() {
 		for {
-			payload, conceal := jitter.PopOrConceal(concealRecentWindow)
-			if payload == nil {
-				if conceal {
-					concealed++
-				}
+			payload, ready, skippedMissing := jitter.PopReady()
+			if skippedMissing {
+				poppedSkipped++
 
+				pc.WebPoppedSkipped.Add(1)
+
+				continue
+			}
+
+			if !ready {
 				return
 			}
 
@@ -428,7 +443,7 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 			}
 
 			dPopped := popped - lastPopped
-			dConcealed := concealed - lastConcealed
+			dPoppedSkipped := poppedSkipped - lastPoppedSkipped
 			dPushIn := pushIn - lastPushIn
 			dPushDrop := pushDrop - lastPushDrop
 			dOverflows := overflows - lastOverflows
@@ -444,7 +459,7 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 			// Suppress idle ports: only emit a line when this port had any
 			// RX activity in the last window. Eliminates the 5-port spam
 			// where 4 inactive ports each printed an all-zero line.
-			if dRxPkts > 0 || dPopped > 0 || dConcealed > 0 || dKernelDrops > 0 {
+			if dRxPkts > 0 || dPopped > 0 || dPoppedSkipped > 0 || dKernelDrops > 0 {
 				cfg.Log.Debug().
 					Int("port", pc.cfg.Port).
 					Int64("pkt_rx", dRxPkts).
@@ -453,7 +468,7 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 					Int64("pkt_pushed", dRxPushed).
 					Int64("push_rejected", dRxPushRejected).
 					Int64("popped", dPopped).
-					Int64("concealed", dConcealed).
+					Int64("popped_skipped", dPoppedSkipped).
 					Int64("push_in", dPushIn).
 					Int64("push_drop", dPushDrop).
 					Int64("jitter_overflow", dOverflows).
@@ -464,7 +479,7 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 			}
 
 			lastPopped = popped
-			lastConcealed = concealed
+			lastPoppedSkipped = poppedSkipped
 			lastPushIn = pushIn
 			lastPushDrop = pushDrop
 			lastOverflows = overflows

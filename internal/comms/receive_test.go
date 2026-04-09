@@ -867,3 +867,73 @@ func TestJitterBuffer_OverflowCounter(t *testing.T) {
 		t.Errorf("expected overflows=4; got %d", got)
 	}
 }
+
+// TestWebPlayoutLoop_DoesNotAdvanceCursorOnSafetyPoll is a regression
+// guard for the round-4 stutter fix. Before the fix, webPlayoutLoop used
+// PopOrConceal which called advancePastLocked on every safety-poll tick
+// while the buffer was empty and the stream was "recent". That one-way
+// cursor advance caused late-but-correctly-sequenced arrivals to be
+// rejected by pushLocked's seqLess(seq, expected) check.
+//
+// The fixed loop uses PopReady, which never advances the cursor without
+// actually popping a frame. This test sets up the exact arrival pattern
+// that triggered the bug and asserts:
+//   - The late arrival is NOT rejected by the jitter buffer
+//   - webPlayoutLoop delivers it to the bridge
+//   - pc.RxPushRejected stays at 0
+func TestWebPlayoutLoop_DoesNotAdvanceCursorOnSafetyPoll(t *testing.T) {
+	cfg := newSilentComms()
+	rt, pc := newReceiveRuntime()
+
+	bridge := webaudio.NewBridge(zerolog.Nop(), func(payload []byte) {
+		cfg.sendToAllPorts(rt, payload)
+	})
+	rt.WebBridge = bridge
+
+	jb := rtp.NewJitterBuffer(1, 16)
+
+	// Seed the stream at seq=100 and drain it so expected=101. Using
+	// PushWithSSRC with a stable SSRC matches the production path.
+	const ssrc = uint32(0x12345678)
+	if !jb.PushWithSSRC(ssrc, 100, []byte{0xAA}, nil) {
+		t.Fatal("failed to push seed frame")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go cfg.webPlayoutLoop(ctx, pc, jb, rt)
+
+	// Drain the seed frame so the loop observes expected=101 with an
+	// empty buffer.
+	select {
+	case <-bridge.RxFrames():
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("seed frame never reached bridge")
+	}
+
+	// Sleep 300 ms — at least 3 safety-poll (100 ms) ticks. Before the
+	// fix, each tick would call advancePastLocked and bump expected from
+	// 101 to 104. After the fix, PopReady never advances on empty.
+	time.Sleep(300 * time.Millisecond)
+
+	// Push the next sequentially-correct frame. The pre-fix version of
+	// this loop would have advanced expected past 101 and rejected this
+	// push; the fixed version accepts it.
+	if !jb.PushWithSSRC(ssrc, 101, []byte{0xBB}, nil) {
+		t.Fatal("seq=101 push was rejected by jitter buffer (regression)")
+	}
+
+	select {
+	case frame := <-bridge.RxFrames():
+		if len(frame) != 1 || frame[0] != 0xBB {
+			t.Errorf("unexpected frame bytes: %v", frame)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("seq=101 frame never reached bridge (regression)")
+	}
+
+	if got := pc.RxPushRejected.Load(); got != 0 {
+		t.Errorf("RxPushRejected must stay 0 in the fixed loop; got %d", got)
+	}
+}

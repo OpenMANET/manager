@@ -12,29 +12,13 @@ import (
 // in docs/instrumentation-snapshot.md — keep that file in sync when adding
 // or renaming fields here.
 type CommsSnapshot struct {
-	// ControlSource is the active PTT control source (openvlm, nanoptt,
-	// web, roip). Always populated even when the subsystem is disabled.
-	ControlSource string `json:"control_source"`
-	// BroadcastEncoder is the TX-side audio encoder snapshot. Zero when
-	// the runtime is absent or the broadcast stream is not a production
-	// BroadcastEncoder (e.g. under a unit-test fake).
+	ControlSource    string                     `json:"control_source"`
+	Ports            []PortSnapshot             `json:"ports"`
 	BroadcastEncoder audio.AudioEncoderSnapshot `json:"broadcast_encoder"`
-	// WebBridge is the web-mode audio bridge snapshot. Zero when the
-	// runtime is absent.
-	WebBridge webaudio.BridgeSnapshot `json:"web_bridge"`
-	// Ports holds one entry per multicast talk group. Reused across
-	// captures — callers must copy if they want to retain the slice
-	// beyond a Capture boundary.
-	Ports []PortSnapshot `json:"ports"`
-	// Enabled reflects whether the comms subsystem runtime is currently
-	// published. When false, every other field is zero and should be
-	// interpreted as "subsystem is off", not "subsystem is broken".
-	Enabled bool `json:"enabled"`
-	// Broadcasting reflects whether the TX gate is currently open.
-	Broadcasting bool `json:"broadcasting"`
-	// RemoteRxActive reflects the half-duplex cache flag maintained by
-	// halfDuplexDecayLoop. When true, the TX path blocks transmission.
-	RemoteRxActive bool `json:"remote_rx_active"`
+	WebBridge        webaudio.BridgeSnapshot    `json:"web_bridge"`
+	Enabled          bool                       `json:"enabled"`
+	Broadcasting     bool                       `json:"broadcasting"`
+	RemoteRxActive   bool                       `json:"remote_rx_active"`
 }
 
 // PortSnapshot is the per-talk-group section of a CommsSnapshot.
@@ -50,6 +34,29 @@ type PortSnapshot struct {
 	// PlaybackUnderruns counts playback-side decode failures that the
 	// port audio callback had to recover from via PLC.
 	PlaybackUnderruns int64 `json:"playback_underruns"`
+	// RxPkts is the monotonic count of successful ReadFromUDP returns on
+	// this port's receive socket (packets the kernel handed us).
+	RxPkts int64 `json:"rx_pkts"`
+	// RxLoopback counts packets dropped by the loopback filter (own-IP
+	// suppression) before they reached the RTP parser.
+	RxLoopback int64 `json:"rx_loopback"`
+	// RxParseErrs counts packets that failed rtp.ParseIncoming.
+	RxParseErrs int64 `json:"rx_parse_errs"`
+	// RxPushed counts packets that PushWithSSRC accepted into the jitter
+	// buffer. In a healthy stream, RxPushed ≈ RxPkts - RxLoopback -
+	// RxParseErrs.
+	RxPushed int64 `json:"rx_pushed"`
+	// RxPushRejected counts packets that PushWithSSRC rejected as stale,
+	// duplicate, or overflow. A sustained nonzero delta while
+	// jitter.ssrc_resets stays flat indicates a consumer-side
+	// cursor-advance bug or severe sender reordering. See
+	// "Interpretation heuristics" in docs/instrumentation-snapshot.md.
+	RxPushRejected int64 `json:"rx_push_rejected"`
+	// WebPoppedSkipped counts PopReady skippedMissing=true returns from
+	// webPlayoutLoop: the jitter buffer had enough queued out-of-order
+	// packets to advance the cursor past a missing frame. Zero on the
+	// portaudio playout path.
+	WebPoppedSkipped int64 `json:"web_popped_skipped"`
 	// SendEnabled is the runtime send-direction toggle. A port with
 	// SendEnabled=false will not open an encoder or publish TX frames.
 	SendEnabled bool `json:"send_enabled"`
@@ -142,6 +149,12 @@ func (pc *PortChannel) Snapshot(dst *PortSnapshot) {
 	dst.SendEnabled = pc.SendEnabled.Load()
 	dst.ReceiveEnabled = pc.ReceiveEnabled.Load()
 	dst.PlaybackUnderruns = pc.PlaybackUnderruns.Load()
+	dst.RxPkts = pc.RxPkts.Load()
+	dst.RxLoopback = pc.RxLoopback.Load()
+	dst.RxParseErrs = pc.RxParseErrs.Load()
+	dst.RxPushed = pc.RxPushed.Load()
+	dst.RxPushRejected = pc.RxPushRejected.Load()
+	dst.WebPoppedSkipped = pc.WebPoppedSkipped.Load()
 	pc.Jitter.Snapshot(&dst.Jitter)
 	pc.RxGate.Snapshot(&dst.RxGate)
 }

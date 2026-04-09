@@ -66,6 +66,12 @@ func TestService_Snapshot_Populated(t *testing.T) {
 	port0.SendEnabled.Store(true)
 	port0.ReceiveEnabled.Store(true)
 	port0.PlaybackUnderruns.Store(7)
+	port0.RxPkts.Store(100)
+	port0.RxLoopback.Store(2)
+	port0.RxParseErrs.Store(1)
+	port0.RxPushed.Store(95)
+	port0.RxPushRejected.Store(4)
+	port0.WebPoppedSkipped.Store(6)
 	port0.RxGate.Mark()
 
 	port1 := &PortChannel{
@@ -101,6 +107,12 @@ func TestService_Snapshot_Populated(t *testing.T) {
 	assert.True(t, dst.Ports[0].SendEnabled)
 	assert.True(t, dst.Ports[0].ReceiveEnabled)
 	assert.Equal(t, int64(7), dst.Ports[0].PlaybackUnderruns)
+	assert.Equal(t, int64(100), dst.Ports[0].RxPkts)
+	assert.Equal(t, int64(2), dst.Ports[0].RxLoopback)
+	assert.Equal(t, int64(1), dst.Ports[0].RxParseErrs)
+	assert.Equal(t, int64(95), dst.Ports[0].RxPushed)
+	assert.Equal(t, int64(4), dst.Ports[0].RxPushRejected)
+	assert.Equal(t, int64(6), dst.Ports[0].WebPoppedSkipped)
 	assert.Equal(t, int64(3), dst.Ports[0].Jitter.Overflows)
 	assert.True(t, dst.Ports[0].RxGate.Active)
 	assert.NotZero(t, dst.Ports[0].RxGate.LastMarkUnixNano)
@@ -196,6 +208,7 @@ func TestCommsSnapshotter_RefreshReadsDefault(t *testing.T) {
 	t.Parallel()
 
 	prev := Default()
+
 	t.Cleanup(func() { SetDefault(prev) })
 
 	rt := &CommsRuntime{

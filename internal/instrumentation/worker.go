@@ -19,31 +19,20 @@ const DefaultInterval = 60 * time.Second
 
 // WorkerOptions configures a periodic snapshot writer.
 type WorkerOptions struct {
-	// Registry supplies captures. Required.
-	Registry *Registry
-	// Interval is the capture period. Values <= 0 fall back to DefaultInterval.
-	Interval time.Duration
-	// OutputDir is the filesystem directory that snapshot files are written
-	// into. Required. The directory must exist and be writable.
-	OutputDir string
-	// FilenamePrefix is the prefix used for generated snapshot filenames.
-	// The worker appends a high-resolution timestamp and the ".json"
-	// extension. Empty defaults to "snapshot".
+	Log            zerolog.Logger
+	Registry       *Registry
+	OutputDir      string
 	FilenamePrefix string
-	// Log is the zerolog logger the worker emits diagnostic messages on.
-	// The zero value (disabled logger) is safe.
-	Log zerolog.Logger
+	Interval       time.Duration
 }
 
 // Worker periodically captures snapshots and writes each one to its own
 // timestamped JSON file. Lifecycle is tied to the context passed to Run.
 // A Worker owns a reusable Envelope so Capture is zero-alloc after warmup.
 type Worker struct {
-	opts WorkerOptions
-	env  Envelope
-	// buf is a reusable buffer used to format snapshot file names without
-	// allocating on every tick.
+	opts    WorkerOptions
 	nameBuf []byte
+	env     Envelope
 }
 
 // NewWorker constructs a Worker ready for Run. It does not create the
@@ -72,7 +61,7 @@ func NewWorker(opts WorkerOptions) (*Worker, error) {
 	}, nil
 }
 
-// Run captures and writes snapshots until ctx is cancelled. It returns nil
+// Run captures and writes snapshots until ctx is canceled. It returns nil
 // on graceful shutdown. Per-tick write failures are logged at Error level
 // and do not abort the worker.
 //
