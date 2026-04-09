@@ -133,6 +133,46 @@ func TestGetCommsProtocol(t *testing.T) {
 	}
 }
 
+func TestGetCommsIface(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured iface override",
+			setValue: strPtr("bat0"),
+			want:     "bat0",
+		},
+		{
+			name:     "returns empty default when not set so callers can fall back to meshNetInterface",
+			setValue: nil,
+			want:     DefaultCommsIface,
+		},
+		{
+			name:     "empty-string explicit is treated same as unset",
+			setValue: strPtr(""),
+			want:     DefaultCommsIface,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("comms.iface", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetCommsIface()
+			if got != tt.want {
+				t.Errorf("GetCommsIface() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetCommsEnable(t *testing.T) {
 	tests := []struct {
 		setValue *bool

@@ -226,3 +226,66 @@ func TestCommsManager_EnableRejectsUnknownControlSource(t *testing.T) {
 	assert.False(t, m.IsRunning(), "manager must not be running after Validate failure")
 	assert.False(t, startCalled.Load(), "start function must not be invoked when Validate fails")
 }
+
+// TestCommsManager_IfaceOverride verifies that buildCommsConfig prefers
+// comms.iface when set and falls back to meshNetInterface otherwise.
+// This is the round-4 fix that lets operators bind the multicast RTP
+// socket to the batman-adv mesh interface (bat0) instead of the bridge
+// interface (br-ahwlan), where bridge mcast flooding was dropping ~30 %
+// of incoming RTP packets as IgnoredMulti on the receiver host.
+func TestCommsManager_IfaceOverride(t *testing.T) {
+	tests := []struct {
+		name       string
+		configYAML string
+		wantIface  string
+	}{
+		{
+			name: "override wins when comms.iface is set",
+			configYAML: "meshNetInterface: br-ahwlan\n" +
+				"comms:\n" +
+				"  enable: true\n" +
+				"  controlSource: openvlm\n" +
+				"  iface: bat0\n",
+			wantIface: "bat0",
+		},
+		{
+			name: "falls back to meshNetInterface when comms.iface is unset",
+			configYAML: "meshNetInterface: br-ahwlan\n" +
+				"comms:\n" +
+				"  enable: true\n" +
+				"  controlSource: openvlm\n",
+			wantIface: "br-ahwlan",
+		},
+		{
+			name: "empty comms.iface string is treated as unset and falls back",
+			configYAML: "meshNetInterface: br-ahwlan\n" +
+				"comms:\n" +
+				"  enable: true\n" +
+				"  controlSource: openvlm\n" +
+				"  iface: \"\"\n",
+			wantIface: "br-ahwlan",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			cfgPath := filepath.Join(tmpDir, "config.yml")
+
+			require.NoError(t, os.WriteFile(cfgPath, []byte(tc.configYAML), 0o600))
+
+			v := viper.New()
+			v.SetConfigFile(cfgPath)
+			require.NoError(t, v.ReadInConfig())
+
+			cfg := config.NewWithoutWatch(v)
+
+			m := NewCommsManager(cfg, zerolog.Nop())
+
+			cc := m.buildCommsConfig()
+
+			assert.Equal(t, tc.wantIface, cc.Iface)
+		})
+	}
+}

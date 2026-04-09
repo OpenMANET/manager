@@ -48,11 +48,22 @@ func NewCommsManager(cfg *config.Config, logger zerolog.Logger) *CommsManager {
 }
 
 // buildCommsConfig reads the current configuration and builds a CommsConfig.
+//
+// Iface resolution: a non-empty comms.iface override takes precedence so
+// operators can bind the multicast RTP socket to a different interface
+// than the rest of the mesh stack (bat0 vs br-ahwlan on batman-adv
+// deployments — see GetCommsIface godoc). Falls back to the global
+// meshNetInterface for backward compatibility.
 func (m *CommsManager) buildCommsConfig() *CommsConfig {
+	iface := m.cfg.GetCommsIface()
+	if iface == "" {
+		iface = m.cfg.GetMeshNetInterface()
+	}
+
 	return NewComms(CommsConfig{
 		Log:                      m.logger,
 		Enable:                   true, // manager only calls Start when enabling
-		Iface:                    m.cfg.GetMeshNetInterface(),
+		Iface:                    iface,
 		Debug:                    m.cfg.GetCommsDebug(),
 		Loopback:                 m.cfg.GetCommsLoopback(),
 		Trace:                    m.cfg.GetCommsTrace(),

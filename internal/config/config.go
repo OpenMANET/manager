@@ -10,19 +10,27 @@ import (
 
 // Default configuration values
 const (
-	DefaultMeshNetInterface                          string  = "br-ahwlan"
-	DefaultDBFile                                    string  = "/etc/openmanetd/openmanetd.db"
-	DefaultAlfredMode                                string  = "primary"
-	DefaultAlfredBatInterface                        string  = "bat0"
-	DefaultBatmanMulticastEnhancementsEnabled        bool    = true
-	DefaultAlfredSocketPath                          string  = "/var/run/alfred.sock"
-	DefaultAlfredEnable                              bool    = true
-	DefaultAlfredDataTypeGateway                     bool    = true
-	DefaultAlfredDataTypeNode                        bool    = true
-	DefaultAlfredDataTypePosition                    bool    = true
-	DefaultAlfredDataTypeAddressReserv               bool    = true
-	DefaultCommsEnable                               bool    = false
-	DefaultCommsProtocol                             string  = "rtp"
+	DefaultMeshNetInterface                   string = "br-ahwlan"
+	DefaultDBFile                             string = "/etc/openmanetd/openmanetd.db"
+	DefaultAlfredMode                         string = "primary"
+	DefaultAlfredBatInterface                 string = "bat0"
+	DefaultBatmanMulticastEnhancementsEnabled bool   = true
+	DefaultAlfredSocketPath                   string = "/var/run/alfred.sock"
+	DefaultAlfredEnable                       bool   = true
+	DefaultAlfredDataTypeGateway              bool   = true
+	DefaultAlfredDataTypeNode                 bool   = true
+	DefaultAlfredDataTypePosition             bool   = true
+	DefaultAlfredDataTypeAddressReserv        bool   = true
+	DefaultCommsEnable                        bool   = false
+	DefaultCommsProtocol                      string = "rtp"
+	// DefaultCommsIface is empty by design: when unset, the comms
+	// subsystem falls back to the top-level meshNetInterface setting.
+	// Operators on batman-adv mesh deployments should set
+	// comms.iface=bat0 explicitly so the multicast RTP socket joins
+	// the group on the mesh data interface (where traffic actually
+	// arrives) rather than the bridge interface (where it is flooded
+	// unreliably via bridge mcast snooping).
+	DefaultCommsIface                                string  = ""
 	DefaultCommsDebug                                bool    = false
 	DefaultCommsLoopback                             bool    = false
 	DefaultCommsTrace                                bool    = false
@@ -113,6 +121,7 @@ type Config struct {
 	DBFile                                    string
 	CommsControlSource                        string
 	CommsProtocol                             string
+	CommsIface                                string
 	CommsBluetoothPttBluetoothInputDevice     string
 	CommsBluetoothPttBluetoothAudioDeviceHint string
 	OpenMANETFrontendHostPort                 string
@@ -319,6 +328,12 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsProtocol = val
 	} else {
 		c.CommsProtocol = DefaultCommsProtocol
+	}
+
+	if val := c.v.GetString("comms.iface"); val != "" {
+		c.CommsIface = val
+	} else {
+		c.CommsIface = DefaultCommsIface
 	}
 
 	if c.v.IsSet("comms.debug") {
@@ -704,6 +719,19 @@ func (c *Config) GetCommsProtocol() string {
 	defer c.mu.RUnlock()
 
 	return c.CommsProtocol
+}
+
+// GetCommsIface returns the comms-subsystem interface override. When
+// empty the caller should fall back to GetMeshNetInterface. The override
+// exists so the multicast RTP socket can be bound to a different
+// interface than the rest of the mesh stack — specifically, on
+// batman-adv deployments where multicast traffic arrives on bat0 and
+// is only unreliably flooded into br-ahwlan.
+func (c *Config) GetCommsIface() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsIface
 }
 
 // GetCommsDebug returns whether comms debug mode is enabled.

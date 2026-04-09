@@ -339,7 +339,7 @@ func (c *CommsService) StreamAudioRx(ctx context.Context, _ *commsv1.StreamAudio
 				return err
 			}
 
-			c.Log.Debug().Uint32("seq", seq).Msg("Sent audio frame to web client")
+			c.Log.Trace().Uint32("seq", seq).Msg("Sent audio frame to web client")
 		}
 	}
 }

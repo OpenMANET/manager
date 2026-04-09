@@ -260,7 +260,7 @@ func (b *Bridge) StartAudioRXLoop(ctx context.Context) {
 			err := b.receiveAudioRX(ctx)
 			if err != nil {
 				if isExpectedPrecondition(err) {
-					b.log.Debug().Err(err).Msgf("audio RX not ready, retrying in %s", delay)
+					b.log.Trace().Err(err).Msgf("audio RX not ready, retrying in %s", delay)
 				} else {
 					b.log.Error().Err(err).Msgf("audio RX stream ended, retrying in %s", delay)
 				}
@@ -303,7 +303,7 @@ func (b *Bridge) receiveAudioRX(ctx context.Context) error {
 	}
 	defer stream.Close()
 
-	b.log.Info().Msg("audio RX stream connected")
+	b.log.Debug().Msg("audio RX stream connected")
 
 	var frameCount uint64
 
@@ -342,7 +342,7 @@ func (b *Bridge) receiveAudioRX(ctx context.Context) error {
 		b.hub.BroadcastAudioRX(msg.Channel, buf)
 	}
 
-	b.log.Info().Uint64("total_frames", frameCount).Msg("audio RX stream ended")
+	b.log.Debug().Uint64("total_frames", frameCount).Msg("audio RX stream ended")
 
 	if err := stream.Err(); err != nil {
 		return fmt.Errorf("audio RX stream: %w", err)
