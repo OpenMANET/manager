@@ -53,6 +53,18 @@ let dropWatchTimer = null;    // periodic ring diagnostic reporter
 let lastDropCount = 0;        // last observed value of state[3]
 let lastUnderrunSamples = 0;  // last observed value of state[4]
 
+// RX pipeline counters — incremented in the hot path, sampled by the
+// 2 s reporter to localize where the RX stream is bottlenecking.
+//   rxFramesIn  — decodeAndPlay() entries (≈ websocket RX_AUDIO arrivals)
+//   decodeIn    — successful opusDecoder.decode() calls
+//   decodeOut   — AudioDecoder output callback fires (decoded PCM frames)
+let rxFramesIn = 0;
+let decodeIn = 0;
+let decodeOut = 0;
+let lastRxFramesIn = 0;
+let lastDecodeIn = 0;
+let lastDecodeOut = 0;
+
 // Decoder state tracking — we need to know which channel and IP the current
 // audio belongs to so the Whisper service can associate transcriptions.
 let lastDecodeCh = 0;
@@ -152,6 +164,7 @@ export async function initAudio(onLog, opts = {}) {
     try {
       opusDecoder = new AudioDecoder({
         output: (audioData) => {
+          decodeOut++;
           // Extract PCM samples from the decoded AudioData.
           const pcm = new Float32Array(audioData.numberOfFrames);
           audioData.copyTo(pcm, { planeIndex: 0 });
@@ -203,6 +216,10 @@ export async function initAudio(onLog, opts = {}) {
       const dropDelta = totalDrops - lastDropCount;
       const underrunDelta = totalUnderruns - lastUnderrunSamples;
 
+      const rxDelta = rxFramesIn - lastRxFramesIn;
+      const decInDelta = decodeIn - lastDecodeIn;
+      const decOutDelta = decodeOut - lastDecodeOut;
+
       if (dropDelta > 0) {
         lastDropCount = totalDrops;
         logFn(`RX ring dropped ${dropDelta} frame(s) in last 2s (total=${totalDrops})`, 'warn');
@@ -211,6 +228,17 @@ export async function initAudio(onLog, opts = {}) {
         lastUnderrunSamples = totalUnderruns;
         const ms = (underrunDelta / SAMPLE_RATE * 1000).toFixed(1);
         logFn(`RX ring underran ${underrunDelta} samples (${ms} ms) in last 2s; occupancy=${avail}`, 'warn');
+      }
+      // Log stage counts whenever any RX activity is happening so we can
+      // see where frames are disappearing: ws→decoder→ring.
+      if (rxDelta > 0 || decInDelta > 0 || decOutDelta > 0 || underrunDelta > 0) {
+        lastRxFramesIn = rxFramesIn;
+        lastDecodeIn = decodeIn;
+        lastDecodeOut = decodeOut;
+        logFn(
+          `RX stages 2s: ws=${rxDelta} decIn=${decInDelta} decOut=${decOutDelta} occupancy=${avail}`,
+          'info',
+        );
       }
     }, 2000);
   }
@@ -356,6 +384,7 @@ export function setMicGain(value) {
 // zero.  This is necessary because AudioDecoder uses timestamps to detect
 // gaps and overlaps — stale timestamps from a previous source would confuse it.
 export function decodeAndPlay(opusData, ch, srcIP) {
+  rxFramesIn++;
   if (!opusDecoder || opusDecoder.state === 'closed') {
     // Buffer frames that arrive before the decoder is initialized so they
     // can be played back once initAudio() completes.
@@ -381,6 +410,7 @@ export function decodeAndPlay(opusData, ch, srcIP) {
         data: opusData,
       })
     );
+    decodeIn++;
     // Advance timestamp by 20 ms (in microseconds) per Opus frame.
     rxTimestamp += 20000;
   } catch (e) {
