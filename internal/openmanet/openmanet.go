@@ -20,6 +20,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/frontend"
 	"github.com/openmanet/openmanetd/internal/gpsd"
+	"github.com/openmanet/openmanetd/internal/instrumentation"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server"
@@ -109,6 +110,12 @@ func Start(staticFS fs.FS) {
 
 	// Create BLOS manager (always, so the API handler can use it even if BLOS is currently disabled)
 	blosManager := blos.NewBLOSManager(cfg, logger.GetLogger("blos"))
+
+	// Wire the instrumentation snapshot registry and conditionally spawn
+	// the periodic worker. The registry is always constructed (cheap) but
+	// the worker goroutine is only started when the config flag is true,
+	// so a disabled deployment pays nothing beyond the adapter structs.
+	startInstrumentationWorker(ctx, cfg, blosManager, log)
 
 	// Set up session-based authentication when enabled.
 	var (
@@ -207,6 +214,60 @@ func Start(staticFS fs.FS) {
 
 	log.Info().Msg("Exiting OpenMANETd")
 	os.Exit(0)
+}
+
+// startInstrumentationWorker constructs the instrumentation snapshot
+// registry, registers the comms and BLOS adapters, and starts the
+// periodic worker goroutine when the config flag is enabled. The
+// registry itself is cheap; only the worker has runtime cost. Errors
+// during setup are logged but never fatal — a misconfigured snapshot
+// subsystem must not prevent the daemon from serving traffic.
+func startInstrumentationWorker(ctx context.Context, cfg *config.Config, blosManager *blos.BLOSManager, log zerolog.Logger) {
+	if !cfg.GetInstrumentationEnable() {
+		return
+	}
+
+	instrLog := logger.GetLogger("instrumentation")
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		instrLog.Warn().Err(err).Msg("instrumentation: failed to read hostname; leaving empty")
+
+		hostname = ""
+	}
+
+	reg := instrumentation.NewRegistry(instrumentation.Options{
+		Log:      instrLog,
+		Version:  "", // populated from build metadata when available
+		Hostname: hostname,
+	})
+
+	if err := reg.Register("comms", &comms.CommsSnapshotter{}); err != nil {
+		log.Error().Err(err).Msg("instrumentation: failed to register comms snapshotter")
+
+		return
+	}
+
+	if err := reg.Register("blos", &blos.BLOSSnapshotter{Manager: blosManager}); err != nil {
+		log.Error().Err(err).Msg("instrumentation: failed to register blos snapshotter")
+
+		return
+	}
+
+	worker, err := instrumentation.NewWorker(instrumentation.WorkerOptions{
+		Registry:       reg,
+		Interval:       time.Duration(cfg.GetInstrumentationIntervalSecs()) * time.Second,
+		OutputDir:      cfg.GetInstrumentationSnapshotDir(),
+		FilenamePrefix: "openmanetd-snapshot",
+		Log:            instrLog,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("instrumentation: failed to construct snapshot worker")
+
+		return
+	}
+
+	go worker.Run(ctx)
 }
 
 // applyRuntimeTuning configures Go runtime parameters and optionally starts
