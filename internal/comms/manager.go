@@ -48,35 +48,11 @@ func NewCommsManager(cfg *config.Config, logger zerolog.Logger) *CommsManager {
 }
 
 // buildCommsConfig reads the current configuration and builds a CommsConfig.
-//
-// Interface resolution:
-//   - Iface (L2 multicast-join interface) prefers comms.iface, falling
-//     back to meshNetInterface.
-//   - LocalIPIface (L3 interface with the IPv4 address) prefers
-//     comms.localIPIface, falling back to meshNetInterface.
-//
-// On batman-adv deployments the right setting is usually:
-//   comms.iface:        bat0
-//   comms.localIPIface: br-ahwlan
-//
-// because bat0 carries multicast RTP at L2 but has no IPv4 address,
-// while the bridge is the L3 interface with the host's IP.
 func (m *CommsManager) buildCommsConfig() *CommsConfig {
-	iface := m.cfg.GetCommsIface()
-	if iface == "" {
-		iface = m.cfg.GetMeshNetInterface()
-	}
-
-	localIPIface := m.cfg.GetCommsLocalIPIface()
-	if localIPIface == "" {
-		localIPIface = m.cfg.GetMeshNetInterface()
-	}
-
 	return NewComms(CommsConfig{
 		Log:                      m.logger,
 		Enable:                   true, // manager only calls Start when enabling
-		Iface:                    iface,
-		LocalIPIface:             localIPIface,
+		Iface:                    m.cfg.GetMeshNetInterface(),
 		Debug:                    m.cfg.GetCommsDebug(),
 		Loopback:                 m.cfg.GetCommsLoopback(),
 		Trace:                    m.cfg.GetCommsTrace(),

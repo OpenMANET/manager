@@ -22,24 +22,7 @@ const (
 	DefaultAlfredDataTypePosition             bool   = true
 	DefaultAlfredDataTypeAddressReserv        bool   = true
 	DefaultCommsEnable                        bool   = false
-	DefaultCommsProtocol                      string = "rtp"
-	// DefaultCommsIface is empty by design: when unset, the comms
-	// subsystem falls back to the top-level meshNetInterface setting.
-	// Operators on batman-adv mesh deployments should set
-	// comms.iface=bat0 explicitly so the multicast RTP socket joins
-	// the group on the mesh data interface (where traffic actually
-	// arrives) rather than the bridge interface (where it is flooded
-	// unreliably via bridge mcast snooping).
-	DefaultCommsIface string = ""
-	// DefaultCommsLocalIPIface is empty by design: when unset, the
-	// comms subsystem falls back to the top-level meshNetInterface
-	// setting. This is the L3 interface whose IPv4 address is used as
-	// the RTP TX source and loopback filter reference — distinct from
-	// comms.iface, which is the L2 interface the multicast socket
-	// joins its group on. On batman-adv deployments bat0 carries L2
-	// traffic but holds no IPv4 address; the bridge interface
-	// (br-ahwlan) is the one with the address.
-	DefaultCommsLocalIPIface                         string  = ""
+	DefaultCommsProtocol                             string  = "rtp"
 	DefaultCommsDebug                                bool    = false
 	DefaultCommsLoopback                             bool    = false
 	DefaultCommsTrace                                bool    = false
@@ -130,8 +113,6 @@ type Config struct {
 	DBFile                                    string
 	CommsControlSource                        string
 	CommsProtocol                             string
-	CommsIface                                string
-	CommsLocalIPIface                         string
 	CommsBluetoothPttBluetoothInputDevice     string
 	CommsBluetoothPttBluetoothAudioDeviceHint string
 	OpenMANETFrontendHostPort                 string
@@ -338,18 +319,6 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsProtocol = val
 	} else {
 		c.CommsProtocol = DefaultCommsProtocol
-	}
-
-	if val := c.v.GetString("comms.iface"); val != "" {
-		c.CommsIface = val
-	} else {
-		c.CommsIface = DefaultCommsIface
-	}
-
-	if val := c.v.GetString("comms.localIPIface"); val != "" {
-		c.CommsLocalIPIface = val
-	} else {
-		c.CommsLocalIPIface = DefaultCommsLocalIPIface
 	}
 
 	if c.v.IsSet("comms.debug") {
@@ -735,32 +704,6 @@ func (c *Config) GetCommsProtocol() string {
 	defer c.mu.RUnlock()
 
 	return c.CommsProtocol
-}
-
-// GetCommsIface returns the comms-subsystem L2 interface override. When
-// empty the caller should fall back to GetMeshNetInterface. This is the
-// interface the multicast RTP socket joins its group on — on batman-adv
-// deployments it should be set to bat0 so the socket sees every frame
-// that batman-adv delivers, rather than the lossy bridge-flooded copy
-// on br-ahwlan.
-func (c *Config) GetCommsIface() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.CommsIface
-}
-
-// GetCommsLocalIPIface returns the comms-subsystem L3 interface override
-// whose IPv4 address is used as the RTP TX source, the loopback filter
-// reference, and the RTP ID fallback. When empty the caller should fall
-// back to GetMeshNetInterface. This is distinct from GetCommsIface
-// because on batman-adv deployments bat0 is a L2 carrier with no IPv4
-// address and the IP lives on a bridge interface (e.g. br-ahwlan).
-func (c *Config) GetCommsLocalIPIface() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.CommsLocalIPIface
 }
 
 // GetCommsDebug returns whether comms debug mode is enabled.
