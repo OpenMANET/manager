@@ -288,14 +288,51 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 		if !ok {
 			if time.Since(lastConnectAttempt) >= connectRetry {
 				lastConnectAttempt = time.Now()
+				s.log.Info().
+					Str("device", device.Address).
+					Str("path", string(device.Path)).
+					Str("adapter", string(device.Adapter)).
+					Str("address_type", normalizeBS22AddressType(device.AddressType)).
+					Bool("classic_connected", device.Connected).
+					Msg("BS-22 BLE: HM service not present, attempting attach")
 				if !device.Connected && s.connectDevice != nil {
-					if err := s.connectDevice(conn, device); err != nil && !isIgnorableBlueZConnectError(err) {
-						s.log.Debug().Err(err).Str("device", string(device.Path)).Msg("BS-22 BLE: classic connect request failed")
+					if err := s.connectDevice(conn, device); err != nil {
+						if isIgnorableBlueZConnectError(err) {
+							s.log.Info().
+								Err(err).
+								Str("device", string(device.Path)).
+								Msg("BS-22 BLE: classic connect request already in progress")
+						} else {
+							s.log.Warn().
+								Err(err).
+								Str("device", string(device.Path)).
+								Msg("BS-22 BLE: classic connect request failed")
+						}
 					}
 				}
 
-				if err := connectBlueZLEDevice(conn, device); err != nil && !isIgnorableBlueZConnectError(err) {
-					s.log.Debug().Err(err).Str("device", device.Address).Msg("BS-22 BLE: LE connect request failed")
+				if err := connectBlueZLEDevice(conn, device); err != nil {
+					if isIgnorableBlueZConnectError(err) {
+						s.log.Info().
+							Err(err).
+							Str("device", device.Address).
+							Str("adapter", string(device.Adapter)).
+							Str("address_type", normalizeBS22AddressType(device.AddressType)).
+							Msg("BS-22 BLE: LE connect request already in progress")
+					} else {
+						s.log.Warn().
+							Err(err).
+							Str("device", device.Address).
+							Str("adapter", string(device.Adapter)).
+							Str("address_type", normalizeBS22AddressType(device.AddressType)).
+							Msg("BS-22 BLE: LE connect request failed")
+					}
+				} else {
+					s.log.Info().
+						Str("device", device.Address).
+						Str("adapter", string(device.Adapter)).
+						Str("address_type", normalizeBS22AddressType(device.AddressType)).
+						Msg("BS-22 BLE: LE connect request sent")
 				}
 			}
 			haveCurrent = false
