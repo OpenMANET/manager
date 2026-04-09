@@ -49,6 +49,8 @@ let txTimestamp = 0;       // Microsecond timestamp for AudioEncoder
 
 let useWorklet = false;    // true if AudioWorklet path succeeded
 let ringState = null;      // { ringBuf, ring, state } from createRingBuffer
+let dropWatchTimer = null; // periodic ring-drop diagnostic reporter
+let lastDropCount = 0;     // last observed value of state[3]
 
 // Decoder state tracking — we need to know which channel and IP the current
 // audio belongs to so the Whisper service can associate transcriptions.
@@ -179,6 +181,23 @@ export async function initAudio(onLog, opts = {}) {
     }
   } else {
     logFn('WebCodecs not available — RX disabled', 'err');
+  }
+
+  // ── Ring drop-counter reporter ─────────────────────────────────────────
+  // Polls state[3] (droppedFrames) every 5 s. If any frames were dropped
+  // since the last tick, surface it via logFn so operators have visibility
+  // into sustained ring-full events without instrumenting the hot path.
+  if (ringState && !dropWatchTimer) {
+    lastDropCount = 0;
+    dropWatchTimer = setInterval(() => {
+      if (!ringState) return;
+      const total = Atomics.load(ringState.state, 3);
+      const delta = total - lastDropCount;
+      if (delta > 0) {
+        lastDropCount = total;
+        logFn(`RX ring dropped ${delta} frame(s) in last 5s (total=${total})`, 'warn');
+      }
+    }, 5000);
   }
 
   // ── Flush any Rx frames that arrived before the decoder was ready ──────

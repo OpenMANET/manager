@@ -3,6 +3,7 @@ package audio
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gen2brain/malgo"
@@ -265,6 +266,16 @@ func computePlaybackPeriodFrames(latencyMs int) int {
 // should treat as its CommsRuntime.BroadcastStream.
 func (in *Init) StartHardware(slots []PortSlot) (broadcast *BroadcastEncoder, cleanup func(), err error) {
 	logProc := func(message string) {
+		// miniaudio emits transient ALSA recovery noise during USB audio
+		// class startup and under normal scheduling jitter: "poll() failed"
+		// and "EPIPE (read/write)" are both recovered internally via
+		// snd_pcm_recover and do not correspond to lost audio. Drop them
+		// so operators are not misled into chasing a non-issue; anything
+		// else from malgo still lands at Debug level.
+		if strings.Contains(message, "poll() failed") || strings.Contains(message, "EPIPE") {
+			return
+		}
+
 		in.Log.Debug().Str("source", "malgo").Msg(message)
 	}
 

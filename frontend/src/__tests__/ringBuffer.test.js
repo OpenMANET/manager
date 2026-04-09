@@ -18,11 +18,12 @@ describe('TestCreateRingBuffer', () => {
     expect(ring).toBeInstanceOf(Float32Array);
     expect(ring.length).toBe(PCM_RING_SIZE);
     expect(state).toBeInstanceOf(Int32Array);
-    expect(state.length).toBe(3);
+    expect(state.length).toBe(4);
     // All indices start at zero.
     expect(Atomics.load(state, 0)).toBe(0); // writeIndex
     expect(Atomics.load(state, 1)).toBe(0); // readIndex
     expect(Atomics.load(state, 2)).toBe(0); // prefilled
+    expect(Atomics.load(state, 3)).toBe(0); // droppedFrames
   });
 
   it('creates SharedArrayBuffer when available', () => {
@@ -32,7 +33,7 @@ describe('TestCreateRingBuffer', () => {
     expect(ring).toBeInstanceOf(Float32Array);
     expect(ring.length).toBe(PCM_RING_SIZE);
     expect(state).toBeInstanceOf(Int32Array);
-    expect(state.length).toBe(3);
+    expect(state.length).toBe(4);
   });
 });
 
@@ -71,20 +72,25 @@ describe('TestRingWrite', () => {
     expect(Atomics.load(state, 2)).toBe(1);
   });
 
-  it('drops frame when ring is full', () => {
+  it('drops frame when ring is full and increments drop counter', () => {
     const { ring, state } = createRingBuffer(false);
     // Fill the ring buffer to capacity (ringSize - 1)
     const fillSize = PCM_RING_SIZE - 1;
     const src = new Float32Array(fillSize);
     ringWrite(ring, state, PCM_RING_SIZE, src);
     expect(ringAvail(state, PCM_RING_SIZE)).toBe(fillSize);
+    expect(Atomics.load(state, 3)).toBe(0); // no drops yet
 
-    // Try to write one more sample — should be dropped
+    // Try to write one more sample — should be dropped, counter ticks.
     const extra = new Float32Array(1);
     extra[0] = 99.0;
     ringWrite(ring, state, PCM_RING_SIZE, extra);
-    // Avail should not change
     expect(ringAvail(state, PCM_RING_SIZE)).toBe(fillSize);
+    expect(Atomics.load(state, 3)).toBe(1);
+
+    // A second drop bumps the counter again.
+    ringWrite(ring, state, PCM_RING_SIZE, extra);
+    expect(Atomics.load(state, 3)).toBe(2);
   });
 });
 
@@ -147,22 +153,46 @@ describe('TestJitterPrefill', () => {
     }
   });
 
-  it('resets prefill when buffer drains completely', () => {
+  it('keeps prefill set after buffer drains completely', () => {
+    // Regression guard for the RX stutter fix: the ring used to reset
+    // prefill on every drain-to-zero, which turned every transient
+    // underrun into a mandatory 60 ms silence stall. The new behavior is
+    // one-shot prefill — once set, it stays set, and underruns fall
+    // through to the zero-fill path in ringRead.
     const { ring, state } = createRingBuffer(false);
 
-    // Fill to prefill threshold
     const src = new Float32Array(JITTER_PREFILL);
     for (let i = 0; i < src.length; i++) src[i] = 0.5;
     ringWrite(ring, state, PCM_RING_SIZE, src);
     expect(Atomics.load(state, 2)).toBe(1); // prefilled
 
-    // Drain completely
     const dst = new Float32Array(JITTER_PREFILL);
     ringRead(ring, state, PCM_RING_SIZE, dst, JITTER_PREFILL);
 
-    // Buffer should be empty and prefill should be reset
     expect(ringAvail(state, PCM_RING_SIZE)).toBe(0);
-    expect(Atomics.load(state, 2)).toBe(0); // reset
+    expect(Atomics.load(state, 2)).toBe(1); // still prefilled
+  });
+
+  it('plays new samples immediately after a full drain (no re-prefill stall)', () => {
+    const { ring, state } = createRingBuffer(false);
+
+    // Prefill, drain, then write a small burst of known samples.
+    const warmup = new Float32Array(JITTER_PREFILL);
+    for (let i = 0; i < warmup.length; i++) warmup[i] = 0.25;
+    ringWrite(ring, state, PCM_RING_SIZE, warmup);
+    const drain = new Float32Array(JITTER_PREFILL);
+    ringRead(ring, state, PCM_RING_SIZE, drain, JITTER_PREFILL);
+
+    // New burst must play right away — NOT be blocked behind a re-prefill.
+    const burst = new Float32Array(128);
+    for (let i = 0; i < burst.length; i++) burst[i] = 0.75;
+    ringWrite(ring, state, PCM_RING_SIZE, burst);
+
+    const out = new Float32Array(128);
+    ringRead(ring, state, PCM_RING_SIZE, out, 128);
+    for (let i = 0; i < 128; i++) {
+      expect(out[i]).toBeCloseTo(0.75, 5);
+    }
   });
 });
 

@@ -44,10 +44,12 @@ export const CHANNELS_DEF = [
 export const PCM_RING_SIZE = 16384;
 
 // Number of samples that must accumulate in the ring before playback begins.
-// This is 3 Opus frames (3 * 960 = 2880 samples = 60 ms).  Starting playback
-// too early causes underruns; waiting too long adds latency.  60 ms is a good
-// compromise for real-time voice over a mesh network.
-export const JITTER_PREFILL = 2880;
+// This is 6 Opus frames (6 * 960 = 5760 samples = 120 ms).  The RX delivery
+// chain (backend jitter buffer → webaudio bridge → RPC stream → websocket
+// hub → browser) is bursty, so a deeper cushion lets the ring absorb
+// multi-frame bursts without underrunning between them.  120 ms of startup
+// latency is imperceptible for push-to-talk voice.
+export const JITTER_PREFILL = 5760;
 
 // -----------------------------------------------------------------------------
 // Whisper speech-to-text thresholds

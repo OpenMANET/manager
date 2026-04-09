@@ -21,8 +21,10 @@
 // JITTER PRE-FILL
 // Playback doesn't start until JITTER_PREFILL samples have accumulated.
 // This prevents the very first frames from playing into a near-empty buffer
-// and causing choppy audio.  Once the buffer drains to zero the prefill flag
-// resets, so the next burst of audio also gets the jitter cushion.
+// and causing choppy audio.  Once prefill has been reached, the flag stays
+// set for the lifetime of the audio context: transient underruns are handled
+// by the zero-fill path in ringRead, which produces a brief (sub-frame) gap
+// instead of the audible 60 ms stall that re-triggering prefill caused.
 
 import { PCM_RING_SIZE, JITTER_PREFILL } from '../constants.js';
 
@@ -40,8 +42,13 @@ import { PCM_RING_SIZE, JITTER_PREFILL } from '../constants.js';
 //   ringBuf — the underlying ArrayBuffer / SharedArrayBuffer (needed to post
 //             to the AudioWorklet)
 //   ring    — Float32Array view over ringBuf for sample data
-//   state   — Int32Array with 3 elements: [writeIndex, readIndex, prefilled]
-//             "prefilled" is 0 or 1 — flips to 1 once jitter threshold is met
+//   state   — Int32Array with 4 elements:
+//             [0] writeIndex
+//             [1] readIndex
+//             [2] prefilled — 0 or 1, flips to 1 once jitter threshold is met
+//             [3] droppedFrames — monotonically increasing count of frames
+//                 dropped by ringWrite because the ring was full. Diagnostic
+//                 only; the audio path never reads this field itself.
 export function createRingBuffer(shared) {
   let ringBuf, ring, state;
 
@@ -49,19 +56,20 @@ export function createRingBuffer(shared) {
     // SharedArrayBuffer allows the AudioWorklet thread to read directly.
     ringBuf = new SharedArrayBuffer(PCM_RING_SIZE * 4); // 4 bytes per Float32
     ring = new Float32Array(ringBuf);
-    const stateBuf = new SharedArrayBuffer(3 * 4); // 3 Int32 slots
+    const stateBuf = new SharedArrayBuffer(4 * 4); // 4 Int32 slots
     state = new Int32Array(stateBuf);
   } else {
     // Plain buffers — only accessed from the main thread.
     ring = new Float32Array(PCM_RING_SIZE);
     ringBuf = ring.buffer;
-    state = new Int32Array(3); // [writeIndex, readIndex, prefilled]
+    state = new Int32Array(4); // [writeIndex, readIndex, prefilled, droppedFrames]
   }
 
-  // Zero out indices and prefill flag.
+  // Zero out indices, prefill flag, and drop counter.
   Atomics.store(state, 0, 0); // writeIndex
   Atomics.store(state, 1, 0); // readIndex
   Atomics.store(state, 2, 0); // prefilled
+  Atomics.store(state, 3, 0); // droppedFrames
 
   return { ringBuf, ring, state };
 }
@@ -102,8 +110,10 @@ export function ringWrite(ring, state, ringSize, src) {
   const n = src.length;
 
   // Drop the frame if the ring is full — better to lose a frame than
-  // corrupt the buffer with a partial write.
+  // corrupt the buffer with a partial write. Increment the diagnostic
+  // drop counter so audioEngine can surface sustained drops.
   if (n > ringFree(state, ringSize)) {
+    Atomics.add(state, 3, 1);
     return;
   }
 
@@ -131,8 +141,10 @@ export function ringWrite(ring, state, ringSize, src) {
 // zero-fills the rest (underrun handling — produces a brief silence gap
 // rather than a glitch).
 //
-// When the buffer drains completely after having had data, resets the
-// prefilled flag so the next burst of audio gets the jitter cushion again.
+// Once the prefilled flag is set, it stays set. Transient underruns are
+// absorbed by the zero-fill path above; re-triggering prefill on every
+// drain-to-zero event used to amplify every small hiccup into a 60 ms
+// audible stall.
 export function ringRead(ring, state, ringSize, dst, count) {
   // Don't start playback until jitter pre-fill threshold is met.
   if (!Atomics.load(state, 2)) {
@@ -155,12 +167,5 @@ export function ringRead(ring, state, ringSize, dst, count) {
   // Zero-fill any remaining slots if we underran.
   for (let i = n; i < count; i++) {
     dst[i] = 0;
-  }
-
-  // If we just drained the buffer completely, reset the prefilled flag.
-  // This ensures the next burst of incoming audio re-fills the jitter
-  // cushion before playback resumes, avoiding choppy starts.
-  if (avail > 0 && ringAvail(state, ringSize) === 0) {
-    Atomics.store(state, 2, 0);
   }
 }

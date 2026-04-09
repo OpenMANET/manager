@@ -36,10 +36,10 @@ class PCMWorkletProcessor extends AudioWorkletProcessor {
     for (let i = 0; i < n; i++) out[i] = this.ring[(rd + i) % this.ringSize];
     Atomics.store(this.state, 1, (rd + n) % this.ringSize);
     for (let i = n; i < out.length; i++) out[i] = 0;
-    if (avail > 0) {
-      const newAvail = (Atomics.load(this.state, 0) - Atomics.load(this.state, 1) + this.ringSize) % this.ringSize;
-      if (newAvail === 0) Atomics.store(this.state, 2, 0);
-    }
+    // Prefill is a one-shot gate: once set at the start of the stream it
+    // stays set. Transient underruns fall through to the zero-fill loop
+    // above; resetting prefill on drain used to amplify every hiccup into
+    // a 60 ms audible stall.
     return true;
   }
 }
