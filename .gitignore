@@ -42,3 +42,4 @@ frontend/coverage
 .claude/settings.local.json
 .gocache
 .pnpm-store
+bench

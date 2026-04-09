@@ -106,6 +106,7 @@ so reading them does not stall the TX or RX paths.
   "control_source": "openvlm",
   "broadcast_encoder": { ... },
   "web_bridge": { ... },
+  "fec_adapter": { ... },
   "ports": [ ... ]
 }
 ```
@@ -118,6 +119,7 @@ so reading them does not stall the TX or RX paths.
 | `control_source` | string | Active PTT control source: `openvlm`, `nanoptt`, `web`, or `roip`. |
 | `broadcast_encoder` | object | TX-side audio encoder counters. |
 | `web_bridge` | object | Web-mode RX bridge counters. |
+| `fec_adapter` | object | Adaptive Opus FEC control-loop state. See **comms.fec_adapter** below. |
 | `ports` | array | Per-talk-group counters. |
 
 #### `comms.broadcast_encoder`
@@ -150,6 +152,26 @@ audio bridge that ships them to browser clients.
 |---|---|---|
 | `rx_push_in` | count | Monotonic count of frames offered to the bridge (every `PushRxFrame` invocation). |
 | `rx_push_drop` | count | Monotonic count of frames dropped because the bridge's internal channel was full. Compute `rx_push_drop / rx_push_in` — sustained ratios above ~1% mean the browser client is not draining RX fast enough. |
+
+#### `comms.fec_adapter`
+
+Adaptive Opus FEC control loop. A single damped goroutine reads the
+per-port `jitter.gap_runs_*` histogram every 2 s, maintains an EWMA
+estimate of the channel loss ratio, and writes the Opus encoder's
+packet-loss percentage to one of three levels (20, 30, 40) subject to
+an operator-configured floor. The assumption is that this node's RX
+loss is a good proxy for its own TX loss (true on omnidirectional
+mesh links), so no inter-node feedback protocol is needed. See
+`internal/comms/fec_adapter.go` for the state machine.
+
+| Field | Unit | Meaning |
+|---|---|---|
+| `current_level` | perc (0-100) | The `packetLossPerc` the Opus encoder is currently set to. Always one of { `floor`, 30, 40 }. |
+| `loss_ewma` | ratio (0.0-1.0) | The exponentially-weighted moving average of the observed loss ratio the controller is acting on. α = 0.2 at 2 s ticks gives a ~10 s response time. |
+| `last_change_unix_nano` | unix-nanoseconds | Wall-clock timestamp of the most recent level change; 0 until the adapter has moved off its initial level. |
+| `transitions` | count | Monotonic count of level changes since the adapter started. Rising rapidly means the network is flapping and the hysteresis bands may need widening. |
+| `write_errors` | count | Monotonic count of `SetPacketLossPerc` calls that the Opus encoder rejected. Should stay at 0 in production; non-zero means something is wrong with the encoder state. |
+| `floor` | perc (0-100) | The operator-configured lower bound from `comms.packetLossPerc`. The adapter will never drop below this value; it is also the initial level at startup. |
 
 #### `comms.ports[*]`
 
@@ -244,8 +266,27 @@ thumb in order and flag anything that fits.
     typical of WiFi broadcast/multicast on interference-prone links
     and usually means the mitigation has to be masking (longer jitter
     buffer, PLC) rather than recovery. Always read these buckets
-    alongside `rx_pkts` so you know the absolute scale.
-11. **Comms disabled but expected.** If the user reports a broken PTT
+    alongside `rx_pkts` so you know the absolute scale. **Note:** the
+    FEC adapter (see `comms.fec_adapter`) already consumes these
+    buckets every 2 s and raises `packet_loss_perc` in response —
+    operator action is only needed when the adapter has hit its
+    ceiling (level 40) and loss still persists.
+11. **FEC adapter pegged at max.** `comms.fec_adapter.current_level
+    == 40` sustained across multiple snapshots with a non-zero
+    `transitions` count means the controller has raised the level
+    and has not been able to drop it back down. Cross-reference
+    `comms.ports[*].jitter.gap_runs_*`: if the higher-length buckets
+    (`11_20`, `21_50`, `over_50`) are contributing most of the loss,
+    the controller is doing the right thing but FEC has hit its
+    useful ceiling — consider widening the jitter buffer or
+    diagnosing the RF environment. If only the short buckets (`1`,
+    `2_5`) are contributing, the controller is behaving correctly
+    for a lossy-but-recoverable channel and the level will track the
+    real loss rate. A non-zero `comms.fec_adapter.write_errors`
+    delta across snapshots means the encoder rejected a
+    `SetPacketLossPerc` call — that should never happen in production
+    and indicates the codec is in a bad state.
+12. **Comms disabled but expected.** If the user reports a broken PTT
    workflow but `comms.enabled == false`, the subsystem was either
    disabled in config or failed to start. Check daemon logs for the
    corresponding startup error.

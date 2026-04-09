@@ -41,6 +41,7 @@ type CommsRuntime struct {
 	Decoder         codec.AudioDecoder
 	Encoder         codec.AudioEncoder
 	BroadcastStream BroadcastCapture
+	FECAdapter      *FECAdapter
 	WebBridge       *webaudio.Bridge
 	WebEvtSrc       *control.WebEventSource
 	LocalIP         atomic.Pointer[string]
@@ -94,8 +95,13 @@ type CommsConfig struct {
 	Enable                   bool
 	EnableBluetoothPtt       bool
 	EncoderComplexity        int
-	PlaybackLatencyMs        int
-	CaptureLatencyMs         int
+	// PacketLossPerc is the Opus encoder's initial packet-loss-perc hint
+	// (LBRR bitrate allocation). Also acts as the floor for the FEC
+	// adapter — the adapter is free to raise above this value but will
+	// never drop below it. Zero or out-of-range → default (20).
+	PacketLossPerc    int
+	PlaybackLatencyMs int
+	CaptureLatencyMs  int
 	// CaptureFramesPerBuffer is the per-callback frame count suggested to
 	// PortAudio (StreamParameters.FramesPerBuffer). 960 matches the Opus
 	// frame size so every callback produces exactly one RTP packet. A
@@ -147,6 +153,7 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		ROIPMaxTXDuration:        cfg.ROIPMaxTXDuration,
 		HalfDuplexThreshold:      cfg.HalfDuplexThreshold,
 		EncoderComplexity:        cfg.EncoderComplexity,
+		PacketLossPerc:           cfg.PacketLossPerc,
 		PlaybackLatencyMs:        cfg.PlaybackLatencyMs,
 		CaptureLatencyMs:         cfg.CaptureLatencyMs,
 		CaptureFramesPerBuffer:   cfg.CaptureFramesPerBuffer,

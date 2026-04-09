@@ -16,6 +16,7 @@ type CommsSnapshot struct {
 	Ports            []PortSnapshot             `json:"ports"`
 	BroadcastEncoder audio.AudioEncoderSnapshot `json:"broadcast_encoder"`
 	WebBridge        webaudio.BridgeSnapshot    `json:"web_bridge"`
+	FECAdapter       FECAdapterSnapshot         `json:"fec_adapter"`
 	Enabled          bool                       `json:"enabled"`
 	Broadcasting     bool                       `json:"broadcasting"`
 	RemoteRxActive   bool                       `json:"remote_rx_active"`
@@ -125,6 +126,8 @@ func (s *Service) Snapshot(dst *CommsSnapshot) {
 	}
 
 	rt.WebBridge.Snapshot(&dst.WebBridge)
+
+	rt.FECAdapter.Snapshot(&dst.FECAdapter)
 
 	n := len(rt.Ports)
 	if cap(dst.Ports) < n {

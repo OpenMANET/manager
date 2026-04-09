@@ -146,6 +146,14 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 
 	rt.LocalIP.Store(&localIP)
 
+	// ── FEC adapter ────────────────────────────────────────────────────────
+	// Construct after ports are populated so the adapter's prev slice is
+	// sized correctly. The constructor also makes an initial
+	// SetPacketLossPerc(floor) call to scrub any stale level from a prior
+	// enable cycle. The Run goroutine is launched inside cfg.Run()
+	// alongside halfDuplexDecayLoop.
+	rt.FECAdapter = NewFECAdapter(rt, enc, cfg.PacketLossPerc, cfg.Log)
+
 	// Wrap the static config and the freshly built runtime in a *Service
 	// so the HTTP handlers and other consumers can resolve them via
 	// SetDefault / Default. The Service is published just before the event

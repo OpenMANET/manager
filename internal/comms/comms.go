@@ -44,7 +44,12 @@ func (cfg *CommsConfig) buildCodec() (codec.AudioEncoder, codec.AudioDecoder, er
 		complexity = encoderComplexity
 	}
 
-	enc, err := codec.NewOpusEncoder(audiopool.SampleRate, audiopool.Channels, targetBitrate, complexity, packetLossPerc)
+	perc := cfg.PacketLossPerc
+	if perc < 10 || perc > 40 {
+		perc = packetLossPerc
+	}
+
+	enc, err := codec.NewOpusEncoder(audiopool.SampleRate, audiopool.Channels, targetBitrate, complexity, perc)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -219,6 +219,10 @@ func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src control.E
 
 	go cfg.halfDuplexDecayLoop(ctx, rt)
 
+	if rt.FECAdapter != nil {
+		go rt.FECAdapter.Run(ctx)
+	}
+
 	events := src.Events(ctx)
 
 	for {

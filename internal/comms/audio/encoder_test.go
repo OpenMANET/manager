@@ -344,6 +344,8 @@ func (g *gainCapturingEncoder) EncodeS16(pcm []int16, data []byte) (int, error) 
 	return 1, nil
 }
 
+func (g *gainCapturingEncoder) SetPacketLossPerc(_ int) error { return nil }
+
 func (g *gainCapturingEncoder) Close() error { return nil }
 
 // newGainTestEncoder builds a BroadcastEncoder around the gain-capturing

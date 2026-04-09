@@ -54,6 +54,19 @@ const (
 	DefaultDebugPprof                                bool    = false
 	DefaultDebugPprofAddress                         string  = "127.0.0.1:6060"
 	DefaultCommsEncoderComplexity                    int     = 5
+	// DefaultCommsPacketLossPerc is the Opus encoder's initial
+	// packet-loss-percentage hint, controlling how much LBRR (in-band
+	// FEC) the encoder allocates bits to. Operators can pin this via
+	// comms.packetLossPerc; the FEC adapter is free to raise above
+	// the configured floor in response to observed RX loss but will
+	// never drop below it. Valid range is [10, 40].
+	DefaultCommsPacketLossPerc int = 20
+	// CommsPacketLossPercMin is the lower clamp for comms.packetLossPerc.
+	// Below 10, LBRR is too small to meaningfully recover a lost frame.
+	CommsPacketLossPercMin int = 10
+	// CommsPacketLossPercMax is the upper clamp for comms.packetLossPerc.
+	// Above 40, primary-frame quality degrades noticeably.
+	CommsPacketLossPercMax int = 40
 	// DefaultCommsPlaybackLatencyMs is the playback-side device buffer depth
 	// suggested to PortAudio. The Go-side jitter buffer cannot save the
 	// audio thread from OS scheduling stalls — only the device buffer can.
@@ -130,6 +143,7 @@ type Config struct {
 	InstrumentationIntervalSecs               int
 	OpenMANETWebsocketPort                    int
 	CommsEncoderComplexity                    int
+	CommsPacketLossPerc                       int
 	CommsPlaybackLatencyMs                    int
 	CommsCaptureLatencyMs                     int
 	CommsCaptureFramesPerBuffer               int
@@ -481,6 +495,23 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsEncoderComplexity = c.v.GetInt("comms.encoderComplexity")
 	} else {
 		c.CommsEncoderComplexity = DefaultCommsEncoderComplexity
+	}
+
+	// Load comms packet-loss-perc floor for the Opus encoder / FEC adapter.
+	// Clamp to [CommsPacketLossPercMin, CommsPacketLossPercMax]. A value of
+	// 0 (or unset) is treated as "use the default". The FEC adapter uses
+	// this as its floor and is free to raise above it under observed loss.
+	if val := c.v.GetInt("comms.packetLossPerc"); val > 0 {
+		switch {
+		case val < CommsPacketLossPercMin:
+			c.CommsPacketLossPerc = CommsPacketLossPercMin
+		case val > CommsPacketLossPercMax:
+			c.CommsPacketLossPerc = CommsPacketLossPercMax
+		default:
+			c.CommsPacketLossPerc = val
+		}
+	} else {
+		c.CommsPacketLossPerc = DefaultCommsPacketLossPerc
 	}
 
 	// Load comms playback latency. Suggested to PortAudio as the playback
@@ -982,6 +1013,18 @@ func (c *Config) GetCommsEncoderComplexity() int {
 	defer c.mu.RUnlock()
 
 	return c.CommsEncoderComplexity
+}
+
+// GetCommsPacketLossPerc returns the configured Opus packet-loss-perc
+// floor for the FEC adapter. The adapter is free to raise above this
+// value in response to observed RX loss but will never drop below it.
+// Value is clamped to [CommsPacketLossPercMin, CommsPacketLossPercMax]
+// by the loader.
+func (c *Config) GetCommsPacketLossPerc() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsPacketLossPerc
 }
 
 // GetCommsPlaybackLatencyMs returns the playback device buffer depth

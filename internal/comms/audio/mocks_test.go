@@ -45,10 +45,13 @@ func (f *fakeCaptureStream) Info() streamInfo { return f.info }
 // every EncodeS16 sleep for that duration so encode-duration tracking
 // can be exercised deterministically.
 type mockEncoder struct {
-	encodeErr error
-	sleepDur  time.Duration
-	calls     atomic.Int64
-	payloadN  int
+	encodeErr    error
+	setPercErr   error
+	sleepDur     time.Duration
+	calls        atomic.Int64
+	lastPerc     atomic.Int64
+	setPercCalls atomic.Int64
+	payloadN     int
 }
 
 func (m *mockEncoder) Encode(pcm []int16, data []byte) (int, error) {
@@ -80,6 +83,13 @@ func (m *mockEncoder) EncodeS16(_ []int16, data []byte) (int, error) {
 	}
 
 	return n, nil
+}
+
+func (m *mockEncoder) SetPacketLossPerc(perc int) error {
+	m.setPercCalls.Add(1)
+	m.lastPerc.Store(int64(perc))
+
+	return m.setPercErr
 }
 
 func (m *mockEncoder) Close() error { return nil }

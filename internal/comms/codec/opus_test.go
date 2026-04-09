@@ -2,7 +2,10 @@ package codec_test
 
 import (
 	"math"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/openmanet/openmanetd/internal/comms/codec"
 )
@@ -300,5 +303,110 @@ func TestOpusDecodeConsecutiveFrames(t *testing.T) {
 		if decoded != testFrameSize {
 			t.Errorf("frame %d: decoded %d samples, want %d", frame, decoded, testFrameSize)
 		}
+	}
+}
+
+// TestOpusEncoder_SetPacketLossPerc verifies the runtime retune path
+// accepts valid values and produces usable output after each change.
+func TestOpusEncoder_SetPacketLossPerc(t *testing.T) {
+	enc := newEnc(t)
+
+	for _, perc := range []int{0, 10, 20, 30, 40, 100} {
+		if err := enc.SetPacketLossPerc(perc); err != nil {
+			t.Fatalf("SetPacketLossPerc(%d): %v", perc, err)
+		}
+
+		pcm := make([]int16, testFrameSize)
+		buf := make([]byte, 4000)
+
+		n, err := enc.EncodeS16(pcm, buf)
+		if err != nil {
+			t.Fatalf("EncodeS16 after SetPacketLossPerc(%d): %v", perc, err)
+		}
+
+		if n <= 0 {
+			t.Fatalf("EncodeS16 after SetPacketLossPerc(%d) returned %d bytes", perc, n)
+		}
+	}
+}
+
+// TestOpusEncoder_SetPacketLossPerc_OutOfRange verifies that libopus's
+// own validation surfaces through as a wrapped error.
+func TestOpusEncoder_SetPacketLossPerc_OutOfRange(t *testing.T) {
+	enc := newEnc(t)
+
+	for _, perc := range []int{-1, 101, 500} {
+		if err := enc.SetPacketLossPerc(perc); err == nil {
+			t.Errorf("SetPacketLossPerc(%d) = nil, want error", perc)
+		}
+	}
+}
+
+// TestOpusEncoder_SetPacketLossPerc_Concurrent exercises the mutex added
+// to opusEncoder to guard EncodeS16 against concurrent SetPacketLossPerc
+// calls. Fails under `go test -race` if the serialization is wrong.
+func TestOpusEncoder_SetPacketLossPerc_Concurrent(t *testing.T) {
+	enc := newEnc(t)
+
+	var (
+		wg       sync.WaitGroup
+		stop     atomic.Bool
+		encodeN  atomic.Int64
+		setPercN atomic.Int64
+	)
+
+	// Four encode goroutines.
+	for range 4 {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			pcm := make([]int16, testFrameSize)
+			buf := make([]byte, 4000)
+
+			for !stop.Load() {
+				if _, err := enc.EncodeS16(pcm, buf); err != nil {
+					t.Errorf("concurrent EncodeS16: %v", err)
+
+					return
+				}
+
+				encodeN.Add(1)
+			}
+		}()
+	}
+
+	// One retune goroutine cycling through levels.
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		levels := []int{10, 20, 30, 40}
+		i := 0
+
+		for !stop.Load() {
+			if err := enc.SetPacketLossPerc(levels[i%len(levels)]); err != nil {
+				t.Errorf("concurrent SetPacketLossPerc: %v", err)
+
+				return
+			}
+
+			setPercN.Add(1)
+			i++
+		}
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	stop.Store(true)
+	wg.Wait()
+
+	if encodeN.Load() == 0 {
+		t.Error("expected at least one EncodeS16 call")
+	}
+
+	if setPercN.Load() == 0 {
+		t.Error("expected at least one SetPacketLossPerc call")
 	}
 }

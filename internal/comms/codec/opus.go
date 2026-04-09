@@ -13,6 +13,7 @@ package codec
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/hraban/opus"
 )
@@ -33,6 +34,13 @@ type AudioEncoder interface {
 	//
 	// Deprecated: use EncodeS16.
 	Encode(pcm []int16, data []byte) (int, error)
+
+	// SetPacketLossPerc updates the encoder's expected packet-loss
+	// percentage at runtime. Valid range is [0, 100]. The adapter control
+	// loop in internal/comms/fec_adapter.go uses this to move the Opus
+	// LBRR bitrate allocation in response to observed channel loss.
+	// Safe to call concurrently with EncodeS16.
+	SetPacketLossPerc(perc int) error
 
 	// Close releases underlying codec resources. Safe to call multiple times.
 	Close() error
@@ -71,7 +79,15 @@ var ErrShortBuffer = errors.New("codec: short buffer")
 
 // ─── Opus implementation ──────────────────────────────────────────────────────
 
+// opusEncoder wraps a hraban/opus encoder with a mutex so the hot-path
+// EncodeS16 call and the rare SetPacketLossPerc runtime-retune call can
+// both be made safely from different goroutines. The hraban binding does
+// not document thread-safety between Encode and opus_encoder_ctl, so we
+// serialize at this layer. Contention is effectively zero in production
+// (EncodeS16 runs at 50 Hz on one TX goroutine, SetPacketLossPerc runs
+// at most every few seconds from the FEC adapter loop).
 type opusEncoder struct {
+	mu  sync.Mutex
 	enc *opus.Encoder
 }
 
@@ -82,7 +98,10 @@ func (o *opusEncoder) EncodeS16(pcm []int16, out []byte) (int, error) {
 		return 0, ErrShortBuffer
 	}
 
+	o.mu.Lock()
 	n, err := o.enc.Encode(pcm, out)
+	o.mu.Unlock()
+
 	if err != nil {
 		return 0, fmt.Errorf("opus encode: %w", err)
 	}
@@ -95,6 +114,21 @@ func (o *opusEncoder) EncodeS16(pcm []int16, out []byte) (int, error) {
 // Deprecated: use EncodeS16.
 func (o *opusEncoder) Encode(pcm []int16, data []byte) (int, error) {
 	return o.EncodeS16(pcm, data)
+}
+
+// SetPacketLossPerc updates the encoder's expected packet-loss percentage
+// at runtime. The hraban binding calls opus_encoder_ctl under the hood; we
+// hold o.mu to serialize against EncodeS16 because the C-side ctl path is
+// not documented thread-safe against an in-flight encode.
+func (o *opusEncoder) SetPacketLossPerc(perc int) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if err := o.enc.SetPacketLossPerc(perc); err != nil {
+		return fmt.Errorf("opus SetPacketLossPerc: %w", err)
+	}
+
+	return nil
 }
 
 // Close releases the underlying libopus encoder. The hraban/opus encoder

@@ -86,6 +86,9 @@ func TestService_Snapshot_Populated(t *testing.T) {
 	rt.Broadcasting.Store(true)
 	rt.RemoteRxActive.Store(true)
 
+	// Attach a FEC adapter so its snapshot fields round-trip too.
+	rt.FECAdapter = NewFECAdapter(rt, &fakeAdapterEncoder{}, 20, zerolog.Nop())
+
 	svc := &Service{
 		Cfg: &CommsConfig{ControlSource: "openvlm"},
 		Rt:  rt,
@@ -120,6 +123,14 @@ func TestService_Snapshot_Populated(t *testing.T) {
 
 	assert.Equal(t, "239.0.0.2", dst.Ports[1].Address)
 	assert.False(t, dst.Ports[1].SendEnabled)
+
+	// FEC adapter snapshot fields — just constructed, so level == floor,
+	// no transitions, zero EWMA, Floor reflects the configured value.
+	assert.Equal(t, 20, dst.FECAdapter.CurrentLevel)
+	assert.Equal(t, 20, dst.FECAdapter.Floor)
+	assert.InDelta(t, 0.0, dst.FECAdapter.LossEWMA, 0.0001)
+	assert.Equal(t, int64(0), dst.FECAdapter.Transitions)
+	assert.Equal(t, int64(0), dst.FECAdapter.WriteErrors)
 }
 
 // TestService_Snapshot_ReusesPortSlice verifies the slice capacity is retained

@@ -139,7 +139,7 @@ ignorant of `*PortChannel` and the rest of the parent runtime types.
   │   │   Sender  / RTCPSend    │                    chan []float32)    │
   │   │   Receiver              │       Broadcasting   (atomic.Bool)    │
   │   │   RTPSess (rtp.Session) │       RemoteRxActive (atomic.Bool)    │
-  │   │   Jitter                │                                       │
+  │   │   Jitter                │       FECAdapter *FECAdapter          │
   │   │   PlaybackStream        │                                       │
   │   │   PlaybackBuffer (beep) │                                       │
   │   │   RxGate (HalfDuplex)   │                                       │
@@ -172,6 +172,15 @@ shutdown so handlers can defensively call `Default()` before comms is
 enabled. `CommsManager` sits one layer above and owns the start/stop
 lifetime — `Enable()` calls `Validate` synchronously, then runs `Start`
 in a background goroutine; `Disable()` cancels the context and waits.
+
+`FECAdapter` is a damped control loop that observes the per-port
+jitter-buffer gap-run histogram every 2 s and adjusts the Opus
+encoder's `packetLossPerc` setting in response to observed channel
+loss. It runs as a single goroutine spawned from `Run()` alongside
+`halfDuplexDecayLoop`, writes the encoder knob via
+`codec.AudioEncoder.SetPacketLossPerc`, and exposes its state via
+`FECAdapter.Snapshot`. See §3 for the state machine and §7 for how
+the receive pipeline feeds it.
 
 ---
 
@@ -363,6 +372,81 @@ func (m *CommsManager) IsRunning() bool
 manager is constructed unconditionally at process startup so the HTTP
 handler can call `IsRunning()` even when comms is disabled.
 
+### FECAdapter
+
+Damped control loop over the Opus encoder's `packetLossPerc` knob.
+Implemented in `fec_adapter.go`. One instance per `CommsRuntime`,
+constructed inside `Start()` after the encoder and ports are built,
+stored as `CommsRuntime.FECAdapter`, and run as a single goroutine
+spawned from `Run()` alongside `halfDuplexDecayLoop`.
+
+```go
+type FECAdapter struct {
+    log     zerolog.Logger
+    encoder codec.AudioEncoder
+    rt      *CommsRuntime
+    floor   int              // operator-configured lower bound
+    now     func() time.Time // injected for tests
+
+    mu             sync.Mutex
+    lossEWMA       float64
+    currentLevel   int
+    upgradeTicks   int
+    downgradeTicks int
+    silentTicks    int
+    prev           []fecPortState // per-port counter memory
+
+    // Atomic mirrors for lock-free Snapshot reads.
+    snapLevel       atomic.Int32
+    snapLossEWMA    atomic.Uint64 // math.Float64bits
+    snapLastChange  atomic.Int64  // unix nanos
+    snapTransitions atomic.Int64
+    snapWriteErrors atomic.Int64
+}
+```
+
+**Inputs** (read every 2 s from every `ReceiveEnabled` port):
+`PortChannel.RxPushed` and the six `JitterBuffer.GapRuns{1, 2to5,
+6to10, 11to20, 21to50, Over50}` atomic counters. The adapter
+computes deltas against its own `prev` slice, estimates missing
+frames by weighting each bucket by its midpoint (1, 3, 8, 15, 35,
+75), derives a raw loss ratio, and updates an EWMA with α = 0.2.
+
+**Output**: `codec.AudioEncoder.SetPacketLossPerc(level)`. The knob
+moves through three hardcoded levels — 20, 30, 40 — clamped at or
+above `floor`. The state machine uses asymmetric dwell (fast
+upgrades, slow downgrades) and hysteresis bands to prevent
+flapping:
+
+```
+   level=floor ── loss_ewma > 0.08 for ≥ 4s ──► level=30
+       ▲                                          │
+       │                 loss_ewma < 0.03 for ≥ 30s│
+       │◄─────────────────────────────────────────┘
+                                │
+                                │ loss_ewma > 0.20 for ≥ 4s
+                                ▼
+                            level=40
+                                │
+                                │ loss_ewma < 0.10 for ≥ 30s
+                                ▼
+                            level=30
+```
+
+**Concurrency**: all mutable state is under `a.mu`. The `Snapshot`
+path reads four atomic mirrors written at the end of every
+`tick()` so snapshot callers never contend on the tick lock.
+`Run` terminates on `ctx.Done()` and is safe to cancel from any
+goroutine. See `fec_adapter_test.go` for the full state-machine
+coverage matrix and the race-safety tests.
+
+**Rationale for sender-side inference**: the adapter uses this
+node's own RX loss as a proxy for its TX loss to peers. On
+omnidirectional mesh links that assumption holds because link
+quality is effectively reciprocal. See the Round 7 plan file in
+`.claude/plans/` for the full analysis and the reasons we did not
+implement RTCP RR ingestion.
+
 ### rtp.Session
 
 Wraps a pion `Packetizer` and an interceptor chain. One session represents
@@ -433,6 +517,12 @@ Start(ctx)
   ├─ 8. Assemble CommsRuntime { Encoder, Decoder, Ports,
   │       BeepBufferStart, BeepBufferStop }; rt.LocalIP.Store(&localIP)
   │
+  ├─ 8a. rt.FECAdapter = NewFECAdapter(rt, enc, cfg.PacketLossPerc, …)
+  │       constructed after ports are populated so the adapter's
+  │       prev slice is sized to len(rt.Ports). The constructor
+  │       makes an initial SetPacketLossPerc(floor) call to scrub
+  │       any stale value from a previous enable cycle.
+  │
   ├─ 9. SetDefault(&Service{Cfg: cfg, Rt: rt})
   │       publishes the live instance for HTTP handlers
   │
@@ -480,6 +570,13 @@ Once `Start` reaches step 12 the following goroutines are live:
         │                 go cfg.webPlayoutLoop(ctx, pc.Jitter, rt)
         │
         ├── go cfg.halfDuplexDecayLoop(ctx, rt)
+        │
+        ├── go rt.FECAdapter.Run(ctx)
+        │     └── 2 s ticker. Reads every ReceiveEnabled port's
+        │         RxPushed + jitter.GapRuns_* atomics, updates an
+        │         EWMA loss estimate, applies the state machine,
+        │         and writes rt.Encoder.SetPacketLossPerc on a
+        │         transition. Exits on ctx.Done.
         │
         └── for ev := range src.Events(ctx):
               PTTDown   → beginTransmission(rt)
@@ -685,6 +782,14 @@ A `halfDuplexDecayLoop` runs alongside them and clears
 Playout is driven by the per-port PortAudio output callback (one Go-side
 loop per port is unnecessary because the audio hardware clock drives the
 consumer side).
+
+The RX pipeline also feeds a closed-loop feedback path into the TX
+encoder: `FECAdapter.Run` wakes every 2 s, reads the per-port
+`PortChannel.RxPushed` and `JitterBuffer.GapRuns_*` atomic counters,
+and writes the Opus encoder's `packetLossPerc` knob in response to
+observed channel loss. See §3 for the state machine and
+`docs/instrumentation-snapshot.md` for the `comms.fec_adapter`
+snapshot field semantics.
 
 ```
 cfg.receiveLoop(ctx, pc, rt)            (one per receive-capable port)
@@ -1131,6 +1236,7 @@ codebase's "hand-written fakes only" rule.
 type AudioEncoder interface {
     EncodeS16(pcm []int16, out []byte) (int, error)
     Encode(pcm []int16, data []byte) (int, error)        // deprecated alias
+    SetPacketLossPerc(perc int) error
     Close() error
 }
 
@@ -1148,6 +1254,15 @@ type AudioDecoder interface {
 - Hot path is int16-native; the float32 method is retained only for
   consumer-boundary callers (e.g. legacy web bridge code). New code
   should call `EncodeS16` / `DecodeS16`.
+- `SetPacketLossPerc` is called at runtime by `FECAdapter` to move
+  the encoder's LBRR bitrate allocation in response to observed
+  channel loss. The `opusEncoder` implementation guards both
+  `EncodeS16` and `SetPacketLossPerc` under a single mutex because
+  the hraban/opus binding is not documented thread-safe between
+  `Encode` and `opus_encoder_ctl`. Contention is effectively zero
+  in production (one 50 Hz encode goroutine vs one ≤ 0.5 Hz
+  adapter caller) and benchstat confirms no measurable impact on
+  `EncodeS16` throughput.
 
 ### `device.AudioStream` (device/stream.go)
 

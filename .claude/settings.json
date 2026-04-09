@@ -39,7 +39,8 @@
       "Read(//usr/bin/**)",
       "Bash(go get:*)",
       "Read(//home/vscode/go/pkg/mod/github.com/**)",
-      "Bash(ls /workspaces/openmanetd/internal/comms/rtp/*test*.go)"
+      "Bash(ls /workspaces/openmanetd/internal/comms/rtp/*test*.go)",
+      "Bash(/go/bin/benchstat:*)"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"

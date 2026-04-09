@@ -783,6 +783,71 @@ func TestGetCommsMicGain(t *testing.T) {
 	}
 }
 
+func TestGetCommsPacketLossPerc(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *int
+		want     int
+	}{
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultCommsPacketLossPerc,
+		},
+		{
+			name:     "returns default when zero (treated as unset)",
+			setValue: intPtr(0),
+			want:     DefaultCommsPacketLossPerc,
+		},
+		{
+			name:     "returns default when negative (treated as unset)",
+			setValue: intPtr(-5),
+			want:     DefaultCommsPacketLossPerc,
+		},
+		{
+			name:     "returns configured value mid-range",
+			setValue: intPtr(25),
+			want:     25,
+		},
+		{
+			name:     "returns configured value at lower clamp",
+			setValue: intPtr(CommsPacketLossPercMin),
+			want:     CommsPacketLossPercMin,
+		},
+		{
+			name:     "returns configured value at upper clamp",
+			setValue: intPtr(CommsPacketLossPercMax),
+			want:     CommsPacketLossPercMax,
+		},
+		{
+			name:     "clamps below floor",
+			setValue: intPtr(5),
+			want:     CommsPacketLossPercMin,
+		},
+		{
+			name:     "clamps above ceiling",
+			setValue: intPtr(60),
+			want:     CommsPacketLossPercMax,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("comms.packetLossPerc", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetCommsPacketLossPerc()
+			if got != tt.want {
+				t.Errorf("GetCommsPacketLossPerc() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetCommsPlaybackLatencyMs(t *testing.T) {
 	tests := []struct {
 		name     string
