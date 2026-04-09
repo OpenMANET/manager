@@ -42,6 +42,7 @@ func openMalgoCapture(
 	sampleRate uint32,
 	channels uint32,
 	periodFrames uint32,
+	periods uint32,
 	onFrame func(samples []int16),
 ) (*malgoCaptureStream, error) {
 	if ctx == nil {
@@ -62,7 +63,7 @@ func openMalgoCapture(
 	// budget. Periods=4 gives ALSA a deeper ring (period * 4) so USB
 	// scheduling jitter has somewhere to absorb without underrunning.
 	cfg.PerformanceProfile = malgo.Conservative
-	cfg.Periods = 4
+	cfg.Periods = periods
 	cfg.Alsa.NoMMap = 0
 
 	stream := &malgoCaptureStream{

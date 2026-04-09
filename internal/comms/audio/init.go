@@ -145,6 +145,7 @@ func (in *Init) OpenBroadcastStream(inDev device.AudioDeviceInfo) (*BroadcastEnc
 	}
 
 	periodFrames := uint32(buildCapturePeriodFrames(in.CaptureFramesPerBuffer, in.CaptureLatencyMs))
+	periods := uint32(buildCapturePeriods(in.CaptureLatencyMs, int(periodFrames)))
 
 	opener := func(onFrame func(samples []int16)) (captureStream, error) {
 		return openMalgoCapture(
@@ -153,6 +154,7 @@ func (in *Init) OpenBroadcastStream(inDev device.AudioDeviceInfo) (*BroadcastEnc
 			uint32(audiopool.SampleRate),
 			uint32(audiopool.Channels),
 			periodFrames,
+			periods,
 			onFrame,
 		)
 	}
@@ -189,24 +191,49 @@ func (in *Init) OpenBroadcastStream(inDev device.AudioDeviceInfo) (*BroadcastEnc
 // Rules (mirrors the previous PortAudio semantics to keep existing
 // YAML configs working unchanged):
 //
-//   - framesPerBuffer == 0 → derive the period from latencyMs (mirrors
-//     playback). The captureChunker re-aligns whatever ALSA gives back
-//     onto audiopool.FrameSize chunks, so a larger period is invisible
-//     to the encoder. Falls back to audiopool.FrameSize when latencyMs
-//     is non-positive.
+//   - framesPerBuffer == 0 → audiopool.FrameSize (960 = 20 ms @ 48 kHz).
+//     A small period is required so ALSA wakes the callback every Opus
+//     frame instead of bursting multiple frames at once — the encoder's
+//     per-frame deadline check assumes one frame arrives every 20 ms.
+//     latencyMs is honored separately by the periods-count knob in
+//     openMalgoCapture, which controls the depth of the ALSA ring.
 //   - framesPerBuffer < 0 → pass 0 to malgo, letting miniaudio pick a
-//     period aligned with the native ALSA period. BroadcastEncoder's
-//     capture callback is responsible for handling the resulting
-//     variable-length frame cadence downstream.
+//     period aligned with the native ALSA period.
 //   - framesPerBuffer > 0 → passthrough verbatim.
-func buildCapturePeriodFrames(framesPerBuffer, latencyMs int) int {
+// buildCapturePeriods derives the ALSA periods count from
+// CaptureLatencyMs. The total ring depth is periodFrames * periods,
+// so we pick the smallest count that gives at least latencyMs of
+// headroom. Floor of 3 (miniaudio's default) and a ceiling of 16 to
+// keep the worst-case latency bounded if an operator sets a huge value.
+func buildCapturePeriods(latencyMs, periodFrames int) int {
+	const minPeriods = 3
+	const maxPeriods = 16
+
+	if latencyMs <= 0 || periodFrames <= 0 {
+		return minPeriods
+	}
+
+	periodMs := periodFrames * 1000 / audiopool.SampleRate
+	if periodMs <= 0 {
+		return minPeriods
+	}
+
+	periods := (latencyMs + periodMs - 1) / periodMs
+	if periods < minPeriods {
+		return minPeriods
+	}
+
+	if periods > maxPeriods {
+		return maxPeriods
+	}
+
+	return periods
+}
+
+func buildCapturePeriodFrames(framesPerBuffer, _ int) int {
 	switch {
 	case framesPerBuffer == 0:
-		if latencyMs <= 0 {
-			return audiopool.FrameSize
-		}
-
-		return latencyMs * audiopool.SampleRate / 1000
+		return audiopool.FrameSize
 	case framesPerBuffer < 0:
 		return 0
 	default:

@@ -9,21 +9,25 @@ import (
 	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 )
 
-func TestBuildCapturePeriodFrames_DefaultDerivesFromLatency(t *testing.T) {
-	// framesPerBuffer == 0 means "not configured" — derive the period
-	// from CaptureLatencyMs (mirrors playback). 60 ms @ 48 kHz = 2880
-	// frames. The captureChunker re-aligns whatever ALSA gives back onto
-	// 960-sample chunks, so a larger period is invisible to the encoder.
-	assert.Equal(t, 2880, buildCapturePeriodFrames(0, 60),
-		"framesPerBuffer == 0 should derive period from latencyMs")
+func TestBuildCapturePeriodFrames_DefaultIsOneOpusFrame(t *testing.T) {
+	// framesPerBuffer == 0 always returns one Opus frame (960 = 20 ms).
+	// The encoder's per-frame deadline check assumes ALSA wakes the
+	// callback every 20 ms; the latencyMs knob controls ring depth via
+	// buildCapturePeriods, not period size.
+	assert.Equal(t, audiopool.FrameSize, buildCapturePeriodFrames(0, 60))
+	assert.Equal(t, audiopool.FrameSize, buildCapturePeriodFrames(0, 0))
 }
 
-func TestBuildCapturePeriodFrames_DefaultFallbackWhenLatencyUnset(t *testing.T) {
-	// When neither knob is set, fall back to one Opus frame.
-	assert.Equal(t, audiopool.FrameSize, buildCapturePeriodFrames(0, 0),
-		"framesPerBuffer == 0 and latencyMs == 0 should fall back to FrameSize")
-	assert.Equal(t, audiopool.FrameSize, buildCapturePeriodFrames(0, -1),
-		"framesPerBuffer == 0 and negative latencyMs should fall back to FrameSize")
+func TestBuildCapturePeriods(t *testing.T) {
+	// 60 ms latency / 20 ms period = 3 periods (matches floor).
+	assert.Equal(t, 3, buildCapturePeriods(60, audiopool.FrameSize))
+	// 120 ms latency / 20 ms period = 6 periods.
+	assert.Equal(t, 6, buildCapturePeriods(120, audiopool.FrameSize))
+	// Floor at 3 periods.
+	assert.Equal(t, 3, buildCapturePeriods(0, audiopool.FrameSize))
+	assert.Equal(t, 3, buildCapturePeriods(20, audiopool.FrameSize))
+	// Ceiling at 16 periods.
+	assert.Equal(t, 16, buildCapturePeriods(10000, audiopool.FrameSize))
 }
 
 func TestBuildCapturePeriodFrames_UnspecifiedWhenNegative(t *testing.T) {
