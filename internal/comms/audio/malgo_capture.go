@@ -54,7 +54,15 @@ func openMalgoCapture(
 	cfg.Capture.DeviceID = dev.ID.Pointer()
 	cfg.SampleRate = sampleRate
 	cfg.PeriodSizeInFrames = periodFrames
-	cfg.PerformanceProfile = malgo.LowLatency
+	// Conservative profile (vs. LowLatency) lets miniaudio honor the
+	// requested period size instead of clamping it to its internal
+	// low-latency ceiling. On USB audio class devices the LowLatency
+	// profile produced a 1024*3 ring regardless of the requested period,
+	// causing poll() failures and capture gaps far over the 20 ms frame
+	// budget. Periods=4 gives ALSA a deeper ring (period * 4) so USB
+	// scheduling jitter has somewhere to absorb without underrunning.
+	cfg.PerformanceProfile = malgo.Conservative
+	cfg.Periods = 4
 	cfg.Alsa.NoMMap = 0
 
 	stream := &malgoCaptureStream{
