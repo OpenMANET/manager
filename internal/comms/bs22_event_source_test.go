@@ -53,6 +53,42 @@ func TestFindBS22Device_PrefersConnectedDevice(t *testing.T) {
 	}
 }
 
+func TestFindBS22Devices_IncludesSecondaryIdentityByAddress(t *testing.T) {
+	managed := bluezManagedObjectMap{
+		dbus.ObjectPath("/org/bluez/hci0/dev_CLASSIC"): {
+			bluezDeviceInterface: {
+				"Alias":       dbus.MakeVariant("BS-22"),
+				"Connected":   dbus.MakeVariant(true),
+				"Paired":      dbus.MakeVariant(true),
+				"Address":     dbus.MakeVariant("41:42:86:99:1D:61"),
+				"AddressType": dbus.MakeVariant("public"),
+				"Adapter":     dbus.MakeVariant(dbus.ObjectPath("/org/bluez/hci0")),
+				"UUIDs":       dbus.MakeVariant([]string{"0000111e-0000-1000-8000-00805f9b34fb"}),
+			},
+		},
+		dbus.ObjectPath("/org/bluez/hci0/dev_LE"): {
+			bluezDeviceInterface: {
+				"Connected":   dbus.MakeVariant(false),
+				"Paired":      dbus.MakeVariant(false),
+				"Address":     dbus.MakeVariant("41:42:86:99:1D:61"),
+				"AddressType": dbus.MakeVariant("public"),
+				"Adapter":     dbus.MakeVariant(dbus.ObjectPath("/org/bluez/hci0")),
+			},
+		},
+	}
+
+	devices := findBS22Devices(managed)
+	if len(devices) != 2 {
+		t.Fatalf("len(findBS22Devices()) = %d, want 2", len(devices))
+	}
+	if devices[0].Path != dbus.ObjectPath("/org/bluez/hci0/dev_CLASSIC") {
+		t.Fatalf("devices[0].Path = %q, want classic path", devices[0].Path)
+	}
+	if devices[1].Path != dbus.ObjectPath("/org/bluez/hci0/dev_LE") {
+		t.Fatalf("devices[1].Path = %q, want LE path", devices[1].Path)
+	}
+}
+
 func TestFindBS22BLEBindingForDevice(t *testing.T) {
 	device := bs22DeviceInfo{
 		Path:      dbus.ObjectPath("/org/bluez/hci0/dev_41_42_86_99_1D_61"),
@@ -98,6 +134,78 @@ func TestFindBS22BLEBindingForDevice(t *testing.T) {
 	}
 	if binding.NotifyPath != dbus.ObjectPath("/org/bluez/hci0/dev_41_42_86_99_1D_61/service0011/char0013") {
 		t.Fatalf("binding.NotifyPath = %q", binding.NotifyPath)
+	}
+}
+
+func TestFindBS22BLEBindingForDevices_UsesSecondaryPath(t *testing.T) {
+	classic := bs22DeviceInfo{
+		Path:      dbus.ObjectPath("/org/bluez/hci0/dev_CLASSIC"),
+		Alias:     "BS-22",
+		Address:   "41:42:86:99:1D:61",
+		Connected: true,
+	}
+	le := bs22DeviceInfo{
+		Path:        dbus.ObjectPath("/org/bluez/hci0/dev_LE"),
+		Address:     "41:42:86:99:1D:61",
+		AddressType: "public",
+		Connected:   false,
+	}
+
+	managed := bluezManagedObjectMap{
+		classic.Path: {
+			bluezDeviceInterface: {
+				"Alias":     dbus.MakeVariant("BS-22"),
+				"Connected": dbus.MakeVariant(true),
+			},
+		},
+		le.Path: {
+			bluezDeviceInterface: {
+				"Address":   dbus.MakeVariant("41:42:86:99:1D:61"),
+				"Connected": dbus.MakeVariant(false),
+			},
+		},
+		dbus.ObjectPath("/org/bluez/hci0/dev_LE/service0011"): {
+			bluezGattServiceInterface: {
+				"UUID":   dbus.MakeVariant(bs22HMServiceUUID),
+				"Device": dbus.MakeVariant(le.Path),
+			},
+		},
+		dbus.ObjectPath("/org/bluez/hci0/dev_LE/service0011/char0012"): {
+			bluezGattCharacteristicInterface: {
+				"UUID":    dbus.MakeVariant(bs22HMWriteUUID),
+				"Service": dbus.MakeVariant(dbus.ObjectPath("/org/bluez/hci0/dev_LE/service0011")),
+			},
+		},
+		dbus.ObjectPath("/org/bluez/hci0/dev_LE/service0011/char0013"): {
+			bluezGattCharacteristicInterface: {
+				"UUID":    dbus.MakeVariant(bs22HMNotifyUUID),
+				"Service": dbus.MakeVariant(dbus.ObjectPath("/org/bluez/hci0/dev_LE/service0011")),
+			},
+		},
+	}
+
+	binding, ok := findBS22BLEBindingForDevices(managed, []bs22DeviceInfo{classic, le})
+	if !ok {
+		t.Fatal("findBS22BLEBindingForDevices() = false, want true")
+	}
+	if binding.Device.Path != le.Path {
+		t.Fatalf("binding.Device.Path = %q, want %q", binding.Device.Path, le.Path)
+	}
+	if binding.ServicePath != dbus.ObjectPath("/org/bluez/hci0/dev_LE/service0011") {
+		t.Fatalf("binding.ServicePath = %q", binding.ServicePath)
+	}
+}
+
+func TestIsBS22ClassicConnectCandidate(t *testing.T) {
+	if !isBS22ClassicConnectCandidate(bs22DeviceInfo{
+		UUIDs: []string{"0000111e-0000-1000-8000-00805f9b34fb"},
+	}) {
+		t.Fatal("isBS22ClassicConnectCandidate() = false, want true for handsfree")
+	}
+	if isBS22ClassicConnectCandidate(bs22DeviceInfo{
+		UUIDs: []string{"00001800-0000-1000-8000-00805f9b34fb"},
+	}) {
+		t.Fatal("isBS22ClassicConnectCandidate() = true, want false")
 	}
 }
 
@@ -239,7 +347,7 @@ func TestIsMissingBlueZMethodError(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{name: "doesn't exist", err: errors.New(`Method "ConnectDevice" with signature "a{sv}" on interface "org.bluez.Adapter1" doesn't exist`) , want: true},
+		{name: "doesn't exist", err: errors.New(`Method "ConnectDevice" with signature "a{sv}" on interface "org.bluez.Adapter1" doesn't exist`), want: true},
 		{name: "does not exist", err: errors.New("method does not exist"), want: true},
 		{name: "unknown method", err: errors.New("Unknown method"), want: true},
 		{name: "other", err: errors.New("failed"), want: false},

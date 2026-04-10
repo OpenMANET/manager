@@ -60,6 +60,7 @@ type bs22DeviceInfo struct {
 	Name        string
 	Address     string
 	AddressType string
+	UUIDs       []string
 	Connected   bool
 	Paired      bool
 }
@@ -274,7 +275,7 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 	var primed bool
 	var lastConnectAttempt time.Time
 	var adapterConnectUnsupported bool
-	var pairAttempted bool
+	pairAttempted := map[dbus.ObjectPath]bool{}
 
 	syncBinding := func() {
 		managed, err := s.listManaged(conn)
@@ -283,28 +284,33 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 			return
 		}
 
-		device, ok := findBS22Device(managed)
-		if !ok {
+		devices := findBS22Devices(managed)
+		if len(devices) == 0 {
 			haveCurrent = false
 			primed = false
-			pairAttempted = false
+			pairAttempted = map[dbus.ObjectPath]bool{}
 			s.setToneState(conn, bs22BLEBinding{}, false)
 			return
 		}
 
-		binding, ok := findBS22BLEBindingForDevice(managed, device)
+		primary := devices[0]
+		binding, ok := findBS22BLEBindingForDevices(managed, devices)
 		if !ok {
 			if time.Since(lastConnectAttempt) >= connectRetry {
 				lastConnectAttempt = time.Now()
 				s.log.Info().
-					Str("device", device.Address).
-					Str("path", string(device.Path)).
-					Str("adapter", string(device.Adapter)).
-					Str("address_type", normalizeBS22AddressType(device.AddressType)).
-					Bool("classic_connected", device.Connected).
-					Bool("paired", device.Paired).
+					Str("device", primary.Address).
+					Str("path", string(primary.Path)).
+					Str("adapter", string(primary.Adapter)).
+					Str("address_type", normalizeBS22AddressType(primary.AddressType)).
+					Bool("classic_connected", primary.Connected).
+					Bool("paired", primary.Paired).
+					Int("candidates", len(devices)).
 					Msg("BS-22 BLE: HM service not present, attempting attach")
-				if !device.Connected && s.connectDevice != nil {
+				for _, device := range devices {
+					if device.Connected || s.connectDevice == nil || !isBS22ClassicConnectCandidate(device) {
+						continue
+					}
 					if err := s.connectDevice(conn, device); err != nil {
 						if isIgnorableBlueZConnectError(err) {
 							s.log.Info().
@@ -321,59 +327,65 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 				}
 
 				if !adapterConnectUnsupported {
-					if err := connectBlueZLEDevice(conn, device); err != nil {
+					if err := connectBlueZLEDevice(conn, primary); err != nil {
 						if isMissingBlueZMethodError(err) {
 							adapterConnectUnsupported = true
 							s.log.Warn().
 								Err(err).
-								Str("device", device.Address).
-								Str("adapter", string(device.Adapter)).
+								Str("device", primary.Address).
+								Str("adapter", string(primary.Adapter)).
 								Msg("BS-22 BLE: Adapter1.ConnectDevice unsupported, falling back to Device1.Pair")
 						} else if isIgnorableBlueZConnectError(err) {
 							s.log.Info().
 								Err(err).
-								Str("device", device.Address).
-								Str("adapter", string(device.Adapter)).
-								Str("address_type", normalizeBS22AddressType(device.AddressType)).
+								Str("device", primary.Address).
+								Str("adapter", string(primary.Adapter)).
+								Str("address_type", normalizeBS22AddressType(primary.AddressType)).
 								Msg("BS-22 BLE: LE connect request already in progress")
 						} else {
 							s.log.Warn().
 								Err(err).
-								Str("device", device.Address).
-								Str("adapter", string(device.Adapter)).
-								Str("address_type", normalizeBS22AddressType(device.AddressType)).
+								Str("device", primary.Address).
+								Str("adapter", string(primary.Adapter)).
+								Str("address_type", normalizeBS22AddressType(primary.AddressType)).
 								Msg("BS-22 BLE: LE connect request failed")
 						}
 					} else {
 						s.log.Info().
-							Str("device", device.Address).
-							Str("adapter", string(device.Adapter)).
-							Str("address_type", normalizeBS22AddressType(device.AddressType)).
+							Str("device", primary.Address).
+							Str("adapter", string(primary.Adapter)).
+							Str("address_type", normalizeBS22AddressType(primary.AddressType)).
 							Msg("BS-22 BLE: LE connect request sent")
 					}
 				}
 
-				if adapterConnectUnsupported && s.pairDevice != nil && !pairAttempted {
-					pairAttempted = true
-					if err := s.pairDevice(conn, device); err != nil {
-						if isIgnorableBlueZPairError(err) {
-							s.log.Info().
-								Err(err).
-								Str("device", string(device.Path)).
-								Bool("paired", device.Paired).
-								Msg("BS-22 BLE: Pair() request already satisfied")
-						} else {
-							s.log.Warn().
-								Err(err).
-								Str("device", string(device.Path)).
-								Bool("paired", device.Paired).
-								Msg("BS-22 BLE: Pair() request failed")
+				if adapterConnectUnsupported && s.pairDevice != nil {
+					for _, device := range devices {
+						if pairAttempted[device.Path] {
+							continue
 						}
-					} else {
-						s.log.Info().
-							Str("device", string(device.Path)).
-							Bool("paired", device.Paired).
-							Msg("BS-22 BLE: Pair() request sent")
+						if err := s.pairDevice(conn, device); err != nil {
+							if isIgnorableBlueZPairError(err) {
+								pairAttempted[device.Path] = true
+								s.log.Info().
+									Err(err).
+									Str("device", string(device.Path)).
+									Bool("paired", device.Paired).
+									Msg("BS-22 BLE: Pair() request already satisfied")
+							} else {
+								s.log.Warn().
+									Err(err).
+									Str("device", string(device.Path)).
+									Bool("paired", device.Paired).
+									Msg("BS-22 BLE: Pair() request failed")
+							}
+						} else {
+							pairAttempted[device.Path] = true
+							s.log.Info().
+								Str("device", string(device.Path)).
+								Bool("paired", device.Paired).
+								Msg("BS-22 BLE: Pair() request sent")
+						}
 					}
 				}
 			}
@@ -572,7 +584,17 @@ func connectBlueZLEDevice(conn *dbus.Conn, device bs22DeviceInfo) error {
 }
 
 func findBS22Device(managed bluezManagedObjectMap) (bs22DeviceInfo, bool) {
+	devices := findBS22Devices(managed)
+	if len(devices) == 0 {
+		return bs22DeviceInfo{}, false
+	}
+	return devices[0], true
+}
+
+func findBS22Devices(managed bluezManagedObjectMap) []bs22DeviceInfo {
 	devices := make([]bs22DeviceInfo, 0)
+	devicesByPath := map[dbus.ObjectPath]bs22DeviceInfo{}
+	bs22Addresses := map[string]struct{}{}
 
 	for path, ifaces := range managed {
 		props, ok := ifaces[bluezDeviceInterface]
@@ -580,42 +602,87 @@ func findBS22Device(managed bluezManagedObjectMap) (bs22DeviceInfo, bool) {
 			continue
 		}
 
-		info := bs22DeviceInfo{
-			Path:        path,
-			Adapter:     variantObjectPath(props, "Adapter"),
-			Alias:       variantString(props, "Alias"),
-			Name:        variantString(props, "Name"),
-			Address:     variantString(props, "Address"),
-			AddressType: variantString(props, "AddressType"),
-			Connected:   variantBool(props, "Connected"),
-			Paired:      variantBool(props, "Paired"),
-		}
+		info := bluezDeviceInfoFromProps(path, props)
 
 		if !isBS22Device(info, props) {
 			continue
 		}
 
+		devicesByPath[path] = info
+		if info.Address != "" {
+			bs22Addresses[strings.ToUpper(info.Address)] = struct{}{}
+		}
+	}
+
+	if len(devicesByPath) == 0 {
+		return nil
+	}
+
+	for path, ifaces := range managed {
+		props, ok := ifaces[bluezDeviceInterface]
+		if !ok {
+			continue
+		}
+		if _, exists := devicesByPath[path]; exists {
+			continue
+		}
+
+		info := bluezDeviceInfoFromProps(path, props)
+		if _, ok := bs22Addresses[strings.ToUpper(info.Address)]; !ok {
+			continue
+		}
+		devicesByPath[path] = info
+	}
+
+	for _, info := range devicesByPath {
 		devices = append(devices, info)
 	}
 
 	if len(devices) == 0 {
-		return bs22DeviceInfo{}, false
+		return nil
 	}
 
 	sort.Slice(devices, func(i, j int) bool {
 		if devices[i].Connected != devices[j].Connected {
 			return devices[i].Connected
 		}
+		if hasBS22Name(devices[i]) != hasBS22Name(devices[j]) {
+			return hasBS22Name(devices[i])
+		}
+		if devices[i].Paired != devices[j].Paired {
+			return devices[i].Paired
+		}
 
 		return string(devices[i].Path) < string(devices[j].Path)
 	})
 
-	return devices[0], true
+	return devices
 }
 
 func findBS22BLEBindingForDevice(managed bluezManagedObjectMap, device bs22DeviceInfo) (bs22BLEBinding, bool) {
+	return findBS22BLEBindingForDevices(managed, []bs22DeviceInfo{device})
+}
+
+func findBS22BLEBindingForDevices(managed bluezManagedObjectMap, devices []bs22DeviceInfo) (bs22BLEBinding, bool) {
+	if len(devices) == 0 {
+		return bs22BLEBinding{}, false
+	}
+
+	deviceRank := map[dbus.ObjectPath]int{}
+	deviceByPath := map[dbus.ObjectPath]bs22DeviceInfo{}
+	for i, d := range devices {
+		deviceRank[d.Path] = i
+		deviceByPath[d.Path] = d
+	}
+
 	var servicePath dbus.ObjectPath
-	servicePaths := make([]dbus.ObjectPath, 0)
+	serviceDevicePath := dbus.ObjectPath("")
+	type serviceCandidate struct {
+		servicePath dbus.ObjectPath
+		devicePath  dbus.ObjectPath
+		rank        int
+	}
+	candidates := make([]serviceCandidate, 0)
 
 	for path, ifaces := range managed {
 		props, ok := ifaces[bluezGattServiceInterface]
@@ -627,21 +694,27 @@ func findBS22BLEBindingForDevice(managed bluezManagedObjectMap, device bs22Devic
 			continue
 		}
 
-		if variantObjectPath(props, "Device") != device.Path {
+		devPath := variantObjectPath(props, "Device")
+		rank, ok := deviceRank[devPath]
+		if !ok {
 			continue
 		}
 
-		servicePaths = append(servicePaths, path)
+		candidates = append(candidates, serviceCandidate{servicePath: path, devicePath: devPath, rank: rank})
 	}
 
-	if len(servicePaths) == 0 {
+	if len(candidates) == 0 {
 		return bs22BLEBinding{}, false
 	}
 
-	sort.Slice(servicePaths, func(i, j int) bool {
-		return string(servicePaths[i]) < string(servicePaths[j])
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].rank != candidates[j].rank {
+			return candidates[i].rank < candidates[j].rank
+		}
+		return string(candidates[i].servicePath) < string(candidates[j].servicePath)
 	})
-	servicePath = servicePaths[0]
+	servicePath = candidates[0].servicePath
+	serviceDevicePath = candidates[0].devicePath
 
 	var writePath dbus.ObjectPath
 	var notifyPath dbus.ObjectPath
@@ -677,6 +750,15 @@ func findBS22BLEBindingForDevice(managed bluezManagedObjectMap, device bs22Devic
 		return bs22BLEBinding{}, false
 	}
 
+	device := deviceByPath[serviceDevicePath]
+	if device.Path == "" {
+		if ifaces, ok := managed[serviceDevicePath]; ok {
+			if props, ok := ifaces[bluezDeviceInterface]; ok {
+				device = bluezDeviceInfoFromProps(serviceDevicePath, props)
+			}
+		}
+	}
+
 	return bs22BLEBinding{
 		Device:      device,
 		ServicePath: servicePath,
@@ -697,6 +779,38 @@ func isBS22Device(device bs22DeviceInfo, props map[string]dbus.Variant) bool {
 	}
 
 	return false
+}
+
+func hasBS22Name(device bs22DeviceInfo) bool {
+	return containsFold(device.Alias, bs22Name) || containsFold(device.Name, bs22Name)
+}
+
+func isBS22ClassicConnectCandidate(device bs22DeviceInfo) bool {
+	return hasUUIDFold(device.UUIDs, "0000111e-0000-1000-8000-00805f9b34fb") ||
+		hasUUIDFold(device.UUIDs, "0000110b-0000-1000-8000-00805f9b34fb")
+}
+
+func hasUUIDFold(uuids []string, target string) bool {
+	for _, u := range uuids {
+		if strings.EqualFold(u, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func bluezDeviceInfoFromProps(path dbus.ObjectPath, props map[string]dbus.Variant) bs22DeviceInfo {
+	return bs22DeviceInfo{
+		Path:        path,
+		Adapter:     variantObjectPath(props, "Adapter"),
+		Alias:       variantString(props, "Alias"),
+		Name:        variantString(props, "Name"),
+		Address:     variantString(props, "Address"),
+		AddressType: variantString(props, "AddressType"),
+		UUIDs:       variantStringSlice(props, "UUIDs"),
+		Connected:   variantBool(props, "Connected"),
+		Paired:      variantBool(props, "Paired"),
+	}
 }
 
 func parseBS22HMPacket(data []byte) (bs22HMPacket, bool) {
@@ -817,6 +931,7 @@ func isIgnorableBlueZConnectError(err error) bool {
 
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "already connected") ||
+		strings.Contains(msg, "alreadyexists") ||
 		strings.Contains(msg, "already exists") ||
 		strings.Contains(msg, "in progress")
 }
@@ -827,7 +942,8 @@ func isIgnorableBlueZPairError(err error) bool {
 	}
 
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "already exists") ||
+	return strings.Contains(msg, "alreadyexists") ||
+		strings.Contains(msg, "already exists") ||
 		strings.Contains(msg, "already paired") ||
 		strings.Contains(msg, "in progress")
 }
