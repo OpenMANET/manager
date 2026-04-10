@@ -2223,3 +2223,170 @@ func TestAuthConfig_AllFieldsOverridden(t *testing.T) {
 		t.Errorf("GetAuthPAMService() = %v, want system-auth", got)
 	}
 }
+
+func TestGetInstrumentationEnable(t *testing.T) {
+	tests := []struct {
+		setValue *bool
+		name     string
+		want     bool
+	}{
+		{
+			name:     "returns true when enabled",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns false when explicitly disabled",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultInstrumentationEnable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("instrumentation.enable", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetInstrumentationEnable()
+			if got != tt.want {
+				t.Errorf("GetInstrumentationEnable() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetInstrumentationIntervalSecs(t *testing.T) {
+	tests := []struct {
+		setValue *int
+		name     string
+		want     int
+	}{
+		{
+			name:     "returns configured interval",
+			setValue: intPtr(60),
+			want:     60,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultInstrumentationIntervalSecs,
+		},
+		{
+			name:     "returns default when zero",
+			setValue: intPtr(0),
+			want:     DefaultInstrumentationIntervalSecs,
+		},
+		{
+			name:     "returns default when negative",
+			setValue: intPtr(-1),
+			want:     DefaultInstrumentationIntervalSecs,
+		},
+		{
+			name:     "returns 1 when set to minimum positive value",
+			setValue: intPtr(1),
+			want:     1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("instrumentation.intervalSecs", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetInstrumentationIntervalSecs()
+			if got != tt.want {
+				t.Errorf("GetInstrumentationIntervalSecs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetInstrumentationSnapshotDir(t *testing.T) {
+	tests := []struct {
+		setValue *string
+		name     string
+		want     string
+	}{
+		{
+			name:     "returns configured directory",
+			setValue: strPtr("/var/log/openmanetd/snapshots"),
+			want:     "/var/log/openmanetd/snapshots",
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultInstrumentationSnapshotDir,
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultInstrumentationSnapshotDir,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("instrumentation.snapshotDir", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			got := cfg.GetInstrumentationSnapshotDir()
+			if got != tt.want {
+				t.Errorf("GetInstrumentationSnapshotDir() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestInstrumentationConfig_AllFieldsOverridden(t *testing.T) {
+	v := viper.New()
+	v.Set("instrumentation.enable", true)
+	v.Set("instrumentation.intervalSecs", 120)
+	v.Set("instrumentation.snapshotDir", "/mnt/snapshots")
+
+	cfg := NewWithoutWatch(v)
+
+	if got := cfg.GetInstrumentationEnable(); !got {
+		t.Errorf("GetInstrumentationEnable() = false, want true")
+	}
+
+	if got := cfg.GetInstrumentationIntervalSecs(); got != 120 {
+		t.Errorf("GetInstrumentationIntervalSecs() = %v, want 120", got)
+	}
+
+	if got := cfg.GetInstrumentationSnapshotDir(); got != "/mnt/snapshots" {
+		t.Errorf("GetInstrumentationSnapshotDir() = %v, want /mnt/snapshots", got)
+	}
+}
+
+func TestInstrumentationConfig_Defaults(t *testing.T) {
+	cfg := NewWithoutWatch(viper.New())
+
+	if got := cfg.GetInstrumentationEnable(); got != DefaultInstrumentationEnable {
+		t.Errorf("GetInstrumentationEnable() = %v, want %v", got, DefaultInstrumentationEnable)
+	}
+
+	if got := cfg.GetInstrumentationIntervalSecs(); got != DefaultInstrumentationIntervalSecs {
+		t.Errorf("GetInstrumentationIntervalSecs() = %v, want %v", got, DefaultInstrumentationIntervalSecs)
+	}
+
+	if got := cfg.GetInstrumentationSnapshotDir(); got != DefaultInstrumentationSnapshotDir {
+		t.Errorf("GetInstrumentationSnapshotDir() = %v, want %v", got, DefaultInstrumentationSnapshotDir)
+	}
+}

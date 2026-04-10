@@ -20,7 +20,7 @@ import (
 // rtpMulticastTTL is the IP TTL set on outgoing RTP/RTCP multicast packets.
 // A value of 1 restricts packets to the local subnet; increase to allow
 // traversal across routed multicast hops.
-const rtpMulticastTTL = 1
+const rtpMulticastTTL = 4
 
 // rxSocketBufBytes is the requested SO_RCVBUF size for the RTP receive
 // socket. 1 MiB absorbs bursty mesh arrivals when receiveLoop is briefly
