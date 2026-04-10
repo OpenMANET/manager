@@ -1,17 +1,18 @@
 # Comms (Push-to-Talk) internals
 
-This directory implements a multicast PTT audio pipeline in Go using PortAudio,
-Opus, and the [pion](https://github.com/pion) RTP/RTCP stack. It supports
-multiple parallel multicast talk groups, half-duplex enforcement, four
-selectable PTT control sources (OpenVLM HID dongle, ROIP analog-radio bridge,
-web/RPC, and Linux evdev keys), and a browser-driven web mode that bypasses
-PortAudio entirely. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full
-internal walkthrough; this README is the field-operator reference.
+This directory implements a multicast PTT audio pipeline in Go using malgo
+(miniaudio), Opus, and the [pion](https://github.com/pion) RTP/RTCP stack. It
+supports multiple parallel multicast talk groups, half-duplex enforcement,
+four selectable PTT control sources (OpenVLM HID dongle, ROIP analog-radio
+bridge, web/RPC, and Linux evdev keys), and a browser-driven web mode that
+bypasses the audio backend entirely. See [ARCHITECTURE.md](ARCHITECTURE.md)
+for the full internal walkthrough; this README is the field-operator
+reference.
 
 Build with `-tags omd_omit_comms` to exclude the entire package from the
 binary (a stub `doc.go` kept behind the matching positive tag satisfies the
-import graph). The full build requires CGo (libopus, portaudio, hidapi,
-libasound).
+import graph). The full build requires CGo (libopus, hidapi, libasound;
+miniaudio is vendored via malgo).
 
 ---
 
@@ -23,14 +24,15 @@ libasound).
    `Service.EnableTalkGroupSend` / `EnableTalkGroupReceive`.
 2. **Audio**:
    - Opus encoder/decoder are created with the VoIP profile.
-   - In hardware modes, one shared PortAudio capture stream feeds an
+   - In hardware modes, one shared malgo capture stream feeds an
      [`audio.BroadcastEncoder`](audio/encoder.go) whose dedicated encode
      goroutine runs Opus + UDP send off the audio callback thread.
-   - One PortAudio playback stream is opened **per port**; each runs its
+   - One malgo playback stream is opened **per port**; each runs its
      own int16-native callback that drains a TX-beep side channel ahead
      of falling through to `playoutOneFrame`.
-   - In `web` mode PortAudio is skipped entirely; the browser is the I/O
-     device and all audio crosses through [`webaudio.Bridge`](webaudio/bridge.go).
+   - In `web` mode the malgo pipeline is skipped entirely; the browser is
+     the I/O device and all audio crosses through
+     [`webaudio.Bridge`](webaudio/bridge.go).
 3. **Network**:
    - Each `McastPortConfig` entry opens its own UDP sender (dialled from the
      interface IP), receiver (`SO_REUSEPORT` listener on `0.0.0.0:<port>`),
@@ -72,12 +74,16 @@ per-frame allocations.
 
 ### Playback device latency
 
-The PortAudio output stream for each port is opened with
-`Latency = max(comms.playbackLatencyMs, outDev.DefaultHighOutputLatency)`.
-The callback chunk size stays at `audiopool.FrameSize` (one Opus frame, 20 ms)
-so [`playoutOneFrame`](receive.go) produces exactly one frame per call. Per
-port one PortAudio output stream runs on its own audio thread; their state
-is fully independent.
+Each port's malgo playback stream is opened with its
+`DeviceConfig.PeriodSizeInFrames` derived from `comms.playbackLatencyMs` by
+[`audio.Init.BuildAudio`](audio/init.go). When the config value is ≤ 0 the
+code uses `audiopool.FrameSize` (one Opus frame, 20 ms) as a safe default;
+otherwise it computes the equivalent frame count at 48 kHz. The
+`playoutOneFrame` closure is re-aligned onto 20 ms chunks by the
+[playback chunker](audio/malgo_playback.go) regardless of which period ALSA
+ultimately picks, so the downstream encoder never sees the discrepancy.
+Per port one malgo playback stream runs on its own audio thread; their
+state is fully independent.
 
 This is the only layer of buffering that protects against playback-side OS
 scheduling stalls — the Go-side jitter buffer (`pc.Jitter`) sits upstream of
@@ -88,42 +94,49 @@ absorb different classes of stutter:
 |---|---|---|
 | Network arrival jitter (out-of-order, late packets) | Local listener | Go jitter prebuffer |
 | Brief packet loss bursts | Local listener | Opus PLC + jitter buffer |
-| Playback-side OS scheduling stalls | Local listener | PortAudio output device buffer |
-| Capture-side OS scheduling stalls | **Remote** listeners | PortAudio input device buffer |
+| Playback-side OS scheduling stalls | Local listener | malgo playback period buffer |
+| Capture-side OS scheduling stalls | **Remote** listeners | malgo capture period buffer |
 
 #### Tuning `comms.playbackLatencyMs`
 
-Some hardware (e.g. the OpenVLM USB audio class device) reports a
-`DefaultHighOutputLatency` of only ~21 ms — barely more than one 20 ms
-callback period. On those targets, relying on the device hint alone gives the
-audio thread effectively zero scheduling slack and on-device stutter persists
-even with a healthy Go-side jitter buffer. The `comms.playbackLatencyMs`
-config knob lets you suggest a larger value directly (default: **60 ms** =
-three callback periods, two periods of slack). Other devices may report a
-genuinely higher hint, in which case the floor in
-[`audio.Init.BuildAudio`](audio/init.go) honours the device value rather than
-overriding it downward.
+Some hardware (e.g. the OpenVLM USB audio class device) wants a very small
+period — ~20 ms or one full Opus frame per callback — which gives the audio
+thread effectively zero scheduling slack and on-device stutter persists even
+with a healthy Go-side jitter buffer. The `comms.playbackLatencyMs` config
+knob lets you suggest a larger period directly (default: **60 ms** = three
+Opus frames per callback, two frames of slack).
 
-The host API may still clamp the suggestion. The actual granted latency is
-logged at Debug level on stream open as `comms: playback stream opened` with:
+miniaudio (the C library behind malgo) may still round the period to a
+backend-preferred value at `InitDevice` time — for example ALSA's USB audio
+class driver typically rounds the request up to a power of two and gives us
+1024 frames when we ask for 960. The requested period is logged at Debug
+level on stream open as `comms: playback stream opened` with:
 
 - `configured_latency_ms` — the value from `comms.playbackLatencyMs`
-- `device_high_latency` — `outDev.DefaultHighOutputLatency` (the floor)
-- `requested_latency` — what we passed to `portaudio.OpenStream`
-- `actual_output_latency` — what the host API actually granted
+- `requested_period_frames` — what we passed to
+  `malgo.DeviceConfig.PeriodSizeInFrames`
+- `requested_period_duration` — the equivalent duration at 48 kHz
 - `port` — the multicast port the playback stream belongs to
+- `device` — the resolved malgo device name
 
-If `actual_output_latency` is well below `requested_latency` after raising
-`comms.playbackLatencyMs`, the host API is clamping and the only remaining
-PortAudio knob is `FramesPerBuffer` (which would require restructuring
-`playoutOneFrame` to loop).
+miniaudio does not expose the negotiated runtime period after `InitDevice`,
+so we log what we requested rather than what we got. If audio-thread
+underruns persist after raising `comms.playbackLatencyMs`, the next knob is
+the per-period count in `audio/malgo_playback.go` (which would require
+restructuring `playoutOneFrame` to loop).
 
 ### Capture device latency
 
-The PortAudio input (mic capture) stream is opened with
-`Latency = max(comms.captureLatencyMs, inDev.DefaultHighInputLatency)`.
-The callback chunk size stays at `audiopool.FrameSize` (one Opus frame, 20 ms)
-so the encode-and-transmit logic is unchanged.
+The shared malgo capture stream is opened with its
+`DeviceConfig.PeriodSizeInFrames` derived from the
+`comms.captureFramesPerBuffer` / `comms.captureLatencyMs` pair by
+[`audio.Init.OpenBroadcastStream`](audio/init.go): `PeriodSizeInFrames`
+defaults to `audiopool.FrameSize` (960, one 20 ms Opus frame) unless an
+operator overrides it, and the ALSA periods count (the ring depth) is
+derived from `captureLatencyMs` via `buildCapturePeriods`. The encode
+pipeline is unchanged because the captureChunker in
+[`audio/malgo_capture.go`](audio/malgo_capture.go) re-aligns whatever period
+ALSA picks back onto 20 ms chunks before frames reach the encoder.
 
 This is the symmetric counterpart of `comms.playbackLatencyMs` for the
 capture side. The failure mode is different in *whose* speaker stutters:
@@ -141,33 +154,33 @@ every receiver hears it stuttering.
 
 #### Tuning `comms.captureLatencyMs`
 
-Same logic as `comms.playbackLatencyMs`: hardware that reports a low
-`DefaultHighInputLatency` (e.g. the OpenVLM USB audio class device, which
-reports ~21 ms on both directions) leaves the capture audio thread with
-effectively zero scheduling slack. Default is **60 ms** (three callback
-periods); the floor in [`audio.Init.OpenBroadcastStream`](audio/init.go)
-honours the device hint when it is genuinely higher.
+Same logic as `comms.playbackLatencyMs`: hardware that needs a tiny period
+leaves the capture audio thread with effectively zero scheduling slack.
+Default is **60 ms** of total ring depth (three 20 ms periods), which
+`buildCapturePeriods` translates into the matching `Periods` count handed
+to miniaudio.
 
-The actual granted latency is logged at Debug level on stream open as
+The requested period is logged at Debug level on stream open as
 `comms: broadcast stream opened` with:
 
 - `configured_latency_ms` — the value from `comms.captureLatencyMs`
-- `device_high_latency` — `inDev.DefaultHighInputLatency` (the floor)
-- `requested_latency` — what we passed to `portaudio.OpenStream`
-- `actual_input_latency` — what the host API actually granted
+- `requested_period_frames` — what we passed to
+  `malgo.DeviceConfig.PeriodSizeInFrames`
+- `requested_period_duration` — the equivalent duration at 48 kHz
+- `device` — the resolved malgo capture device name
 - `encode_chan_depth` — `broadcastEncoderChanDepth` (currently 3)
 
-If `actual_input_latency` is well below `requested_latency` after raising
-`comms.captureLatencyMs`, the host API is clamping the suggestion and the
-only remaining PortAudio knob is `FramesPerBuffer` (which would require
-restructuring `BroadcastEncoder` to consume multi-frame chunks).
+If audio-thread overruns persist after raising `comms.captureLatencyMs`,
+the next knob is `comms.captureFramesPerBuffer` (the period size itself);
+changing it requires the encoder to keep consuming multi-frame chunks,
+which the chunker already handles transparently.
 
 ### Encode + send goroutine
 
-The PortAudio mic callback **does not** run the Opus encoder or
+The malgo capture callback **does not** run the Opus encoder or
 `sendToAllPorts`. Both moved off the audio callback thread into a dedicated
 goroutine inside [`audio.BroadcastEncoder`](audio/encoder.go), mirroring how
-the receive side already isolates Opus decode from each port's PortAudio
+the receive side already isolates Opus decode from each port's malgo
 playback callback.
 
 Why: the audio callback fires every 20 ms with no scheduling slack beyond
@@ -177,16 +190,17 @@ multiple ports, GC pause, cgo thread handoff — the next callback misses
 its deadline, the ADC ring buffer overruns, and samples are silently
 dropped at the device. Web mode (`controlSource: web`) sidesteps this
 because the browser does the encoding and the server only receives
-pre-encoded bytes; PortAudio modes did not, until this change.
+pre-encoded bytes; hardware modes did not, until this change.
 
-The hot path is **int16-native**: PortAudio delivers `[]int16` directly,
-the encode goroutine calls `EncodeS16` directly, and there is no
-float32↔int16 round-trip on mipsle softfloat targets.
+The hot path is **int16-native**: malgo delivers samples as a byte slice
+which the wrapper interprets as `[]int16` directly, the encode goroutine
+calls `EncodeS16` directly, and there is no float32↔int16 round-trip on
+mipsle softfloat targets.
 
 Pipeline:
 
 ```
-PortAudio mic callback (audio thread, every 20 ms) — func(in []int16)
+malgo capture callback (audio thread, every 20 ms) — func(in []int16)
   ├─ Optional VOX tap (ROIP only): float32 conversion + non-blocking
   │     send to atomic-pointer chan via audiopool.Float32Pool
   ├─ audiopool.Int16Pool.Get(); copy(in)               ← cheap
@@ -222,7 +236,7 @@ Debug line summarizing what happened during the transmission:
 comms: broadcast cycle stats captured=1500 encoded=1500 dropped=0 encode_errors=0
 ```
 
-- `captured` — frames delivered by PortAudio to the audio callback
+- `captured` — frames delivered by malgo to the capture callback
   (≈ 50 × seconds-of-PTT at `audiopool.FrameSize` / `audiopool.SampleRate`)
 - `encoded` — frames the consumer goroutine successfully Opus-encoded and
   shipped via `sendToAllPorts`
@@ -250,7 +264,7 @@ Diagnostic decision tree from the cycle stats:
 4. Pushes the payload via [`jitter.PushWithSSRC`](rtp/jitter.go) so an SSRC
    change (new talker) cleanly resets the buffer rather than silently
    dropping the new stream.
-5. **Hardware mode**: each port's PortAudio output callback calls
+5. **Hardware mode**: each port's malgo playback callback calls
    `playoutOneFrame` once per ~20 ms, decoding into an int16 buffer; the
    callback first drains the per-port `PlaybackBuffer` (TX-beep side
    channel) before falling through.
@@ -408,14 +422,14 @@ path). It smooths network reordering and provides Packet Loss Concealment.
   warrants PLC, or `(nil, false)` for genuine silence. The PLC concealment
   cap `maxConsecutivePLC = 10` (≈200 ms) lives in [receive.go](receive.go).
 - **Edge-triggered notify**: `EnableNotify()` returns a coalesced
-  wakeup channel for push-driven consumers (web mode); PortAudio-driven
+  wakeup channel for push-driven consumers (web mode); malgo-driven
   consumers do not call it and pay only a nil-check on the push hot path.
 - **Counters** (`atomic.Int64`): `Overflows`, `SSRCResets`, `IdleResets`.
 
 Sequence numbers use **uint16 wrap-around-aware** comparison (`seqLess`)
 so streams that cross the 65 535 → 0 boundary are handled correctly.
 
-The playout clock for hardware mode is the per-port PortAudio output
+The playout clock for hardware mode is the per-port malgo playback
 callback — calling `playoutOneFrame` once per audio period (20 ms). One
 frame is produced per call regardless of whether a real payload or a
 PLC frame is used.
@@ -446,11 +460,11 @@ Byte 4: IR3
 ```
 
 ALSA card auto-detection (`control.DetectAndSetALSACard`) runs before
-`portaudio.Initialize()` when `controlSource` is `openvlm` or `roip`. It
-walks `/sys` via `device.DiscoverCM108` to locate the dongle, then sets
-`ALSA_CARD` to the matching card index so PortAudio selects the correct
-sound card. If `ALSA_CARD` is already set, it is left unchanged. A
-fallback path scans `/proc/asound/card*/usbid` for `0d8c:0012`.
+the malgo context is initialized when `controlSource` is `openvlm` or
+`roip`. It walks `/sys` via `device.DiscoverCM108` to locate the dongle,
+then sets `ALSA_CARD` to the matching card index so malgo selects the
+correct sound card. If `ALSA_CARD` is already set, it is left unchanged.
+A fallback path scans `/proc/asound/card*/usbid` for `0d8c:0012`.
 
 `PTTDown` → `beginTransmission`; `PTTUp` → `endTransmission`.
 
@@ -487,7 +501,7 @@ the RPC handler when a browser client presses or releases the on-screen
 PTT button. `Service.WebEventSource()` returns the live instance for
 the handler to inject events into.
 
-In web mode the entire PortAudio pipeline is **bypassed**:
+In web mode the entire malgo pipeline is **bypassed**:
 
 - `rt.BroadcastStream` is left nil; `beginTransmission` and
   `endTransmission` short-circuit on `rt.WebBridge != nil`.
@@ -497,8 +511,9 @@ In web mode the entire PortAudio pipeline is **bypassed**:
 - Outbound audio is injected via `webaudio.Bridge.InjectTxFrame`
   → bound `SendFn` → `cfg.sendToAllPorts(rt, payload)`.
 
-This makes web mode usable on hardware without a sound card or in CGo-free
-builds where libportaudio is not linked.
+This makes web mode usable on hardware without a sound card — the malgo
+context never gets initialized, so device-open failures cannot stop the
+daemon from starting.
 
 ### `nanoptt` backend
 
@@ -563,13 +578,18 @@ produce no event.
 
 [`device/alsa_silence.go`](device/alsa_silence.go) uses CGo to temporarily
 replace the ALSA error handler with a no-op for the duration of
-`portaudio.Initialize()`. PortAudio's ALSA backend probes every virtual
-PCM alias in `/usr/share/alsa/alsa.conf` (rear, hdmi, etc.) and logs
-"Unknown PCM" for each alias not present in the active card's profile.
-These are expected probe failures, not real errors. The default handler
-is restored by `RestoreALSAErrorHandler()` immediately after
-initialization. Both functions are called from
-[`audio.Init.StartHardware`](audio/init.go).
+`malgo.InitContext`. malgo's ALSA backend probes every virtual PCM alias
+in `/usr/share/alsa/alsa.conf` (rear, hdmi, etc.) and logs "Unknown PCM"
+for each alias not present in the active card's profile. These are
+expected probe failures, not real errors. The default handler is restored
+by `RestoreALSAErrorHandler()` immediately after context initialization.
+Both functions are called from [`audio.Init.StartHardware`](audio/init.go).
+
+A second, complementary filter lives inside the malgo `logProc` callback
+passed to `InitContext`: it drops `poll() failed` and `EPIPE` lines
+emitted by miniaudio during USB audio class startup and under normal
+scheduling jitter — both are recovered internally via `snd_pcm_recover`
+and do not correspond to lost audio.
 
 The CGo file carries `#cgo LDFLAGS: -lasound`, so the full build
 requires libasound; the `omd_omit_comms` lite build skips it.
@@ -589,10 +609,12 @@ comms:
   loopback: true
   micGain: 8.0               # float32; >1 amplifies, <1 attenuates
   encoderComplexity: 10      # 1..10 (defaults to 10)
-  playbackLatencyMs: 60      # PortAudio output device buffer (ms);
-                             # floored at outDev.DefaultHighOutputLatency
-  captureLatencyMs: 60       # PortAudio input device buffer (ms);
-                             # floored at inDev.DefaultHighInputLatency
+  playbackLatencyMs: 60      # malgo playback period hint (ms);
+                             # translated to PeriodSizeInFrames — default
+                             # 20 ms when ≤ 0
+  captureLatencyMs: 60       # malgo capture period hint (ms); translated
+                             # to the ALSA periods count (ring depth)
+                             # via buildCapturePeriods
 
   nanoPTT:
     enable: false
@@ -614,7 +636,7 @@ multicast talk-group entries (`McastPorts`) are sourced from the global
 subsystems that need them.
 
 `nanoPTT.*` keys are only relevant when `controlSource: nanoptt`. The
-`bluetoothPtt.*` keys carry the PortAudio device names used by both
+`bluetoothPtt.*` keys carry the audio device names used by both
 `openvlm` and `roip` modes (the historical name predates the wider
 audio refactor). ALSA card auto-detection runs for both `openvlm` and
 `roip`.
@@ -651,10 +673,10 @@ audio refactor). ALSA card auto-detection runs for both `openvlm` and
 
 | Path | Responsibility |
 |---|---|
-| [audio/](audio/) | `BroadcastEncoder` (PortAudio capture + dedicated encode goroutine), `Init` (hardware startup), `PortSlot`, `Deps`, `SendFn` |
+| [audio/](audio/) | `BroadcastEncoder` (malgo capture + dedicated encode goroutine), `Init` (hardware startup), `PortSlot`, `Deps`, `SendFn` |
 | [audiopool/](audiopool/) | Audio constants (`FrameSize`, `SampleRate`, `Channels`, `EncBufSize`), buffer pools (`Float32Pool`, `Int16Pool`, `EncBufPool`), `RMSEnergy` |
 | [codec/](codec/) | `AudioEncoder`/`AudioDecoder` interfaces, Opus implementation (`NewOpusEncoder`/`NewOpusDecoder`/`EncodeS16`/`DecodeS16`/`DecodeFloat32`) |
 | [control/](control/) | `EventSource`, `PTTEvent`, four backends (`OpenVLMSource`, `ROIPSource`, `NanoPTTSource`, `WebEventSource`), `HalfDuplexGate`, registry (`Register`/`Lookup`/`Factory`/`ControlDeps`), `HIDDevice`/`HIDOpener`, `DetectAndSetALSACard` |
-| [device/](device/) | `AudioStream` interface + `NewPortAudioStream`, `SilenceALSAProbeNoise` (CGo), `DiscoverCM108` (sysfs walk), `FindEvdev`, `IfaceIPv4`/`JoinMulticastGroup`, `ResolveAudio`/`LogPortAudioDevices` |
+| [device/](device/) | `AudioStream` interface + `NewMalgoStream`, `SilenceALSAProbeNoise` (CGo), `DiscoverCM108` (sysfs walk), `FindEvdev`, `IfaceIPv4`/`JoinMulticastGroup`, `ResolveAudio`/`LogAudioDevices` |
 | [rtp/](rtp/) | `Session` (pion Packetizer + RTCP SR), `Sender`, `JitterBuffer` (ring buffer + SSRC tracking + `EnableNotify`), `PacketWriter`/`PacketReader`, `SwappableSender` (lock-free + `SwapAndDeferClose`)/`SwappableReceiver`, `SSRCFromID`, `ParseIncoming` |
 | [webaudio/](webaudio/) | `Bridge` (RPC ↔ comms runtime plumbing for web mode), `NewBridge`, `SendFn`, `InjectTxFrame`, `PushRxFrame`, `RxFrames` |

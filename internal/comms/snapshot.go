@@ -56,7 +56,7 @@ type PortSnapshot struct {
 	// WebPoppedSkipped counts PopReady skippedMissing=true returns from
 	// webPlayoutLoop: the jitter buffer had enough queued out-of-order
 	// packets to advance the cursor past a missing frame. Zero on the
-	// portaudio playout path.
+	// hardware playout path.
 	WebPoppedSkipped int64 `json:"web_popped_skipped"`
 	// SendEnabled is the runtime send-direction toggle. A port with
 	// SendEnabled=false will not open an encoder or publish TX frames.

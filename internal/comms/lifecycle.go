@@ -16,7 +16,7 @@ import (
 )
 
 // startHardwareAudio constructs an audio.Init bound to cfg/rt, builds the
-// per-port playback slots, and starts PortAudio. Returns the cleanup
+// per-port playback slots, and starts the malgo streams. Returns the cleanup
 // function that StartHardware produced (which the caller defers).
 //
 // Extracted from Start so that Start's cognitive complexity stays under the
@@ -42,7 +42,7 @@ func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) (cleanup func(), er
 
 	// beepChannelDepth is the one-shot side channel that the TX path
 	// (transmit.go beginTransmission/endTransmission) uses to inject
-	// start/stop beep tones. The PortAudio output callback drains it
+	// start/stop beep tones. The malgo playback callback drains it
 	// before falling through to playoutOneFrame.
 	const beepChannelDepth = 4
 
@@ -117,7 +117,7 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 
 	// ── beep tones ─────────────────────────────────────────────────────────
 	// Phase 5: beep buffers are int16-native so they can be written directly
-	// into the PortAudio int16 playback callback without an extra conversion.
+	// into the malgo int16 playback callback without an extra conversion.
 	// Amplitude 0.2 * 32767 ≈ 6553 matches the previous float32 volume.
 	beepStart := make([]int16, audiopool.FrameSize)
 	beepStop := make([]int16, audiopool.FrameSize)
@@ -187,7 +187,7 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 
 	// ── audio I/O ─────────────────────────────────────────────────────────
 	if cfg.ControlSource == controlSourceWeb {
-		// Web mode: skip PortAudio entirely; the browser provides audio I/O.
+		// Web mode: skip the malgo pipeline entirely; the browser provides audio I/O.
 		rt.WebBridge = webaudio.NewBridge(cfg.Log, func(payload []byte) {
 			cfg.sendToAllPorts(rt, payload)
 		})

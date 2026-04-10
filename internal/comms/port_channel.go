@@ -46,17 +46,17 @@ type McastPortState struct {
 //
 // jitter is the per-port RTP jitter buffer. It is allocated in
 // buildSinglePortChannel for ports with a Receive socket and shared between
-// receiveLoop (producer) and the PortAudio output callback (consumer). For
+// receiveLoop (producer) and the malgo playback callback (consumer). For
 // portChannels constructed directly in tests, callers must allocate it
 // explicitly.
 //
-// consecutivePLC is owned by the PortAudio output callback for this port:
+// consecutivePLC is owned by the malgo playback callback for this port:
 // each port has its own callback running on its own audio thread, so the
 // field is single-writer and does not need atomic semantics. Tests that call
 // playoutOneFrame directly are likewise single-threaded with respect to it.
 //
 // playbackBuffer is retained as a one-shot side channel for TX beep tones
-// (see transmit.go beginTransmission/endTransmission); the PortAudio callback
+// (see transmit.go beginTransmission/endTransmission); the malgo playback callback
 // drains it before falling through to playoutOneFrame so beeps preempt one
 // frame of jitter-buffered audio.
 type PortChannel struct {
@@ -89,7 +89,7 @@ type PortChannel struct {
 	// buffer's PopReady returns skippedMissing=true (an out-of-order
 	// sequence gap wide enough that the buffer advanced the cursor past
 	// the hole). Diagnostic only; the audio path never reads this field
-	// itself. Zero on the portaudio playout path, which does not use
+	// itself. Zero on the hardware playout path, which does not use
 	// webPlayoutLoop.
 	WebPoppedSkipped atomic.Int64
 

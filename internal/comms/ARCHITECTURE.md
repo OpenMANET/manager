@@ -82,12 +82,12 @@ internal/comms/
 │   └── web_event_source.go   WebEventSource (RPC Push)
 │
 ├── device/               Hardware discovery + AudioStream wrapper
-│   ├── stream.go             AudioStream interface, NewPortAudioStream
+│   ├── stream.go             AudioStream interface, NewMalgoStream
 │   ├── alsa_silence.go       CGo: SilenceALSAProbeNoise / Restore
 │   ├── cm108.go              CM108 sysfs walk (DiscoverCM108)
 │   ├── evdev.go              FindEvdev
 │   ├── network.go            IfaceIPv4, JoinMulticastGroup
-│   └── portaudio.go          ResolveAudio, LogPortAudioDevices
+│   └── malgo.go              ResolveAudio, LogAudioDevices
 │
 ├── rtp/                  RTP/RTCP transport + jitter buffer
 │   ├── session.go            Session, Sender, SSRCFromID, ParseIncoming
@@ -163,7 +163,7 @@ ignorant of `*PortChannel` and the rest of the parent runtime types.
 resources, all behind interfaces so unit tests can inject fakes. The shared
 `BroadcastEncoder` captures mic audio once and `sendToAllPorts` fans the
 encoded frame out to every send-enabled `PortChannel`. Each `PortChannel`
-has its own RTP receive socket, jitter buffer, PortAudio playback stream,
+has its own RTP receive socket, jitter buffer, malgo playback stream,
 and `HalfDuplexGate` so multiple talk groups operate independently.
 
 `Service` is the public handle handlers reach for. It is published via
@@ -202,7 +202,7 @@ CommsConfig
 │
 ├── ControlSource             string  "openvlm" | "roip" | "web" | "nanoptt"
 │
-├── BluetoothInputDevice      string                PortAudio device spec
+├── BluetoothInputDevice      string                audio device spec
 ├── BluetoothOutputDevice     string
 ├── BluetoothAudioDeviceHint  string                fallback for both above
 │
@@ -218,8 +218,8 @@ CommsConfig
 ├── ROIPInputDevice           string
 │
 ├── HalfDuplexThreshold       time.Duration         per-port RxGate window
-├── PlaybackLatencyMs         int                   PortAudio playback hint
-├── CaptureLatencyMs          int                   PortAudio capture hint
+├── PlaybackLatencyMs         int                   malgo playback period hint (ms)
+├── CaptureLatencyMs          int                   malgo capture period hint (ms)
 ├── EncoderComplexity         int                   1..10; defaults to 10
 ├── PttStartDelayMs           int                   mic warmup floor; the
 │                                                   actual settle is
@@ -274,8 +274,8 @@ it on every capture callback and, when set, copies the frame into a
 pooled `[]float32` and non-blockingly sends it to the tap channel. Other
 control sources never enter that branch.
 
-`BeepBufferStart` / `BeepBufferStop` are int16-native — the playback
-PortAudio callback drains them with `copy(out, beep)` directly, no
+`BeepBufferStart` / `BeepBufferStop` are int16-native — the malgo
+playback callback drains them with `copy(out, beep)` directly, no
 float32 conversion.
 
 `RemoteRxActive` is a cache populated by `MarkRemoteRx` (called from
@@ -298,7 +298,7 @@ PortChannel
 ├── RTPSess          rtp.Sender                 *rtp.Session in production
 │
 ├── Jitter           *rtp.JitterBuffer
-├── PlaybackStream   device.AudioStream         per-port PortAudio output
+├── PlaybackStream   device.AudioStream         per-port malgo playback stream
 ├── PlaybackBuffer   chan []int16               TX-beep side channel
 │
 ├── RxGate           control.HalfDuplexGate     embedded by value
@@ -537,8 +537,8 @@ Start(ctx)
   │       else → cleanup, _ := cfg.startHardwareAudio(rt)
   │              builds audio.Init{Deps: …}, []audio.PortSlot, calls
   │              audioInit.StartHardware(slots) →
-  │                device.SilenceALSAProbeNoise +
-  │                portaudio.Initialize +
+  │                malgo.InitContext (ALSA probe log lines suppressed
+  │                  via an in-handler string filter) +
   │                Init.BuildAudio (per-port playback + broadcast capture) +
   │                stream Start; returns cleanup func
   │              rt.BroadcastStream = broadcast
@@ -597,7 +597,7 @@ Once `Start` reaches step 12 the following goroutines are live:
         NanoPTTSource   — blocks on evdev.Device.ReadOne
         WebEventSource  — closes channel on ctx.Done
 
-  [PortAudio-internal, managed by the audio library]
+  [malgo-internal, managed by the miniaudio audio thread]
   ├── per port: playback callback  (int16) — drains PlaybackBuffer beep
   │             then calls playoutOneFrame(pc, rt, pc.Jitter, out)
   └── one shared: broadcast capture callback (int16) — non-blocking
@@ -607,7 +607,7 @@ Once `Start` reaches step 12 the following goroutines are live:
 Context cancellation drives every Go goroutine to return.
 `SwappableReceiver.Close()` (called from the parent's deferred cleanup
 via `pc.closePartial`) unblocks any in-flight `ReadFromUDP` so the
-receive loop can exit. PortAudio streams are stopped/closed by the
+receive loop can exit. malgo streams are stopped/closed by the
 `cleanup` returned from `audio.Init.StartHardware`. The pion interceptor
 chain is shut down by `rtp.Session.Close` (called from `closePartial`).
 
@@ -618,7 +618,7 @@ chain is shut down by `rtp.Session.Close` (called from `closePartial`).
 Capture is split across two stages decoupled by a bounded channel inside
 `audio.BroadcastEncoder`:
 
-1. **PortAudio mic callback** runs every 20 ms on the audio callback
+1. **malgo capture callback** runs every 20 ms on the miniaudio audio
    thread (not a Go goroutine). It does no cgo work, no Opus encoding,
    no UDP I/O. Its only jobs are: optional VOX tap, copy the captured
    `[]int16` frame into a pooled slice, and non-blockingly enqueue it.
@@ -628,7 +628,7 @@ Capture is split across two stages decoupled by a bounded channel inside
    backpressure cannot starve the audio thread and cause ADC overruns.
 
 ```
-PortAudio mic callback (audio thread, every 20 ms while
+malgo capture callback (audio thread, every 20 ms while
                         BroadcastStream.Start() is active)
   │
   │  in []int16  (frameSize = audiopool.FrameSize = 960)
@@ -779,7 +779,7 @@ for each pc in rt.Ports with PlaybackBuffer != nil:
 Each receive-capable `PortChannel` owns its own `receiveLoop` goroutine.
 A `halfDuplexDecayLoop` runs alongside them and clears
 `rt.RemoteRxActive` when no port is within its half-duplex window.
-Playout is driven by the per-port PortAudio output callback (one Go-side
+Playout is driven by the per-port malgo playback callback (one Go-side
 loop per port is unnecessary because the audio hardware clock drives the
 consumer side).
 
@@ -844,7 +844,7 @@ cfg.receiveLoop(ctx, pc, rt)            (one per receive-capable port)
   }
 ```
 
-### playoutOneFrame (called from per-port PortAudio output callback)
+### playoutOneFrame (called from per-port malgo playback callback)
 
 The playback callback runs every audio period (~20 ms) per port. It is
 the consumer of decoded PCM and is single-threaded with respect to its
@@ -880,14 +880,14 @@ playoutOneFrame(pc, rt, jitter, out []int16)
   └─ default: zeroInt16(out)         (idle stream / not started)
 ```
 
-The PortAudio output callback drains `pc.PlaybackBuffer` (the beep side
+The malgo playback callback drains `pc.PlaybackBuffer` (the beep side
 channel) ahead of falling through to `playoutOneFrame`, so a TX
 start/stop tone preempts exactly one frame of jitter-buffered audio.
 
 ### webPlayoutLoop (web mode only)
 
-Web mode skips PortAudio entirely. The browser drives audio I/O via RPC
-streams to/from `webaudio.Bridge`.
+Web mode skips the malgo pipeline entirely. The browser drives audio
+I/O via RPC streams to/from `webaudio.Bridge`.
 
 ```
 cfg.webPlayoutLoop(ctx, jitter, rt)
@@ -1035,7 +1035,7 @@ ch := jb.EnableNotify()  // returns a chan struct{} with depth 1
 
 Each successful push fires a non-blocking signal on `notifyCh`. Coalesced
 signals lose no data because the consumer drains every available payload
-after each wake. Used by `webPlayoutLoop`; PortAudio-driven consumers do
+after each wake. Used by `webPlayoutLoop`; malgo-driven consumers do
 not call `EnableNotify` and pay nothing on the push hot path beyond the
 nil check.
 
@@ -1273,10 +1273,10 @@ type AudioStream interface {
     Close() error
 }
 
-func NewPortAudioStream(s *portaudio.Stream) AudioStream
+func NewMalgoStream(d *malgo.Device) AudioStream
 ```
 
-- Production: unexported `*portaudioStream` returned by `NewPortAudioStream`.
+- Production: unexported `*malgoStream` returned by `NewMalgoStream`.
 - `*audio.BroadcastEncoder` also satisfies `device.AudioStream` via a
   compile-time `var _ device.AudioStream = (*BroadcastEncoder)(nil)`.
 

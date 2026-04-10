@@ -1,7 +1,7 @@
 // Package device provides hardware device discovery helpers for the comms
 // subsystem. It is the single place responsible for locating CM108-family
 // USB audio/HID dongles (used by OpenVLM) so that both HID (PTT) and
-// PortAudio/ALSA (audio) call sites can share one /sys walk instead of
+// malgo/ALSA (audio) call sites can share one /sys walk instead of
 // independently rescanning the system.
 //
 // See .claude/plans/comms-refactor.md section "2. Unified CM108 device
@@ -54,9 +54,19 @@ type CM108Descriptor struct {
 	PID         uint16
 }
 
-// PALookupFunc maps an ALSA card index to a PortAudio device index. It must
-// return (-1, false) if no PortAudio device corresponds to the given ALSA
-// card. Callers that do not use PortAudio may pass nil.
+// PALookupFunc historically mapped an ALSA card index to a PortAudio
+// device index, populating CM108Descriptor.PADeviceIdx so HID and audio
+// call sites could share a single /sys walk. Under the malgo backend
+// the daemon resolves audio devices through malgo's own enumeration API
+// (see device/malgo.go ResolveAudio) and every production caller now
+// passes nil for paLookup. The type and the lookup branch in
+// DiscoverCM108 are retained because the unit test in cm108_test.go
+// still exercises them; if a future refactor removes the test
+// dependency this whole lookup path can be deleted.
+//
+// The "PA" prefix is preserved for backwards compatibility with the
+// existing exported names; treat it as "Pre-Audio-backend" rather than
+// "PortAudio".
 type PALookupFunc func(alsaCard int) (int, bool)
 
 // DiscoverCM108 walks the USB device tree rooted at fsys (expected to be a
@@ -66,8 +76,9 @@ type PALookupFunc func(alsaCard int) (int, bool)
 // The walk only inspects top-level USB device directories (those whose
 // directory name does not contain a ':' — the ':' separates the interface
 // suffix from the device portion). For each matching device the walk
-// resolves the first hidraw child and the first ALSA sound/cardN child and
-// consults paLookup to map the ALSA card index to a PortAudio device index.
+// resolves the first hidraw child and the first ALSA sound/cardN child.
+// When non-nil, paLookup is consulted to populate the legacy
+// PADeviceIdx field; production callers pass nil under the malgo backend.
 //
 // Devices whose idVendor / idProduct files are missing or malformed are
 // skipped with no error; a malformed file for one device does not prevent
@@ -288,7 +299,7 @@ func findALSACard(fsys fs.FS, devPath string) int {
 // ─── LookupCM108: cached single-descriptor lookup ─────────────────────────────
 
 // Cache holds the result of a single DiscoverCM108 walk so that the two call
-// sites (OpenVLM HID open and broadcast stream PortAudio selection) can
+// sites (OpenVLM HID open and broadcast stream malgo device selection) can
 // share the result inside the scope of one stream-open instead of each
 // performing the walk independently.
 //

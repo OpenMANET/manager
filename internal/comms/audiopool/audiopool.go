@@ -44,7 +44,7 @@ var Float32Pool = sync.Pool{ //nolint:gochecknoglobals
 }
 
 // Int16Pool pools fixed-size []int16 frames used by the int16-native capture
-// and playback hot paths. The PortAudio output callback and broadcast encoder
+// and playback hot paths. The malgo playback callback and broadcast encoder
 // both borrow frames every 20 ms; pooling eliminates per-frame GC pressure.
 var Int16Pool = sync.Pool{ //nolint:gochecknoglobals
 	New: func() any {

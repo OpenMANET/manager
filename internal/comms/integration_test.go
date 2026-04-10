@@ -21,7 +21,7 @@ import (
 //     playoutOneFrame → mockDecoder → caller-supplied PCM buffer
 //
 // They cannot exercise the TX path end-to-end because the Opus encode lives
-// inside the PortAudio capture callback closure (comms.go:684) which cannot
+// inside the malgo capture callback closure (comms.go:684) which cannot
 // be driven without real audio hardware. Instead the tests synthesize RTP
 // packets with pion/rtp — the same library production code uses to parse
 // them — and inject them into the receiver. This covers the bug surface
@@ -33,7 +33,7 @@ import (
 // jitter buffer behavior, and reset semantics — not in the decoder itself,
 // which is well-covered by codec_test.go.
 //
-// In production the PortAudio output callback drives playoutOneFrame at the
+// In production the malgo playback callback drives playoutOneFrame at the
 // audio hardware clock rate. These tests drive playoutOneFrame manually
 // against a synthetic float32 output buffer, which is the same primitive the
 // production callback calls.
@@ -91,7 +91,7 @@ func newIntegrationReceiver(t *testing.T) (*CommsConfig, *PortChannel, *CommsRun
 
 // pollDecodedFrame repeatedly calls playoutOneFrame against a fresh PCM
 // buffer until non-zero samples appear or the deadline is reached. It mirrors
-// what the PortAudio output callback does in production at the 20 ms
+// what the malgo playback callback does in production at the 20 ms
 // hardware tick rate.
 func pollDecodedFrame(cfg *CommsConfig, pc *PortChannel, rt *CommsRuntime, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)

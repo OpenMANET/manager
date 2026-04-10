@@ -28,7 +28,7 @@ const maxConsecutivePLC = 10
 const concealRecentWindow = 200 * time.Millisecond
 
 // zeroInt16 fills an int16 slice with zeros. Used by the playout callback to
-// emit silence into the PortAudio int16 output buffer.
+// emit silence into the malgo int16 playback buffer.
 func zeroInt16(out []int16) {
 	for i := range out {
 		out[i] = 0
@@ -102,7 +102,7 @@ func (cfg *CommsConfig) halfDuplexDecayLoop(ctx context.Context, rt *CommsRuntim
 // receiveLoop reads datagrams from pc.Receiver, parses them as RTP packets
 // using pion/rtp, and pushes the payloads into the per-port jitter buffer.
 //
-// In non-web mode the PortAudio output callback is the consumer (driven by
+// In non-web mode the malgo playback callback is the consumer (driven by
 // the audio hardware clock); no playout goroutine is spawned. In web mode a
 // stripped-down webPlayoutLoop forwards raw Opus payloads to the WebAudioBridge.
 //
@@ -240,7 +240,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 
 // playoutOneFrame produces exactly one frame of PCM audio into out. It is
 // the per-tick playout primitive: in production it is invoked from the
-// PortAudio output callback once per audio period (one call per ~20 ms), and
+// malgo playback callback once per audio period (one call per ~20 ms), and
 // in tests it can be driven directly with a synthetic []float32 buffer.
 //
 // Driving playout from the consumer (the audio hardware clock) eliminates
@@ -250,11 +250,11 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 //
 // Half-duplex: on send-capable ports the function returns silence while the
 // node is broadcasting, to prevent local echo. Receive-only ports always
-// play back. Web mode is irrelevant here because the PortAudio callback is
+// play back. Web mode is irrelevant here because the malgo playback callback is
 // not opened in web mode at all (web RX uses webPlayoutLoop instead).
 //
 // State: pc.ConsecutivePLC is owned exclusively by the callback closure for
-// this port. Each port has its own PortAudio output stream running on its own
+// this port. Each port has its own malgo playback stream running on its own
 // audio thread, so the field is single-writer. Tests must respect this by
 // not invoking playoutOneFrame concurrently with the production callback.
 func (cfg *CommsConfig) playoutOneFrame(pc *PortChannel, rt *CommsRuntime, jitter *rtp.JitterBuffer, out []int16) {
@@ -340,7 +340,7 @@ func (cfg *CommsConfig) playoutOneFrame(pc *PortChannel, rt *CommsRuntime, jitte
 }
 
 // webPlayoutLoop is the receive-side consumer used in web mode (rt.WebBridge
-// non-nil). PortAudio is not active in web mode, so the loop is signal-driven:
+// non-nil). The malgo playback stream is not opened in web mode, so the loop is signal-driven:
 // it parks on the jitter buffer's edge-triggered notify channel and forwards
 // every queued raw Opus payload to the WebAudioBridge as soon as one arrives.
 // The browser handles PLC, half-duplex display, and decoding, so this side is

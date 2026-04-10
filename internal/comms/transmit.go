@@ -56,7 +56,7 @@ func (cfg *CommsConfig) pttStartDelay() time.Duration {
 //
 //   - the configured mic-warmup delay (pttStartDelay), and
 //   - the beep's physical emission window: the actual playback output
-//     latency reported by PortAudio plus one frame (the beep duration)
+//     latency reported by malgo plus one frame (the beep duration)
 //     plus a small margin for scheduling jitter and room reverb.
 //
 // Without the second term the mic stream goes live before the beep has

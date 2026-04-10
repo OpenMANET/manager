@@ -1,6 +1,6 @@
-// Package audio hosts the PortAudio capture/playback wrappers and the Opus
-// broadcast encoder used by the comms subsystem. The package owns the
-// hardware-bound side of the audio pipeline (PortAudio stream lifecycle, the
+// Package audio hosts the malgo (miniaudio) capture/playback wrappers and
+// the Opus broadcast encoder used by the comms subsystem. The package owns
+// the hardware-bound side of the audio pipeline (malgo stream lifecycle, the
 // dedicated encode-and-send goroutine, and the per-port playback open path)
 // while the parent comms package retains the orchestration layer
 // (CommsConfig/Manager/Service) and the receive-side playback callback.
@@ -29,7 +29,7 @@ import (
 const frameDuration = time.Duration(audiopool.FrameSize) * time.Second /
 	time.Duration(audiopool.SampleRate)
 
-// broadcastEncoderChanDepth bounds the queue between the PortAudio audio
+// broadcastEncoderChanDepth bounds the queue between the malgo capture
 // callback (producer, fires every 20 ms) and the encode-and-send goroutine
 // (consumer). 10 frames = 200 ms of consumer slack before the producer
 // starts dropping frames. The depth is sized to match the receive-side
@@ -60,12 +60,13 @@ type Deps struct {
 	CaptureLatencyMs  int
 	PlaybackLatencyMs int
 	// CaptureFramesPerBuffer is the per-callback frame count passed to
-	// PortAudio as StreamParameters.FramesPerBuffer. A value of 0 means
-	// paFramesPerBufferUnspecified (let PortAudio choose a frame count
-	// aligned with the native ALSA period). A positive value is passed
-	// through verbatim. The default (audiopool.FrameSize = 960 @ 48 kHz
-	// mono = 20 ms) matches the Opus encoder frame so every callback
-	// produces exactly one RTP packet with no accumulation step.
+	// malgo as DeviceConfig.PeriodSizeInFrames. A value of 0 means the
+	// default audiopool.FrameSize; a negative value lets miniaudio pick
+	// a period aligned with the native ALSA period. A positive value is
+	// passed through verbatim. The default (audiopool.FrameSize = 960 @
+	// 48 kHz mono = 20 ms) matches the Opus encoder frame so every
+	// callback produces exactly one RTP packet with no accumulation
+	// step.
 	CaptureFramesPerBuffer int
 	MicGain                float32
 	Trace                  bool
@@ -350,15 +351,15 @@ func (be *BroadcastEncoder) encodeOne(fp *[]int16) {
 }
 
 // recordCaptureArrival tracks inter-arrival timing between consecutive
-// PortAudio capture callbacks. The first callback in a cycle has no
-// previous timestamp to compare against, so it only seeds lastCaptureNs
-// and returns. Subsequent callbacks compute the delta from the previous
+// malgo capture callbacks. The first callback in a cycle has no previous
+// timestamp to compare against, so it only seeds lastCaptureNs and
+// returns. Subsequent callbacks compute the delta from the previous
 // arrival, update the running max via a CAS loop, and increment the
 // late-callback counter if the gap ≥ 2 * frameDuration.
 //
-// captureCallback is single-producer (one PortAudio stream thread), so
-// the Load/Store/CAS sequence races only against resets in Start, which
-// is guaranteed to run with the stream stopped.
+// captureCallback is single-producer (one malgo stream thread), so the
+// Load/Store/CAS sequence races only against resets in Start, which is
+// guaranteed to run with the stream stopped.
 func (be *BroadcastEncoder) recordCaptureArrival(now time.Time) {
 	nowNs := now.UnixNano()
 

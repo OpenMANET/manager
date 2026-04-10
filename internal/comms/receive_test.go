@@ -668,7 +668,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 
 // In web mode the receiveLoop spawns webPlayoutLoop, which forwards raw
 // Opus payloads from the jitter buffer to the WebAudioBridge for streaming
-// to the browser. PortAudio is not active and playoutOneFrame is not used.
+// to the browser. The malgo playback stream is not opened and playoutOneFrame is not used.
 
 func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 	cfg := newSilentComms()

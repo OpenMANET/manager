@@ -180,7 +180,7 @@ func TestBeginTransmission_DefaultStartDelay(t *testing.T) {
 
 // TestBeginTransmission_SettleCoversPlaybackLatency verifies that when the
 // runtime carries a non-zero PlaybackOutputLatency (mirroring what
-// audio.Init.BuildAudio captures from PortAudio on real hardware),
+// audio.Init.BuildAudio derives from the malgo playback period on real hardware),
 // beginTransmission sleeps long enough to cover the start-beep's physical
 // emission window before starting the mic stream. This is the regression
 // guard against the start-beep leaking into the transmitted RTP stream via

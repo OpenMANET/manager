@@ -21,11 +21,11 @@ const (
 	// MIPS/ARM edge routers (per CLAUDE.md the binary must run on
 	// linux/mipsle). Empirically, complexity 10 at 48 kHz mono can take
 	// 20-30 ms per 20 ms frame on those CPUs, which saturates the
-	// per-frame budget and causes the PortAudio capture callback to
+	// per-frame budget and causes the malgo capture callback to
 	// overflow encCh and drop frames — surfacing as audible stutter on
 	// the receive side. Web mode bypasses this entirely (the browser
-	// supplies pre-encoded Opus), which is why the symptom is PortAudio-
-	// only. Operators on faster CPUs can opt back in to complexity 10
+	// supplies pre-encoded Opus), which is why the symptom is hardware-
+	// mode only. Operators on faster CPUs can opt back in to complexity 10
 	// via cfg.EncoderComplexity.
 	encoderComplexity int    = 5
 	packetLossPerc    int    = 20

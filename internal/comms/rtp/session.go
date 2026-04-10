@@ -39,7 +39,7 @@ var rtpMarshalPool = sync.Pool{ //nolint:gochecknoglobals
 	},
 }
 
-// Sender is the interface the broadcast PortAudio callback uses to ship an
+// Sender is the interface the broadcast encoder uses to ship an
 // encoded Opus frame over the network. Backed by Session in production;
 // tests inject mockRTPSender.
 type Sender interface {

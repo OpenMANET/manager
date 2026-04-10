@@ -106,7 +106,7 @@ const (
 	// InstrumentationEnable is true and no override is supplied. 60
 	// seconds keeps file churn low while still giving enough resolution
 	// for operator triage.
-	DefaultInstrumentationIntervalSecs int = 60
+	DefaultInstrumentationIntervalSecs int = 300
 	// DefaultInstrumentationSnapshotDir is the filesystem directory new
 	// snapshot files are written into.
 	DefaultInstrumentationSnapshotDir string = "/tmp"

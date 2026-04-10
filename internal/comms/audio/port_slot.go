@@ -5,7 +5,7 @@ import (
 )
 
 // PortSlot is the per-port surface that audio.Init.StartHardware needs in
-// order to open a PortAudio playback stream for one multicast endpoint.
+// order to open a malgo playback stream for one multicast endpoint.
 // The parent comms package builds one PortSlot per receive-capable port,
 // baking the *PortChannel reference into closures so the audio package
 // never imports the parent.

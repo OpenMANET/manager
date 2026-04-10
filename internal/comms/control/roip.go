@@ -108,7 +108,7 @@ func NewROIPSource(
 }
 
 // NewROIPSourceWithOpener is the testable COS-path constructor.
-// It injects a custom HIDOpener without touching PortAudio.
+// It injects a custom HIDOpener without touching the audio backend.
 func NewROIPSourceWithOpener(
 	opener HIDOpener,
 	cosGPIOMask byte,

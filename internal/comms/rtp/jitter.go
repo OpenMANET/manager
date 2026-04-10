@@ -48,7 +48,7 @@ type jitterSlot struct {
 // notifyCh is the optional edge-triggered "frame available" wakeup used by
 // consumers that prefer push-driven scheduling over a polling ticker (see
 // EnableNotify and webPlayoutLoop). It is nil until a consumer opts in;
-// PortAudio-driven consumers, which are clocked by the audio hardware, do
+// malgo-driven consumers, which are clocked by the audio hardware, do
 // not call EnableNotify and pay nothing on the push hot path beyond the
 // nil-check.
 type JitterBuffer struct {

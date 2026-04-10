@@ -1,5 +1,5 @@
-// Package webaudio hosts the web-mode audio bridge that replaces PortAudio's
-// role when the comms control source is "web". The browser becomes the audio
+// Package webaudio hosts the web-mode audio bridge that replaces the malgo
+// pipeline when the comms control source is "web". The browser becomes the audio
 // I/O device: it sends Opus frames over RPC (TX) and receives Opus frames
 // popped from the per-port jitter buffer (RX). The bridge is a small plumbing
 // layer between those RPC streams and the parent comms runtime — it never
