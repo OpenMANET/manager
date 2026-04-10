@@ -394,6 +394,7 @@ func TestOpusEncoder_SetPacketLossPerc_Concurrent(t *testing.T) {
 			}
 
 			setPercN.Add(1)
+
 			i++
 		}
 	}()

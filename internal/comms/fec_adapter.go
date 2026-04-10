@@ -71,7 +71,7 @@ const (
 // delta counts. The over-50 midpoint is intentionally conservative
 // (75 rather than, say, 100) so a single massive burst does not
 // overwhelm the EWMA.
-var gapBucketMidpoints = [6]int64{1, 3, 8, 15, 35, 75}
+var gapBucketMidpoints = [6]int64{1, 3, 8, 15, 35, 75} //nolint:gochecknoglobals
 
 // FECAdapter is a local, damped control loop that observes the
 // receive-side jitter-buffer gap-run histogram and adjusts the Opus
@@ -88,34 +88,25 @@ var gapBucketMidpoints = [6]int64{1, 3, 8, 15, 35, 75}
 // atomic mirrors for the Snapshot path so Snapshot never contends on
 // the tick lock.
 type FECAdapter struct {
-	log     zerolog.Logger
-	encoder codec.AudioEncoder
-	rt      *CommsRuntime
-	floor   int
-	// now is injected for tests. Nil → time.Now.
-	now func() time.Time
-
-	mu             sync.Mutex
-	lossEWMA       float64
-	currentLevel   int
-	upgradeTicks   int
-	downgradeTicks int
-	silentTicks    int
-	lastChange     time.Time
-	writeErrors    int64
-
-	// prev holds the previous-tick counters per port so tick() can
-	// compute deltas without scanning every window from scratch.
-	prev []fecPortState
-
-	// Atomic mirrors for lock-free Snapshot reads. Each is updated
-	// under a.mu at the end of tick() so a concurrent Snapshot
-	// caller sees a consistent but possibly slightly stale view.
-	snapLevel       atomic.Int32
-	snapLossEWMA    atomic.Uint64 // math.Float64bits
-	snapLastChange  atomic.Int64  // unix nanos
+	log             zerolog.Logger
+	lastChange      time.Time
+	encoder         codec.AudioEncoder
+	rt              *CommsRuntime
+	now             func() time.Time
+	prev            []fecPortState
+	upgradeTicks    int
+	currentLevel    int
+	lossEWMA        float64
+	downgradeTicks  int
+	silentTicks     int
+	writeErrors     int64
+	floor           int
+	snapLossEWMA    atomic.Uint64
+	snapLastChange  atomic.Int64
 	snapTransitions atomic.Int64
 	snapWriteErrors atomic.Int64
+	mu              sync.Mutex
+	snapLevel       atomic.Int32
 }
 
 // fecPortState caches one port's counters so tick() can compute
@@ -152,6 +143,7 @@ func NewFECAdapter(rt *CommsRuntime, encoder codec.AudioEncoder, floor int, log 
 
 	if err := encoder.SetPacketLossPerc(floor); err != nil {
 		log.Error().Err(err).Int("level", floor).Msg("comms: fec adapter initial SetPacketLossPerc failed")
+
 		a.writeErrors++
 		a.snapWriteErrors.Store(a.writeErrors)
 	}

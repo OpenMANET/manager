@@ -59,13 +59,6 @@ func (f *fakeAdapterEncoder) last() int {
 	return f.lastPerc
 }
 
-func (f *fakeAdapterEncoder) callCount() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	return f.calls
-}
-
 func (f *fakeAdapterEncoder) history() []int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -320,6 +313,7 @@ func TestFECAdapter_DowngradeFromPeak(t *testing.T) {
 
 	// Drive up to 40.
 	feedLossTicks(t, a, rt, 20, 70, [6]int64{0, 10, 0, 0, 0, 0})
+
 	if a.currentLevel != 40 {
 		t.Fatalf("precondition: currentLevel = %d, want 40", a.currentLevel)
 	}
@@ -349,6 +343,7 @@ func TestFECAdapter_NoFastFlap(t *testing.T) {
 
 	// Drive up to 40 fast.
 	feedLossTicks(t, a, rt, 10, 70, [6]int64{0, 10, 0, 0, 0, 0})
+
 	if a.currentLevel != 40 {
 		t.Fatalf("precondition: currentLevel = %d, want 40", a.currentLevel)
 	}
@@ -407,6 +402,7 @@ func TestFECAdapter_SilentStallResetsEWMA(t *testing.T) {
 	a, _, rt := newTestAdapter(t, 20, 1)
 
 	feedLossTicks(t, a, rt, 5, 90, [6]int64{5, 0, 0, 0, 0, 0})
+
 	if a.lossEWMA <= 0 {
 		t.Fatal("precondition: expected nonzero EWMA")
 	}

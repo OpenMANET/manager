@@ -87,8 +87,8 @@ var ErrShortBuffer = errors.New("codec: short buffer")
 // (EncodeS16 runs at 50 Hz on one TX goroutine, SetPacketLossPerc runs
 // at most every few seconds from the FEC adapter loop).
 type opusEncoder struct {
-	mu  sync.Mutex
 	enc *opus.Encoder
+	mu  sync.Mutex
 }
 
 // EncodeS16 encodes a frame of PCM int16 samples into out and returns the
