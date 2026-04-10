@@ -119,7 +119,7 @@ func (s *OpenVLMSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:g
 	go func() {
 		defer close(ch)
 
-		if descs, dErr := device.DiscoverCM108(os.DirFS("/sys"), nil); dErr == nil {
+		if descs, dErr := device.DiscoverCM108(os.DirFS("/sys")); dErr == nil {
 			s.log.Debug().
 				Int("cm108_count", len(descs)).
 				Msg("OpenVLM: unified CM108 descriptor scan")
@@ -237,7 +237,7 @@ func DetectAndSetALSACardFromSys(fsys fs.FS, log zerolog.Logger) bool {
 		return true
 	}
 
-	descs, err := device.DiscoverCM108(fsys, nil)
+	descs, err := device.DiscoverCM108(fsys)
 	if err != nil {
 		log.Debug().Err(err).Msg("OpenVLM: sysfs CM108 discovery failed; falling back")
 

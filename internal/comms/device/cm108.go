@@ -49,25 +49,9 @@ type CM108Descriptor struct {
 	Serial      string
 	SysPath     string
 	ALSACardIdx int
-	PADeviceIdx int
 	VID         uint16
 	PID         uint16
 }
-
-// PALookupFunc historically mapped an ALSA card index to a PortAudio
-// device index, populating CM108Descriptor.PADeviceIdx so HID and audio
-// call sites could share a single /sys walk. Under the malgo backend
-// the daemon resolves audio devices through malgo's own enumeration API
-// (see device/malgo.go ResolveAudio) and every production caller now
-// passes nil for paLookup. The type and the lookup branch in
-// DiscoverCM108 are retained because the unit test in cm108_test.go
-// still exercises them; if a future refactor removes the test
-// dependency this whole lookup path can be deleted.
-//
-// The "PA" prefix is preserved for backwards compatibility with the
-// existing exported names; treat it as "Pre-Audio-backend" rather than
-// "PortAudio".
-type PALookupFunc func(alsaCard int) (int, bool)
 
 // DiscoverCM108 walks the USB device tree rooted at fsys (expected to be a
 // filesystem whose root corresponds to /sys) and returns one
@@ -77,8 +61,6 @@ type PALookupFunc func(alsaCard int) (int, bool)
 // directory name does not contain a ':' — the ':' separates the interface
 // suffix from the device portion). For each matching device the walk
 // resolves the first hidraw child and the first ALSA sound/cardN child.
-// When non-nil, paLookup is consulted to populate the legacy
-// PADeviceIdx field; production callers pass nil under the malgo backend.
 //
 // Devices whose idVendor / idProduct files are missing or malformed are
 // skipped with no error; a malformed file for one device does not prevent
@@ -92,7 +74,7 @@ type PALookupFunc func(alsaCard int) (int, bool)
 // OpenVLM control source can react to unplug/replug without polling. See
 // .claude/plans/comms-refactor.md section "2. Unified CM108 device
 // descriptor".
-func DiscoverCM108(fsys fs.FS, paLookup PALookupFunc) ([]CM108Descriptor, error) {
+func DiscoverCM108(fsys fs.FS) ([]CM108Descriptor, error) {
 	const usbRoot = "bus/usb/devices"
 
 	entries, err := fs.ReadDir(fsys, usbRoot)
@@ -133,23 +115,14 @@ func DiscoverCM108(fsys fs.FS, paLookup PALookupFunc) ([]CM108Descriptor, error)
 			continue
 		}
 
-		desc := CM108Descriptor{
+		results = append(results, CM108Descriptor{
 			HIDPath:     findHIDPath(fsys, devPath),
 			ALSACardIdx: findALSACard(fsys, devPath),
-			PADeviceIdx: -1,
 			VID:         vid,
 			PID:         pid,
 			Serial:      strings.TrimSpace(readString(fsys, devPath+"/serial")),
 			SysPath:     devPath,
-		}
-
-		if paLookup != nil && desc.ALSACardIdx >= 0 {
-			if idx, ok := paLookup(desc.ALSACardIdx); ok {
-				desc.PADeviceIdx = idx
-			}
-		}
-
-		results = append(results, desc)
+		})
 	}
 
 	return results, nil
@@ -305,19 +278,18 @@ func findALSACard(fsys fs.FS, devPath string) int {
 //
 // Cache is safe for concurrent use.
 type Cache struct {
-	fsys     fs.FS
-	err      error
-	paLookup PALookupFunc
-	descs    []CM108Descriptor
-	mu       sync.Mutex
-	cached   bool
+	fsys   fs.FS
+	err    error
+	descs  []CM108Descriptor
+	mu     sync.Mutex
+	cached bool
 }
 
-// NewCache constructs a Cache that will call DiscoverCM108(fsys, paLookup)
-// on first access. Subsequent calls return the same result until Invalidate
-// is called.
-func NewCache(fsys fs.FS, paLookup PALookupFunc) *Cache {
-	return &Cache{fsys: fsys, paLookup: paLookup}
+// NewCache constructs a Cache that will call DiscoverCM108(fsys) on first
+// access. Subsequent calls return the same result until Invalidate is
+// called.
+func NewCache(fsys fs.FS) *Cache {
+	return &Cache{fsys: fsys}
 }
 
 // Descriptors returns the cached CM108 descriptors, performing the walk
@@ -330,7 +302,7 @@ func (c *Cache) Descriptors() ([]CM108Descriptor, error) {
 		return c.descs, c.err
 	}
 
-	c.descs, c.err = DiscoverCM108(c.fsys, c.paLookup)
+	c.descs, c.err = DiscoverCM108(c.fsys)
 	c.cached = true
 
 	return c.descs, c.err

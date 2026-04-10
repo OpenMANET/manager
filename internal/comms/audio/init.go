@@ -137,7 +137,7 @@ func (in *Init) BuildAudio(slots []PortSlot) (*BroadcastEncoder, device.AudioDev
 // this stream.
 func (in *Init) OpenBroadcastStream(inDev device.AudioDeviceInfo) (*BroadcastEncoder, error) {
 	if in.Debug {
-		if descs, dErr := device.DiscoverCM108(os.DirFS("/sys"), nil); dErr == nil {
+		if descs, dErr := device.DiscoverCM108(os.DirFS("/sys")); dErr == nil {
 			in.Log.Debug().
 				Int("cm108_count", len(descs)).
 				Str("device", inDev.Name).
