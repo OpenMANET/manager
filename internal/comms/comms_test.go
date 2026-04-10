@@ -2,6 +2,7 @@ package comms
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"testing"
@@ -326,6 +327,43 @@ func TestApplyDefaults_BluetoothAudioDeviceHintPropagates(t *testing.T) {
 
 	if cfg.BluetoothOutputDevice != "usb-audio" {
 		t.Errorf("BluetoothOutputDevice: got %q, want %q", cfg.BluetoothOutputDevice, "usb-audio")
+	}
+}
+
+func TestShouldSkipAdditionalPlaybackStream(t *testing.T) {
+	tests := []struct {
+		name     string
+		opened   int
+		err      error
+		wantSkip bool
+	}{
+		{
+			name:     "first stream error is fatal",
+			opened:   0,
+			err:      errors.New("open failed"),
+			wantSkip: false,
+		},
+		{
+			name:     "additional stream error is skippable",
+			opened:   1,
+			err:      errors.New("resource busy"),
+			wantSkip: true,
+		},
+		{
+			name:     "no error is never skippable",
+			opened:   2,
+			err:      nil,
+			wantSkip: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldSkipAdditionalPlaybackStream(tt.opened, tt.err)
+			if got != tt.wantSkip {
+				t.Fatalf("shouldSkipAdditionalPlaybackStream(%d, %v) = %t, want %t", tt.opened, tt.err, got, tt.wantSkip)
+			}
+		})
 	}
 }
 

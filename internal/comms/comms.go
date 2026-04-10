@@ -587,6 +587,8 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 		FramesPerBuffer: frameSize,
 	}
 
+	openedPlaybackStreams := 0
+
 	// Open a dedicated playback stream for every port that has an open
 	// receiver socket, regardless of its initial receiveEnabled state.
 	// This ensures that EnableTalkGroupReceive can activate any port at
@@ -596,14 +598,12 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 			continue
 		}
 
-		pc.playbackBuffer = make(chan []float32, playbackDepth)
-		pc.playbackHighWaterMark = cap(pc.playbackBuffer) * 3 / 4
-
-		pcRef := pc // capture for callback closure
+		playbackBuffer := make(chan []float32, playbackDepth)
+		playbackHighWaterMark := cap(playbackBuffer) * 3 / 4
 
 		rawPlayback, openErr := portaudio.OpenStream(playbackParams, func(_, out []float32) {
 			select {
-			case data := <-pcRef.playbackBuffer:
+			case data := <-playbackBuffer:
 				copy(out, data)
 				returnFloat32(data)
 			default:
@@ -613,6 +613,17 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 			}
 		})
 		if openErr != nil {
+			if shouldSkipAdditionalPlaybackStream(openedPlaybackStreams, openErr) {
+				pc.receiveEnabled.Store(false)
+				cfg.Log.Warn().
+					Err(openErr).
+					Int("port", pc.cfg.Port).
+					Str("output_device", outDev.Name).
+					Msg("comms: additional playback stream unavailable; disabling receive on this talkgroup")
+
+				continue
+			}
+
 			// Close already-opened per-port streams before propagating error.
 			for _, built := range rt.ports {
 				if built.playbackStream != nil {
@@ -624,7 +635,10 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 			return nil, nil, fmt.Errorf("open playback stream for port %d: %w", pc.cfg.Port, openErr)
 		}
 
+		pc.playbackBuffer = playbackBuffer
+		pc.playbackHighWaterMark = playbackHighWaterMark
 		pc.playbackStream = &portaudioStream{rawPlayback}
+		openedPlaybackStreams++
 	}
 
 	broadcast, err = cfg.openBroadcastStreamOn(inDev, rt)
@@ -640,6 +654,10 @@ func (cfg *CommsConfig) buildAudio(rt *CommsRuntime) (
 	}
 
 	return broadcast, inDev, nil
+}
+
+func shouldSkipAdditionalPlaybackStream(openedPlaybackStreams int, openErr error) bool {
+	return openedPlaybackStreams > 0 && openErr != nil
 }
 
 // sendToAllPorts sends an encoded RTP payload to every port where sendEnabled
