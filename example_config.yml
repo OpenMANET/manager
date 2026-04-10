@@ -14,9 +14,8 @@ blos:
 comms:
   enable: false
   protocol: rtp
-  debug: true
+  debug: false
   trace: false
-  loopback: false
   controlSource: openvlm
   nanoPTT:
     enable: false

@@ -193,7 +193,7 @@ func TestBeginTransmission_SettleCoversPlaybackLatency(t *testing.T) {
 	cfg := newSilentComms()
 
 	// Expected floor: PlaybackOutputLatency + frameDuration (20 ms) +
-	// beepSettleMargin (20 ms) = 140 ms.
+	// beepSettleMargin (40 ms) = 160 ms.
 	wantFloor := 100*time.Millisecond + frameDuration + beepSettleMargin
 
 	start := time.Now()
@@ -241,7 +241,7 @@ func TestTransmitSettleWait_NegativeSkips(t *testing.T) {
 func TestTransmitSettleWait_PicksMaxOfWarmupAndBeepSettle(t *testing.T) {
 	t.Run("warmup_dominates", func(t *testing.T) {
 		rt := newTestRuntime(&mockStream{})
-		rt.PlaybackOutputLatency = 0 // beep settle = 0+20+20 = 40 ms
+		rt.PlaybackOutputLatency = 0 // beep settle = 0+20+40 = 60 ms
 
 		cfg := newSilentComms()
 		cfg.PttStartDelayMs = 100 // explicit warmup
@@ -254,7 +254,7 @@ func TestTransmitSettleWait_PicksMaxOfWarmupAndBeepSettle(t *testing.T) {
 
 	t.Run("beep_settle_dominates", func(t *testing.T) {
 		rt := newTestRuntime(&mockStream{})
-		rt.PlaybackOutputLatency = 80 * time.Millisecond // beep settle = 80+20+20 = 120 ms
+		rt.PlaybackOutputLatency = 80 * time.Millisecond // beep settle = 80+20+40 = 140 ms
 
 		cfg := newSilentComms()
 		cfg.PttStartDelayMs = 30 // small warmup

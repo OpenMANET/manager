@@ -29,9 +29,14 @@ const frameDuration = time.Duration(audiopool.FrameSize) * time.Second /
 // beepSettleMargin is the extra slack added on top of the playback
 // output latency and the beep frame duration when waiting for the
 // start tone to fully clear the speaker before the mic capture stream
-// goes live. Accounts for playback-callback scheduling jitter and
-// room reverb tail.
-const beepSettleMargin = 20 * time.Millisecond
+// goes live. Accounts for:
+//
+//   - the hand-off delay from PlaybackBuffer (a Go channel) to the
+//     playbackChunker — worst case one period, since the malgo
+//     callback pulls from the chunker once per period;
+//   - playback-callback scheduling jitter; and
+//   - room reverb tail on the speaker→mic acoustic path.
+const beepSettleMargin = 40 * time.Millisecond
 
 // pttStartDelay returns the configured mic-warmup duration. A negative
 // PttStartDelayMs means "skip the wait"; a zero or unset value falls

@@ -87,23 +87,33 @@ func (in *Init) BuildAudio(slots []PortSlot) (*BroadcastEncoder, device.AudioDev
 			return nil, zeroIn, fmt.Errorf("open playback stream for port %d: %w", slot.Port, openErr)
 		}
 
-		// Record the period-derived playback latency so the TX path's
-		// beep-emergence wait (transmitSettleWait) has something to
-		// anchor on. miniaudio does not expose the negotiated runtime
-		// period (and ALSA's USB audio class driver typically rounds
-		// the requested period up to a power of two — e.g. it gives
-		// 1024 frames when we ask for 960), so the diagnostic is the
-		// configured period duration. The playbackChunker in
+		// Record the ALSA ring latency so the TX path's beep-emergence
+		// wait (transmitSettleWait) has an honest value to anchor on.
+		// miniaudio does not expose the negotiated runtime period, and
+		// ALSA's USB audio class driver typically rounds the requested
+		// period up to the next power of two (e.g. it gives 1024 frames
+		// when we ask for 960), so we model that rounding here. The
+		// backend also queues malgoLowLatencyPeriods periods in the ALSA
+		// ring before the DAC consumes them — that full ring is what
+		// the beep must traverse before it physically exits the
+		// speaker, not just a single period. Undercounting this was
+		// leaking the start tone into the transmitted RTP stream via
+		// speaker→mic coupling. The playbackChunker in
 		// malgo_playback.go re-aligns whatever period ALSA picks back
 		// onto audiopool.FrameSize chunks, so the downstream playoutFrame
 		// closure never sees the discrepancy.
-		period := periodFramesToDuration(playbackPeriod, uint32(audiopool.SampleRate))
-		in.PlaybackOutputLatency = max(in.PlaybackOutputLatency, period)
+		effectivePeriodFrames := nextPow2(playbackPeriod)
+		period := periodFramesToDuration(effectivePeriodFrames, uint32(audiopool.SampleRate))
+		ringLatency := time.Duration(malgoLowLatencyPeriods) * period
+		in.PlaybackOutputLatency = max(in.PlaybackOutputLatency, ringLatency)
 
 		in.Log.Info().
 			Int("configured_latency_ms", in.PlaybackLatencyMs).
 			Int("requested_period_frames", int(playbackPeriod)).
+			Int("effective_period_frames", int(effectivePeriodFrames)).
 			Dur("requested_period_duration", period).
+			Int("periods", malgoLowLatencyPeriods).
+			Dur("ring_latency", ringLatency).
 			Int("port", slot.Port).
 			Str("device", outDev.Name).
 			Msg("comms: playback stream opened")
@@ -254,6 +264,34 @@ func buildCapturePeriodFrames(framesPerBuffer, _ int) int {
 //
 // miniaudio may still round the period to a backend-preferred value at
 // InitDevice time, but the requested period is what we log.
+// malgoLowLatencyPeriods matches miniaudio's LowLatency performance
+// profile default. The ALSA backend queues this many periods in the
+// playback ring before the DAC consumes them; the beep-emergence
+// settle wait must cover the full ring, not just one period.
+const malgoLowLatencyPeriods = 3
+
+// nextPow2 rounds v up to the next power of two. Returns 1 for v == 0
+// and v unchanged when already a power of two. Used to model the ALSA
+// USB-audio-class period rounding described above on PlaybackOutputLatency.
+func nextPow2(v uint32) uint32 {
+	if v == 0 {
+		return 1
+	}
+
+	if v&(v-1) == 0 {
+		return v
+	}
+
+	v--
+	v |= v >> 1
+	v |= v >> 2
+	v |= v >> 4
+	v |= v >> 8
+	v |= v >> 16
+
+	return v + 1
+}
+
 func computePlaybackPeriodFrames(latencyMs int) int {
 	if latencyMs <= 0 {
 		return audiopool.FrameSize

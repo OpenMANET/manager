@@ -59,6 +59,65 @@ func TestComputePlaybackPeriodFrames_ConvertsMsToFrames(t *testing.T) {
 	assert.Equal(t, 960, computePlaybackPeriodFrames(20))
 }
 
+func TestNextPow2(t *testing.T) {
+	cases := []struct {
+		in, want uint32
+	}{
+		{0, 1},
+		{1, 1},
+		{2, 2},
+		{3, 4},
+		{4, 4},
+		{5, 8},
+		{960, 1024},
+		{1024, 1024},
+		{1025, 2048},
+	}
+
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, nextPow2(tc.in), "nextPow2(%d)", tc.in)
+	}
+}
+
+// TestPlaybackRingLatency pins the arithmetic the TX settle wait
+// depends on: the effective period is nextPow2(requested), and the
+// ring latency is malgoLowLatencyPeriods × effectivePeriod at
+// audiopool.SampleRate. A regression here would silently shrink the
+// beep settle window and leak the start tone into the transmitted
+// stream again via speaker→mic coupling.
+func TestPlaybackRingLatency(t *testing.T) {
+	cases := []struct {
+		name              string
+		requestedFrames   uint32
+		wantEffective     uint32
+		wantRingLatencyMs int64
+	}{
+		{
+			name:              "20ms_period_rounds_to_1024",
+			requestedFrames:   uint32(audiopool.FrameSize), // 960 @ 48 kHz
+			wantEffective:     1024,
+			wantRingLatencyMs: 63, // 3 × floor(1024/48000 s) ≈ 63.999 ms
+		},
+		{
+			name:              "already_pow2",
+			requestedFrames:   512,
+			wantEffective:     512,
+			wantRingLatencyMs: 31, // 3 × floor(512/48000 s) ≈ 31.999 ms
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			eff := nextPow2(tc.requestedFrames)
+			assert.Equal(t, tc.wantEffective, eff, "effective period frames")
+
+			period := periodFramesToDuration(eff, uint32(audiopool.SampleRate))
+			ring := time.Duration(malgoLowLatencyPeriods) * period
+			assert.Equal(t, tc.wantRingLatencyMs, ring.Milliseconds(), "ring latency ms")
+		})
+	}
+}
+
 func TestPeriodFramesToDuration(t *testing.T) {
 	tests := []struct {
 		name       string
