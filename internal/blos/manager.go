@@ -232,12 +232,16 @@ func (m *BLOSManager) ConfigureAndEnable(ctx context.Context, authKey string, lo
 		return errors.New("BLOS requires gateway mode; configure the node as a mesh gateway first")
 	}
 
-	if err := b.Start(ctx); err != nil {
-		return err
-	}
-
 	if err := m.cfg.PersistBLOSConfig(true); err != nil {
 		return fmt.Errorf("failed to persist BLOS config: %w", err)
+	}
+
+	if err := b.Start(ctx); err != nil {
+		if rbErr := m.cfg.PersistBLOSConfig(false); rbErr != nil {
+			m.logger.Error().Err(rbErr).Msg("Failed to roll back BLOS config after start failure")
+		}
+
+		return err
 	}
 
 	m.blos = b

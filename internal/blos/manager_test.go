@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 )
 
@@ -132,6 +133,23 @@ func newTestManager(t *testing.T, createFn func(*config.Config, zerolog.Logger) 
 		logger:   zerolog.Nop(),
 		createFn: createFn,
 	}
+}
+
+// failingTailscaleClient is a TailscaleClient that always returns an error from Status.
+type failingTailscaleClient struct {
+	err error
+}
+
+func (f *failingTailscaleClient) Status(_ context.Context) (*ipnstate.Status, error) {
+	return nil, f.err
+}
+
+func (f *failingTailscaleClient) GetPrefs(_ context.Context) (*ipn.Prefs, error) {
+	return nil, f.err
+}
+
+func (f *failingTailscaleClient) EditPrefs(_ context.Context, _ *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+	return nil, f.err
 }
 
 // successCreateFn returns a minimal BLOS instance.
@@ -390,6 +408,47 @@ func TestBLOSManager_ConfigureAndEnable_CreateFnFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "create failed")
 	assert.False(t, m.IsRunning())
 	assert.Equal(t, 1, auth.getCalls()) // auth was called before createFn
+}
+
+func TestBLOSManager_ConfigureAndEnable_PersistsConfigBeforeStart(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	cfg := newTestConfig(t)
+	m := &BLOSManager{
+		cfg:          cfg,
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		statusClient: runningStatusClient(),
+		initDService: runningInitDService(),
+		createFn:     successCreateFn,
+	}
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.True(t, cfg.BLOSEnabled(), "blos.enable should be persisted as true after ConfigureAndEnable")
+}
+
+func TestBLOSManager_ConfigureAndEnable_StartFailure_RollsBackConfig(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	cfg := newTestConfig(t)
+
+	// Create a BLOS whose Start will fail because tsClient.Status returns an error.
+	failStartCreateFn := func(_ *config.Config, _ zerolog.Logger) (*BLOS, error) {
+		return &BLOS{tsClient: &failingTailscaleClient{err: errors.New("status check failed")}}, nil
+	}
+
+	m := &BLOSManager{
+		cfg:          cfg,
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		statusClient: runningStatusClient(),
+		initDService: runningInitDService(),
+		createFn:     failStartCreateFn,
+	}
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.Error(t, err)
+	assert.False(t, m.IsRunning())
+	assert.False(t, cfg.BLOSEnabled(), "blos.enable should be rolled back to false after Start failure")
 }
 
 func TestBLOSManager_ConfigureAndEnable_Idempotent(t *testing.T) {
