@@ -65,7 +65,7 @@ The constants live in [`audiopool/audiopool.go`](audiopool/audiopool.go):
 - Opus complexity (`comms.go` `encoderComplexity`) = **10**, capped at 10
   and overridable per `CommsConfig.EncoderComplexity` (1..10)
 - Packet loss percent (`comms.go` `packetLossPerc`) = **20**
-- In-band FEC: **disabled**
+- In-band FEC: **enabled**
 - DTX: **disabled**
 
 `audiopool` also exports the `Float32Pool` / `Int16Pool` / `EncBufPool`

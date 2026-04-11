@@ -374,7 +374,7 @@ func (a *FECAdapter) transitionLocked(target int, reason string) {
 	a.upgradeTicks = 0
 	a.downgradeTicks = 0
 
-	a.log.Info().
+	a.log.Warn().
 		Int("from", prev).
 		Int("to", target).
 		Str("reason", reason).
