@@ -312,12 +312,12 @@ func (in *Init) StartHardware(slots []PortSlot) (broadcast *BroadcastEncoder, cl
 		// and "EPIPE (read/write)" are both recovered internally via
 		// snd_pcm_recover and do not correspond to lost audio. Drop them
 		// so operators are not misled into chasing a non-issue; anything
-		// else from malgo still lands at Debug level.
+		// else from malgo still lands at Trace level.
 		if strings.Contains(message, "poll() failed") || strings.Contains(message, "EPIPE") {
 			return
 		}
 
-		in.Log.Debug().Str("source", "malgo").Msg(message)
+		in.Log.Trace().Str("source", "malgo").Msg(message)
 	}
 
 	ctx, ctxErr := malgo.InitContext(nil, malgo.ContextConfig{}, logProc)

@@ -36,6 +36,11 @@ type UCINetwork struct {
 	IPV6Assignment string `uci:"option ip6assign"`
 	IPV6IfaceID    string `uci:"option ip6ifaceid"`
 	IPV6Class      string `uci:"list ip6class"`
+	// MulticastMode is the batman-adv batadv proto option that controls
+	// multicast forceflood behavior. "1" enables forceflood (broadcast
+	// every multicast frame), "0" uses batman-adv's optimized multicast
+	// delivery. Only meaningful on `proto batadv` interfaces.
+	MulticastMode string `uci:"option multicast_mode"`
 }
 
 // UCIDevice represents a UCI network device configuration (config device).
@@ -288,6 +293,12 @@ func SetNetworkConfigWithReader(section string, config *UCINetwork, reader Confi
 	if config.IPV6Class != "" {
 		if err := reader.SetType(networkConfigName, section, "ip6class", uci.TypeList, config.IPV6Class); err != nil {
 			return fmt.Errorf("failed to set ip6class: %w", err)
+		}
+	}
+
+	if config.MulticastMode != "" {
+		if err := reader.SetType(networkConfigName, section, "multicast_mode", uci.TypeOption, config.MulticastMode); err != nil {
+			return fmt.Errorf("failed to set multicast_mode: %w", err)
 		}
 	}
 

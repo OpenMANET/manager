@@ -827,3 +827,103 @@ func TestConfigureDeviceMulticast_ReloadError(t *testing.T) {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
+
+// ── configureBatmanForceflood tests ─────────────────────────────────────────
+
+func TestConfigureBatmanForceflood_Enabled(t *testing.T) {
+	m := newTestManagementConfig()
+	m.BatInterface = "bat0"
+	m.BatmanMulticastForceflood = true
+
+	reader := newFakeNetworkReader()
+
+	var reloadCalled bool
+
+	reloadFn := func(_ context.Context) error {
+		reloadCalled = true
+
+		return nil
+	}
+
+	err := m.configureBatmanForcefloodWithDeps(context.Background(), reader, reloadFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	values, ok := reader.Get("network", "bat0", "multicast_mode")
+	if !ok {
+		t.Fatal("expected multicast_mode to be written to bat0 section")
+	}
+
+	if len(values) != 1 || values[0] != "1" {
+		t.Errorf("multicast_mode: got %v, want [1]", values)
+	}
+
+	if !reloadCalled {
+		t.Error("expected reload to be called")
+	}
+}
+
+func TestConfigureBatmanForceflood_Disabled(t *testing.T) {
+	m := newTestManagementConfig()
+	m.BatInterface = "bat0"
+	m.BatmanMulticastForceflood = false
+
+	reader := newFakeNetworkReader()
+	reloadFn := func(_ context.Context) error { return nil }
+
+	err := m.configureBatmanForcefloodWithDeps(context.Background(), reader, reloadFn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	values, ok := reader.Get("network", "bat0", "multicast_mode")
+	if !ok {
+		t.Fatal("expected multicast_mode to be written to bat0 section")
+	}
+
+	if len(values) != 1 || values[0] != "0" {
+		t.Errorf("multicast_mode: got %v, want [0]", values)
+	}
+}
+
+func TestConfigureBatmanForceflood_CommitError(t *testing.T) {
+	m := newTestManagementConfig()
+	m.BatInterface = "bat0"
+	m.BatmanMulticastForceflood = true
+
+	reader := newFakeNetworkReader()
+	reader.commitErr = errors.New("commit failure")
+
+	reloadFn := func(_ context.Context) error { return nil }
+
+	err := m.configureBatmanForcefloodWithDeps(context.Background(), reader, reloadFn)
+	if err == nil {
+		t.Fatal("expected error when commit fails")
+	}
+
+	if !strings.Contains(err.Error(), "set multicast_mode on bat0") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestConfigureBatmanForceflood_ReloadError(t *testing.T) {
+	m := newTestManagementConfig()
+	m.BatInterface = "bat0"
+	m.BatmanMulticastForceflood = true
+
+	reader := newFakeNetworkReader()
+
+	reloadFn := func(_ context.Context) error {
+		return errors.New("reload failed")
+	}
+
+	err := m.configureBatmanForcefloodWithDeps(context.Background(), reader, reloadFn)
+	if err == nil {
+		t.Fatal("expected error when reload fails")
+	}
+
+	if !strings.Contains(err.Error(), "reload config") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}

@@ -88,6 +88,7 @@ func Start(staticFS fs.FS) {
 			NodeDataType:               cfg.GetAlfredDataTypeNode(),
 			PositionDataType:           cfg.GetAlfredDataTypePosition(),
 			AddressReservationDataType: cfg.GetAlfredDataTypeAddressReservation(),
+			BatmanMulticastForceflood:  cfg.GetBatmanMulticastForceflood(),
 			DB:                         db,
 		})
 		if err != nil {

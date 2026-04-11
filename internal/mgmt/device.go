@@ -208,6 +208,50 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 	return nil
 }
 
+// configureBatmanForceflood persists the batman-adv multicast forceflood
+// setting to the UCI network config so it survives reboots. The UCI option
+// name is `multicast_mode` on the bat0 interface section — this is the
+// batadv proto handler's option that maps to the kernel's multicast
+// forceflood behavior. A subsequent network reload applies the change.
+func (m *ManagementConfig) configureBatmanForceflood(ctx context.Context) error {
+	return m.configureBatmanForcefloodWithDeps(
+		ctx,
+		network.NewUCINetworkConfigReader(),
+		network.ForceReloadConfig,
+	)
+}
+
+// configureBatmanForcefloodWithDeps is the testable implementation.
+// Dependencies are injected so the function can be unit-tested without a
+// real OpenWrt environment.
+func (m *ManagementConfig) configureBatmanForcefloodWithDeps(
+	ctx context.Context,
+	reader network.ConfigReader,
+	reloadFn func(context.Context) error,
+) error {
+	val := "0"
+	if m.BatmanMulticastForceflood {
+		val = "1"
+	}
+
+	if err := network.SetNetworkConfigWithReader(m.BatInterface, &network.UCINetwork{
+		MulticastMode: val,
+	}, reader); err != nil {
+		return fmt.Errorf("set multicast_mode on %s: %w", m.BatInterface, err)
+	}
+
+	m.Log.Debug().
+		Str("interface", m.BatInterface).
+		Str("multicast_mode", val).
+		Msg("Persisted batman-adv multicast_mode (forceflood) to UCI")
+
+	if err := reloadFn(ctx); err != nil {
+		return fmt.Errorf("reload config: %w", err)
+	}
+
+	return nil
+}
+
 // configureDeviceMulticast configures IGMP snooping and multicast querier
 // settings on the network device identified by ManagementConfig.IFace.
 // Gateway status is determined by querying batman-adv via BatInterface.

@@ -15,6 +15,7 @@ const (
 	DefaultAlfredMode                                string  = "primary"
 	DefaultAlfredBatInterface                        string  = "bat0"
 	DefaultBatmanMulticastEnhancementsEnabled        bool    = true
+	DefaultBatmanMulticastForceflood                 bool    = true
 	DefaultAlfredSocketPath                          string  = "/var/run/alfred.sock"
 	DefaultAlfredEnable                              bool    = true
 	DefaultAlfredDataTypeGateway                     bool    = true
@@ -156,6 +157,7 @@ type Config struct {
 	AlfredDataTypeAddressReserv               bool
 	AlfredDataTypeNode                        bool
 	BatmanMulticastEnhancementsEnabled        bool
+	BatmanMulticastForceflood                 bool
 	CommsDebug                                bool
 	CommsEnable                               bool
 	CommsTrace                                bool
@@ -270,6 +272,12 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.BatmanMulticastEnhancementsEnabled = c.v.GetBool("batman.multicastEnhancementsEnabled")
 	} else {
 		c.BatmanMulticastEnhancementsEnabled = DefaultBatmanMulticastEnhancementsEnabled
+	}
+
+	if c.v.IsSet("batman.multicastForceflood") {
+		c.BatmanMulticastForceflood = c.v.GetBool("batman.multicastForceflood")
+	} else {
+		c.BatmanMulticastForceflood = DefaultBatmanMulticastForceflood
 	}
 
 	// Load Alfred configuration
@@ -647,6 +655,14 @@ func (c *Config) GetEnableBatmanMulticastEnhancements() bool {
 	defer c.mu.RUnlock()
 
 	return c.BatmanMulticastEnhancementsEnabled
+}
+
+// GetBatmanMulticastForceflood returns whether batman-adv multicast forceflood is enabled.
+func (c *Config) GetBatmanMulticastForceflood() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.BatmanMulticastForceflood
 }
 
 // GetEnableBLOS returns whether BLOS is enabled.
