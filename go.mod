@@ -10,10 +10,11 @@ require (
 	github.com/coreywagehoft/go-tak v1.2.0
 	github.com/digineo/go-uci/v2 v2.0.0-20231120164223-60c14814b8fe
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/gen2brain/malgo v0.11.24
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/gvalkov/golang-evdev v0.0.0-20220815104727-7e27d6ce89b6
 	github.com/hraban/opus v0.0.0-20230925203106-0188a62cb302
-	github.com/mattn/go-sqlite3 v1.14.37
+	github.com/mattn/go-sqlite3 v1.14.42
 	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875
 	github.com/mdlayher/wifi v0.7.2
 	github.com/msteinert/pam/v2 v2.1.0
@@ -23,7 +24,7 @@ require (
 	github.com/pion/rtp v1.10.1
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10
 	github.com/rs/cors v1.11.1
-	github.com/rs/zerolog v1.34.0
+	github.com/rs/zerolog v1.35.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/sstallion/go-hid v0.15.0
@@ -32,12 +33,11 @@ require (
 	golang.org/x/crypto v0.48.0
 	golang.org/x/net v0.51.0
 	golang.org/x/sys v0.42.0
-	google.golang.org/grpc v1.79.3
+	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
+	gopkg.in/yaml.v3 v3.0.1
 	tailscale.com v1.94.2
 )
-
-require github.com/gen2brain/malgo v0.11.24
 
 require (
 	buf.build/go/protovalidate v1.1.3
@@ -59,7 +59,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/native v1.1.0 // indirect
 	github.com/jsimonetti/rtnetlink v1.4.0 // indirect
-	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mdlayher/ethernet v0.0.0-20220221185849-529eae5b6118 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
@@ -88,9 +88,8 @@ require (
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20251213004720-97cd9d5aeac2 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251222181119-0a764e51fe1b // indirect
-	gopkg.in/yaml.v3 v3.0.1
+	google.golang.org/genproto/googleapis/api v0.0.0-20260120221211-b8f7ae30c516 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260120221211-b8f7ae30c516 // indirect
 )
 
 replace github.com/openmanet/go-alfred => ./internal/alfred
