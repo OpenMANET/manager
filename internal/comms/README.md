@@ -46,6 +46,7 @@ miniaudio is vendored via malgo).
    [`control.Register`](control/source.go) registry):
    - `openvlm` (default): GPIO3 on the OpenVLM USB HID dongle —
      `PTTDown` on press, `PTTUp` on release (hold-to-talk).
+   - `bs22`: BS-22 BLE HM control channel, with BlueALSA XEVENT fallback.
    - `roip`: same dongle, no manual button — squelch GPIO (COS) with VOX
      fallback for analog radio bridging.
    - `web`: events injected via RPC handlers; the browser owns audio I/O.
@@ -603,7 +604,7 @@ Example in `example_config.yml`:
 ```yaml
 comms:
   enable: false
-  controlSource: openvlm     # openvlm | roip | web | nanoptt
+  controlSource: openvlm     # openvlm | roip | web | nanoptt | bs22
   debug: true
   trace: false
   loopback: true
@@ -665,7 +666,7 @@ audio refactor). ALSA card auto-detection runs for both `openvlm` and
 | [receive.go](receive.go) | `receiveLoop`, `playoutOneFrame`, `webPlayoutLoop`, `halfDuplexDecayLoop`, `isReceivingRemote` |
 | [network.go](network.go) | `buildNetwork`, `buildSinglePortChannel`, `replaceNetwork`, `listenRTPReceiver` |
 | [port_channel.go](port_channel.go) | `McastPortConfig`, `McastPortState`, `PortChannel`, `MarkRemoteRx`, `closePartial` |
-| [control_register.go](control_register.go) | `init()` registering the four backends; `buildControlDeps`; `Validate` |
+| [control_register.go](control_register.go) | `init()` registering the five backends; `buildControlDeps`; `Validate` |
 | [device.go](device.go) | `normalizeControlSource`, `findCommDevice`, `logInputDeviceList` |
 | [doc.go](doc.go) | Package doc + `omd_omit_comms` build stub |
 

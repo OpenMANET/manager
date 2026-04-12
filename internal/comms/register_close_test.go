@@ -20,6 +20,7 @@ import (
 func TestControlLookup_KnownNames(t *testing.T) {
 	for _, name := range []string{
 		defaultCtrlSrc,
+		controlSourceBS22,
 		controlSourceROIP,
 		controlSourceWeb,
 		defaultControlSourceNanoPTT,
@@ -49,6 +50,15 @@ func TestBuildControlDeps_OpenVLMBackend(t *testing.T) {
 
 	_, ok := deps.Backend.(*openvlmBackend)
 	assert.True(t, ok, "openvlm backend should have type *openvlmBackend, got %T", deps.Backend)
+}
+
+func TestBuildControlDeps_BS22Backend(t *testing.T) {
+	cfg := &CommsConfig{Log: zerolog.Nop(), ControlSource: controlSourceBS22}
+	rt := &CommsRuntime{}
+
+	deps, err := cfg.buildControlDeps(rt)
+	require.NoError(t, err)
+	assert.Nil(t, deps.Backend, "bs22 backend should not require extra dependencies")
 }
 
 func TestBuildControlDeps_ROIPBackend(t *testing.T) {

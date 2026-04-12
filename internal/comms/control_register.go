@@ -12,7 +12,7 @@ import (
 // control.Registry. It lives in the comms package (not internal/comms/control)
 // because the constructors themselves still live here in Phase 2 of the comms
 // refactor — moving them across would create an import cycle since control is
-// already imported by comms via event_alias.go. A future phase will relocate
+// already imported by comms via event.go. A future phase will relocate
 // the backends into internal/comms/control and these inits will move with
 // them.
 
@@ -50,6 +50,11 @@ type nanopttBackend struct {
 func init() {
 	control.Register("openvlm", func(deps control.ControlDeps) (control.EventSource, error) {
 		return control.NewOpenVLMSource(deps.Log), nil
+	})
+
+	control.Register(controlSourceBS22, func(deps control.ControlDeps) (control.EventSource, error) {
+		deps.Log.Info().Msg("comms: PTT via BS-22 BLE HM control with BlueALSA XEVENT fallback")
+		return NewBS22EventSource(deps.Log), nil
 	})
 
 	control.Register(controlSourceROIP, func(deps control.ControlDeps) (control.EventSource, error) {
@@ -118,6 +123,8 @@ func (cfg *CommsConfig) buildControlDeps(rt *CommsRuntime) (control.ControlDeps,
 	switch cfg.ControlSource {
 	case defaultCtrlSrc:
 		deps.Backend = &openvlmBackend{}
+	case controlSourceBS22:
+		// No additional backend dependencies; BS-22 source discovers state via DBus.
 	case controlSourceROIP:
 		deps.Backend = &roipBackend{
 			COSGPIOMask:    cfg.ROIPCOSGPIOMask,

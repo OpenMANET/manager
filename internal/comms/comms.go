@@ -84,7 +84,8 @@ func (cfg *CommsConfig) sendToAllPorts(rt *CommsRuntime, payload []byte) {
 
 // buildEventSource constructs the PTT EventSource for cfg.ControlSource by
 // looking the name up in the control-source registry. The four supported
-// backends — "openvlm", "roip", "web", "nanoptt" — register themselves via
+// backends — "openvlm", "roip", "web", "nanoptt", and "bs22" — register
+// themselves via
 // init() in control_register.go. Validate() (called from CommsManager.Enable)
 // rejects unknown sources up front; this function returns an error if a
 // caller still reaches it with an unregistered source.

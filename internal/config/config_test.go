@@ -676,8 +676,8 @@ func TestGetCommsControlSource(t *testing.T) {
 	}{
 		{
 			name:     "returns configured control source",
-			setValue: strPtr("bluealsa_xevent"),
-			want:     "bluealsa_xevent",
+			setValue: strPtr("bs22"),
+			want:     "bs22",
 		},
 		{
 			name:     "returns default when empty",

@@ -17,6 +17,7 @@ comms:
   debug: false
   trace: false
   controlSource: openvlm
+  # openvlm, nanoptt, bs22, roip, or web
   nanoPTT:
     enable: false
     devicePath: /dev/hidraw0/*
