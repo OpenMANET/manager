@@ -153,14 +153,14 @@ describe('TestGpsStatusMapView', () => {
     mockGetGNSSStatus.mockResolvedValue(STATUS_3D_FIX);
     const { container } = render(<GpsStatusPage />);
     await waitFor(() => {
-      expect(screen.getAllByText('Map View').length).toBe(2); // card-title + inner label
+      expect(screen.getByText('Globe View')).toBeTruthy();
     });
-    // Coordinate div uses toFixed(4) with N/S E/W suffixes
+    // Coordinate div uses toFixed(6) with N/S E/W suffixes
     const coordDiv = container.querySelector('div[style*="monospace"][style*="color: var(--green)"]');
     expect(coordDiv).toBeTruthy();
-    expect(coordDiv.textContent).toContain('34.0522');
+    expect(coordDiv.textContent).toContain('34.052200');
     expect(coordDiv.textContent).toContain('N');
-    expect(coordDiv.textContent).toContain('118.2437');
+    expect(coordDiv.textContent).toContain('118.243700');
     expect(coordDiv.textContent).toContain('W');
     // Altitude line
     expect(screen.getByText(/71m MSL/)).toBeTruthy();

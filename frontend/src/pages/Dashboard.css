@@ -2,23 +2,6 @@
  * Dashboard.css — Dashboard page styles
  * ============================================================================= */
 
-/* Dashboard grid: 2 columns on tablet+, 1 column on mobile */
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-}
-
-@media (min-width: 580px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-.dashboard-full-width {
-  grid-column: 1 / -1;
-}
-
 /* Progress bar */
 .dashboard-bar-track {
   flex: 1;

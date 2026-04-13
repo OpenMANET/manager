@@ -10,6 +10,7 @@ import { QuickAction, NetworkInterfaceState } from "../gen/openmanet/dashboard/v
 import { fetchMeshStatus } from '../services/meshApi.js';
 import MeshStatusPanel from '../components/MeshStatus.jsx';
 import TopologyMap from '../components/TopologyMap.jsx';
+import WidgetGrid from '../components/WidgetGrid.jsx';
 import './Dashboard.css';
 
 const dashClient = createClient(DashboardService, transport);
@@ -180,6 +181,17 @@ function QuickActionsCard({ onReboot, rebooting }) {
   );
 }
 
+// ── Widget configuration ───────────────────────────────────────────────────
+
+const DASHBOARD_WIDGETS = [
+  { id: 'deviceInfo',      label: 'Device Information', minWidth: 20, defaultWidth: 50 },
+  { id: 'systemResources', label: 'System Resources',   minWidth: 20, defaultWidth: 50 },
+  { id: 'networkSummary',  label: 'Network Summary',    minWidth: 20, defaultWidth: 50 },
+  { id: 'meshStatus',      label: 'Mesh Status',        minWidth: 20, defaultWidth: 50 },
+  { id: 'topologyMap',     label: 'Topology Map',       minWidth: 25, defaultWidth: 100 },
+  { id: 'quickActions',    label: 'Quick Actions',      minWidth: 20, defaultWidth: 100 },
+];
+
 // ── Main page component ─────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -251,29 +263,32 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const renderWidget = useCallback((id) => {
+    switch (id) {
+      case 'deviceInfo':      return <DeviceInfoCard info={data?.deviceInfo} />;
+      case 'systemResources': return <SystemResourcesCard resources={data?.systemResources} />;
+      case 'networkSummary':  return <NetworkSummaryCard summary={data?.networkSummary} />;
+      case 'meshStatus':      return <MeshStatusPanel data={meshData} neighborHistory={neighborHistory} />;
+      case 'topologyMap':     return <TopologyMap data={meshData} />;
+      case 'quickActions':    return <QuickActionsCard onReboot={handleReboot} rebooting={rebooting} />;
+      default:                return null;
+    }
+  }, [data, meshData, neighborHistory, handleReboot, rebooting]);
+
   if (loading) {
     return (
-      <div style={{ width: '100%', maxWidth: 1100, color: 'var(--muted)', padding: '24px 0' }}>
+      <div style={{ width: '100%', maxWidth: '100%', color: 'var(--muted)', padding: '24px 0' }}>
         Loading dashboard...
       </div>
     );
   }
 
   return (
-    <div style={{ width: '100%', maxWidth: 1100 }}>
-      <h2 style={{ fontSize: '1.2em', marginBottom: 12 }}>Dashboard</h2>
-      <div className="dashboard-grid">
-        <DeviceInfoCard info={data?.deviceInfo} />
-        <SystemResourcesCard resources={data?.systemResources} />
-        <NetworkSummaryCard summary={data?.networkSummary} />
-        <MeshStatusPanel data={meshData} neighborHistory={neighborHistory} />
-        <div className="dashboard-full-width">
-          <TopologyMap data={meshData} />
-        </div>
-        <div className="dashboard-full-width">
-          <QuickActionsCard onReboot={handleReboot} rebooting={rebooting} />
-        </div>
-      </div>
-    </div>
+    <WidgetGrid
+      pageId="dashboard"
+      title="Dashboard"
+      widgets={DASHBOARD_WIDGETS}
+      renderWidget={renderWidget}
+    />
   );
 }

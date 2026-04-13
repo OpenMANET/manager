@@ -8,11 +8,15 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 // Mock the ConnectRPC transport and dashboard client used by Settings.jsx
 // for the restart button. vi.hoisted ensures the fn is available when
 // vi.mock factories execute (they are hoisted above imports).
-const { mockExecuteQuickAction } = vi.hoisted(() => ({
+const { mockExecuteQuickAction, mockGetCommsConfig } = vi.hoisted(() => ({
   mockExecuteQuickAction: vi.fn().mockResolvedValue({ success: true, message: '' }),
+  mockGetCommsConfig: vi.fn().mockResolvedValue({ commsEnabled: true, controlSource: 3 }),
 }));
 vi.mock('@connectrpc/connect', () => ({
-  createClient: () => ({ executeQuickAction: mockExecuteQuickAction }),
+  createClient: () => ({
+    executeQuickAction: mockExecuteQuickAction,
+    getCommsConfig: mockGetCommsConfig,
+  }),
 }));
 vi.mock('../../services/connectClient.js', () => ({ transport: {} }));
 
@@ -23,6 +27,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   mockExecuteQuickAction.mockReset().mockResolvedValue({ success: true, message: '' });
+  mockGetCommsConfig.mockReset().mockResolvedValue({ commsEnabled: true, controlSource: 3 });
 });
 
 // ---------------------------------------------------------------------------
@@ -301,8 +306,8 @@ describe('TestSettingsControlSource', () => {
     await waitFor(() => screen.getByText('OpenMANETd Configuration'));
 
     const select = screen.getByDisplayValue('Web UI');
-    fireEvent.change(select, { target: { value: 'cm108' } });
-    expect(screen.getByDisplayValue('CM108 (USB GPIO)')).toBeTruthy();
+    fireEvent.change(select, { target: { value: 'openvlm' } });
+    expect(screen.getByDisplayValue('OpenVLM (default)')).toBeTruthy();
     expect(screen.getByText('Unsaved changes')).toBeTruthy();
   });
 });

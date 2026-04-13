@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { GNSSService } from "../gen/openmanet/gnss/v1/gnss_service_connect.js";
+import WidgetGrid from '../components/WidgetGrid.jsx';
 
 const gnssClient = createClient(GNSSService, transport);
 
@@ -333,7 +334,7 @@ function MapView({ position }) {
   };
 
   return (
-    <div className="card" style={{ gridColumn: '1 / -1' }}>
+    <div className="card">
       <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         Globe View
         <button
@@ -560,6 +561,15 @@ function Toggle({ label, checked, onChange }) {
   );
 }
 
+// ── Widget configuration ───────────────────────────────────────────────────
+
+const GPS_WIDGETS = [
+  { id: 'globe',      label: 'Globe View',     minWidth: 25, defaultWidth: 100 },
+  { id: 'position',   label: 'Position',       minWidth: 20, defaultWidth: 50 },
+  { id: 'satellites',  label: 'Satellites',     minWidth: 20, defaultWidth: 50 },
+  { id: 'settings',   label: 'GPS Settings',   minWidth: 20, defaultWidth: 50 },
+];
+
 // ── Main Page ───────────────────────────────────────────────────────────────
 export default function GpsStatusPage() {
   const [status, setStatus] = useState(null);
@@ -602,7 +612,7 @@ export default function GpsStatusPage() {
     return () => clearInterval(pollRef.current);
   }, [fetchStatus]);
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     setSaving(true);
     setError(null);
     setSuccess(null);
@@ -619,11 +629,24 @@ export default function GpsStatusPage() {
     } finally {
       setSaving(false);
     }
-  };
+  }, [config, fetchConfig]);
+
+  const position = status?.position;
+  const satelliteStatus = status?.satelliteStatus;
+
+  const renderWidget = useCallback((id) => {
+    switch (id) {
+      case 'globe':      return <MapView position={position} />;
+      case 'position':   return <PositionPanel position={position} satelliteStatus={satelliteStatus} />;
+      case 'satellites':  return <SatellitePanel satelliteStatus={satelliteStatus} />;
+      case 'settings':   return <SettingsPanel config={config} onConfigChange={setConfig} onSave={handleSave} saving={saving} />;
+      default:           return null;
+    }
+  }, [position, satelliteStatus, config, handleSave, saving]);
 
   if (loading) {
     return (
-      <div style={{ width: '100%', maxWidth: 1100 }}>
+      <div style={{ width: '100%', maxWidth: '100%' }}>
         <h2 style={{ fontSize: '1.2em', marginBottom: 12 }}>GPS / GNSS</h2>
         <div className="card" style={{ textAlign: 'center', padding: 40 }}>
           <div style={{ color: 'var(--muted)', fontSize: '0.85em' }}>Loading GNSS data...</div>
@@ -632,36 +655,26 @@ export default function GpsStatusPage() {
     );
   }
 
-  const position = status?.position;
-  const satelliteStatus = status?.satelliteStatus;
-
   return (
-    <div style={{ width: '100%', maxWidth: 1100 }}>
-      <h2 style={{ fontSize: '1.2em', marginBottom: 12 }}>GPS / GNSS</h2>
-
+    <>
       {error && (
         <div style={{
           background: 'rgba(204,51,51,0.1)', border: '1px solid var(--red)', borderRadius: 6,
-          padding: '8px 12px', marginBottom: 8, fontSize: '0.85em', color: 'var(--red)',
+          padding: '8px 12px', marginBottom: 8, fontSize: '0.85em', color: 'var(--red)', maxWidth: '100%',
         }}>{error}</div>
       )}
       {success && (
         <div style={{
           background: 'rgba(107,142,35,0.1)', border: '1px solid var(--green)', borderRadius: 6,
-          padding: '8px 12px', marginBottom: 8, fontSize: '0.85em', color: 'var(--green)',
+          padding: '8px 12px', marginBottom: 8, fontSize: '0.85em', color: 'var(--green)', maxWidth: '100%',
         }}>{success}</div>
       )}
-
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
-        gap: 8,
-      }}>
-        <MapView position={position} />
-        <PositionPanel position={position} satelliteStatus={satelliteStatus} />
-        <SatellitePanel satelliteStatus={satelliteStatus} />
-        <SettingsPanel config={config} onConfigChange={setConfig} onSave={handleSave} saving={saving} />
-      </div>
-    </div>
+      <WidgetGrid
+        pageId="gps"
+        title="GPS / GNSS"
+        widgets={GPS_WIDGETS}
+        renderWidget={renderWidget}
+      />
+    </>
   );
 }

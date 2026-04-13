@@ -1,0 +1,94 @@
+/* =============================================================================
+ * WidgetGrid.css — Reusable widget layout with drag/resize support
+ * ============================================================================= */
+
+.widget-grid-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.widget-grid-header h2 {
+  font-size: 1.2em;
+  margin: 0;
+  flex: 1;
+}
+
+.widget-lock-btn,
+.widget-reset-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.75em;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.widget-lock-btn:hover,
+.widget-reset-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* Flex container — widgets wrap and size by percentage */
+.widget-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Widget wrapper */
+.widget-wrapper {
+  position: relative;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+  user-select: none;
+}
+
+.widget-wrapper.unlocked {
+  outline: 1px dashed var(--border);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+.widget-wrapper.dragging {
+  opacity: 0.4;
+  z-index: 10;
+}
+
+.widget-wrapper.drag-over {
+  outline-color: var(--accent);
+  outline-width: 2px;
+}
+
+/* Resize grip — bottom-right corner */
+.widget-resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+  z-index: 5;
+}
+
+.widget-resize-handle::before {
+  content: '';
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  opacity: 0.5;
+}
+
+.widget-resize-handle:hover::before {
+  opacity: 1;
+}

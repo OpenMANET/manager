@@ -21,6 +21,17 @@ vi.mock('../../services/connectClient.js', () => ({ transport: {} }));
 vi.mock('../../gen/openmanet/dashboard/v1/dashboard_service_connect.js', () => ({
   DashboardService: {},
 }));
+vi.mock('../../services/meshApi.js', () => ({
+  fetchMeshStatus: vi.fn().mockResolvedValue({
+    status: null, nodes: null, neighbors: null, interfaces: null,
+  }),
+}));
+vi.mock('../../components/MeshStatus.jsx', () => ({
+  default: () => null,
+}));
+vi.mock('../../components/TopologyMap.jsx', () => ({
+  default: () => null,
+}));
 
 import DashboardPage from '../../pages/Dashboard.jsx';
 
@@ -392,69 +403,6 @@ describe('TestNetworkSummary', () => {
   });
 });
 
-// ── Active Services ────────────────────────────────────────────────────────
-
-describe('TestActiveServices', () => {
-  it('renders service table with headers', async () => {
-    mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse());
-    render(<DashboardPage />);
-    await waitFor(() => {
-      expect(screen.getByText('Active Services')).toBeTruthy();
-      expect(screen.getByText('Service')).toBeTruthy();
-      expect(screen.getByText('Status')).toBeTruthy();
-      expect(screen.getByText('PID')).toBeTruthy();
-    });
-  });
-
-  it('shows running services with green dot and PID', async () => {
-    mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse());
-    render(<DashboardPage />);
-    await waitFor(() => {
-      expect(screen.getByText('openmanetd')).toBeTruthy();
-      expect(screen.getByText('1842')).toBeTruthy();
-      const runningLabels = screen.getAllByText('running');
-      expect(runningLabels.length).toBe(5);
-    });
-  });
-
-  it('shows stopped services with red dot and em dash', async () => {
-    mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse());
-    render(<DashboardPage />);
-    await waitFor(() => {
-      expect(screen.getByText('batadv-vis')).toBeTruthy();
-      expect(screen.getByText('stopped')).toBeTruthy();
-      expect(screen.getByText('\u2014')).toBeTruthy();
-    });
-  });
-
-  it('renders correct service dot colors', async () => {
-    const resp = makeDashboardResponse({
-      activeServices: [
-        makeServiceInfo({ name: 'svc-run', status: 1, pid: 100 }),
-        makeServiceInfo({ name: 'svc-stop', status: 2, pid: 0 }),
-      ],
-    });
-    mockGetDashboardStatus.mockResolvedValue(resp);
-    const { container } = render(<DashboardPage />);
-    await waitFor(() => {
-      const serviceCard = Array.from(container.querySelectorAll('.card'))
-        .find(c => c.textContent.includes('Active Services'));
-      const dots = serviceCard.querySelectorAll('.status-dot');
-      expect(dots.length).toBe(2);
-      expect(dots[0].style.background).toBe('var(--green)');
-      expect(dots[1].style.background).toBe('var(--red)');
-    });
-  });
-
-  it('shows no service data for empty array', async () => {
-    mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse({ activeServices: [] }));
-    render(<DashboardPage />);
-    await waitFor(() => {
-      expect(screen.getByText('No service data')).toBeTruthy();
-    });
-  });
-});
-
 // ── Quick Actions ──────────────────────────────────────────────────────────
 
 describe('TestQuickActions', () => {
@@ -589,16 +537,7 @@ describe('TestDashboardNullData', () => {
       expect(screen.getByText('Device Information')).toBeTruthy();
       expect(screen.getByText('System Resources')).toBeTruthy();
       expect(screen.getByText('Network Summary')).toBeTruthy();
-      expect(screen.getByText('Active Services')).toBeTruthy();
       expect(screen.getByText('Quick Actions')).toBeTruthy();
-    });
-  });
-
-  it('handles empty active services array', async () => {
-    mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse({ activeServices: [] }));
-    render(<DashboardPage />);
-    await waitFor(() => {
-      expect(screen.getByText('No service data')).toBeTruthy();
     });
   });
 

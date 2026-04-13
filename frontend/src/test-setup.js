@@ -1,5 +1,14 @@
 import '@testing-library/jest-dom';
 
+// Stub ResizeObserver for jsdom (used by WidgetGrid).
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 // Mock canvas getContext for jsdom (used by Sparkline, TopologyMap, etc.)
 HTMLCanvasElement.prototype.getContext = function () {
   return {
@@ -17,6 +26,9 @@ HTMLCanvasElement.prototype.getContext = function () {
     scale: () => {},
     save: () => {},
     restore: () => {},
+    clip: () => {},
+    closePath: () => {},
+    setTransform: () => {},
     translate: () => {},
     rotate: () => {},
     canvas: this,
