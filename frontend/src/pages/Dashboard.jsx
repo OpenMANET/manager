@@ -6,11 +6,16 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { DashboardService } from "../gen/openmanet/dashboard/v1/dashboard_service_connect.js";
-import { QuickAction, NetworkInterfaceState, ServiceStatus } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
+import { QuickAction, NetworkInterfaceState } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
+import { fetchMeshStatus } from '../services/meshApi.js';
+import MeshStatusPanel from '../components/MeshStatus.jsx';
+import TopologyMap from '../components/TopologyMap.jsx';
 import './Dashboard.css';
 
 const dashClient = createClient(DashboardService, transport);
 const POLL_INTERVAL = 5000;
+const MESH_POLL_INTERVAL = 10000;
+const NEIGHBOR_HISTORY_LENGTH = 30;
 
 // ── Formatting helpers ──────────────────────────────────────────────────────
 
@@ -154,52 +159,6 @@ function NetworkSummaryCard({ summary }) {
   );
 }
 
-const thStyle = {
-  textAlign: 'left', fontSize: '0.72em', color: 'var(--muted)',
-  textTransform: 'uppercase', letterSpacing: '0.5px', padding: '6px 8px',
-  borderBottom: '1px solid var(--border)',
-};
-const tdStyle = { padding: '6px 8px', fontSize: '0.88em', borderBottom: '1px solid var(--border)' };
-
-function ActiveServicesCard({ services }) {
-  return (
-    <div className="card">
-      <div className="card-title">Active Services</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>
-            <th style={thStyle}>Service</th>
-            <th style={thStyle}>Status</th>
-            <th style={{ ...thStyle, textAlign: 'right' }}>PID</th>
-          </tr>
-        </thead>
-        <tbody>
-          {services.map((svc) => {
-            const running = svc.status === ServiceStatus.RUNNING;
-            return (
-              <tr key={svc.name}>
-                <td style={{ ...tdStyle, fontFamily: 'monospace' }}>{svc.name}</td>
-                <td style={tdStyle}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span className="status-dot" style={{ background: running ? 'var(--green)' : 'var(--red)' }} />
-                    {running ? 'running' : 'stopped'}
-                  </span>
-                </td>
-                <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>
-                  {svc.pid > 0 ? svc.pid : '\u2014'}
-                </td>
-              </tr>
-            );
-          })}
-          {services.length === 0 && (
-            <tr><td colSpan={3} style={{ ...tdStyle, color: 'var(--muted)' }}>No service data</td></tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function QuickActionsCard({ onReboot, rebooting }) {
   return (
     <div className="card">
@@ -227,7 +186,11 @@ export default function DashboardPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [rebooting, setRebooting] = useState(false);
+  const [meshData, setMeshData] = useState(null);
+  const [neighborHistory, setNeighborHistory] = useState({});
+  const neighborHistoryRef = useRef({});
   const pollRef = useRef(null);
+  const meshPollRef = useRef(null);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -239,11 +202,42 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const pollMesh = useCallback(async () => {
+    try {
+      const md = await fetchMeshStatus();
+      setMeshData(md);
+      if (md.neighbors && Array.isArray(md.neighbors)) {
+        md.neighbors.forEach((n) => {
+          const key = n.name || n.mac;
+          if (!neighborHistoryRef.current[key]) {
+            neighborHistoryRef.current[key] = { signal: [], throughput: [] };
+          }
+          const h = neighborHistoryRef.current[key];
+          h.signal.push(n.signal);
+          h.throughput.push(n.throughput || 0);
+          if (h.signal.length > NEIGHBOR_HISTORY_LENGTH) {
+            h.signal.shift();
+            h.throughput.shift();
+          }
+        });
+        setNeighborHistory({ ...neighborHistoryRef.current });
+      }
+    } catch {
+      // mesh status is best-effort
+    }
+  }, []);
+
   useEffect(() => {
     fetchStatus();
     pollRef.current = setInterval(fetchStatus, POLL_INTERVAL);
     return () => clearInterval(pollRef.current);
   }, [fetchStatus]);
+
+  useEffect(() => {
+    pollMesh();
+    meshPollRef.current = setInterval(pollMesh, MESH_POLL_INTERVAL);
+    return () => clearInterval(meshPollRef.current);
+  }, [pollMesh]);
 
   const handleReboot = useCallback(async () => {
     if (!window.confirm('Are you sure you want to reboot this device? It will be temporarily unreachable.')) return;
@@ -272,7 +266,10 @@ export default function DashboardPage() {
         <DeviceInfoCard info={data?.deviceInfo} />
         <SystemResourcesCard resources={data?.systemResources} />
         <NetworkSummaryCard summary={data?.networkSummary} />
-        <ActiveServicesCard services={data?.activeServices ?? []} />
+        <MeshStatusPanel data={meshData} neighborHistory={neighborHistory} />
+        <div className="dashboard-full-width">
+          <TopologyMap data={meshData} />
+        </div>
         <div className="dashboard-full-width">
           <QuickActionsCard onReboot={handleReboot} rebooting={rebooting} />
         </div>
