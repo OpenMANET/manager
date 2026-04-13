@@ -8,9 +8,20 @@ import { transport } from "../services/connectClient.js";
 import authFetch from "../services/authFetch.js";
 import { DashboardService } from "../gen/openmanet/dashboard/v1/dashboard_service_connect.js";
 import { QuickAction } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
+import { CommsService } from "../gen/openmanet/comms/v1/comms_service_connect.js";
+import { ControlSource } from "../gen/openmanet/comms/v1/config_pb.js";
 import WhisperManager from "../components/WhisperManager.jsx";
 
 const dashboardClient = createClient(DashboardService, transport);
+const commsClient = createClient(CommsService, transport);
+
+function controlSourceToString(cs) {
+  switch (cs) {
+    case ControlSource.OPENVLM: return 'openvlm';
+    case ControlSource.NANOPTT: return 'nanoptt';
+    default:                    return 'web';
+  }
+}
 
 // Simple YAML formatter for preview display (no external library needed).
 function formatYaml(obj, indent) {
@@ -55,6 +66,7 @@ export default function SettingsPage() {
       const results = await Promise.allSettled([
         authFetch('/api/settings/hostname').then(r => r.ok ? r.json() : Promise.reject(r.status)),
         authFetch('/api/settings/config').then(r => r.ok ? r.json() : Promise.reject(r.status)),
+        commsClient.getCommsConfig({}),
       ]);
 
       if (results[0].status === 'fulfilled') {
@@ -64,19 +76,32 @@ export default function SettingsPage() {
       }
 
       if (results[1].status === 'fulfilled') {
-        const data = results[1].value;
-        // The API returns the full YAML config as nested JSON.
-        // Extract the fields we expose in the UI.
-        const comms = data.comms || {};
-        const cfg = {
+        setFullConfig(results[1].value);
+      }
+
+      // Prefer live RPC status; fall back to YAML config if RPC failed.
+      let cfg;
+      if (results[2].status === 'fulfilled') {
+        const commsResp = results[2].value;
+        cfg = {
+          comms_enabled: commsResp.commsEnabled,
+          control_source: controlSourceToString(commsResp.controlSource),
+          debug: results[1].status === 'fulfilled' ? (results[1].value.comms?.debug ?? false) : false,
+          talkgroup_count: results[1].status === 'fulfilled' ? (results[1].value.comms?.talkgroups ?? 5) : 5,
+        };
+      } else if (results[1].status === 'fulfilled') {
+        const comms = results[1].value.comms || {};
+        cfg = {
           comms_enabled: comms.enable ?? true,
           control_source: comms.controlSource ?? 'web',
           debug: comms.debug ?? false,
           talkgroup_count: comms.talkgroups ?? 5,
         };
+      }
+
+      if (cfg) {
         setConfig(cfg);
         setOriginalConfig(cfg);
-        setFullConfig(data);
       }
 
       setError(null);
@@ -305,9 +330,9 @@ export default function SettingsPage() {
                 onChange={(e) => setConfig(c => ({ ...c, control_source: e.target.value }))}
                 style={selectStyle}
               >
+                <option value="openvlm">OpenVLM (default)</option>
                 <option value="web">Web UI</option>
-                <option value="cm108">CM108 (USB GPIO)</option>
-                <option value="nanoPTT">nanoPTT</option>
+                <option value="nanoptt">nanoPTT</option>
               </select>
             </div>
 
