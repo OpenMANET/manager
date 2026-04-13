@@ -78,6 +78,17 @@ func ResolveAudio(ctx *malgo.AllocatedContext, spec string, wantInput bool) (Aud
 		return newAudioDeviceInfo(devs[idx], wantInput), nil
 	}
 
+	// "bt_sco" is a symbolic config alias used by the BS-22 path. On malgo,
+	// devices are resolved by enumerated names, so map this alias to common
+	// SCO/HFP/BlueALSA device-name patterns instead of requiring a literal match.
+	if strings.EqualFold(spec, "bt_sco") {
+		for i := range devs {
+			if isLikelySCODeviceName(devs[i].Name()) {
+				return newAudioDeviceInfo(devs[i], wantInput), nil
+			}
+		}
+	}
+
 	for i := range devs {
 		if devs[i].Name() == spec {
 			return newAudioDeviceInfo(devs[i], wantInput), nil
@@ -91,7 +102,12 @@ func ResolveAudio(ctx *malgo.AllocatedContext, spec string, wantInput bool) (Aud
 		}
 	}
 
-	return AudioDeviceInfo{}, fmt.Errorf("audio device %q not found", spec)
+	return AudioDeviceInfo{}, fmt.Errorf(
+		"audio device %q not found for %s (available: %s)",
+		spec,
+		kindName(wantInput),
+		listDeviceNames(devs),
+	)
 }
 
 func kindName(wantInput bool) string {
@@ -150,4 +166,31 @@ func kindLabel(kind malgo.DeviceType) string {
 	}
 
 	return "playback"
+}
+
+func isLikelySCODeviceName(name string) bool {
+	n := strings.ToLower(name)
+	return strings.Contains(n, "sco") ||
+		strings.Contains(n, "hfp") ||
+		strings.Contains(n, "hsp") ||
+		strings.Contains(n, "handsfree") ||
+		strings.Contains(n, "bluealsa")
+}
+
+func listDeviceNames(devs []malgo.DeviceInfo) string {
+	if len(devs) == 0 {
+		return "none"
+	}
+
+	names := make([]string, 0, len(devs))
+	for i := range devs {
+		name := strings.TrimSpace(devs[i].Name())
+		if name == "" {
+			name = fmt.Sprintf("<unnamed-%d>", i)
+		}
+
+		names = append(names, name)
+	}
+
+	return strings.Join(names, ", ")
 }

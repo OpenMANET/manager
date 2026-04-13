@@ -101,7 +101,9 @@ func (m *CommsManager) Enable() error {
 		defer close(done)
 
 		if err := start(ctx); err != nil {
-			m.logger.Error().Err(err).Msg("comms: subsystem exited with error")
+			// Console logging currently suppresses structured fields (including "error"),
+			// so include err text directly in the message for operator visibility.
+			m.logger.Error().Err(err).Msgf("comms: subsystem exited with error: %v", err)
 		}
 	}()
 
