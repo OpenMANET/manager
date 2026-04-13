@@ -25,32 +25,348 @@ function formatTime(ts) {
   return d.toISOString().slice(11, 19) + ' UTC';
 }
 
-// ── Map View (placeholder) ──────────────────────────────────────────────────
+// ── Globe View ──────────────────────────────────────────────────────────────
+import { coastlines } from '../data/coastlines.js';
+
+const GLOBE_SIZE = 420;
+const MIN_ZOOM = 0.8;
+const MAX_ZOOM = 4;
+const DEG2RAD = Math.PI / 180;
+
+function drawGlobe(canvas, viewLat, viewLon, zoom) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = GLOBE_SIZE * dpr;
+  canvas.height = GLOBE_SIZE * dpr;
+  canvas.style.width = GLOBE_SIZE + 'px';
+  canvas.style.height = GLOBE_SIZE + 'px';
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, GLOBE_SIZE, GLOBE_SIZE);
+
+  const cx = GLOBE_SIZE / 2;
+  const cy = GLOBE_SIZE / 2;
+  const r = (GLOBE_SIZE / 2 - 16) * zoom;
+
+  const lonRad = -viewLon * DEG2RAD;
+  const latRad = viewLat * DEG2RAD;
+  const cosLatR = Math.cos(latRad);
+  const sinLatR = Math.sin(latRad);
+
+  // Project lat/lon to screen coordinates. Returns { x, y, z } always.
+  // z > 0 means the point is on the visible hemisphere.
+  function projectFull(pLat, pLon) {
+    const phi = pLat * DEG2RAD;
+    const lam = pLon * DEG2RAD + lonRad;
+    const cosPhi = Math.cos(phi);
+    const x3 = cosPhi * Math.sin(lam);
+    const y3 = Math.sin(phi);
+    const z3 = cosPhi * Math.cos(lam);
+    const yr = y3 * cosLatR - z3 * sinLatR;
+    const zr = y3 * sinLatR + z3 * cosLatR;
+    return { x: cx + x3 * r, y: cy - yr * r, z: zr };
+  }
+
+  // Convenience: returns null for back-face (used by grid lines).
+  function project(pLat, pLon) {
+    const p = projectFull(pLat, pLon);
+    return p.z < -0.05 ? null : p;
+  }
+
+  // Clip a polygon to the visible hemisphere. Where edges cross the
+  // horizon, insert points along the globe rim arc so the fill follows
+  // the circular edge instead of cutting straight across.
+  function clipToHemisphere(poly) {
+    const full = poly.map((pt) => projectFull(pt[1], pt[0]));
+    const clipped = [];
+    const threshold = 0;
+
+    // Interpolate the horizon crossing and snap it onto the globe rim.
+    function edgePoint(a, b) {
+      const t = (threshold - a.z) / (b.z - a.z);
+      const ix = a.x + t * (b.x - a.x);
+      const iy = a.y + t * (b.y - a.y);
+      // Snap to rim: normalize direction from center, scale to radius.
+      const dx = ix - cx, dy = iy - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      return { x: cx + (dx / dist) * r, y: cy + (dy / dist) * r };
+    }
+
+    // Insert arc points along the globe rim between two rim points.
+    function addRimArc(from, to) {
+      const a1 = Math.atan2(from.y - cy, from.x - cx);
+      const a2 = Math.atan2(to.y - cy, to.x - cx);
+      let delta = a2 - a1;
+      // Pick the shorter arc direction.
+      if (delta > Math.PI) delta -= 2 * Math.PI;
+      if (delta < -Math.PI) delta += 2 * Math.PI;
+      const steps = Math.max(2, Math.ceil(Math.abs(delta) / 0.15));
+      for (let s = 1; s < steps; s++) {
+        const a = a1 + (delta * s) / steps;
+        clipped.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+      }
+    }
+
+    let lastExit = null;
+
+    for (let i = 0; i < full.length; i++) {
+      const curr = full[i];
+      const prev = full[(i + full.length - 1) % full.length];
+      const currVisible = curr.z >= threshold;
+      const prevVisible = prev.z >= threshold;
+
+      if (prevVisible && !currVisible) {
+        // Exiting visible hemisphere.
+        const ep = edgePoint(prev, curr);
+        clipped.push(ep);
+        lastExit = ep;
+      } else if (!prevVisible && currVisible) {
+        // Entering visible hemisphere.
+        const ep = edgePoint(prev, curr);
+        // Walk along the rim from last exit to this entry.
+        if (lastExit) {
+          addRimArc(lastExit, ep);
+        }
+        clipped.push(ep);
+      }
+
+      if (currVisible) {
+        clipped.push({ x: curr.x, y: curr.y });
+      }
+    }
+
+    return clipped;
+  }
+
+  // Clip to globe circle.
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, (GLOBE_SIZE / 2 - 16) * Math.max(zoom, 1), 0, Math.PI * 2);
+  ctx.clip();
+
+  // Globe background.
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#111a28';
+  ctx.fill();
+
+  // Grid lines.
+  ctx.lineWidth = 0.4;
+  for (let gLat = -80; gLat <= 80; gLat += 20) {
+    ctx.beginPath();
+    let started = false;
+    for (let gLon = -180; gLon <= 180; gLon += 3) {
+      const p = project(gLat, gLon);
+      if (!p) { started = false; continue; }
+      if (!started) { ctx.moveTo(p.x, p.y); started = true; }
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = gLat === 0 ? '#2a4a5f' : '#1a2a3a';
+    ctx.stroke();
+  }
+  for (let gLon = -180; gLon < 180; gLon += 30) {
+    ctx.beginPath();
+    let started = false;
+    for (let gLat = -90; gLat <= 90; gLat += 3) {
+      const p = project(gLat, gLon);
+      if (!p) { started = false; continue; }
+      if (!started) { ctx.moveTo(p.x, p.y); started = true; }
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = gLon === 0 ? '#2a4a5f' : '#1a2a3a';
+    ctx.stroke();
+  }
+
+  // Draw coastlines with hemisphere clipping.
+  coastlines.forEach((poly) => {
+    const clipped = clipToHemisphere(poly);
+    if (clipped.length < 3) return;
+
+    // Fill clipped land polygon.
+    ctx.beginPath();
+    ctx.moveTo(clipped[0].x, clipped[0].y);
+    for (let i = 1; i < clipped.length; i++) {
+      ctx.lineTo(clipped[i].x, clipped[i].y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(58,106,74,0.2)';
+    ctx.fill();
+
+    // Stroke coastline on visible segments only.
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = '#3a6a4a';
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < poly.length; i++) {
+      const p = project(poly[i][1], poly[i][0]);
+      if (!p) { started = false; continue; }
+      if (!started) { ctx.moveTo(p.x, p.y); started = true; }
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  });
+
+  // Globe rim.
+  ctx.restore();
+  ctx.beginPath();
+  ctx.arc(cx, cy, (GLOBE_SIZE / 2 - 16) * Math.max(zoom, 1), 0, Math.PI * 2);
+  ctx.strokeStyle = '#2a3a4f';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  return project;
+}
+
 function MapView({ position }) {
+  const canvasRef = useRef(null);
+  const viewRef = useRef({ lat: 20, lon: 0, zoom: 1 });
+  const dragRef = useRef(null);
+  const [, forceRender] = useState(0);
+
   const lat = position?.latitude;
   const lon = position?.longitude;
   const alt = position?.altitude;
   const hasPos = lat != null && lon != null && (lat !== 0 || lon !== 0);
 
+  // Center on position when it first becomes available.
+  const centeredRef = useRef(false);
+  if (hasPos && !centeredRef.current) {
+    viewRef.current.lat = lat;
+    viewRef.current.lon = lon;
+    centeredRef.current = true;
+  }
+
+  // Draw the globe.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const v = viewRef.current;
+    const project = drawGlobe(canvas, v.lat, v.lon, v.zoom);
+    if (!project) return;
+
+    // Plot position marker.
+    if (hasPos) {
+      const ctx = canvas.getContext('2d');
+      const p = project(lat, lon);
+      if (p && ctx) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 14, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(107,142,35,0.18)';
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+        ctx.strokeStyle = '#6B8E23';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#6B8E23';
+        ctx.fill();
+      }
+    }
+  });
+
+  // Mouse/touch handlers for drag-to-rotate and scroll-to-zoom.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      const v = viewRef.current;
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      v.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, v.zoom * delta));
+      forceRender((n) => n + 1);
+    };
+
+    const onPointerDown = (e) => {
+      canvas.setPointerCapture(e.pointerId);
+      dragRef.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const onPointerMove = (e) => {
+      if (!dragRef.current) return;
+      const dx = e.clientX - dragRef.current.x;
+      const dy = e.clientY - dragRef.current.y;
+      dragRef.current = { x: e.clientX, y: e.clientY };
+      const v = viewRef.current;
+      const sensitivity = 0.3 / v.zoom;
+      v.lon -= dx * sensitivity;
+      v.lat += dy * sensitivity;
+      v.lat = Math.max(-85, Math.min(85, v.lat));
+      forceRender((n) => n + 1);
+    };
+
+    const onPointerUp = () => {
+      dragRef.current = null;
+    };
+
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    canvas.addEventListener('pointerdown', onPointerDown);
+    canvas.addEventListener('pointermove', onPointerMove);
+    canvas.addEventListener('pointerup', onPointerUp);
+    canvas.addEventListener('pointercancel', onPointerUp);
+
+    return () => {
+      canvas.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, []);
+
+  const resetView = () => {
+    const v = viewRef.current;
+    if (hasPos) {
+      v.lat = lat;
+      v.lon = lon;
+    } else {
+      v.lat = 20;
+      v.lon = 0;
+    }
+    v.zoom = 1;
+    forceRender((n) => n + 1);
+  };
+
   return (
-    <div className="card">
-      <div className="card-title">Map View</div>
+    <div className="card" style={{ gridColumn: '1 / -1' }}>
+      <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        Globe View
+        <button
+          onClick={resetView}
+          style={{
+            background: 'var(--border)', border: 'none', borderRadius: 4,
+            color: 'var(--muted)', fontSize: '0.75em', padding: '3px 8px', cursor: 'pointer',
+          }}
+        >
+          Reset
+        </button>
+      </div>
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        minHeight: 180, color: 'var(--muted)', fontSize: '0.85em',
+        padding: '12px 0',
       }}>
-        <div style={{ fontSize: '2em', marginBottom: 8, opacity: 0.4 }}>{'\uD83C\uDF0D'}</div>
-        <div style={{ marginBottom: 4 }}>Map View</div>
+        <canvas
+          ref={canvasRef}
+          style={{ display: 'block', marginBottom: 10, cursor: 'grab', touchAction: 'none' }}
+        />
         {hasPos ? (
-          <>
-            <div style={{ fontFamily: 'monospace', color: 'var(--green)', fontSize: '0.95em' }}>
-              {lat.toFixed(4)} {lat >= 0 ? 'N' : 'S'}, {Math.abs(lon).toFixed(4)} {lon >= 0 ? 'E' : 'W'}
+          <div style={{ textAlign: 'center', fontSize: '0.85em' }}>
+            <div style={{ fontFamily: 'monospace', color: 'var(--green)', fontSize: '1em', marginBottom: 2 }}>
+              {lat.toFixed(6)} {lat >= 0 ? 'N' : 'S'}, {Math.abs(lon).toFixed(6)} {lon >= 0 ? 'E' : 'W'}
             </div>
-            {alt != null && <div style={{ fontSize: '0.85em', marginTop: 2 }}>Altitude: {alt.toFixed(0)}m MSL</div>}
-          </>
+            {alt != null && <div style={{ color: 'var(--muted)' }}>Altitude: {alt.toFixed(0)}m MSL</div>}
+          </div>
         ) : (
-          <div>No position data</div>
+          <div style={{ color: 'var(--muted)', fontSize: '0.85em' }}>No position data</div>
         )}
+        <div style={{ color: 'var(--muted)', fontSize: '0.72em', marginTop: 4 }}>
+          Drag to rotate, scroll to zoom
+        </div>
       </div>
     </div>
   );
