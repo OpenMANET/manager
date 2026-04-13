@@ -21,11 +21,17 @@ const (
 	bluezInterfacesRemovedRule         = "type='signal',interface='org.freedesktop.DBus.ObjectManager',sender='org.bluez',member='InterfacesRemoved'"
 	bluezInterfacesAddedSignal         = "org.freedesktop.DBus.ObjectManager.InterfacesAdded"
 	bluezInterfacesRemovedSignal       = "org.freedesktop.DBus.ObjectManager.InterfacesRemoved"
+	bluezAdapterInterface              = "org.bluez.Adapter1"
 	bluezGattServiceInterface          = "org.bluez.GattService1"
 	bluezGattCharacteristicInterface   = "org.bluez.GattCharacteristic1"
 	bluezGattCharacteristicStartNotify = bluezGattCharacteristicInterface + ".StartNotify"
 	bluezGattCharacteristicWriteValue  = bluezGattCharacteristicInterface + ".WriteValue"
+	bluezAdapterConnectDeviceMethod    = bluezAdapterInterface + ".ConnectDevice"
+	bluezBearerLEInterface             = "org.bluez.Bearer.LE1"
+	bluezBearerLEConnectMethod         = bluezBearerLEInterface + ".Connect"
 	bluezDeviceConnectMethod           = bluezDeviceInterface + ".Connect"
+	bluezAddressTypePublic             = "public"
+	bluezAddressTypeRandom             = "random"
 	bs22Name                           = "BS-22"
 	bs22HMServiceUUID                  = "00001100-d102-11e1-9b23-00025b00a5a5"
 	bs22HMWriteUUID                    = "00001101-d102-11e1-9b23-00025b00a5a5"
@@ -45,14 +51,16 @@ type bluezManagedObjectMap map[dbus.ObjectPath]map[string]map[string]dbus.Varian
 type bluezManagedLister func(*dbus.Conn) (bluezManagedObjectMap, error)
 type bluezCharacteristicNotifier func(*dbus.Conn, dbus.ObjectPath) error
 type bluezCharacteristicWriter func(*dbus.Conn, dbus.ObjectPath, []byte) error
-type bluezDeviceConnector func(*dbus.Conn, dbus.ObjectPath) error
+type bluezDeviceConnector func(*dbus.Conn, bs22DeviceInfo) error
 
 type bs22DeviceInfo struct {
-	Path      dbus.ObjectPath
-	Alias     string
-	Name      string
-	Address   string
-	Connected bool
+	Path        dbus.ObjectPath
+	AdapterPath dbus.ObjectPath
+	Alias       string
+	Name        string
+	Address     string
+	AddressType string
+	Connected   bool
 }
 
 type bs22BLEBinding struct {
@@ -262,8 +270,12 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 		if !ok {
 			if s.connectDevice != nil && time.Since(lastConnectAttempt) >= connectRetry {
 				lastConnectAttempt = time.Now()
-				if err := s.connectDevice(conn, device.Path); err != nil && !isIgnorableBlueZConnectError(err) {
-					s.log.Debug().Err(err).Str("device", string(device.Path)).Msg("BS-22 BLE: connect request failed")
+				if err := s.connectDevice(conn, device); err != nil && !isIgnorableBlueZConnectError(err) {
+					s.log.Debug().
+						Err(err).
+						Str("device", string(device.Path)).
+						Str("address_type", normalizeBlueZAddressType(device.AddressType)).
+						Msg("BS-22 BLE: connect request failed")
 				}
 			}
 			haveCurrent = false
@@ -383,9 +395,82 @@ func writeBlueZCharacteristicValue(conn *dbus.Conn, path dbus.ObjectPath, data [
 	return conn.Object(bluezService, path).Call(bluezGattCharacteristicWriteValue, 0, data, options).Err
 }
 
-func connectBlueZDevice(conn *dbus.Conn, path dbus.ObjectPath) error {
+func connectBlueZDevice(conn *dbus.Conn, device bs22DeviceInfo) error {
 	if conn == nil {
 		return errors.New("nil DBus connection")
+	}
+
+	if device.Path == "" {
+		return errors.New("empty device path")
+	}
+
+	var lastErr error
+
+	if err := connectBlueZLEBearer(conn, device.Path); err == nil || isIgnorableBlueZConnectError(err) {
+		return nil
+	} else if !isBlueZUnsupportedMethodError(err) {
+		lastErr = err
+	}
+
+	if err := connectBlueZAdapterDevice(conn, device); err == nil || isIgnorableBlueZConnectError(err) {
+		return nil
+	} else if !isBlueZUnsupportedMethodError(err) {
+		lastErr = err
+	}
+
+	if err := connectBlueZClassicDevice(conn, device.Path); err == nil || isIgnorableBlueZConnectError(err) {
+		return nil
+	} else if !isBlueZUnsupportedMethodError(err) {
+		lastErr = err
+	}
+
+	if lastErr != nil {
+		return lastErr
+	}
+
+	return errors.New("no supported BlueZ connect method for BS-22 device")
+}
+
+func connectBlueZLEBearer(conn *dbus.Conn, path dbus.ObjectPath) error {
+	if conn == nil {
+		return errors.New("nil DBus connection")
+	}
+
+	if path == "" {
+		return errors.New("empty device path")
+	}
+
+	return conn.Object(bluezService, path).Call(bluezBearerLEConnectMethod, 0).Err
+}
+
+func connectBlueZAdapterDevice(conn *dbus.Conn, device bs22DeviceInfo) error {
+	if conn == nil {
+		return errors.New("nil DBus connection")
+	}
+
+	if device.AdapterPath == "" {
+		return errors.New("empty adapter path")
+	}
+
+	if device.Address == "" {
+		return errors.New("empty device address")
+	}
+
+	properties := map[string]dbus.Variant{
+		"Address":     dbus.MakeVariant(device.Address),
+		"AddressType": dbus.MakeVariant(normalizeBlueZAddressType(device.AddressType)),
+	}
+
+	return conn.Object(bluezService, device.AdapterPath).Call(bluezAdapterConnectDeviceMethod, 0, properties).Err
+}
+
+func connectBlueZClassicDevice(conn *dbus.Conn, path dbus.ObjectPath) error {
+	if conn == nil {
+		return errors.New("nil DBus connection")
+	}
+
+	if path == "" {
+		return errors.New("empty device path")
 	}
 
 	return conn.Object(bluezService, path).Call(bluezDeviceConnectMethod, 0).Err
@@ -401,11 +486,13 @@ func findBS22Device(managed bluezManagedObjectMap) (bs22DeviceInfo, bool) {
 		}
 
 		info := bs22DeviceInfo{
-			Path:      path,
-			Alias:     variantString(props, "Alias"),
-			Name:      variantString(props, "Name"),
-			Address:   variantString(props, "Address"),
-			Connected: variantBool(props, "Connected"),
+			Path:        path,
+			AdapterPath: variantObjectPath(props, "Adapter"),
+			Alias:       variantString(props, "Alias"),
+			Name:        variantString(props, "Name"),
+			Address:     variantString(props, "Address"),
+			AddressType: variantString(props, "AddressType"),
+			Connected:   variantBool(props, "Connected"),
 		}
 
 		if !isBS22Device(info, props) {
@@ -632,8 +719,49 @@ func isIgnorableBlueZConnectError(err error) bool {
 		return false
 	}
 
+	switch blueZErrorName(err) {
+	case "org.bluez.Error.AlreadyConnected", "org.bluez.Error.InProgress", "org.bluez.Error.AlreadyExists":
+		return true
+	}
+
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "already connected") || strings.Contains(msg, "in progress")
+	return strings.Contains(msg, "already connected") || strings.Contains(msg, "in progress") || strings.Contains(msg, "already exists")
+}
+
+func isBlueZUnsupportedMethodError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	switch blueZErrorName(err) {
+	case "org.freedesktop.DBus.Error.UnknownMethod", "org.freedesktop.DBus.Error.UnknownInterface", "org.bluez.Error.NotSupported":
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unknown method") || strings.Contains(msg, "unknown interface") ||
+		strings.Contains(msg, "doesn't exist") || strings.Contains(msg, "not supported")
+}
+
+func blueZErrorName(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	var dbusErr dbus.Error
+	if !errors.As(err, &dbusErr) {
+		return ""
+	}
+
+	return dbusErr.Name
+}
+
+func normalizeBlueZAddressType(addressType string) string {
+	if strings.EqualFold(addressType, bluezAddressTypeRandom) {
+		return bluezAddressTypeRandom
+	}
+
+	return bluezAddressTypePublic
 }
 
 func variantString(props map[string]dbus.Variant, key string) string {

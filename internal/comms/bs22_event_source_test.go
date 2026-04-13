@@ -2,6 +2,7 @@ package comms
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -234,5 +235,78 @@ func TestBluezCharacteristicValue(t *testing.T) {
 
 	if len(value) != 6 || value[4] != 0x10 || value[5] != 0x10 {
 		t.Fatalf("value = %v, want key event payload", value)
+	}
+}
+
+func TestNormalizeBlueZAddressType(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "random", in: "random", want: bluezAddressTypeRandom},
+		{name: "random upper", in: "RANDOM", want: bluezAddressTypeRandom},
+		{name: "public", in: "public", want: bluezAddressTypePublic},
+		{name: "empty", in: "", want: bluezAddressTypePublic},
+		{name: "other", in: "foo", want: bluezAddressTypePublic},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeBlueZAddressType(tt.in)
+			if got != tt.want {
+				t.Fatalf("normalizeBlueZAddressType(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsIgnorableBlueZConnectError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "already connected dbus", err: dbus.Error{Name: "org.bluez.Error.AlreadyConnected"}, want: true},
+		{name: "in progress dbus", err: dbus.Error{Name: "org.bluez.Error.InProgress"}, want: true},
+		{name: "already exists dbus", err: dbus.Error{Name: "org.bluez.Error.AlreadyExists"}, want: true},
+		{name: "already connected text", err: errors.New("already connected"), want: true},
+		{name: "in progress text", err: errors.New("operation in progress"), want: true},
+		{name: "other", err: errors.New("permission denied"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isIgnorableBlueZConnectError(tt.err)
+			if got != tt.want {
+				t.Fatalf("isIgnorableBlueZConnectError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsBlueZUnsupportedMethodError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "unknown method dbus", err: dbus.Error{Name: "org.freedesktop.DBus.Error.UnknownMethod"}, want: true},
+		{name: "unknown interface dbus", err: dbus.Error{Name: "org.freedesktop.DBus.Error.UnknownInterface"}, want: true},
+		{name: "not supported dbus", err: dbus.Error{Name: "org.bluez.Error.NotSupported"}, want: true},
+		{name: "unknown method text", err: errors.New("method doesn't exist"), want: true},
+		{name: "unsupported text", err: errors.New("not supported"), want: true},
+		{name: "other", err: errors.New("permission denied"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isBlueZUnsupportedMethodError(tt.err)
+			if got != tt.want {
+				t.Fatalf("isBlueZUnsupportedMethodError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
 	}
 }
