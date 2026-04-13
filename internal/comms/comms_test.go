@@ -440,6 +440,29 @@ func TestApplyDefaults_BluetoothAudioDeviceHintDoesNotOverrideExplicit(t *testin
 	}
 }
 
+func TestApplyDefaults_BS22ForcesSCORouting(t *testing.T) {
+	cfg := &CommsConfig{
+		ControlSource:            controlSourceBS22,
+		BluetoothAudioDeviceHint: "default",
+		BluetoothInputDevice:     "sysdefault",
+		BluetoothOutputDevice:    "plughw:1,0",
+	}
+
+	cfg.applyDefaults()
+
+	if cfg.BluetoothAudioDeviceHint != bs22SCODeviceSpec {
+		t.Errorf("BluetoothAudioDeviceHint: got %q, want %q", cfg.BluetoothAudioDeviceHint, bs22SCODeviceSpec)
+	}
+
+	if cfg.BluetoothInputDevice != bs22SCODeviceSpec {
+		t.Errorf("BluetoothInputDevice: got %q, want %q", cfg.BluetoothInputDevice, bs22SCODeviceSpec)
+	}
+
+	if cfg.BluetoothOutputDevice != bs22SCODeviceSpec {
+		t.Errorf("BluetoothOutputDevice: got %q, want %q", cfg.BluetoothOutputDevice, bs22SCODeviceSpec)
+	}
+}
+
 // ─── replaceNetwork tests ─────────────────────────────────────────────────────
 
 func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {

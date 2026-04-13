@@ -123,6 +123,8 @@ type CommsConfig struct {
 	PttStartDelayMs int
 }
 
+const bs22SCODeviceSpec = "bt_sco"
+
 // NewComms copies cfg and returns a pointer ready for Start.
 func NewComms(cfg CommsConfig) *CommsConfig {
 	mcastPorts := make([]McastPortConfig, len(cfg.McastPorts))
@@ -218,6 +220,15 @@ func (cfg *CommsConfig) applyDefaults() {
 		if cfg.ROIPMaxTXDuration == 0 {
 			cfg.ROIPMaxTXDuration = control.ROIPDefaultMaxTX
 		}
+	}
+
+	// BS-22 audio is stable only on the SCO profile in the current stack.
+	// Force SCO routing regardless of hint/legacy values so operators do not
+	// end up on A2DP/default devices and get unusable audio.
+	if cfg.ControlSource == controlSourceBS22 {
+		cfg.BluetoothAudioDeviceHint = bs22SCODeviceSpec
+		cfg.BluetoothInputDevice = bs22SCODeviceSpec
+		cfg.BluetoothOutputDevice = bs22SCODeviceSpec
 	}
 
 	if cfg.RtpID == "" {
