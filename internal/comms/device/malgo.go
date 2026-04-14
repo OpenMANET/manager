@@ -11,6 +11,13 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const (
+	// bs22SCOAlias is the logical config alias used by the BS-22 path.
+	bs22SCOAlias = "bt_sco"
+	// bluealsaSCODefaultSpec is a raw ALSA PCM string that targets BlueALSA SCO.
+	bluealsaSCODefaultSpec = "bluealsa:PROFILE=sco"
+)
+
 // AudioDeviceInfo is a backend-neutral descriptor returned by ResolveAudio.
 // It carries only the fields the audio package consumes so callers do not
 // have to import malgo directly — the device package is the sole importer
@@ -44,6 +51,11 @@ type AudioDeviceInfo struct {
 func ResolveAudio(ctx *malgo.AllocatedContext, spec string, wantInput bool) (AudioDeviceInfo, error) {
 	if ctx == nil {
 		return AudioDeviceInfo{}, errors.New("device.ResolveAudio: nil malgo context")
+	}
+
+	spec = strings.TrimSpace(spec)
+	if info, ok, err := resolveDirectBlueALSA(spec, wantInput); ok {
+		return info, err
 	}
 
 	kind := malgo.Playback
@@ -81,12 +93,17 @@ func ResolveAudio(ctx *malgo.AllocatedContext, spec string, wantInput bool) (Aud
 	// "bt_sco" is a symbolic config alias used by the BS-22 path. On malgo,
 	// devices are resolved by enumerated names, so map this alias to common
 	// SCO/HFP/BlueALSA device-name patterns instead of requiring a literal match.
-	if strings.EqualFold(spec, "bt_sco") {
+	if strings.EqualFold(spec, bs22SCOAlias) {
 		for i := range devs {
 			if isLikelySCODeviceName(devs[i].Name()) {
 				return newAudioDeviceInfo(devs[i], wantInput), nil
 			}
 		}
+
+		// Some OpenWrt + BlueALSA builds do not expose SCO endpoints via
+		// miniaudio enumeration even though direct ALSA opens work. Fall back
+		// to a raw BlueALSA SCO ALSA spec in that case.
+		return newRawALSAAudioDeviceInfo(bluealsaSCODefaultSpec, wantInput)
 	}
 
 	for i := range devs {
@@ -108,6 +125,22 @@ func ResolveAudio(ctx *malgo.AllocatedContext, spec string, wantInput bool) (Aud
 		kindName(wantInput),
 		listDeviceNames(devs),
 	)
+}
+
+func resolveDirectBlueALSA(spec string, wantInput bool) (AudioDeviceInfo, bool, error) {
+	if spec == "" {
+		return AudioDeviceInfo{}, false, nil
+	}
+
+	// Allow operators to provide an explicit ALSA BlueALSA device string
+	// (for example bluealsa:DEV=41:42:86:99:1D:61,PROFILE=sco) and bypass
+	// miniaudio's enumeration step.
+	if !strings.HasPrefix(strings.ToLower(spec), "bluealsa") {
+		return AudioDeviceInfo{}, false, nil
+	}
+
+	info, err := newRawALSAAudioDeviceInfo(spec, wantInput)
+	return info, true, err
 }
 
 func kindName(wantInput bool) string {
@@ -133,6 +166,39 @@ func newAudioDeviceInfo(d malgo.DeviceInfo, wantInput bool) AudioDeviceInfo {
 		MaxChannels: maxChannels,
 		IsInput:     wantInput,
 	}
+}
+
+func newRawALSAAudioDeviceInfo(spec string, wantInput bool) (AudioDeviceInfo, error) {
+	id, err := deviceIDFromALSAName(spec)
+	if err != nil {
+		return AudioDeviceInfo{}, err
+	}
+
+	return AudioDeviceInfo{
+		Name:        spec,
+		ID:          id,
+		MaxChannels: 1,
+		IsInput:     wantInput,
+	}, nil
+}
+
+func deviceIDFromALSAName(name string) (malgo.DeviceID, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return malgo.DeviceID{}, errors.New("empty ALSA device name")
+	}
+
+	// ma_device_id.alsa is a fixed-size C char[256] in miniaudio. Keep one
+	// byte for the trailing NUL terminator.
+	if len(name) >= 256 {
+		return malgo.DeviceID{}, fmt.Errorf("ALSA device name too long: %d", len(name))
+	}
+
+	var id malgo.DeviceID
+	copy(id[:], []byte(name))
+	id[len(name)] = 0
+
+	return id, nil
 }
 
 // LogAudioDevices logs every capture and playback device at Debug level.
