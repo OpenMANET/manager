@@ -461,6 +461,14 @@ func TestApplyDefaults_BS22ForcesSCORouting(t *testing.T) {
 	if cfg.BluetoothOutputDevice != bs22SCODeviceSpec {
 		t.Errorf("BluetoothOutputDevice: got %q, want %q", cfg.BluetoothOutputDevice, bs22SCODeviceSpec)
 	}
+
+	if len(cfg.McastPorts) != 1 {
+		t.Fatalf("McastPorts length in BS-22 mode = %d, want 1", len(cfg.McastPorts))
+	}
+
+	if cfg.McastPorts[0].Port != config.DefaultTalkGroupPort {
+		t.Fatalf("McastPorts[0].Port in BS-22 mode = %d, want %d", cfg.McastPorts[0].Port, config.DefaultTalkGroupPort)
+	}
 }
 
 // ─── replaceNetwork tests ─────────────────────────────────────────────────────

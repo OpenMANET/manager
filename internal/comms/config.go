@@ -229,6 +229,14 @@ func (cfg *CommsConfig) applyDefaults() {
 		cfg.BluetoothAudioDeviceHint = bs22SCODeviceSpec
 		cfg.BluetoothInputDevice = bs22SCODeviceSpec
 		cfg.BluetoothOutputDevice = bs22SCODeviceSpec
+
+		// BlueALSA SCO on this target is single-client for playback.
+		// The comms runtime opens one playback stream per multicast talk group,
+		// so keep only the primary talk group in BS-22 mode to avoid
+		// "Device or resource busy" failures on secondary ports.
+		if len(cfg.McastPorts) > 1 {
+			cfg.McastPorts = cfg.McastPorts[:1]
+		}
 	}
 
 	if cfg.RtpID == "" {
