@@ -239,8 +239,7 @@ func isLikelySCODeviceName(name string) bool {
 	return strings.Contains(n, "sco") ||
 		strings.Contains(n, "hfp") ||
 		strings.Contains(n, "hsp") ||
-		strings.Contains(n, "handsfree") ||
-		strings.Contains(n, "bluealsa")
+		strings.Contains(n, "handsfree")
 }
 
 func listDeviceNames(devs []malgo.DeviceInfo) string {

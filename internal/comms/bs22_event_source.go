@@ -274,7 +274,10 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 
 		binding, ok := findBS22BLEBindingForDevice(managed, device)
 		if !ok {
-			if s.connectDevice != nil && time.Since(lastConnectAttempt) >= connectRetry {
+			// Avoid forcing a new connect sequence while the device is already
+			// connected. Re-connecting from this state can destabilize the active
+			// BR/EDR audio path on some controllers.
+			if !device.Connected && s.connectDevice != nil && time.Since(lastConnectAttempt) >= connectRetry {
 				lastConnectAttempt = time.Now()
 				if err := s.connectDevice(conn, device); err != nil && !isIgnorableBlueZConnectError(err) {
 					s.log.Debug().

@@ -15,6 +15,7 @@ func TestIsLikelySCODeviceName(t *testing.T) {
 		{name: "hsp token", in: "Headset HSP Device", want: true},
 		{name: "handsfree token", in: "Handsfree AG", want: true},
 		{name: "bluealsa token", in: "bluealsa:DEV=AA:BB,PROFILE=sco", want: true},
+		{name: "a2dp is not sco", in: "bluealsa:DEV=AA:BB,PROFILE=a2dp", want: false},
 		{name: "non sco device", in: "bcm2835 Headphones", want: false},
 		{name: "empty", in: "", want: false},
 	}
