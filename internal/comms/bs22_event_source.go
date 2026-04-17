@@ -44,6 +44,8 @@ const (
 	bs22HMSetBLEAudioEnabled           = 1
 	bs22BLEConnectRetryInterval        = 5 * time.Second
 	bs22BLERescanInterval              = 2 * time.Second
+	bs22BLEPrimeRetryInitial           = 30 * time.Second
+	bs22BLEPrimeRetryMax               = 5 * time.Minute
 )
 
 type bluezManagedObjectMap map[dbus.ObjectPath]map[string]map[string]dbus.Variant
@@ -250,7 +252,8 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 	var current bs22BLEBinding
 	var haveCurrent bool
 	var primed bool
-	var primeAttempted bool
+	var primeBackoff time.Duration
+	var nextPrimeAttemptAt time.Time
 	var lastConnectAttempt time.Time
 
 	syncBinding := func() {
@@ -264,7 +267,8 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 		if !ok {
 			haveCurrent = false
 			primed = false
-			primeAttempted = false
+			primeBackoff = 0
+			nextPrimeAttemptAt = time.Time{}
 			return
 		}
 
@@ -282,7 +286,8 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 			}
 			haveCurrent = false
 			primed = false
-			primeAttempted = false
+			primeBackoff = 0
+			nextPrimeAttemptAt = time.Time{}
 			return
 		}
 
@@ -295,7 +300,8 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 			current = binding
 			haveCurrent = true
 			primed = false
-			primeAttempted = false
+			primeBackoff = 0
+			nextPrimeAttemptAt = time.Time{}
 			s.log.Info().
 				Str("device", current.Device.Address).
 				Str("notify", string(current.NotifyPath)).
@@ -303,21 +309,33 @@ func (s *bs22EventSource) monitorBLE(ctx context.Context, out chan<- PTTEvent) {
 				Msg("BS-22 BLE: monitoring HM control channel")
 		}
 
-		if primed || primeAttempted {
+		if primed {
 			return
 		}
 
-		primeAttempted = true
+		now := time.Now()
+		if !nextPrimeAttemptAt.IsZero() && now.Before(nextPrimeAttemptAt) {
+			return
+		}
+
 		if err := s.primeBLE(conn, current); err != nil {
 			// Do not continuously retry priming on every rescan tick. On some
 			// stacks this can destabilize SCO/HFP negotiation. Keep passive HM
-			// notify + BlueALSA XEVENT fallback active and only retry after a
-			// binding change.
-			s.log.Warn().Err(err).Str("device", current.Device.Address).Msg("BS-22 BLE: failed to prime HM control channel; using passive HM/XEVENT fallback")
+			// notify + BlueALSA XEVENT fallback active and retry with a slow
+			// backoff.
+			primeBackoff = nextBS22PrimeBackoff(primeBackoff)
+			nextPrimeAttemptAt = now.Add(primeBackoff)
+			s.log.Warn().
+				Err(err).
+				Str("device", current.Device.Address).
+				Dur("retry_in", primeBackoff).
+				Msg("BS-22 BLE: failed to prime HM control channel; using passive HM/XEVENT fallback")
 			return
 		}
 
 		primed = true
+		primeBackoff = 0
+		nextPrimeAttemptAt = time.Time{}
 		s.log.Info().Str("device", current.Device.Address).Msg("BS-22 BLE: primed BLE audio mode")
 	}
 
@@ -656,6 +674,19 @@ func bs22HMCommandBytes(vendorID, command uint16, payload ...byte) []byte {
 	binary.BigEndian.PutUint16(packet[2:4], command)
 	copy(packet[4:], payload)
 	return packet
+}
+
+func nextBS22PrimeBackoff(prev time.Duration) time.Duration {
+	if prev <= 0 {
+		return bs22BLEPrimeRetryInitial
+	}
+
+	next := prev * 2
+	if next > bs22BLEPrimeRetryMax {
+		return bs22BLEPrimeRetryMax
+	}
+
+	return next
 }
 
 func bluezCharacteristicValue(sig *dbus.Signal, path dbus.ObjectPath) ([]byte, bool) {

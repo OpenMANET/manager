@@ -165,6 +165,44 @@ func TestBS22HMCommandBytes(t *testing.T) {
 	}
 }
 
+func TestNextBS22PrimeBackoff(t *testing.T) {
+	tests := []struct {
+		name string
+		in   time.Duration
+		want time.Duration
+	}{
+		{
+			name: "initial",
+			in:   0,
+			want: bs22BLEPrimeRetryInitial,
+		},
+		{
+			name: "double",
+			in:   bs22BLEPrimeRetryInitial,
+			want: bs22BLEPrimeRetryInitial * 2,
+		},
+		{
+			name: "clamp max",
+			in:   bs22BLEPrimeRetryMax,
+			want: bs22BLEPrimeRetryMax,
+		},
+		{
+			name: "above max clamp",
+			in:   bs22BLEPrimeRetryMax + time.Second,
+			want: bs22BLEPrimeRetryMax,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := nextBS22PrimeBackoff(tt.in)
+			if got != tt.want {
+				t.Fatalf("nextBS22PrimeBackoff(%s) = %s, want %s", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBS22EventSource_PrimeBLE(t *testing.T) {
 	var writes [][]byte
 	src := &bs22EventSource{
