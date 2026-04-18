@@ -471,6 +471,48 @@ func TestApplyDefaults_BS22ForcesSCORouting(t *testing.T) {
 	}
 }
 
+func TestApplyDefaults_BlueALSAXEventPreservesExplicitAudioSpecs(t *testing.T) {
+	explicit := "bluealsa:DEV=41:42:86:99:1D:61,PROFILE=sco"
+	cfg := &CommsConfig{
+		ControlSource:            controlSourceBlueALSAXEvent,
+		BluetoothAudioDeviceHint: explicit,
+		BluetoothInputDevice:     explicit,
+		BluetoothOutputDevice:    explicit,
+	}
+
+	cfg.applyDefaults()
+
+	if cfg.BluetoothAudioDeviceHint != explicit {
+		t.Errorf("BluetoothAudioDeviceHint: got %q, want %q", cfg.BluetoothAudioDeviceHint, explicit)
+	}
+
+	if cfg.BluetoothInputDevice != explicit {
+		t.Errorf("BluetoothInputDevice: got %q, want %q", cfg.BluetoothInputDevice, explicit)
+	}
+
+	if cfg.BluetoothOutputDevice != explicit {
+		t.Errorf("BluetoothOutputDevice: got %q, want %q", cfg.BluetoothOutputDevice, explicit)
+	}
+}
+
+func TestApplyDefaults_BlueALSAXEventBackfillsSCOWhenUnset(t *testing.T) {
+	cfg := &CommsConfig{ControlSource: controlSourceBlueALSAXEvent}
+
+	cfg.applyDefaults()
+
+	if cfg.BluetoothAudioDeviceHint != bs22SCODeviceSpec {
+		t.Errorf("BluetoothAudioDeviceHint: got %q, want %q", cfg.BluetoothAudioDeviceHint, bs22SCODeviceSpec)
+	}
+
+	if cfg.BluetoothInputDevice != bs22SCODeviceSpec {
+		t.Errorf("BluetoothInputDevice: got %q, want %q", cfg.BluetoothInputDevice, bs22SCODeviceSpec)
+	}
+
+	if cfg.BluetoothOutputDevice != bs22SCODeviceSpec {
+		t.Errorf("BluetoothOutputDevice: got %q, want %q", cfg.BluetoothOutputDevice, bs22SCODeviceSpec)
+	}
+}
+
 // ─── replaceNetwork tests ─────────────────────────────────────────────────────
 
 func TestReplaceNetwork_ClosesOldReceiverAndSender(t *testing.T) {

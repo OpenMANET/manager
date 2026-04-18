@@ -222,10 +222,9 @@ func (cfg *CommsConfig) applyDefaults() {
 		}
 	}
 
-	// BS-22 audio is stable only on the SCO profile in the current stack.
-	// Force SCO routing regardless of hint/legacy values so operators do not
-	// end up on A2DP/default devices and get unusable audio.
-	if cfg.ControlSource == controlSourceBS22 || cfg.ControlSource == controlSourceBlueALSAXEvent {
+	// BS-22 BLE mode expects SCO audio and currently performs best when we
+	// force explicit SCO routing regardless of prior values.
+	if cfg.ControlSource == controlSourceBS22 {
 		cfg.BluetoothAudioDeviceHint = bs22SCODeviceSpec
 		cfg.BluetoothInputDevice = bs22SCODeviceSpec
 		cfg.BluetoothOutputDevice = bs22SCODeviceSpec
@@ -234,6 +233,26 @@ func (cfg *CommsConfig) applyDefaults() {
 		// The comms runtime opens one playback stream per multicast talk group,
 		// so keep only the primary talk group in BS-22 mode to avoid
 		// "Device or resource busy" failures on secondary ports.
+		if len(cfg.McastPorts) > 1 {
+			cfg.McastPorts = cfg.McastPorts[:1]
+		}
+	}
+
+	// In BlueALSA XEVENT-only mode, keep explicit operator-provided device
+	// specs (e.g. bluealsa:DEV=xx,PROFILE=sco). Only backfill SCO alias when
+	// nothing was provided.
+	if cfg.ControlSource == controlSourceBlueALSAXEvent {
+		if cfg.BluetoothAudioDeviceHint == "" {
+			cfg.BluetoothAudioDeviceHint = bs22SCODeviceSpec
+		}
+		if cfg.BluetoothInputDevice == "" {
+			cfg.BluetoothInputDevice = cfg.BluetoothAudioDeviceHint
+		}
+		if cfg.BluetoothOutputDevice == "" {
+			cfg.BluetoothOutputDevice = cfg.BluetoothAudioDeviceHint
+		}
+
+		// BlueALSA SCO on this target is single-client for playback.
 		if len(cfg.McastPorts) > 1 {
 			cfg.McastPorts = cfg.McastPorts[:1]
 		}
