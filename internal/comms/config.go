@@ -225,7 +225,7 @@ func (cfg *CommsConfig) applyDefaults() {
 	// BS-22 audio is stable only on the SCO profile in the current stack.
 	// Force SCO routing regardless of hint/legacy values so operators do not
 	// end up on A2DP/default devices and get unusable audio.
-	if cfg.ControlSource == controlSourceBS22 {
+	if cfg.ControlSource == controlSourceBS22 || cfg.ControlSource == controlSourceBlueALSAXEvent {
 		cfg.BluetoothAudioDeviceHint = bs22SCODeviceSpec
 		cfg.BluetoothInputDevice = bs22SCODeviceSpec
 		cfg.BluetoothOutputDevice = bs22SCODeviceSpec

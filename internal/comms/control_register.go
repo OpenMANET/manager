@@ -57,6 +57,11 @@ func init() {
 		return NewBS22EventSource(deps.Log), nil
 	})
 
+	control.Register(controlSourceBlueALSAXEvent, func(deps control.ControlDeps) (control.EventSource, error) {
+		deps.Log.Info().Msg("comms: PTT via BlueALSA XEVENT only")
+		return NewBlueALSAXEventSource(deps.Log), nil
+	})
+
 	control.Register(controlSourceROIP, func(deps control.ControlDeps) (control.EventSource, error) {
 		b, ok := deps.Backend.(*roipBackend)
 		if !ok || b == nil {
@@ -125,6 +130,8 @@ func (cfg *CommsConfig) buildControlDeps(rt *CommsRuntime) (control.ControlDeps,
 		deps.Backend = &openvlmBackend{}
 	case controlSourceBS22:
 		// No additional backend dependencies; BS-22 source discovers state via DBus.
+	case controlSourceBlueALSAXEvent:
+		// No additional backend dependencies; BlueALSA XEVENT source reads RFCOMM DBus events.
 	case controlSourceROIP:
 		deps.Backend = &roipBackend{
 			COSGPIOMask:    cfg.ROIPCOSGPIOMask,

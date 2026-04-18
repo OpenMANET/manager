@@ -14,6 +14,7 @@ func TestControlRegistry_KnownSourcesRegistered(t *testing.T) {
 	for _, name := range []string{
 		defaultCtrlSrc,
 		controlSourceBS22,
+		controlSourceBlueALSAXEvent,
 		controlSourceROIP,
 		controlSourceWeb,
 		defaultControlSourceNanoPTT,

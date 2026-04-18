@@ -21,6 +21,7 @@ func TestControlLookup_KnownNames(t *testing.T) {
 	for _, name := range []string{
 		defaultCtrlSrc,
 		controlSourceBS22,
+		controlSourceBlueALSAXEvent,
 		controlSourceROIP,
 		controlSourceWeb,
 		defaultControlSourceNanoPTT,
@@ -59,6 +60,15 @@ func TestBuildControlDeps_BS22Backend(t *testing.T) {
 	deps, err := cfg.buildControlDeps(rt)
 	require.NoError(t, err)
 	assert.Nil(t, deps.Backend, "bs22 backend should not require extra dependencies")
+}
+
+func TestBuildControlDeps_BlueALSAXEventBackend(t *testing.T) {
+	cfg := &CommsConfig{Log: zerolog.Nop(), ControlSource: controlSourceBlueALSAXEvent}
+	rt := &CommsRuntime{}
+
+	deps, err := cfg.buildControlDeps(rt)
+	require.NoError(t, err)
+	assert.Nil(t, deps.Backend, "bluealsa_xevent backend should not require extra dependencies")
 }
 
 func TestBuildControlDeps_ROIPBackend(t *testing.T) {
