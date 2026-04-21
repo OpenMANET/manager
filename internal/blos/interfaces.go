@@ -157,6 +157,8 @@ func (r *BLOS) createOrConfigureVxLanInterface(ctx context.Context) error {
 			Tunlink:  defaultTunnelDeviceName,
 			Proxy:    defaultProxyValue,
 			MTU:      strconv.Itoa(vxLanDefaultMTUValue),
+			RxCsum:   "0",
+			TxCsum:   "0",
 			VID:      "1",
 		}, r.uciNetworkConfig); err != nil {
 			return err
