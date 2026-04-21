@@ -1,15 +1,19 @@
 package blos
 
 import (
+	"context"
 	"net/netip"
+	"sync"
 	"testing"
 
+	"github.com/digineo/go-uci/v2"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tailscale.com/ipn"
+	"tailscale.com/ipn/ipnstate"
 )
 
 // TestMTUChainInvariants locks in the on-wire MTU math so a silent regression
@@ -170,4 +174,153 @@ func TestHasPeerChanges(t *testing.T) {
 			assert.Equal(t, tt.wantChanges, got)
 		})
 	}
+}
+
+// fakeUCIReader is a minimal ConfigReader/OpenMANETConfigReader used by the
+// configureInterfaces regression test. It only implements the read paths the
+// test exercises; all write methods are no-ops that return nil.
+type fakeUCIReader struct {
+	mu            sync.Mutex
+	existingProto map[string]map[string]bool
+	options       map[string]map[string]map[string][]string
+}
+
+func newFakeUCIReader() *fakeUCIReader {
+	return &fakeUCIReader{
+		existingProto: make(map[string]map[string]bool),
+		options:       make(map[string]map[string]map[string][]string),
+	}
+}
+
+func (f *fakeUCIReader) addExistingSection(configName, section string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.existingProto[configName] == nil {
+		f.existingProto[configName] = make(map[string]bool)
+	}
+
+	f.existingProto[configName][section] = true
+}
+
+func (f *fakeUCIReader) setOption(configName, section, option, value string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.options[configName] == nil {
+		f.options[configName] = make(map[string]map[string][]string)
+	}
+
+	if f.options[configName][section] == nil {
+		f.options[configName][section] = make(map[string][]string)
+	}
+
+	f.options[configName][section][option] = []string{value}
+}
+
+func (f *fakeUCIReader) Get(configName, section, option string) ([]string, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if option == "proto" {
+		if sections := f.existingProto[configName]; sections != nil && sections[section] {
+			return []string{"bridge"}, true
+		}
+	}
+
+	if cfg := f.options[configName]; cfg != nil {
+		if sec := cfg[section]; sec != nil {
+			if vals, ok := sec[option]; ok {
+				return vals, true
+			}
+		}
+	}
+
+	return nil, false
+}
+
+func (f *fakeUCIReader) GetSections(_, _ string) ([]string, error)                   { return nil, nil }
+func (f *fakeUCIReader) SetType(_, _, _ string, _ uci.OptionType, _ ...string) error { return nil } //nolint:gofumpt
+func (f *fakeUCIReader) Del(_, _, _ string) error                                    { return nil }
+func (f *fakeUCIReader) AddSection(_, _, _ string) error                             { return nil }
+func (f *fakeUCIReader) DelSection(_, _ string) error                                { return nil }
+func (f *fakeUCIReader) Commit() error                                               { return nil }
+func (f *fakeUCIReader) ReloadConfig() error                                         { return nil }
+
+// runningTailscaleClient reports a Running backend state and no-op prefs.
+type runningTailscaleClient struct{}
+
+func (*runningTailscaleClient) Status(_ context.Context) (*ipnstate.Status, error) {
+	return &ipnstate.Status{BackendState: "Running"}, nil
+}
+
+func (*runningTailscaleClient) GetPrefs(_ context.Context) (*ipn.Prefs, error) {
+	return &ipn.Prefs{}, nil
+}
+
+func (*runningTailscaleClient) EditPrefs(_ context.Context, _ *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+	return &ipn.Prefs{}, nil
+}
+
+// TestBLOS_ConfigureInterfaces_ReturnsAfterReboot guards the fix for the
+// blos.enable persistence bug: on a first-time Enable the !blosConfigured
+// branch commits UCI and calls reboot(). Before the fix, control fell through
+// to the post-reboot SetMTU chain on tailscale0/vxlan0 — interfaces that only
+// exist after the pending reboot has brought up the new UCI config — so
+// SetMTU returned "interface not found". That error bubbled up to
+// ConfigureAndEnable, which rolled blos.enable back to false; after the reboot
+// the daemon then read blos.enable=false and BLOS stayed off. This test pins
+// the invariant that configureInterfaces MUST NOT run SetMTU after kicking off
+// the reboot.
+func TestBLOS_ConfigureInterfaces_ReturnsAfterReboot(t *testing.T) {
+	v := viper.New()
+	v.Set("alfred.batInterface", "bat0")
+
+	cfg := config.NewWithoutWatch(v)
+
+	netReader := newFakeUCIReader()
+	// Mesh bat interface must exist so configureInterfaces enters the outer branch.
+	netReader.addExistingSection("network", "bat0")
+	// Make tunnel/vxlan/batman look already-present in UCI so the
+	// create-or-configure helpers short-circuit to nil — this test is not
+	// exercising their internals.
+	netReader.addExistingSection("network", "tailscale0")
+	netReader.addExistingSection("network", "vxlan0")
+	netReader.addExistingSection("network", "battunnel0")
+
+	ompReader := newFakeUCIReader()
+	// BLOSconfigured="0" drives configureInterfaces into the !blosConfigured
+	// branch, which is the branch that calls reboot().
+	ompReader.setOption("openmanetd", "config", "BLOSconfigured", "0")
+
+	var (
+		rebootCalls int
+		setMTUCalls int
+	)
+
+	r := &BLOS{
+		cfg:                cfg,
+		logger:             zerolog.Nop(),
+		tsClient:           &runningTailscaleClient{},
+		uciNetworkConfig:   netReader,
+		uciOpenManetConfig: ompReader,
+		uciFirewallConfig:  newFakeUCIReader(),
+		Reboot: func() error {
+			rebootCalls++
+
+			return nil
+		},
+		SetMTU: func(_ string, _ int) error {
+			setMTUCalls++
+
+			return nil
+		},
+	}
+
+	err := r.configureInterfaces(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, rebootCalls, "reboot must be invoked on first-time configuration")
+	assert.Equal(t, 0, setMTUCalls,
+		"SetMTU must not run after reboot — tunnel/vxlan are not yet up; "+
+			"a SetMTU error here would trigger a config rollback and silently disable BLOS")
 }

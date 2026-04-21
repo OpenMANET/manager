@@ -34,6 +34,7 @@ type BLOS struct {
 	// When nil, the private helper methods fall back to the real implementations.
 	Reboot         func() error
 	RunCmd         func(ctx context.Context, name string, args ...string) error
+	SetMTU         func(name string, mtu int) error
 	multicastConns []*net.UDPConn
 	mu             sync.Mutex
 }
@@ -115,6 +116,14 @@ func (r *BLOS) runCmd(ctx context.Context, name string, args ...string) error {
 	return exec.CommandContext(ctx, name, args...).Run()
 }
 
+func (r *BLOS) setMTU(name string, mtu int) error {
+	if r.SetMTU != nil {
+		return r.SetMTU(name, mtu)
+	}
+
+	return network.SetMTU(name, mtu)
+}
+
 // configureInterfaces sets up the network interfaces required for BLOS operation.
 // It first checks the Tailscale tunnel status and validates that it is in a valid state
 // (Running or Starting). If the tunnel requires authentication, it returns an error.
@@ -179,6 +188,13 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error { //nolint:gocogni
 
 				return err
 			}
+
+			// The system is going down; do not run the post-reboot MTU chain
+			// below. The tunnel/vxlan interfaces only exist after the reboot
+			// brings up the newly-committed UCI config. Any call to them here
+			// would fail with "interface not found" and cause the caller to
+			// roll back the just-persisted blos.enable flag.
+			return nil
 		}
 
 		// Apply the MTU chain documented above the MTU constants in
@@ -186,11 +202,11 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error { //nolint:gocogni
 		// don't fight its PMTUD; the VXLAN MTU subtracts the 50-byte VXLAN
 		// encapsulation overhead to leave batman-adv a non-fragmenting
 		// payload size.
-		if err := network.SetMTU(defaultTunnelDeviceName, defaultTunnelDeviceMTUValue); err != nil {
+		if err := r.setMTU(defaultTunnelDeviceName, defaultTunnelDeviceMTUValue); err != nil {
 			return err
 		}
 
-		if err := network.SetMTU(defaultVxLanDeviceName, vxLanDefaultMTUValue); err != nil {
+		if err := r.setMTU(defaultVxLanDeviceName, vxLanDefaultMTUValue); err != nil {
 			return err
 		}
 
