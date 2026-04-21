@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/netip"
 	"strings"
 	"sync"
 
@@ -10,12 +11,20 @@ import (
 
 // Default configuration values
 const (
-	DefaultMeshNetInterface                          string  = "br-ahwlan"
-	DefaultDBFile                                    string  = "/etc/openmanetd/openmanetd.db"
-	DefaultAlfredMode                                string  = "primary"
-	DefaultAlfredBatInterface                        string  = "bat0"
-	DefaultBatmanMulticastEnhancementsEnabled        bool    = true
-	DefaultBatmanMulticastForceflood                 bool    = true
+	DefaultMeshNetInterface                   string = "br-ahwlan"
+	DefaultDBFile                             string = "/etc/openmanetd/openmanetd.db"
+	DefaultAlfredMode                         string = "primary"
+	DefaultAlfredBatInterface                 string = "bat0"
+	DefaultBatmanMulticastEnhancementsEnabled bool   = true
+	// DefaultBatmanMulticastForceflood controls batman-adv's multicast mode.
+	// When true, every multicast frame is flooded to every mesh node. When
+	// false, batman-adv uses IGMP/MLD snooping to deliver each group only to
+	// nodes that have joined it. Voice (continuous, per-channel subscribers)
+	// costs dramatically less bandwidth and CPU under snooping; ATAK CoT
+	// (all-nodes group) is still delivered because every node joins it.
+	// Operators can force-flood explicitly via batman.multicastForceflood
+	// when reliability over raw efficiency is required.
+	DefaultBatmanMulticastForceflood                 bool    = false
 	DefaultAlfredSocketPath                          string  = "/var/run/alfred.sock"
 	DefaultAlfredEnable                              bool    = true
 	DefaultAlfredDataTypeGateway                     bool    = true
@@ -43,18 +52,26 @@ const (
 	DefaultGNSSCoTUID                                string  = ""
 	DefaultEnableBLOS                                bool    = false
 	DefaultBLOSStatusWorkerInterval                  int     = 30 // seconds
-	DefaultOpenMANETFrontendHostPort                 string  = "0.0.0.0:8080"
-	DefaultOpenMANETFrontendTLSHostPort              string  = "0.0.0.0:8081"
-	DefaultOpenMANETFrontendTLSCertFile              string  = ""
-	DefaultOpenMANETFrontendTLSKeyFile               string  = ""
-	DefaultOpenMANETWebsocketPort                    int     = 0
-	DefaultOpenMANETAPIAddress                       string  = "0.0.0.0:8087"
-	DefaultOpenMANETCommsAPIAddress                  string  = "http://127.0.0.1:8087"
-	DefaultRuntimeMemLimit                           string  = "64MiB"
-	DefaultRuntimeGoGC                               int     = 50
-	DefaultDebugPprof                                bool    = false
-	DefaultDebugPprofAddress                         string  = "127.0.0.1:6060"
-	DefaultCommsEncoderComplexity                    int     = 5
+	// DefaultBLOSAdvertisedMeshSubnet is the CIDR advertised to the Tailscale
+	// control plane via the AdvertiseRoutes preference so remote peers can
+	// reach the local mesh through this gateway. Deployments whose mesh
+	// subnet differs from 10.41.0.0/16 must override this via
+	// blos.advertisedMeshSubnet in the config file. The value must parse as
+	// a netip.Prefix; invalid values fall back to this default with a
+	// warning at startup.
+	DefaultBLOSAdvertisedMeshSubnet     string = "10.41.0.0/16"
+	DefaultOpenMANETFrontendHostPort    string = "0.0.0.0:8080"
+	DefaultOpenMANETFrontendTLSHostPort string = "0.0.0.0:8081"
+	DefaultOpenMANETFrontendTLSCertFile string = ""
+	DefaultOpenMANETFrontendTLSKeyFile  string = ""
+	DefaultOpenMANETWebsocketPort       int    = 0
+	DefaultOpenMANETAPIAddress          string = "0.0.0.0:8087"
+	DefaultOpenMANETCommsAPIAddress     string = "http://127.0.0.1:8087"
+	DefaultRuntimeMemLimit              string = "64MiB"
+	DefaultRuntimeGoGC                  int    = 50
+	DefaultDebugPprof                   bool   = false
+	DefaultDebugPprofAddress            string = "127.0.0.1:6060"
+	DefaultCommsEncoderComplexity       int    = 5
 	// DefaultCommsPacketLossPerc is the Opus encoder's initial
 	// packet-loss-percentage hint, controlling how much LBRR (in-band
 	// FEC) the encoder allocates bits to. Operators can pin this via
@@ -139,6 +156,7 @@ type Config struct {
 	AuthPAMService                            string
 	GNSSCoTUID                                string
 	InstrumentationSnapshotDir                string
+	BLOSAdvertisedMeshSubnet                  string
 	onChangeCallbacks                         []func(*Config)
 	BLOSStatusWorkerInterval                  int
 	InstrumentationIntervalSecs               int
@@ -428,6 +446,21 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.BLOSStatusWorkerInterval = val
 	} else {
 		c.BLOSStatusWorkerInterval = DefaultBLOSStatusWorkerInterval
+	}
+
+	// Load the advertised mesh subnet CIDR. Validate that it parses as a
+	// netip.Prefix at load time so a malformed value does not propagate to
+	// the Tailscale EditPrefs call where it would abort BLOS startup.
+	// Invalid values fall back to the default silently here; the BLOS
+	// interface setup layer logs the effective value at startup.
+	if val := strings.TrimSpace(c.v.GetString("blos.advertisedMeshSubnet")); val != "" {
+		if _, parseErr := netip.ParsePrefix(val); parseErr == nil {
+			c.BLOSAdvertisedMeshSubnet = val
+		} else {
+			c.BLOSAdvertisedMeshSubnet = DefaultBLOSAdvertisedMeshSubnet
+		}
+	} else {
+		c.BLOSAdvertisedMeshSubnet = DefaultBLOSAdvertisedMeshSubnet
 	}
 
 	if val := c.v.GetString("openmanetFrontendHostPort"); val != "" {
@@ -897,6 +930,18 @@ func (c *Config) GetBLOSStatusWorkerInterval() int {
 	defer c.mu.RUnlock()
 
 	return c.BLOSStatusWorkerInterval
+}
+
+// GetBLOSAdvertisedMeshSubnet returns the CIDR advertised to the Tailscale
+// control plane via the AdvertiseRoutes preference. The returned string is
+// guaranteed to parse as a netip.Prefix (the config loader validates at load
+// time and substitutes DefaultBLOSAdvertisedMeshSubnet when the value is
+// missing or malformed).
+func (c *Config) GetBLOSAdvertisedMeshSubnet() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.BLOSAdvertisedMeshSubnet
 }
 
 // GetOpenMANETFrontendHostPort returns the OpenMANET frontend host and port.

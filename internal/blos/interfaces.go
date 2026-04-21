@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/firewall"
 	"github.com/openmanet/openmanetd/internal/network"
 	"tailscale.com/client/local"
@@ -63,13 +64,34 @@ func (n *NoOpInterfaceManager) BringUp(_ context.Context, name string) error {
 	return nil
 }
 
+// MTU chain documentation:
+//
+// The on-wire encapsulation stack for an inner mesh frame is:
+//
+//	inner Ethernet frame (≤ vxLanDefaultMTUValue)
+//	  + VXLAN(8) + UDP(8) + IP(20)     = 36B  → carried as UDP payload on tailscale0
+//	  + WireGuard(32) + UDP(8) + IP(20) = 60B  → sent on the physical uplink
+//
+// Previous values (tailscale0=1500, vxlan0=1450) ignored WireGuard's ~60 byte
+// overhead, so a full-sized inner frame became a ~1546 byte packet on the
+// physical wire — guaranteed to fragment on a 1500 MTU internet path and
+// silently dropped on paths where PMTUD is broken (common through NAT /
+// DERP relay).
+//
+// The current chain uses Tailscale's own default (1280) as the tunnel MTU
+// and subtracts the VXLAN overhead (50B) from that for the overlay MTU,
+// leaving 1230 bytes of payload available to batman-adv. This is
+// conservative: it works on any IPv6-minimum-MTU path, accommodates DERP
+// relay's extra HTTPS framing, and leaves headroom for a future v6 underlay.
+// Operators on a known-good fixed-MTU underlay can raise these values after
+// a PMTUD measurement — see docs/instrumentation-snapshot.md.
 const (
 	defaultLearningValue        string = "1"
 	defaultProxyValue           string = "1"
 	vxLanProtocol               string = "vxlan"
-	vxLanDefaultMTUValue        int    = 1450
+	vxLanDefaultMTUValue        int    = 1230
 	defaultTunnelDeviceName     string = "tailscale0"
-	defaultTunnelDeviceMTUValue int    = 1500
+	defaultTunnelDeviceMTUValue int    = 1280
 	defaultVxLanDeviceName      string = "vxlan0"
 	defaultBatmanInterfaceName  string = "battunnel0"
 	defaultMeshNetZoneName      string = "ahwlan"
@@ -205,21 +227,40 @@ func (r *BLOS) configureTailscalePreferences(ctx context.Context) error {
 	return nil
 }
 
-// updateTailscalePreferences updates the provided Prefs to enable RouteAll and disable NoSNAT.
-// It uses the ApplyEdits method from the Prefs struct to safely apply the changes.
+// updateTailscalePreferences updates the provided Prefs to disable NoSNAT and
+// advertise the configured mesh subnet. The advertised subnet is read from
+// the BLOS config (blos.advertisedMeshSubnet); the config loader validates
+// that it parses, so a malformed value here falls back to the default rather
+// than propagating a parse error into the Tailscale EditPrefs call.
 func (r *BLOS) updateTailscalePreferences(prefs *ipn.Prefs) {
-	// Create a MaskedPrefs with the desired preference changes
+	subnetStr := config.DefaultBLOSAdvertisedMeshSubnet
+	if r.cfg != nil {
+		subnetStr = r.cfg.GetBLOSAdvertisedMeshSubnet()
+	}
+
+	subnet, err := netip.ParsePrefix(subnetStr)
+	if err != nil {
+		r.logger.Warn().
+			Err(err).
+			Str("value", subnetStr).
+			Str("fallback", config.DefaultBLOSAdvertisedMeshSubnet).
+			Msg("blos.advertisedMeshSubnet did not parse; using default")
+
+		subnet = netip.MustParsePrefix(config.DefaultBLOSAdvertisedMeshSubnet)
+	}
+
+	r.logger.Info().
+		Str("subnet", subnet.String()).
+		Msg("Advertising mesh subnet to Tailscale")
+
 	edits := ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
-			NoSNAT: false,
-			AdvertiseRoutes: []netip.Prefix{
-				netip.MustParsePrefix("10.41.0.0/16"), // TODO: Figure out how to make this dynamic based on the actual network configuration instead of hardcoding it
-			},
+			NoSNAT:          false,
+			AdvertiseRoutes: []netip.Prefix{subnet},
 		},
 		NoSNATSet:          true,
 		AdvertiseRoutesSet: true,
 	}
 
-	// Apply the edits to the provided Prefs
 	prefs.ApplyEdits(&edits)
 }

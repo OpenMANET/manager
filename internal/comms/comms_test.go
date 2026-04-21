@@ -618,6 +618,16 @@ func TestSetMulticastTTL(t *testing.T) {
 	}
 }
 
+// TestRTPMulticastTTLValue locks in the concrete TTL constant so a silent
+// regression to the previous value of 6 — which black-holed voice on
+// multi-hop BLOS deployments — would fail the test suite instead of shipping.
+func TestRTPMulticastTTLValue(t *testing.T) {
+	const wantTTL = 32
+	if rtpMulticastTTL != wantTTL {
+		t.Errorf("rtpMulticastTTL = %d, want %d (tuned for multi-hop mesh traversal)", rtpMulticastTTL, wantTTL)
+	}
+}
+
 // ─── listenRTPReceiver (SO_REUSEPORT) tests ───────────────────────────────────
 
 // ─── GetActiveMulticastPort tests ───────────────────────────────────────────

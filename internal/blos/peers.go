@@ -173,7 +173,15 @@ func (r *BLOS) removeInactiveVXLANPeers(ctx context.Context, activePeerIPs map[s
 
 	// Check each peer and remove if it's not active and not multicast
 	for section, peer := range allPeers {
-		// Skip if this is a multicast address
+		// createVxlanPeer never writes a multicast destination — it only
+		// syncs unicast Tailscale peer IPs, and Tailscale itself has no
+		// multicast transport. Any multicast-destination VXLAN peer in the
+		// running UCI config therefore came from either (a) a leftover
+		// entry from a pre-revert BLOS version that did seed multicast
+		// peers, or (b) an operator who hand-added one for a future
+		// non-Tailscale underlay (e.g., a direct radio cross-link). In
+		// either case auto-removing the entry on the next Tailscale sync
+		// would silently undo the operator's state, so preserve it.
 		if config.GetMulticastGroupSet()[peer.Dst] {
 			continue
 		}

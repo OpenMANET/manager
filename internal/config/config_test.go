@@ -1410,6 +1410,63 @@ func TestGetBatmanMulticastForceflood(t *testing.T) {
 	}
 }
 
+// TestDefaultBatmanMulticastForceflood_IsSnooping locks in the semantic choice
+// that out-of-the-box deployments use batman-adv MCAST snooping (forceflood
+// off). Flooding every multicast frame to every node scales quadratically
+// with voice-channel × site count and was the prior default; snooping scales
+// with active subscribers. Changing this default is a deployment-wide
+// behavior change and should be deliberate.
+func TestDefaultBatmanMulticastForceflood_IsSnooping(t *testing.T) {
+	if DefaultBatmanMulticastForceflood {
+		t.Errorf("DefaultBatmanMulticastForceflood = true; expected false (use MCAST snooping by default)")
+	}
+}
+
+func TestGetBLOSAdvertisedMeshSubnet(t *testing.T) {
+	tests := []struct {
+		setValue *string
+		name     string
+		want     string
+	}{
+		{
+			name:     "returns custom CIDR when set",
+			setValue: strPtr("10.42.0.0/20"),
+			want:     "10.42.0.0/20",
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultBLOSAdvertisedMeshSubnet,
+		},
+		{
+			name:     "falls back to default when malformed",
+			setValue: strPtr("not-a-cidr"),
+			want:     DefaultBLOSAdvertisedMeshSubnet,
+		},
+		{
+			name:     "falls back to default when empty",
+			setValue: strPtr(""),
+			want:     DefaultBLOSAdvertisedMeshSubnet,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("blos.advertisedMeshSubnet", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetBLOSAdvertisedMeshSubnet()
+			if got != tt.want {
+				t.Errorf("GetBLOSAdvertisedMeshSubnet() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetEnableBLOS(t *testing.T) {
 	tests := []struct {
 		setValue *bool

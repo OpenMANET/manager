@@ -181,14 +181,15 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error { //nolint:gocogni
 			}
 		}
 
-		// Ensure the MTU is set correctly on the tunnel interface to avoid fragmentation issues with VXLAN encapsulated packets.
-		// Note: Tailscale sets the MTU of the tailscale0 interface to 1280 by default, which can cause fragmentation issues when used as the underlying device for a VXLAN interface. Setting it to 1500 allows for better performance while still avoiding fragmentation in most cases, but this may need to be adjusted based on the specific network environment and requirements.
+		// Apply the MTU chain documented above the MTU constants in
+		// interfaces.go. The tunnel MTU matches Tailscale's own default so we
+		// don't fight its PMTUD; the VXLAN MTU subtracts the 50-byte VXLAN
+		// encapsulation overhead to leave batman-adv a non-fragmenting
+		// payload size.
 		if err := network.SetMTU(defaultTunnelDeviceName, defaultTunnelDeviceMTUValue); err != nil {
 			return err
 		}
 
-		// Ensure the MTU is set correctly on the VXLAN interface to avoid fragmentation issues with encapsulated packets.
-		// Note: The MTU for the VXLAN interface should be set to a value that accounts for the overhead of VXLAN encapsulation (typically around 50 bytes) to avoid fragmentation issues. Setting it to 1450 allows for better performance while still avoiding fragmentation in most cases, but this may need to be adjusted based on the specific network environment and requirements.
 		if err := network.SetMTU(defaultVxLanDeviceName, vxLanDefaultMTUValue); err != nil {
 			return err
 		}

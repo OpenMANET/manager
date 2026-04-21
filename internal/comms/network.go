@@ -18,9 +18,12 @@ import (
 )
 
 // rtpMulticastTTL is the IP TTL set on outgoing RTP/RTCP multicast packets.
-// A value of 1 restricts packets to the local subnet; increase to allow
-// traversal across routed multicast hops.
-const rtpMulticastTTL = 6
+// Voice must reach distant sites through the full batman-adv + VXLAN +
+// Tailscale path, where each batman-adv hop and each bridge hop decrements
+// TTL. 32 is generous enough for any realistic mesh diameter while still
+// bounding stray packets that escape a misrouted tunnel. The prior value of
+// 6 silently black-holed voice on multi-hop deployments.
+const rtpMulticastTTL = 32
 
 // rxSocketBufBytes is the requested SO_RCVBUF size for the RTP receive
 // socket. 1 MiB absorbs bursty mesh arrivals when receiveLoop is briefly

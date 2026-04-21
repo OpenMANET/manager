@@ -16,9 +16,12 @@
 //
 // BLOS creates a three-layer network stack on gateway nodes:
 //
-//	tailscale0  (Tailscale tunnel, MTU 1500)
-//	  └─ vxlan0   (VXLAN encapsulation over tailscale0, MTU 1450)
+//	tailscale0  (Tailscale tunnel, MTU 1280 — Tailscale's default)
+//	  └─ vxlan0   (VXLAN encapsulation over tailscale0, MTU 1230 = 1280 − 50B VXLAN overhead)
 //	       └─ battunnel0  (Batman-adv hard interface on vxlan0)
+//
+// See the MTU chain documentation in interfaces.go for why these values
+// account for WireGuard's ~60 byte outer overhead in addition to VXLAN's.
 //
 // # Lifecycle
 //
