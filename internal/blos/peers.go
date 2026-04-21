@@ -7,58 +7,6 @@ import (
 	"github.com/openmanet/openmanetd/internal/network"
 )
 
-// createVXMulticastPeers creates VXLan peers for each multicast group address.
-// It checks if a peer already exists before creating it to avoid duplicates.
-// Each peer is configured with the default tunnel device and VXLan device names.
-// Returns an error if the peer creation fails, otherwise returns nil.
-//
-// This function batches the creation of all multicast peers for efficiency,
-// reducing the number of UCI commits and reloads from 2N to 2 (where N is the number of peers).
-func (r *BLOS) createVXMulticastPeers() error {
-	// Reload configuration to ensure clean state before creating peers
-	if err := r.uciNetworkConfig.ReloadConfig(); err != nil {
-		r.logger.Debug().
-			Err(err).
-			Msg("Failed to reload UCI config before creating multicast peers, continuing anyway")
-	}
-
-	// Collect peers that need to be created
-	peersToCreate := []network.UCIVXLANPeer{}
-
-	for _, addr := range config.GetMulticastGroupAddresses() {
-		if !network.VXLANPeerExistsByDstWithReader(addr, r.uciNetworkConfig) {
-			peersToCreate = append(peersToCreate, network.UCIVXLANPeer{
-				Dst:   addr,
-				Via:   defaultTunnelDeviceName,
-				VXLAN: defaultVxLanDeviceName,
-			})
-		}
-	}
-
-	// If no peers need to be created, return early
-	if len(peersToCreate) == 0 {
-		r.logger.Debug().Msg("All multicast peers already exist")
-
-		return nil
-	}
-
-	// Batch create all missing multicast peers
-	if err := network.BatchAddVXLANPeersWithReader(peersToCreate, r.uciNetworkConfig); err != nil {
-		r.logger.Error().
-			Err(err).
-			Int("count", len(peersToCreate)).
-			Msg("Failed to batch create VXLAN multicast peers")
-
-		return err
-	}
-
-	r.logger.Debug().
-		Int("count", len(peersToCreate)).
-		Msg("Successfully created VXLAN multicast peers")
-
-	return nil
-}
-
 func (r *BLOS) createVxlanPeer(ctx context.Context, peerIP string) error {
 	// Reload configuration to ensure clean state before peer operations
 	if err := r.uciNetworkConfig.ReloadConfig(); err != nil {

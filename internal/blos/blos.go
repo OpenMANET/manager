@@ -28,7 +28,6 @@ type BLOS struct {
 	tsClient           TailscaleClient
 	cfg                *config.Config
 	statusWorker       *StatusWorker
-	mcastJoiner        multicastJoiner
 	lastSyncedPeerIPs  map[string]bool
 
 	// Overrideable function fields for testability.
@@ -167,11 +166,6 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error { //nolint:gocogni
 				return err
 			}
 
-			// Create VxLAN multicast peers
-			if err = r.createVXMulticastPeers(); err != nil {
-				return err
-			}
-
 			// Mark BLOS as configured in the OpenMANET config to avoid reconfiguring on every startup
 			if err = network.SetBLOSConfiguredWithReader(r.uciOpenManetConfig); err != nil {
 				return err
@@ -196,14 +190,6 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error { //nolint:gocogni
 		// Ensure the MTU is set correctly on the VXLAN interface to avoid fragmentation issues with encapsulated packets.
 		// Note: The MTU for the VXLAN interface should be set to a value that accounts for the overhead of VXLAN encapsulation (typically around 50 bytes) to avoid fragmentation issues. Setting it to 1450 allows for better performance while still avoiding fragmentation in most cases, but this may need to be adjusted based on the specific network environment and requirements.
 		if err := network.SetMTU(defaultVxLanDeviceName, vxLanDefaultMTUValue); err != nil {
-			return err
-		}
-
-		// Join multicast groups on the mesh interface so batman-adv forwards
-		// multicast traffic across the VXLAN link to BLOS peers.
-		if err := r.joinMulticastGroupsOnInterface(r.cfg.MeshNetInterface); err != nil {
-			r.logger.Error().Err(err).Msg("Failed to join multicast groups on mesh interface")
-
 			return err
 		}
 
