@@ -145,8 +145,15 @@ func (r *BLOS) createOrConfigureTunnelInterface(ctx context.Context) error {
 //   - Learning: "1" - enables MAC address learning
 //   - Tunlink: defaultTunnelDeviceName - links the VXLAN to the tunnel device
 //   - Proxy: "1" - enables ARP proxying
+//   - MTU: vxLanDefaultMTUValue - sets the VXLAN interface MTU
+//   - RxCsum: "0" - disables receive checksum offload for performance
+//   - TxCsum: "0" - disables transmit checksum offload for performance
+//   - VID: "1" - sets the VXLAN Network Identifier (VNI)
 //
-// Returns an error if the VXLAN configuration creation fails, otherwise returns nil.
+// After creating the section, the network configuration is force-reloaded so
+// the interface is brought up immediately.
+//
+// Returns an error if the VXLAN configuration creation or reload fails, otherwise returns nil.
 func (r *BLOS) createOrConfigureVxLanInterface(ctx context.Context) error {
 	// Check if the VXLAN interface already exists in UCI
 	if !network.NetworkSectionExistsWithReader(defaultVxLanDeviceName, r.uciNetworkConfig) {
