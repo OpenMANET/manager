@@ -1,40 +1,35 @@
 // =============================================================================
-// topologyGraph.js — Pure transform from MeshTopology → reagraph {nodes,edges}
+// topologyGraph.js — Pure transform from MeshTopology → renderable view object
 // =============================================================================
-// Extracted from TopologyMap.jsx so it can be unit-tested without pulling in
-// reagraph's WebGL canvas and so fast-refresh stays happy (component files
-// should export components only).
+// Produces a deterministic, render-friendly shape for the SVG topology
+// renderer in TopologyMap.jsx. Kept separate from the component so the
+// transform can be unit-tested without jsdom.
+//
+// Output shape:
+//   {
+//     self: { id, mac, hostname, tag, hops: 0, degraded, clients[] } | null,
+//     peers: [{ id, mac, hostname, tag, hops, degraded, clients[] }],
+//     edges: [{ id, src, dst, signal, metric, weak }],
+//     counts: { peers, degraded, clients, hopsMax },
+//   }
+//
+// Responsibilities:
+//   - Resolve secondary MACs (mesh radio interfaces) back to the primary MAC
+//     that names the node, so edges collapse to primary-primary.
+//   - Identify "self" via the heuristic that only our own mesh radio reports
+//     signal strength on its outgoing edges.
+//   - Dedup bidirectional mesh edges (A→B from A's batadv and B→A from B's
+//     batadv) into a single canonical edge, preferring whichever direction
+//     carries a local signal reading.
+//   - Global-dedup TT clients (roaming entries appearing under multiple
+//     peers become one node attached to the first parent seen).
+//   - BFS from self to assign a hop-depth per node; synthesized "unknown"
+//     peers (edge endpoints not in topology.nodes) get a hop-depth too.
+//   - Sort nodes by (hops asc, mac asc) and assign sequential N-NN tags so
+//     the operator sees stable numbering across refreshes.
 
-// Lattice topology palette: self = ok-green (this node), peer = accent-cyan,
-// unknown = muted, client = dim, signal thresholds use the shared ok/warn/crit
-// tokens to match the rest of the UI.
-const COLOR_SELF = '#00e676';     // ok green
-const COLOR_PEER = '#00e5ff';     // accent cyan
-const COLOR_UNKNOWN = '#5c7682';  // muted
-const COLOR_CLIENT = '#3a4b55';   // dim
-const COLOR_EDGE_NO_SIGNAL = '#1a2a3a';
-
-export const TOPOLOGY_COLORS = {
-  self: COLOR_SELF,
-  peer: COLOR_PEER,
-  unknown: COLOR_UNKNOWN,
-  client: COLOR_CLIENT,
-  edgeNoSignal: COLOR_EDGE_NO_SIGNAL,
-};
-
-function signalColor(dBm) {
-  if (dBm >= -60) return '#00e676'; // strong
-  if (dBm >= -75) return '#ffb300'; // moderate
-  return '#ff3b4d';                  // weak
-}
-
-// Edge width is derived from TQ metric. batadv metric ≈ 1.0 for a perfect
-// link; larger values (>1) mean worse quality. Clamp to [0.5, 3].
-function edgeSize(metric) {
-  if (!metric || metric <= 0) return 1;
-  const raw = 3 / metric;
-  return Math.max(0.5, Math.min(3, raw));
-}
+const WEAK_METRIC_THRESHOLD = 2.0;
+const WEAK_SIGNAL_DBM = -75;
 
 function shortMac(mac) {
   if (!mac) return '?';
@@ -42,37 +37,29 @@ function shortMac(mac) {
   return parts.length === 6 ? parts.slice(3).join(':') : mac;
 }
 
-function formatMetric(metric) {
-  if (!metric) return '';
-  return `TQ ${metric.toFixed(2)}`;
+function padTag(i) {
+  return `N-${String(i + 1).padStart(2, '0')}`;
 }
 
+export { shortMac };
+
 // -----------------------------------------------------------------------------
-// buildGraphData(topology)
+// buildTopologyView(topology)
 // -----------------------------------------------------------------------------
-// Given the shape returned by services/meshApi.js#fetchMeshTopology, produces
-// { nodes, edges } consumable by reagraph's <GraphCanvas>.
-//
-// Self-identification heuristic: a MeshNode is "self" when at least one of
-// its outgoing MeshEdges has a non-zero `signal` field. The backend only
-// populates signal for edges originating on OUR radios, so a node reporting
-// signal on any edge must be this device.
-//
-// Dedupe: batadv-vis emits each mesh link from both endpoints (A→B from A's
-// entry, B→A from B's entry). We canonicalize by the unordered MAC pair and
-// prefer whichever direction carries a local `signal` reading. Client MACs
-// can also appear under multiple peers (roaming TT entries) — we keep each
-// client node globally unique and attach it to the first peer that claims
-// it. Dedup is hard-enforced with ID sets so repeats in the upstream data
-// never reach the reagraph graph (graphology throws on duplicate addNode).
-export function buildGraphData(topology) {
-  if (!topology || !Array.isArray(topology.nodes)) {
-    return { nodes: [], edges: [] };
+export function buildTopologyView(topology) {
+  const empty = {
+    self: null,
+    peers: [],
+    edges: [],
+    counts: { peers: 0, degraded: 0, clients: 0, hopsMax: 0 },
+  };
+  if (!topology || !Array.isArray(topology.nodes) || topology.nodes.length === 0) {
+    return empty;
   }
 
+  // ── mac → primary ───────────────────────────────────────────────────────
   const macToPrimary = new Map();
   const selfPrimaries = new Set();
-
   for (const node of topology.nodes) {
     if (!node.primaryMac) continue;
     macToPrimary.set(node.primaryMac.toLowerCase(), node.primaryMac);
@@ -84,123 +71,171 @@ export function buildGraphData(topology) {
     }
   }
 
-  const nodes = [];
-  const nodeIds = new Set();
-
-  const pushNode = (node) => {
-    if (!node.id || nodeIds.has(node.id)) return;
-    nodes.push(node);
-    nodeIds.add(node.id);
-  };
-
-  // Mesh peer nodes + their clients. Client IDs are global (keyed on MAC
-  // only) so a roaming/duplicated client collapses to one visible node.
-  for (const node of topology.nodes) {
-    if (!node.primaryMac) continue;
-    const isSelf = selfPrimaries.has(node.primaryMac);
-    pushNode({
-      id: node.primaryMac,
-      label: node.primaryHostname || shortMac(node.primaryMac),
-      fill: isSelf ? COLOR_SELF : COLOR_PEER,
-      size: isSelf ? 14 : 10,
-      data: {
-        type: isSelf ? 'self' : 'peer',
-        cluster: node.primaryMac,
-        mac: node.primaryMac,
-        hostname: node.primaryHostname,
-        secondary: node.secondaryMacs || [],
-      },
-    });
-
-    for (const c of node.clients || []) {
-      if (!c.mac) continue;
-      pushNode({
-        id: `client:${c.mac}`,
-        label: c.hostname || shortMac(c.mac),
-        fill: COLOR_CLIENT,
-        size: 5,
-        data: {
-          type: 'client',
-          cluster: node.primaryMac,
-          mac: c.mac,
-          hostname: c.hostname,
-          parentMac: node.primaryMac,
-        },
-      });
-    }
-  }
-
-  // Deduplicate mesh edges across directions, preferring any direction that
-  // carries a local signal reading.
-  const meshEdges = new Map();
+  // ── mesh edge dedup (prefer direction with signal) ──────────────────────
+  const pairSeen = new Map();
   for (const node of topology.nodes) {
     for (const e of node.neighbors || []) {
-      const srcPrimary = macToPrimary.get((e.routerMac || '').toLowerCase()) || e.routerMac;
-      const dstPrimary = macToPrimary.get((e.neighborMac || '').toLowerCase()) || e.neighborMac;
-      if (!srcPrimary || !dstPrimary || srcPrimary === dstPrimary) continue;
-
-      const pair = [srcPrimary, dstPrimary].sort().join('|');
+      const src = macToPrimary.get((e.routerMac || '').toLowerCase()) || e.routerMac;
+      const dst = macToPrimary.get((e.neighborMac || '').toLowerCase()) || e.neighborMac;
+      if (!src || !dst || src === dst) continue;
+      const pair = [src, dst].sort().join('|');
       const hasSignal = e.signal && e.signal !== 0;
-      const existing = meshEdges.get(pair);
-      if (!existing || (hasSignal && !(existing.edge.signal && existing.edge.signal !== 0))) {
-        meshEdges.set(pair, { src: srcPrimary, dst: dstPrimary, edge: e });
+      const existing = pairSeen.get(pair);
+      if (!existing) {
+        pairSeen.set(pair, {
+          src, dst,
+          metric: e.metric || 0,
+          signal: e.signal || 0,
+          neighborHostname: e.neighborHostname || '',
+        });
+      } else if (hasSignal && !(existing.signal && existing.signal !== 0)) {
+        pairSeen.set(pair, {
+          src, dst,
+          metric: e.metric || 0,
+          signal: e.signal || 0,
+          neighborHostname: e.neighborHostname || '',
+        });
       }
     }
   }
 
-  const edges = [];
-  const edgeIds = new Set();
-  const pushEdge = (edge) => {
-    if (!edge.id || edgeIds.has(edge.id)) return;
-    edges.push(edge);
-    edgeIds.add(edge.id);
-  };
-
-  for (const { src, dst, edge } of meshEdges.values()) {
-    pushNode({
-      id: dst,
-      label: edge.neighborHostname || shortMac(dst),
-      fill: COLOR_UNKNOWN,
-      size: 8,
-      data: { type: 'unknown', cluster: dst, mac: dst },
-    });
-    pushNode({
-      id: src,
-      label: shortMac(src),
-      fill: COLOR_UNKNOWN,
-      size: 8,
-      data: { type: 'unknown', cluster: src, mac: src },
-    });
-
-    const hasSignal = edge.signal && edge.signal !== 0;
-    pushEdge({
-      id: `mesh:${src}->${dst}`,
-      source: src,
-      target: dst,
-      size: edgeSize(edge.metric),
-      fill: hasSignal ? signalColor(edge.signal) : COLOR_EDGE_NO_SIGNAL,
-      label: hasSignal ? `${edge.signal} dBm` : formatMetric(edge.metric),
-      data: edge,
-    });
+  // ── collect every mac, build adjacency ──────────────────────────────────
+  const allMacs = new Set();
+  for (const node of topology.nodes) if (node.primaryMac) allMacs.add(node.primaryMac);
+  for (const edge of pairSeen.values()) {
+    allMacs.add(edge.src);
+    allMacs.add(edge.dst);
+  }
+  const adj = new Map();
+  for (const mac of allMacs) adj.set(mac, new Set());
+  for (const edge of pairSeen.values()) {
+    adj.get(edge.src).add(edge.dst);
+    adj.get(edge.dst).add(edge.src);
   }
 
-  // Client edges: attach each client to its first-seen parent peer. Dedupe
-  // by client MAC since the node was also deduped globally.
-  const clientEdgeSeen = new Set();
-  for (const node of topology.nodes) {
-    if (!node.primaryMac) continue;
-    for (const c of node.clients || []) {
-      if (!c.mac || clientEdgeSeen.has(c.mac)) continue;
-      clientEdgeSeen.add(c.mac);
-      pushEdge({
-        id: `client-edge:${c.mac}`,
-        source: node.primaryMac,
-        target: `client:${c.mac}`,
-        size: 0.5,
-        fill: COLOR_CLIENT,
-      });
+  // ── BFS from self → hops ────────────────────────────────────────────────
+  const hopsByMac = new Map();
+  const roots = selfPrimaries.size > 0
+    ? [...selfPrimaries]
+    : ([...allMacs].slice(0, 1));
+  for (const root of roots) {
+    if (hopsByMac.has(root)) continue;
+    hopsByMac.set(root, 0);
+    const queue = [root];
+    while (queue.length > 0) {
+      const cur = queue.shift();
+      const dist = hopsByMac.get(cur);
+      for (const nxt of adj.get(cur) || []) {
+        if (!hopsByMac.has(nxt)) {
+          hopsByMac.set(nxt, dist + 1);
+          queue.push(nxt);
+        }
+      }
     }
   }
 
-  return { nodes, edges };
+  // ── degraded ────────────────────────────────────────────────────────────
+  const degradedByMac = new Set();
+  for (const edge of pairSeen.values()) {
+    if ((edge.metric || 0) > WEAK_METRIC_THRESHOLD) {
+      degradedByMac.add(edge.src);
+      degradedByMac.add(edge.dst);
+    }
+  }
+
+  // ── hostnames ───────────────────────────────────────────────────────────
+  const hostnameByMac = new Map();
+  for (const node of topology.nodes) {
+    if (node.primaryMac) hostnameByMac.set(node.primaryMac, node.primaryHostname || '');
+  }
+  for (const edge of pairSeen.values()) {
+    if (edge.neighborHostname && !hostnameByMac.has(edge.dst)) {
+      hostnameByMac.set(edge.dst, edge.neighborHostname);
+    }
+  }
+
+  // ── sort + assign tags ──────────────────────────────────────────────────
+  const sortedMacs = [...allMacs].sort((a, b) => {
+    const ha = hopsByMac.has(a) ? hopsByMac.get(a) : Number.MAX_SAFE_INTEGER;
+    const hb = hopsByMac.has(b) ? hopsByMac.get(b) : Number.MAX_SAFE_INTEGER;
+    if (ha !== hb) return ha - hb;
+    return a.localeCompare(b);
+  });
+  const tagByMac = new Map();
+  sortedMacs.forEach((mac, i) => tagByMac.set(mac, padTag(i)));
+
+  // ── clients (first-parent-wins dedup) ───────────────────────────────────
+  const clientParentByMac = new Map();
+  const clientsByParent = new Map();
+  for (const node of topology.nodes) {
+    if (!node.primaryMac) continue;
+    for (const c of node.clients || []) {
+      if (!c.mac || clientParentByMac.has(c.mac)) continue;
+      clientParentByMac.set(c.mac, node.primaryMac);
+      if (!clientsByParent.has(node.primaryMac)) clientsByParent.set(node.primaryMac, []);
+      clientsByParent.get(node.primaryMac).push({ mac: c.mac, hostname: c.hostname || '' });
+    }
+  }
+
+  // ── build peers + self ──────────────────────────────────────────────────
+  let clientCounter = 0;
+  const nextClientTag = () => `C${++clientCounter}`;
+
+  let self = null;
+  const peers = [];
+  for (const mac of sortedMacs) {
+    const isSelf = selfPrimaries.has(mac);
+    const clients = (clientsByParent.get(mac) || []).map((c) => ({
+      id: `client:${c.mac}`,
+      mac: c.mac,
+      hostname: c.hostname,
+      tag: nextClientTag(),
+    }));
+    const hops = hopsByMac.has(mac) ? hopsByMac.get(mac) : 99;
+    const record = {
+      id: mac,
+      mac,
+      hostname: hostnameByMac.get(mac) || '',
+      tag: tagByMac.get(mac),
+      hops,
+      degraded: degradedByMac.has(mac),
+      clients,
+    };
+    if (isSelf && !self) {
+      self = record;
+    } else {
+      peers.push(record);
+    }
+  }
+
+  // ── build edges ─────────────────────────────────────────────────────────
+  const edges = [];
+  for (const edge of pairSeen.values()) {
+    const weak =
+      (edge.metric || 0) > WEAK_METRIC_THRESHOLD ||
+      (edge.signal !== 0 && edge.signal < WEAK_SIGNAL_DBM);
+    edges.push({
+      id: `mesh:${edge.src}|${edge.dst}`,
+      src: edge.src,
+      dst: edge.dst,
+      signal: edge.signal || 0,
+      metric: edge.metric || 0,
+      weak,
+    });
+  }
+
+  const peerHops = peers.map((p) => p.hops).filter((h) => h < 99);
+  const hopsMax = peerHops.length > 0 ? Math.max(...peerHops) : 0;
+
+  return {
+    self,
+    peers,
+    edges,
+    counts: {
+      peers: peers.length,
+      degraded: degradedByMac.size,
+      clients: clientCounter,
+      hopsMax,
+    },
+  };
 }

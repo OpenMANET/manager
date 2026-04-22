@@ -12,7 +12,7 @@
 // PTT latency is intentionally not on this page — it lives on the Comms page
 // with the rest of the realtime audio instrumentation.
 
-import { useState, useEffect, useCallback, useMemo, useRef, Suspense, lazy } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { DashboardService } from "../gen/openmanet/dashboard/v1/dashboard_service_connect.js";
@@ -20,9 +20,8 @@ import { NetworkInterfaceState } from "../gen/openmanet/dashboard/v1/dashboard_p
 import { GNSSService } from "../gen/openmanet/gnss/v1/gnss_service_connect.js";
 import { BLOSService } from "../gen/openmanet/blos/v1/blos_service_connect.js";
 import { fetchMeshStatus, fetchMeshTopology, fetchMeshTopologyDelta } from '../services/meshApi.js';
+import TopologyMap from '../components/TopologyMap.jsx';
 import './Dashboard.css';
-
-const TopologyMap = lazy(() => import('../components/TopologyMap.jsx'));
 
 const dashClient = createClient(DashboardService, transport);
 const gnssClient = createClient(GNSSService, transport);
@@ -606,9 +605,7 @@ export default function DashboardPage() {
         {/* Row 4: topology map */}
         <div className="lat-panel col-span-all dashboard-topology">
           <div className="panel-head"><h3>Network Topology</h3></div>
-          <Suspense fallback={<div className="dashboard-loading">Loading topology…</div>}>
-            <TopologyMap topology={topology} />
-          </Suspense>
+          <TopologyMap topology={topology} compact />
         </div>
       </div>
     </>

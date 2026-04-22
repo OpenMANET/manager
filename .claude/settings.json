@@ -48,7 +48,8 @@
       "Bash(grep -r \"placeholder\\\\|hardcoded\\\\|coming soon\\\\|not implemented\\\\|TBD\\\\|STUB\\\\|em-dash\\\\|——\" /workspaces/openmanetd/frontend/src --include=\"*.jsx\" --include=\"*.js\" ! -path \"*/gen/*\")",
       "Bash(grep -rn \"TODO\\\\|FIXME\\\\|XXX\\\\|HACK\" /workspaces/openmanetd/frontend/src --include=\"*.jsx\" --include=\"*.js\" ! -path \"*/gen/*\" ! -path \"*/__tests__/*\")",
       "Bash(buf lint *)",
-      "Bash(make -C /workspaces/openmanetd frontend)"
+      "Bash(make -C /workspaces/openmanetd frontend)",
+      "Bash(make -C /workspaces/openmanetd test-frontend)"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"

@@ -1,5 +1,5 @@
 /* =============================================================================
- * Topology.css — Mesh topology page layout
+ * Topology.css — Mesh topology page layout + SVG renderer styles
  * ============================================================================= */
 
 .topology-body {
@@ -16,4 +16,143 @@
   .topology-body {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── SVG canvas ─────────────────────────────────────────────────────────── */
+
+.topo-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 420px;
+  background:
+    linear-gradient(rgba(0, 229, 255, 0.05) 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(90deg, rgba(0, 229, 255, 0.05) 1px, transparent 1px) 0 0 / 32px 32px,
+    var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  touch-action: none; /* let d3-zoom drive pinch/pan */
+}
+.topo-canvas svg {
+  width: 100%;
+  height: 420px;
+  display: block;
+  cursor: grab;
+}
+.topo-canvas svg:active { cursor: grabbing; }
+.topo-canvas.compact svg { height: 280px; }
+
+/* ── Nodes ──────────────────────────────────────────────────────────────── */
+
+.topo-node { cursor: pointer; }
+.topo-node circle {
+  fill: var(--surface-2);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  transition: stroke-width 0.12s, filter 0.12s;
+}
+.topo-node text {
+  fill: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  user-select: none;
+}
+
+.topo-node.self circle {
+  stroke: var(--ok);
+  fill: rgba(0, 230, 118, 0.12);
+  filter: drop-shadow(0 0 8px var(--ok));
+}
+.topo-node.self .halo {
+  fill: none;
+  stroke: var(--ok);
+  stroke-opacity: 0.3;
+  stroke-dasharray: 3 3;
+}
+.topo-node.self text { fill: var(--ok); }
+
+.topo-node.weak circle {
+  stroke: var(--warn);
+  fill: rgba(255, 179, 0, 0.10);
+}
+.topo-node.weak text { fill: var(--warn); }
+
+.topo-node.client circle {
+  stroke: var(--dim);
+  fill: var(--surface-2);
+  stroke-width: 1;
+}
+.topo-node.client text {
+  fill: var(--muted);
+  font-size: 7px;
+  letter-spacing: 0.04em;
+}
+
+.topo-node.selected circle {
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 10px currentColor);
+}
+
+/* ── Edges ──────────────────────────────────────────────────────────────── */
+
+.topo-edge {
+  stroke: var(--accent);
+  stroke-opacity: 0.5;
+  stroke-width: 1;
+  pointer-events: none;
+}
+.topo-edge.weak {
+  stroke: var(--warn);
+  stroke-opacity: 0.8;
+}
+.topo-edge.client {
+  stroke: var(--dim);
+  stroke-opacity: 0.6;
+  stroke-dasharray: 2 3;
+}
+
+/* ── Empty states / selected panel ──────────────────────────────────────── */
+
+.topo-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 420px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.topo-empty-hint {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 8px 0;
+}
+
+.topo-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.topo-actions .lat-btn { flex: 1; }
+
+/* ── Accessibility ──────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .topo-node.selected circle,
+  .topo-node.self circle {
+    filter: none;
+  }
+  .topo-node circle { transition: none; }
 }
