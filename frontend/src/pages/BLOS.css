@@ -1,0 +1,88 @@
+/* =============================================================================
+ * BLOS.css — Beyond Line of Sight page
+ * ============================================================================= */
+
+.blos-loading {
+  padding: 32px 20px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.blos-banner {
+  margin: 12px 20px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.blos-banner.ok { border-left-color: var(--ok); color: var(--ok); }
+.blos-banner.crit { border-left-color: var(--crit); color: var(--crit); }
+
+.blos-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.blos-grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+.blos-grid .lat-panel.col-span-2 { grid-column: span 2; }
+.blos-grid .lat-panel.col-span-3 { grid-column: span 3; }
+
+@media (max-width: 900px) {
+  .blos-grid { grid-template-columns: 1fr 1fr; }
+  .blos-grid .lat-panel.col-span-2,
+  .blos-grid .lat-panel.col-span-3 { grid-column: span 2; }
+}
+@media (max-width: 640px) {
+  .blos-grid { grid-template-columns: 1fr; }
+  .blos-grid .lat-panel.col-span-2,
+  .blos-grid .lat-panel.col-span-3 { grid-column: span 1; }
+}
+
+.blos-empty {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 16px 8px;
+  text-align: center;
+}
+
+.blos-toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+.blos-toggle-row > label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.blos-toggle-row > .lat-toggle {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
+.blos-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.blos-actions .lat-btn { min-height: 40px; }

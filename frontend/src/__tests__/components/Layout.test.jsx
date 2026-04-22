@@ -28,14 +28,20 @@ describe('TestLayoutDesktop', () => {
   it('renders sidebar with brand on wide viewport', () => {
     const { container } = renderLayout(1024);
     expect(container.querySelector('.sidebar')).toBeTruthy();
-    expect(screen.getByText('OpenMANET')).toBeTruthy();
-    expect(screen.getByText('Comms Bridge')).toBeTruthy();
+    expect(screen.getByText(/◇ OpenMANET/)).toBeTruthy();
+    expect(screen.getByText('Comms')).toBeTruthy();
     expect(screen.getByText('Settings')).toBeTruthy();
   });
 
   it('renders brand subtitle', () => {
     renderLayout(1024);
-    expect(screen.getByText('Mesh Radio WebUI')).toBeTruthy();
+    expect(screen.getByText('Mesh Terminal')).toBeTruthy();
+  });
+
+  it('renders nav section headings', () => {
+    renderLayout(1024);
+    expect(screen.getByText('Operations')).toBeTruthy();
+    expect(screen.getByText('System')).toBeTruthy();
   });
 });
 
@@ -44,7 +50,16 @@ describe('TestLayoutMobile', () => {
     const { container } = renderLayout(500);
     expect(container.querySelector('.bottom-tab-bar')).toBeTruthy();
     expect(container.querySelector('.sidebar')).toBeNull();
-    expect(screen.getByText('Comms Bridge')).toBeTruthy();
+    // "More" overflow tab is always present
+    expect(screen.getByText('More')).toBeTruthy();
+  });
+
+  it('opens overflow sheet when More tab tapped', () => {
+    const { container } = renderLayout(500);
+    const moreTab = screen.getByText('More').closest('button');
+    fireEvent.click(moreTab);
+    expect(container.querySelector('.tab-sheet')).toBeTruthy();
+    expect(screen.getByText('BLOS')).toBeTruthy();
     expect(screen.getByText('Settings')).toBeTruthy();
   });
 });
@@ -59,13 +74,13 @@ describe('TestLayoutSidebarCollapse', () => {
     const toggleBtn = container.querySelector('.sidebar-toggle');
     fireEvent.click(toggleBtn);
     expect(sidebar.classList.contains('collapsed')).toBe(true);
-    // Brand should be hidden
-    expect(screen.queryByText('OpenMANET')).toBeNull();
+    // Brand should be hidden when collapsed
+    expect(screen.queryByText(/◇ OpenMANET/)).toBeNull();
 
     // Expand
     fireEvent.click(toggleBtn);
     expect(sidebar.classList.contains('collapsed')).toBe(false);
-    expect(screen.getByText('OpenMANET')).toBeTruthy();
+    expect(screen.getByText(/◇ OpenMANET/)).toBeTruthy();
   });
 });
 
@@ -98,11 +113,15 @@ describe('TestLayoutResize', () => {
 });
 
 describe('TestLayoutNavLinks', () => {
-  it('has correct navigation paths', () => {
+  it('includes all expected nav paths', () => {
     const { container } = renderLayout(1024);
-    const links = container.querySelectorAll('a');
+    const links = container.querySelectorAll('.sidebar a');
     const hrefs = Array.from(links).map(a => a.getAttribute('href'));
     expect(hrefs).toContain('/');
+    expect(hrefs).toContain('/comms');
+    expect(hrefs).toContain('/topology');
+    expect(hrefs).toContain('/gps');
+    expect(hrefs).toContain('/blos');
     expect(hrefs).toContain('/settings');
   });
 });

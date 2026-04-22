@@ -1,5 +1,5 @@
 // =============================================================================
-// LoginPage.jsx — Authentication gate for the OpenMANET WebUI
+// LoginPage.jsx — Operator authentication terminal
 // =============================================================================
 
 import { useState, useEffect } from 'react';
@@ -12,6 +12,22 @@ import './LoginPage.css';
 
 const dashboardClient = createClient(DashboardService, transport);
 
+function useUtcClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
+function formatUtc(d) {
+  return d.toISOString().slice(11, 19);
+}
+function formatDate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
 export default function LoginPage() {
   const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -21,24 +37,25 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [deviceInfo, setDeviceInfo] = useState(null);
+  const now = useUtcClock();
 
   // Redirect if already authenticated.
   useEffect(() => {
     if (isAuthenticated) navigate('/', { replace: true });
   }, [isAuthenticated, navigate]);
 
-  // Fetch device info for the footer (unauthenticated, exempt from auth middleware).
+  // Best-effort unauthenticated device-info fetch for the corner readouts.
   useEffect(() => {
     dashboardClient.getDashboardStatus({})
       .then(resp => setDeviceInfo(resp.deviceInfo ?? null))
-      .catch(() => { /* best-effort — footer just stays empty */ });
+      .catch(() => { /* empty state is fine — corners just show em-dashes */ });
   }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
 
     if (!username || !password) {
-      setError('Please enter username and password');
+      setError('Please enter operator and passphrase');
       return;
     }
 
@@ -49,28 +66,43 @@ export default function LoginPage() {
       await login(username, password);
       navigate('/', { replace: true });
     } catch (err) {
-      setError(err.message || 'Login failed');
+      setError(err.message || 'Authentication failed');
     } finally {
       setSubmitting(false);
     }
   }
 
-  const footerText = buildFooterText(deviceInfo);
+  const hostname = deviceInfo?.hostname || '—';
+  const firmware = deviceInfo?.firmware || '—';
+  const model = deviceInfo?.model || '—';
+  const kernel = deviceInfo?.kernel || '';
+  const arch = deviceInfo?.architecture || '';
 
   return (
-    <div className="login-page">
+    <div className="login-screen">
+      <div className="login-corner tl">
+        NODE<br/><span className="v">{hostname}</span>
+      </div>
+      <div className="login-corner tr">
+        {formatDate(now)}<br/><span className="v">{formatUtc(now)} UTC</span>
+      </div>
+      <div className="login-corner bl">
+        OPENMANETD<br/><span className="v">{firmware}</span>
+      </div>
+      <div className="login-corner br">
+        {model}<br/><span className="v">{[kernel, arch].filter(Boolean).join(' · ') || '—'}</span>
+      </div>
+
       <div className="login-card">
-        <div className="login-header">
-          <span className="login-icon" aria-hidden="true">📡</span>
-          <h1 className="login-title">OpenMANET</h1>
-          <p className="login-subtitle">OpenMANET Management Interface</p>
-        </div>
+        <div className="login-mark">◇ OPENMANET</div>
+        <div className="login-sub">Mesh Operator Terminal</div>
 
         <form className="login-form" onSubmit={handleSubmit} noValidate>
-          <div className="login-field">
-            <label htmlFor="username">Username</label>
+          <div className="lat-field">
+            <label htmlFor="username">Operator</label>
             <input
               id="username"
+              className="lat-input"
               type="text"
               autoComplete="username"
               value={username}
@@ -79,10 +111,11 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="login-field">
-            <label htmlFor="password">Password</label>
+          <div className="lat-field">
+            <label htmlFor="password">Passphrase</label>
             <input
               id="password"
+              className="lat-input"
               type="password"
               autoComplete="current-password"
               value={password}
@@ -92,33 +125,18 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div className="login-error" role="alert">{error}</div>
+            <div className="lat-alert crit" role="alert">{error}</div>
           )}
 
           <button
             type="submit"
-            className="login-btn"
+            className="lat-btn primary login-submit"
             disabled={submitting}
           >
-            {submitting ? 'Signing in…' : 'Sign In'}
+            {submitting ? 'AUTHENTICATING…' : '◇ AUTHENTICATE'}
           </button>
         </form>
-
-        {footerText && (
-          <p className="login-footer">{footerText}</p>
-        )}
       </div>
     </div>
   );
-}
-
-function buildFooterText(deviceInfo) {
-  if (!deviceInfo) return null;
-
-  const parts = [];
-
-  if (deviceInfo.firmware) parts.push(deviceInfo.firmware);
-  if (deviceInfo.model) parts.push(deviceInfo.model);
-
-  return parts.length > 0 ? parts.join(' \u2014 ') : null;
 }

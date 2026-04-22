@@ -1,0 +1,58 @@
+/* =============================================================================
+ * GpsStatus.css — GPS / GNSS page-specific styles (mostly SkyPlot SVG)
+ * ============================================================================= */
+
+.skyplot-svg {
+  display: block;
+  width: 220px;
+  max-width: 100%;
+  height: auto;
+}
+
+.skyplot-ring {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.skyplot-ring.horizon {
+  stroke: var(--border-hi);
+  stroke-width: 1;
+}
+.skyplot-cross {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.skyplot-cardinal {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.skyplot-sat {
+  fill: var(--accent);
+  stroke: var(--bg);
+  stroke-width: 0.5;
+  filter: drop-shadow(0 0 3px var(--accent));
+}
+.skyplot-sat.used {
+  fill: var(--ok);
+  filter: drop-shadow(0 0 3px var(--ok));
+}
+.skyplot-sat.weak {
+  fill: var(--warn);
+  filter: drop-shadow(0 0 3px var(--warn));
+}
+
+.skyplot-sat-label {
+  fill: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 7px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skyplot-sat { filter: none !important; }
+}

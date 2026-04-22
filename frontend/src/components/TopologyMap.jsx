@@ -13,10 +13,10 @@ import React, { useMemo } from 'react';
 import { GraphCanvas, darkTheme } from 'reagraph';
 import { buildGraphData } from './topologyGraph.js';
 
-// App uses a darker background than reagraph's default #1E2026.
+// Lattice-dark canvas — near-black with subtle surface-hi, matches .lat-panel.
 const topologyTheme = {
   ...darkTheme,
-  canvas: { ...darkTheme.canvas, background: '#111821' },
+  canvas: { ...darkTheme.canvas, background: '#0a0f13' },
 };
 
 export default React.memo(function TopologyMap({ topology }) {
@@ -32,8 +32,8 @@ export default React.memo(function TopologyMap({ topology }) {
           width: '100%',
           height: '260px',
           position: 'relative',
-          background: '#111821',
-          borderRadius: 4,
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
           overflow: 'hidden',
         }}
       >

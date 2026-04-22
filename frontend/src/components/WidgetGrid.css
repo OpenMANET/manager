@@ -1,43 +1,51 @@
 /* =============================================================================
- * WidgetGrid.css — Reusable widget layout with drag/resize support
+ * WidgetGrid.css — Reusable widget layout with drag/resize support (Lattice)
  * ============================================================================= */
 
 .widget-grid-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
-  margin-bottom: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
 }
-
 .widget-grid-header h2 {
-  font-size: 1.2em;
   margin: 0;
   flex: 1;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text);
+  font-weight: 600;
 }
 
 .widget-lock-btn,
 .widget-reset-btn {
-  background: var(--surface);
+  background: transparent;
   border: 1px solid var(--border);
-  border-radius: 6px;
   color: var(--muted);
-  font-size: 0.75em;
-  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 5px 10px;
   cursor: pointer;
   white-space: nowrap;
+  min-height: 30px;
 }
-
 .widget-lock-btn:hover,
 .widget-reset-btn:hover {
-  color: var(--text);
-  border-color: var(--accent);
+  color: var(--accent);
+  border-color: var(--border-hi);
 }
 
 /* Flex container — widgets wrap and size by percentage */
 .widget-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
+  padding: 14px 20px;
 }
 
 /* Widget wrapper */
@@ -51,7 +59,6 @@
 .widget-wrapper.unlocked {
   outline: 1px dashed var(--border);
   outline-offset: 2px;
-  border-radius: var(--radius);
 }
 
 .widget-wrapper.dragging {
@@ -69,26 +76,27 @@
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   cursor: ew-resize;
   touch-action: none;
   user-select: none;
   z-index: 5;
 }
-
 .widget-resize-handle::before {
   content: '';
   position: absolute;
   bottom: 5px;
   right: 5px;
-  width: 8px;
-  height: 8px;
-  border-right: 2px solid var(--muted);
-  border-bottom: 2px solid var(--muted);
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
   opacity: 0.5;
 }
+.widget-resize-handle:hover::before { opacity: 1; }
 
-.widget-resize-handle:hover::before {
-  opacity: 1;
+@media (max-width: 640px) {
+  .widget-grid-header { padding: 12px 12px; }
+  .widget-grid { padding: 12px; gap: 10px; }
 }

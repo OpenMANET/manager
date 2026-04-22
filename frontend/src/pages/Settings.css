@@ -1,0 +1,116 @@
+/* =============================================================================
+ * Settings.css — Device settings page
+ * ============================================================================= */
+
+.settings-wrapper {
+  width: 100%;
+}
+
+.settings-h2 {
+  padding: 14px 20px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text);
+  margin: 0;
+  font-weight: 600;
+}
+
+.settings-loading {
+  margin: 14px 20px;
+  padding: 32px;
+  text-align: center;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.settings-loading .spinner {
+  width: 28px; height: 28px;
+  margin: 0 auto 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: settings-spin 0.7s linear infinite;
+}
+@keyframes settings-spin { to { transform: rotate(360deg); } }
+
+.settings-banner {
+  margin: 12px 20px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.settings-banner.ok { border-left-color: var(--ok); color: var(--ok); }
+.settings-banner.crit { border-left-color: var(--crit); color: var(--crit); }
+
+.settings-grid {
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+}
+.settings-grid .lat-panel.col-span-all { grid-column: 1 / -1; }
+
+.settings-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.settings-row .lat-input { flex: 1; max-width: 300px; }
+
+.settings-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.settings-save-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.settings-unsaved {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--yellow);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.settings-raw-toggle {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  width: 100%;
+  text-align: left;
+}
+.settings-raw-toggle h3 { margin: 0; }
+.settings-chevron {
+  font-size: 9px;
+  color: var(--accent);
+}
+
+.settings-yaml {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--muted);
+  max-height: 400px;
+  overflow-y: auto;
+  margin-top: 8px;
+  white-space: pre-wrap;
+  -webkit-user-select: text;
+  user-select: text;
+}

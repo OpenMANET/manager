@@ -692,15 +692,23 @@ export default function App() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px', width: '100%' }}>
-      <div className="top-bar">
-        <div className="top-bar-left">
-          <h1>Comms Bridge</h1>
+    <div className="comms-page">
+      <div className="lat-topbar">
+        <div className="node-id">
+          COMMS
+          <span className="ip">{audioStatus || '—'}</span>
         </div>
-        <SettingsMenu panelVisibility={panelVisibility} onTogglePanel={handleTogglePanel} />
+        <StatusBar wsStatus={wsStatus} audioStatus={audioStatus} />
       </div>
-
-      <StatusBar wsStatus={wsStatus} audioStatus={audioStatus} />
+      <div className="lat-view-header">
+        <div>
+          <h2>◇ Comms</h2>
+          <div className="crumb">Push-to-talk · channels · transcript</div>
+        </div>
+        <div className="lat-view-toolbar">
+          <SettingsMenu panelVisibility={panelVisibility} onTogglePanel={handleTogglePanel} />
+        </div>
+      </div>
 
       <div className="main-grid">
         {/* ── Left column: Channels + Mesh ─────────────────────────── */}
@@ -807,7 +815,6 @@ export default function App() {
           <LogBox logs={logs} />
         )}
       </div>
-
     </div>
   );
 }

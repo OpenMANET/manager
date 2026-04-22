@@ -1,11 +1,17 @@
 // =============================================================================
 // BLOS.jsx — Beyond Line of Sight (VPN/Tailscale) configuration page
 // =============================================================================
+// The reimagined Lattice layout includes panels for traffic, DERP relay,
+// overlay peers, ACL tags, and a keepalive log.  Many of those fields are
+// NOT currently exposed by the BLOS proto (see the "Data Provenance" section
+// of the Lattice redesign plan) — those panels render em-dashes with TODO
+// comments until a follow-up plan extends the API.
 
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { BLOSService } from "../gen/openmanet/blos/v1/blos_service_connect.js";
+import './BLOS.css';
 
 const blosClient = createClient(BLOSService, transport);
 
@@ -53,93 +59,161 @@ export default function BLOSPage() {
     }
   };
 
-  const inputStyle = {
-    background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)',
-    borderRadius: 6, padding: '6px 10px', fontSize: '0.88em', outline: 'none', width: '100%', maxWidth: 350,
-  };
-  const btnStyle = {
-    padding: '8px 20px', border: 'none', borderRadius: 6, cursor: 'pointer',
-    fontSize: '0.85em', fontWeight: 600, background: 'var(--accent)', color: 'var(--text)',
-  };
-
   if (loading) {
     return (
-      <div style={{ width: '100%', maxWidth: 900 }}>
-        <h2 style={{ fontSize: '1.2em', marginBottom: 12 }}>BLOS (Beyond Line of Sight)</h2>
-        <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-          <div style={{ color: 'var(--muted)', fontSize: '0.85em' }}>Loading BLOS status...</div>
-        </div>
-      </div>
+      <div className="blos-loading">Loading BLOS status...</div>
     );
   }
 
+  const enabled = status?.blosEnabled ?? false;
+  const statusMsg = status?.message || '';
+
   return (
-    <div style={{ width: '100%', maxWidth: 900 }}>
-      <h2 style={{ fontSize: '1.2em', marginBottom: 12 }}>BLOS (Beyond Line of Sight)</h2>
-
-      {error && (
-        <div style={{ background: 'rgba(204,51,51,0.1)', border: '1px solid var(--red)', borderRadius: 6, padding: '8px 12px', marginBottom: 8, fontSize: '0.85em', color: 'var(--red)' }}>
-          {error}
+    <>
+      <div className="lat-topbar">
+        <div className="node-id">
+          BLOS
+          <span className="ip">{enabled ? 'TUNNEL UP' : 'TUNNEL DOWN'}</span>
         </div>
-      )}
-      {success && (
-        <div style={{ background: 'rgba(107,142,35,0.1)', border: '1px solid var(--green)', borderRadius: 6, padding: '8px 12px', marginBottom: 8, fontSize: '0.85em', color: 'var(--green)' }}>
-          {success}
-        </div>
-      )}
-
-      <div className="card">
-        <div className="card-title">BLOS Status</div>
-        {status && (
-          <div style={{ fontSize: '0.9em', marginBottom: 10 }}>
-            <span style={{ color: 'var(--muted)' }}>Status:</span>{' '}
-            <span style={{ color: status.blosEnabled ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
-              {status.blosEnabled ? 'Enabled' : 'Disabled'}
-            </span>
-            {status.message && <span style={{ color: 'var(--muted)', marginLeft: 8 }}>({status.message})</span>}
-          </div>
-        )}
-      </div>
-
-      <div className="card" style={{ marginTop: 8 }}>
-        <div className="card-title">Configuration</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 12 }}>
-          <div>
-            <label style={{ fontSize: '0.82em', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Enable BLOS</label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.88em' }}>
-              <div
-                onClick={() => setEnableBlos(!enableBlos)}
-                style={{
-                  width: 42, height: 22, borderRadius: 11, padding: 2,
-                  background: enableBlos ? 'var(--green)' : 'var(--border)',
-                  cursor: 'pointer', transition: 'background 0.2s', display: 'flex', alignItems: 'center',
-                }}
-              >
-                <div style={{
-                  width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                  transition: 'transform 0.2s',
-                  transform: enableBlos ? 'translateX(20px)' : 'translateX(0)',
-                }} />
-              </div>
-              {enableBlos ? 'On' : 'Off'}
-            </label>
-          </div>
-          <div>
-            <label style={{ fontSize: '0.82em', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Auth Key</label>
-            <input style={inputStyle} type="password" value={authKey} onChange={e => setAuthKey(e.target.value)} placeholder="Paste auth key" />
-          </div>
-          <div>
-            <label style={{ fontSize: '0.82em', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Login Server URL (optional)</label>
-            <input style={inputStyle} value={loginServer} onChange={e => setLoginServer(e.target.value)} placeholder="https://headscale.example.com" />
-          </div>
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <button onClick={handleSave} disabled={saving} style={{ ...btnStyle, opacity: saving ? 0.5 : 1 }}>
-            {saving ? 'Saving...' : 'Update BLOS Config'}
-          </button>
+        <div className="chips">
+          <span className={`lat-chip ${enabled ? 'ok' : 'crit'}`}>
+            <span className="dot" />
+            {enabled ? 'ENABLED' : 'DISABLED'}
+          </span>
         </div>
       </div>
-    </div>
+      <div className="lat-view-header">
+        <div>
+          <h2>◇ BLOS · Beyond Line of Sight</h2>
+          <div className="crumb">Tailscale overlay</div>
+        </div>
+        <div className="lat-view-toolbar">
+          <button className="lat-btn ghost" type="button" title="Rotate authentication key">ROTATE KEY</button>
+        </div>
+      </div>
+
+      {error && <div className="blos-banner crit">{error}</div>}
+      {success && <div className="blos-banner ok">{success}</div>}
+
+      <div className="lat-body blos-grid">
+
+        {/* ── Tunnel status card ───────────────────────────────── */}
+        <div className="lat-panel">
+          <div className="panel-head"><h3>Tunnel</h3></div>
+          <div className={`big-num ${enabled ? 'ok' : 'crit'}`}>
+            {enabled ? 'Enabled' : 'Disabled'}
+          </div>
+          {statusMsg && <div className="blos-sub">{statusMsg}</div>}
+          {/* TODO(api-plan): surface overlay IPv4/IPv6, hostname, connected_since.
+              Currently the BLOS proto exposes only blos_enabled + message. */}
+          <div className="kv"><span className="k">Overlay IP</span><span className="v">—</span></div>
+          <div className="kv"><span className="k">Hostname</span><span className="v">—</span></div>
+          <div className="kv"><span className="k">Since</span><span className="v">—</span></div>
+        </div>
+
+        {/* ── RX / TX / DERP KPI cards — placeholders until API gains them ── */}
+        <div className="lat-panel">
+          <div className="panel-head"><h3>RX · 60s</h3></div>
+          {/* TODO(api-plan): rx_bytes_total + rate history */}
+          <div className="big-num">—<span className="unit">kbps</span></div>
+          <div className="kv"><span className="k">Total RX</span><span className="v">—</span></div>
+        </div>
+
+        <div className="lat-panel">
+          <div className="panel-head"><h3>TX · 60s</h3></div>
+          {/* TODO(api-plan): tx_bytes_total + rate history */}
+          <div className="big-num">—<span className="unit">kbps</span></div>
+          <div className="kv"><span className="k">Total TX</span><span className="v">—</span></div>
+        </div>
+
+        <div className="lat-panel">
+          <div className="panel-head"><h3>DERP Relay</h3></div>
+          {/* TODO(api-plan): derp_region, derp_latency_ms, endpoint, keepalive */}
+          <div className="kv"><span className="k">Region</span><span className="v">—</span></div>
+          <div className="kv"><span className="k">Latency</span><span className="v">—</span></div>
+          <div className="kv"><span className="k">Path</span><span className="v">—</span></div>
+          <div className="kv"><span className="k">Endpoint</span><span className="v">—</span></div>
+          <div className="kv"><span className="k">Keepalive</span><span className="v">—</span></div>
+        </div>
+
+        {/* ── Overlay peers + ACL tags ───────────────────────── */}
+        <div className="lat-panel col-span-3">
+          <div className="panel-head">
+            <h3>Overlay Peers</h3>
+          </div>
+          {/* TODO(api-plan): per-peer hostname, overlay_ip, os, endpoint, latency, rx, tx, path, last_seen */}
+          <div className="blos-empty">No overlay-peer data exposed by current BLOS proto.</div>
+        </div>
+
+        <div className="lat-panel">
+          <div className="panel-head"><h3>ACL / Tags</h3></div>
+          {/* TODO(api-plan): acl_tags[], exit_node, advertised_routes[] */}
+          <div className="kv"><span className="k">Exit node</span><span className="v">—</span></div>
+          <div className="kv"><span className="k">Subnet routes</span><span className="v">—</span></div>
+          <div className="kv"><span className="k">Tags</span><span className="v">—</span></div>
+        </div>
+
+        {/* ── Configuration ──────────────────────────────────── */}
+        <div className="lat-panel col-span-2">
+          <div className="panel-head"><h3>Configuration</h3></div>
+
+          <div className="blos-toggle-row">
+            <label>Enable BLOS</label>
+            <button
+              type="button"
+              className={`lat-toggle${enableBlos ? ' on' : ''}`}
+              onClick={() => setEnableBlos(!enableBlos)}
+            >
+              <span className="track"><span className="thumb" /></span>
+              <span className="label">{enableBlos ? 'On' : 'Off'}</span>
+            </button>
+          </div>
+
+          <div className="lat-field">
+            <label htmlFor="blos-auth-key">Auth Key</label>
+            <input
+              id="blos-auth-key"
+              className="lat-input"
+              type="password"
+              value={authKey}
+              onChange={(e) => setAuthKey(e.target.value)}
+              placeholder="Paste auth key"
+              autoComplete="off"
+            />
+            <span className="hint">Never echoed back · blank keeps current</span>
+          </div>
+
+          <div className="lat-field">
+            <label htmlFor="blos-login-server">Login Server URL (optional)</label>
+            <input
+              id="blos-login-server"
+              className="lat-input"
+              value={loginServer}
+              onChange={(e) => setLoginServer(e.target.value)}
+              placeholder="https://headscale.example.com"
+              autoComplete="off"
+            />
+          </div>
+
+          <div className="blos-actions">
+            <button
+              className="lat-btn primary"
+              onClick={handleSave}
+              disabled={saving}
+              type="button"
+            >
+              {saving ? 'Saving\u2026' : 'Update BLOS Config'}
+            </button>
+          </div>
+        </div>
+
+        <div className="lat-panel col-span-2">
+          <div className="panel-head"><h3>Keepalive &amp; Events</h3></div>
+          {/* TODO(api-plan): expose keepalive events via a BLOS events stream */}
+          <div className="blos-empty">No event stream exposed by current BLOS proto.</div>
+        </div>
+
+      </div>
+    </>
   );
 }

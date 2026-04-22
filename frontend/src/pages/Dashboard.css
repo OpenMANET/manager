@@ -1,18 +1,76 @@
 /* =============================================================================
  * Dashboard.css — Dashboard page styles
- * ============================================================================= */
+ * =============================================================================
+ * Most styling now comes from Lattice primitives (.lat-panel, .kv).  Only
+ * dashboard-specific helpers live here. */
 
-/* Progress bar */
-.dashboard-bar-track {
-  flex: 1;
-  height: 10px;
-  background: var(--border);
-  border-radius: 3px;
-  overflow: hidden;
+.dashboard-loading {
+  padding: 32px 20px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
 }
 
+.dashboard-empty {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 8px 0;
+}
+
+.dashboard-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.dashboard-actions .lat-btn {
+  min-height: 40px;
+  justify-content: flex-start;
+}
+
+/* Progress bars — dashboard-specific because tests inspect .dashboard-bar-fill. */
+.dashboard-pbar {
+  padding: 4px 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.04);
+}
+.dashboard-pbar:last-child { border-bottom: none; }
+.dashboard-pbar-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.dashboard-pbar-row .k {
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.dashboard-pbar-row .v { color: var(--text); }
+
+.dashboard-bar-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
 .dashboard-bar-fill {
   height: 100%;
-  border-radius: 3px;
   transition: width 0.3s;
+}
+
+/* Status dot used in network summary (test inspects inline style.background) */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  flex-shrink: 0;
 }

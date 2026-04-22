@@ -372,7 +372,7 @@ describe('TestNetworkSummary', () => {
       // Find dots within the network summary section
       const networkDots = [];
       dots.forEach(dot => {
-        const parent = dot.closest('.card');
+        const parent = dot.closest('.lat-panel');
         if (parent && parent.textContent.includes('Network Summary')) {
           networkDots.push(dot);
         }

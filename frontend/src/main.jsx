@@ -8,6 +8,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext.jsx';
 import AppRouter from './AppRouter.jsx';
+import './styles/lattice.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

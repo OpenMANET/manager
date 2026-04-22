@@ -1,134 +1,103 @@
 /* =============================================================================
- * LoginPage.css — Full-page authentication screen
+ * LoginPage.css — Lattice authentication terminal (4-corner HUD)
  * ============================================================================= */
 
-.login-page {
+.login-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
-  background: #000;
+  overflow: hidden;
+  padding: 20px;
 }
+.login-screen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0, 229, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+  pointer-events: none;
+}
+.login-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 25% 20%, rgba(0, 229, 255, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 75% 80%, rgba(0, 229, 255, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+/* ── Corner readouts ───────────────────────────────────────────────────── */
+.login-corner {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  z-index: 2;
+  line-height: 1.6;
+}
+.login-corner.tl { top: 24px; left: 28px; }
+.login-corner.tr { top: 24px; right: 28px; text-align: right; }
+.login-corner.bl { bottom: 24px; left: 28px; }
+.login-corner.br { bottom: 24px; right: 28px; text-align: right; }
+.login-corner .v { color: var(--accent); }
 
 /* ── Card ──────────────────────────────────────────────────────────────── */
 .login-card {
-  width: 320px;
-  background: var(--surface);
+  position: relative;
+  z-index: 3;
+  width: 440px;
+  max-width: 100%;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 32px 28px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  background: var(--surface-2);
+  padding: 40px 36px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
 }
-
-/* ── Header ────────────────────────────────────────────────────────────── */
-.login-header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
+.login-mark {
   text-align: center;
-}
-
-.login-icon {
-  font-size: 2rem;
-  line-height: 1;
-}
-
-.login-title {
-  margin: 0;
-  font-size: 1.25rem;
+  font-family: var(--font-mono);
+  font-size: 22px;
+  letter-spacing: 0.22em;
+  color: var(--accent);
   font-weight: 700;
-  color: var(--text);
-  letter-spacing: 0.02em;
+  margin-bottom: 4px;
 }
-
-.login-subtitle {
-  margin: 0;
-  font-size: 0.75rem;
+.login-sub {
   color: var(--muted);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  margin-bottom: 28px;
 }
-
-/* ── Form ──────────────────────────────────────────────────────────────── */
 .login-form {
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
-
-.login-field {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.login-field label {
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.login-field input {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 0.9rem;
-  padding: 9px 10px;
-  outline: none;
-  transition: border-color 0.15s ease;
+.login-submit {
   width: 100%;
-  box-sizing: border-box;
+  margin-top: 6px;
+  min-height: 46px;
+  font-size: 12px;
+  letter-spacing: 0.18em;
 }
 
-.login-field input:focus {
-  border-color: var(--accent);
-}
-
-.login-field input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ── Error banner ──────────────────────────────────────────────────────── */
-.login-error {
-  background: rgba(204, 51, 51, 0.15);
-  border: 1px solid rgba(204, 51, 51, 0.4);
-  border-radius: 6px;
-  color: var(--red);
-  font-size: 0.82rem;
-  padding: 8px 10px;
-  text-align: center;
-}
-
-/* ── Submit button ─────────────────────────────────────────────────────── */
-.login-btn {
-  background: var(--accent);
-  border: none;
-  border-radius: 6px;
-  color: #fff;
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 600;
-  padding: 11px;
-  transition: background 0.15s ease;
-  width: 100%;
-}
-
-.login-btn:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
-.login-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* ── Footer ────────────────────────────────────────────────────────────── */
-.login-footer {
-  margin: 0;
-  font-size: 0.72rem;
-  color: var(--muted);
-  text-align: center;
-  opacity: 0.7;
+/* ── Mobile ────────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .login-screen { padding: 16px; align-items: flex-start; padding-top: 72px; }
+  .login-corner { font-size: 9px; }
+  .login-corner.tl { top: 12px; left: 16px; }
+  .login-corner.tr { top: 12px; right: 16px; }
+  .login-corner.bl, .login-corner.br { display: none; }
+  .login-card { padding: 28px 24px; width: 100%; }
+  .login-mark { font-size: 18px; }
 }

@@ -6,9 +6,9 @@ import React from 'react';
 import Sparkline from './Sparkline.jsx';
 
 function signalToColor(dBm) {
-  if (dBm > -60) return '#6B8E23';
-  if (dBm > -75) return '#b8a000';
-  return '#cc3333';
+  if (dBm > -60) return '#00e676';
+  if (dBm > -75) return '#ffb300';
+  return '#ff3b4d';
 }
 
 export default React.memo(function MeshStatusPanel({ data, neighborHistory }) {
@@ -123,7 +123,7 @@ export default React.memo(function MeshStatusPanel({ data, neighborHistory }) {
                     {hist && hist.throughput.length > 1 && (
                       <Sparkline
                         data={hist.throughput}
-                        color="#7a9f6e"
+                        color="#00e5ff"
                         width={50}
                         height={14}
                       />

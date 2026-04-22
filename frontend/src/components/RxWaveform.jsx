@@ -55,7 +55,7 @@ export default function RxWaveform({ rxWaveData, writePos, inline }) {
 
       // Draw amplitude bars from center line.
       ctx.beginPath();
-      ctx.strokeStyle = '#6B8E23';
+      ctx.strokeStyle = '#00e676';
       ctx.lineWidth = 1.5;
 
       for (let i = 0; i < RX_WAVE_HISTORY; i++) {

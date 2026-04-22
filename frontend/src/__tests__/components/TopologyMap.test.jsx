@@ -138,7 +138,7 @@ describe('TestBuildGraphDataEdgeDedup', () => {
     const { edges } = buildGraphData(twoNodeTopology());
     const alphaCharlie = edges.find((e) => e.id === 'mesh:0a:d7:37:78:2d:3e->00:0a:52:0b:7d:ae');
     expect(alphaCharlie.label).toMatch(/^TQ /);
-    expect(alphaCharlie.fill).toBe('#4b5563');
+    expect(alphaCharlie.fill).toBe('#1a2a3a');
   });
 });
 

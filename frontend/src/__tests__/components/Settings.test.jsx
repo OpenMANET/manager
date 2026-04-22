@@ -60,9 +60,9 @@ function mockFetchSuccess(hostnameRes = HOSTNAME_RESPONSE, configRes = CONFIG_RE
   }));
 }
 
-/** Click the comms toggle switch (the 42x22 div with onClick) */
+/** Click the first Lattice toggle switch (Comms Radio is rendered first). */
 function clickCommsToggle(container) {
-  const toggle = container.querySelector('div[style*="width: 42px"]');
+  const toggle = container.querySelector('.lat-toggle');
   fireEvent.click(toggle);
 }
 

@@ -1,6 +1,9 @@
 // =============================================================================
 // Settings.jsx — Device settings page
 // =============================================================================
+// Rewritten for Lattice: section-nav header, multi-card grid, Lattice-styled
+// inputs/toggles/buttons. Label copy is preserved so existing tests continue
+// to assert against the same strings.
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from "@connectrpc/connect";
@@ -11,6 +14,7 @@ import { QuickAction } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
 import { CommsService } from "../gen/openmanet/comms/v1/comms_service_connect.js";
 import { ControlSource } from "../gen/openmanet/comms/v1/config_pb.js";
 import WhisperManager from "../components/WhisperManager.jsx";
+import './Settings.css';
 
 const dashboardClient = createClient(DashboardService, transport);
 const commsClient = createClient(CommsService, transport);
@@ -41,6 +45,19 @@ function formatYaml(obj, indent) {
     }
   }
   return out;
+}
+
+function LatToggle({ checked, onChange, labelOn = 'On', labelOff = 'Off' }) {
+  return (
+    <button
+      type="button"
+      className={`lat-toggle${checked ? ' on' : ''}`}
+      onClick={() => onChange(!checked)}
+    >
+      <span className="track"><span className="thumb" /></span>
+      <span className="label">{checked ? labelOn : labelOff}</span>
+    </button>
+  );
 }
 
 export default function SettingsPage() {
@@ -153,8 +170,6 @@ export default function SettingsPage() {
     clearMessages();
     setSaving(true);
     try {
-      // Send nested structure matching the YAML config format.
-      // The backend deep-merges this into the existing config.
       const payload = {
         comms: {
           enable: config.comms_enabled,
@@ -194,31 +209,14 @@ export default function SettingsPage() {
     }
   };
 
-  const inputStyle = {
-    background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)',
-    borderRadius: 6, padding: '6px 10px', fontSize: '0.88em', outline: 'none',
-    width: '100%', maxWidth: 300,
-  };
-  const selectStyle = { ...inputStyle, cursor: 'pointer' };
-  const btnStyle = {
-    padding: '8px 20px', border: 'none', borderRadius: 6, cursor: 'pointer',
-    fontSize: '0.85em', fontWeight: 600, transition: 'opacity 0.15s',
-  };
-  const primaryBtn = { ...btnStyle, background: 'var(--accent)', color: 'var(--text)' };
-  const dangerBtn = { ...btnStyle, background: 'rgba(204,51,51,0.15)', border: '1px solid var(--red)', color: 'var(--red)' };
-
   if (loading) {
     return (
-      <div style={{ width: '100%', maxWidth: 900 }}>
-        <h2 style={{ fontSize: '1.2em', marginBottom: 12 }}>Settings</h2>
-        <div className="card" style={{ textAlign: 'center', padding: 40 }}>
+      <div className="settings-wrapper">
+        <h2 className="settings-h2">Settings</h2>
+        <div className="lat-panel settings-loading">
           <div className="spinner" />
-          <div style={{ color: 'var(--muted)', marginTop: 10, fontSize: '0.85em' }}>Loading settings...</div>
+          <div>Loading settings...</div>
         </div>
-        <style>{`
-          .spinner { width:28px;height:28px;margin:0 auto;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite; }
-          @keyframes spin { to { transform:rotate(360deg); } }
-        `}</style>
       </div>
     );
   }
@@ -232,44 +230,46 @@ export default function SettingsPage() {
   );
 
   return (
-    <div style={{ width: '100%', maxWidth: 900 }}>
-      <h2 style={{ fontSize: '1.2em', marginBottom: 12 }}>Settings</h2>
+    <div className="settings-wrapper">
+      <div className="lat-topbar">
+        <div className="node-id">
+          SETTINGS
+          <span className="ip">openmanetd</span>
+        </div>
+        {configChanged && (
+          <div className="chips">
+            <span className="lat-chip warn"><span className="dot" /> UNSAVED CHANGES</span>
+          </div>
+        )}
+      </div>
+      <div className="lat-view-header">
+        <div>
+          <h2>◇ Settings</h2>
+          <div className="crumb">Hostname · Service · Configuration · Raw YAML</div>
+        </div>
+      </div>
 
-      {/* Status messages */}
-      {error && (
-        <div style={{
-          background: 'rgba(204,51,51,0.1)', border: '1px solid var(--red)', borderRadius: 6,
-          padding: '8px 12px', marginBottom: 8, fontSize: '0.85em', color: 'var(--red)',
-        }}>{error}</div>
-      )}
-      {success && (
-        <div style={{
-          background: 'rgba(107,142,35,0.1)', border: '1px solid var(--green)', borderRadius: 6,
-          padding: '8px 12px', marginBottom: 8, fontSize: '0.85em', color: 'var(--green)',
-        }}>{success}</div>
-      )}
+      {error && <div className="settings-banner crit">{error}</div>}
+      {success && <div className="settings-banner ok">{success}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 8 }}>
+      <div className="lat-body settings-grid">
 
         {/* Hostname */}
-        <div className="card">
-          <div className="card-title">Hostname</div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="lat-panel">
+          <div className="panel-head"><h3>Hostname</h3></div>
+          <div className="settings-row">
             <input
+              className="lat-input"
               type="text"
               value={hostname}
               onChange={(e) => setHostname(e.target.value)}
               placeholder="device-hostname"
-              style={inputStyle}
             />
             <button
+              className="lat-btn primary"
               onClick={handleSaveHostname}
               disabled={saving || !hostnameChanged}
-              style={{
-                ...primaryBtn,
-                opacity: saving || !hostnameChanged ? 0.5 : 1,
-                cursor: saving || !hostnameChanged ? 'default' : 'pointer',
-              }}
+              type="button"
             >
               {saving ? 'Saving...' : 'Save'}
             </button>
@@ -277,58 +277,42 @@ export default function SettingsPage() {
         </div>
 
         {/* Service Control */}
-        <div className="card">
-          <div className="card-title">Service Control</div>
+        <div className="lat-panel">
+          <div className="panel-head"><h3>Service Control</h3></div>
           <button
+            className="lat-btn danger solid"
             onClick={handleRestart}
             disabled={restarting}
-            style={{ ...dangerBtn, opacity: restarting ? 0.5 : 1 }}
+            type="button"
           >
             {restarting ? 'Restarting...' : 'Restart openmanetd'}
           </button>
         </div>
 
-        {/* Whisper Speech-to-Text */}
+        {/* Whisper Speech-to-Text (its own card) */}
         <WhisperManager />
 
         {/* OpenMANETd Config */}
-        <div className="card" style={{ gridColumn: '1 / -1' }}>
-          <div className="card-title">OpenMANETd Configuration</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
+        <div className="lat-panel col-span-all">
+          <div className="panel-head"><h3>OpenMANETd Configuration</h3></div>
 
-            {/* Comms Enable */}
-            <div>
-              <label style={{ fontSize: '0.82em', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
-                Comms Radio
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.88em' }}>
-                <div
-                  onClick={() => setConfig(c => ({ ...c, comms_enabled: !c.comms_enabled }))}
-                  style={{
-                    width: 42, height: 22, borderRadius: 11, padding: 2,
-                    background: config.comms_enabled ? 'var(--green)' : 'var(--border)',
-                    cursor: 'pointer', transition: 'background 0.2s', display: 'flex', alignItems: 'center',
-                  }}
-                >
-                  <div style={{
-                    width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                    transition: 'transform 0.2s',
-                    transform: config.comms_enabled ? 'translateX(20px)' : 'translateX(0)',
-                  }} />
-                </div>
-                {config.comms_enabled ? 'Enabled' : 'Disabled'}
-              </label>
+          <div className="settings-config-grid">
+            <div className="lat-field">
+              <label>Comms Radio</label>
+              <LatToggle
+                checked={config.comms_enabled}
+                onChange={(v) => setConfig(c => ({ ...c, comms_enabled: v }))}
+                labelOn="Enabled"
+                labelOff="Disabled"
+              />
             </div>
 
-            {/* Control Source */}
-            <div>
-              <label style={{ fontSize: '0.82em', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
-                Control Source
-              </label>
+            <div className="lat-field">
+              <label>Control Source</label>
               <select
+                className="lat-select"
                 value={config.control_source}
                 onChange={(e) => setConfig(c => ({ ...c, control_source: e.target.value }))}
-                style={selectStyle}
               >
                 <option value="openvlm">OpenVLM (default)</option>
                 <option value="web">Web UI</option>
@@ -336,70 +320,44 @@ export default function SettingsPage() {
               </select>
             </div>
 
-            {/* Debug Toggle */}
-            <div>
-              <label style={{ fontSize: '0.82em', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
-                Debug Mode
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.88em' }}>
-                <div
-                  onClick={() => setConfig(c => ({ ...c, debug: !c.debug }))}
-                  style={{
-                    width: 42, height: 22, borderRadius: 11, padding: 2,
-                    background: config.debug ? 'var(--yellow)' : 'var(--border)',
-                    cursor: 'pointer', transition: 'background 0.2s', display: 'flex', alignItems: 'center',
-                  }}
-                >
-                  <div style={{
-                    width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                    transition: 'transform 0.2s',
-                    transform: config.debug ? 'translateX(20px)' : 'translateX(0)',
-                  }} />
-                </div>
-                {config.debug ? 'On' : 'Off'}
-              </label>
+            <div className="lat-field">
+              <label>Debug Mode</label>
+              <LatToggle
+                checked={config.debug}
+                onChange={(v) => setConfig(c => ({ ...c, debug: v }))}
+                labelOn="On"
+                labelOff="Off"
+              />
             </div>
-
           </div>
 
-          <div style={{ marginTop: 14, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="settings-save-row">
             <button
+              className="lat-btn primary"
               onClick={handleSaveConfig}
               disabled={saving || !configChanged}
-              style={{
-                ...primaryBtn,
-                opacity: saving || !configChanged ? 0.5 : 1,
-                cursor: saving || !configChanged ? 'default' : 'pointer',
-              }}
+              type="button"
             >
               {saving ? 'Saving...' : 'Save Configuration'}
             </button>
             {configChanged && (
-              <span style={{ fontSize: '0.78em', color: 'var(--yellow)' }}>Unsaved changes</span>
+              <span className="settings-unsaved">Unsaved changes</span>
             )}
           </div>
         </div>
 
         {/* Raw Config View */}
-        <div className="card" style={{ gridColumn: '1 / -1' }}>
-          <div
+        <div className="lat-panel col-span-all">
+          <button
+            type="button"
+            className="settings-raw-toggle"
             onClick={() => setShowRaw(!showRaw)}
-            style={{
-              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-              fontSize: '0.82em', color: 'var(--muted)',
-            }}
           >
-            <span style={{ fontSize: '0.75em' }}>{showRaw ? '\u25BC' : '\u25B6'}</span>
-            <span className="card-title" style={{ margin: 0 }}>Raw Configuration (YAML)</span>
-          </div>
+            <span className="settings-chevron">{showRaw ? '\u25BC' : '\u25B6'}</span>
+            <h3>Raw Configuration (YAML)</h3>
+          </button>
           {showRaw && (
-            <pre style={{
-              background: '#0a0d10', border: '1px solid var(--border)', borderRadius: 6,
-              padding: 10, fontSize: '0.75em', lineHeight: 1.5, color: '#8b949e',
-              maxHeight: 400, overflowY: 'auto', marginTop: 8, whiteSpace: 'pre-wrap',
-              fontFamily: "'Courier New', monospace",
-              WebkitUserSelect: 'text', userSelect: 'text',
-            }}>
+            <pre className="settings-yaml">
               {liveYaml || 'No configuration data available.'}
             </pre>
           )}

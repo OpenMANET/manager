@@ -9,6 +9,7 @@ import CommsPage from './App.jsx';
 import SettingsPage from './pages/Settings.jsx';
 import GpsStatusPage from './pages/GpsStatus.jsx';
 import BLOSPage from './pages/BLOS.jsx';
+import TopologyPage from './pages/Topology.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 
@@ -19,6 +20,7 @@ export default function AppRouter() {
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/comms" element={<CommsPage />} />
+        <Route path="/topology" element={<TopologyPage />} />
         <Route path="/gps" element={<GpsStatusPage />} />
         <Route path="/blos" element={<BLOSPage />} />
         <Route path="/settings" element={<SettingsPage />} />

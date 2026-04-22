@@ -74,7 +74,7 @@ describe('TestBLOSToggle', () => {
     await waitFor(() => screen.getByText('Off'));
 
     // Click the toggle
-    const toggle = container.querySelector('div[style*="width: 42px"]');
+    const toggle = container.querySelector('.lat-toggle');
     fireEvent.click(toggle);
     expect(screen.getByText('On')).toBeTruthy();
   });
@@ -89,7 +89,7 @@ describe('TestBLOSUpdateSuccess', () => {
     await waitFor(() => screen.getByText('Off'));
 
     // Toggle on
-    const toggle = container.querySelector('div[style*="width: 42px"]');
+    const toggle = container.querySelector('.lat-toggle');
     fireEvent.click(toggle);
 
     // Enter auth key

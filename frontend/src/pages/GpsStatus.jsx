@@ -7,6 +7,8 @@ import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { GNSSService } from "../gen/openmanet/gnss/v1/gnss_service_connect.js";
 import WidgetGrid from '../components/WidgetGrid.jsx';
+import SkyPlot from '../components/SkyPlot.jsx';
+import './GpsStatus.css';
 
 const gnssClient = createClient(GNSSService, transport);
 
@@ -146,13 +148,13 @@ function drawGlobe(canvas, viewLat, viewLon, zoom) {
   ctx.arc(cx, cy, (GLOBE_SIZE / 2 - 16) * Math.max(zoom, 1), 0, Math.PI * 2);
   ctx.clip();
 
-  // Globe background.
+  // Globe background — dark cool blue, Lattice accent edge.
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = '#111a28';
+  ctx.fillStyle = '#0b161e';
   ctx.fill();
 
-  // Grid lines.
+  // Grid lines — cyan, brighter on equator + prime meridian.
   ctx.lineWidth = 0.4;
   for (let gLat = -80; gLat <= 80; gLat += 20) {
     ctx.beginPath();
@@ -163,7 +165,7 @@ function drawGlobe(canvas, viewLat, viewLon, zoom) {
       if (!started) { ctx.moveTo(p.x, p.y); started = true; }
       else ctx.lineTo(p.x, p.y);
     }
-    ctx.strokeStyle = gLat === 0 ? '#2a4a5f' : '#1a2a3a';
+    ctx.strokeStyle = gLat === 0 ? 'rgba(0,229,255,0.3)' : 'rgba(0,229,255,0.14)';
     ctx.stroke();
   }
   for (let gLon = -180; gLon < 180; gLon += 30) {
@@ -175,28 +177,26 @@ function drawGlobe(canvas, viewLat, viewLon, zoom) {
       if (!started) { ctx.moveTo(p.x, p.y); started = true; }
       else ctx.lineTo(p.x, p.y);
     }
-    ctx.strokeStyle = gLon === 0 ? '#2a4a5f' : '#1a2a3a';
+    ctx.strokeStyle = gLon === 0 ? 'rgba(0,229,255,0.3)' : 'rgba(0,229,255,0.14)';
     ctx.stroke();
   }
 
-  // Draw coastlines with hemisphere clipping.
+  // Draw coastlines — Lattice ok-green fill + stroke.
   coastlines.forEach((poly) => {
     const clipped = clipToHemisphere(poly);
     if (clipped.length < 3) return;
 
-    // Fill clipped land polygon.
     ctx.beginPath();
     ctx.moveTo(clipped[0].x, clipped[0].y);
     for (let i = 1; i < clipped.length; i++) {
       ctx.lineTo(clipped[i].x, clipped[i].y);
     }
     ctx.closePath();
-    ctx.fillStyle = 'rgba(58,106,74,0.2)';
+    ctx.fillStyle = 'rgba(0,230,118,0.18)';
     ctx.fill();
 
-    // Stroke coastline on visible segments only.
     ctx.lineWidth = 1.2;
-    ctx.strokeStyle = '#3a6a4a';
+    ctx.strokeStyle = 'rgba(0,230,118,0.5)';
     ctx.beginPath();
     let started = false;
     for (let i = 0; i < poly.length; i++) {
@@ -208,12 +208,12 @@ function drawGlobe(canvas, viewLat, viewLon, zoom) {
     ctx.stroke();
   });
 
-  // Globe rim.
+  // Globe rim — cyan edge at full radius.
   ctx.restore();
   ctx.beginPath();
   ctx.arc(cx, cy, (GLOBE_SIZE / 2 - 16) * Math.max(zoom, 1), 0, Math.PI * 2);
-  ctx.strokeStyle = '#2a3a4f';
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(0,229,255,0.45)';
+  ctx.lineWidth = 1.2;
   ctx.stroke();
 
   return project;
@@ -246,25 +246,25 @@ function MapView({ position }) {
     const project = drawGlobe(canvas, v.lat, v.lon, v.zoom);
     if (!project) return;
 
-    // Plot position marker.
+    // Plot position marker — cyan pulse.
     if (hasPos) {
       const ctx = canvas.getContext('2d');
       const p = project(lat, lon);
       if (p && ctx) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, 14, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(107,142,35,0.18)';
+        ctx.fillStyle = 'rgba(0,229,255,0.12)';
         ctx.fill();
 
         ctx.beginPath();
         ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
-        ctx.strokeStyle = '#6B8E23';
+        ctx.strokeStyle = 'rgba(0,229,255,0.6)';
         ctx.lineWidth = 2;
         ctx.stroke();
 
         ctx.beginPath();
         ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = '#6B8E23';
+        ctx.fillStyle = '#00e5ff';
         ctx.fill();
       }
     }
@@ -367,6 +367,32 @@ function MapView({ position }) {
         )}
         <div style={{ color: 'var(--muted)', fontSize: '0.72em', marginTop: 4 }}>
           Drag to rotate, scroll to zoom
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Sky Plot Panel ──────────────────────────────────────────────────────────
+function SkyPlotPanel({ satelliteStatus }) {
+  const sats = satelliteStatus?.satellites ?? [];
+  const used = satelliteStatus?.satellitesUsed ?? 0;
+  const inView = satelliteStatus?.satellitesInView ?? sats.length;
+
+  return (
+    <div className="card">
+      <div className="card-title">Sky Plot ({used} used / {inView} in view)</div>
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        padding: '4px 0',
+      }}>
+        <SkyPlot satellites={sats} />
+        <div style={{
+          color: 'var(--muted)', fontFamily: 'var(--font-mono)',
+          fontSize: '0.72em', marginTop: 6,
+          letterSpacing: '0.14em', textTransform: 'uppercase',
+        }}>
+          Zenith · N up · rings = 30° elevation
         </div>
       </div>
     </div>
@@ -564,10 +590,11 @@ function Toggle({ label, checked, onChange }) {
 // ── Widget configuration ───────────────────────────────────────────────────
 
 const GPS_WIDGETS = [
-  { id: 'globe',      label: 'Globe View',     minWidth: 25, defaultWidth: 100 },
-  { id: 'position',   label: 'Position',       minWidth: 20, defaultWidth: 50 },
-  { id: 'satellites',  label: 'Satellites',     minWidth: 20, defaultWidth: 50 },
-  { id: 'settings',   label: 'GPS Settings',   minWidth: 20, defaultWidth: 50 },
+  { id: 'globe',      label: 'Globe View',   minWidth: 25, defaultWidth: 33 },
+  { id: 'skyplot',    label: 'Sky Plot',     minWidth: 25, defaultWidth: 33 },
+  { id: 'position',   label: 'Position',     minWidth: 25, defaultWidth: 34 },
+  { id: 'satellites', label: 'Satellites',   minWidth: 40, defaultWidth: 66 },
+  { id: 'settings',   label: 'GPS Settings', minWidth: 40, defaultWidth: 34 },
 ];
 
 // ── Main Page ───────────────────────────────────────────────────────────────
@@ -637,6 +664,7 @@ export default function GpsStatusPage() {
   const renderWidget = useCallback((id) => {
     switch (id) {
       case 'globe':      return <MapView position={position} />;
+      case 'skyplot':    return <SkyPlotPanel satelliteStatus={satelliteStatus} />;
       case 'position':   return <PositionPanel position={position} satelliteStatus={satelliteStatus} />;
       case 'satellites':  return <SatellitePanel satelliteStatus={satelliteStatus} />;
       case 'settings':   return <SettingsPanel config={config} onConfigChange={setConfig} onSave={handleSave} saving={saving} />;

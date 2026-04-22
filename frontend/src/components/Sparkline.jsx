@@ -4,7 +4,7 @@
 
 import React, { useRef, useEffect } from 'react';
 
-export default function Sparkline({ data, width = 60, height = 16, color = '#6B8E23', min, max }) {
+export default function Sparkline({ data, width = 60, height = 16, color = '#00e676', min, max }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {

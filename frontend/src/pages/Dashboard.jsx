@@ -1,6 +1,10 @@
 // =============================================================================
 // Dashboard.jsx — Device dashboard overview page
 // =============================================================================
+//
+// Widget grid shown at /. Cards rendered as Lattice panels via WidgetGrid's
+// drag/resize container.  Order: Device Info · System Resources · Network ·
+// Mesh Status · Topology Map · Quick Actions.
 
 import { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import { createClient } from "@connectrpc/connect";
@@ -18,18 +22,9 @@ const TopologyMap = lazy(() => import('../components/TopologyMap.jsx'));
 
 function TopologyMapPlaceholder() {
   return (
-    <div className="card">
-      <div className="card-title">Network Topology</div>
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: 260,
-        color: 'var(--muted)',
-        fontSize: 12,
-      }}>
-        Loading topology…
-      </div>
+    <div className="lat-panel">
+      <div className="panel-head"><h3>Network Topology</h3></div>
+      <div className="dashboard-loading">Loading topology…</div>
     </div>
   );
 }
@@ -63,7 +58,7 @@ function formatLocalTime(ts) {
 }
 
 function formatBytes(bytes) {
-  if (!bytes || bytes === 0n && typeof bytes === 'bigint') return '0 B';
+  if (!bytes) return '0 B';
   const n = Number(bytes);
   if (n < 1024) return n + ' B';
   if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
@@ -77,10 +72,11 @@ function barColor(pct) {
   return 'var(--green)';
 }
 
-function stateColor(state) {
-  if (state === NetworkInterfaceState.CONNECTED) return 'var(--green)';
-  if (state === NetworkInterfaceState.DISCONNECTED) return 'var(--red)';
-  return 'var(--muted)';
+// Tests inspect the inline background color, so keep dot styling inline.
+function stateDotStyle(state) {
+  if (state === NetworkInterfaceState.CONNECTED) return { background: 'var(--green)' };
+  if (state === NetworkInterfaceState.DISCONNECTED) return { background: 'var(--red)' };
+  return { background: 'var(--muted)' };
 }
 
 function stateLabel(state) {
@@ -91,44 +87,42 @@ function stateLabel(state) {
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
-const rowStyle = {
-  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  padding: '6px 0', borderBottom: '1px solid var(--border)',
-};
-const labelStyle = { color: 'var(--muted)', fontSize: '0.88em' };
-const valueStyle = { fontWeight: 600, fontSize: '0.88em', textAlign: 'right' };
-
 function DeviceInfoCard({ info }) {
   const rows = [
-    { label: 'Hostname', value: info?.hostname },
-    { label: 'Model', value: info?.model },
-    { label: 'Firmware', value: info?.firmware },
-    { label: 'Kernel', value: info?.kernel },
-    { label: 'Architecture', value: info?.architecture },
+    ['Hostname',     info?.hostname],
+    ['Model',        info?.model],
+    ['Firmware',     info?.firmware],
+    ['Kernel',       info?.kernel],
+    ['Architecture', info?.architecture],
   ];
   return (
-    <div className="card">
-      <div className="card-title">Device Information</div>
-      {rows.map((r) => (
-        <div key={r.label} style={rowStyle}>
-          <span style={labelStyle}>{r.label}</span>
-          <span style={valueStyle}>{r.value || '-'}</span>
+    <div className="lat-panel">
+      <div className="panel-head"><h3>Device Information</h3></div>
+      {rows.map(([k, v]) => (
+        <div key={k} className="kv">
+          <span className="k">{k}</span>
+          <span className="v">{v || '-'}</span>
         </div>
       ))}
     </div>
   );
 }
 
-function ProgressBar({ label, value, total, formatFn }) {
+function PBar({ label, value, total, formatFn }) {
   const pct = total > 0 ? (value / total) * 100 : 0;
+  const pctClamped = Math.max(0, Math.min(100, pct));
+  const detail = formatFn ? `${formatFn(value)} / ${formatFn(total)}` : `${Math.round(pct)} % / 100 %`;
   return (
-    <div style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: '0.88em' }}>
-        <span style={{ color: 'var(--muted)' }}>{label}</span>
-        <span style={{ fontWeight: 600 }}>{formatFn ? `${formatFn(value)} / ${formatFn(total)}` : `${Math.round(pct)} % / 100 %`}</span>
+    <div className="dashboard-pbar">
+      <div className="dashboard-pbar-row">
+        <span className="k">{label}</span>
+        <span className="v">{detail}</span>
       </div>
       <div className="dashboard-bar-track">
-        <div className="dashboard-bar-fill" style={{ width: `${Math.min(pct, 100)}%`, background: barColor(pct) }} />
+        <div
+          className="dashboard-bar-fill"
+          style={{ width: `${pctClamped}%`, background: barColor(pctClamped) }}
+        />
       </div>
     </div>
   );
@@ -142,19 +136,19 @@ function SystemResourcesCard({ resources }) {
   const ovlTotal = Number(resources?.overlayTotalBytes ?? 0);
 
   return (
-    <div className="card">
-      <div className="card-title">System Resources</div>
-      <div style={rowStyle}>
-        <span style={labelStyle}>Uptime</span>
-        <span style={valueStyle}>{formatUptime(resources?.uptime)}</span>
+    <div className="lat-panel">
+      <div className="panel-head"><h3>System Resources</h3></div>
+      <div className="kv">
+        <span className="k">Uptime</span>
+        <span className="v accent">{formatUptime(resources?.uptime)}</span>
       </div>
-      <div style={rowStyle}>
-        <span style={labelStyle}>Local Time</span>
-        <span style={valueStyle}>{formatLocalTime(resources?.localTime)}</span>
+      <div className="kv">
+        <span className="k">Local Time</span>
+        <span className="v">{formatLocalTime(resources?.localTime)}</span>
       </div>
-      <ProgressBar label="CPU Load" value={cpu} total={100} />
-      <ProgressBar label="Memory" value={memUsed} total={memTotal} formatFn={formatBytes} />
-      <ProgressBar label="Overlay" value={ovlUsed} total={ovlTotal} formatFn={formatBytes} />
+      <PBar label="CPU Load" value={cpu} total={100} />
+      <PBar label="Memory" value={memUsed} total={memTotal} formatFn={formatBytes} />
+      <PBar label="Overlay" value={ovlUsed} total={ovlTotal} formatFn={formatBytes} />
     </div>
   );
 }
@@ -162,17 +156,21 @@ function SystemResourcesCard({ resources }) {
 function NetworkSummaryCard({ summary }) {
   const entries = summary?.entries ?? [];
   return (
-    <div className="card">
-      <div className="card-title">Network Summary</div>
-      {entries.length === 0 && <div style={{ color: 'var(--muted)', fontSize: '0.85em', padding: '8px 0' }}>No network data</div>}
+    <div className="lat-panel">
+      <div className="panel-head"><h3>Network Summary</h3></div>
+      {entries.length === 0 && (
+        <div className="dashboard-empty">No network data</div>
+      )}
       {entries.map((e) => (
-        <div key={e.interfaceName} style={{ ...rowStyle, gap: 8 }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            <span className="status-dot" style={{ background: stateColor(e.state), flexShrink: 0 }} />
-            <span style={{ fontSize: '0.88em' }}>{e.displayName || e.interfaceName}</span>
+        <div key={e.interfaceName} className="kv">
+          <span className="k" style={{ display: 'flex', alignItems: 'center' }}>
+            <span className="status-dot" style={stateDotStyle(e.state)} />
+            {e.displayName || e.interfaceName}
           </span>
-          <span style={{ fontSize: '0.88em', fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap',
-            color: e.state === NetworkInterfaceState.DISCONNECTED ? 'var(--red)' : 'var(--text)' }}>
+          <span
+            className={'v' + (e.state === NetworkInterfaceState.DISCONNECTED ? ' crit' : '')}
+            title={e.detail || stateLabel(e.state)}
+          >
             {e.detail || stateLabel(e.state)}
           </span>
         </div>
@@ -183,17 +181,14 @@ function NetworkSummaryCard({ summary }) {
 
 function QuickActionsCard({ onReboot, rebooting }) {
   return (
-    <div className="card">
-      <div className="card-title">Quick Actions</div>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', paddingTop: 4 }}>
+    <div className="lat-panel">
+      <div className="panel-head"><h3>Quick Actions</h3></div>
+      <div className="dashboard-actions">
         <button
+          className="lat-btn danger solid"
           onClick={onReboot}
           disabled={rebooting}
-          style={{
-            padding: '8px 20px', border: '1px solid var(--red)', borderRadius: 6,
-            cursor: rebooting ? 'not-allowed' : 'pointer', fontSize: '0.85em', fontWeight: 600,
-            background: 'rgba(204,51,51,0.15)', color: 'var(--red)', opacity: rebooting ? 0.5 : 1,
-          }}
+          type="button"
         >
           {rebooting ? 'Rebooting\u2026' : 'Reboot Device'}
         </button>
@@ -205,12 +200,12 @@ function QuickActionsCard({ onReboot, rebooting }) {
 // ── Widget configuration ───────────────────────────────────────────────────
 
 const DASHBOARD_WIDGETS = [
-  { id: 'deviceInfo',      label: 'Device Information', minWidth: 20, defaultWidth: 50 },
-  { id: 'systemResources', label: 'System Resources',   minWidth: 20, defaultWidth: 50 },
-  { id: 'networkSummary',  label: 'Network Summary',    minWidth: 20, defaultWidth: 50 },
-  { id: 'meshStatus',      label: 'Mesh Status',        minWidth: 20, defaultWidth: 50 },
-  { id: 'topologyMap',     label: 'Topology Map',       minWidth: 25, defaultWidth: 100 },
-  { id: 'quickActions',    label: 'Quick Actions',      minWidth: 20, defaultWidth: 100 },
+  { id: 'deviceInfo',      label: 'Device',           minWidth: 20, defaultWidth: 33 },
+  { id: 'systemResources', label: 'System Resources', minWidth: 20, defaultWidth: 33 },
+  { id: 'networkSummary',  label: 'Network',          minWidth: 20, defaultWidth: 34 },
+  { id: 'meshStatus',      label: 'Mesh Status',      minWidth: 30, defaultWidth: 66 },
+  { id: 'quickActions',    label: 'Quick Actions',    minWidth: 20, defaultWidth: 34 },
+  { id: 'topologyMap',     label: 'Topology Map',     minWidth: 30, defaultWidth: 100 },
 ];
 
 // ── Main page component ─────────────────────────────────────────────────────
@@ -306,11 +301,7 @@ export default function DashboardPage() {
   }, [data, meshData, meshTopology, neighborHistory, handleReboot, rebooting]);
 
   if (loading) {
-    return (
-      <div style={{ width: '100%', maxWidth: '100%', color: 'var(--muted)', padding: '24px 0' }}>
-        Loading dashboard...
-      </div>
-    );
+    return <div className="dashboard-loading">Loading dashboard...</div>;
   }
 
   return (

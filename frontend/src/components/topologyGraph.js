@@ -5,11 +5,14 @@
 // reagraph's WebGL canvas and so fast-refresh stays happy (component files
 // should export components only).
 
-const COLOR_SELF = '#6B8E23';     // olive green
-const COLOR_PEER = '#3b82f6';     // blue
-const COLOR_UNKNOWN = '#9ca3af';  // gray
-const COLOR_CLIENT = '#6b7280';   // darker gray
-const COLOR_EDGE_NO_SIGNAL = '#4b5563';
+// Lattice topology palette: self = ok-green (this node), peer = accent-cyan,
+// unknown = muted, client = dim, signal thresholds use the shared ok/warn/crit
+// tokens to match the rest of the UI.
+const COLOR_SELF = '#00e676';     // ok green
+const COLOR_PEER = '#00e5ff';     // accent cyan
+const COLOR_UNKNOWN = '#5c7682';  // muted
+const COLOR_CLIENT = '#3a4b55';   // dim
+const COLOR_EDGE_NO_SIGNAL = '#1a2a3a';
 
 export const TOPOLOGY_COLORS = {
   self: COLOR_SELF,
@@ -20,9 +23,9 @@ export const TOPOLOGY_COLORS = {
 };
 
 function signalColor(dBm) {
-  if (dBm >= -60) return '#6B8E23'; // strong
-  if (dBm >= -75) return '#b8a000'; // moderate
-  return '#cc3333';                  // weak
+  if (dBm >= -60) return '#00e676'; // strong
+  if (dBm >= -75) return '#ffb300'; // moderate
+  return '#ff3b4d';                  // weak
 }
 
 // Edge width is derived from TQ metric. batadv metric ≈ 1.0 for a perfect
