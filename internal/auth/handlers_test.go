@@ -72,8 +72,10 @@ func TestHandleLogin_InvalidCredentials(t *testing.T) {
 	assert.Empty(t, rr.Result().Cookies())
 }
 
-// TestHandleLogin_MissingFields verifies a 422 when fields are omitted.
-func TestHandleLogin_MissingFields(t *testing.T) {
+// TestHandleLogin_MissingUsername verifies a 422 when the username is empty.
+// Empty passwords are intentionally allowed through so PAM can decide (for
+// pam_unix nullok or similar policies).
+func TestHandleLogin_MissingUsername(t *testing.T) {
 	h := newTestAuthHandler(t, nil)
 
 	cases := []struct {
@@ -81,7 +83,6 @@ func TestHandleLogin_MissingFields(t *testing.T) {
 		body string
 	}{
 		{"empty username", `{"username":"","password":"secret"}`},
-		{"empty password", `{"username":"alice","password":""}`},
 		{"both empty", `{"username":"","password":""}`},
 	}
 
@@ -93,6 +94,34 @@ func TestHandleLogin_MissingFields(t *testing.T) {
 			assert.Equal(t, http.StatusUnprocessableEntity, rr.Code)
 		})
 	}
+}
+
+// TestHandleLogin_EmptyPassword verifies an empty password is delegated to
+// the Authenticator rather than short-circuited at the handler.
+func TestHandleLogin_EmptyPassword(t *testing.T) {
+	h := newTestAuthHandler(t, nil) // Authenticator accepts → login succeeds
+
+	body := `{"username":"alice","password":""}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+	h.HandleLogin(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	require.Len(t, rr.Result().Cookies(), 1)
+}
+
+// TestHandleLogin_EmptyPasswordRejectedByPAM verifies that when PAM rejects
+// an empty password, the handler returns 401 rather than accepting it.
+func TestHandleLogin_EmptyPasswordRejectedByPAM(t *testing.T) {
+	h := newTestAuthHandler(t, errors.New("authentication failure"))
+
+	body := `{"username":"alice","password":""}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+	h.HandleLogin(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	assert.Empty(t, rr.Result().Cookies())
 }
 
 // TestHandleLogin_WrongMethod verifies non-POST is rejected.

@@ -54,8 +54,8 @@ export default function LoginPage() {
   async function handleSubmit(e) {
     e.preventDefault();
 
-    if (!username || !password) {
-      setError('Please enter operator and passphrase');
+    if (!username) {
+      setError('Please enter operator');
       return;
     }
 

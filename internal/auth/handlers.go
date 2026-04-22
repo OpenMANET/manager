@@ -48,10 +48,12 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Username == "" || req.Password == "" {
+	// Empty passwords are passed through to the Authenticator so PAM remains
+	// the sole authority on credential policy (e.g. pam_unix nullok).
+	if req.Username == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "username and password are required"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "username is required"})
 
 		return
 	}
