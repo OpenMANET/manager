@@ -17,6 +17,7 @@ export const GetCommsStatusResponse = /*@__PURE__*/ proto3.makeMessageType(
     { no: 1, name: "active_talkgroup", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
     { no: 2, name: "available_talkgroups", kind: "scalar", T: 5 /* ScalarType.INT32 */, repeated: true },
     { no: 3, name: "talkgroup_states", kind: "message", T: TalkGroupState, repeated: true },
+    { no: 4, name: "callsign", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ],
 );
 

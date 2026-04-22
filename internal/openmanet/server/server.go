@@ -12,6 +12,7 @@ import (
 	commsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
 	dashboardconnect "github.com/openmanet/openmanetd/internal/api/openmanet/dashboard/v1/dashboardv1connect"
 	gnssconnect "github.com/openmanet/openmanetd/internal/api/openmanet/gnss/v1/gnssv1connect"
+	meshtopoconnect "github.com/openmanet/openmanetd/internal/api/openmanet/mesh_topology/v1/mesh_topologyv1connect"
 	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
 	wificonfigconnect "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1/wifi_configv1connect"
@@ -115,6 +116,12 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Cfg: cfg.Cfg,
 		Log: cfg.Log,
 		GPS: cfg.GPS,
+	}, connect.WithInterceptors(validateInterceptor)))
+
+	api.Handle(meshtopoconnect.NewMeshTopologyServiceHandler(&handlers.MeshTopologyService{
+		Log:        cfg.Log,
+		Visibility: &batmanadv.BatadvVisProvider{},
+		Wifi:       cfg.Wifi,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(wificonfigconnect.NewWifiConfigServiceHandler(&handlers.WifiConfigService{

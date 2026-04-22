@@ -28,6 +28,7 @@ export const GetCommsConfigResponse = /*@__PURE__*/ proto3.makeMessageType(
   () => [
     { no: 1, name: "comms_enabled", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 2, name: "control_source", kind: "enum", T: proto3.getEnumType(ControlSource) },
+    { no: 3, name: "callsign", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ],
 );
 
@@ -41,6 +42,7 @@ export const UpdateCommsConfigRequest = /*@__PURE__*/ proto3.makeMessageType(
   () => [
     { no: 1, name: "enable_comms", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 2, name: "control_source", kind: "enum", T: proto3.getEnumType(ControlSource) },
+    { no: 3, name: "callsign", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ],
 );
 

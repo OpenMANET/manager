@@ -5,13 +5,13 @@
 // wires together the services layer (WebSocket, audio engine, whisper, mesh API)
 // with the UI components.
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense, lazy } from 'react';
 import './App.css';
 import { CHANNELS_DEF, MSG_TYPE, RX_WAVE_HISTORY, VOX_HANGTIME_MS, NEIGHBOR_HISTORY_LENGTH } from './constants.js';
 import { connect as wsConnect, disconnect as wsDisconnect, setCallbacks as wsSetCallbacks, sendToggle as wsSendToggle, sendByte as wsSendByte, send as wsSend, isOpen as wsIsOpen } from './services/websocketService.js';
 import { initAudio, decodeAndPlay, resetTxTimestamp, startMic, stopMic, setVolume, setMicGain, playBuffer, startMicMonitor, enumerateDevices, setOutputDevice, setMicDevice, setEncoderCallback, clearEncoderCallback } from './services/audioEngine.js';
 import { isReady as whisperIsReady, initWhisper, feedAudio as whisperFeedAudio, checkSilenceAndTranscribe, checkWhisperAvailable } from './services/whisperService.js';
-import { fetchMeshStatus } from './services/meshApi.js';
+import { fetchMeshStatus, fetchMeshTopology } from './services/meshApi.js';
 import { getReplayPcm } from './services/replayBuffer.js';
 import StatusBar from './components/StatusBar.jsx';
 import ChannelGrid from './components/ChannelGrid.jsx';
@@ -19,7 +19,27 @@ import PttButton from './components/PttButton.jsx';
 import AudioControls from './components/AudioControls.jsx';
 import AudioFileTxPanel from './components/AudioFileTx.jsx';
 import MeshStatusPanel from './components/MeshStatus.jsx';
-import TopologyMap from './components/TopologyMap.jsx';
+// TopologyMap pulls in reagraph + three.js (~900 KB). Lazy-loaded so the
+// initial bundle stays small; chunk is fetched only when the panel is shown.
+const TopologyMap = lazy(() => import('./components/TopologyMap.jsx'));
+
+function TopologyMapPlaceholder() {
+  return (
+    <div className="card span-2">
+      <div className="card-title">Network Topology</div>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: 260,
+        color: '#9aa7b3',
+        fontSize: 12,
+      }}>
+        Loading topology…
+      </div>
+    </div>
+  );
+}
 import Transcript from './components/Transcript.jsx';
 import LogBox from './components/LogBox.jsx';
 import RxWaveform from './components/RxWaveform.jsx';
@@ -36,6 +56,7 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [chatMessages, setChatMessages] = useState([]);
   const [meshData, setMeshData] = useState(null);
+  const [meshTopology, setMeshTopology] = useState(null);
   const [pttActive, setPttActive] = useState(false);
   const [whisperEnabled, setWhisperEnabled] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
@@ -597,8 +618,12 @@ export default function App() {
   useEffect(() => {
     const poll = async () => {
       try {
-        const data = await fetchMeshStatus();
+        const [data, topo] = await Promise.all([
+          fetchMeshStatus(),
+          fetchMeshTopology(),
+        ]);
         setMeshData(data);
+        setMeshTopology(topo);
 
         // Accumulate neighbor history for sparklines.
         if (data.neighbors && Array.isArray(data.neighbors)) {
@@ -620,6 +645,7 @@ export default function App() {
         }
       } catch {
         setMeshData({ status: null, nodes: null, neighbors: null, interfaces: null });
+        setMeshTopology(null);
       }
     };
 
@@ -749,7 +775,9 @@ export default function App() {
         )}
 
         {show('topology') && (
-          <TopologyMap data={meshData} />
+          <Suspense fallback={<TopologyMapPlaceholder />}>
+            <TopologyMap topology={meshTopology} />
+          </Suspense>
         )}
 
         {show('fileTx') && (

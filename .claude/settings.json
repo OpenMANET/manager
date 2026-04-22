@@ -41,7 +41,9 @@
       "Read(//home/vscode/go/pkg/mod/github.com/**)",
       "Bash(ls /workspaces/openmanetd/internal/comms/rtp/*test*.go)",
       "Bash(/go/bin/benchstat:*)",
-      "Bash(make fmt *)"
+      "Bash(make fmt *)",
+      "Bash(awk '{print $NF}')",
+      "mcp__context7__query-docs"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"

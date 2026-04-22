@@ -31,8 +31,10 @@ type GetCommsStatusResponse struct {
 	// Per-port direction state for all configured talkgroups. Empty when the
 	// comms subsystem is not running.
 	TalkgroupStates []*TalkGroupState `protobuf:"bytes,3,rep,name=talkgroup_states,json=talkgroupStates,proto3" json:"talkgroup_states,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The local operator callsign currently configured.
+	Callsign      string `protobuf:"bytes,4,opt,name=callsign,proto3" json:"callsign,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetCommsStatusResponse) Reset() {
@@ -86,15 +88,23 @@ func (x *GetCommsStatusResponse) GetTalkgroupStates() []*TalkGroupState {
 	return nil
 }
 
+func (x *GetCommsStatusResponse) GetCallsign() string {
+	if x != nil {
+		return x.Callsign
+	}
+	return ""
+}
+
 var File_openmanet_comms_v1_status_proto protoreflect.FileDescriptor
 
 const file_openmanet_comms_v1_status_proto_rawDesc = "" +
 	"\n" +
-	"\x1fopenmanet/comms/v1/status.proto\x12\x12openmanet.comms.v1\x1a\"openmanet/comms/v1/talkgroup.proto\"\xc5\x01\n" +
+	"\x1fopenmanet/comms/v1/status.proto\x12\x12openmanet.comms.v1\x1a\"openmanet/comms/v1/talkgroup.proto\"\xe1\x01\n" +
 	"\x16GetCommsStatusResponse\x12)\n" +
 	"\x10active_talkgroup\x18\x01 \x01(\x05R\x0factiveTalkgroup\x121\n" +
 	"\x14available_talkgroups\x18\x02 \x03(\x05R\x13availableTalkgroups\x12M\n" +
-	"\x10talkgroup_states\x18\x03 \x03(\v2\".openmanet.comms.v1.TalkGroupStateR\x0ftalkgroupStatesB\xd8\x01\n" +
+	"\x10talkgroup_states\x18\x03 \x03(\v2\".openmanet.comms.v1.TalkGroupStateR\x0ftalkgroupStates\x12\x1a\n" +
+	"\bcallsign\x18\x04 \x01(\tR\bcallsignB\xd8\x01\n" +
 	"\x16com.openmanet.comms.v1B\vStatusProtoP\x01ZGgithub.com/openmanet/openmanetd/internal/api/openmanet/comms/v1;commsv1\xa2\x02\x03OCX\xaa\x02\x12Openmanet.Comms.V1\xca\x02\x12Openmanet\\Comms\\V1\xe2\x02\x1eOpenmanet\\Comms\\V1\\GPBMetadata\xea\x02\x14Openmanet::Comms::V1b\x06proto3"
 
 var (

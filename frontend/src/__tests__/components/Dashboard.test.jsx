@@ -25,6 +25,7 @@ vi.mock('../../services/meshApi.js', () => ({
   fetchMeshStatus: vi.fn().mockResolvedValue({
     status: null, nodes: null, neighbors: null, interfaces: null,
   }),
+  fetchMeshTopology: vi.fn().mockResolvedValue(null),
 }));
 vi.mock('../../components/MeshStatus.jsx', () => ({
   default: () => null,

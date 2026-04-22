@@ -54,6 +54,7 @@ export const StreamAudioRxResponse = /*@__PURE__*/ proto3.makeMessageType(
   () => [
     { no: 1, name: "opus_data", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
     { no: 2, name: "sequence", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
+    { no: 3, name: "callsign", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ],
 );
 

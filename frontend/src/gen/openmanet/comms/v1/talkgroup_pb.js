@@ -19,6 +19,7 @@ export const TalkGroupState = /*@__PURE__*/ proto3.makeMessageType(
     { no: 3, name: "port", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
     { no: 4, name: "send_enabled", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 5, name: "receive_enabled", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 6, name: "remote_callsign", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ],
 );
 

@@ -36,6 +36,8 @@ type TalkGroupState struct {
 	SendEnabled bool `protobuf:"varint,4,opt,name=send_enabled,json=sendEnabled,proto3" json:"send_enabled,omitempty"`
 	// Whether RTP reception is currently enabled on this talkgroup.
 	ReceiveEnabled bool `protobuf:"varint,5,opt,name=receive_enabled,json=receiveEnabled,proto3" json:"receive_enabled,omitempty"`
+	// Callsign last received from a remote peer on this talkgroup.
+	RemoteCallsign string `protobuf:"bytes,6,opt,name=remote_callsign,json=remoteCallsign,proto3" json:"remote_callsign,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -103,6 +105,13 @@ func (x *TalkGroupState) GetReceiveEnabled() bool {
 		return x.ReceiveEnabled
 	}
 	return false
+}
+
+func (x *TalkGroupState) GetRemoteCallsign() string {
+	if x != nil {
+		return x.RemoteCallsign
+	}
+	return ""
 }
 
 // SetSendTalkGroupRequest enables or disables RTP transmission on the talkgroup
@@ -331,13 +340,14 @@ var File_openmanet_comms_v1_talkgroup_proto protoreflect.FileDescriptor
 
 const file_openmanet_comms_v1_talkgroup_proto_rawDesc = "" +
 	"\n" +
-	"\"openmanet/comms/v1/talkgroup.proto\x12\x12openmanet.comms.v1\x1a\x1bbuf/validate/validate.proto\"\xa8\x01\n" +
+	"\"openmanet/comms/v1/talkgroup.proto\x12\x12openmanet.comms.v1\x1a\x1bbuf/validate/validate.proto\"\xd1\x01\n" +
 	"\x0eTalkGroupState\x12\x1c\n" +
 	"\ttalkgroup\x18\x01 \x01(\x05R\ttalkgroup\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x12\n" +
 	"\x04port\x18\x03 \x01(\x05R\x04port\x12!\n" +
 	"\fsend_enabled\x18\x04 \x01(\bR\vsendEnabled\x12'\n" +
-	"\x0freceive_enabled\x18\x05 \x01(\bR\x0ereceiveEnabled\"f\n" +
+	"\x0freceive_enabled\x18\x05 \x01(\bR\x0ereceiveEnabled\x12'\n" +
+	"\x0fremote_callsign\x18\x06 \x01(\tR\x0eremoteCallsign\"f\n" +
 	"\x17SetSendTalkGroupRequest\x121\n" +
 	"\ttalkgroup\x18\x01 \x01(\x05B\x13\xbaH\x10\x1a\x0e@\x01@\x03@\x05@\a@\t\x18 (\x01R\ttalkgroup\x12\x18\n" +
 	"\aenabled\x18\x02 \x01(\bR\aenabled\"N\n" +

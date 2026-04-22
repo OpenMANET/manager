@@ -19,6 +19,7 @@ import (
 	blosconnect "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1/blosv1connect"
 	commsv1 "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1"
 	commsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
+	meshtopoconnect "github.com/openmanet/openmanetd/internal/api/openmanet/mesh_topology/v1/mesh_topologyv1connect"
 	niv1 "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1"
 	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
@@ -72,6 +73,13 @@ func newTestServer(t *testing.T) *httptest.Server {
 
 	mux.Handle(services.NewMeshNeighborServiceHandler(&handlers.MeshService{
 		Log:           zerolog.Nop(),
+		Wifi:          fw,
+		ParseBatHosts: parseBatHosts,
+	}, handlerOpt))
+
+	mux.Handle(meshtopoconnect.NewMeshTopologyServiceHandler(&handlers.MeshTopologyService{
+		Log:           zerolog.Nop(),
+		Visibility:    &fakeVisibilityProvider{doc: sampleVisDoc()},
 		Wifi:          fw,
 		ParseBatHosts: parseBatHosts,
 	}, handlerOpt))
@@ -192,6 +200,31 @@ func TestIntegration_ListMeshNeighbors(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.GetNeighbors(), 1)
 	assert.Equal(t, "aa:bb:cc:dd:ee:ff", resp.GetNeighbors()[0].GetHardwareAddress())
+}
+
+// ── MeshTopologyService ───────────────────────────────────────────────────────
+
+func TestIntegration_GetMeshTopology(t *testing.T) {
+	srv := newTestServer(t)
+	client := meshtopoconnect.NewMeshTopologyServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	resp, err := client.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	topo := resp.GetTopology()
+	require.NotNil(t, topo)
+	assert.Equal(t, "2013.3.0-14-gcd34783", topo.GetSourceVersion())
+	require.Len(t, topo.GetNodes(), 2)
+
+	node0 := topo.GetNodes()[0]
+	assert.Equal(t, "0a:d7:37:78:2d:3e", node0.GetPrimaryMac())
+	assert.Equal(t, "BCM2711-97d6_bat0", node0.GetPrimaryHostname())
+	require.Len(t, node0.GetNeighbors(), 2)
+	assert.Equal(t, "9c:ef:d5:f9:9e:02", node0.GetNeighbors()[0].GetNeighborMac())
 }
 
 // ── StatusService ─────────────────────────────────────────────────────────────

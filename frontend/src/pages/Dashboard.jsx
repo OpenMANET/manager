@@ -2,16 +2,37 @@
 // Dashboard.jsx — Device dashboard overview page
 // =============================================================================
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { DashboardService } from "../gen/openmanet/dashboard/v1/dashboard_service_connect.js";
 import { QuickAction, NetworkInterfaceState } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
-import { fetchMeshStatus } from '../services/meshApi.js';
+import { fetchMeshStatus, fetchMeshTopology } from '../services/meshApi.js';
 import MeshStatusPanel from '../components/MeshStatus.jsx';
-import TopologyMap from '../components/TopologyMap.jsx';
 import WidgetGrid from '../components/WidgetGrid.jsx';
 import './Dashboard.css';
+
+// TopologyMap pulls in reagraph + three.js (~900 KB). Lazy-loaded so the
+// dashboard initial load doesn't include the WebGL graph bundle.
+const TopologyMap = lazy(() => import('../components/TopologyMap.jsx'));
+
+function TopologyMapPlaceholder() {
+  return (
+    <div className="card">
+      <div className="card-title">Network Topology</div>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: 260,
+        color: 'var(--muted)',
+        fontSize: 12,
+      }}>
+        Loading topology…
+      </div>
+    </div>
+  );
+}
 
 const dashClient = createClient(DashboardService, transport);
 const POLL_INTERVAL = 5000;
@@ -199,6 +220,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [rebooting, setRebooting] = useState(false);
   const [meshData, setMeshData] = useState(null);
+  const [meshTopology, setMeshTopology] = useState(null);
   const [neighborHistory, setNeighborHistory] = useState({});
   const neighborHistoryRef = useRef({});
   const pollRef = useRef(null);
@@ -216,8 +238,12 @@ export default function DashboardPage() {
 
   const pollMesh = useCallback(async () => {
     try {
-      const md = await fetchMeshStatus();
+      const [md, topo] = await Promise.all([
+        fetchMeshStatus(),
+        fetchMeshTopology(),
+      ]);
       setMeshData(md);
+      setMeshTopology(topo);
       if (md.neighbors && Array.isArray(md.neighbors)) {
         md.neighbors.forEach((n) => {
           const key = n.name || n.mac;
@@ -269,11 +295,15 @@ export default function DashboardPage() {
       case 'systemResources': return <SystemResourcesCard resources={data?.systemResources} />;
       case 'networkSummary':  return <NetworkSummaryCard summary={data?.networkSummary} />;
       case 'meshStatus':      return <MeshStatusPanel data={meshData} neighborHistory={neighborHistory} />;
-      case 'topologyMap':     return <TopologyMap data={meshData} />;
+      case 'topologyMap':     return (
+        <Suspense fallback={<TopologyMapPlaceholder />}>
+          <TopologyMap topology={meshTopology} />
+        </Suspense>
+      );
       case 'quickActions':    return <QuickActionsCard onReboot={handleReboot} rebooting={rebooting} />;
       default:                return null;
     }
-  }, [data, meshData, neighborHistory, handleReboot, rebooting]);
+  }, [data, meshData, meshTopology, neighborHistory, handleReboot, rebooting]);
 
   if (loading) {
     return (

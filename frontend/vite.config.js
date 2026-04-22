@@ -17,6 +17,22 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, '../static'),
     emptyOutDir: false,
+    // Raised above the size of the (lazy-loaded) TopologyMap chunk, which
+    // carries reagraph + three.js. Any synchronous chunk exceeding this is a
+    // genuine regression worth investigating.
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-connect': [
+            '@connectrpc/connect',
+            '@connectrpc/connect-web',
+            '@bufbuild/protobuf',
+          ],
+        },
+      },
+    },
   },
   server: {
     // Proxy API and WebSocket to the Go backend during development

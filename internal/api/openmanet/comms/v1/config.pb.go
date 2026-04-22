@@ -7,6 +7,7 @@
 package commsv1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	_ "github.com/openmanet/openmanetd/internal/api/openmanet/common/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -81,6 +82,8 @@ type GetCommsConfigResponse struct {
 	CommsEnabled bool `protobuf:"varint,1,opt,name=comms_enabled,json=commsEnabled,proto3" json:"comms_enabled,omitempty"`
 	// The source of control for the comms subsystem.
 	ControlSource ControlSource `protobuf:"varint,2,opt,name=control_source,json=controlSource,proto3,enum=openmanet.comms.v1.ControlSource" json:"control_source,omitempty"`
+	// Operator callsign attached to outgoing RTP packets (max 12 ASCII characters).
+	Callsign      string `protobuf:"bytes,3,opt,name=callsign,proto3" json:"callsign,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -129,6 +132,13 @@ func (x *GetCommsConfigResponse) GetControlSource() ControlSource {
 	return ControlSource_CONTROL_SOURCE_UNSPECIFIED
 }
 
+func (x *GetCommsConfigResponse) GetCallsign() string {
+	if x != nil {
+		return x.Callsign
+	}
+	return ""
+}
+
 // UpdateCommsConfigRequest is used to update the communications configuration.
 type UpdateCommsConfigRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -136,6 +146,9 @@ type UpdateCommsConfigRequest struct {
 	EnableComms bool `protobuf:"varint,1,opt,name=enable_comms,json=enableComms,proto3" json:"enable_comms,omitempty"`
 	// The source of control for the comms subsystem.
 	ControlSource ControlSource `protobuf:"varint,2,opt,name=control_source,json=controlSource,proto3,enum=openmanet.comms.v1.ControlSource" json:"control_source,omitempty"`
+	// Operator callsign attached to outgoing RTP packets (max 12 ASCII characters).
+	// Truncated server-side if longer than 12 characters.
+	Callsign      string `protobuf:"bytes,3,opt,name=callsign,proto3" json:"callsign,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -184,6 +197,13 @@ func (x *UpdateCommsConfigRequest) GetControlSource() ControlSource {
 	return ControlSource_CONTROL_SOURCE_UNSPECIFIED
 }
 
+func (x *UpdateCommsConfigRequest) GetCallsign() string {
+	if x != nil {
+		return x.Callsign
+	}
+	return ""
+}
+
 // UpdateCommsConfigResponse is returned after an UpdateCommsConfig request.
 type UpdateCommsConfigResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -225,13 +245,15 @@ var File_openmanet_comms_v1_config_proto protoreflect.FileDescriptor
 
 const file_openmanet_comms_v1_config_proto_rawDesc = "" +
 	"\n" +
-	"\x1fopenmanet/comms/v1/config.proto\x12\x12openmanet.comms.v1\x1a!openmanet/common/v1/options.proto\"\x87\x01\n" +
+	"\x1fopenmanet/comms/v1/config.proto\x12\x12openmanet.comms.v1\x1a\x1bbuf/validate/validate.proto\x1a!openmanet/common/v1/options.proto\"\xac\x01\n" +
 	"\x16GetCommsConfigResponse\x12#\n" +
 	"\rcomms_enabled\x18\x01 \x01(\bR\fcommsEnabled\x12H\n" +
-	"\x0econtrol_source\x18\x02 \x01(\x0e2!.openmanet.comms.v1.ControlSourceR\rcontrolSource\"\x87\x01\n" +
+	"\x0econtrol_source\x18\x02 \x01(\x0e2!.openmanet.comms.v1.ControlSourceR\rcontrolSource\x12#\n" +
+	"\bcallsign\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x18\fR\bcallsign\"\xac\x01\n" +
 	"\x18UpdateCommsConfigRequest\x12!\n" +
 	"\fenable_comms\x18\x01 \x01(\bR\venableComms\x12H\n" +
-	"\x0econtrol_source\x18\x02 \x01(\x0e2!.openmanet.comms.v1.ControlSourceR\rcontrolSource\"\x1b\n" +
+	"\x0econtrol_source\x18\x02 \x01(\x0e2!.openmanet.comms.v1.ControlSourceR\rcontrolSource\x12#\n" +
+	"\bcallsign\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x18\fR\bcallsign\"\x1b\n" +
 	"\x19UpdateCommsConfigResponse*\xa8\x01\n" +
 	"\rControlSource\x12\x1e\n" +
 	"\x1aCONTROL_SOURCE_UNSPECIFIED\x10\x00\x12)\n" +

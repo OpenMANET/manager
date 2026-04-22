@@ -10,6 +10,7 @@ import (
 	proto "google.golang.org/protobuf/proto"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	io "io"
+	unsafe "unsafe"
 )
 
 const (
@@ -81,6 +82,7 @@ func (m *StreamAudioRxResponse) CloneVT() *StreamAudioRxResponse {
 	}
 	r := new(StreamAudioRxResponse)
 	r.Sequence = m.Sequence
+	r.Callsign = m.Callsign
 	if rhs := m.OpusData; rhs != nil {
 		tmpBytes := make([]byte, len(rhs))
 		copy(tmpBytes, rhs)
@@ -200,6 +202,9 @@ func (this *StreamAudioRxResponse) EqualVT(that *StreamAudioRxResponse) bool {
 		return false
 	}
 	if this.Sequence != that.Sequence {
+		return false
+	}
+	if this.Callsign != that.Callsign {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -402,6 +407,13 @@ func (m *StreamAudioRxResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error)
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.Callsign) > 0 {
+		i -= len(m.Callsign)
+		copy(dAtA[i:], m.Callsign)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Callsign)))
+		i--
+		dAtA[i] = 0x1a
 	}
 	if m.Sequence != 0 {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Sequence))
@@ -645,6 +657,13 @@ func (m *StreamAudioRxResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int, 
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.Callsign) > 0 {
+		i -= len(m.Callsign)
+		copy(dAtA[i:], m.Callsign)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Callsign)))
+		i--
+		dAtA[i] = 0x1a
+	}
 	if m.Sequence != 0 {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Sequence))
 		i--
@@ -786,6 +805,10 @@ func (m *StreamAudioRxResponse) SizeVT() (n int) {
 	}
 	if m.Sequence != 0 {
 		n += 1 + protohelpers.SizeOfVarint(uint64(m.Sequence))
+	}
+	l = len(m.Callsign)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1141,6 +1164,38 @@ func (m *StreamAudioRxResponse) UnmarshalVT(dAtA []byte) error {
 					break
 				}
 			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Callsign", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Callsign = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -1605,6 +1660,42 @@ func (m *StreamAudioRxResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 					break
 				}
 			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Callsign", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.Callsign = stringValue
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

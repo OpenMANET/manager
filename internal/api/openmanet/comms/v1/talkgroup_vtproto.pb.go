@@ -30,6 +30,7 @@ func (m *TalkGroupState) CloneVT() *TalkGroupState {
 	r.Port = m.Port
 	r.SendEnabled = m.SendEnabled
 	r.ReceiveEnabled = m.ReceiveEnabled
+	r.RemoteCallsign = m.RemoteCallsign
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -132,6 +133,9 @@ func (this *TalkGroupState) EqualVT(that *TalkGroupState) bool {
 		return false
 	}
 	if this.ReceiveEnabled != that.ReceiveEnabled {
+		return false
+	}
+	if this.RemoteCallsign != that.RemoteCallsign {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -261,6 +265,13 @@ func (m *TalkGroupState) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.RemoteCallsign) > 0 {
+		i -= len(m.RemoteCallsign)
+		copy(dAtA[i:], m.RemoteCallsign)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.RemoteCallsign)))
+		i--
+		dAtA[i] = 0x32
 	}
 	if m.ReceiveEnabled {
 		i--
@@ -528,6 +539,13 @@ func (m *TalkGroupState) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) 
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.RemoteCallsign) > 0 {
+		i -= len(m.RemoteCallsign)
+		copy(dAtA[i:], m.RemoteCallsign)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.RemoteCallsign)))
+		i--
+		dAtA[i] = 0x32
+	}
 	if m.ReceiveEnabled {
 		i--
 		if m.ReceiveEnabled {
@@ -786,6 +804,10 @@ func (m *TalkGroupState) SizeVT() (n int) {
 	if m.ReceiveEnabled {
 		n += 2
 	}
+	l = len(m.RemoteCallsign)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -995,6 +1017,38 @@ func (m *TalkGroupState) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.ReceiveEnabled = bool(v != 0)
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RemoteCallsign", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.RemoteCallsign = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -1546,6 +1600,42 @@ func (m *TalkGroupState) UnmarshalVTUnsafe(dAtA []byte) error {
 				}
 			}
 			m.ReceiveEnabled = bool(v != 0)
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RemoteCallsign", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.RemoteCallsign = stringValue
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

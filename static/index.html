@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Comms Bridge — OpenMANET</title>
-  <script type="module" crossorigin src="/assets/index-BwBrk2pw.js"></script>
+  <script type="module" crossorigin src="/assets/index-C6gZgKGo.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/vendor-react-C0lse6RV.js">
+  <link rel="modulepreload" crossorigin href="/assets/vendor-connect-Dqee-8PT.js">
   <link rel="stylesheet" crossorigin href="/assets/index-slrHQzKH.css">
 </head>
 <body>
@@ -34,10 +36,14 @@
   Module._runtimeReady = new Promise(function(resolve) {
     Module.onRuntimeInitialized = function() { resolve(); };
   });
+  // Load the Emscripten whisper bootstrap synchronously, but via document.write
+  // so Vite's HTML parser doesn't see a bare <script src> and try to bundle it
+  // (the Emscripten output isn't an ES module, so type="module" isn't an
+  // option). document.write during document parsing preserves the blocking
+  // load semantics so Module is fully populated before main.jsx runs. The
+  // script may 404 if whisper files aren't deployed, which is fine (CC stays
+  // disabled).
+  document.write('<script src="/whisper/whisper-main.js"><' + '/script>');
   </script>
-  <!-- Load whisper WASM synchronously so Module is fully populated before app code.
-       The original used a blocking <script src> — we must preserve that. The script
-       may 404 if whisper files aren't deployed, which is fine (CC stays disabled). -->
-  <script src="/whisper/whisper-main.js"></script>
 </body>
 </html>

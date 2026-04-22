@@ -10,6 +10,7 @@ import (
 	proto "google.golang.org/protobuf/proto"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	io "io"
+	unsafe "unsafe"
 )
 
 const (
@@ -26,6 +27,7 @@ func (m *GetCommsConfigResponse) CloneVT() *GetCommsConfigResponse {
 	r := new(GetCommsConfigResponse)
 	r.CommsEnabled = m.CommsEnabled
 	r.ControlSource = m.ControlSource
+	r.Callsign = m.Callsign
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -44,6 +46,7 @@ func (m *UpdateCommsConfigRequest) CloneVT() *UpdateCommsConfigRequest {
 	r := new(UpdateCommsConfigRequest)
 	r.EnableComms = m.EnableComms
 	r.ControlSource = m.ControlSource
+	r.Callsign = m.Callsign
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -83,6 +86,9 @@ func (this *GetCommsConfigResponse) EqualVT(that *GetCommsConfigResponse) bool {
 	if this.ControlSource != that.ControlSource {
 		return false
 	}
+	if this.Callsign != that.Callsign {
+		return false
+	}
 	return string(this.unknownFields) == string(that.unknownFields)
 }
 
@@ -103,6 +109,9 @@ func (this *UpdateCommsConfigRequest) EqualVT(that *UpdateCommsConfigRequest) bo
 		return false
 	}
 	if this.ControlSource != that.ControlSource {
+		return false
+	}
+	if this.Callsign != that.Callsign {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -161,6 +170,13 @@ func (m *GetCommsConfigResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.Callsign) > 0 {
+		i -= len(m.Callsign)
+		copy(dAtA[i:], m.Callsign)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Callsign)))
+		i--
+		dAtA[i] = 0x1a
+	}
 	if m.ControlSource != 0 {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.ControlSource))
 		i--
@@ -208,6 +224,13 @@ func (m *UpdateCommsConfigRequest) MarshalToSizedBufferVT(dAtA []byte) (int, err
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.Callsign) > 0 {
+		i -= len(m.Callsign)
+		copy(dAtA[i:], m.Callsign)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Callsign)))
+		i--
+		dAtA[i] = 0x1a
 	}
 	if m.ControlSource != 0 {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.ControlSource))
@@ -290,6 +313,13 @@ func (m *GetCommsConfigResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int,
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.Callsign) > 0 {
+		i -= len(m.Callsign)
+		copy(dAtA[i:], m.Callsign)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Callsign)))
+		i--
+		dAtA[i] = 0x1a
+	}
 	if m.ControlSource != 0 {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.ControlSource))
 		i--
@@ -337,6 +367,13 @@ func (m *UpdateCommsConfigRequest) MarshalToSizedBufferVTStrict(dAtA []byte) (in
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.Callsign) > 0 {
+		i -= len(m.Callsign)
+		copy(dAtA[i:], m.Callsign)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Callsign)))
+		i--
+		dAtA[i] = 0x1a
 	}
 	if m.ControlSource != 0 {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.ControlSource))
@@ -401,6 +438,10 @@ func (m *GetCommsConfigResponse) SizeVT() (n int) {
 	if m.ControlSource != 0 {
 		n += 1 + protohelpers.SizeOfVarint(uint64(m.ControlSource))
 	}
+	l = len(m.Callsign)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -416,6 +457,10 @@ func (m *UpdateCommsConfigRequest) SizeVT() (n int) {
 	}
 	if m.ControlSource != 0 {
 		n += 1 + protohelpers.SizeOfVarint(uint64(m.ControlSource))
+	}
+	l = len(m.Callsign)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -499,6 +544,38 @@ func (m *GetCommsConfigResponse) UnmarshalVT(dAtA []byte) error {
 					break
 				}
 			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Callsign", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Callsign = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -589,6 +666,38 @@ func (m *UpdateCommsConfigRequest) UnmarshalVT(dAtA []byte) error {
 					break
 				}
 			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Callsign", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Callsign = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -730,6 +839,42 @@ func (m *GetCommsConfigResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 					break
 				}
 			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Callsign", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.Callsign = stringValue
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -820,6 +965,42 @@ func (m *UpdateCommsConfigRequest) UnmarshalVTUnsafe(dAtA []byte) error {
 					break
 				}
 			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Callsign", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.Callsign = stringValue
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
