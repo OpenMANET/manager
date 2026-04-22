@@ -19,6 +19,7 @@ export default function ChannelGrid({
   onAliasChange,
   onReplay,
   replayAvailable,
+  tiles = false,
 }) {
   // Force re-render at 150ms interval to update RX dot activity state.
   const [, setTick] = useState(0);
@@ -43,6 +44,72 @@ export default function ChannelGrid({
     if (onAliasChange) onAliasChange(ch, value);
     setEditingCh(null);
   };
+
+  if (tiles) {
+    return (
+      <div className="lat-panel ch-tiles-panel">
+        <div className="panel-head"><h3>Channels</h3></div>
+        <div className="ch-tiles-grid">
+          {channels.map((c) => {
+            const rxLast = rxLastTimeRef.current;
+            const rxActive = rxLast[c.ch] && Date.now() - rxLast[c.ch] < 500;
+            const active = rxEnabled[c.ch] || txEnabled[c.ch];
+            return (
+              <div key={c.ch} className={`ch-tile${active ? ' active' : ''}`}>
+                <div className="ch-tile-head">
+                  <span className={`ch-tile-dot${rxActive ? ' active' : ''}`} />
+                  <span className="ch-tile-num">CH {c.ch}</span>
+                  {editingCh === c.ch ? (
+                    <input
+                      ref={inputRef}
+                      className="ch-alias-input"
+                      defaultValue={getLabel(c.ch)}
+                      onBlur={(e) => commitAlias(c.ch, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitAlias(c.ch, e.target.value);
+                        if (e.key === 'Escape') setEditingCh(null);
+                      }}
+                      maxLength={16}
+                    />
+                  ) : (
+                    <span
+                      className="ch-tile-alias"
+                      onDoubleClick={() => setEditingCh(c.ch)}
+                      title="Double-click to rename"
+                    >
+                      {getLabel(c.ch).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <div className="ch-tile-pills">
+                  <button
+                    className={`ch-pill${rxEnabled[c.ch] ? ' rx-on' : ''}`}
+                    onClick={() => onToggleRx(c.ch)}
+                  >RX</button>
+                  <button
+                    className={`ch-pill${txEnabled[c.ch] ? ' tx-on' : ''}`}
+                    onClick={() => onToggleTx(c.ch)}
+                  >TX</button>
+                  <button
+                    className="ch-pill ghost"
+                    onClick={() => onReplay && onReplay(c.ch)}
+                    disabled={!replayAvailable || !replayAvailable[c.ch]}
+                    title="Replay last received audio"
+                  >&#9654;</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="ch-all-row">
+          <button className="lat-btn ghost" onClick={() => onRxAll(true)}>RX ALL</button>
+          <button className="lat-btn ghost" onClick={() => onRxAll(false)}>RX NONE</button>
+          <button className="lat-btn ghost" onClick={() => onTxAll(true)}>TX ALL</button>
+          <button className="lat-btn ghost" onClick={() => onTxAll(false)}>TX NONE</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="card">

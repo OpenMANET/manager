@@ -10,7 +10,7 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 
-export default function MicMeter({ level, active, voxEnabled }) {
+export default function MicMeter({ level, active, voxEnabled, segments = 0 }) {
   const smoothRef = useRef(0);
   const animRef = useRef(null);
   const [displayPct, setDisplayPct] = useState(0);
@@ -60,6 +60,31 @@ export default function MicMeter({ level, active, voxEnabled }) {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
   }, [showMeter]);
+
+  if (segments > 0) {
+    const lit = Math.round((displayPct / 100) * segments);
+    const segs = [];
+    for (let i = 0; i < segments; i++) {
+      let tier = 'ok';
+      if (i >= segments - 2) tier = 'crit';
+      else if (i >= Math.floor(segments * 0.6)) tier = 'warn';
+      segs.push(
+        <span
+          key={i}
+          className={`mic-seg mic-seg-${tier}${i < lit ? ' on' : ''}`}
+        />
+      );
+    }
+    return (
+      <div className="mic-meter-segments">
+        <div className="mic-meter-label">
+          <span>MIC</span>
+          <span className="mic-meter-db">{displayDb || '—'}</span>
+        </div>
+        <div className="mic-meter-bar">{segs}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="viz-row">

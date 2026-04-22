@@ -139,10 +139,28 @@ func (c *CommsService) GetCommsStatus(_ context.Context, _ *emptypb.Empty) (*com
 		activeTalkGroupChannel = int32(ch)
 	}
 
+	var (
+		codec   string
+		ptimeMs int32
+	)
+
+	if c.Cfg.GetCommsEnable() {
+		codec = fmt.Sprintf("OPUS %dK", comms.TargetBitrate/1000)
+		// Opus frame duration in ms. Sourced from the fixed audiopool frame
+		// size (960 samples at 48 kHz = 20 ms); if the encoder ever exposes
+		// a variable frame size, read it from a snapshot instead.
+		ptimeMs = 20
+	}
+
 	return &commsv1.GetCommsStatusResponse{
 		ActiveTalkgroup:     activeTalkGroupChannel,
 		AvailableTalkgroups: talkGroupProtos,
 		TalkgroupStates:     buildTalkGroupStates(svc),
+		Codec:               codec,
+		PtimeMs:             ptimeMs,
+		// TODO(api-plan): populate round_trip_ms from RTCP SR/RR once the
+		// RTP session tracks receiver reports.
+		RoundTripMs: 0,
 	}, nil
 }
 

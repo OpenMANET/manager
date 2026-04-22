@@ -299,6 +299,12 @@ func TestGetCommsStatus_Enabled(t *testing.T) {
 
 	// talkgroup_states is best-effort: empty (or nil) when comms is not running.
 	assert.Empty(t, resp.GetTalkgroupStates())
+
+	// Codec / ptime reflect the fixed Opus broadcast encoder config.
+	assert.Equal(t, "OPUS 32K", resp.GetCodec())
+	assert.Equal(t, int32(20), resp.GetPtimeMs())
+	// No RTCP-based RTT yet — always zero until populated.
+	assert.Equal(t, int32(0), resp.GetRoundTripMs())
 }
 
 func TestGetCommsStatus_ReflectsPersistedEnable(t *testing.T) {

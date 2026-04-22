@@ -10,8 +10,12 @@ import (
 
 // ─── Package-level constants ──────────────────────────────────────────────────
 
+// TargetBitrate is the Opus encoder bitrate in bits-per-second used for all
+// comms TX. Exported so the RPC layer can report it to UI clients.
+const TargetBitrate int = 32000
+
 const (
-	targetBitrate int = 32000
+	targetBitrate int = TargetBitrate
 	// encoderComplexity is the default Opus encoder complexity used when
 	// CommsConfig.EncoderComplexity is unset or out of range. Complexity is
 	// the libopus quality/CPU tradeoff knob: 0 is fastest, 10 is highest

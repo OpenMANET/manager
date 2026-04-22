@@ -91,6 +91,7 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 	// gateways may legitimately be absent (no announcer on the tailnet, or
 	// this node is itself the gateway in server mode).
 	var selectedGatewayMac string
+
 	if gws, gwErr := s.getMeshGateways(s.Cfg.GetAlfredBatInterface()); gwErr != nil {
 		s.Log.Debug().Err(gwErr).Msg("list mesh gateways (non-fatal)")
 	} else if best := gws.GetBest(); best != nil {

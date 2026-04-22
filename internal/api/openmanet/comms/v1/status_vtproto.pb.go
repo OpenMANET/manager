@@ -27,6 +27,9 @@ func (m *GetCommsStatusResponse) CloneVT() *GetCommsStatusResponse {
 	r := new(GetCommsStatusResponse)
 	r.ActiveTalkgroup = m.ActiveTalkgroup
 	r.Callsign = m.Callsign
+	r.Codec = m.Codec
+	r.PtimeMs = m.PtimeMs
+	r.RoundTripMs = m.RoundTripMs
 	if rhs := m.AvailableTalkgroups; rhs != nil {
 		tmpContainer := make([]int32, len(rhs))
 		copy(tmpContainer, rhs)
@@ -88,6 +91,15 @@ func (this *GetCommsStatusResponse) EqualVT(that *GetCommsStatusResponse) bool {
 	if this.Callsign != that.Callsign {
 		return false
 	}
+	if this.Codec != that.Codec {
+		return false
+	}
+	if this.PtimeMs != that.PtimeMs {
+		return false
+	}
+	if this.RoundTripMs != that.RoundTripMs {
+		return false
+	}
 	return string(this.unknownFields) == string(that.unknownFields)
 }
 
@@ -127,6 +139,23 @@ func (m *GetCommsStatusResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.RoundTripMs != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.RoundTripMs))
+		i--
+		dAtA[i] = 0x38
+	}
+	if m.PtimeMs != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.PtimeMs))
+		i--
+		dAtA[i] = 0x30
+	}
+	if len(m.Codec) > 0 {
+		i -= len(m.Codec)
+		copy(dAtA[i:], m.Codec)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Codec)))
+		i--
+		dAtA[i] = 0x2a
 	}
 	if len(m.Callsign) > 0 {
 		i -= len(m.Callsign)
@@ -206,6 +235,23 @@ func (m *GetCommsStatusResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int,
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.RoundTripMs != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.RoundTripMs))
+		i--
+		dAtA[i] = 0x38
+	}
+	if m.PtimeMs != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.PtimeMs))
+		i--
+		dAtA[i] = 0x30
+	}
+	if len(m.Codec) > 0 {
+		i -= len(m.Codec)
+		copy(dAtA[i:], m.Codec)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Codec)))
+		i--
+		dAtA[i] = 0x2a
+	}
 	if len(m.Callsign) > 0 {
 		i -= len(m.Callsign)
 		copy(dAtA[i:], m.Callsign)
@@ -279,6 +325,16 @@ func (m *GetCommsStatusResponse) SizeVT() (n int) {
 	l = len(m.Callsign)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.Codec)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.PtimeMs != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.PtimeMs))
+	}
+	if m.RoundTripMs != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.RoundTripMs))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -474,6 +530,76 @@ func (m *GetCommsStatusResponse) UnmarshalVT(dAtA []byte) error {
 			}
 			m.Callsign = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Codec", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Codec = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PtimeMs", wireType)
+			}
+			m.PtimeMs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PtimeMs |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 7:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RoundTripMs", wireType)
+			}
+			m.RoundTripMs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.RoundTripMs |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -690,6 +816,80 @@ func (m *GetCommsStatusResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 			}
 			m.Callsign = stringValue
 			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Codec", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.Codec = stringValue
+			iNdEx = postIndex
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PtimeMs", wireType)
+			}
+			m.PtimeMs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PtimeMs |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 7:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RoundTripMs", wireType)
+			}
+			m.RoundTripMs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.RoundTripMs |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

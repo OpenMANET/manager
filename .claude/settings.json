@@ -50,7 +50,8 @@
       "Bash(buf lint *)",
       "Bash(make -C /workspaces/openmanetd frontend)",
       "Bash(make -C /workspaces/openmanetd test-frontend)",
-      "Bash(make -C /workspaces/openmanetd buf)"
+      "Bash(make -C /workspaces/openmanetd buf)",
+      "Bash(grep -E \"\\\\.jsx?$\")"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"

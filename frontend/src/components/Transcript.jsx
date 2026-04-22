@@ -16,6 +16,17 @@
 
 import React, { useRef, useEffect } from 'react';
 
+// TODO(api): Severity classification is a client-side keyword heuristic today.
+// A future WS transcript message should carry a real `severity` field populated
+// by the producer (whisper pipeline or sender-side tagging).
+function defaultSeverity(text) {
+  if (!text) return null;
+  const t = text.toLowerCase();
+  if (/(losing|lost|dropped|dropping|critical|down|offline)/.test(t)) return 'crit';
+  if (/(battery|degraded|warn|heads up|reconverging|reconnect)/.test(t)) return 'warn';
+  return null;
+}
+
 export default function Transcript({
   messages,
   whisperEnabled,
@@ -26,6 +37,8 @@ export default function Transcript({
   activeFilter,
   onFilterChange,
   channelAliases,
+  compact = false,
+  severityOf = defaultSeverity,
 }) {
   const chatBoxRef = useRef(null);
 
@@ -37,49 +50,67 @@ export default function Transcript({
   }, [messages]);
 
   return (
-    <div className="card span-full">
-      {/* Header with title and channel filter */}
-      <div className="chat-header">
-        <div className="card-title" style={{ marginBottom: 0 }}>Transcript</div>
-        <div className="chat-filter">
-          <select
-            value={activeFilter}
-            onChange={(e) => onFilterChange(parseInt(e.target.value, 10))}
-          >
-            <option value="0">All Channels</option>
-            {[1,2,3,4,5].map((ch) => (
-              <option key={ch} value={ch}>{(channelAliases && channelAliases[ch]) || `Ch ${ch}`}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+    <div className={compact ? '' : 'card span-full'}>
+      {/* Header with title and channel filter (hidden in compact mode) */}
+      {!compact && (
+        <>
+          <div className="chat-header">
+            <div className="card-title" style={{ marginBottom: 0 }}>Transcript</div>
+            <div className="chat-filter">
+              <select
+                value={activeFilter}
+                onChange={(e) => onFilterChange(parseInt(e.target.value, 10))}
+              >
+                <option value="0">All Channels</option>
+                {[1,2,3,4,5].map((ch) => (
+                  <option key={ch} value={ch}>{(channelAliases && channelAliases[ch]) || `Ch ${ch}`}</option>
+                ))}
+              </select>
+            </div>
+          </div>
 
-      {/* Whisper and debug controls */}
-      <div className="whisper-ctrl">
-        <input
-          type="checkbox"
-          id="cc-toggle"
-          checked={whisperEnabled}
-          onChange={(e) => onWhisperToggle(e.target.checked)}
-        />
-        <label htmlFor="cc-toggle">Enable closed captions (offline Whisper AI)</label>
-        <input
-          type="checkbox"
-          id="debug-toggle"
-          checked={debugMode}
-          onChange={(e) => onDebugToggle(e.target.checked)}
-        />
-        <label htmlFor="debug-toggle" style={{ color: 'var(--orange)' }}>Debug</label>
-      </div>
+          {/* Whisper and debug controls */}
+          <div className="whisper-ctrl">
+            <input
+              type="checkbox"
+              id="cc-toggle"
+              checked={whisperEnabled}
+              onChange={(e) => onWhisperToggle(e.target.checked)}
+            />
+            <label htmlFor="cc-toggle">Enable closed captions (offline Whisper AI)</label>
+            <input
+              type="checkbox"
+              id="debug-toggle"
+              checked={debugMode}
+              onChange={(e) => onDebugToggle(e.target.checked)}
+            />
+            <label htmlFor="debug-toggle" style={{ color: 'var(--orange)' }}>Debug</label>
+          </div>
+        </>
+      )}
 
       {/* Message list */}
-      <div className="chat-box" ref={chatBoxRef}>
+      <div className={compact ? 'tr-box' : 'chat-box'} ref={chatBoxRef}>
         {messages.map((msg, i) => {
-          const hidden = activeFilter !== 0 && msg.ch !== activeFilter;
+          const hidden = !compact && activeFilter !== 0 && msg.ch !== activeFilter;
+          const sev = severityOf ? severityOf(msg.text) : null;
+          if (compact) {
+            return (
+              <div
+                key={i}
+                className={`tr-row${sev ? ' ' + sev : ''}`}
+                data-ch={msg.ch}
+              >
+                <span className="tr-ts">{msg.ts}</span>
+                <span className="tr-src">{msg.ip || (channelAliases && channelAliases[msg.ch]) || `CH ${msg.ch}`}</span>
+                <span className="tr-text">{msg.text}</span>
+              </div>
+            );
+          }
           return (
             <div
               key={i}
-              className={`chat-msg${hidden ? ' hidden' : ''}`}
+              className={`chat-msg${hidden ? ' hidden' : ''}${sev ? ' ' + sev : ''}`}
               data-ch={msg.ch}
             >
               <span className="chat-ts">{msg.ts}</span>
@@ -91,8 +122,8 @@ export default function Transcript({
         })}
       </div>
 
-      {/* Whisper status line */}
-      <div className="whisper-status">{whisperStatus}</div>
+      {/* Whisper status line (hidden in compact mode) */}
+      {!compact && <div className="whisper-status">{whisperStatus}</div>}
     </div>
   );
 }

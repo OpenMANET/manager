@@ -32,7 +32,16 @@ type GetCommsStatusResponse struct {
 	// comms subsystem is not running.
 	TalkgroupStates []*TalkGroupState `protobuf:"bytes,3,rep,name=talkgroup_states,json=talkgroupStates,proto3" json:"talkgroup_states,omitempty"`
 	// The local operator callsign currently configured.
-	Callsign      string `protobuf:"bytes,4,opt,name=callsign,proto3" json:"callsign,omitempty"`
+	Callsign string `protobuf:"bytes,4,opt,name=callsign,proto3" json:"callsign,omitempty"`
+	// Codec label for the active broadcast encoder, e.g. "OPUS 32K".
+	// Empty when comms is disabled.
+	Codec string `protobuf:"bytes,5,opt,name=codec,proto3" json:"codec,omitempty"`
+	// Packet time (frame duration) in milliseconds for the active encoder.
+	// Zero when comms is disabled.
+	PtimeMs int32 `protobuf:"varint,6,opt,name=ptime_ms,json=ptimeMs,proto3" json:"ptime_ms,omitempty"`
+	// Round-trip time to the comms peer group in milliseconds, measured from
+	// RTCP SR/RR reports. Zero when no measurement is available.
+	RoundTripMs   int32 `protobuf:"varint,7,opt,name=round_trip_ms,json=roundTripMs,proto3" json:"round_trip_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -95,16 +104,40 @@ func (x *GetCommsStatusResponse) GetCallsign() string {
 	return ""
 }
 
+func (x *GetCommsStatusResponse) GetCodec() string {
+	if x != nil {
+		return x.Codec
+	}
+	return ""
+}
+
+func (x *GetCommsStatusResponse) GetPtimeMs() int32 {
+	if x != nil {
+		return x.PtimeMs
+	}
+	return 0
+}
+
+func (x *GetCommsStatusResponse) GetRoundTripMs() int32 {
+	if x != nil {
+		return x.RoundTripMs
+	}
+	return 0
+}
+
 var File_openmanet_comms_v1_status_proto protoreflect.FileDescriptor
 
 const file_openmanet_comms_v1_status_proto_rawDesc = "" +
 	"\n" +
-	"\x1fopenmanet/comms/v1/status.proto\x12\x12openmanet.comms.v1\x1a\"openmanet/comms/v1/talkgroup.proto\"\xe1\x01\n" +
+	"\x1fopenmanet/comms/v1/status.proto\x12\x12openmanet.comms.v1\x1a\"openmanet/comms/v1/talkgroup.proto\"\xb6\x02\n" +
 	"\x16GetCommsStatusResponse\x12)\n" +
 	"\x10active_talkgroup\x18\x01 \x01(\x05R\x0factiveTalkgroup\x121\n" +
 	"\x14available_talkgroups\x18\x02 \x03(\x05R\x13availableTalkgroups\x12M\n" +
 	"\x10talkgroup_states\x18\x03 \x03(\v2\".openmanet.comms.v1.TalkGroupStateR\x0ftalkgroupStates\x12\x1a\n" +
-	"\bcallsign\x18\x04 \x01(\tR\bcallsignB\xd8\x01\n" +
+	"\bcallsign\x18\x04 \x01(\tR\bcallsign\x12\x14\n" +
+	"\x05codec\x18\x05 \x01(\tR\x05codec\x12\x19\n" +
+	"\bptime_ms\x18\x06 \x01(\x05R\aptimeMs\x12\"\n" +
+	"\rround_trip_ms\x18\a \x01(\x05R\vroundTripMsB\xd8\x01\n" +
 	"\x16com.openmanet.comms.v1B\vStatusProtoP\x01ZGgithub.com/openmanet/openmanetd/internal/api/openmanet/comms/v1;commsv1\xa2\x02\x03OCX\xaa\x02\x12Openmanet.Comms.V1\xca\x02\x12Openmanet\\Comms\\V1\xe2\x02\x1eOpenmanet\\Comms\\V1\\GPBMetadata\xea\x02\x14Openmanet::Comms::V1b\x06proto3"
 
 var (

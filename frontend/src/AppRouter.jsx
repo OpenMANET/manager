@@ -5,7 +5,7 @@
 import { Routes, Route } from 'react-router-dom';
 import Layout from './Layout.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
-import CommsPage from './App.jsx';
+import CommsPage from './pages/Comms.jsx';
 import SettingsPage from './pages/Settings.jsx';
 import GpsStatusPage from './pages/GpsStatus.jsx';
 import BLOSPage from './pages/BLOS.jsx';

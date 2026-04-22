@@ -12,7 +12,7 @@ import React, { useRef, useEffect } from 'react';
 
 import { RX_WAVE_HISTORY } from '../constants.js';
 
-export default function RxWaveform({ rxWaveData, writePos, inline }) {
+export default function RxWaveform({ rxWaveData, writePos, inline, sourceTag = null, lattice = false }) {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
   const animRef = useRef(null);
@@ -86,11 +86,25 @@ export default function RxWaveform({ rxWaveData, writePos, inline }) {
     };
   }, []);
 
+  if (lattice) {
+    return (
+      <div className="rx-wave-lattice">
+        <div className="rx-wave-label">
+          <span>RX WAVEFORM</span>
+          {sourceTag && <span className="rx-wave-src">· {sourceTag}</span>}
+        </div>
+        <div className="rx-wave-canvas" ref={wrapRef}>
+          <canvas ref={canvasRef} />
+        </div>
+      </div>
+    );
+  }
+
   const content = (
     <>
       {!inline && <div className="card-title">Audio</div>}
       <div className="viz-row">
-        <span className="viz-label">RX</span>
+        <span className="viz-label">RX{sourceTag ? ` · ${sourceTag}` : ''}</span>
         <div className="viz-canvas-wrap" ref={wrapRef}>
           <canvas ref={canvasRef} />
         </div>
