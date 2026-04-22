@@ -1,4 +1,4 @@
-import{c as BR,j as We}from"./index-LgwfJA7v.js";import{r as q,g as rs,R as dp}from"./vendor-react-C0lse6RV.js";import"./vendor-connect-Dqee-8PT.js";/**
+import{c as BR,j as We}from"./index-DsyzAmAQ.js";import{r as q,g as rs,R as dp}from"./vendor-react-C0lse6RV.js";import"./vendor-connect-Dqee-8PT.js";/**
  * @license
  * Copyright 2010-2023 Three.js Authors
  * SPDX-License-Identifier: MIT

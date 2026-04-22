@@ -1,8 +1,6 @@
 /* =============================================================================
- * Dashboard.css — Dashboard page styles
- * =============================================================================
- * Most styling now comes from Lattice primitives (.lat-panel, .kv).  Only
- * dashboard-specific helpers live here. */
+ * Dashboard.css — page-specific glue only; primitives live in lattice.css.
+ * ============================================================================= */
 
 .dashboard-loading {
   padding: 32px 20px;
@@ -14,63 +12,37 @@
   text-align: center;
 }
 
-.dashboard-empty {
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  padding: 8px 0;
+/* Row 1 — a 3-column sub-grid spanning the full 4-column body. The inner
+   grid keeps the three KPI panels equal-width without leaving a ghost cell
+   in the parent .lat-body.grid-4. */
+.dashboard-kpi-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+@media (max-width: 900px) {
+  .dashboard-kpi-row { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .dashboard-kpi-row { grid-template-columns: 1fr; }
 }
 
-.dashboard-actions {
+/* System resources two-column inner layout (pbars on left, kv on right). */
+.dashboard-resources {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.dashboard-resources-bars {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 4px;
+  gap: 6px;
 }
-.dashboard-actions .lat-btn {
-  min-height: 40px;
-  justify-content: flex-start;
+@media (max-width: 640px) {
+  .dashboard-resources { grid-template-columns: 1fr; gap: 12px; }
 }
 
-/* Progress bars — dashboard-specific because tests inspect .dashboard-bar-fill. */
-.dashboard-pbar {
-  padding: 4px 0;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.04);
-}
-.dashboard-pbar:last-child { border-bottom: none; }
-.dashboard-pbar-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 4px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
-.dashboard-pbar-row .k {
-  color: var(--muted);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.dashboard-pbar-row .v { color: var(--text); }
-
-.dashboard-bar-track {
-  height: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  overflow: hidden;
-}
-.dashboard-bar-fill {
-  height: 100%;
-  transition: width 0.3s;
-}
-
-/* Status dot used in network summary (test inspects inline style.background) */
-.status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 6px;
-  flex-shrink: 0;
-}
+/* Topology panel holds a canvas-backed child — reserve some height so the
+   Suspense placeholder doesn't collapse to zero. */
+.dashboard-topology { min-height: 420px; }

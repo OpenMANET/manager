@@ -1,43 +1,44 @@
 // =============================================================================
-// Dashboard.jsx — Device dashboard overview page
+// Dashboard.jsx — Mesh operator overview
 // =============================================================================
 //
-// Widget grid shown at /. Cards rendered as Lattice panels via WidgetGrid's
-// drag/resize container.  Order: Device Info · System Resources · Network ·
-// Mesh Status · Topology Map · Quick Actions.
+// Fixed-grid tactical dashboard matching the Lattice mockup:
+//   topbar: NODE id + MESH / GPS / BLOS chips + UTC clock
+//   row 1:  3 KPI panels — Mesh Peers · Link Quality 5m · Battery & Power
+//   row 2:  Mesh Peers Live (col-span-3) · Alerts (col-span-1)
+//   row 3:  System Resources (col-span-2) · Network Interfaces (col-span-2)
+//   row 4:  Topology map (col-span-all)
+//
+// PTT latency is intentionally not on this page — it lives on the Comms page
+// with the rest of the realtime audio instrumentation.
 
-import { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense, lazy } from 'react';
 import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { DashboardService } from "../gen/openmanet/dashboard/v1/dashboard_service_connect.js";
-import { QuickAction, NetworkInterfaceState } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
-import { fetchMeshStatus, fetchMeshTopology } from '../services/meshApi.js';
-import MeshStatusPanel from '../components/MeshStatus.jsx';
-import WidgetGrid from '../components/WidgetGrid.jsx';
+import { NetworkInterfaceState } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
+import { GNSSService } from "../gen/openmanet/gnss/v1/gnss_service_connect.js";
+import { BLOSService } from "../gen/openmanet/blos/v1/blos_service_connect.js";
+import { fetchMeshStatus, fetchMeshTopology, fetchMeshTopologyDelta } from '../services/meshApi.js';
 import './Dashboard.css';
 
-// TopologyMap pulls in reagraph + three.js (~900 KB). Lazy-loaded so the
-// dashboard initial load doesn't include the WebGL graph bundle.
 const TopologyMap = lazy(() => import('../components/TopologyMap.jsx'));
 
-function TopologyMapPlaceholder() {
-  return (
-    <div className="lat-panel">
-      <div className="panel-head"><h3>Network Topology</h3></div>
-      <div className="dashboard-loading">Loading topology…</div>
-    </div>
-  );
-}
-
 const dashClient = createClient(DashboardService, transport);
-const POLL_INTERVAL = 5000;
-const MESH_POLL_INTERVAL = 10000;
-const NEIGHBOR_HISTORY_LENGTH = 30;
+const gnssClient = createClient(GNSSService, transport);
+const blosClient = createClient(BLOSService, transport);
 
-// ── Formatting helpers ──────────────────────────────────────────────────────
+const DASH_POLL_MS = 5000;
+const MESH_POLL_MS = 10000;
+const CHIP_POLL_MS = 10000;
+const CLOCK_TICK_MS = 1000;
+const LQ_HISTORY_LEN = 60;
+const NEIGHBOR_STALE_MS = 30_000;
+
+// ── Formatting ─────────────────────────────────────────────────────────────
 
 function formatUptime(dur) {
-  if (!dur) return '-';
+  if (!dur) return '—';
   const totalSec = Number(dur.seconds);
   if (totalSec <= 0) return '0m';
   const d = Math.floor(totalSec / 86400);
@@ -50,266 +51,588 @@ function formatUptime(dur) {
   return parts.join(' ');
 }
 
-function formatLocalTime(ts) {
-  if (!ts) return '-';
-  const d = new Date(Number(ts.seconds) * 1000 + Math.floor(ts.nanos / 1e6));
-  if (isNaN(d.getTime())) return '-';
-  return d.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-}
-
 function formatBytes(bytes) {
   if (!bytes) return '0 B';
   const n = Number(bytes);
-  if (n < 1024) return n + ' B';
-  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
-  if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
-  return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-function barColor(pct) {
-  if (pct >= 90) return 'var(--red)';
-  if (pct >= 70) return 'var(--yellow)';
-  return 'var(--green)';
+function formatMbps(bps) {
+  if (!bps || bps <= 0) return '—';
+  const mbps = bps / 1_000_000;
+  if (mbps < 0.1) return `${(bps / 1000).toFixed(0)} Kbps`;
+  if (mbps < 10) return `${mbps.toFixed(2)} Mbps`;
+  return `${mbps.toFixed(1)} Mbps`;
 }
 
-// Tests inspect the inline background color, so keep dot styling inline.
-function stateDotStyle(state) {
-  if (state === NetworkInterfaceState.CONNECTED) return { background: 'var(--green)' };
-  if (state === NetworkInterfaceState.DISCONNECTED) return { background: 'var(--red)' };
-  return { background: 'var(--muted)' };
+function formatLast(tsMs, nowMs) {
+  if (!tsMs) return '—';
+  const diff = Math.max(0, nowMs - tsMs);
+  if (diff < 1000) return '<1s';
+  if (diff < 60_000) return `${Math.floor(diff / 1000)}s`;
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
+  return `${Math.floor(diff / 3_600_000)}h`;
 }
 
-function stateLabel(state) {
-  if (state === NetworkInterfaceState.CONNECTED) return 'Connected';
-  if (state === NetworkInterfaceState.DISCONNECTED) return 'Disconnected';
-  return 'Not connected';
+function clockUtc(now) {
+  return now.toISOString().slice(11, 19) + ' UTC';
 }
 
-// ── Sub-components ──────────────────────────────────────────────────────────
+// ── Signal / link quality ──────────────────────────────────────────────────
 
-function DeviceInfoCard({ info }) {
-  const rows = [
-    ['Hostname',     info?.hostname],
-    ['Model',        info?.model],
-    ['Firmware',     info?.firmware],
-    ['Kernel',       info?.kernel],
-    ['Architecture', info?.architecture],
-  ];
-  return (
-    <div className="lat-panel">
-      <div className="panel-head"><h3>Device Information</h3></div>
-      {rows.map(([k, v]) => (
-        <div key={k} className="kv">
-          <span className="k">{k}</span>
-          <span className="v">{v || '-'}</span>
-        </div>
-      ))}
-    </div>
-  );
+// Most 802.11 surveys map good/moderate/weak at −50/−70/−85 dBm.  Linear
+// interpolation between −50 (excellent) and −90 (floor) gives a reasonable
+// 0–100 % score for the link-quality KPI.
+function signalToPct(dbm) {
+  if (!Number.isFinite(dbm) || dbm === 0) return 0;
+  if (dbm >= -50) return 100;
+  if (dbm <= -90) return 0;
+  return Math.round(((dbm + 90) / 40) * 100);
 }
 
-function PBar({ label, value, total, formatFn }) {
-  const pct = total > 0 ? (value / total) * 100 : 0;
-  const pctClamped = Math.max(0, Math.min(100, pct));
-  const detail = formatFn ? `${formatFn(value)} / ${formatFn(total)}` : `${Math.round(pct)} % / 100 %`;
-  return (
-    <div className="dashboard-pbar">
-      <div className="dashboard-pbar-row">
-        <span className="k">{label}</span>
-        <span className="v">{detail}</span>
-      </div>
-      <div className="dashboard-bar-track">
-        <div
-          className="dashboard-bar-fill"
-          style={{ width: `${pctClamped}%`, background: barColor(pctClamped) }}
-        />
-      </div>
-    </div>
-  );
+function sigBars(dbm) {
+  const pct = signalToPct(dbm);
+  // 5 bars: warn when only one bar, off when zero.
+  const filled = Math.max(0, Math.min(5, Math.round(pct / 20)));
+  return [0, 1, 2, 3, 4].map((i) => {
+    if (i >= filled) return '';
+    if (filled <= 1) return 'warn';
+    return 'on';
+  });
 }
 
-function SystemResourcesCard({ resources }) {
-  const cpu = resources?.cpuLoadPercent ?? 0;
-  const memUsed = Number(resources?.memoryUsedBytes ?? 0);
-  const memTotal = Number(resources?.memoryTotalBytes ?? 0);
-  const ovlUsed = Number(resources?.overlayUsedBytes ?? 0);
-  const ovlTotal = Number(resources?.overlayTotalBytes ?? 0);
-
-  return (
-    <div className="lat-panel">
-      <div className="panel-head"><h3>System Resources</h3></div>
-      <div className="kv">
-        <span className="k">Uptime</span>
-        <span className="v accent">{formatUptime(resources?.uptime)}</span>
-      </div>
-      <div className="kv">
-        <span className="k">Local Time</span>
-        <span className="v">{formatLocalTime(resources?.localTime)}</span>
-      </div>
-      <PBar label="CPU Load" value={cpu} total={100} />
-      <PBar label="Memory" value={memUsed} total={memTotal} formatFn={formatBytes} />
-      <PBar label="Overlay" value={ovlUsed} total={ovlTotal} formatFn={formatBytes} />
-    </div>
-  );
+function tqBadge(tq) {
+  if (!Number.isFinite(tq) || tq <= 0) return '';
+  if (tq >= 200) return 'badge-ok';
+  if (tq >= 100) return 'badge-ok';
+  return 'badge-warn';
 }
 
-function NetworkSummaryCard({ summary }) {
-  const entries = summary?.entries ?? [];
-  return (
-    <div className="lat-panel">
-      <div className="panel-head"><h3>Network Summary</h3></div>
-      {entries.length === 0 && (
-        <div className="dashboard-empty">No network data</div>
-      )}
-      {entries.map((e) => (
-        <div key={e.interfaceName} className="kv">
-          <span className="k" style={{ display: 'flex', alignItems: 'center' }}>
-            <span className="status-dot" style={stateDotStyle(e.state)} />
-            {e.displayName || e.interfaceName}
-          </span>
-          <span
-            className={'v' + (e.state === NetworkInterfaceState.DISCONNECTED ? ' crit' : '')}
-            title={e.detail || stateLabel(e.state)}
-          >
-            {e.detail || stateLabel(e.state)}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
+// ── Topology helpers ───────────────────────────────────────────────────────
+
+// Return a 1-hop list of gateway candidates: nodes whose neighbors include
+// self, which for now we approximate as the first node in the topology (the
+// daemon emits self first).  A full BFS would be nicer but the current mesh
+// rarely exceeds 3 hops and the table only needs a rough hop indicator.
+function buildPeerRows(topology, neighbors, historyRef, nowMs) {
+  if (!neighbors || neighbors.length === 0) return [];
+  const neighborHostByMac = new Map();
+  const topoNodes = topology?.nodes ?? [];
+  const self = topoNodes[0];
+  const selfMac = self?.primaryMac?.toLowerCase() ?? '';
+
+  // Build an adjacency map for hop-depth BFS rooted at self.
+  const adj = new Map();
+  for (const node of topoNodes) {
+    const from = (node.primaryMac || '').toLowerCase();
+    if (!adj.has(from)) adj.set(from, new Set());
+    for (const e of node.neighbors || []) {
+      const to = (e.neighborMac || '').toLowerCase();
+      if (!to) continue;
+      adj.get(from).add(to);
+      if (!adj.has(to)) adj.set(to, new Set());
+      adj.get(to).add(from);
+      neighborHostByMac.set(to, e.neighborHostname || '');
+    }
+  }
+  const hops = new Map();
+  if (selfMac) {
+    hops.set(selfMac, 0);
+    const q = [selfMac];
+    while (q.length) {
+      const cur = q.shift();
+      const dist = hops.get(cur);
+      for (const nxt of adj.get(cur) || []) {
+        if (!hops.has(nxt)) {
+          hops.set(nxt, dist + 1);
+          q.push(nxt);
+        }
+      }
+    }
+  }
+
+  // Build TQ lookup keyed by neighbor MAC.
+  const tqByMac = new Map();
+  for (const node of topoNodes) {
+    for (const e of node.neighbors || []) {
+      const mac = (e.neighborMac || '').toLowerCase();
+      if (!mac) continue;
+      const prev = tqByMac.get(mac) ?? 0;
+      if ((e.metric ?? 0) > prev) tqByMac.set(mac, e.metric);
+    }
+  }
+
+  return neighbors.map((n) => {
+    const mac = (n.mac || '').toLowerCase();
+    const hist = historyRef.current[n.name || n.mac];
+    const lastSeenMs = hist?.lastSeenMs ?? nowMs;
+    const tq = tqByMac.get(mac) ?? 0;
+    const hopCount = hops.get(mac) ?? 1;
+    const hostname = neighborHostByMac.get(mac) || n.name || mac.slice(-5);
+    return {
+      key: n.mac || n.name,
+      name: hostname,
+      mac: n.mac || '',
+      hops: hopCount || 1,
+      tq,
+      rssi: n.signal ?? 0,
+      sig: sigBars(n.signal),
+      lastMs: lastSeenMs,
+    };
+  }).sort((a, b) => a.hops - b.hops || (b.tq - a.tq));
 }
 
-function QuickActionsCard({ onReboot, rebooting }) {
-  return (
-    <div className="lat-panel">
-      <div className="panel-head"><h3>Quick Actions</h3></div>
-      <div className="dashboard-actions">
-        <button
-          className="lat-btn danger solid"
-          onClick={onReboot}
-          disabled={rebooting}
-          type="button"
-        >
-          {rebooting ? 'Rebooting\u2026' : 'Reboot Device'}
-        </button>
-      </div>
-    </div>
-  );
+// ── Alerts ─────────────────────────────────────────────────────────────────
+
+function classifyAlerts({ mesh, peerRows, delta }) {
+  const out = [];
+  if (mesh?.status?.connected) {
+    out.push({ level: 'ok', text: 'MESH UP · CONVERGED' });
+  } else {
+    out.push({ level: 'crit', text: 'MESH DOWN · NO NEIGHBORS' });
+  }
+  for (const p of peerRows) {
+    if (p.tq > 0 && p.tq < 100) {
+      out.push({ level: 'warn', text: `PEER ${p.name.toUpperCase()} TQ ${p.tq} · DEGRADED` });
+    }
+  }
+  if (delta?.routesLost > 0) {
+    out.push({ level: 'warn', text: `${delta.routesLost} ROUTE${delta.routesLost > 1 ? 'S' : ''} LOST · 60s` });
+  }
+  if (delta?.routesAdded > 0 && (delta?.routesLost ?? 0) === 0) {
+    out.push({ level: 'ok', text: `MESH HEALED · +${delta.routesAdded} ROUTES` });
+  }
+  return out.slice(0, 6);
 }
 
-// ── Widget configuration ───────────────────────────────────────────────────
+// ── Network interface helpers ──────────────────────────────────────────────
 
-const DASHBOARD_WIDGETS = [
-  { id: 'deviceInfo',      label: 'Device',           minWidth: 20, defaultWidth: 33 },
-  { id: 'systemResources', label: 'System Resources', minWidth: 20, defaultWidth: 33 },
-  { id: 'networkSummary',  label: 'Network',          minWidth: 20, defaultWidth: 34 },
-  { id: 'meshStatus',      label: 'Mesh Status',      minWidth: 30, defaultWidth: 66 },
-  { id: 'quickActions',    label: 'Quick Actions',    minWidth: 20, defaultWidth: 34 },
-  { id: 'topologyMap',     label: 'Topology Map',     minWidth: 30, defaultWidth: 100 },
-];
+function inferRole(iface) {
+  const name = (iface.interfaceName || '').toLowerCase();
+  if (name.startsWith('eth') || name.startsWith('wwan')) return 'uplink';
+  if (name === 'bat0' || name.startsWith('bat')) return 'mesh';
+  if (name.startsWith('phy')) return 'mesh radio';
+  if (name.startsWith('wlan')) return 'wlan';
+  if (name.startsWith('tailscale')) return 'BLOS';
+  if (name.startsWith('br-')) return 'bridge';
+  return '—';
+}
 
-// ── Main page component ─────────────────────────────────────────────────────
+function stateBadge(state) {
+  if (state === NetworkInterfaceState.CONNECTED) return { cls: 'badge-ok', dot: 'ok', label: 'UP' };
+  if (state === NetworkInterfaceState.DISCONNECTED) return { cls: 'badge-crit', dot: 'crit', label: 'DOWN' };
+  return { cls: 'badge-warn', dot: 'warn', label: 'IDLE' };
+}
+
+// Pull an address from the free-form `detail` field. The daemon formats
+// connected interfaces like "10.41.25.72/16", "Connected — 3 neighbors",
+// or "100.64.0.16/32" — the CIDR extractor finds the first two.
+function extractAddr(detail) {
+  if (!detail) return '—';
+  const m = detail.match(/\d+\.\d+\.\d+\.\d+(\/\d+)?/);
+  return m ? m[0] : detail.split('—')[0].trim() || detail;
+}
+
+// ── Main ───────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [rebooting, setRebooting] = useState(false);
   const [meshData, setMeshData] = useState(null);
-  const [meshTopology, setMeshTopology] = useState(null);
-  const [neighborHistory, setNeighborHistory] = useState({});
-  const neighborHistoryRef = useRef({});
-  const pollRef = useRef(null);
-  const meshPollRef = useRef(null);
+  const [topology, setTopology] = useState(null);
+  const [delta, setDelta] = useState(null);
+  const [gps, setGps] = useState(null);
+  const [blosPeers, setBlosPeers] = useState(0);
+  const [lqHistory, setLqHistory] = useState([]);
+  const [now, setNow] = useState(() => Date.now());
 
+  const neighborHistoryRef = useRef({});
+  const lqHistoryRef = useRef([]);
+
+  // ─ Polls ─
   const fetchStatus = useCallback(async () => {
     try {
       const resp = await dashClient.getDashboardStatus({});
       setData(resp);
-      setLoading(false);
     } catch {
+      // best-effort
+    } finally {
       setLoading(false);
     }
   }, []);
 
   const pollMesh = useCallback(async () => {
     try {
-      const [md, topo] = await Promise.all([
+      const [md, topo, d] = await Promise.all([
         fetchMeshStatus(),
         fetchMeshTopology(),
+        fetchMeshTopologyDelta(60),
       ]);
       setMeshData(md);
-      setMeshTopology(topo);
-      if (md.neighbors && Array.isArray(md.neighbors)) {
-        md.neighbors.forEach((n) => {
+      setTopology(topo);
+      setDelta(d);
+
+      const nowMs = Date.now();
+      if (Array.isArray(md?.neighbors)) {
+        let sumPct = 0;
+        let count = 0;
+        for (const n of md.neighbors) {
           const key = n.name || n.mac;
+          if (!key) continue;
           if (!neighborHistoryRef.current[key]) {
-            neighborHistoryRef.current[key] = { signal: [], throughput: [] };
+            neighborHistoryRef.current[key] = { lastSeenMs: nowMs };
           }
-          const h = neighborHistoryRef.current[key];
-          h.signal.push(n.signal);
-          h.throughput.push(n.throughput || 0);
-          if (h.signal.length > NEIGHBOR_HISTORY_LENGTH) {
-            h.signal.shift();
-            h.throughput.shift();
+          neighborHistoryRef.current[key].lastSeenMs = nowMs;
+          if (Number.isFinite(n.signal) && n.signal !== 0) {
+            sumPct += signalToPct(n.signal);
+            count += 1;
           }
-        });
-        setNeighborHistory({ ...neighborHistoryRef.current });
+        }
+        // Prune peers we haven't seen for a while so old entries don't
+        // anchor the peer list.
+        for (const [key, h] of Object.entries(neighborHistoryRef.current)) {
+          if (nowMs - h.lastSeenMs > NEIGHBOR_STALE_MS * 10) {
+            delete neighborHistoryRef.current[key];
+          }
+        }
+        if (count > 0) {
+          const sample = Math.round(sumPct / count);
+          lqHistoryRef.current.push(sample);
+          if (lqHistoryRef.current.length > LQ_HISTORY_LEN) {
+            lqHistoryRef.current.shift();
+          }
+          setLqHistory([...lqHistoryRef.current]);
+        }
       }
     } catch {
-      // mesh status is best-effort
+      // best-effort
+    }
+  }, []);
+
+  const pollChips = useCallback(async () => {
+    try {
+      const g = await gnssClient.getGNSSStatus({});
+      setGps(g);
+    } catch {
+      // GNSS service may be unavailable; chip shows NO FIX
+    }
+    try {
+      const b = await blosClient.listBLOSPeers({});
+      setBlosPeers(b?.peers?.length ?? 0);
+    } catch {
+      // BLOS service may be disabled
     }
   }, []);
 
   useEffect(() => {
     fetchStatus();
-    pollRef.current = setInterval(fetchStatus, POLL_INTERVAL);
-    return () => clearInterval(pollRef.current);
+    const id = setInterval(fetchStatus, DASH_POLL_MS);
+    return () => clearInterval(id);
   }, [fetchStatus]);
 
   useEffect(() => {
     pollMesh();
-    meshPollRef.current = setInterval(pollMesh, MESH_POLL_INTERVAL);
-    return () => clearInterval(meshPollRef.current);
+    const id = setInterval(pollMesh, MESH_POLL_MS);
+    return () => clearInterval(id);
   }, [pollMesh]);
 
-  const handleReboot = useCallback(async () => {
-    if (!window.confirm('Are you sure you want to reboot this device? It will be temporarily unreachable.')) return;
-    setRebooting(true);
-    try {
-      await dashClient.executeQuickAction({ action: QuickAction.REBOOT_DEVICE });
-    } catch {
-      // device may become unreachable immediately
-    } finally {
-      setTimeout(() => setRebooting(false), 5000);
-    }
+  useEffect(() => {
+    pollChips();
+    const id = setInterval(pollChips, CHIP_POLL_MS);
+    return () => clearInterval(id);
+  }, [pollChips]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
+    return () => clearInterval(id);
   }, []);
 
-  const renderWidget = useCallback((id) => {
-    switch (id) {
-      case 'deviceInfo':      return <DeviceInfoCard info={data?.deviceInfo} />;
-      case 'systemResources': return <SystemResourcesCard resources={data?.systemResources} />;
-      case 'networkSummary':  return <NetworkSummaryCard summary={data?.networkSummary} />;
-      case 'meshStatus':      return <MeshStatusPanel data={meshData} neighborHistory={neighborHistory} />;
-      case 'topologyMap':     return (
-        <Suspense fallback={<TopologyMapPlaceholder />}>
-          <TopologyMap topology={meshTopology} />
-        </Suspense>
-      );
-      case 'quickActions':    return <QuickActionsCard onReboot={handleReboot} rebooting={rebooting} />;
-      default:                return null;
+  // ─ Derived ─
+  const neighbors = useMemo(() => meshData?.neighbors ?? [], [meshData]);
+  const peerRows = useMemo(
+    () => buildPeerRows(topology, neighbors, neighborHistoryRef, now),
+    [topology, neighbors, now],
+  );
+
+  const peerCount = peerRows.length;
+  const gatewayName = useMemo(() => {
+    if (meshData?.status?.is_gateway) return (data?.deviceInfo?.hostname || 'SELF').toUpperCase();
+    // Fallback: first node in topology whose primary_mac the daemon tagged as gateway is
+    // not reliably exposed, so surface the first 1-hop peer as a best guess.
+    const first = peerRows.find((p) => p.hops === 1);
+    return first ? first.name.toUpperCase() : '—';
+  }, [meshData, data, peerRows]);
+
+  const hopsAvg = useMemo(() => {
+    if (peerRows.length === 0) return '—';
+    const sum = peerRows.reduce((a, p) => a + p.hops, 0);
+    return (sum / peerRows.length).toFixed(1);
+  }, [peerRows]);
+
+  const throughputTotal = useMemo(() => {
+    const bps = (neighbors || []).reduce((a, n) => a + (n.throughput || 0), 0);
+    return formatMbps(bps);
+  }, [neighbors]);
+
+  const linkQuality = lqHistory.length > 0 ? lqHistory[lqHistory.length - 1] : 0;
+  const lqClass = linkQuality >= 80 ? 'ok' : linkQuality >= 50 ? '' : 'warn';
+
+  const alerts = useMemo(
+    () => classifyAlerts({ mesh: meshData, peerRows, delta }),
+    [meshData, peerRows, delta],
+  );
+
+  const interfaces = data?.networkSummary?.entries ?? [];
+
+  // ─ Topbar state ─
+  const hostname = data?.deviceInfo?.hostname || 'NODE';
+  const primaryIp = useMemo(() => {
+    const entries = data?.networkSummary?.entries ?? [];
+    for (const e of entries) {
+      if (e.state !== NetworkInterfaceState.CONNECTED) continue;
+      const addr = extractAddr(e.detail);
+      if (addr && addr !== '—') return addr;
     }
-  }, [data, meshData, meshTopology, neighborHistory, handleReboot, rebooting]);
+    return '—';
+  }, [data]);
+
+  const gpsFix = (gps?.position?.fixType ?? 0) >= 2; // 2D or 3D
+  const gpsSats = gps?.satelliteStatus?.satellitesUsed ?? 0;
+  const meshUp = !!meshData?.status?.connected;
 
   if (loading) {
     return <div className="dashboard-loading">Loading dashboard...</div>;
   }
 
   return (
-    <WidgetGrid
-      pageId="dashboard"
-      title="Dashboard"
-      widgets={DASHBOARD_WIDGETS}
-      renderWidget={renderWidget}
-    />
+    <>
+      <div className="lat-topbar">
+        <div className="node-id">
+          {hostname.toUpperCase()}
+          <span className="ip">{primaryIp}</span>
+        </div>
+        <div className="chips">
+          <span className={`lat-chip ${meshUp ? 'ok' : 'crit'}`}>
+            <span className="dot" /> MESH {meshUp ? 'UP' : 'DOWN'}
+          </span>
+          <span className={`lat-chip ${gpsFix ? 'ok' : 'warn'}`}>
+            <span className="dot" /> GPS {gpsFix ? `LOCK · ${gpsSats} SATS` : 'NO FIX'}
+          </span>
+          <span className={`lat-chip ${blosPeers > 0 ? 'ok' : 'warn'}`}>
+            <span className="dot" /> BLOS · {blosPeers} PEERS
+          </span>
+          {/* TODO(api-plan): battery percent — add BATT chip when backend exposes it */}
+          <span>{clockUtc(new Date(now))}</span>
+        </div>
+      </div>
+
+      <div className="lat-view-header">
+        <div>
+          <h2>◇ Dashboard</h2>
+          <div className="crumb">Overview · Live telemetry · {(DASH_POLL_MS / 1000).toFixed(0)}s refresh</div>
+        </div>
+        <div className="lat-view-toolbar">
+          {/* TODO: wire export / customize actions */}
+          <button className="lat-btn ghost" type="button">EXPORT</button>
+          <button className="lat-btn" type="button">CUSTOMIZE</button>
+        </div>
+      </div>
+
+      <div className="lat-body grid-4">
+        {/* Row 1: 3 KPIs — PTT Latency lives on Comms, not here. */}
+        <div className="dashboard-kpi-row">
+          <div className="lat-panel">
+            <div className="panel-head"><h3>Mesh Peers</h3></div>
+            <div className="big-num">{peerCount}<span className="unit">nodes</span></div>
+            <div className="kv"><span className="k">Gateway</span><span className="v accent">{gatewayName}</span></div>
+            <div className="kv"><span className="k">Hops avg</span><span className="v">{hopsAvg}</span></div>
+            <div className="kv"><span className="k">Throughput</span><span className="v">{throughputTotal}</span></div>
+          </div>
+          <div className="lat-panel">
+            <div className="panel-head"><h3>Link Quality · 5m</h3></div>
+            <div className={`big-num ${lqClass}`}>{linkQuality}<span className="unit">%</span></div>
+            <div className={`spark${lqClass === 'warn' ? ' warn' : ''}`}>
+              {lqHistory.length === 0 ? (
+                <span style={{ height: '2%' }} />
+              ) : (
+                lqHistory.map((v, i) => (
+                  <span key={i} style={{ height: `${Math.max(2, v)}%` }} />
+                ))
+              )}
+            </div>
+          </div>
+          <div className="lat-panel">
+            <div className="panel-head"><h3>Battery & Power</h3></div>
+            {/* TODO(api-plan): surface battery metrics — percent, voltage, draw, eta */}
+            <div className="big-num">—</div>
+            <div className="kv"><span className="k">Voltage</span><span className="v">—</span></div>
+            <div className="kv"><span className="k">Draw</span><span className="v">—</span></div>
+            <div className="kv"><span className="k">ETA</span><span className="v">—</span></div>
+          </div>
+        </div>
+
+        {/* Row 2: peers table + alerts */}
+        <div className="lat-panel col-span-3">
+          <div className="panel-head">
+            <h3>Mesh Peers · Live</h3>
+            <div className="actions">
+              {/* TODO: wire table filter/sort/export */}
+              <button type="button">FILTER</button>
+              <button type="button">SORT</button>
+              <button type="button">EXPORT</button>
+            </div>
+          </div>
+          <div className="table-scroll">
+            <table className="lat-table">
+              <thead>
+                <tr>
+                  <th>Node</th><th>MAC</th><th>Hops</th><th>TQ</th>
+                  <th>RSSI</th><th>Sig</th><th>Last</th>
+                </tr>
+              </thead>
+              <tbody>
+                {peerRows.length === 0 && (
+                  <tr><td colSpan={7} className="mono">No neighbors reporting</td></tr>
+                )}
+                {peerRows.map((p) => (
+                  <tr key={p.key}>
+                    <td>{p.name}</td>
+                    <td className="mono">{p.mac || '—'}</td>
+                    <td>{p.hops}</td>
+                    <td className={tqBadge(p.tq)}>{p.tq > 0 ? p.tq : '—'}</td>
+                    <td>{p.rssi ? `${p.rssi}` : '—'}</td>
+                    <td>
+                      <div className="sig-bars">
+                        {p.sig.map((cls, i) => (
+                          <span key={i} className={cls} />
+                        ))}
+                      </div>
+                    </td>
+                    <td>{formatLast(p.lastMs, now)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="lat-panel">
+          <div className="panel-head">
+            <h3>Alerts · Active</h3>
+            <div className="actions">
+              {/* TODO: wire alert ack */}
+              <button type="button">ACK ALL</button>
+            </div>
+          </div>
+          {alerts.map((a, i) => (
+            <div key={i} className={`lat-alert ${a.level}`}>{a.text}</div>
+          ))}
+        </div>
+
+        {/* Row 3: system resources + interfaces */}
+        <div className="lat-panel col-span-2">
+          <div className="panel-head"><h3>System Resources</h3></div>
+          <div className="dashboard-resources">
+            <div className="dashboard-resources-bars">
+              <PbarRow label="CPU" pct={data?.systemResources?.cpuLoadPercent ?? 0} />
+              <PbarRow
+                label="MEM"
+                pct={memPct(data?.systemResources?.memoryUsedBytes, data?.systemResources?.memoryTotalBytes)}
+                detail={`${formatBytes(data?.systemResources?.memoryUsedBytes)} / ${formatBytes(data?.systemResources?.memoryTotalBytes)}`}
+              />
+              <PbarRow
+                label="OVERLAY"
+                pct={memPct(data?.systemResources?.overlayUsedBytes, data?.systemResources?.overlayTotalBytes)}
+                detail={`${formatBytes(data?.systemResources?.overlayUsedBytes)} / ${formatBytes(data?.systemResources?.overlayTotalBytes)}`}
+              />
+              {/* TODO(api-plan): expose load average — render dash for now */}
+              <div className="pbar-row">
+                <span className="pbar-label">LOAD 1M</span>
+                <div className="pbar"><span style={{ width: '0%' }} /></div>
+                <span className="pbar-val">—</span>
+              </div>
+            </div>
+            <div className="dashboard-resources-kv">
+              <div className="kv"><span className="k">Uptime</span><span className="v accent">{formatUptime(data?.systemResources?.uptime)}</span></div>
+              <div className="kv"><span className="k">Kernel</span><span className="v">{data?.deviceInfo?.kernel || '—'}</span></div>
+              <div className="kv"><span className="k">Firmware</span><span className="v">{data?.deviceInfo?.firmware || '—'}</span></div>
+              <div className="kv"><span className="k">Arch</span><span className="v">{data?.deviceInfo?.architecture || '—'}</span></div>
+              {/* TODO(api-plan): expose CPU temperature via sysfs */}
+              <div className="kv"><span className="k">Temp</span><span className="v">—</span></div>
+              {/* TODO(api-plan): expose hardware revision */}
+              <div className="kv"><span className="k">HW Rev</span><span className="v">—</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div className="lat-panel col-span-2">
+          <div className="panel-head"><h3>Network Interfaces</h3></div>
+          <div className="table-scroll">
+            <table className="lat-table">
+              <thead>
+                <tr>
+                  <th>Iface</th><th>Addr</th><th>State</th><th>Role</th><th>RX</th><th>TX</th>
+                </tr>
+              </thead>
+              <tbody>
+                {interfaces.length === 0 && (
+                  <tr><td colSpan={6} className="mono">No network data</td></tr>
+                )}
+                {interfaces.map((iface) => {
+                  const badge = stateBadge(iface.state);
+                  return (
+                    <tr key={iface.interfaceName}>
+                      <td>
+                        <span className={`dot-i ${badge.dot}`} />
+                        {iface.interfaceName}
+                      </td>
+                      <td className="mono">{extractAddr(iface.detail)}</td>
+                      <td className={badge.cls}>{badge.label}</td>
+                      <td>{inferRole(iface)}</td>
+                      {/* TODO(api-plan): expose per-interface RX/TX byte counters */}
+                      <td>—</td>
+                      <td>—</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Row 4: topology map */}
+        <div className="lat-panel col-span-all dashboard-topology">
+          <div className="panel-head"><h3>Network Topology</h3></div>
+          <Suspense fallback={<div className="dashboard-loading">Loading topology…</div>}>
+            <TopologyMap topology={topology} />
+          </Suspense>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Small presentational helpers ──────────────────────────────────────────
+
+function memPct(used, total) {
+  const u = Number(used ?? 0);
+  const t = Number(total ?? 0);
+  if (t <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((u / t) * 100)));
+}
+
+function PbarRow({ label, pct, detail }) {
+  const warn = pct >= 90 ? 'crit' : pct >= 70 ? 'warn' : '';
+  return (
+    <div className="pbar-row">
+      <span className="pbar-label">{label}</span>
+      <div className={`pbar ${warn}`.trim()}>
+        <span style={{ width: `${pct}%` }} />
+      </div>
+      <span className="pbar-val">{detail || `${pct}%`}</span>
+    </div>
   );
 }
