@@ -5,10 +5,15 @@ package blos
 // docs/instrumentation-snapshot.md — keep that file in sync when
 // adding or renaming fields here.
 type BLOSSnapshot struct {
-	// Running reflects whether the BLOS module is currently active
-	// (Tailscale daemon up + BLOSManager.running == true). False
-	// covers both "disabled by config" and "enabled but stopped".
-	Running bool `json:"running"`
+	BackendState         string  `json:"backend_state"`
+	ConnectedSinceUnixNs int64   `json:"connected_since_unix_ns"`
+	RxBytesTotal         uint64  `json:"rx_bytes_total"`
+	TxBytesTotal         uint64  `json:"tx_bytes_total"`
+	RxBps60s             float64 `json:"rx_bps_60s"`
+	TxBps60s             float64 `json:"tx_bps_60s"`
+	EventsDropped        uint64  `json:"events_dropped"`
+	PeerCount            uint32  `json:"peer_count"`
+	Running              bool    `json:"running"`
 }
 
 // Snapshot fills dst with the manager's current state. Takes a short
@@ -20,6 +25,42 @@ func (m *BLOSManager) Snapshot(dst *BLOSSnapshot) {
 	}
 
 	dst.Running = m.IsRunning()
+
+	w := m.statusWorker()
+	if w == nil {
+		dst.ConnectedSinceUnixNs = 0
+		dst.BackendState = ""
+		dst.PeerCount = 0
+		dst.RxBytesTotal = 0
+		dst.TxBytesTotal = 0
+		dst.RxBps60s = 0
+		dst.TxBps60s = 0
+		dst.EventsDropped = 0
+
+		return
+	}
+
+	if since := w.ConnectedSince(); !since.IsZero() {
+		dst.ConnectedSinceUnixNs = since.UnixNano()
+	} else {
+		dst.ConnectedSinceUnixNs = 0
+	}
+
+	if status := w.GetStatus(); status != nil {
+		dst.BackendState = status.BackendState
+		dst.PeerCount = uint32(len(status.Peer))
+	} else {
+		dst.BackendState = ""
+		dst.PeerCount = 0
+	}
+
+	rxBps, txBps, rxTotal, txTotal := w.RateWindow(rateWindow60s)
+	dst.RxBytesTotal = rxTotal
+	dst.TxBytesTotal = txTotal
+	dst.RxBps60s = rxBps
+	dst.TxBps60s = txBps
+
+	dst.EventsDropped = w.EventsDropped()
 }
 
 // BLOSSnapshotter is an instrumentation.Snapshotter adapter that wires

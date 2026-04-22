@@ -29,10 +29,27 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type BLOSServiceClient interface {
-	// GetBLOSStatus retrieves the current status of the BLOS subsystem, including whether it is enabled and any relevant status messages.
+	// GetBLOSStatus retrieves the current status of the BLOS subsystem,
+	// including whether it is enabled, tunnel identity, DERP state,
+	// aggregated counters, and overlay-network policy.
 	GetBLOSStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetBLOSStatusResponse, error)
-	// UpdateBLOSConfig updates the configuration of the BLOS subsystem, including enabling or disabling it and setting authentication keys.
+	// UpdateBLOSConfig updates the configuration of the BLOS subsystem,
+	// including enabling or disabling it and setting authentication keys.
 	UpdateBLOSConfig(ctx context.Context, in *UpdateBLOSConfigRequest, opts ...grpc.CallOption) (*UpdateBLOSConfigResponse, error)
+	// ListBLOSPeers returns the remote nodes visible on the Tailscale
+	// overlay as a single snapshot. Returns an empty list when BLOS is
+	// disabled or the backend is not yet running (never an error for those
+	// cases). Returns CodeInternal for unexpected status failures.
+	ListBLOSPeers(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListBLOSPeersResponse, error)
+	// StreamBLOSEvents streams BLOS state-change events to the client
+	// until the client disconnects or the daemon shuts down. Event
+	// generation is best-effort: if the server's outbound buffer fills
+	// (slow client) the daemon drops events and increments the
+	// events_dropped counter in the BLOS instrumentation snapshot. The
+	// stream emits a periodic BLOS_EVENT_KIND_KEEPALIVE so clients can
+	// detect silent disconnects. Each emission is wrapped in a
+	// StreamBLOSEventsResponse envelope (which contains the BLOSEvent).
+	StreamBLOSEvents(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (BLOSService_StreamBLOSEventsClient, error)
 }
 
 type bLOSServiceClient struct {
@@ -61,14 +78,72 @@ func (c *bLOSServiceClient) UpdateBLOSConfig(ctx context.Context, in *UpdateBLOS
 	return out, nil
 }
 
+func (c *bLOSServiceClient) ListBLOSPeers(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListBLOSPeersResponse, error) {
+	out := new(ListBLOSPeersResponse)
+	err := c.cc.Invoke(ctx, "/openmanet.blos.v1.BLOSService/ListBLOSPeers", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *bLOSServiceClient) StreamBLOSEvents(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (BLOSService_StreamBLOSEventsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &BLOSService_ServiceDesc.Streams[0], "/openmanet.blos.v1.BLOSService/StreamBLOSEvents", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &bLOSServiceStreamBLOSEventsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type BLOSService_StreamBLOSEventsClient interface {
+	Recv() (*StreamBLOSEventsResponse, error)
+	grpc.ClientStream
+}
+
+type bLOSServiceStreamBLOSEventsClient struct {
+	grpc.ClientStream
+}
+
+func (x *bLOSServiceStreamBLOSEventsClient) Recv() (*StreamBLOSEventsResponse, error) {
+	m := new(StreamBLOSEventsResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // BLOSServiceServer is the server API for BLOSService service.
 // All implementations must embed UnimplementedBLOSServiceServer
 // for forward compatibility
 type BLOSServiceServer interface {
-	// GetBLOSStatus retrieves the current status of the BLOS subsystem, including whether it is enabled and any relevant status messages.
+	// GetBLOSStatus retrieves the current status of the BLOS subsystem,
+	// including whether it is enabled, tunnel identity, DERP state,
+	// aggregated counters, and overlay-network policy.
 	GetBLOSStatus(context.Context, *emptypb.Empty) (*GetBLOSStatusResponse, error)
-	// UpdateBLOSConfig updates the configuration of the BLOS subsystem, including enabling or disabling it and setting authentication keys.
+	// UpdateBLOSConfig updates the configuration of the BLOS subsystem,
+	// including enabling or disabling it and setting authentication keys.
 	UpdateBLOSConfig(context.Context, *UpdateBLOSConfigRequest) (*UpdateBLOSConfigResponse, error)
+	// ListBLOSPeers returns the remote nodes visible on the Tailscale
+	// overlay as a single snapshot. Returns an empty list when BLOS is
+	// disabled or the backend is not yet running (never an error for those
+	// cases). Returns CodeInternal for unexpected status failures.
+	ListBLOSPeers(context.Context, *emptypb.Empty) (*ListBLOSPeersResponse, error)
+	// StreamBLOSEvents streams BLOS state-change events to the client
+	// until the client disconnects or the daemon shuts down. Event
+	// generation is best-effort: if the server's outbound buffer fills
+	// (slow client) the daemon drops events and increments the
+	// events_dropped counter in the BLOS instrumentation snapshot. The
+	// stream emits a periodic BLOS_EVENT_KIND_KEEPALIVE so clients can
+	// detect silent disconnects. Each emission is wrapped in a
+	// StreamBLOSEventsResponse envelope (which contains the BLOSEvent).
+	StreamBLOSEvents(*emptypb.Empty, BLOSService_StreamBLOSEventsServer) error
 	mustEmbedUnimplementedBLOSServiceServer()
 }
 
@@ -81,6 +156,12 @@ func (UnimplementedBLOSServiceServer) GetBLOSStatus(context.Context, *emptypb.Em
 }
 func (UnimplementedBLOSServiceServer) UpdateBLOSConfig(context.Context, *UpdateBLOSConfigRequest) (*UpdateBLOSConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateBLOSConfig not implemented")
+}
+func (UnimplementedBLOSServiceServer) ListBLOSPeers(context.Context, *emptypb.Empty) (*ListBLOSPeersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListBLOSPeers not implemented")
+}
+func (UnimplementedBLOSServiceServer) StreamBLOSEvents(*emptypb.Empty, BLOSService_StreamBLOSEventsServer) error {
+	return status.Errorf(codes.Unimplemented, "method StreamBLOSEvents not implemented")
 }
 func (UnimplementedBLOSServiceServer) mustEmbedUnimplementedBLOSServiceServer() {}
 
@@ -131,6 +212,45 @@ func _BLOSService_UpdateBLOSConfig_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BLOSService_ListBLOSPeers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BLOSServiceServer).ListBLOSPeers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/openmanet.blos.v1.BLOSService/ListBLOSPeers",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BLOSServiceServer).ListBLOSPeers(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BLOSService_StreamBLOSEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(emptypb.Empty)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(BLOSServiceServer).StreamBLOSEvents(m, &bLOSServiceStreamBLOSEventsServer{stream})
+}
+
+type BLOSService_StreamBLOSEventsServer interface {
+	Send(*StreamBLOSEventsResponse) error
+	grpc.ServerStream
+}
+
+type bLOSServiceStreamBLOSEventsServer struct {
+	grpc.ServerStream
+}
+
+func (x *bLOSServiceStreamBLOSEventsServer) Send(m *StreamBLOSEventsResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // BLOSService_ServiceDesc is the grpc.ServiceDesc for BLOSService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -146,7 +266,17 @@ var BLOSService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "UpdateBLOSConfig",
 			Handler:    _BLOSService_UpdateBLOSConfig_Handler,
 		},
+		{
+			MethodName: "ListBLOSPeers",
+			Handler:    _BLOSService_ListBLOSPeers_Handler,
+		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "StreamBLOSEvents",
+			Handler:       _BLOSService_StreamBLOSEvents_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "openmanet/blos/v1/blos_service.proto",
 }

@@ -3,16 +3,50 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { proto3 } from "@bufbuild/protobuf";
+import { Duration, proto3 } from "@bufbuild/protobuf";
 import { MeshTopology } from "./mesh_topology_pb.js";
 
 /**
+ * GetMeshTopologyResponse carries a single mesh-topology snapshot.
+ *
  * @generated from message openmanet.mesh_topology.v1.GetMeshTopologyResponse
  */
 export const GetMeshTopologyResponse = /*@__PURE__*/ proto3.makeMessageType(
   "openmanet.mesh_topology.v1.GetMeshTopologyResponse",
   () => [
     { no: 1, name: "topology", kind: "message", T: MeshTopology },
+  ],
+);
+
+/**
+ * GetMeshTopologyDeltaRequest specifies the look-back window over which
+ * churn metrics are aggregated. The server clamps the window to the
+ * amount of history it has; see actual_window in the response.
+ *
+ * @generated from message openmanet.mesh_topology.v1.GetMeshTopologyDeltaRequest
+ */
+export const GetMeshTopologyDeltaRequest = /*@__PURE__*/ proto3.makeMessageType(
+  "openmanet.mesh_topology.v1.GetMeshTopologyDeltaRequest",
+  () => [
+    { no: 1, name: "window", kind: "message", T: Duration },
+  ],
+);
+
+/**
+ * GetMeshTopologyDeltaResponse carries aggregated mesh-network churn
+ * metrics over the requested look-back window. All counters are
+ * non-negative integers.
+ *
+ * @generated from message openmanet.mesh_topology.v1.GetMeshTopologyDeltaResponse
+ */
+export const GetMeshTopologyDeltaResponse = /*@__PURE__*/ proto3.makeMessageType(
+  "openmanet.mesh_topology.v1.GetMeshTopologyDeltaResponse",
+  () => [
+    { no: 1, name: "routes_added", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
+    { no: 2, name: "routes_lost", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
+    { no: 3, name: "gateway_changes", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
+    { no: 4, name: "reconverge", kind: "message", T: Duration },
+    { no: 5, name: "actual_window", kind: "message", T: Duration },
   ],
 );
 

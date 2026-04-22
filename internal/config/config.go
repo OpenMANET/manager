@@ -52,6 +52,18 @@ const (
 	DefaultGNSSCoTUID                                string  = ""
 	DefaultEnableBLOS                                bool    = false
 	DefaultBLOSStatusWorkerInterval                  int     = 30 // seconds
+	// DefaultMeshTopologyDeltaSampleInterval is how often the mesh
+	// topology delta tracker polls batadv-vis for a new snapshot. 5
+	// seconds is a compromise between granularity (the UI panel claims
+	// a 60-second window) and the cost of forking batadv-vis on every
+	// tick.
+	DefaultMeshTopologyDeltaSampleInterval int = 5 // seconds
+	// DefaultMeshTopologyMaxDeltaSamples caps the rolling snapshot ring
+	// at 120 entries, covering 10 minutes of history at the default
+	// sample interval. The memory footprint is dominated by the edge
+	// set per snapshot; at typical mesh sizes this ring stays well
+	// under a megabyte.
+	DefaultMeshTopologyMaxDeltaSamples int = 120
 	// DefaultBLOSAdvertisedMeshSubnet is the CIDR advertised to the Tailscale
 	// control plane via the AdvertiseRoutes preference so remote peers can
 	// reach the local mesh through this gateway. Deployments whose mesh
@@ -159,6 +171,8 @@ type Config struct {
 	BLOSAdvertisedMeshSubnet                  string
 	onChangeCallbacks                         []func(*Config)
 	BLOSStatusWorkerInterval                  int
+	MeshTopologyDeltaSampleInterval           int
+	MeshTopologyMaxDeltaSamples               int
 	InstrumentationIntervalSecs               int
 	OpenMANETWebsocketPort                    int
 	CommsEncoderComplexity                    int
@@ -446,6 +460,20 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.BLOSStatusWorkerInterval = val
 	} else {
 		c.BLOSStatusWorkerInterval = DefaultBLOSStatusWorkerInterval
+	}
+
+	// Mesh topology delta tracker — polls batadv-vis on an interval and
+	// keeps the last N snapshots to compute 60s churn counters.
+	if val := c.v.GetInt("meshTopology.deltaSampleInterval"); val > 0 {
+		c.MeshTopologyDeltaSampleInterval = val
+	} else {
+		c.MeshTopologyDeltaSampleInterval = DefaultMeshTopologyDeltaSampleInterval
+	}
+
+	if val := c.v.GetInt("meshTopology.maxDeltaSamples"); val > 0 {
+		c.MeshTopologyMaxDeltaSamples = val
+	} else {
+		c.MeshTopologyMaxDeltaSamples = DefaultMeshTopologyMaxDeltaSamples
 	}
 
 	// Load the advertised mesh subnet CIDR. Validate that it parses as a
@@ -942,6 +970,24 @@ func (c *Config) GetBLOSAdvertisedMeshSubnet() string {
 	defer c.mu.RUnlock()
 
 	return c.BLOSAdvertisedMeshSubnet
+}
+
+// GetMeshTopologyDeltaSampleInterval returns the polling interval in
+// seconds used by the mesh-topology delta tracker. Always positive.
+func (c *Config) GetMeshTopologyDeltaSampleInterval() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.MeshTopologyDeltaSampleInterval
+}
+
+// GetMeshTopologyMaxDeltaSamples returns the cap on the rolling snapshot
+// ring used by the mesh-topology delta tracker. Always positive.
+func (c *Config) GetMeshTopologyMaxDeltaSamples() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.MeshTopologyMaxDeltaSamples
 }
 
 // GetOpenMANETFrontendHostPort returns the OpenMANET frontend host and port.

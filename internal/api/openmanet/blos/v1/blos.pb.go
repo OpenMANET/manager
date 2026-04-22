@@ -9,6 +9,8 @@ package blosv1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -21,19 +23,676 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// BLOSEventKind enumerates the observable event categories. Unknown
+// kinds should be ignored by clients for forward compatibility.
+type BLOSEventKind int32
+
+const (
+	// Unspecified is the default zero value and must not be emitted by
+	// the daemon.
+	BLOSEventKind_BLOS_EVENT_KIND_UNSPECIFIED BLOSEventKind = 0
+	// BackendState reports a Tailscale backend state transition
+	// (e.g. Running, NeedsLogin, Stopped).
+	BLOSEventKind_BLOS_EVENT_KIND_BACKEND_STATE BLOSEventKind = 1
+	// PeerAdded reports that a new peer appeared in the overlay.
+	BLOSEventKind_BLOS_EVENT_KIND_PEER_ADDED BLOSEventKind = 2
+	// PeerLost reports that an existing peer disappeared from the overlay.
+	BLOSEventKind_BLOS_EVENT_KIND_PEER_LOST BLOSEventKind = 3
+	// PeerOnline reports that an existing peer transitioned to online.
+	BLOSEventKind_BLOS_EVENT_KIND_PEER_ONLINE BLOSEventKind = 4
+	// PeerOffline reports that an existing peer transitioned to offline.
+	BLOSEventKind_BLOS_EVENT_KIND_PEER_OFFLINE BLOSEventKind = 5
+	// DerpChanged reports that the DERP region changed for the local node
+	// or a peer.
+	BLOSEventKind_BLOS_EVENT_KIND_DERP_CHANGED BLOSEventKind = 6
+	// Keepalive is a periodic stream liveness tick with no state change.
+	BLOSEventKind_BLOS_EVENT_KIND_KEEPALIVE BLOSEventKind = 7
+)
+
+// Enum value maps for BLOSEventKind.
+var (
+	BLOSEventKind_name = map[int32]string{
+		0: "BLOS_EVENT_KIND_UNSPECIFIED",
+		1: "BLOS_EVENT_KIND_BACKEND_STATE",
+		2: "BLOS_EVENT_KIND_PEER_ADDED",
+		3: "BLOS_EVENT_KIND_PEER_LOST",
+		4: "BLOS_EVENT_KIND_PEER_ONLINE",
+		5: "BLOS_EVENT_KIND_PEER_OFFLINE",
+		6: "BLOS_EVENT_KIND_DERP_CHANGED",
+		7: "BLOS_EVENT_KIND_KEEPALIVE",
+	}
+	BLOSEventKind_value = map[string]int32{
+		"BLOS_EVENT_KIND_UNSPECIFIED":   0,
+		"BLOS_EVENT_KIND_BACKEND_STATE": 1,
+		"BLOS_EVENT_KIND_PEER_ADDED":    2,
+		"BLOS_EVENT_KIND_PEER_LOST":     3,
+		"BLOS_EVENT_KIND_PEER_ONLINE":   4,
+		"BLOS_EVENT_KIND_PEER_OFFLINE":  5,
+		"BLOS_EVENT_KIND_DERP_CHANGED":  6,
+		"BLOS_EVENT_KIND_KEEPALIVE":     7,
+	}
+)
+
+func (x BLOSEventKind) Enum() *BLOSEventKind {
+	p := new(BLOSEventKind)
+	*p = x
+	return p
+}
+
+func (x BLOSEventKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (BLOSEventKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_openmanet_blos_v1_blos_proto_enumTypes[0].Descriptor()
+}
+
+func (BLOSEventKind) Type() protoreflect.EnumType {
+	return &file_openmanet_blos_v1_blos_proto_enumTypes[0]
+}
+
+func (x BLOSEventKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use BLOSEventKind.Descriptor instead.
+func (BLOSEventKind) EnumDescriptor() ([]byte, []int) {
+	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{0}
+}
+
+// BLOSTunnelIdentity describes the local node's position on the Tailscale
+// overlay. All fields are sourced from the Tailscale SDK's ipnstate.Status
+// and are only populated when the BLOS subsystem is enabled and the
+// Tailscale backend state is "Running".
+type BLOSTunnelIdentity struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// hostname is the Tailscale-assigned short hostname for this node
+	// (status.Self.HostName). Empty until the backend is logged in.
+	Hostname string `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	// dns_name is the fully-qualified MagicDNS name for this node
+	// (status.Self.DNSName), e.g. "node-42.tailnet.ts.net.". Trailing dot
+	// preserved to match the SDK; UI should strip it for display.
+	DnsName string `protobuf:"bytes,2,opt,name=dns_name,json=dnsName,proto3" json:"dns_name,omitempty"`
+	// os is the operating-system identifier reported to the control plane
+	// (status.Self.OS). Usually "linux" for OpenMANET devices.
+	Os string `protobuf:"bytes,3,opt,name=os,proto3" json:"os,omitempty"`
+	// overlay_ips lists the Tailscale-assigned IPv4 and IPv6 addresses on
+	// this node (status.Self.TailscaleIPs), formatted as plain address
+	// strings with no prefix length.
+	OverlayIps []string `protobuf:"bytes,4,rep,name=overlay_ips,json=overlayIps,proto3" json:"overlay_ips,omitempty"`
+	// connected_since is the wall-clock time when the backend first
+	// transitioned to "Running" in the current enable cycle. Cleared when
+	// BLOS is disabled. Not persisted across daemon restarts.
+	ConnectedSince *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=connected_since,json=connectedSince,proto3" json:"connected_since,omitempty"`
+	// backend_state mirrors status.BackendState verbatim. Known values
+	// include "NoState", "NeedsLogin", "NeedsMachineAuth", "Stopped",
+	// "Starting", "Running". The handler does not interpret this string.
+	BackendState string `protobuf:"bytes,6,opt,name=backend_state,json=backendState,proto3" json:"backend_state,omitempty"`
+	// magic_dns_suffix is the DNS suffix under which peer names are
+	// resolvable (status.MagicDNSSuffix), e.g. "tailnet.ts.net". Empty when
+	// MagicDNS is disabled on the tailnet.
+	MagicDnsSuffix string `protobuf:"bytes,7,opt,name=magic_dns_suffix,json=magicDnsSuffix,proto3" json:"magic_dns_suffix,omitempty"`
+	// tailnet_name is the human-readable tailnet or org name the node
+	// belongs to (status.CurrentTailnet.Name). Empty pre-login.
+	TailnetName   string `protobuf:"bytes,8,opt,name=tailnet_name,json=tailnetName,proto3" json:"tailnet_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BLOSTunnelIdentity) Reset() {
+	*x = BLOSTunnelIdentity{}
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BLOSTunnelIdentity) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BLOSTunnelIdentity) ProtoMessage() {}
+
+func (x *BLOSTunnelIdentity) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BLOSTunnelIdentity.ProtoReflect.Descriptor instead.
+func (*BLOSTunnelIdentity) Descriptor() ([]byte, []int) {
+	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *BLOSTunnelIdentity) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
+func (x *BLOSTunnelIdentity) GetDnsName() string {
+	if x != nil {
+		return x.DnsName
+	}
+	return ""
+}
+
+func (x *BLOSTunnelIdentity) GetOs() string {
+	if x != nil {
+		return x.Os
+	}
+	return ""
+}
+
+func (x *BLOSTunnelIdentity) GetOverlayIps() []string {
+	if x != nil {
+		return x.OverlayIps
+	}
+	return nil
+}
+
+func (x *BLOSTunnelIdentity) GetConnectedSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ConnectedSince
+	}
+	return nil
+}
+
+func (x *BLOSTunnelIdentity) GetBackendState() string {
+	if x != nil {
+		return x.BackendState
+	}
+	return ""
+}
+
+func (x *BLOSTunnelIdentity) GetMagicDnsSuffix() string {
+	if x != nil {
+		return x.MagicDnsSuffix
+	}
+	return ""
+}
+
+func (x *BLOSTunnelIdentity) GetTailnetName() string {
+	if x != nil {
+		return x.TailnetName
+	}
+	return ""
+}
+
+// BLOSDERP describes the DERP relay state for the local tunnel. Populated
+// from status.Self fields. Zero-valued when no DERP is in use.
+type BLOSDERP struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// region is the DERP region identifier the local node is homed on
+	// (status.Self.Relay), e.g. "nyc". Empty when relaying is disabled or
+	// the backend is not yet running.
+	Region string `protobuf:"bytes,1,opt,name=region,proto3" json:"region,omitempty"`
+	// latency_ms is the most recent round-trip latency to the home DERP
+	// region in milliseconds. Zero when no measurement is available; the
+	// daemon does not currently probe DERP on demand to avoid blocking the
+	// RPC handler on network I/O.
+	LatencyMs int32 `protobuf:"varint,2,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`
+	// endpoint is the wire-level address currently carrying traffic —
+	// status.Self.CurAddr when the session is direct, otherwise the DERP
+	// relay server address.
+	Endpoint string `protobuf:"bytes,3,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	// path is either "direct" (CurAddr is set) or "derp" (falling back to
+	// a relay). Empty when the backend is not running.
+	Path string `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`
+	// keepalive_interval is the Tailscale peer keepalive cadence. Tailscale
+	// defaults to 25s and the daemon does not currently override it, so
+	// this is a constant for now; exposed as a field so the front-end does
+	// not hardcode the value.
+	KeepaliveInterval *durationpb.Duration `protobuf:"bytes,5,opt,name=keepalive_interval,json=keepaliveInterval,proto3" json:"keepalive_interval,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *BLOSDERP) Reset() {
+	*x = BLOSDERP{}
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BLOSDERP) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BLOSDERP) ProtoMessage() {}
+
+func (x *BLOSDERP) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BLOSDERP.ProtoReflect.Descriptor instead.
+func (*BLOSDERP) Descriptor() ([]byte, []int) {
+	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *BLOSDERP) GetRegion() string {
+	if x != nil {
+		return x.Region
+	}
+	return ""
+}
+
+func (x *BLOSDERP) GetLatencyMs() int32 {
+	if x != nil {
+		return x.LatencyMs
+	}
+	return 0
+}
+
+func (x *BLOSDERP) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+func (x *BLOSDERP) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *BLOSDERP) GetKeepaliveInterval() *durationpb.Duration {
+	if x != nil {
+		return x.KeepaliveInterval
+	}
+	return nil
+}
+
+// BLOSCounters aggregates RX/TX byte counts across all overlay peers.
+// Values are cumulative since the Tailscale daemon last started; they
+// reset when tailscaled restarts but not when BLOS toggles.
+type BLOSCounters struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// rx_bytes_total is the sum of PeerStatus.RxBytes across all peers.
+	RxBytesTotal uint64 `protobuf:"varint,1,opt,name=rx_bytes_total,json=rxBytesTotal,proto3" json:"rx_bytes_total,omitempty"`
+	// tx_bytes_total is the sum of PeerStatus.TxBytes across all peers.
+	TxBytesTotal uint64 `protobuf:"varint,2,opt,name=tx_bytes_total,json=txBytesTotal,proto3" json:"tx_bytes_total,omitempty"`
+	// rx_bytes_per_sec is the RX rate computed over a rolling 60-second
+	// window of samples maintained by the StatusWorker. Zero until the
+	// ring has at least two samples.
+	RxBytesPerSec float64 `protobuf:"fixed64,3,opt,name=rx_bytes_per_sec,json=rxBytesPerSec,proto3" json:"rx_bytes_per_sec,omitempty"`
+	// tx_bytes_per_sec is the TX rate computed over the same rolling 60s
+	// window as rx_bytes_per_sec.
+	TxBytesPerSec float64 `protobuf:"fixed64,4,opt,name=tx_bytes_per_sec,json=txBytesPerSec,proto3" json:"tx_bytes_per_sec,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BLOSCounters) Reset() {
+	*x = BLOSCounters{}
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BLOSCounters) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BLOSCounters) ProtoMessage() {}
+
+func (x *BLOSCounters) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BLOSCounters.ProtoReflect.Descriptor instead.
+func (*BLOSCounters) Descriptor() ([]byte, []int) {
+	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *BLOSCounters) GetRxBytesTotal() uint64 {
+	if x != nil {
+		return x.RxBytesTotal
+	}
+	return 0
+}
+
+func (x *BLOSCounters) GetTxBytesTotal() uint64 {
+	if x != nil {
+		return x.TxBytesTotal
+	}
+	return 0
+}
+
+func (x *BLOSCounters) GetRxBytesPerSec() float64 {
+	if x != nil {
+		return x.RxBytesPerSec
+	}
+	return 0
+}
+
+func (x *BLOSCounters) GetTxBytesPerSec() float64 {
+	if x != nil {
+		return x.TxBytesPerSec
+	}
+	return 0
+}
+
+// BLOSNetworkConfig reports the node's overlay-network policy, sourced
+// from the live Tailscale preferences (ipn.Prefs) rather than config files.
+type BLOSNetworkConfig struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// exit_node is true when this node is configured to route all traffic
+	// for its tailnet peers (prefs.ExitNodeIP is valid).
+	ExitNode bool `protobuf:"varint,1,opt,name=exit_node,json=exitNode,proto3" json:"exit_node,omitempty"`
+	// advertised_routes lists the CIDR subnets this node advertises as
+	// subnet routes (prefs.AdvertiseRoutes), formatted as plain CIDR
+	// strings (e.g. "10.41.0.0/16").
+	AdvertisedRoutes []string `protobuf:"bytes,2,rep,name=advertised_routes,json=advertisedRoutes,proto3" json:"advertised_routes,omitempty"`
+	// acl_tags lists the ACL tags applied to this node
+	// (status.Self.Tags), e.g. "tag:gateway". Empty when no tags are set.
+	AclTags       []string `protobuf:"bytes,3,rep,name=acl_tags,json=aclTags,proto3" json:"acl_tags,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BLOSNetworkConfig) Reset() {
+	*x = BLOSNetworkConfig{}
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BLOSNetworkConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BLOSNetworkConfig) ProtoMessage() {}
+
+func (x *BLOSNetworkConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BLOSNetworkConfig.ProtoReflect.Descriptor instead.
+func (*BLOSNetworkConfig) Descriptor() ([]byte, []int) {
+	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *BLOSNetworkConfig) GetExitNode() bool {
+	if x != nil {
+		return x.ExitNode
+	}
+	return false
+}
+
+func (x *BLOSNetworkConfig) GetAdvertisedRoutes() []string {
+	if x != nil {
+		return x.AdvertisedRoutes
+	}
+	return nil
+}
+
+func (x *BLOSNetworkConfig) GetAclTags() []string {
+	if x != nil {
+		return x.AclTags
+	}
+	return nil
+}
+
+// BLOSPeer describes a single remote node visible on the Tailscale
+// overlay. All fields are sourced from ipnstate.PeerStatus.
+type BLOSPeer struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// hostname is the peer's short hostname (PeerStatus.HostName).
+	Hostname string `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	// dns_name is the peer's fully-qualified MagicDNS name
+	// (PeerStatus.DNSName).
+	DnsName string `protobuf:"bytes,2,opt,name=dns_name,json=dnsName,proto3" json:"dns_name,omitempty"`
+	// os is the peer's operating-system identifier (PeerStatus.OS).
+	Os string `protobuf:"bytes,3,opt,name=os,proto3" json:"os,omitempty"`
+	// overlay_ips is the peer's Tailscale IPv4 and IPv6 addresses
+	// (PeerStatus.TailscaleIPs), formatted as plain address strings.
+	OverlayIps []string `protobuf:"bytes,4,rep,name=overlay_ips,json=overlayIps,proto3" json:"overlay_ips,omitempty"`
+	// endpoint is PeerStatus.CurAddr — the direct-connect address when
+	// the session is not relayed. Empty when the peer is reached through
+	// DERP only.
+	Endpoint string `protobuf:"bytes,5,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	// relay_region is PeerStatus.Relay, the DERP region the peer is homed
+	// on. Empty when unknown.
+	RelayRegion string `protobuf:"bytes,6,opt,name=relay_region,json=relayRegion,proto3" json:"relay_region,omitempty"`
+	// online reflects PeerStatus.Online — whether the control plane
+	// currently considers the peer reachable.
+	Online bool `protobuf:"varint,7,opt,name=online,proto3" json:"online,omitempty"`
+	// active reflects PeerStatus.Active — whether the peer has exchanged
+	// traffic with this node recently, regardless of online status.
+	Active bool `protobuf:"varint,8,opt,name=active,proto3" json:"active,omitempty"`
+	// rx_bytes is cumulative bytes received from this peer
+	// (PeerStatus.RxBytes).
+	RxBytes uint64 `protobuf:"varint,9,opt,name=rx_bytes,json=rxBytes,proto3" json:"rx_bytes,omitempty"`
+	// tx_bytes is cumulative bytes sent to this peer
+	// (PeerStatus.TxBytes).
+	TxBytes uint64 `protobuf:"varint,10,opt,name=tx_bytes,json=txBytes,proto3" json:"tx_bytes,omitempty"`
+	// last_seen is the last time the control plane observed the peer
+	// online (PeerStatus.LastSeen). Unset when never seen.
+	LastSeen *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
+	// last_handshake is the last WireGuard handshake time with the peer
+	// (PeerStatus.LastHandshake). Unset when no handshake has completed.
+	LastHandshake *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=last_handshake,json=lastHandshake,proto3" json:"last_handshake,omitempty"`
+	// tags is the set of ACL tags assigned to the peer (PeerStatus.Tags).
+	Tags []string `protobuf:"bytes,13,rep,name=tags,proto3" json:"tags,omitempty"`
+	// primary_routes lists the subnet routes the peer advertises and is
+	// the primary for (PeerStatus.PrimaryRoutes), formatted as CIDR
+	// strings.
+	PrimaryRoutes []string `protobuf:"bytes,14,rep,name=primary_routes,json=primaryRoutes,proto3" json:"primary_routes,omitempty"`
+	// path is "direct" when endpoint is set, "derp" when routed through a
+	// relay, or empty when the peer has no current session.
+	Path string `protobuf:"bytes,15,opt,name=path,proto3" json:"path,omitempty"`
+	// latency_ms is the best-effort round-trip latency to this peer in
+	// milliseconds. Zero when no measurement is available.
+	LatencyMs     int32 `protobuf:"varint,16,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BLOSPeer) Reset() {
+	*x = BLOSPeer{}
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BLOSPeer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BLOSPeer) ProtoMessage() {}
+
+func (x *BLOSPeer) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BLOSPeer.ProtoReflect.Descriptor instead.
+func (*BLOSPeer) Descriptor() ([]byte, []int) {
+	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *BLOSPeer) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
+func (x *BLOSPeer) GetDnsName() string {
+	if x != nil {
+		return x.DnsName
+	}
+	return ""
+}
+
+func (x *BLOSPeer) GetOs() string {
+	if x != nil {
+		return x.Os
+	}
+	return ""
+}
+
+func (x *BLOSPeer) GetOverlayIps() []string {
+	if x != nil {
+		return x.OverlayIps
+	}
+	return nil
+}
+
+func (x *BLOSPeer) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+func (x *BLOSPeer) GetRelayRegion() string {
+	if x != nil {
+		return x.RelayRegion
+	}
+	return ""
+}
+
+func (x *BLOSPeer) GetOnline() bool {
+	if x != nil {
+		return x.Online
+	}
+	return false
+}
+
+func (x *BLOSPeer) GetActive() bool {
+	if x != nil {
+		return x.Active
+	}
+	return false
+}
+
+func (x *BLOSPeer) GetRxBytes() uint64 {
+	if x != nil {
+		return x.RxBytes
+	}
+	return 0
+}
+
+func (x *BLOSPeer) GetTxBytes() uint64 {
+	if x != nil {
+		return x.TxBytes
+	}
+	return 0
+}
+
+func (x *BLOSPeer) GetLastSeen() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastSeen
+	}
+	return nil
+}
+
+func (x *BLOSPeer) GetLastHandshake() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastHandshake
+	}
+	return nil
+}
+
+func (x *BLOSPeer) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *BLOSPeer) GetPrimaryRoutes() []string {
+	if x != nil {
+		return x.PrimaryRoutes
+	}
+	return nil
+}
+
+func (x *BLOSPeer) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *BLOSPeer) GetLatencyMs() int32 {
+	if x != nil {
+		return x.LatencyMs
+	}
+	return 0
+}
+
+// GetBLOSStatusResponse carries the current status of the BLOS
+// subsystem. The identity, derp, counters, and network sub-messages are
+// only populated when blos_enabled is true and the Tailscale backend is
+// in the "Running" state; otherwise they are present but zero-valued.
 type GetBLOSStatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Indicates whether the BLOS subsystem is currently enabled.
+	// blos_enabled indicates whether the BLOS subsystem is currently
+	// enabled in the daemon configuration and actively running.
 	BlosEnabled bool `protobuf:"varint,1,opt,name=blos_enabled,json=blosEnabled,proto3" json:"blos_enabled,omitempty"`
-	// Optional message providing additional information about the BLOS status.
-	Message       *string `protobuf:"bytes,2,opt,name=message,proto3,oneof" json:"message,omitempty"`
+	// message is a human-readable status summary — typically one of
+	// "enabled and running", "enabled but not yet running", or
+	// "disabled". Intended for display, not programmatic inspection.
+	Message *string `protobuf:"bytes,2,opt,name=message,proto3,oneof" json:"message,omitempty"`
+	// identity carries overlay-network identifying information about this
+	// node. Zero-valued when the backend is not running.
+	Identity *BLOSTunnelIdentity `protobuf:"bytes,3,opt,name=identity,proto3" json:"identity,omitempty"`
+	// derp carries DERP relay state for the local tunnel.
+	Derp *BLOSDERP `protobuf:"bytes,4,opt,name=derp,proto3" json:"derp,omitempty"`
+	// counters carries aggregated RX/TX byte counts and rates.
+	Counters *BLOSCounters `protobuf:"bytes,5,opt,name=counters,proto3" json:"counters,omitempty"`
+	// network carries overlay-network policy (exit-node flag, advertised
+	// routes, ACL tags) sourced from live Tailscale preferences.
+	Network       *BLOSNetworkConfig `protobuf:"bytes,6,opt,name=network,proto3" json:"network,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetBLOSStatusResponse) Reset() {
 	*x = GetBLOSStatusResponse{}
-	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[0]
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -45,7 +704,7 @@ func (x *GetBLOSStatusResponse) String() string {
 func (*GetBLOSStatusResponse) ProtoMessage() {}
 
 func (x *GetBLOSStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[0]
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -58,7 +717,7 @@ func (x *GetBLOSStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBLOSStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetBLOSStatusResponse) Descriptor() ([]byte, []int) {
-	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{0}
+	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetBLOSStatusResponse) GetBlosEnabled() bool {
@@ -75,14 +734,46 @@ func (x *GetBLOSStatusResponse) GetMessage() string {
 	return ""
 }
 
+func (x *GetBLOSStatusResponse) GetIdentity() *BLOSTunnelIdentity {
+	if x != nil {
+		return x.Identity
+	}
+	return nil
+}
+
+func (x *GetBLOSStatusResponse) GetDerp() *BLOSDERP {
+	if x != nil {
+		return x.Derp
+	}
+	return nil
+}
+
+func (x *GetBLOSStatusResponse) GetCounters() *BLOSCounters {
+	if x != nil {
+		return x.Counters
+	}
+	return nil
+}
+
+func (x *GetBLOSStatusResponse) GetNetwork() *BLOSNetworkConfig {
+	if x != nil {
+		return x.Network
+	}
+	return nil
+}
+
+// UpdateBLOSConfigRequest carries the fields required to enable or
+// disable the BLOS subsystem.
 type UpdateBLOSConfigRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Whether to enable or disable the BLOS subsystem.
+	// enable_blos requests enabling (true) or disabling (false) the BLOS
+	// subsystem.
 	EnableBlos bool `protobuf:"varint,1,opt,name=enable_blos,json=enableBlos,proto3" json:"enable_blos,omitempty"`
-	// Authentication key for tailscale or headscale.
-	// required
+	// auth_key is the Tailscale or Headscale authentication key. Required
+	// when enable_blos is true; ignored when disabling.
 	AuthKey string `protobuf:"bytes,2,opt,name=auth_key,json=authKey,proto3" json:"auth_key,omitempty"`
-	// Optional URL for the login server (e.g., headscale). If not provided, a default will be used.
+	// login_server_url is the optional Headscale login server URL. When
+	// empty, the Tailscale default control server is used.
 	LoginServerUrl *string `protobuf:"bytes,3,opt,name=login_server_url,json=loginServerUrl,proto3,oneof" json:"login_server_url,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -90,7 +781,7 @@ type UpdateBLOSConfigRequest struct {
 
 func (x *UpdateBLOSConfigRequest) Reset() {
 	*x = UpdateBLOSConfigRequest{}
-	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[1]
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -102,7 +793,7 @@ func (x *UpdateBLOSConfigRequest) String() string {
 func (*UpdateBLOSConfigRequest) ProtoMessage() {}
 
 func (x *UpdateBLOSConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[1]
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -115,7 +806,7 @@ func (x *UpdateBLOSConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateBLOSConfigRequest.ProtoReflect.Descriptor instead.
 func (*UpdateBLOSConfigRequest) Descriptor() ([]byte, []int) {
-	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{1}
+	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *UpdateBLOSConfigRequest) GetEnableBlos() bool {
@@ -139,11 +830,12 @@ func (x *UpdateBLOSConfigRequest) GetLoginServerUrl() string {
 	return ""
 }
 
+// UpdateBLOSConfigResponse reports the outcome of an UpdateBLOSConfig call.
 type UpdateBLOSConfigResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Indicates whether the update was successful.
+	// success indicates whether the update completed without error.
 	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// Optional message providing additional information about the update result.
+	// message is a human-readable summary of the update result.
 	Message       *string `protobuf:"bytes,2,opt,name=message,proto3,oneof" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -151,7 +843,7 @@ type UpdateBLOSConfigResponse struct {
 
 func (x *UpdateBLOSConfigResponse) Reset() {
 	*x = UpdateBLOSConfigResponse{}
-	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[2]
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -163,7 +855,7 @@ func (x *UpdateBLOSConfigResponse) String() string {
 func (*UpdateBLOSConfigResponse) ProtoMessage() {}
 
 func (x *UpdateBLOSConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[2]
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -176,7 +868,7 @@ func (x *UpdateBLOSConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateBLOSConfigResponse.ProtoReflect.Descriptor instead.
 func (*UpdateBLOSConfigResponse) Descriptor() ([]byte, []int) {
-	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{2}
+	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *UpdateBLOSConfigResponse) GetSuccess() bool {
@@ -193,14 +885,240 @@ func (x *UpdateBLOSConfigResponse) GetMessage() string {
 	return ""
 }
 
+// ListBLOSPeersResponse carries the set of remote nodes visible to this
+// node on the Tailscale overlay. Order is stable (sorted by hostname).
+type ListBLOSPeersResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// peers is the full list of remote overlay nodes. Empty when BLOS is
+	// disabled or the backend is not yet running.
+	Peers         []*BLOSPeer `protobuf:"bytes,1,rep,name=peers,proto3" json:"peers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBLOSPeersResponse) Reset() {
+	*x = ListBLOSPeersResponse{}
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBLOSPeersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBLOSPeersResponse) ProtoMessage() {}
+
+func (x *ListBLOSPeersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBLOSPeersResponse.ProtoReflect.Descriptor instead.
+func (*ListBLOSPeersResponse) Descriptor() ([]byte, []int) {
+	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ListBLOSPeersResponse) GetPeers() []*BLOSPeer {
+	if x != nil {
+		return x.Peers
+	}
+	return nil
+}
+
+// BLOSEvent describes a single state-change observed by the BLOS status
+// worker. Events are emitted wrapped in a StreamBLOSEventsResponse on
+// the StreamBLOSEvents RPC so operators can watch tunnel health in real
+// time without polling.
+type BLOSEvent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// ts is the wall-clock time the event was observed on the daemon.
+	Ts *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=ts,proto3" json:"ts,omitempty"`
+	// kind categorizes the event for client-side filtering.
+	Kind BLOSEventKind `protobuf:"varint,2,opt,name=kind,proto3,enum=openmanet.blos.v1.BLOSEventKind" json:"kind,omitempty"`
+	// subject identifies the resource the event is about — typically a
+	// peer hostname, an empty string for keepalive events, or "backend"
+	// for backend-state events.
+	Subject string `protobuf:"bytes,3,opt,name=subject,proto3" json:"subject,omitempty"`
+	// message is a human-readable one-line description suitable for a
+	// scrolling events log. Not intended for programmatic parsing.
+	Message       string `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BLOSEvent) Reset() {
+	*x = BLOSEvent{}
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BLOSEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BLOSEvent) ProtoMessage() {}
+
+func (x *BLOSEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BLOSEvent.ProtoReflect.Descriptor instead.
+func (*BLOSEvent) Descriptor() ([]byte, []int) {
+	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *BLOSEvent) GetTs() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Ts
+	}
+	return nil
+}
+
+func (x *BLOSEvent) GetKind() BLOSEventKind {
+	if x != nil {
+		return x.Kind
+	}
+	return BLOSEventKind_BLOS_EVENT_KIND_UNSPECIFIED
+}
+
+func (x *BLOSEvent) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *BLOSEvent) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+// StreamBLOSEventsResponse is the per-message envelope emitted by the
+// StreamBLOSEvents server-streaming RPC. The wrapper message exists so
+// the response type follows the buf convention (Stream<Method>Response)
+// while keeping BLOSEvent a reusable data type.
+type StreamBLOSEventsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// event is the BLOS state-change observation.
+	Event         *BLOSEvent `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamBLOSEventsResponse) Reset() {
+	*x = StreamBLOSEventsResponse{}
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamBLOSEventsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamBLOSEventsResponse) ProtoMessage() {}
+
+func (x *StreamBLOSEventsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_blos_v1_blos_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamBLOSEventsResponse.ProtoReflect.Descriptor instead.
+func (*StreamBLOSEventsResponse) Descriptor() ([]byte, []int) {
+	return file_openmanet_blos_v1_blos_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *StreamBLOSEventsResponse) GetEvent() *BLOSEvent {
+	if x != nil {
+		return x.Event
+	}
+	return nil
+}
+
 var File_openmanet_blos_v1_blos_proto protoreflect.FileDescriptor
 
 const file_openmanet_blos_v1_blos_proto_rawDesc = "" +
 	"\n" +
-	"\x1copenmanet/blos/v1/blos.proto\x12\x11openmanet.blos.v1\"e\n" +
+	"\x1copenmanet/blos/v1/blos.proto\x12\x11openmanet.blos.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb3\x02\n" +
+	"\x12BLOSTunnelIdentity\x12\x1a\n" +
+	"\bhostname\x18\x01 \x01(\tR\bhostname\x12\x19\n" +
+	"\bdns_name\x18\x02 \x01(\tR\adnsName\x12\x0e\n" +
+	"\x02os\x18\x03 \x01(\tR\x02os\x12\x1f\n" +
+	"\voverlay_ips\x18\x04 \x03(\tR\n" +
+	"overlayIps\x12C\n" +
+	"\x0fconnected_since\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x0econnectedSince\x12#\n" +
+	"\rbackend_state\x18\x06 \x01(\tR\fbackendState\x12(\n" +
+	"\x10magic_dns_suffix\x18\a \x01(\tR\x0emagicDnsSuffix\x12!\n" +
+	"\ftailnet_name\x18\b \x01(\tR\vtailnetName\"\xbb\x01\n" +
+	"\bBLOSDERP\x12\x16\n" +
+	"\x06region\x18\x01 \x01(\tR\x06region\x12\x1d\n" +
+	"\n" +
+	"latency_ms\x18\x02 \x01(\x05R\tlatencyMs\x12\x1a\n" +
+	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12\x12\n" +
+	"\x04path\x18\x04 \x01(\tR\x04path\x12H\n" +
+	"\x12keepalive_interval\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x11keepaliveInterval\"\xac\x01\n" +
+	"\fBLOSCounters\x12$\n" +
+	"\x0erx_bytes_total\x18\x01 \x01(\x04R\frxBytesTotal\x12$\n" +
+	"\x0etx_bytes_total\x18\x02 \x01(\x04R\ftxBytesTotal\x12'\n" +
+	"\x10rx_bytes_per_sec\x18\x03 \x01(\x01R\rrxBytesPerSec\x12'\n" +
+	"\x10tx_bytes_per_sec\x18\x04 \x01(\x01R\rtxBytesPerSec\"x\n" +
+	"\x11BLOSNetworkConfig\x12\x1b\n" +
+	"\texit_node\x18\x01 \x01(\bR\bexitNode\x12+\n" +
+	"\x11advertised_routes\x18\x02 \x03(\tR\x10advertisedRoutes\x12\x19\n" +
+	"\bacl_tags\x18\x03 \x03(\tR\aaclTags\"\x81\x04\n" +
+	"\bBLOSPeer\x12\x1a\n" +
+	"\bhostname\x18\x01 \x01(\tR\bhostname\x12\x19\n" +
+	"\bdns_name\x18\x02 \x01(\tR\adnsName\x12\x0e\n" +
+	"\x02os\x18\x03 \x01(\tR\x02os\x12\x1f\n" +
+	"\voverlay_ips\x18\x04 \x03(\tR\n" +
+	"overlayIps\x12\x1a\n" +
+	"\bendpoint\x18\x05 \x01(\tR\bendpoint\x12!\n" +
+	"\frelay_region\x18\x06 \x01(\tR\vrelayRegion\x12\x16\n" +
+	"\x06online\x18\a \x01(\bR\x06online\x12\x16\n" +
+	"\x06active\x18\b \x01(\bR\x06active\x12\x19\n" +
+	"\brx_bytes\x18\t \x01(\x04R\arxBytes\x12\x19\n" +
+	"\btx_bytes\x18\n" +
+	" \x01(\x04R\atxBytes\x127\n" +
+	"\tlast_seen\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\x12A\n" +
+	"\x0elast_handshake\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\rlastHandshake\x12\x12\n" +
+	"\x04tags\x18\r \x03(\tR\x04tags\x12%\n" +
+	"\x0eprimary_routes\x18\x0e \x03(\tR\rprimaryRoutes\x12\x12\n" +
+	"\x04path\x18\x0f \x01(\tR\x04path\x12\x1d\n" +
+	"\n" +
+	"latency_ms\x18\x10 \x01(\x05R\tlatencyMs\"\xd6\x02\n" +
 	"\x15GetBLOSStatusResponse\x12!\n" +
 	"\fblos_enabled\x18\x01 \x01(\bR\vblosEnabled\x12\x1d\n" +
-	"\amessage\x18\x02 \x01(\tH\x00R\amessage\x88\x01\x01B\n" +
+	"\amessage\x18\x02 \x01(\tH\x00R\amessage\x88\x01\x01\x12A\n" +
+	"\bidentity\x18\x03 \x01(\v2%.openmanet.blos.v1.BLOSTunnelIdentityR\bidentity\x12/\n" +
+	"\x04derp\x18\x04 \x01(\v2\x1b.openmanet.blos.v1.BLOSDERPR\x04derp\x12;\n" +
+	"\bcounters\x18\x05 \x01(\v2\x1f.openmanet.blos.v1.BLOSCountersR\bcounters\x12>\n" +
+	"\anetwork\x18\x06 \x01(\v2$.openmanet.blos.v1.BLOSNetworkConfigR\anetworkB\n" +
 	"\n" +
 	"\b_message\"\x99\x01\n" +
 	"\x17UpdateBLOSConfigRequest\x12\x1f\n" +
@@ -213,7 +1131,25 @@ const file_openmanet_blos_v1_blos_proto_rawDesc = "" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1d\n" +
 	"\amessage\x18\x02 \x01(\tH\x00R\amessage\x88\x01\x01B\n" +
 	"\n" +
-	"\b_messageB\xcf\x01\n" +
+	"\b_message\"J\n" +
+	"\x15ListBLOSPeersResponse\x121\n" +
+	"\x05peers\x18\x01 \x03(\v2\x1b.openmanet.blos.v1.BLOSPeerR\x05peers\"\xa1\x01\n" +
+	"\tBLOSEvent\x12*\n" +
+	"\x02ts\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x02ts\x124\n" +
+	"\x04kind\x18\x02 \x01(\x0e2 .openmanet.blos.v1.BLOSEventKindR\x04kind\x12\x18\n" +
+	"\asubject\x18\x03 \x01(\tR\asubject\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"N\n" +
+	"\x18StreamBLOSEventsResponse\x122\n" +
+	"\x05event\x18\x01 \x01(\v2\x1c.openmanet.blos.v1.BLOSEventR\x05event*\x96\x02\n" +
+	"\rBLOSEventKind\x12\x1f\n" +
+	"\x1bBLOS_EVENT_KIND_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dBLOS_EVENT_KIND_BACKEND_STATE\x10\x01\x12\x1e\n" +
+	"\x1aBLOS_EVENT_KIND_PEER_ADDED\x10\x02\x12\x1d\n" +
+	"\x19BLOS_EVENT_KIND_PEER_LOST\x10\x03\x12\x1f\n" +
+	"\x1bBLOS_EVENT_KIND_PEER_ONLINE\x10\x04\x12 \n" +
+	"\x1cBLOS_EVENT_KIND_PEER_OFFLINE\x10\x05\x12 \n" +
+	"\x1cBLOS_EVENT_KIND_DERP_CHANGED\x10\x06\x12\x1d\n" +
+	"\x19BLOS_EVENT_KIND_KEEPALIVE\x10\aB\xcf\x01\n" +
 	"\x15com.openmanet.blos.v1B\tBlosProtoP\x01ZEgithub.com/openmanet/openmanetd/internal/api/openmanet/blos/v1;blosv1\xa2\x02\x03OBX\xaa\x02\x11Openmanet.Blos.V1\xca\x02\x11Openmanet\\Blos\\V1\xe2\x02\x1dOpenmanet\\Blos\\V1\\GPBMetadata\xea\x02\x13Openmanet::Blos::V1b\x06proto3"
 
 var (
@@ -228,18 +1164,42 @@ func file_openmanet_blos_v1_blos_proto_rawDescGZIP() []byte {
 	return file_openmanet_blos_v1_blos_proto_rawDescData
 }
 
-var file_openmanet_blos_v1_blos_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_openmanet_blos_v1_blos_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_openmanet_blos_v1_blos_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_openmanet_blos_v1_blos_proto_goTypes = []any{
-	(*GetBLOSStatusResponse)(nil),    // 0: openmanet.blos.v1.GetBLOSStatusResponse
-	(*UpdateBLOSConfigRequest)(nil),  // 1: openmanet.blos.v1.UpdateBLOSConfigRequest
-	(*UpdateBLOSConfigResponse)(nil), // 2: openmanet.blos.v1.UpdateBLOSConfigResponse
+	(BLOSEventKind)(0),               // 0: openmanet.blos.v1.BLOSEventKind
+	(*BLOSTunnelIdentity)(nil),       // 1: openmanet.blos.v1.BLOSTunnelIdentity
+	(*BLOSDERP)(nil),                 // 2: openmanet.blos.v1.BLOSDERP
+	(*BLOSCounters)(nil),             // 3: openmanet.blos.v1.BLOSCounters
+	(*BLOSNetworkConfig)(nil),        // 4: openmanet.blos.v1.BLOSNetworkConfig
+	(*BLOSPeer)(nil),                 // 5: openmanet.blos.v1.BLOSPeer
+	(*GetBLOSStatusResponse)(nil),    // 6: openmanet.blos.v1.GetBLOSStatusResponse
+	(*UpdateBLOSConfigRequest)(nil),  // 7: openmanet.blos.v1.UpdateBLOSConfigRequest
+	(*UpdateBLOSConfigResponse)(nil), // 8: openmanet.blos.v1.UpdateBLOSConfigResponse
+	(*ListBLOSPeersResponse)(nil),    // 9: openmanet.blos.v1.ListBLOSPeersResponse
+	(*BLOSEvent)(nil),                // 10: openmanet.blos.v1.BLOSEvent
+	(*StreamBLOSEventsResponse)(nil), // 11: openmanet.blos.v1.StreamBLOSEventsResponse
+	(*timestamppb.Timestamp)(nil),    // 12: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),      // 13: google.protobuf.Duration
 }
 var file_openmanet_blos_v1_blos_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	12, // 0: openmanet.blos.v1.BLOSTunnelIdentity.connected_since:type_name -> google.protobuf.Timestamp
+	13, // 1: openmanet.blos.v1.BLOSDERP.keepalive_interval:type_name -> google.protobuf.Duration
+	12, // 2: openmanet.blos.v1.BLOSPeer.last_seen:type_name -> google.protobuf.Timestamp
+	12, // 3: openmanet.blos.v1.BLOSPeer.last_handshake:type_name -> google.protobuf.Timestamp
+	1,  // 4: openmanet.blos.v1.GetBLOSStatusResponse.identity:type_name -> openmanet.blos.v1.BLOSTunnelIdentity
+	2,  // 5: openmanet.blos.v1.GetBLOSStatusResponse.derp:type_name -> openmanet.blos.v1.BLOSDERP
+	3,  // 6: openmanet.blos.v1.GetBLOSStatusResponse.counters:type_name -> openmanet.blos.v1.BLOSCounters
+	4,  // 7: openmanet.blos.v1.GetBLOSStatusResponse.network:type_name -> openmanet.blos.v1.BLOSNetworkConfig
+	5,  // 8: openmanet.blos.v1.ListBLOSPeersResponse.peers:type_name -> openmanet.blos.v1.BLOSPeer
+	12, // 9: openmanet.blos.v1.BLOSEvent.ts:type_name -> google.protobuf.Timestamp
+	0,  // 10: openmanet.blos.v1.BLOSEvent.kind:type_name -> openmanet.blos.v1.BLOSEventKind
+	10, // 11: openmanet.blos.v1.StreamBLOSEventsResponse.event:type_name -> openmanet.blos.v1.BLOSEvent
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_openmanet_blos_v1_blos_proto_init() }
@@ -247,21 +1207,22 @@ func file_openmanet_blos_v1_blos_proto_init() {
 	if File_openmanet_blos_v1_blos_proto != nil {
 		return
 	}
-	file_openmanet_blos_v1_blos_proto_msgTypes[0].OneofWrappers = []any{}
-	file_openmanet_blos_v1_blos_proto_msgTypes[1].OneofWrappers = []any{}
-	file_openmanet_blos_v1_blos_proto_msgTypes[2].OneofWrappers = []any{}
+	file_openmanet_blos_v1_blos_proto_msgTypes[5].OneofWrappers = []any{}
+	file_openmanet_blos_v1_blos_proto_msgTypes[6].OneofWrappers = []any{}
+	file_openmanet_blos_v1_blos_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_blos_v1_blos_proto_rawDesc), len(file_openmanet_blos_v1_blos_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   3,
+			NumEnums:      1,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_openmanet_blos_v1_blos_proto_goTypes,
 		DependencyIndexes: file_openmanet_blos_v1_blos_proto_depIdxs,
+		EnumInfos:         file_openmanet_blos_v1_blos_proto_enumTypes,
 		MessageInfos:      file_openmanet_blos_v1_blos_proto_msgTypes,
 	}.Build()
 	File_openmanet_blos_v1_blos_proto = out.File

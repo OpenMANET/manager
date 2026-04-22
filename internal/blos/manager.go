@@ -10,6 +10,8 @@ import (
 
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
+	"tailscale.com/ipn"
+	"tailscale.com/ipn/ipnstate"
 )
 
 const (
@@ -45,6 +47,46 @@ type BLOSLifecycle interface {
 	Enable(ctx context.Context) error
 	Disable()
 	IsRunning() bool
+
+	// Status returns the most recently observed Tailscale status, or nil
+	// when the BLOS subsystem is not running or the status worker has
+	// not yet completed its first poll.
+	Status() *ipnstate.Status
+
+	// Prefs returns the current Tailscale preferences (advertised routes,
+	// exit-node flag, etc.) as observed by the local daemon. Returns an
+	// error when BLOS is not running or the Tailscale daemon is
+	// unreachable.
+	Prefs(ctx context.Context) (*ipn.Prefs, error)
+
+	// RateWindow returns the RX/TX rate (bytes per second) averaged over
+	// the requested look-back window, along with the latest cumulative
+	// byte totals. Zero rates are returned when no BLOS session has run
+	// long enough to produce two samples.
+	RateWindow(window time.Duration) (rxBps, txBps float64, rxTotal, txTotal uint64)
+
+	// ConnectedSince returns the wall-clock time the backend first
+	// entered "Running" in the current enable cycle. Zero when the
+	// backend has never been Running since the last enable.
+	ConnectedSince() time.Time
+
+	// AddEventListener registers a callback that receives every BLOS
+	// state-change event observed by the status worker. The returned id
+	// may be passed to RemoveEventListener to stop delivery.
+	AddEventListener(fn func(Event)) uint64
+
+	// RemoveEventListener deregisters a listener previously returned by
+	// AddEventListener.
+	RemoveEventListener(id uint64)
+
+	// NoteEventDropped increments the events-dropped counter surfaced in
+	// the BLOS instrumentation snapshot. Called by listeners whose
+	// bounded buffers overflow.
+	NoteEventDropped()
+
+	// EventsDropped returns the cumulative number of events dropped by
+	// listeners since the manager was created.
+	EventsDropped() uint64
 }
 
 // BLOSManager owns the BLOS lifecycle and serializes enable/disable operations.
@@ -312,4 +354,110 @@ func (m *BLOSManager) GetBLOS() *BLOS {
 	defer m.mu.Unlock()
 
 	return m.blos
+}
+
+// statusWorker returns the active BLOS instance's StatusWorker or nil
+// when BLOS is not running. Takes the manager mutex briefly.
+func (m *BLOSManager) statusWorker() *StatusWorker {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.blos == nil {
+		return nil
+	}
+
+	return m.blos.statusWorker
+}
+
+// Status returns the most recent Tailscale status observed by the
+// running BLOS status worker, or nil when BLOS is not running.
+func (m *BLOSManager) Status() *ipnstate.Status {
+	w := m.statusWorker()
+	if w == nil {
+		return nil
+	}
+
+	return w.GetStatus()
+}
+
+// Prefs returns the current Tailscale preferences from the running BLOS
+// instance. Returns an error when BLOS is not running.
+func (m *BLOSManager) Prefs(ctx context.Context) (*ipn.Prefs, error) {
+	m.mu.Lock()
+	b := m.blos
+	m.mu.Unlock()
+
+	if b == nil {
+		return nil, errors.New("BLOS not running")
+	}
+
+	return b.tsClient.GetPrefs(ctx)
+}
+
+// RateWindow returns the RX/TX rate averaged over window along with the
+// cumulative totals, sourced from the running status worker. Zero values
+// when BLOS is not running.
+func (m *BLOSManager) RateWindow(window time.Duration) (rxBps, txBps float64, rxTotal, txTotal uint64) {
+	w := m.statusWorker()
+	if w == nil {
+		return 0, 0, 0, 0
+	}
+
+	return w.RateWindow(window)
+}
+
+// ConnectedSince returns the time the backend first reached "Running"
+// in the current enable cycle, or zero when BLOS is not running.
+func (m *BLOSManager) ConnectedSince() time.Time {
+	w := m.statusWorker()
+	if w == nil {
+		return time.Time{}
+	}
+
+	return w.ConnectedSince()
+}
+
+// AddEventListener registers an event callback with the running BLOS
+// status worker. Returns zero when BLOS is not running; the caller
+// should handle that case by treating the id as invalid.
+func (m *BLOSManager) AddEventListener(fn func(Event)) uint64 {
+	w := m.statusWorker()
+	if w == nil {
+		return 0
+	}
+
+	return w.AddEventListener(fn)
+}
+
+// RemoveEventListener deregisters a listener from the running BLOS
+// status worker. No-op when BLOS is not running.
+func (m *BLOSManager) RemoveEventListener(id uint64) {
+	w := m.statusWorker()
+	if w == nil {
+		return
+	}
+
+	w.RemoveEventListener(id)
+}
+
+// NoteEventDropped increments the dropped-events counter on the running
+// BLOS status worker. No-op when BLOS is not running.
+func (m *BLOSManager) NoteEventDropped() {
+	w := m.statusWorker()
+	if w == nil {
+		return
+	}
+
+	w.NoteEventDropped()
+}
+
+// EventsDropped returns the cumulative dropped-events count, or zero
+// when BLOS is not running.
+func (m *BLOSManager) EventsDropped() uint64 {
+	w := m.statusWorker()
+	if w == nil {
+		return 0
+	}
+
+	return w.EventsDropped()
 }

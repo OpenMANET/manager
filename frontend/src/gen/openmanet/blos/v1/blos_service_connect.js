@@ -4,10 +4,11 @@
 // @ts-nocheck
 
 import { Empty, MethodKind } from "@bufbuild/protobuf";
-import { GetBLOSStatusResponse, UpdateBLOSConfigRequest, UpdateBLOSConfigResponse } from "./blos_pb.js";
+import { GetBLOSStatusResponse, ListBLOSPeersResponse, StreamBLOSEventsResponse, UpdateBLOSConfigRequest, UpdateBLOSConfigResponse } from "./blos_pb.js";
 
 /**
- * BLOSService provides methods to manage and retrieve the status of the Beyond Line of Sight (BLOS) subsystem within the OpenMANET system.
+ * BLOSService provides methods to manage and retrieve the status of the
+ * Beyond Line of Sight (BLOS) subsystem within the OpenMANET system.
  *
  * @generated from service openmanet.blos.v1.BLOSService
  */
@@ -15,7 +16,9 @@ export const BLOSService = {
   typeName: "openmanet.blos.v1.BLOSService",
   methods: {
     /**
-     * GetBLOSStatus retrieves the current status of the BLOS subsystem, including whether it is enabled and any relevant status messages.
+     * GetBLOSStatus retrieves the current status of the BLOS subsystem,
+     * including whether it is enabled, tunnel identity, DERP state,
+     * aggregated counters, and overlay-network policy.
      *
      * @generated from rpc openmanet.blos.v1.BLOSService.GetBLOSStatus
      */
@@ -26,7 +29,8 @@ export const BLOSService = {
       kind: MethodKind.Unary,
     },
     /**
-     * UpdateBLOSConfig updates the configuration of the BLOS subsystem, including enabling or disabling it and setting authentication keys.
+     * UpdateBLOSConfig updates the configuration of the BLOS subsystem,
+     * including enabling or disabling it and setting authentication keys.
      *
      * @generated from rpc openmanet.blos.v1.BLOSService.UpdateBLOSConfig
      */
@@ -35,6 +39,38 @@ export const BLOSService = {
       I: UpdateBLOSConfigRequest,
       O: UpdateBLOSConfigResponse,
       kind: MethodKind.Unary,
+    },
+    /**
+     * ListBLOSPeers returns the remote nodes visible on the Tailscale
+     * overlay as a single snapshot. Returns an empty list when BLOS is
+     * disabled or the backend is not yet running (never an error for those
+     * cases). Returns CodeInternal for unexpected status failures.
+     *
+     * @generated from rpc openmanet.blos.v1.BLOSService.ListBLOSPeers
+     */
+    listBLOSPeers: {
+      name: "ListBLOSPeers",
+      I: Empty,
+      O: ListBLOSPeersResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * StreamBLOSEvents streams BLOS state-change events to the client
+     * until the client disconnects or the daemon shuts down. Event
+     * generation is best-effort: if the server's outbound buffer fills
+     * (slow client) the daemon drops events and increments the
+     * events_dropped counter in the BLOS instrumentation snapshot. The
+     * stream emits a periodic BLOS_EVENT_KIND_KEEPALIVE so clients can
+     * detect silent disconnects. Each emission is wrapped in a
+     * StreamBLOSEventsResponse envelope (which contains the BLOSEvent).
+     *
+     * @generated from rpc openmanet.blos.v1.BLOSService.StreamBLOSEvents
+     */
+    streamBLOSEvents: {
+      name: "StreamBLOSEvents",
+      I: Empty,
+      O: StreamBLOSEventsResponse,
+      kind: MethodKind.ServerStreaming,
     },
   }
 };

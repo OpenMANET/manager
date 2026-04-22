@@ -13,6 +13,7 @@ import (
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -23,6 +24,11 @@ type MeshTopologyService struct {
 	Log        zerolog.Logger
 	Visibility batmanadv.VisibilityProvider
 	Wifi       mgmt.WirelessProvider
+
+	// DeltaTracker supplies rolling churn metrics for
+	// GetMeshTopologyDelta. When nil, the RPC returns
+	// CodeFailedPrecondition.
+	DeltaTracker *DeltaTracker
 
 	// ParseBatHosts overrides the bat-hosts parser for tests.
 	ParseBatHosts func(string) (*batmanadv.BatHosts, error)
@@ -167,4 +173,28 @@ func (s *MeshTopologyService) buildLocalStationLookup() (map[string]struct{}, ma
 	}
 
 	return localIfaces, stations
+}
+
+// GetMeshTopologyDelta returns the aggregated churn metrics over the
+// requested look-back window.
+func (s *MeshTopologyService) GetMeshTopologyDelta(_ context.Context, req *meshtopov1.GetMeshTopologyDeltaRequest) (*meshtopov1.GetMeshTopologyDeltaResponse, error) {
+	if s.DeltaTracker == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("mesh topology delta tracker is not running"))
+	}
+
+	var window time.Duration
+
+	if req != nil && req.Window != nil {
+		window = req.Window.AsDuration()
+	}
+
+	result := s.DeltaTracker.Window(window)
+
+	return &meshtopov1.GetMeshTopologyDeltaResponse{
+		RoutesAdded:    result.RoutesAdded,
+		RoutesLost:     result.RoutesLost,
+		GatewayChanges: result.GatewayChanges,
+		Reconverge:     durationpb.New(result.Reconverge),
+		ActualWindow:   durationpb.New(result.ActualWindow),
+	}, nil
 }

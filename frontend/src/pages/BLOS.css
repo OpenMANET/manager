@@ -86,3 +86,104 @@
   margin-top: 4px;
 }
 .blos-actions .lat-btn { min-height: 40px; }
+
+.panel-head-right {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.mono-v {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ── Overlay peers table ──────────────────────────────────────────────── */
+.blos-peers {
+  display: flex;
+  flex-direction: column;
+}
+.blos-peer-row {
+  display: grid;
+  grid-template-columns: 1.6fr 1.1fr 1.5fr 0.7fr 0.9fr 0.9fr 1fr;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  align-items: center;
+}
+.blos-peer-row:last-child { border-bottom: none; }
+.blos-peer-row.head {
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 10px;
+}
+.blos-peer-row.head span { color: var(--dim); }
+.blos-peer-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.blos-peer-host .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+.blos-peer-host .dot.ok { background: var(--ok); }
+.blos-peer-host .dot.crit { background: var(--crit); }
+.blos-peer-row .warn { color: var(--warn); }
+
+@media (max-width: 900px) {
+  .blos-peer-row {
+    grid-template-columns: 1fr 1fr;
+    padding: 8px 0;
+  }
+  .blos-peer-row.head { display: none; }
+  .blos-peer-row > span::before {
+    content: attr(data-label);
+  }
+}
+@media (max-width: 640px) {
+  .blos-peer-row { grid-template-columns: 1fr; }
+}
+
+/* ── Event log ────────────────────────────────────────────────────────── */
+.blos-events {
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.blos-event-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 2fr;
+  gap: 8px;
+  padding: 4px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border-bottom: 1px dashed var(--border);
+  align-items: center;
+}
+.blos-event-row:last-child { border-bottom: none; }
+.blos-event-kind {
+  color: var(--accent);
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+.blos-event-subject { color: var(--muted); }
+.blos-event-msg { color: var(--text); }
+
+@media (max-width: 640px) {
+  .blos-event-row { grid-template-columns: 1fr; gap: 2px; }
+}

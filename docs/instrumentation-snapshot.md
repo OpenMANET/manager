@@ -43,7 +43,7 @@ Every snapshot is a single JSON object with this shape:
 
 ```json
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "captured_at_start": "2026-04-09T12:34:56.789012345Z",
   "captured_at_end":   "2026-04-09T12:34:56.789013101Z",
   "daemon": { ... },
@@ -57,7 +57,7 @@ Every snapshot is a single JSON object with this shape:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `schema_version` | string | Semver of the envelope schema. Bump minor for additive fields, major for breaking changes. The current value is `1.0.0`. |
+| `schema_version` | string | Semver of the envelope schema. Bump minor for additive fields, major for breaking changes. The current value is `1.1.0`. |
 | `captured_at_start` | RFC3339 timestamp | Wall-clock time when the capture loop began reading counters. |
 | `captured_at_end` | RFC3339 timestamp | Wall-clock time when the capture loop finished. The difference `captured_at_end - captured_at_start` bounds the counter-read skew window; in practice this is microseconds. |
 | `daemon.version` | string | openmanetd build version. Empty until the build system populates it. |
@@ -208,13 +208,29 @@ One entry per configured multicast talk group. The slice order mirrors
 
 ```json
 {
-  "running": true
+  "running": true,
+  "connected_since_unix_ns": 1713614400000000000,
+  "backend_state": "Running",
+  "peer_count": 4,
+  "rx_bytes_total": 1048576,
+  "tx_bytes_total": 524288,
+  "rx_bps_60s": 1234.5,
+  "tx_bps_60s": 678.9,
+  "events_dropped": 0
 }
 ```
 
-| Field | Meaning |
-|---|---|
-| `running` | `true` when the BLOS manager reports the Tailscale overlay is active. `false` covers both "disabled by config" and "enabled but stopped". |
+| Field | Type | Unit | Meaning |
+|---|---|---|---|
+| `running` | bool | — | `true` when the BLOS manager reports the Tailscale overlay is active. `false` covers both "disabled by config" and "enabled but stopped". |
+| `connected_since_unix_ns` | int64 | unix-nanoseconds | Wall-clock time of the first transition to BackendState="Running" in the current enable cycle. 0 when the backend has not reached Running since the last enable. Subtract from `captured_at_start` to compute uptime. |
+| `backend_state` | string | — | Mirrors the Tailscale backend state at snapshot time: one of `NoState`, `NeedsLogin`, `NeedsMachineAuth`, `Stopped`, `Starting`, `Running`. Empty when the status worker has never produced a reading. |
+| `peer_count` | uint32 | count | Number of Tailscale peers visible to the local node at snapshot time (len of `status.Peer`). |
+| `rx_bytes_total` | uint64 | bytes | Sum of `PeerStatus.RxBytes` across all peers — cumulative bytes received since `tailscaled` last started. |
+| `tx_bytes_total` | uint64 | bytes | Sum of `PeerStatus.TxBytes` across all peers. |
+| `rx_bps_60s` | float64 | bytes/sec | RX rate averaged over the last 60 seconds of samples held by the status worker's rate ring. Zero until the ring has at least two samples. |
+| `tx_bps_60s` | float64 | bytes/sec | TX rate averaged over the same 60-second window. |
+| `events_dropped` | uint64 | count | Cumulative count of BLOS stream events the daemon dropped because a registered listener's bounded channel was full. A non-zero-and-growing value across successive snapshots indicates a slow consumer of the `StreamBLOSEvents` RPC. |
 
 ## Interpretation heuristics for LLM triage
 

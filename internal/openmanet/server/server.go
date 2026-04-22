@@ -34,21 +34,22 @@ import (
 )
 
 type APIServer struct {
-	Cfg           *config.Config
-	Log           zerolog.Logger
-	DB            *models.Queries
-	ApiServer     *http.Server
-	Wifi          *mgmt.WirelessConfig
-	GPS           *gpsd.GPSService
-	BLOSManager   blos.BLOSLifecycle
-	CommsManager  comms.CommsLifecycle
-	Interfaces    handlers.InterfaceProvider
-	DHCP          handlers.DHCPConfigProvider
-	Leases        handlers.LeaseProvider
-	Tailscale     handlers.TailscaleStatusProvider
-	SessionStore  *auth.SessionStore
-	Authenticator auth.Authenticator
-	AuthEnabled   bool
+	Cfg              *config.Config
+	Log              zerolog.Logger
+	DB               *models.Queries
+	ApiServer        *http.Server
+	Wifi             *mgmt.WirelessConfig
+	GPS              *gpsd.GPSService
+	BLOSManager      blos.BLOSLifecycle
+	CommsManager     comms.CommsLifecycle
+	Interfaces       handlers.InterfaceProvider
+	DHCP             handlers.DHCPConfigProvider
+	Leases           handlers.LeaseProvider
+	Tailscale        handlers.TailscaleStatusProvider
+	MeshDeltaTracker *handlers.DeltaTracker
+	SessionStore     *auth.SessionStore
+	Authenticator    auth.Authenticator
+	AuthEnabled      bool
 }
 
 func NewAPIServer(cfg APIServer) *APIServer {
@@ -119,9 +120,10 @@ func NewAPIServer(cfg APIServer) *APIServer {
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(meshtopoconnect.NewMeshTopologyServiceHandler(&handlers.MeshTopologyService{
-		Log:        cfg.Log,
-		Visibility: &batmanadv.BatadvVisProvider{},
-		Wifi:       cfg.Wifi,
+		Log:          cfg.Log,
+		Visibility:   &batmanadv.BatadvVisProvider{},
+		Wifi:         cfg.Wifi,
+		DeltaTracker: cfg.MeshDeltaTracker,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(wificonfigconnect.NewWifiConfigServiceHandler(&handlers.WifiConfigService{

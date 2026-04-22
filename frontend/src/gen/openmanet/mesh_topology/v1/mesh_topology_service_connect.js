@@ -4,7 +4,7 @@
 // @ts-nocheck
 
 import { Empty, MethodKind } from "@bufbuild/protobuf";
-import { GetMeshTopologyResponse } from "./mesh_topology_service_pb.js";
+import { GetMeshTopologyDeltaRequest, GetMeshTopologyDeltaResponse, GetMeshTopologyResponse } from "./mesh_topology_service_pb.js";
 
 /**
  * MeshTopologyService exposes the full mesh network topology gathered by
@@ -29,6 +29,21 @@ export const MeshTopologyService = {
       name: "GetMeshTopology",
       I: Empty,
       O: GetMeshTopologyResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * GetMeshTopologyDelta returns summary churn metrics over a recent
+     * time window derived from successive topology snapshots maintained
+     * by the MeshTopologyService. Returns CodeFailedPrecondition when the
+     * delta tracker is not running (e.g. batadv-vis unavailable at
+     * startup) and CodeInternal on unexpected failures.
+     *
+     * @generated from rpc openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopologyDelta
+     */
+    getMeshTopologyDelta: {
+      name: "GetMeshTopologyDelta",
+      I: GetMeshTopologyDeltaRequest,
+      O: GetMeshTopologyDeltaResponse,
       kind: MethodKind.Unary,
     },
   }

@@ -37,6 +37,9 @@ const (
 	// MeshTopologyServiceGetMeshTopologyProcedure is the fully-qualified name of the
 	// MeshTopologyService's GetMeshTopology RPC.
 	MeshTopologyServiceGetMeshTopologyProcedure = "/openmanet.mesh_topology.v1.MeshTopologyService/GetMeshTopology"
+	// MeshTopologyServiceGetMeshTopologyDeltaProcedure is the fully-qualified name of the
+	// MeshTopologyService's GetMeshTopologyDelta RPC.
+	MeshTopologyServiceGetMeshTopologyDeltaProcedure = "/openmanet.mesh_topology.v1.MeshTopologyService/GetMeshTopologyDelta"
 )
 
 // MeshTopologyServiceClient is a client for the openmanet.mesh_topology.v1.MeshTopologyService
@@ -47,6 +50,12 @@ type MeshTopologyServiceClient interface {
 	// data (for example, the local alfred server is not running), and a
 	// CodeInternal error on unexpected failures.
 	GetMeshTopology(context.Context, *emptypb.Empty) (*v1.GetMeshTopologyResponse, error)
+	// GetMeshTopologyDelta returns summary churn metrics over a recent
+	// time window derived from successive topology snapshots maintained
+	// by the MeshTopologyService. Returns CodeFailedPrecondition when the
+	// delta tracker is not running (e.g. batadv-vis unavailable at
+	// startup) and CodeInternal on unexpected failures.
+	GetMeshTopologyDelta(context.Context, *v1.GetMeshTopologyDeltaRequest) (*v1.GetMeshTopologyDeltaResponse, error)
 }
 
 // NewMeshTopologyServiceClient constructs a client for the
@@ -67,17 +76,33 @@ func NewMeshTopologyServiceClient(httpClient connect.HTTPClient, baseURL string,
 			connect.WithSchema(meshTopologyServiceMethods.ByName("GetMeshTopology")),
 			connect.WithClientOptions(opts...),
 		),
+		getMeshTopologyDelta: connect.NewClient[v1.GetMeshTopologyDeltaRequest, v1.GetMeshTopologyDeltaResponse](
+			httpClient,
+			baseURL+MeshTopologyServiceGetMeshTopologyDeltaProcedure,
+			connect.WithSchema(meshTopologyServiceMethods.ByName("GetMeshTopologyDelta")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // meshTopologyServiceClient implements MeshTopologyServiceClient.
 type meshTopologyServiceClient struct {
-	getMeshTopology *connect.Client[emptypb.Empty, v1.GetMeshTopologyResponse]
+	getMeshTopology      *connect.Client[emptypb.Empty, v1.GetMeshTopologyResponse]
+	getMeshTopologyDelta *connect.Client[v1.GetMeshTopologyDeltaRequest, v1.GetMeshTopologyDeltaResponse]
 }
 
 // GetMeshTopology calls openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopology.
 func (c *meshTopologyServiceClient) GetMeshTopology(ctx context.Context, req *emptypb.Empty) (*v1.GetMeshTopologyResponse, error) {
 	response, err := c.getMeshTopology.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// GetMeshTopologyDelta calls openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopologyDelta.
+func (c *meshTopologyServiceClient) GetMeshTopologyDelta(ctx context.Context, req *v1.GetMeshTopologyDeltaRequest) (*v1.GetMeshTopologyDeltaResponse, error) {
+	response, err := c.getMeshTopologyDelta.CallUnary(ctx, connect.NewRequest(req))
 	if response != nil {
 		return response.Msg, err
 	}
@@ -92,6 +117,12 @@ type MeshTopologyServiceHandler interface {
 	// data (for example, the local alfred server is not running), and a
 	// CodeInternal error on unexpected failures.
 	GetMeshTopology(context.Context, *emptypb.Empty) (*v1.GetMeshTopologyResponse, error)
+	// GetMeshTopologyDelta returns summary churn metrics over a recent
+	// time window derived from successive topology snapshots maintained
+	// by the MeshTopologyService. Returns CodeFailedPrecondition when the
+	// delta tracker is not running (e.g. batadv-vis unavailable at
+	// startup) and CodeInternal on unexpected failures.
+	GetMeshTopologyDelta(context.Context, *v1.GetMeshTopologyDeltaRequest) (*v1.GetMeshTopologyDeltaResponse, error)
 }
 
 // NewMeshTopologyServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -107,10 +138,18 @@ func NewMeshTopologyServiceHandler(svc MeshTopologyServiceHandler, opts ...conne
 		connect.WithSchema(meshTopologyServiceMethods.ByName("GetMeshTopology")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshTopologyServiceGetMeshTopologyDeltaHandler := connect.NewUnaryHandlerSimple(
+		MeshTopologyServiceGetMeshTopologyDeltaProcedure,
+		svc.GetMeshTopologyDelta,
+		connect.WithSchema(meshTopologyServiceMethods.ByName("GetMeshTopologyDelta")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/openmanet.mesh_topology.v1.MeshTopologyService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MeshTopologyServiceGetMeshTopologyProcedure:
 			meshTopologyServiceGetMeshTopologyHandler.ServeHTTP(w, r)
+		case MeshTopologyServiceGetMeshTopologyDeltaProcedure:
+			meshTopologyServiceGetMeshTopologyDeltaHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -122,4 +161,8 @@ type UnimplementedMeshTopologyServiceHandler struct{}
 
 func (UnimplementedMeshTopologyServiceHandler) GetMeshTopology(context.Context, *emptypb.Empty) (*v1.GetMeshTopologyResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopology is not implemented"))
+}
+
+func (UnimplementedMeshTopologyServiceHandler) GetMeshTopologyDelta(context.Context, *v1.GetMeshTopologyDeltaRequest) (*v1.GetMeshTopologyDeltaResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopologyDelta is not implemented"))
 }

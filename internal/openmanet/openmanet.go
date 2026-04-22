@@ -24,6 +24,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server"
+	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/openmanet/openmanetd/internal/util/logger"
 	"github.com/rs/zerolog"
@@ -118,6 +119,19 @@ func Start(staticFS fs.FS) {
 	// so a disabled deployment pays nothing beyond the adapter structs.
 	startInstrumentationWorker(ctx, cfg, blosManager, log)
 
+	// Start the mesh-topology delta tracker. The tracker polls batadv-vis
+	// on a fixed cadence and keeps a rolling snapshot ring so the
+	// MeshTopologyService.GetMeshTopologyDelta RPC can return churn
+	// metrics without re-shelling out per call. Exits on ctx cancellation.
+	meshDeltaTracker := handlers.NewDeltaTracker(
+		logger.GetLogger("mesh-delta"),
+		&batmanadv.BatadvVisProvider{},
+		handlers.BatctlGatewayProvider{},
+		time.Duration(cfg.GetMeshTopologyDeltaSampleInterval())*time.Second,
+		cfg.GetMeshTopologyMaxDeltaSamples(),
+	)
+	meshDeltaTracker.Start(ctx)
+
 	// Set up session-based authentication when enabled.
 	var (
 		sessionStore  *auth.SessionStore
@@ -139,14 +153,15 @@ func Start(staticFS fs.FS) {
 	interfaceProvider := &network.NetlinkInterfaceProvider{}
 
 	apiServer := server.APIServer{
-		Cfg:          cfg,
-		Log:          logger.GetLogger("api"),
-		DB:           db,
-		GPS:          gps,
-		BLOSManager:  blosManager,
-		Tailscale:    blosManager,
-		CommsManager: commsManager,
-		Interfaces:   interfaceProvider,
+		Cfg:              cfg,
+		Log:              logger.GetLogger("api"),
+		DB:               db,
+		GPS:              gps,
+		BLOSManager:      blosManager,
+		Tailscale:        blosManager,
+		CommsManager:     commsManager,
+		MeshDeltaTracker: meshDeltaTracker,
+		Interfaces:       interfaceProvider,
 		DHCP: &network.UCIDHCPConfigProvider{
 			DHCPReader:    network.NewUCIDHCPConfigReader(),
 			NetworkReader: network.NewUCINetworkConfigReader(),

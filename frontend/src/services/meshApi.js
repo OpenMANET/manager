@@ -137,3 +137,48 @@ export async function fetchMeshTopology() {
     return null;
   }
 }
+
+// -----------------------------------------------------------------------------
+// fetchMeshTopologyDelta()
+// -----------------------------------------------------------------------------
+// Calls MeshTopologyService.GetMeshTopologyDelta and returns the aggregated
+// churn counters over the requested window (default 60s). Returns null when
+// the call fails or the delta tracker has not yet collected enough samples
+// (actualWindow <= 1s). Callers should render em-dashes when null is
+// returned.
+//
+// Shape:
+//   {
+//     routesAdded: number,
+//     routesLost: number,
+//     gatewayChanges: number,
+//     reconvergeMs: number,
+//     actualWindowMs: number,
+//   }
+export async function fetchMeshTopologyDelta(windowSeconds = 60) {
+  try {
+    const resp = await topologyClient.getMeshTopologyDelta({
+      window: { seconds: BigInt(windowSeconds), nanos: 0 },
+    });
+
+    const actualWindowMs = durationToMs(resp.actualWindow);
+    if (actualWindowMs < 1000) return null;
+
+    return {
+      routesAdded: resp.routesAdded ?? 0,
+      routesLost: resp.routesLost ?? 0,
+      gatewayChanges: resp.gatewayChanges ?? 0,
+      reconvergeMs: durationToMs(resp.reconverge),
+      actualWindowMs,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function durationToMs(d) {
+  if (!d) return 0;
+  const seconds = Number(d.seconds ?? 0);
+  const nanos = Number(d.nanos ?? 0);
+  return seconds * 1000 + Math.floor(nanos / 1_000_000);
+}

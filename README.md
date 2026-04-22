@@ -17,6 +17,9 @@ Management and operations daemon for OpenMANET mesh networks. Runs on OpenMANET 
 - Publishes node identity, position, gateway, and IP reservation data across the mesh
 - Receives the same from neighboring nodes for network-wide discovery
 - Automatic batman-adv gateway detection and advertisement
+- Topology snapshot API (`MeshTopologyService`) with 60s churn metrics
+  (routes added/lost, gateway changes, reconverge time) for the UI
+  topology view
 
 ### WiFi & Network Management
 - Radio configuration (channel, bandwidth, TX power, mode)
@@ -29,6 +32,10 @@ Management and operations daemon for OpenMANET mesh networks. Runs on OpenMANET 
 - Extends mesh range via Tailscale/Headscale VPN
 - Automatically creates VXLAN tunnels to Tailscale peers
 - Configurable auth key and custom login server (Headscale support)
+- Live overlay-status API: tunnel identity, RX/TX counters with 60s rates,
+  DERP region, per-peer table, ACL tags and advertised routes
+- Server-streaming event RPC emits peer add/lost, online/offline, backend
+  state, and DERP changes for real-time UI dashboards
 
 ### GNSS / GPS
 - Integrates with `gpsd` to stream position data
@@ -36,7 +43,8 @@ Management and operations daemon for OpenMANET mesh networks. Runs on OpenMANET 
 
 ### API
 - Protobuf-defined services exposed via [Connect RPC](https://connectrpc.com/) (gRPC + HTTP/JSON)
-- Services: `CommsService`, `DashboardService`, `WifiConfigService`, `NetworkInterfaceService`, `BLOSService`, node and status endpoints
+- Services: `CommsService`, `DashboardService`, `WifiConfigService`, `NetworkInterfaceService`, `BLOSService`, `MeshTopologyService`, `GNSSService`, node and status endpoints
+- Server-streaming RPCs for audio (`CommsService`) and BLOS events (`BLOSService`)
 - WebSocket endpoint for real-time audio streaming
 
 ## Architecture
@@ -89,11 +97,13 @@ The config file lives at `/etc/openmanetd/config.yml`. Key sections:
 | Section | Purpose |
 |---------|---------|
 | `alfred.*` | Batman-adv alfred socket, data type publish toggles |
-| `blos.*` | Tailscale enable, auth key, status poll interval |
+| `blos.*` | Tailscale enable, auth key, status poll interval, advertised mesh subnet |
 | `gnss.*` | gpsd enable, NMEA/CoT output |
+| `meshTopology.*` | Delta-tracker sample interval and ring size (powers the 60s churn panel) |
 | `frontend.*` | HTTP/HTTPS listen addresses, TLS cert paths |
 | `api.*` | gRPC API listen address |
 | `database.*` | SQLite file path |
+| `instrumentation.*` | Periodic JSON snapshot capture (see `docs/instrumentation-snapshot.md`) |
 | `runtime.*` | Memory limit, GC tuning |
 
 ## Developer Tools

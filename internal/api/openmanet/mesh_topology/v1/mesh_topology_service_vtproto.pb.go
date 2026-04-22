@@ -8,11 +8,13 @@ import (
 	context "context"
 	fmt "fmt"
 	protohelpers "github.com/planetscale/vtprotobuf/protohelpers"
+	durationpb1 "github.com/planetscale/vtprotobuf/types/known/durationpb"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
 	proto "google.golang.org/protobuf/proto"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	io "io"
 )
@@ -41,6 +43,44 @@ func (m *GetMeshTopologyResponse) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
+func (m *GetMeshTopologyDeltaRequest) CloneVT() *GetMeshTopologyDeltaRequest {
+	if m == nil {
+		return (*GetMeshTopologyDeltaRequest)(nil)
+	}
+	r := new(GetMeshTopologyDeltaRequest)
+	r.Window = (*durationpb.Duration)((*durationpb1.Duration)(m.Window).CloneVT())
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = make([]byte, len(m.unknownFields))
+		copy(r.unknownFields, m.unknownFields)
+	}
+	return r
+}
+
+func (m *GetMeshTopologyDeltaRequest) CloneMessageVT() proto.Message {
+	return m.CloneVT()
+}
+
+func (m *GetMeshTopologyDeltaResponse) CloneVT() *GetMeshTopologyDeltaResponse {
+	if m == nil {
+		return (*GetMeshTopologyDeltaResponse)(nil)
+	}
+	r := new(GetMeshTopologyDeltaResponse)
+	r.RoutesAdded = m.RoutesAdded
+	r.RoutesLost = m.RoutesLost
+	r.GatewayChanges = m.GatewayChanges
+	r.Reconverge = (*durationpb.Duration)((*durationpb1.Duration)(m.Reconverge).CloneVT())
+	r.ActualWindow = (*durationpb.Duration)((*durationpb1.Duration)(m.ActualWindow).CloneVT())
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = make([]byte, len(m.unknownFields))
+		copy(r.unknownFields, m.unknownFields)
+	}
+	return r
+}
+
+func (m *GetMeshTopologyDeltaResponse) CloneMessageVT() proto.Message {
+	return m.CloneVT()
+}
+
 func (this *GetMeshTopologyResponse) EqualVT(that *GetMeshTopologyResponse) bool {
 	if this == that {
 		return true
@@ -55,6 +95,56 @@ func (this *GetMeshTopologyResponse) EqualVT(that *GetMeshTopologyResponse) bool
 
 func (this *GetMeshTopologyResponse) EqualMessageVT(thatMsg proto.Message) bool {
 	that, ok := thatMsg.(*GetMeshTopologyResponse)
+	if !ok {
+		return false
+	}
+	return this.EqualVT(that)
+}
+func (this *GetMeshTopologyDeltaRequest) EqualVT(that *GetMeshTopologyDeltaRequest) bool {
+	if this == that {
+		return true
+	} else if this == nil || that == nil {
+		return false
+	}
+	if !(*durationpb1.Duration)(this.Window).EqualVT((*durationpb1.Duration)(that.Window)) {
+		return false
+	}
+	return string(this.unknownFields) == string(that.unknownFields)
+}
+
+func (this *GetMeshTopologyDeltaRequest) EqualMessageVT(thatMsg proto.Message) bool {
+	that, ok := thatMsg.(*GetMeshTopologyDeltaRequest)
+	if !ok {
+		return false
+	}
+	return this.EqualVT(that)
+}
+func (this *GetMeshTopologyDeltaResponse) EqualVT(that *GetMeshTopologyDeltaResponse) bool {
+	if this == that {
+		return true
+	} else if this == nil || that == nil {
+		return false
+	}
+	if this.RoutesAdded != that.RoutesAdded {
+		return false
+	}
+	if this.RoutesLost != that.RoutesLost {
+		return false
+	}
+	if this.GatewayChanges != that.GatewayChanges {
+		return false
+	}
+	if !(*durationpb1.Duration)(this.Reconverge).EqualVT((*durationpb1.Duration)(that.Reconverge)) {
+		return false
+	}
+	if !(*durationpb1.Duration)(this.ActualWindow).EqualVT((*durationpb1.Duration)(that.ActualWindow)) {
+		return false
+	}
+	return string(this.unknownFields) == string(that.unknownFields)
+}
+
+func (this *GetMeshTopologyDeltaResponse) EqualMessageVT(thatMsg proto.Message) bool {
+	that, ok := thatMsg.(*GetMeshTopologyDeltaResponse)
 	if !ok {
 		return false
 	}
@@ -75,6 +165,12 @@ type MeshTopologyServiceClient interface {
 	// data (for example, the local alfred server is not running), and a
 	// CodeInternal error on unexpected failures.
 	GetMeshTopology(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetMeshTopologyResponse, error)
+	// GetMeshTopologyDelta returns summary churn metrics over a recent
+	// time window derived from successive topology snapshots maintained
+	// by the MeshTopologyService. Returns CodeFailedPrecondition when the
+	// delta tracker is not running (e.g. batadv-vis unavailable at
+	// startup) and CodeInternal on unexpected failures.
+	GetMeshTopologyDelta(ctx context.Context, in *GetMeshTopologyDeltaRequest, opts ...grpc.CallOption) (*GetMeshTopologyDeltaResponse, error)
 }
 
 type meshTopologyServiceClient struct {
@@ -94,6 +190,15 @@ func (c *meshTopologyServiceClient) GetMeshTopology(ctx context.Context, in *emp
 	return out, nil
 }
 
+func (c *meshTopologyServiceClient) GetMeshTopologyDelta(ctx context.Context, in *GetMeshTopologyDeltaRequest, opts ...grpc.CallOption) (*GetMeshTopologyDeltaResponse, error) {
+	out := new(GetMeshTopologyDeltaResponse)
+	err := c.cc.Invoke(ctx, "/openmanet.mesh_topology.v1.MeshTopologyService/GetMeshTopologyDelta", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MeshTopologyServiceServer is the server API for MeshTopologyService service.
 // All implementations must embed UnimplementedMeshTopologyServiceServer
 // for forward compatibility
@@ -103,6 +208,12 @@ type MeshTopologyServiceServer interface {
 	// data (for example, the local alfred server is not running), and a
 	// CodeInternal error on unexpected failures.
 	GetMeshTopology(context.Context, *emptypb.Empty) (*GetMeshTopologyResponse, error)
+	// GetMeshTopologyDelta returns summary churn metrics over a recent
+	// time window derived from successive topology snapshots maintained
+	// by the MeshTopologyService. Returns CodeFailedPrecondition when the
+	// delta tracker is not running (e.g. batadv-vis unavailable at
+	// startup) and CodeInternal on unexpected failures.
+	GetMeshTopologyDelta(context.Context, *GetMeshTopologyDeltaRequest) (*GetMeshTopologyDeltaResponse, error)
 	mustEmbedUnimplementedMeshTopologyServiceServer()
 }
 
@@ -112,6 +223,9 @@ type UnimplementedMeshTopologyServiceServer struct {
 
 func (UnimplementedMeshTopologyServiceServer) GetMeshTopology(context.Context, *emptypb.Empty) (*GetMeshTopologyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetMeshTopology not implemented")
+}
+func (UnimplementedMeshTopologyServiceServer) GetMeshTopologyDelta(context.Context, *GetMeshTopologyDeltaRequest) (*GetMeshTopologyDeltaResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetMeshTopologyDelta not implemented")
 }
 func (UnimplementedMeshTopologyServiceServer) mustEmbedUnimplementedMeshTopologyServiceServer() {}
 
@@ -144,6 +258,24 @@ func _MeshTopologyService_GetMeshTopology_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MeshTopologyService_GetMeshTopologyDelta_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMeshTopologyDeltaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MeshTopologyServiceServer).GetMeshTopologyDelta(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/openmanet.mesh_topology.v1.MeshTopologyService/GetMeshTopologyDelta",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MeshTopologyServiceServer).GetMeshTopologyDelta(ctx, req.(*GetMeshTopologyDeltaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MeshTopologyService_ServiceDesc is the grpc.ServiceDesc for MeshTopologyService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -154,6 +286,10 @@ var MeshTopologyService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetMeshTopology",
 			Handler:    _MeshTopologyService_GetMeshTopology_Handler,
+		},
+		{
+			MethodName: "GetMeshTopologyDelta",
+			Handler:    _MeshTopologyService_GetMeshTopologyDelta_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -203,6 +339,117 @@ func (m *GetMeshTopologyResponse) MarshalToSizedBufferVT(dAtA []byte) (int, erro
 	return len(dAtA) - i, nil
 }
 
+func (m *GetMeshTopologyDeltaRequest) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GetMeshTopologyDeltaRequest) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *GetMeshTopologyDeltaRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.Window != nil {
+		size, err := (*durationpb1.Duration)(m.Window).MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *GetMeshTopologyDeltaResponse) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GetMeshTopologyDeltaResponse) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *GetMeshTopologyDeltaResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.ActualWindow != nil {
+		size, err := (*durationpb1.Duration)(m.ActualWindow).MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.Reconverge != nil {
+		size, err := (*durationpb1.Duration)(m.Reconverge).MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x22
+	}
+	if m.GatewayChanges != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.GatewayChanges))
+		i--
+		dAtA[i] = 0x18
+	}
+	if m.RoutesLost != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.RoutesLost))
+		i--
+		dAtA[i] = 0x10
+	}
+	if m.RoutesAdded != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.RoutesAdded))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
 func (m *GetMeshTopologyResponse) MarshalVTStrict() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
@@ -246,6 +493,117 @@ func (m *GetMeshTopologyResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int
 	return len(dAtA) - i, nil
 }
 
+func (m *GetMeshTopologyDeltaRequest) MarshalVTStrict() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVTStrict(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GetMeshTopologyDeltaRequest) MarshalToVTStrict(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVTStrict(dAtA[:size])
+}
+
+func (m *GetMeshTopologyDeltaRequest) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.Window != nil {
+		size, err := (*durationpb1.Duration)(m.Window).MarshalToSizedBufferVTStrict(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *GetMeshTopologyDeltaResponse) MarshalVTStrict() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVTStrict(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GetMeshTopologyDeltaResponse) MarshalToVTStrict(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVTStrict(dAtA[:size])
+}
+
+func (m *GetMeshTopologyDeltaResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.ActualWindow != nil {
+		size, err := (*durationpb1.Duration)(m.ActualWindow).MarshalToSizedBufferVTStrict(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.Reconverge != nil {
+		size, err := (*durationpb1.Duration)(m.Reconverge).MarshalToSizedBufferVTStrict(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x22
+	}
+	if m.GatewayChanges != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.GatewayChanges))
+		i--
+		dAtA[i] = 0x18
+	}
+	if m.RoutesLost != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.RoutesLost))
+		i--
+		dAtA[i] = 0x10
+	}
+	if m.RoutesAdded != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.RoutesAdded))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
 func (m *GetMeshTopologyResponse) SizeVT() (n int) {
 	if m == nil {
 		return 0
@@ -254,6 +612,47 @@ func (m *GetMeshTopologyResponse) SizeVT() (n int) {
 	_ = l
 	if m.Topology != nil {
 		l = m.Topology.SizeVT()
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	n += len(m.unknownFields)
+	return n
+}
+
+func (m *GetMeshTopologyDeltaRequest) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Window != nil {
+		l = (*durationpb1.Duration)(m.Window).SizeVT()
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	n += len(m.unknownFields)
+	return n
+}
+
+func (m *GetMeshTopologyDeltaResponse) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.RoutesAdded != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.RoutesAdded))
+	}
+	if m.RoutesLost != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.RoutesLost))
+	}
+	if m.GatewayChanges != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.GatewayChanges))
+	}
+	if m.Reconverge != nil {
+		l = (*durationpb1.Duration)(m.Reconverge).SizeVT()
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.ActualWindow != nil {
+		l = (*durationpb1.Duration)(m.ActualWindow).SizeVT()
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
@@ -347,6 +746,273 @@ func (m *GetMeshTopologyResponse) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
+func (m *GetMeshTopologyDeltaRequest) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GetMeshTopologyDeltaRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GetMeshTopologyDeltaRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Window", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Window == nil {
+				m.Window = &durationpb.Duration{}
+			}
+			if err := (*durationpb1.Duration)(m.Window).UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GetMeshTopologyDeltaResponse) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GetMeshTopologyDeltaResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GetMeshTopologyDeltaResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RoutesAdded", wireType)
+			}
+			m.RoutesAdded = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.RoutesAdded |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RoutesLost", wireType)
+			}
+			m.RoutesLost = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.RoutesLost |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GatewayChanges", wireType)
+			}
+			m.GatewayChanges = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GatewayChanges |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Reconverge", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Reconverge == nil {
+				m.Reconverge = &durationpb.Duration{}
+			}
+			if err := (*durationpb1.Duration)(m.Reconverge).UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ActualWindow", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.ActualWindow == nil {
+				m.ActualWindow = &durationpb.Duration{}
+			}
+			if err := (*durationpb1.Duration)(m.ActualWindow).UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
 func (m *GetMeshTopologyResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -409,6 +1075,273 @@ func (m *GetMeshTopologyResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 				m.Topology = &MeshTopology{}
 			}
 			if err := m.Topology.UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GetMeshTopologyDeltaRequest) UnmarshalVTUnsafe(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GetMeshTopologyDeltaRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GetMeshTopologyDeltaRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Window", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Window == nil {
+				m.Window = &durationpb.Duration{}
+			}
+			if err := (*durationpb1.Duration)(m.Window).UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GetMeshTopologyDeltaResponse) UnmarshalVTUnsafe(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GetMeshTopologyDeltaResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GetMeshTopologyDeltaResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RoutesAdded", wireType)
+			}
+			m.RoutesAdded = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.RoutesAdded |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RoutesLost", wireType)
+			}
+			m.RoutesLost = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.RoutesLost |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GatewayChanges", wireType)
+			}
+			m.GatewayChanges = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GatewayChanges |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Reconverge", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Reconverge == nil {
+				m.Reconverge = &durationpb.Duration{}
+			}
+			if err := (*durationpb1.Duration)(m.Reconverge).UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ActualWindow", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.ActualWindow == nil {
+				m.ActualWindow = &durationpb.Duration{}
+			}
+			if err := (*durationpb1.Duration)(m.ActualWindow).UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex

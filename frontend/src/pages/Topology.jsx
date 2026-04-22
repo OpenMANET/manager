@@ -7,7 +7,7 @@
 // topology widget so there's one authoritative view of the mesh.
 
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
-import { fetchMeshTopology } from '../services/meshApi.js';
+import { fetchMeshTopology, fetchMeshTopologyDelta } from '../services/meshApi.js';
 import './Topology.css';
 
 const TopologyMap = lazy(() => import('../components/TopologyMap.jsx'));
@@ -38,12 +38,17 @@ function TopologyMapFallback() {
 
 export default function TopologyPage() {
   const [topology, setTopology] = useState(null);
+  const [delta, setDelta] = useState(null);
   const pollRef = useRef(null);
 
   const poll = useCallback(async () => {
     try {
-      const t = await fetchMeshTopology();
+      const [t, d] = await Promise.all([
+        fetchMeshTopology(),
+        fetchMeshTopologyDelta(60),
+      ]);
       setTopology(t);
+      setDelta(d);
     } catch {
       // non-fatal; keep previous data
     }
@@ -106,13 +111,24 @@ export default function TopologyPage() {
           </div>
           <div className="lat-panel">
             <div className="panel-head"><h3>Mesh Δ · 60s</h3></div>
-            {/* TODO(api-plan): expose topology-delta counters (routes_added,
-                routes_lost, gateway_changes, reconverge_ms) via mesh topology
-                service so this panel shows real data. Until then, render em-dashes. */}
-            <div className="kv"><span className="k">Routes added</span><span className="v">—</span></div>
-            <div className="kv"><span className="k">Routes lost</span><span className="v">—</span></div>
-            <div className="kv"><span className="k">Gateway changes</span><span className="v">—</span></div>
-            <div className="kv"><span className="k">Reconverge</span><span className="v">—</span></div>
+            <div className="kv">
+              <span className="k">Routes added</span>
+              <span className="v">{delta ? delta.routesAdded : '—'}</span>
+            </div>
+            <div className="kv">
+              <span className="k">Routes lost</span>
+              <span className={`v${delta && delta.routesLost > 0 ? ' warn' : ''}`}>
+                {delta ? delta.routesLost : '—'}
+              </span>
+            </div>
+            <div className="kv">
+              <span className="k">Gateway changes</span>
+              <span className="v">{delta ? delta.gatewayChanges : '—'}</span>
+            </div>
+            <div className="kv">
+              <span className="k">Reconverge</span>
+              <span className="v">{delta ? `${delta.reconvergeMs} ms` : '—'}</span>
+            </div>
           </div>
         </div>
       </div>

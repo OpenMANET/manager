@@ -25,10 +25,12 @@ var File_openmanet_blos_v1_blos_service_proto protoreflect.FileDescriptor
 
 const file_openmanet_blos_v1_blos_service_proto_rawDesc = "" +
 	"\n" +
-	"$openmanet/blos/v1/blos_service.proto\x12\x11openmanet.blos.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1copenmanet/blos/v1/blos.proto2\xd1\x01\n" +
+	"$openmanet/blos/v1/blos_service.proto\x12\x11openmanet.blos.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1copenmanet/blos/v1/blos.proto2\x83\x03\n" +
 	"\vBLOSService\x12S\n" +
 	"\rGetBLOSStatus\x12\x16.google.protobuf.Empty\x1a(.openmanet.blos.v1.GetBLOSStatusResponse\"\x00\x12m\n" +
-	"\x10UpdateBLOSConfig\x12*.openmanet.blos.v1.UpdateBLOSConfigRequest\x1a+.openmanet.blos.v1.UpdateBLOSConfigResponse\"\x00B\xd6\x01\n" +
+	"\x10UpdateBLOSConfig\x12*.openmanet.blos.v1.UpdateBLOSConfigRequest\x1a+.openmanet.blos.v1.UpdateBLOSConfigResponse\"\x00\x12S\n" +
+	"\rListBLOSPeers\x12\x16.google.protobuf.Empty\x1a(.openmanet.blos.v1.ListBLOSPeersResponse\"\x00\x12[\n" +
+	"\x10StreamBLOSEvents\x12\x16.google.protobuf.Empty\x1a+.openmanet.blos.v1.StreamBLOSEventsResponse\"\x000\x01B\xd6\x01\n" +
 	"\x15com.openmanet.blos.v1B\x10BlosServiceProtoP\x01ZEgithub.com/openmanet/openmanetd/internal/api/openmanet/blos/v1;blosv1\xa2\x02\x03OBX\xaa\x02\x11Openmanet.Blos.V1\xca\x02\x11Openmanet\\Blos\\V1\xe2\x02\x1dOpenmanet\\Blos\\V1\\GPBMetadata\xea\x02\x13Openmanet::Blos::V1b\x06proto3"
 
 var file_openmanet_blos_v1_blos_service_proto_goTypes = []any{
@@ -36,14 +38,20 @@ var file_openmanet_blos_v1_blos_service_proto_goTypes = []any{
 	(*UpdateBLOSConfigRequest)(nil),  // 1: openmanet.blos.v1.UpdateBLOSConfigRequest
 	(*GetBLOSStatusResponse)(nil),    // 2: openmanet.blos.v1.GetBLOSStatusResponse
 	(*UpdateBLOSConfigResponse)(nil), // 3: openmanet.blos.v1.UpdateBLOSConfigResponse
+	(*ListBLOSPeersResponse)(nil),    // 4: openmanet.blos.v1.ListBLOSPeersResponse
+	(*StreamBLOSEventsResponse)(nil), // 5: openmanet.blos.v1.StreamBLOSEventsResponse
 }
 var file_openmanet_blos_v1_blos_service_proto_depIdxs = []int32{
 	0, // 0: openmanet.blos.v1.BLOSService.GetBLOSStatus:input_type -> google.protobuf.Empty
 	1, // 1: openmanet.blos.v1.BLOSService.UpdateBLOSConfig:input_type -> openmanet.blos.v1.UpdateBLOSConfigRequest
-	2, // 2: openmanet.blos.v1.BLOSService.GetBLOSStatus:output_type -> openmanet.blos.v1.GetBLOSStatusResponse
-	3, // 3: openmanet.blos.v1.BLOSService.UpdateBLOSConfig:output_type -> openmanet.blos.v1.UpdateBLOSConfigResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
+	0, // 2: openmanet.blos.v1.BLOSService.ListBLOSPeers:input_type -> google.protobuf.Empty
+	0, // 3: openmanet.blos.v1.BLOSService.StreamBLOSEvents:input_type -> google.protobuf.Empty
+	2, // 4: openmanet.blos.v1.BLOSService.GetBLOSStatus:output_type -> openmanet.blos.v1.GetBLOSStatusResponse
+	3, // 5: openmanet.blos.v1.BLOSService.UpdateBLOSConfig:output_type -> openmanet.blos.v1.UpdateBLOSConfigResponse
+	4, // 6: openmanet.blos.v1.BLOSService.ListBLOSPeers:output_type -> openmanet.blos.v1.ListBLOSPeersResponse
+	5, // 7: openmanet.blos.v1.BLOSService.StreamBLOSEvents:output_type -> openmanet.blos.v1.StreamBLOSEventsResponse
+	4, // [4:8] is the sub-list for method output_type
+	0, // [0:4] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name

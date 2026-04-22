@@ -40,14 +40,37 @@ const (
 	// BLOSServiceUpdateBLOSConfigProcedure is the fully-qualified name of the BLOSService's
 	// UpdateBLOSConfig RPC.
 	BLOSServiceUpdateBLOSConfigProcedure = "/openmanet.blos.v1.BLOSService/UpdateBLOSConfig"
+	// BLOSServiceListBLOSPeersProcedure is the fully-qualified name of the BLOSService's ListBLOSPeers
+	// RPC.
+	BLOSServiceListBLOSPeersProcedure = "/openmanet.blos.v1.BLOSService/ListBLOSPeers"
+	// BLOSServiceStreamBLOSEventsProcedure is the fully-qualified name of the BLOSService's
+	// StreamBLOSEvents RPC.
+	BLOSServiceStreamBLOSEventsProcedure = "/openmanet.blos.v1.BLOSService/StreamBLOSEvents"
 )
 
 // BLOSServiceClient is a client for the openmanet.blos.v1.BLOSService service.
 type BLOSServiceClient interface {
-	// GetBLOSStatus retrieves the current status of the BLOS subsystem, including whether it is enabled and any relevant status messages.
+	// GetBLOSStatus retrieves the current status of the BLOS subsystem,
+	// including whether it is enabled, tunnel identity, DERP state,
+	// aggregated counters, and overlay-network policy.
 	GetBLOSStatus(context.Context, *emptypb.Empty) (*v1.GetBLOSStatusResponse, error)
-	// UpdateBLOSConfig updates the configuration of the BLOS subsystem, including enabling or disabling it and setting authentication keys.
+	// UpdateBLOSConfig updates the configuration of the BLOS subsystem,
+	// including enabling or disabling it and setting authentication keys.
 	UpdateBLOSConfig(context.Context, *v1.UpdateBLOSConfigRequest) (*v1.UpdateBLOSConfigResponse, error)
+	// ListBLOSPeers returns the remote nodes visible on the Tailscale
+	// overlay as a single snapshot. Returns an empty list when BLOS is
+	// disabled or the backend is not yet running (never an error for those
+	// cases). Returns CodeInternal for unexpected status failures.
+	ListBLOSPeers(context.Context, *emptypb.Empty) (*v1.ListBLOSPeersResponse, error)
+	// StreamBLOSEvents streams BLOS state-change events to the client
+	// until the client disconnects or the daemon shuts down. Event
+	// generation is best-effort: if the server's outbound buffer fills
+	// (slow client) the daemon drops events and increments the
+	// events_dropped counter in the BLOS instrumentation snapshot. The
+	// stream emits a periodic BLOS_EVENT_KIND_KEEPALIVE so clients can
+	// detect silent disconnects. Each emission is wrapped in a
+	// StreamBLOSEventsResponse envelope (which contains the BLOSEvent).
+	StreamBLOSEvents(context.Context, *emptypb.Empty) (*connect.ServerStreamForClient[v1.StreamBLOSEventsResponse], error)
 }
 
 // NewBLOSServiceClient constructs a client for the openmanet.blos.v1.BLOSService service. By
@@ -73,6 +96,18 @@ func NewBLOSServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(bLOSServiceMethods.ByName("UpdateBLOSConfig")),
 			connect.WithClientOptions(opts...),
 		),
+		listBLOSPeers: connect.NewClient[emptypb.Empty, v1.ListBLOSPeersResponse](
+			httpClient,
+			baseURL+BLOSServiceListBLOSPeersProcedure,
+			connect.WithSchema(bLOSServiceMethods.ByName("ListBLOSPeers")),
+			connect.WithClientOptions(opts...),
+		),
+		streamBLOSEvents: connect.NewClient[emptypb.Empty, v1.StreamBLOSEventsResponse](
+			httpClient,
+			baseURL+BLOSServiceStreamBLOSEventsProcedure,
+			connect.WithSchema(bLOSServiceMethods.ByName("StreamBLOSEvents")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -80,6 +115,8 @@ func NewBLOSServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 type bLOSServiceClient struct {
 	getBLOSStatus    *connect.Client[emptypb.Empty, v1.GetBLOSStatusResponse]
 	updateBLOSConfig *connect.Client[v1.UpdateBLOSConfigRequest, v1.UpdateBLOSConfigResponse]
+	listBLOSPeers    *connect.Client[emptypb.Empty, v1.ListBLOSPeersResponse]
+	streamBLOSEvents *connect.Client[emptypb.Empty, v1.StreamBLOSEventsResponse]
 }
 
 // GetBLOSStatus calls openmanet.blos.v1.BLOSService.GetBLOSStatus.
@@ -100,12 +137,43 @@ func (c *bLOSServiceClient) UpdateBLOSConfig(ctx context.Context, req *v1.Update
 	return nil, err
 }
 
+// ListBLOSPeers calls openmanet.blos.v1.BLOSService.ListBLOSPeers.
+func (c *bLOSServiceClient) ListBLOSPeers(ctx context.Context, req *emptypb.Empty) (*v1.ListBLOSPeersResponse, error) {
+	response, err := c.listBLOSPeers.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// StreamBLOSEvents calls openmanet.blos.v1.BLOSService.StreamBLOSEvents.
+func (c *bLOSServiceClient) StreamBLOSEvents(ctx context.Context, req *emptypb.Empty) (*connect.ServerStreamForClient[v1.StreamBLOSEventsResponse], error) {
+	return c.streamBLOSEvents.CallServerStream(ctx, connect.NewRequest(req))
+}
+
 // BLOSServiceHandler is an implementation of the openmanet.blos.v1.BLOSService service.
 type BLOSServiceHandler interface {
-	// GetBLOSStatus retrieves the current status of the BLOS subsystem, including whether it is enabled and any relevant status messages.
+	// GetBLOSStatus retrieves the current status of the BLOS subsystem,
+	// including whether it is enabled, tunnel identity, DERP state,
+	// aggregated counters, and overlay-network policy.
 	GetBLOSStatus(context.Context, *emptypb.Empty) (*v1.GetBLOSStatusResponse, error)
-	// UpdateBLOSConfig updates the configuration of the BLOS subsystem, including enabling or disabling it and setting authentication keys.
+	// UpdateBLOSConfig updates the configuration of the BLOS subsystem,
+	// including enabling or disabling it and setting authentication keys.
 	UpdateBLOSConfig(context.Context, *v1.UpdateBLOSConfigRequest) (*v1.UpdateBLOSConfigResponse, error)
+	// ListBLOSPeers returns the remote nodes visible on the Tailscale
+	// overlay as a single snapshot. Returns an empty list when BLOS is
+	// disabled or the backend is not yet running (never an error for those
+	// cases). Returns CodeInternal for unexpected status failures.
+	ListBLOSPeers(context.Context, *emptypb.Empty) (*v1.ListBLOSPeersResponse, error)
+	// StreamBLOSEvents streams BLOS state-change events to the client
+	// until the client disconnects or the daemon shuts down. Event
+	// generation is best-effort: if the server's outbound buffer fills
+	// (slow client) the daemon drops events and increments the
+	// events_dropped counter in the BLOS instrumentation snapshot. The
+	// stream emits a periodic BLOS_EVENT_KIND_KEEPALIVE so clients can
+	// detect silent disconnects. Each emission is wrapped in a
+	// StreamBLOSEventsResponse envelope (which contains the BLOSEvent).
+	StreamBLOSEvents(context.Context, *emptypb.Empty, *connect.ServerStream[v1.StreamBLOSEventsResponse]) error
 }
 
 // NewBLOSServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -127,12 +195,28 @@ func NewBLOSServiceHandler(svc BLOSServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(bLOSServiceMethods.ByName("UpdateBLOSConfig")),
 		connect.WithHandlerOptions(opts...),
 	)
+	bLOSServiceListBLOSPeersHandler := connect.NewUnaryHandlerSimple(
+		BLOSServiceListBLOSPeersProcedure,
+		svc.ListBLOSPeers,
+		connect.WithSchema(bLOSServiceMethods.ByName("ListBLOSPeers")),
+		connect.WithHandlerOptions(opts...),
+	)
+	bLOSServiceStreamBLOSEventsHandler := connect.NewServerStreamHandlerSimple(
+		BLOSServiceStreamBLOSEventsProcedure,
+		svc.StreamBLOSEvents,
+		connect.WithSchema(bLOSServiceMethods.ByName("StreamBLOSEvents")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/openmanet.blos.v1.BLOSService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case BLOSServiceGetBLOSStatusProcedure:
 			bLOSServiceGetBLOSStatusHandler.ServeHTTP(w, r)
 		case BLOSServiceUpdateBLOSConfigProcedure:
 			bLOSServiceUpdateBLOSConfigHandler.ServeHTTP(w, r)
+		case BLOSServiceListBLOSPeersProcedure:
+			bLOSServiceListBLOSPeersHandler.ServeHTTP(w, r)
+		case BLOSServiceStreamBLOSEventsProcedure:
+			bLOSServiceStreamBLOSEventsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -148,4 +232,12 @@ func (UnimplementedBLOSServiceHandler) GetBLOSStatus(context.Context, *emptypb.E
 
 func (UnimplementedBLOSServiceHandler) UpdateBLOSConfig(context.Context, *v1.UpdateBLOSConfigRequest) (*v1.UpdateBLOSConfigResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.blos.v1.BLOSService.UpdateBLOSConfig is not implemented"))
+}
+
+func (UnimplementedBLOSServiceHandler) ListBLOSPeers(context.Context, *emptypb.Empty) (*v1.ListBLOSPeersResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.blos.v1.BLOSService.ListBLOSPeers is not implemented"))
+}
+
+func (UnimplementedBLOSServiceHandler) StreamBLOSEvents(context.Context, *emptypb.Empty, *connect.ServerStream[v1.StreamBLOSEventsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.blos.v1.BLOSService.StreamBLOSEvents is not implemented"))
 }

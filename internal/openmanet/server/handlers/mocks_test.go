@@ -6,11 +6,15 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdlayher/wifi"
+	"github.com/openmanet/openmanetd/internal/blos"
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/gpsd"
+	"tailscale.com/ipn"
+	"tailscale.com/ipn/ipnstate"
 )
 
 // ── fakeBLOSManager ────────────────────────────────────────────────────────────
@@ -24,6 +28,18 @@ type fakeBLOSManager struct {
 	configureAndEnableErr   error
 	configureAndEnableCalls int
 	disableCalls            int
+
+	status         *ipnstate.Status
+	prefs          *ipn.Prefs
+	prefsErr       error
+	connectedSince time.Time
+	rxBps          float64
+	txBps          float64
+	rxTotal        uint64
+	txTotal        uint64
+	listeners      map[uint64]func(blos.Event)
+	nextListenerID uint64
+	droppedCount   uint64
 }
 
 func (f *fakeBLOSManager) ConfigureAndEnable(_ context.Context, _ string, _ string) error {
@@ -90,6 +106,74 @@ func (f *fakeBLOSManager) getDisableCalls() int {
 	defer f.mu.Unlock()
 
 	return f.disableCalls
+}
+
+func (f *fakeBLOSManager) Status() *ipnstate.Status {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.status
+}
+
+func (f *fakeBLOSManager) Prefs(_ context.Context) (*ipn.Prefs, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.prefsErr != nil {
+		return nil, f.prefsErr
+	}
+
+	return f.prefs, nil
+}
+
+func (f *fakeBLOSManager) RateWindow(_ time.Duration) (float64, float64, uint64, uint64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.rxBps, f.txBps, f.rxTotal, f.txTotal
+}
+
+func (f *fakeBLOSManager) ConnectedSince() time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.connectedSince
+}
+
+func (f *fakeBLOSManager) AddEventListener(fn func(blos.Event)) uint64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.listeners == nil {
+		f.listeners = make(map[uint64]func(blos.Event))
+	}
+
+	f.nextListenerID++
+	id := f.nextListenerID
+	f.listeners[id] = fn
+
+	return id
+}
+
+func (f *fakeBLOSManager) RemoveEventListener(id uint64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	delete(f.listeners, id)
+}
+
+func (f *fakeBLOSManager) NoteEventDropped() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.droppedCount++
+}
+
+func (f *fakeBLOSManager) EventsDropped() uint64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.droppedCount
 }
 
 // ── fakeCommsManager ───────────────────────────────────────────────────────────

@@ -45,7 +45,7 @@
 // The Envelope type is the authoritative schema. Its JSON representation is:
 //
 //	{
-//	  "schema_version": "1.0.0",
+//	  "schema_version": "1.1.0",
 //	  "captured_at_start": "2026-04-09T12:34:56.789012345Z",
 //	  "captured_at_end":   "2026-04-09T12:34:56.789013101Z",
 //	  "daemon": { ... },
