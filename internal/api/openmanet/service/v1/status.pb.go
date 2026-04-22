@@ -34,9 +34,16 @@ type ServiceStatus struct {
 	// Indicates whether the node is functioning as a mesh gateway.
 	IsMeshGateway bool `protobuf:"varint,4,opt,name=is_mesh_gateway,json=isMeshGateway,proto3" json:"is_mesh_gateway,omitempty"`
 	// Current position of the node.
-	Position      *Position `protobuf:"bytes,5,opt,name=position,proto3" json:"position,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Position *Position `protobuf:"bytes,5,opt,name=position,proto3" json:"position,omitempty"`
+	// selected_gateway_mac is the originator MAC of the batman-adv gateway
+	// currently marked as "best" on this node (i.e. `batctl gwl` best row).
+	// Empty when batman-adv has no gateways announced on the tailnet, when
+	// this node runs in server mode and is itself the gateway, or when
+	// `batctl gwj` fails. The MAC can be cross-referenced with the mesh
+	// topology node list to resolve a hostname / IP for display.
+	SelectedGatewayMac string `protobuf:"bytes,6,opt,name=selected_gateway_mac,json=selectedGatewayMac,proto3" json:"selected_gateway_mac,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ServiceStatus) Reset() {
@@ -102,6 +109,13 @@ func (x *ServiceStatus) GetPosition() *Position {
 		return x.Position
 	}
 	return nil
+}
+
+func (x *ServiceStatus) GetSelectedGatewayMac() string {
+	if x != nil {
+		return x.SelectedGatewayMac
+	}
+	return ""
 }
 
 // Position represents the geographical position of the node if available.
@@ -226,13 +240,14 @@ var File_openmanet_service_v1_status_proto protoreflect.FileDescriptor
 
 const file_openmanet_service_v1_status_proto_rawDesc = "" +
 	"\n" +
-	"!openmanet/service/v1/status.proto\x12\x14openmanet.service.v1\x1a\x1bgoogle/protobuf/empty.proto\"\xfd\x01\n" +
+	"!openmanet/service/v1/status.proto\x12\x14openmanet.service.v1\x1a\x1bgoogle/protobuf/empty.proto\"\xaf\x02\n" +
 	"\rServiceStatus\x12!\n" +
 	"\fis_connected\x18\x01 \x01(\bR\visConnected\x12/\n" +
 	"\x13connected_neighbors\x18\x02 \x01(\x05R\x12connectedNeighbors\x124\n" +
 	"\x16active_mesh_interfaces\x18\x03 \x01(\x05R\x14activeMeshInterfaces\x12&\n" +
 	"\x0fis_mesh_gateway\x18\x04 \x01(\bR\risMeshGateway\x12:\n" +
-	"\bposition\x18\x05 \x01(\v2\x1e.openmanet.service.v1.PositionR\bposition\"\x8e\x01\n" +
+	"\bposition\x18\x05 \x01(\v2\x1e.openmanet.service.v1.PositionR\bposition\x120\n" +
+	"\x14selected_gateway_mac\x18\x06 \x01(\tR\x12selectedGatewayMac\"\x8e\x01\n" +
 	"\bPosition\x12\x1a\n" +
 	"\blatitude\x18\x01 \x01(\x01R\blatitude\x12\x1c\n" +
 	"\tlongitude\x18\x02 \x01(\x01R\tlongitude\x12\x1a\n" +

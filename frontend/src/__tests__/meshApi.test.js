@@ -78,6 +78,7 @@ describe('TestFetchMeshStatus', () => {
       neighbors: 3,
       mesh_interfaces: 2,
       is_gateway: true,
+      selected_gateway_mac: '',
     });
     expect(result.nodes).toEqual([{ hostname: 'node1', ip: '10.0.0.1' }]);
     expect(result.neighbors).toEqual([{
@@ -112,6 +113,7 @@ describe('TestFetchMeshStatus', () => {
       neighbors: 1,
       mesh_interfaces: 1,
       is_gateway: false,
+      selected_gateway_mac: '',
     });
     expect(result.nodes).toBeNull();
     expect(result.neighbors).toBeNull();

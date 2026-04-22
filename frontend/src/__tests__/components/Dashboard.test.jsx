@@ -218,7 +218,7 @@ describe('TestDashboardKpis', () => {
 // ── Row 2 + Row 3 panels ───────────────────────────────────────────────────
 
 describe('TestDashboardPanels', () => {
-  it('renders the peers, alerts, resources, interfaces, and topology panels', async () => {
+  it('renders the peers, alerts, resources, and interfaces panels', async () => {
     mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse());
     render(<DashboardPage />);
     await waitFor(() => {
@@ -226,8 +226,14 @@ describe('TestDashboardPanels', () => {
       expect(screen.getByText('Alerts · Active')).toBeTruthy();
       expect(screen.getByText('System Resources')).toBeTruthy();
       expect(screen.getByText('Network Interfaces')).toBeTruthy();
-      expect(screen.getByText('Network Topology')).toBeTruthy();
     });
+  });
+
+  it('does not render the topology panel (topology has its own route)', async () => {
+    mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse());
+    render(<DashboardPage />);
+    await waitFor(() => screen.getByText('◇ Dashboard'));
+    expect(screen.queryByText('Network Topology')).toBeNull();
   });
 
   it('renders system-resource pbars and kv column with live data', async () => {
@@ -237,14 +243,16 @@ describe('TestDashboardPanels', () => {
       expect(screen.getByText('CPU')).toBeTruthy();
       expect(screen.getByText('MEM')).toBeTruthy();
       expect(screen.getByText('OVERLAY')).toBeTruthy();
-      expect(screen.getByText('LOAD 1M')).toBeTruthy();
       expect(screen.getByText('2d 14h 23m')).toBeTruthy();
       expect(screen.getByText('5.15.150')).toBeTruthy();
       expect(screen.getByText('OpenWrt 23.05.3 / OpenMANET 1.7.0')).toBeTruthy();
       expect(screen.getByText('mipsel_24kc')).toBeTruthy();
     });
-    // 4 pbars (CPU, MEM, OVERLAY, LOAD 1M) rendered.
-    expect(container.querySelectorAll('.pbar').length).toBe(4);
+    // 3 pbars: CPU, MEM, OVERLAY. LOAD 1M and HW Rev were removed because
+    // neither field is surfaced by the current system-status handler.
+    expect(container.querySelectorAll('.pbar').length).toBe(3);
+    expect(screen.queryByText('LOAD 1M')).toBeNull();
+    expect(screen.queryByText('HW Rev')).toBeNull();
   });
 
   it('renders a network interfaces table row per entry', async () => {

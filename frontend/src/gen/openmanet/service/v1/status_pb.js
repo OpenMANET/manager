@@ -18,6 +18,7 @@ export const ServiceStatus = /*@__PURE__*/ proto3.makeMessageType(
     { no: 3, name: "active_mesh_interfaces", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
     { no: 4, name: "is_mesh_gateway", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 5, name: "position", kind: "message", T: Position },
+    { no: 6, name: "selected_gateway_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ],
 );
 

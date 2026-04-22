@@ -214,7 +214,16 @@ export default function TopologyPage() {
                       : selected.node.hops}
                   </span>
                 </div>
-                {/* TODO(api-plan): expose ping / traceroute RPCs so these can fire real probes. */}
+                {/*
+                 * TODO(diag-rpc): wire PING and TRACE to real probes against the
+                 *   selected node. Needs a new `DiagnosticsService` proto with
+                 *   two streaming RPCs:
+                 *     Ping(target_mac, count, interval)   → stream of replies
+                 *     Traceroute(target_mac, max_hops)    → stream of hop rows
+                 *   Both should run on the daemon side against the overlay IP
+                 *   looked up from mesh status. Buttons stay disabled until the
+                 *   RPCs land; see dashboard PR description for inventory.
+                 */}
                 <div className="topo-actions">
                   <button className="lat-btn primary" type="button" disabled>PING</button>
                   <button className="lat-btn ghost" type="button" disabled>TRACE</button>

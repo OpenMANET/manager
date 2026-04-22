@@ -41,6 +41,12 @@ func newStatusService(fw *fakeWireless, meshCfgFn func(string) (*batmanadv.MeshC
 		Wifi:       fw,
 		GPS:        new(gpsd.GPSService), // zero-value: GetPosition() returns empty PositionReport
 		GetMeshCfg: meshCfgFn,
+		// Default to "no gateways" so tests don't exec real `batctl gwj`.
+		GetMeshGateways: func(_ string) (*batmanadv.Gateways, error) {
+			gws := batmanadv.Gateways{}
+
+			return &gws, nil
+		},
 	}
 }
 
@@ -97,6 +103,51 @@ func TestGetServiceStatus_WifiError(t *testing.T) {
 
 	_, err := svc.GetServiceStatus(context.Background(), &emptypb.Empty{})
 	require.Error(t, err)
+}
+
+func TestGetServiceStatus_SelectedGatewayMac(t *testing.T) {
+	fw := &fakeWireless{meshInterfaces: nil}
+	svc := newStatusService(fw, stubMeshCfg(false))
+	svc.GetMeshGateways = func(_ string) (*batmanadv.Gateways, error) {
+		gws := batmanadv.Gateways{
+			{OrigAddress: "aa:bb:cc:dd:ee:01", Best: false},
+			{OrigAddress: "aa:bb:cc:dd:ee:02", Best: true},
+		}
+
+		return &gws, nil
+	}
+
+	resp, err := svc.GetServiceStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	assert.Equal(t, "aa:bb:cc:dd:ee:02", resp.GetStatus().GetSelectedGatewayMac())
+}
+
+func TestGetServiceStatus_NoSelectedGatewayWhenNoneBest(t *testing.T) {
+	fw := &fakeWireless{meshInterfaces: nil}
+	svc := newStatusService(fw, stubMeshCfg(false))
+	svc.GetMeshGateways = func(_ string) (*batmanadv.Gateways, error) {
+		gws := batmanadv.Gateways{
+			{OrigAddress: "aa:bb:cc:dd:ee:01", Best: false},
+		}
+
+		return &gws, nil
+	}
+
+	resp, err := svc.GetServiceStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	assert.Empty(t, resp.GetStatus().GetSelectedGatewayMac())
+}
+
+func TestGetServiceStatus_GatewayListErrorIsNonFatal(t *testing.T) {
+	fw := &fakeWireless{meshInterfaces: nil}
+	svc := newStatusService(fw, stubMeshCfg(false))
+	svc.GetMeshGateways = func(_ string) (*batmanadv.Gateways, error) {
+		return nil, errors.New("batctl gwj exited 1")
+	}
+
+	resp, err := svc.GetServiceStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	assert.Empty(t, resp.GetStatus().GetSelectedGatewayMac())
 }
 
 func TestGetServiceStatus_Position(t *testing.T) {

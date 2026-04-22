@@ -42,7 +42,3 @@
 @media (max-width: 640px) {
   .dashboard-resources { grid-template-columns: 1fr; gap: 12px; }
 }
-
-/* Topology panel holds a canvas-backed child — reserve some height so the
-   Suspense placeholder doesn't collapse to zero. */
-.dashboard-topology { min-height: 420px; }

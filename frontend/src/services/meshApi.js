@@ -44,6 +44,7 @@ export async function fetchMeshStatus() {
         neighbors: st?.connectedNeighbors ?? 0,
         mesh_interfaces: st?.activeMeshInterfaces ?? 0,
         is_gateway: st?.isMeshGateway ?? false,
+        selected_gateway_mac: st?.selectedGatewayMac ?? '',
       };
     }),
     nodeClient.listNodes({}).then((resp) =>

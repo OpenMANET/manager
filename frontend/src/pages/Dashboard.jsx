@@ -2,15 +2,16 @@
 // Dashboard.jsx — Mesh operator overview
 // =============================================================================
 //
-// Fixed-grid tactical dashboard matching the Lattice mockup:
+// Fixed-grid tactical dashboard:
 //   topbar: NODE id + MESH / GPS / BLOS chips + UTC clock
 //   row 1:  3 KPI panels — Mesh Peers · Link Quality 5m · Battery & Power
 //   row 2:  Mesh Peers Live (col-span-3) · Alerts (col-span-1)
 //   row 3:  System Resources (col-span-2) · Network Interfaces (col-span-2)
-//   row 4:  Topology map (col-span-all)
 //
 // PTT latency is intentionally not on this page — it lives on the Comms page
-// with the rest of the realtime audio instrumentation.
+// with the rest of the realtime audio instrumentation. The full topology
+// graph has its own /topology route; the dashboard deliberately does not
+// embed it.
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from "@connectrpc/connect";
@@ -20,7 +21,6 @@ import { NetworkInterfaceState } from "../gen/openmanet/dashboard/v1/dashboard_p
 import { GNSSService } from "../gen/openmanet/gnss/v1/gnss_service_connect.js";
 import { BLOSService } from "../gen/openmanet/blos/v1/blos_service_connect.js";
 import { fetchMeshStatus, fetchMeshTopology, fetchMeshTopologyDelta } from '../services/meshApi.js';
-import TopologyMap from '../components/TopologyMap.jsx';
 import './Dashboard.css';
 
 const dashClient = createClient(DashboardService, transport);
@@ -357,13 +357,29 @@ export default function DashboardPage() {
   );
 
   const peerCount = peerRows.length;
+  // Gateway = the batman-adv-selected best gateway reported by
+  // StatusService.selected_gateway_mac. We cross-reference the MAC against
+  // the mesh topology node list to surface a hostname; when the remote
+  // hostname isn't known we render the short MAC. Self takes precedence
+  // only when this node itself is the gateway in server mode.
   const gatewayName = useMemo(() => {
     if (meshData?.status?.is_gateway) return (data?.deviceInfo?.hostname || 'SELF').toUpperCase();
-    // Fallback: first node in topology whose primary_mac the daemon tagged as gateway is
-    // not reliably exposed, so surface the first 1-hop peer as a best guess.
-    const first = peerRows.find((p) => p.hops === 1);
-    return first ? first.name.toUpperCase() : '—';
-  }, [meshData, data, peerRows]);
+    const mac = (meshData?.status?.selected_gateway_mac || '').toLowerCase();
+    if (!mac) return '—';
+    for (const node of topology?.nodes ?? []) {
+      if ((node.primaryMac || '').toLowerCase() === mac) {
+        return (node.primaryHostname || node.primaryMac.slice(9)).toUpperCase();
+      }
+      for (const e of node.neighbors ?? []) {
+        if ((e.neighborMac || '').toLowerCase() === mac) {
+          return (e.neighborHostname || e.neighborMac.slice(9)).toUpperCase();
+        }
+      }
+    }
+    // Fall back to the short MAC if the gateway isn't represented in the
+    // topology snapshot yet (e.g. we saw batctl gwj before batctl vd).
+    return mac.slice(9).toUpperCase();
+  }, [meshData, data, topology]);
 
   const hopsAvg = useMemo(() => {
     if (peerRows.length === 0) return '—';
@@ -547,12 +563,6 @@ export default function DashboardPage() {
                 pct={memPct(data?.systemResources?.overlayUsedBytes, data?.systemResources?.overlayTotalBytes)}
                 detail={`${formatBytes(data?.systemResources?.overlayUsedBytes)} / ${formatBytes(data?.systemResources?.overlayTotalBytes)}`}
               />
-              {/* TODO(api-plan): expose load average — render dash for now */}
-              <div className="pbar-row">
-                <span className="pbar-label">LOAD 1M</span>
-                <div className="pbar"><span style={{ width: '0%' }} /></div>
-                <span className="pbar-val">—</span>
-              </div>
             </div>
             <div className="dashboard-resources-kv">
               <div className="kv"><span className="k">Uptime</span><span className="v accent">{formatUptime(data?.systemResources?.uptime)}</span></div>
@@ -561,8 +571,6 @@ export default function DashboardPage() {
               <div className="kv"><span className="k">Arch</span><span className="v">{data?.deviceInfo?.architecture || '—'}</span></div>
               {/* TODO(api-plan): expose CPU temperature via sysfs */}
               <div className="kv"><span className="k">Temp</span><span className="v">—</span></div>
-              {/* TODO(api-plan): expose hardware revision */}
-              <div className="kv"><span className="k">HW Rev</span><span className="v">—</span></div>
             </div>
           </div>
         </div>
@@ -602,11 +610,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Row 4: topology map */}
-        <div className="lat-panel col-span-all dashboard-topology">
-          <div className="panel-head"><h3>Network Topology</h3></div>
-          <TopologyMap topology={topology} compact />
-        </div>
       </div>
     </>
   );

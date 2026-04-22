@@ -15,11 +15,12 @@ import (
 )
 
 type StatusService struct {
-	Cfg        *config.Config
-	Log        zerolog.Logger
-	Wifi       mgmt.WirelessProvider
-	GPS        *gpsd.GPSService
-	GetMeshCfg func(string) (*batmanadv.MeshConfig, error)
+	Cfg             *config.Config
+	Log             zerolog.Logger
+	Wifi            mgmt.WirelessProvider
+	GPS             *gpsd.GPSService
+	GetMeshCfg      func(string) (*batmanadv.MeshConfig, error)
+	GetMeshGateways func(string) (*batmanadv.Gateways, error)
 }
 
 func (s *StatusService) getMeshCfg(iface string) (*batmanadv.MeshConfig, error) {
@@ -28,6 +29,14 @@ func (s *StatusService) getMeshCfg(iface string) (*batmanadv.MeshConfig, error) 
 	}
 
 	return batmanadv.GetMeshConfig(iface)
+}
+
+func (s *StatusService) getMeshGateways(iface string) (*batmanadv.Gateways, error) {
+	if s.GetMeshGateways != nil {
+		return s.GetMeshGateways(iface)
+	}
+
+	return batmanadv.GetMeshGateways(iface)
 }
 
 func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*serviceproto.GetServiceStatusResponse, error) {
@@ -78,15 +87,25 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 
 	isMeshGateway = meshCfg.IsGatewayMode()
 
+	// Selected batman-adv gateway (best row from `batctl gwj`). Non-fatal —
+	// gateways may legitimately be absent (no announcer on the tailnet, or
+	// this node is itself the gateway in server mode).
+	var selectedGatewayMac string
+	if gws, gwErr := s.getMeshGateways(s.Cfg.GetAlfredBatInterface()); gwErr != nil {
+		s.Log.Debug().Err(gwErr).Msg("list mesh gateways (non-fatal)")
+	} else if best := gws.GetBest(); best != nil {
+		selectedGatewayMac = best.OrigAddress
+	}
+
 	position := s.GPS.GetPosition()
 
-	// For now, just return a static status
 	return &serviceproto.GetServiceStatusResponse{
 		Status: &serviceproto.ServiceStatus{
 			IsConnected:          meshConnected,
 			ConnectedNeighbors:   connectedNeighbors,
 			ActiveMeshInterfaces: numMeshInterfaces,
 			IsMeshGateway:        isMeshGateway,
+			SelectedGatewayMac:   selectedGatewayMac,
 			Position: &serviceproto.Position{
 				Latitude:         position.Latitude,
 				Longitude:        position.Longitude,

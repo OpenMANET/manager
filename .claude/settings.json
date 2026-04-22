@@ -49,7 +49,8 @@
       "Bash(grep -rn \"TODO\\\\|FIXME\\\\|XXX\\\\|HACK\" /workspaces/openmanetd/frontend/src --include=\"*.jsx\" --include=\"*.js\" ! -path \"*/gen/*\" ! -path \"*/__tests__/*\")",
       "Bash(buf lint *)",
       "Bash(make -C /workspaces/openmanetd frontend)",
-      "Bash(make -C /workspaces/openmanetd test-frontend)"
+      "Bash(make -C /workspaces/openmanetd test-frontend)",
+      "Bash(make -C /workspaces/openmanetd buf)"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"
