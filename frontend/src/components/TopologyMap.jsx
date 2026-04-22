@@ -10,8 +10,14 @@
 // Data source: MeshTopologyService.GetMeshTopology via services/meshApi.js.
 
 import React, { useMemo } from 'react';
-import { GraphCanvas } from 'reagraph';
+import { GraphCanvas, darkTheme } from 'reagraph';
 import { buildGraphData } from './topologyGraph.js';
+
+// App uses a darker background than reagraph's default #1E2026.
+const topologyTheme = {
+  ...darkTheme,
+  canvas: { ...darkTheme.canvas, background: '#111821' },
+};
 
 export default React.memo(function TopologyMap({ topology }) {
   const { nodes, edges } = useMemo(() => buildGraphData(topology), [topology]);
@@ -33,6 +39,7 @@ export default React.memo(function TopologyMap({ topology }) {
       >
         {hasData ? (
           <GraphCanvas
+            theme={topologyTheme}
             nodes={nodes}
             edges={edges}
             layoutType="forceDirected2d"

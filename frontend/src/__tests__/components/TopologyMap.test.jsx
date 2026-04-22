@@ -18,6 +18,7 @@ vi.mock('reagraph', () => ({
       data-edge-count={props.edges.length}
     />
   ),
+  darkTheme: { canvas: { background: '#000' }, node: {}, edge: {} },
 }));
 
 import { buildGraphData } from '../../components/topologyGraph.js';
@@ -76,7 +77,7 @@ describe('TestBuildGraphDataNull', () => {
 });
 
 describe('TestBuildGraphDataNodeShape', () => {
-  it('emits one node per mesh peer, one per client, plus synthesized unknowns', () => {
+  it('emits one node per mesh peer, one per client (global dedup), plus synthesized unknowns', () => {
     const { nodes } = buildGraphData(twoNodeTopology());
     // 2 peers + 1 client + 1 synthesized "charlie" (edge target not in
     // topology.nodes) = 4 nodes.
@@ -84,7 +85,7 @@ describe('TestBuildGraphDataNodeShape', () => {
     const ids = nodes.map((n) => n.id);
     expect(ids).toContain('0a:d7:37:78:2d:3e');
     expect(ids).toContain('2c:cf:67:b8:88:ba');
-    expect(ids).toContain('client:0a:d7:37:78:2d:3e:3c:22:7f:37:4c:0c');
+    expect(ids).toContain('client:3c:22:7f:37:4c:0c');
     expect(ids).toContain('00:0a:52:0b:7d:ae');
   });
 
@@ -100,6 +101,7 @@ describe('TestBuildGraphDataNodeShape', () => {
     const { nodes } = buildGraphData(twoNodeTopology());
     const client = nodes.find((n) => n.data.type === 'client');
     expect(client.data.cluster).toBe('0a:d7:37:78:2d:3e');
+    expect(client.data.parentMac).toBe('0a:d7:37:78:2d:3e');
   });
 
   it('uses hostname as label when present, falling back to a short MAC', () => {
@@ -180,10 +182,45 @@ describe('TestBuildGraphDataUnknownTarget', () => {
 describe('TestBuildGraphDataClientEdges', () => {
   it('connects each client to its parent peer with a thin gray edge', () => {
     const { edges } = buildGraphData(twoNodeTopology());
-    const clientEdges = edges.filter((e) => e.id.startsWith('client:'));
+    const clientEdges = edges.filter((e) => e.id.startsWith('client-edge:'));
     expect(clientEdges).toHaveLength(1);
     expect(clientEdges[0].source).toBe('0a:d7:37:78:2d:3e');
-    expect(clientEdges[0].target).toBe('client:0a:d7:37:78:2d:3e:3c:22:7f:37:4c:0c');
+    expect(clientEdges[0].target).toBe('client:3c:22:7f:37:4c:0c');
+  });
+});
+
+describe('TestBuildGraphDataDedup', () => {
+  it('deduplicates clients that appear under multiple parent nodes', () => {
+    // The same client MAC listed under both alpha and bravo — e.g., a
+    // roaming TT entry — should produce a single client node and a single
+    // client edge (attached to the first parent seen).
+    const topo = twoNodeTopology();
+    topo.nodes[1].clients = [{ mac: '3c:22:7f:37:4c:0c', hostname: 'wandering' }];
+    const { nodes, edges } = buildGraphData(topo);
+
+    const clientNodes = nodes.filter((n) => n.id === 'client:3c:22:7f:37:4c:0c');
+    expect(clientNodes).toHaveLength(1);
+
+    const clientEdges = edges.filter((e) => e.id === 'client-edge:3c:22:7f:37:4c:0c');
+    expect(clientEdges).toHaveLength(1);
+    expect(clientEdges[0].source).toBe('0a:d7:37:78:2d:3e');
+  });
+
+  it('deduplicates repeated client MACs within a single parent', () => {
+    const topo = twoNodeTopology();
+    topo.nodes[0].clients.push({ mac: '3c:22:7f:37:4c:0c', hostname: 'alpha-wlan0' });
+    const { nodes } = buildGraphData(topo);
+    const clientNodes = nodes.filter((n) => n.id === 'client:3c:22:7f:37:4c:0c');
+    expect(clientNodes).toHaveLength(1);
+  });
+
+  it('produces no duplicate node ids regardless of upstream shape', () => {
+    const { nodes } = buildGraphData(twoNodeTopology());
+    const ids = new Set();
+    for (const n of nodes) {
+      expect(ids.has(n.id)).toBe(false);
+      ids.add(n.id);
+    }
   });
 });
 

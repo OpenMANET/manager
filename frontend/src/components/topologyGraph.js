@@ -57,7 +57,11 @@ function formatMetric(metric) {
 //
 // Dedupe: batadv-vis emits each mesh link from both endpoints (A→B from A's
 // entry, B→A from B's entry). We canonicalize by the unordered MAC pair and
-// prefer whichever direction carries a local `signal` reading.
+// prefer whichever direction carries a local `signal` reading. Client MACs
+// can also appear under multiple peers (roaming TT entries) — we keep each
+// client node globally unique and attach it to the first peer that claims
+// it. Dedup is hard-enforced with ID sets so repeats in the upstream data
+// never reach the reagraph graph (graphology throws on duplicate addNode).
 export function buildGraphData(topology) {
   if (!topology || !Array.isArray(topology.nodes)) {
     return { nodes: [], edges: [] };
@@ -80,10 +84,18 @@ export function buildGraphData(topology) {
   const nodes = [];
   const nodeIds = new Set();
 
+  const pushNode = (node) => {
+    if (!node.id || nodeIds.has(node.id)) return;
+    nodes.push(node);
+    nodeIds.add(node.id);
+  };
+
+  // Mesh peer nodes + their clients. Client IDs are global (keyed on MAC
+  // only) so a roaming/duplicated client collapses to one visible node.
   for (const node of topology.nodes) {
     if (!node.primaryMac) continue;
     const isSelf = selfPrimaries.has(node.primaryMac);
-    nodes.push({
+    pushNode({
       id: node.primaryMac,
       label: node.primaryHostname || shortMac(node.primaryMac),
       fill: isSelf ? COLOR_SELF : COLOR_PEER,
@@ -96,13 +108,11 @@ export function buildGraphData(topology) {
         secondary: node.secondaryMacs || [],
       },
     });
-    nodeIds.add(node.primaryMac);
 
     for (const c of node.clients || []) {
       if (!c.mac) continue;
-      const id = `client:${node.primaryMac}:${c.mac}`;
-      nodes.push({
-        id,
+      pushNode({
+        id: `client:${c.mac}`,
         label: c.hostname || shortMac(c.mac),
         fill: COLOR_CLIENT,
         size: 5,
@@ -111,9 +121,9 @@ export function buildGraphData(topology) {
           cluster: node.primaryMac,
           mac: c.mac,
           hostname: c.hostname,
+          parentMac: node.primaryMac,
         },
       });
-      nodeIds.add(id);
     }
   }
 
@@ -136,30 +146,31 @@ export function buildGraphData(topology) {
   }
 
   const edges = [];
+  const edgeIds = new Set();
+  const pushEdge = (edge) => {
+    if (!edge.id || edgeIds.has(edge.id)) return;
+    edges.push(edge);
+    edgeIds.add(edge.id);
+  };
+
   for (const { src, dst, edge } of meshEdges.values()) {
-    if (!nodeIds.has(dst)) {
-      nodes.push({
-        id: dst,
-        label: edge.neighborHostname || shortMac(dst),
-        fill: COLOR_UNKNOWN,
-        size: 8,
-        data: { type: 'unknown', cluster: dst, mac: dst },
-      });
-      nodeIds.add(dst);
-    }
-    if (!nodeIds.has(src)) {
-      nodes.push({
-        id: src,
-        label: shortMac(src),
-        fill: COLOR_UNKNOWN,
-        size: 8,
-        data: { type: 'unknown', cluster: src, mac: src },
-      });
-      nodeIds.add(src);
-    }
+    pushNode({
+      id: dst,
+      label: edge.neighborHostname || shortMac(dst),
+      fill: COLOR_UNKNOWN,
+      size: 8,
+      data: { type: 'unknown', cluster: dst, mac: dst },
+    });
+    pushNode({
+      id: src,
+      label: shortMac(src),
+      fill: COLOR_UNKNOWN,
+      size: 8,
+      data: { type: 'unknown', cluster: src, mac: src },
+    });
 
     const hasSignal = edge.signal && edge.signal !== 0;
-    edges.push({
+    pushEdge({
       id: `mesh:${src}->${dst}`,
       source: src,
       target: dst,
@@ -170,13 +181,18 @@ export function buildGraphData(topology) {
     });
   }
 
+  // Client edges: attach each client to its first-seen parent peer. Dedupe
+  // by client MAC since the node was also deduped globally.
+  const clientEdgeSeen = new Set();
   for (const node of topology.nodes) {
+    if (!node.primaryMac) continue;
     for (const c of node.clients || []) {
-      if (!c.mac) continue;
-      edges.push({
-        id: `client:${node.primaryMac}->${c.mac}`,
+      if (!c.mac || clientEdgeSeen.has(c.mac)) continue;
+      clientEdgeSeen.add(c.mac);
+      pushEdge({
+        id: `client-edge:${c.mac}`,
         source: node.primaryMac,
-        target: `client:${node.primaryMac}:${c.mac}`,
+        target: `client:${c.mac}`,
         size: 0.5,
         fill: COLOR_CLIENT,
       });

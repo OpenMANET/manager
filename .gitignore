@@ -43,3 +43,4 @@ frontend/coverage
 .gocache
 .pnpm-store
 bench
+.superpowers
