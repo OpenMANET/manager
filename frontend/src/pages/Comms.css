@@ -217,6 +217,78 @@
 /* ── Audio panel ─────────────────────────────────────────────────────────── */
 .comms-audio-panel { display: flex; flex-direction: column; gap: 10px; }
 
+.audio-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.audio-vox-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.audio-vox-threshold {
+  flex: 1;
+  min-width: 140px;
+}
+
+.audio-file-tx {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.04);
+}
+.audio-file-tx-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.audio-file-tx-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.audio-file-tx-input {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  max-width: 180px;
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.audio-file-tx-input::file-selector-button {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border-hi);
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  margin-right: 8px;
+}
+.audio-file-tx-input::file-selector-button:hover {
+  background: rgba(0, 229, 255, 0.06);
+}
+.audio-file-tx-loop {
+  margin-left: auto;
+}
+.audio-file-tx-status {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 /* ── Transcript panel ────────────────────────────────────────────────────── */
 .comms-transcript-panel { display: flex; flex-direction: column; gap: 8px; min-height: 260px; }
 .comms-transcript-panel .panel-note {

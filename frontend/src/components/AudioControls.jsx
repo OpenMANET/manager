@@ -19,23 +19,45 @@ export default React.memo(function AudioControls({
   onOutputChange,
   onMicDeviceChange,
 }) {
+  const voxPct = Math.round((voxThreshold || 0.15) * 100);
+  const hasOutputs = audioDevices?.outputs?.length > 0;
+  const hasInputs = audioDevices?.inputs?.length > 0;
+
   return (
-    <div className="card">
-      <div className="volume-row">
-        <label>Speaker:</label>
+    <div className="audio-controls">
+      <div className="pbar-row">
+        <span className="pbar-label">Speaker</span>
         <input
           type="range"
+          className="lat-slider"
           min="0"
           max="100"
           value={speakerVol}
           onChange={(e) => onSpeakerChange(Number(e.target.value))}
+          aria-label="Speaker"
         />
+        <span className="pbar-val">{speakerVol}</span>
       </div>
-      {audioDevices && audioDevices.outputs && audioDevices.outputs.length > 0 && (
-        <div className="device-row">
-          <label>Output:</label>
+
+      <div className="pbar-row">
+        <span className="pbar-label">Mic Gain</span>
+        <input
+          type="range"
+          className="lat-slider"
+          min="0"
+          max="100"
+          value={micVol}
+          onChange={(e) => onMicChange(Number(e.target.value))}
+          aria-label="Mic Gain"
+        />
+        <span className="pbar-val">{micVol}</span>
+      </div>
+
+      {hasOutputs && (
+        <div className="lat-field">
+          <label>Output</label>
           <select
-            className="device-select"
+            className="lat-select"
             value={selectedOutput || ''}
             onChange={(e) => onOutputChange && onOutputChange(e.target.value)}
           >
@@ -47,21 +69,12 @@ export default React.memo(function AudioControls({
           </select>
         </div>
       )}
-      <div className="volume-row">
-        <label>Mic:</label>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          value={micVol}
-          onChange={(e) => onMicChange(Number(e.target.value))}
-        />
-      </div>
-      {audioDevices && audioDevices.inputs && audioDevices.inputs.length > 0 && (
-        <div className="device-row">
-          <label>Input:</label>
+
+      {hasInputs && (
+        <div className="lat-field">
+          <label>Input</label>
           <select
-            className="device-select"
+            className="lat-select"
             value={selectedMic || ''}
             onChange={(e) => onMicDeviceChange && onMicDeviceChange(e.target.value)}
           >
@@ -73,26 +86,33 @@ export default React.memo(function AudioControls({
           </select>
         </div>
       )}
-      <div className="vox-row">
-        <input
-          type="checkbox"
-          id="vox-toggle"
-          checked={voxEnabled || false}
-          onChange={(e) => onVoxToggle && onVoxToggle(e.target.checked)}
-        />
-        <label htmlFor="vox-toggle">VOX</label>
+
+      <div className="audio-vox-row">
+        <label className={`lat-toggle${voxEnabled ? ' on' : ''}`}>
+          <span
+            className="track"
+            onClick={() => onVoxToggle && onVoxToggle(!voxEnabled)}
+          >
+            <span className="thumb" />
+          </span>
+          <span className="label">VOX</span>
+        </label>
         {voxEnabled && (
-          <>
-            <label className="vox-thresh-label">Threshold:</label>
+          <div className="pbar-row audio-vox-threshold">
+            <span className="pbar-label">Threshold</span>
             <input
               type="range"
+              className="lat-slider"
               min="0"
               max="50"
-              value={Math.round((voxThreshold || 0.15) * 100)}
-              onChange={(e) => onVoxThresholdChange && onVoxThresholdChange(Number(e.target.value) / 100)}
-              className="vox-slider"
+              value={voxPct}
+              onChange={(e) =>
+                onVoxThresholdChange && onVoxThresholdChange(Number(e.target.value) / 100)
+              }
+              aria-label="VOX Threshold"
             />
-          </>
+            <span className="pbar-val">{voxPct}</span>
+          </div>
         )}
       </div>
     </div>

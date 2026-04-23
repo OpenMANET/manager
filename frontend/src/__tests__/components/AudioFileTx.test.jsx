@@ -41,16 +41,18 @@ function renderPanel(overrides = {}) {
 describe('TestAudioFileTxRender', () => {
   it('renders with play and stop buttons disabled', () => {
     renderPanel();
-    const playBtn = screen.getByText('Play');
-    const stopBtn = screen.getByText('Stop');
+    const playBtn = screen.getByText('PLAY');
+    const stopBtn = screen.getByText('STOP');
     expect(playBtn.disabled).toBe(true);
     expect(stopBtn.disabled).toBe(true);
   });
 
-  it('renders loop checkbox unchecked', () => {
-    renderPanel();
-    const loopCb = screen.getByLabelText('Loop');
-    expect(loopCb.checked).toBe(false);
+  it('renders loop toggle in off state', () => {
+    const { container } = renderPanel();
+    const toggle = container.querySelector('.audio-file-tx-loop');
+    expect(toggle).toBeTruthy();
+    expect(toggle.classList.contains('on')).toBe(false);
+    expect(screen.getByText('Loop')).toBeTruthy();
   });
 });
 
@@ -73,7 +75,7 @@ describe('TestAudioFileTxFileLoad', () => {
       });
     });
 
-    expect(screen.getByText('Play').disabled).toBe(false);
+    expect(screen.getByText('PLAY').disabled).toBe(false);
     expect(screen.getByText(/test\.wav/)).toBeTruthy();
   });
 
@@ -105,7 +107,7 @@ describe('TestAudioFileTxFileLoad', () => {
     });
 
     expect(screen.getByText('Error: Bad format')).toBeTruthy();
-    expect(screen.getByText('Play').disabled).toBe(true);
+    expect(screen.getByText('PLAY').disabled).toBe(true);
   });
 });
 
@@ -137,7 +139,7 @@ describe('TestAudioFileTxPlay', () => {
       txEnabled: { 1: false, 2: false, 3: false, 4: false, 5: false },
     });
 
-    fireEvent.click(screen.getByText('Play'));
+    fireEvent.click(screen.getByText('PLAY'));
     expect(onLog).toHaveBeenCalledWith('No TX channels!', 'err');
     expect(startPlayback).not.toHaveBeenCalled();
   });
@@ -148,7 +150,7 @@ describe('TestAudioFileTxPlay', () => {
 
     // Override encoder to closed state after file is loaded
     getEncoder.mockReturnValue({ state: 'closed' });
-    fireEvent.click(screen.getByText('Play'));
+    fireEvent.click(screen.getByText('PLAY'));
     expect(onLog).toHaveBeenCalledWith('Encoder not available', 'err');
   });
 
@@ -157,13 +159,13 @@ describe('TestAudioFileTxPlay', () => {
     startPlayback.mockReturnValue(vi.fn());
     await loadFileAndReady({ onPttSet });
 
-    fireEvent.click(screen.getByText('Play'));
+    fireEvent.click(screen.getByText('PLAY'));
 
     expect(onPttSet).toHaveBeenCalledWith(true);
     expect(resetTxTimestamp).toHaveBeenCalled();
     expect(startPlayback).toHaveBeenCalled();
-    expect(screen.getByText('Play').disabled).toBe(true);
-    expect(screen.getByText('Stop').disabled).toBe(false);
+    expect(screen.getByText('PLAY').disabled).toBe(true);
+    expect(screen.getByText('STOP').disabled).toBe(false);
   });
 
   it('stops playback on stop click', async () => {
@@ -171,23 +173,24 @@ describe('TestAudioFileTxPlay', () => {
     startPlayback.mockReturnValue(vi.fn());
     await loadFileAndReady({ onPttSet });
 
-    fireEvent.click(screen.getByText('Play'));
-    fireEvent.click(screen.getByText('Stop'));
+    fireEvent.click(screen.getByText('PLAY'));
+    fireEvent.click(screen.getByText('STOP'));
 
     expect(stopPlayback).toHaveBeenCalled();
     expect(onPttSet).toHaveBeenCalledWith(false);
-    expect(screen.getByText('Play').disabled).toBe(false);
+    expect(screen.getByText('PLAY').disabled).toBe(false);
   });
 });
 
 describe('TestAudioFileTxLoop', () => {
-  it('toggles loop checkbox', () => {
-    renderPanel();
-    const loopCb = screen.getByLabelText('Loop');
-    expect(loopCb.checked).toBe(false);
-    fireEvent.click(loopCb);
-    expect(loopCb.checked).toBe(true);
-    fireEvent.click(loopCb);
-    expect(loopCb.checked).toBe(false);
+  it('toggles loop on click', () => {
+    const { container } = renderPanel();
+    const toggle = container.querySelector('.audio-file-tx-loop');
+    const track = toggle.querySelector('.track');
+    expect(toggle.classList.contains('on')).toBe(false);
+    fireEvent.click(track);
+    expect(toggle.classList.contains('on')).toBe(true);
+    fireEvent.click(track);
+    expect(toggle.classList.contains('on')).toBe(false);
   });
 });

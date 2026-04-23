@@ -24,8 +24,8 @@ function renderControls(overrides = {}) {
 describe('TestAudioControlsRender', () => {
   it('renders speaker and mic sliders', () => {
     renderControls();
-    expect(screen.getByText('Speaker:')).toBeTruthy();
-    expect(screen.getByText('Mic:')).toBeTruthy();
+    expect(screen.getByText('Speaker')).toBeTruthy();
+    expect(screen.getByText('Mic Gain')).toBeTruthy();
 
     const sliders = screen.getAllByRole('slider');
     expect(sliders.length).toBeGreaterThanOrEqual(2);
@@ -33,56 +33,64 @@ describe('TestAudioControlsRender', () => {
 
   it('sets correct initial values', () => {
     renderControls({ speakerVol: 80, micVol: 40 });
-    const sliders = screen.getAllByRole('slider');
-    expect(sliders[0].value).toBe('80');
-    expect(sliders[1].value).toBe('40');
+    const speaker = screen.getByLabelText('Speaker');
+    const mic = screen.getByLabelText('Mic Gain');
+    expect(speaker.value).toBe('80');
+    expect(mic.value).toBe('40');
   });
 });
 
 describe('TestAudioControlsOnChange', () => {
   it('calls onSpeakerChange with correct value', () => {
     const { props } = renderControls();
-    const sliders = screen.getAllByRole('slider');
-    fireEvent.change(sliders[0], { target: { value: '90' } });
+    const speaker = screen.getByLabelText('Speaker');
+    fireEvent.change(speaker, { target: { value: '90' } });
     expect(props.onSpeakerChange).toHaveBeenCalledWith(90);
   });
 
   it('calls onMicChange with correct value', () => {
     const { props } = renderControls();
-    const sliders = screen.getAllByRole('slider');
-    fireEvent.change(sliders[1], { target: { value: '25' } });
+    const mic = screen.getByLabelText('Mic Gain');
+    fireEvent.change(mic, { target: { value: '25' } });
     expect(props.onMicChange).toHaveBeenCalledWith(25);
   });
 
   it('passes numeric values not strings', () => {
     const { props } = renderControls();
-    const sliders = screen.getAllByRole('slider');
-    fireEvent.change(sliders[0], { target: { value: '0' } });
+    const speaker = screen.getByLabelText('Speaker');
+    fireEvent.change(speaker, { target: { value: '0' } });
     expect(props.onSpeakerChange).toHaveBeenCalledWith(0);
     expect(typeof props.onSpeakerChange.mock.calls[0][0]).toBe('number');
   });
 });
 
 describe('TestAudioControlsVox', () => {
-  it('renders VOX checkbox', () => {
+  it('renders VOX toggle label', () => {
     renderControls();
-    expect(screen.getByLabelText('VOX')).toBeTruthy();
+    expect(screen.getByText('VOX')).toBeTruthy();
   });
 
-  it('VOX checkbox reflects voxEnabled prop', () => {
-    renderControls({ voxEnabled: true });
-    expect(screen.getByLabelText('VOX').checked).toBe(true);
+  it('VOX toggle reflects voxEnabled=true with "on" class', () => {
+    const { container } = renderControls({ voxEnabled: true });
+    const toggle = container.querySelector('.lat-toggle');
+    expect(toggle.classList.contains('on')).toBe(true);
   });
 
-  it('calls onVoxToggle when VOX checkbox changes', () => {
-    const { props } = renderControls();
-    fireEvent.click(screen.getByLabelText('VOX'));
-    expect(props.onVoxToggle).toHaveBeenCalled();
+  it('VOX toggle reflects voxEnabled=false without "on" class', () => {
+    const { container } = renderControls({ voxEnabled: false });
+    const toggle = container.querySelector('.lat-toggle');
+    expect(toggle.classList.contains('on')).toBe(false);
+  });
+
+  it('calls onVoxToggle when VOX track clicked', () => {
+    const { container, props } = renderControls();
+    fireEvent.click(container.querySelector('.lat-toggle .track'));
+    expect(props.onVoxToggle).toHaveBeenCalledWith(true);
   });
 
   it('shows threshold slider when VOX is enabled', () => {
     renderControls({ voxEnabled: true });
-    expect(screen.getByText('Threshold:')).toBeTruthy();
+    expect(screen.getByText('Threshold')).toBeTruthy();
     const sliders = screen.getAllByRole('slider');
     // Speaker + Mic + VOX threshold = 3 sliders
     expect(sliders.length).toBe(3);
@@ -90,8 +98,38 @@ describe('TestAudioControlsVox', () => {
 
   it('hides threshold slider when VOX is disabled', () => {
     renderControls({ voxEnabled: false });
-    expect(screen.queryByText('Threshold:')).toBeNull();
+    expect(screen.queryByText('Threshold')).toBeNull();
     const sliders = screen.getAllByRole('slider');
     expect(sliders.length).toBe(2);
+  });
+});
+
+describe('TestAudioControlsDevices', () => {
+  it('renders output device select when outputs are provided', () => {
+    renderControls({
+      audioDevices: {
+        outputs: [{ deviceId: 'out-1', label: 'Speakers' }],
+        inputs: [],
+      },
+    });
+    expect(screen.getByText('Output')).toBeTruthy();
+    expect(screen.getByText('Speakers')).toBeTruthy();
+  });
+
+  it('renders input device select when inputs are provided', () => {
+    renderControls({
+      audioDevices: {
+        outputs: [],
+        inputs: [{ deviceId: 'in-1', label: 'Built-in Mic' }],
+      },
+    });
+    expect(screen.getByText('Input')).toBeTruthy();
+    expect(screen.getByText('Built-in Mic')).toBeTruthy();
+  });
+
+  it('omits device selectors when no devices are available', () => {
+    renderControls({ audioDevices: { outputs: [], inputs: [] } });
+    expect(screen.queryByText('Output')).toBeNull();
+    expect(screen.queryByText('Input')).toBeNull();
   });
 });

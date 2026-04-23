@@ -114,43 +114,44 @@ export default function AudioFileTxPanel({ onLog, onPttSet, txEnabled }) {
   }, [playing, loop, txEnabled, onLog, onPttSet]);
 
   return (
-    <div className="card">
-      <div className="card-title">Audio File TX</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+    <div className="audio-file-tx">
+      <div className="audio-file-tx-title">Audio File TX</div>
+      <div className="audio-file-tx-row">
         <input
           type="file"
           accept="audio/*"
           onChange={handleFileChange}
-          style={{ fontSize: '0.8em', maxWidth: '180px' }}
+          className="audio-file-tx-input"
         />
         <button
-          className="ch-btn"
-          style={{ padding: '5px 14px' }}
+          className="lat-btn ghost"
+          type="button"
           disabled={!fileLoaded || playing}
           onClick={handlePlay}
         >
-          Play
+          PLAY
         </button>
         <button
-          className="ch-btn"
-          style={{ padding: '5px 14px' }}
+          className="lat-btn ghost"
+          type="button"
           disabled={!playing}
           onClick={handleStop}
         >
-          Stop
+          STOP
         </button>
-        <label style={{ fontSize: '0.8em', display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <input
-            type="checkbox"
-            checked={loop}
-            onChange={(e) => setLoop(e.target.checked)}
-          />
-          Loop
+        <label
+          className={`lat-toggle audio-file-tx-loop${loop ? ' on' : ''}`}
+        >
+          <span
+            className="track"
+            onClick={() => setLoop(!loop)}
+          >
+            <span className="thumb" />
+          </span>
+          <span className="label">Loop</span>
         </label>
       </div>
-      <div style={{ fontSize: '0.72em', color: 'var(--muted)', marginTop: '6px' }}>
-        {statusText}
-      </div>
+      <div className="audio-file-tx-status">{statusText}</div>
     </div>
   );
 }
