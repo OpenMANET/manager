@@ -47,7 +47,11 @@ type HIDDevice interface {
 }
 
 // HIDOpener opens a HID device identified by its Vendor/Product ID pair.
-type HIDOpener func(vendorID, productID uint16) (HIDDevice, error)
+// When serial is non-empty, the opener selects only the device whose USB
+// serial number matches; an empty serial means "any matching device".
+// Callers pass a non-empty serial once discovery has identified a specific
+// unit (e.g., an OpenVLM confirmed via the GPIO1 hardware strap).
+type HIDOpener func(vendorID, productID uint16, serial string) (HIDDevice, error)
 
 // hidDeviceWrapper decorates a *hid.Device so that Close also calls hid.Exit,
 // keeping HIDAPI initialisation and teardown balanced.
@@ -72,20 +76,42 @@ func (w *hidDeviceWrapper) Close() error {
 }
 
 // DefaultHIDOpener is the production HIDOpener. It initializes HIDAPI,
-// opens the device, and wraps it so that Close() performs cleanup.
-func DefaultHIDOpener(vendorID, productID uint16) (HIDDevice, error) {
+// opens the device (optionally filtering by USB serial number), and wraps
+// it so that Close() performs cleanup. Pass serial=="" for "any matching
+// device"; pass a non-empty serial to pin the open to a specific unit.
+func DefaultHIDOpener(vendorID, productID uint16, serial string) (HIDDevice, error) {
 	if err := hid.Init(); err != nil {
 		return nil, fmt.Errorf("hid.Init: %w", err)
 	}
 
-	dev, err := hid.Open(vendorID, productID, "")
+	dev, err := hid.Open(vendorID, productID, serial)
 	if err != nil {
 		_ = hid.Exit()
 
-		return nil, fmt.Errorf("hid.Open VID=0x%04X PID=0x%04X: %w", vendorID, productID, err)
+		return nil, fmt.Errorf("hid.Open VID=0x%04X PID=0x%04X serial=%q: %w",
+			vendorID, productID, serial, err)
 	}
 
 	return &hidDeviceWrapper{inner: dev}, nil
+}
+
+// preferredOpenVLMSerial returns the USB serial of the first descriptor
+// that has been positively identified as an OpenVLM via the GPIO1 strap
+// (IsOpenVLM set by a prior CheckOpenVLMIdentity call) and has a non-
+// empty serial. Returns "" when no such descriptor is present, in which
+// case the caller should fall back to opening by VID/PID alone.
+//
+// This is the selection policy OpenVLMSource uses to avoid grabbing a
+// generic CM108 audio dongle that happens to share the OpenVLM VID/PID
+// when a real OpenVLM is also plugged in.
+func preferredOpenVLMSerial(descs []device.CM108Descriptor) string {
+	for _, d := range descs {
+		if d.IsOpenVLM && d.Serial != "" {
+			return d.Serial
+		}
+	}
+
+	return ""
 }
 
 // ─── OpenVLMSource ────────────────────────────────────────────────────────────
@@ -119,17 +145,39 @@ func (s *OpenVLMSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:g
 	go func() {
 		defer close(ch)
 
+		preferredSerial := ""
+
 		if descs, dErr := device.DiscoverCM108(os.DirFS("/sys")); dErr == nil {
+			for i := range descs {
+				ok, idErr := device.CheckOpenVLMIdentity(descs[i], nil)
+				if idErr != nil {
+					s.log.Debug().Err(idErr).
+						Str("hid_path", descs[i].HIDPath).
+						Msg("OpenVLM: identity probe failed")
+
+					continue
+				}
+
+				descs[i].IsOpenVLM = ok
+				s.log.Debug().
+					Str("hid_path", descs[i].HIDPath).
+					Bool("openvlm_confirmed", ok).
+					Msg("OpenVLM: GPIO1 strap sampled")
+			}
+
+			preferredSerial = preferredOpenVLMSerial(descs)
+
 			s.log.Debug().
 				Int("cm108_count", len(descs)).
+				Str("preferred_serial", preferredSerial).
 				Msg("OpenVLM: unified CM108 descriptor scan")
 		}
 
-		dev, err := s.opener(OpenVLMVendorID, OpenVLMProductID)
+		dev, err := s.opener(OpenVLMVendorID, OpenVLMProductID, preferredSerial)
 		if err != nil {
 			s.log.Error().Err(err).
-				Msgf("OpenVLM: failed to open HID device VID=0x%04X PID=0x%04X",
-					OpenVLMVendorID, OpenVLMProductID)
+				Msgf("OpenVLM: failed to open HID device VID=0x%04X PID=0x%04X serial=%q",
+					OpenVLMVendorID, OpenVLMProductID, preferredSerial)
 
 			return
 		}

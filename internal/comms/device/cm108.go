@@ -44,6 +44,13 @@ var cm108ProductIDs = [...]uint16{ //nolint:gochecknoglobals
 // the system. A single device has at most one hidraw child and at most one
 // ALSA sound card child; fields are zero-valued when the corresponding child
 // could not be resolved.
+//
+// IsOpenVLM is true when the device has been positively identified as an
+// OpenVLM module via the GPIO1 hardware strap (pulled high on OpenVLM
+// boards, low on generic CM108 audio dongles). The field is NOT populated
+// by DiscoverCM108 — callers invoke CheckOpenVLMIdentity and assign the
+// result, because confirming the strap requires a HID control transfer and
+// should not be bundled with the sysfs walk.
 type CM108Descriptor struct {
 	HIDPath     string
 	Serial      string
@@ -51,6 +58,7 @@ type CM108Descriptor struct {
 	ALSACardIdx int
 	VID         uint16
 	PID         uint16
+	IsOpenVLM   bool
 }
 
 // DiscoverCM108 walks the USB device tree rooted at fsys (expected to be a

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/openmanet/openmanetd/internal/comms/device"
 )
 
 // ─── mockHIDDevice ────────────────────────────────────────────────────────────
@@ -98,13 +100,13 @@ func collectPTTEvents(ch <-chan PTTEvent, timeout time.Duration) []PTTEvent {
 }
 
 func openerReturning(dev HIDDevice) HIDOpener {
-	return func(_, _ uint16) (HIDDevice, error) {
+	return func(_, _ uint16, _ string) (HIDDevice, error) {
 		return dev, nil
 	}
 }
 
 func openerFailing(err error) HIDOpener {
-	return func(_, _ uint16) (HIDDevice, error) {
+	return func(_, _ uint16, _ string) (HIDDevice, error) {
 		return nil, err
 	}
 }
@@ -135,7 +137,7 @@ func TestOpenVLMSource_OpenerCalledWithCorrectVIDPID(t *testing.T) {
 	resultCh := make(chan vidpid, 1)
 
 	mock := newMockHIDDevice()
-	opener := func(vid, pid uint16) (HIDDevice, error) {
+	opener := func(vid, pid uint16, _ string) (HIDDevice, error) {
 		resultCh <- vidpid{vid, pid}
 
 		return mock, nil
@@ -502,5 +504,54 @@ func TestOpenVLMSource_ShortReport_SkippedAndContinues(t *testing.T) {
 		}
 	case <-time.After(700 * time.Millisecond):
 		t.Error("timed out — short report may not have been skipped correctly")
+	}
+}
+
+// ─── preferredOpenVLMSerial ────────────────────────────────────────────────────
+
+func TestPreferredOpenVLMSerial_PicksStrappedDevice(t *testing.T) {
+	descs := []device.CM108Descriptor{
+		{Serial: "GENERIC-CM108", IsOpenVLM: false},
+		{Serial: "OPENVLM-001", IsOpenVLM: true},
+		{Serial: "OPENVLM-002", IsOpenVLM: true},
+	}
+
+	if got := preferredOpenVLMSerial(descs); got != "OPENVLM-001" {
+		t.Errorf("preferredOpenVLMSerial = %q, want OPENVLM-001 (first strapped)", got)
+	}
+}
+
+func TestPreferredOpenVLMSerial_NoStrappedReturnsEmpty(t *testing.T) {
+	descs := []device.CM108Descriptor{
+		{Serial: "A", IsOpenVLM: false},
+		{Serial: "B", IsOpenVLM: false},
+	}
+
+	if got := preferredOpenVLMSerial(descs); got != "" {
+		t.Errorf("preferredOpenVLMSerial = %q, want empty string", got)
+	}
+}
+
+func TestPreferredOpenVLMSerial_SkipsStrappedWithoutSerial(t *testing.T) {
+	// A strapped device with no serial can't be pinned — skip it and look
+	// for a later one. hid.Open(vid, pid, "") would fall back to any match,
+	// which defeats the purpose of the preference.
+	descs := []device.CM108Descriptor{
+		{Serial: "", IsOpenVLM: true},
+		{Serial: "OPENVLM-GOOD", IsOpenVLM: true},
+	}
+
+	if got := preferredOpenVLMSerial(descs); got != "OPENVLM-GOOD" {
+		t.Errorf("preferredOpenVLMSerial = %q, want OPENVLM-GOOD", got)
+	}
+}
+
+func TestPreferredOpenVLMSerial_EmptyInput(t *testing.T) {
+	if got := preferredOpenVLMSerial(nil); got != "" {
+		t.Errorf("preferredOpenVLMSerial(nil) = %q, want empty string", got)
+	}
+
+	if got := preferredOpenVLMSerial([]device.CM108Descriptor{}); got != "" {
+		t.Errorf("preferredOpenVLMSerial([]) = %q, want empty string", got)
 	}
 }

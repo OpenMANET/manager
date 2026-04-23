@@ -179,7 +179,7 @@ func (s *ROIPSource) Events(ctx context.Context) <-chan PTTEvent {
 
 		// COS path: attempt to open the OpenVLM HID device.
 		if s.cosGPIOMask != 0 {
-			dev, err := s.opener(OpenVLMVendorID, OpenVLMProductID)
+			dev, err := s.opener(OpenVLMVendorID, OpenVLMProductID, "")
 			if err == nil {
 				s.log.Info().Msgf("ROIP: COS mode active (mask=0x%02X)", s.cosGPIOMask)
 				s.cosLoop(ctx, dev, ch)
