@@ -18,13 +18,14 @@ import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { DashboardService } from "../gen/openmanet/dashboard/v1/dashboard_service_connect.js";
 import { NetworkInterfaceState } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
-import { GNSSService } from "../gen/openmanet/gnss/v1/gnss_service_connect.js";
 import { BLOSService } from "../gen/openmanet/blos/v1/blos_service_connect.js";
-import { fetchMeshStatus, fetchMeshTopology, fetchMeshTopologyDelta } from '../services/meshApi.js';
+import { useVisibleInterval } from '../hooks/useVisibleInterval.js';
+import { useMeshStatus } from '../hooks/useMeshStatus.js';
+import { useMeshTopology } from '../hooks/useMeshTopology.js';
+import { useGnssStatus } from '../hooks/useGnssStatus.js';
 import './Dashboard.css';
 
 const dashClient = createClient(DashboardService, transport);
-const gnssClient = createClient(GNSSService, transport);
 const blosClient = createClient(BLOSService, transport);
 
 const DASH_POLL_MS = 5000;
@@ -248,16 +249,19 @@ function extractAddr(detail) {
 export default function DashboardPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [meshData, setMeshData] = useState(null);
-  const [topology, setTopology] = useState(null);
-  const [delta, setDelta] = useState(null);
-  const [gps, setGps] = useState(null);
   const [blosPeers, setBlosPeers] = useState(0);
   const [lqHistory, setLqHistory] = useState([]);
   const [now, setNow] = useState(() => Date.now());
 
   const neighborHistoryRef = useRef({});
   const lqHistoryRef = useRef([]);
+
+  // Shared across Dashboard / Comms / Topology — dedupes the underlying RPCs.
+  const meshData = useMeshStatus(MESH_POLL_MS);
+  const meshTopology = useMeshTopology(MESH_POLL_MS);
+  const gps = useGnssStatus(CHIP_POLL_MS);
+  const topology = meshTopology?.topology ?? null;
+  const delta = meshTopology?.delta ?? null;
 
   // ─ Polls ─
   const fetchStatus = useCallback(async () => {
@@ -271,61 +275,7 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const pollMesh = useCallback(async () => {
-    try {
-      const [md, topo, d] = await Promise.all([
-        fetchMeshStatus(),
-        fetchMeshTopology(),
-        fetchMeshTopologyDelta(60),
-      ]);
-      setMeshData(md);
-      setTopology(topo);
-      setDelta(d);
-
-      const nowMs = Date.now();
-      if (Array.isArray(md?.neighbors)) {
-        let sumPct = 0;
-        let count = 0;
-        for (const n of md.neighbors) {
-          const key = n.name || n.mac;
-          if (!key) continue;
-          if (!neighborHistoryRef.current[key]) {
-            neighborHistoryRef.current[key] = { lastSeenMs: nowMs };
-          }
-          neighborHistoryRef.current[key].lastSeenMs = nowMs;
-          if (Number.isFinite(n.signal) && n.signal !== 0) {
-            sumPct += signalToPct(n.signal);
-            count += 1;
-          }
-        }
-        // Prune peers we haven't seen for a while so old entries don't
-        // anchor the peer list.
-        for (const [key, h] of Object.entries(neighborHistoryRef.current)) {
-          if (nowMs - h.lastSeenMs > NEIGHBOR_STALE_MS * 10) {
-            delete neighborHistoryRef.current[key];
-          }
-        }
-        if (count > 0) {
-          const sample = Math.round(sumPct / count);
-          lqHistoryRef.current.push(sample);
-          if (lqHistoryRef.current.length > LQ_HISTORY_LEN) {
-            lqHistoryRef.current.shift();
-          }
-          setLqHistory([...lqHistoryRef.current]);
-        }
-      }
-    } catch {
-      // best-effort
-    }
-  }, []);
-
-  const pollChips = useCallback(async () => {
-    try {
-      const g = await gnssClient.getGNSSStatus({});
-      setGps(g);
-    } catch {
-      // GNSS service may be unavailable; chip shows NO FIX
-    }
+  const pollBlosPeers = useCallback(async () => {
     try {
       const b = await blosClient.listBLOSPeers({});
       setBlosPeers(b?.peers?.length ?? 0);
@@ -334,23 +284,44 @@ export default function DashboardPage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchStatus();
-    const id = setInterval(fetchStatus, DASH_POLL_MS);
-    return () => clearInterval(id);
-  }, [fetchStatus]);
+  useVisibleInterval(fetchStatus, DASH_POLL_MS);
+  useVisibleInterval(pollBlosPeers, CHIP_POLL_MS);
 
+  // Drive derived peer history + LQ rolling average off each new mesh snapshot.
   useEffect(() => {
-    pollMesh();
-    const id = setInterval(pollMesh, MESH_POLL_MS);
-    return () => clearInterval(id);
-  }, [pollMesh]);
+    if (!Array.isArray(meshData?.neighbors)) return;
 
-  useEffect(() => {
-    pollChips();
-    const id = setInterval(pollChips, CHIP_POLL_MS);
-    return () => clearInterval(id);
-  }, [pollChips]);
+    const nowMs = Date.now();
+    let sumPct = 0;
+    let count = 0;
+    for (const n of meshData.neighbors) {
+      const key = n.name || n.mac;
+      if (!key) continue;
+      if (!neighborHistoryRef.current[key]) {
+        neighborHistoryRef.current[key] = { lastSeenMs: nowMs };
+      }
+      neighborHistoryRef.current[key].lastSeenMs = nowMs;
+      if (Number.isFinite(n.signal) && n.signal !== 0) {
+        sumPct += signalToPct(n.signal);
+        count += 1;
+      }
+    }
+    // Prune peers we haven't seen for a while so old entries don't
+    // anchor the peer list.
+    for (const [key, h] of Object.entries(neighborHistoryRef.current)) {
+      if (nowMs - h.lastSeenMs > NEIGHBOR_STALE_MS * 10) {
+        delete neighborHistoryRef.current[key];
+      }
+    }
+    if (count > 0) {
+      const sample = Math.round(sumPct / count);
+      lqHistoryRef.current.push(sample);
+      if (lqHistoryRef.current.length > LQ_HISTORY_LEN) {
+        lqHistoryRef.current.shift();
+      }
+      setLqHistory([...lqHistoryRef.current]);
+    }
+  }, [meshData]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);

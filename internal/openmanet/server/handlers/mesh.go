@@ -12,9 +12,10 @@ import (
 )
 
 type MeshService struct {
-	Log           zerolog.Logger
-	Wifi          mgmt.WirelessProvider
-	ParseBatHosts func(string) (*batmanadv.BatHosts, error)
+	Log              zerolog.Logger
+	Wifi             mgmt.WirelessProvider
+	ParseBatHosts    func(string) (*batmanadv.BatHosts, error)
+	GetMeshNeighbors func() (*batmanadv.Neighbors, error)
 }
 
 func (m *MeshService) parseBatHosts(path string) (*batmanadv.BatHosts, error) {
@@ -23,6 +24,14 @@ func (m *MeshService) parseBatHosts(path string) (*batmanadv.BatHosts, error) {
 	}
 
 	return batmanadv.ParseBatHostsFile(path)
+}
+
+func (m *MeshService) getMeshNeighbors() (*batmanadv.Neighbors, error) {
+	if m.GetMeshNeighbors != nil {
+		return m.GetMeshNeighbors()
+	}
+
+	return batmanadv.GetMeshNeighbors()
 }
 
 func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*serviceproto.ListMeshNeighborsResponse, error) {
@@ -41,7 +50,7 @@ func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*s
 	}
 
 	// Get batman-adv neighbors for last_seen and throughput
-	batNeighbors, err := batmanadv.GetMeshNeighbors()
+	batNeighbors, err := m.getMeshNeighbors()
 	if err != nil {
 		m.Log.Warn().Err(err).Msg("Failed to get batman-adv neighbors, last_seen and throughput will be unavailable")
 

@@ -119,25 +119,33 @@ func Start(staticFS fs.FS) {
 	// so a disabled deployment pays nothing beyond the adapter structs.
 	startInstrumentationWorker(ctx, cfg, blosManager, log)
 
-	// Build the originator providers. The raw provider shells out to batctl
-	// and is shared with the delta tracker, which only needs the edge
-	// tuples. The enriched provider layers bat-hosts + self-MAC + hop
-	// derivation on top for the RPC handler. Sharing the raw provider
-	// halves the number of `batctl oj` shell invocations in the hot path.
-	rawOrigProvider := &batmanadv.BatctlOriginatorProvider{}
+	// BatctlSnapshotter owns one background goroutine that refreshes the
+	// outputs of batctl oj / nj / mj / gwj plus /tmp/bat-hosts every 5s.
+	// Every RPC handler that used to fork batctl per-request now reads
+	// from the shared cache via the snapshotter's typed accessors.
+	batctlSnapshotter := handlers.NewBatctlSnapshotter(
+		logger.GetLogger("batctl-snapshot"),
+		cfg.GetAlfredBatInterface(),
+		handlers.DefaultBatctlSnapshotInterval,
+	)
+	batctlSnapshotter.Start(ctx)
+
+	// The topology provider enriches the cached originator list with
+	// bat-hosts + self-MAC + hop derivation for the RPC handler. Because
+	// the snapshotter implements OriginatorProvider, the `batctl oj` call
+	// is shared with every other handler.
 	meshOrigProvider := &batmanadv.BatctlOriginatorTopologyProvider{
-		Originators: rawOrigProvider,
+		Originators: batctlSnapshotter,
 	}
 
-	// Start the mesh-topology delta tracker. The tracker polls the
-	// originator table on a fixed cadence and keeps a rolling snapshot
-	// ring so the MeshTopologyService.GetMeshTopologyDelta RPC can return
-	// churn metrics without re-shelling out per call. Exits on ctx
-	// cancellation.
+	// Start the mesh-topology delta tracker. The tracker keeps a rolling
+	// snapshot ring so the MeshTopologyService.GetMeshTopologyDelta RPC
+	// can return churn metrics without re-shelling out per call. Exits
+	// on ctx cancellation.
 	meshDeltaTracker := handlers.NewDeltaTracker(
 		logger.GetLogger("mesh-delta"),
-		rawOrigProvider,
-		handlers.BatctlGatewayProvider{},
+		batctlSnapshotter,
+		batctlSnapshotter,
 		time.Duration(cfg.GetMeshTopologyDeltaSampleInterval())*time.Second,
 		cfg.GetMeshTopologyMaxDeltaSamples(),
 	)
@@ -164,16 +172,17 @@ func Start(staticFS fs.FS) {
 	interfaceProvider := &network.NetlinkInterfaceProvider{}
 
 	apiServer := server.APIServer{
-		Cfg:              cfg,
-		Log:              logger.GetLogger("api"),
-		DB:               db,
-		GPS:              gps,
-		BLOSManager:      blosManager,
-		Tailscale:        blosManager,
-		CommsManager:     commsManager,
-		MeshDeltaTracker: meshDeltaTracker,
-		MeshOrigProvider: meshOrigProvider,
-		Interfaces:       interfaceProvider,
+		Cfg:               cfg,
+		Log:               logger.GetLogger("api"),
+		DB:                db,
+		GPS:               gps,
+		BLOSManager:       blosManager,
+		Tailscale:         blosManager,
+		CommsManager:      commsManager,
+		MeshDeltaTracker:  meshDeltaTracker,
+		MeshOrigProvider:  meshOrigProvider,
+		BatctlSnapshotter: batctlSnapshotter,
+		Interfaces:        interfaceProvider,
 		DHCP: &network.UCIDHCPConfigProvider{
 			DHCPReader:    network.NewUCIDHCPConfigReader(),
 			NetworkReader: network.NewUCINetworkConfigReader(),

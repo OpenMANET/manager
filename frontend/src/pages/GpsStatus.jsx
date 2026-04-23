@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useGnssStatus } from '../hooks/useGnssStatus.js';
 import { createClient } from '@connectrpc/connect';
 import { transport } from '../services/connectClient.js';
 import { GNSSService } from '../gen/openmanet/gnss/v1/gnss_service_connect.js';
@@ -581,35 +582,30 @@ function OutputProtocolsPanel({ config, onConfigChange, onSave, saving }) {
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export default function GpsStatusPage() {
-  const [status, setStatus] = useState(null);
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
-  const pollRef = useRef(null);
   const mapActionsRef = useRef(null);
   const fixTimesRef = useRef([]);
 
-  const fetchStatus = useCallback(async () => {
-    try {
-      const resp = await gnssClient.getGNSSStatus({});
-      setStatus(resp);
-      const ts = resp?.position?.lastUpdate;
-      if (ts) {
-        const d = ts instanceof Date ? ts : new Date(ts);
-        if (!isNaN(d.getTime())) {
-          const arr = fixTimesRef.current;
-          if (arr.length === 0 || arr[arr.length - 1].getTime() !== d.getTime()) {
-            arr.push(d);
-            if (arr.length > FIX_RATE_SAMPLES) arr.shift();
-          }
-        }
-      }
-    } catch {
-      // Polling errors are non-fatal.
+  // Shared with Dashboard's chip — dedupes the GNSS RPC when both pages
+  // are open simultaneously.
+  const status = useGnssStatus(POLL_INTERVAL);
+
+  // Record each new fix timestamp for the sliding-window fix rate.
+  useEffect(() => {
+    const ts = status?.position?.lastUpdate;
+    if (!ts) return;
+    const d = ts instanceof Date ? ts : new Date(ts);
+    if (isNaN(d.getTime())) return;
+    const arr = fixTimesRef.current;
+    if (arr.length === 0 || arr[arr.length - 1].getTime() !== d.getTime()) {
+      arr.push(d);
+      if (arr.length > FIX_RATE_SAMPLES) arr.shift();
     }
-  }, []);
+  }, [status]);
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -625,13 +621,7 @@ export default function GpsStatusPage() {
 
   useEffect(() => {
     fetchConfig();
-    fetchStatus();
-  }, [fetchConfig, fetchStatus]);
-
-  useEffect(() => {
-    pollRef.current = setInterval(fetchStatus, POLL_INTERVAL);
-    return () => clearInterval(pollRef.current);
-  }, [fetchStatus]);
+  }, [fetchConfig]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);

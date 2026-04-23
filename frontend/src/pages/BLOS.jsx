@@ -8,6 +8,7 @@
 // structures and the UI renders em-dashes.
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useVisibleInterval } from '../hooks/useVisibleInterval.js';
 import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { BLOSService } from "../gen/openmanet/blos/v1/blos_service_connect.js";
@@ -136,15 +137,11 @@ export default function BLOSPage() {
     }
   }, []);
 
-  useEffect(() => {
+  const pollStatusAndPeers = useCallback(() => {
     fetchStatus();
     fetchPeers();
-    const id = setInterval(() => {
-      fetchStatus();
-      fetchPeers();
-    }, 10_000);
-    return () => clearInterval(id);
   }, [fetchStatus, fetchPeers]);
+  useVisibleInterval(pollStatusAndPeers, 10_000);
 
   // Event stream: open when BLOS is running, close on unmount or disable.
   const streamAbortRef = useRef(null);

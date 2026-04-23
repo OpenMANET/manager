@@ -42,6 +42,7 @@ type Server struct {
 	hub          *ws.Hub
 	cfg          *config.Config
 	sessionStore *auth.SessionStore
+	cpu          *cpuSampler
 	indexHTML    []byte
 	authEnabled  bool
 }
@@ -84,11 +85,15 @@ func NewFrontendServer(ctx context.Context, cfg *config.Config, staticFS fs.FS, 
 		log.Warn().Err(err).Msg("failed to pre-read index.html; SPA fallback will be unavailable")
 	}
 
+	cpu := newCPUSampler()
+	cpu.Start(ctx)
+
 	return &Server{
 		log:          log,
 		staticFS:     staticFS,
 		hub:          hub,
 		cfg:          cfg,
+		cpu:          cpu,
 		indexHTML:    indexHTML,
 		sessionStore: sessionStore,
 		authEnabled:  authEnabled,

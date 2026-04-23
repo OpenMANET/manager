@@ -6,13 +6,16 @@
 // produced by buildTopologyView() and partitioned into LOCAL + per-gateway
 // REMOTE segments.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fetchMeshStatus, fetchMeshTopology, fetchMeshTopologyDelta } from '../services/meshApi.js';
+import React, { useCallback, useMemo, useState } from 'react';
 import { buildTopologyView } from '../components/topologyGraph.js';
 import TopologyMap from '../components/TopologyMap.jsx';
+import { useMeshStatus } from '../hooks/useMeshStatus.js';
+import { useMeshTopology } from '../hooks/useMeshTopology.js';
 import './Topology.css';
 
-const POLL_INTERVAL = 2000;
+// Aligned with the backend BatctlSnapshotter / DeltaTracker 5s cadence —
+// polling faster than the snapshot updates only returns duplicate data.
+const POLL_INTERVAL = 5000;
 
 function formatLatency(ms) {
   if (ms == null) return '—';
@@ -49,33 +52,13 @@ function roleLabelForHost(host, meshData) {
 }
 
 export default function TopologyPage() {
-  const [topology, setTopology] = useState(null);
-  const [meshData, setMeshData] = useState(null);
-  const [delta, setDelta] = useState(null);
+  const meshData = useMeshStatus(POLL_INTERVAL);
+  const meshTopology = useMeshTopology(POLL_INTERVAL);
+  const topology = meshTopology?.topology ?? null;
+  const delta = meshTopology?.delta ?? null;
+
   const [selectedId, setSelectedId] = useState(null);
   const [fitSignal, setFitSignal] = useState(0);
-  const pollRef = useRef(null);
-
-  const poll = useCallback(async () => {
-    try {
-      const [topo, mesh, d] = await Promise.all([
-        fetchMeshTopology(),
-        fetchMeshStatus(),
-        fetchMeshTopologyDelta(60),
-      ]);
-      setTopology(topo);
-      setMeshData(mesh);
-      setDelta(d);
-    } catch {
-      /* non-fatal; keep previous data */
-    }
-  }, []);
-
-  useEffect(() => {
-    poll();
-    pollRef.current = setInterval(poll, POLL_INTERVAL);
-    return () => clearInterval(pollRef.current);
-  }, [poll]);
 
   const view = useMemo(() => buildTopologyView(topology), [topology]);
   const { self, hosts, segments, blosEdges, counts, algorithm } = view;

@@ -34,23 +34,24 @@ import (
 )
 
 type APIServer struct {
-	Cfg              *config.Config
-	Log              zerolog.Logger
-	DB               *models.Queries
-	ApiServer        *http.Server
-	Wifi             *mgmt.WirelessConfig
-	GPS              *gpsd.GPSService
-	BLOSManager      blos.BLOSLifecycle
-	CommsManager     comms.CommsLifecycle
-	Interfaces       handlers.InterfaceProvider
-	DHCP             handlers.DHCPConfigProvider
-	Leases           handlers.LeaseProvider
-	Tailscale        handlers.TailscaleStatusProvider
-	MeshDeltaTracker *handlers.DeltaTracker
-	MeshOrigProvider batmanadv.OriginatorTopologyProvider
-	SessionStore     *auth.SessionStore
-	Authenticator    auth.Authenticator
-	AuthEnabled      bool
+	Cfg               *config.Config
+	Log               zerolog.Logger
+	DB                *models.Queries
+	ApiServer         *http.Server
+	Wifi              *mgmt.WirelessConfig
+	GPS               *gpsd.GPSService
+	BLOSManager       blos.BLOSLifecycle
+	CommsManager      comms.CommsLifecycle
+	Interfaces        handlers.InterfaceProvider
+	DHCP              handlers.DHCPConfigProvider
+	Leases            handlers.LeaseProvider
+	Tailscale         handlers.TailscaleStatusProvider
+	MeshDeltaTracker  *handlers.DeltaTracker
+	MeshOrigProvider  batmanadv.OriginatorTopologyProvider
+	BatctlSnapshotter *handlers.BatctlSnapshotter
+	SessionStore      *auth.SessionStore
+	Authenticator     auth.Authenticator
+	AuthEnabled       bool
 }
 
 func NewAPIServer(cfg APIServer) *APIServer {
@@ -69,17 +70,29 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Wifi: cfg.Wifi,
 	}, connect.WithInterceptors(validateInterceptor)))
 
-	api.Handle(services.NewMeshNeighborServiceHandler(&handlers.MeshService{
+	meshSvc := &handlers.MeshService{
 		Log:  cfg.Log,
 		Wifi: cfg.Wifi,
-	}, connect.WithInterceptors(validateInterceptor)))
+	}
+	if cfg.BatctlSnapshotter != nil {
+		meshSvc.ParseBatHosts = cfg.BatctlSnapshotter.ParseBatHosts
+		meshSvc.GetMeshNeighbors = cfg.BatctlSnapshotter.GetMeshNeighbors
+	}
 
-	api.Handle(services.NewStatusServiceHandler(&handlers.StatusService{
+	api.Handle(services.NewMeshNeighborServiceHandler(meshSvc, connect.WithInterceptors(validateInterceptor)))
+
+	statusSvc := &handlers.StatusService{
 		Cfg:  cfg.Cfg,
 		Log:  cfg.Log,
 		Wifi: cfg.Wifi,
 		GPS:  cfg.GPS,
-	}, connect.WithInterceptors(validateInterceptor)))
+	}
+	if cfg.BatctlSnapshotter != nil {
+		statusSvc.GetMeshCfg = cfg.BatctlSnapshotter.GetMeshConfig
+		statusSvc.GetMeshGateways = cfg.BatctlSnapshotter.GetMeshGateways
+	}
+
+	api.Handle(services.NewStatusServiceHandler(statusSvc, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(commsconnect.NewCommsServiceHandler(&handlers.CommsService{
 		Cfg:          cfg.Cfg,
@@ -101,6 +114,11 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Leases:     cfg.Leases,
 	}, connect.WithInterceptors(validateInterceptor)))
 
+	var dashOrigProvider batmanadv.OriginatorProvider = &batmanadv.BatctlOriginatorProvider{}
+	if cfg.BatctlSnapshotter != nil {
+		dashOrigProvider = cfg.BatctlSnapshotter
+	}
+
 	api.Handle(dashboardconnect.NewDashboardServiceHandler(&handlers.DashboardService{
 		Log:         cfg.Log,
 		Board:       &handlers.DefaultBoardProvider{},
@@ -108,7 +126,7 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Firmware:    &system.OpenWrtFirmwareProvider{},
 		Interfaces:  cfg.Interfaces,
 		Wifi:        &handlers.DefaultWifiStationProvider{Wifi: cfg.Wifi},
-		Originators: &batmanadv.BatctlOriginatorProvider{},
+		Originators: dashOrigProvider,
 		Tailscale:   cfg.Tailscale,
 		Services:    &system.InitDServiceChecker{},
 		Actions:     &system.InitDActionExecutor{},
@@ -126,14 +144,20 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		DeltaTracker: cfg.MeshDeltaTracker,
 	}, connect.WithInterceptors(validateInterceptor)))
 
-	api.Handle(wificonfigconnect.NewWifiConfigServiceHandler(&handlers.WifiConfigService{
+	wifiSvc := &handlers.WifiConfigService{
 		Log:            cfg.Log,
 		IwinfoClient:   iwinfo.NewClient(),
 		Wifi:           cfg.Wifi,
 		WirelessStatus: network.NewDefaultWirelessStatusProvider(),
 		ConfigReader:   network.NewUCIWirelessConfigReader(),
 		DHCPLeases:     cfg.Leases,
-	}, connect.WithInterceptors(validateInterceptor)))
+	}
+	if cfg.BatctlSnapshotter != nil {
+		wifiSvc.ParseBatHosts = cfg.BatctlSnapshotter.ParseBatHosts
+		wifiSvc.GetMeshNeighbors = cfg.BatctlSnapshotter.GetMeshNeighbors
+	}
+
+	api.Handle(wificonfigconnect.NewWifiConfigServiceHandler(wifiSvc, connect.WithInterceptors(validateInterceptor)))
 
 	// Register auth endpoints. Login and logout are only available when
 	// authentication is enabled. The check endpoint is always registered so

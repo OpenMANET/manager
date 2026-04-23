@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -190,8 +189,9 @@ func (s *Server) handleSystemInfo(w http.ResponseWriter, _ *http.Request) {
 		info.MemBuffered = parseMeminfoField(content, "Buffers:")
 	}
 
-	// CPU usage – sample /proc/stat twice with a short delay.
-	info.CPUUsage = sampleCPUUsage()
+	// CPU usage — served from the background sampler so the request path
+	// no longer pays a /proc/stat read + sleep on every call.
+	info.CPUUsage = s.cpu.Get()
 
 	// Board info – try /etc/board.json first, fall back to sysinfo.
 	info.Board, info.Model = parseBoardInfo()
@@ -200,54 +200,6 @@ func (s *Server) handleSystemInfo(w http.ResponseWriter, _ *http.Request) {
 	info.Version = readDistribRelease()
 
 	s.writeJSON(w, info)
-}
-
-func sampleCPUUsage() float64 {
-	read := func() (idle, total int64) {
-		data, err := os.ReadFile("/proc/stat")
-		if err != nil {
-			return 0, 0
-		}
-
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.HasPrefix(line, "cpu ") {
-				fields := strings.Fields(line)
-				if len(fields) < 5 {
-					return 0, 0
-				}
-
-				var sum int64
-
-				for _, f := range fields[1:] {
-					v, _ := strconv.ParseInt(f, 10, 64)
-					sum += v
-				}
-
-				idleVal, _ := strconv.ParseInt(fields[4], 10, 64)
-
-				return idleVal, sum
-			}
-		}
-
-		return 0, 0
-	}
-
-	idle1, total1 := read()
-
-	time.Sleep(200 * time.Millisecond)
-
-	idle2, total2 := read()
-
-	idleDelta := float64(idle2 - idle1)
-	totalDelta := float64(total2 - total1)
-
-	if totalDelta == 0 {
-		return 0
-	}
-
-	usage := (1.0 - idleDelta/totalDelta) * 100
-
-	return math.Round(usage*100) / 100
 }
 
 func (s *Server) handleSystemProcesses(w http.ResponseWriter, r *http.Request) {

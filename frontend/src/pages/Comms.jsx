@@ -12,8 +12,9 @@ import { CHANNELS_DEF, MSG_TYPE, RX_WAVE_HISTORY, VOX_HANGTIME_MS } from '../con
 import { connect as wsConnect, disconnect as wsDisconnect, setCallbacks as wsSetCallbacks, sendToggle as wsSendToggle, sendByte as wsSendByte, send as wsSend, isOpen as wsIsOpen } from '../services/websocketService.js';
 import { initAudio, decodeAndPlay, resetTxTimestamp, startMic, stopMic, setVolume, setMicGain, playBuffer, startMicMonitor, enumerateDevices, setOutputDevice, setMicDevice, setEncoderCallback, clearEncoderCallback } from '../services/audioEngine.js';
 import { isReady as whisperIsReady, initWhisper, feedAudio as whisperFeedAudio, checkSilenceAndTranscribe, checkWhisperAvailable } from '../services/whisperService.js';
-import { fetchMeshStatus } from '../services/meshApi.js';
 import { fetchCommsStatus } from '../services/commsApi.js';
+import { useVisibleInterval } from '../hooks/useVisibleInterval.js';
+import { useMeshStatus } from '../hooks/useMeshStatus.js';
 import { getReplayPcm } from '../services/replayBuffer.js';
 import ChannelGrid from '../components/ChannelGrid.jsx';
 import AudioControls from '../components/AudioControls.jsx';
@@ -36,7 +37,7 @@ export default function CommsPage() {
   const [audioStatus, setAudioStatus] = useState('Audio off');
   const [logs, setLogs] = useState([]);
   const [chatMessages, setChatMessages] = useState([]);
-  const [meshData, setMeshData] = useState(null);
+  const meshData = useMeshStatus(MESH_STATUS_POLL_INTERVAL);
   const [commsStatus, setCommsStatus] = useState(null);
   const [pttActive, setPttActive] = useState(false);
   const [whisperEnabled, setWhisperEnabled] = useState(false);
@@ -534,31 +535,11 @@ export default function CommsPage() {
   // Polling — mesh + comms status
   // ---------------------------------------------------------------------------
 
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const data = await fetchMeshStatus();
-        if (!cancelled) setMeshData(data);
-      } catch {
-        if (!cancelled) setMeshData({ status: null });
-      }
-    };
-    poll();
-    const id = setInterval(poll, MESH_STATUS_POLL_INTERVAL);
-    return () => { cancelled = true; clearInterval(id); };
+  const pollCommsStatus = useCallback(async () => {
+    const data = await fetchCommsStatus();
+    setCommsStatus(data);
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      const data = await fetchCommsStatus();
-      if (!cancelled) setCommsStatus(data);
-    };
-    poll();
-    const id = setInterval(poll, COMMS_STATUS_POLL_INTERVAL);
-    return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  useVisibleInterval(pollCommsStatus, COMMS_STATUS_POLL_INTERVAL);
 
   // ---------------------------------------------------------------------------
   // File TX PTT
