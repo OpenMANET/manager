@@ -15,22 +15,22 @@ import (
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 )
 
-// fakeVisibility scripts a deterministic sequence of VisDoc returns so
-// DeltaTracker tests can exercise add/remove edges over a known timeline.
-type fakeVisibility struct {
-	mu   sync.Mutex
-	docs []*batmanadv.VisDoc
-	errs []error
-	idx  int
+// fakeOrigScript scripts a deterministic sequence of OriginatorTopology
+// returns so DeltaTracker tests can walk a known timeline of route changes.
+type fakeOrigScript struct {
+	mu    sync.Mutex
+	snaps []*batmanadv.OriginatorTopology
+	errs  []error
+	idx   int
 }
 
-func (f *fakeVisibility) GetVisibility() (*batmanadv.VisDoc, error) {
+func (f *fakeOrigScript) GetOriginatorTopology() (*batmanadv.OriginatorTopology, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	i := f.idx
-	if i >= len(f.docs) {
-		i = len(f.docs) - 1
+	if i >= len(f.snaps) {
+		i = len(f.snaps) - 1
 	}
 
 	f.idx++
@@ -40,19 +40,20 @@ func (f *fakeVisibility) GetVisibility() (*batmanadv.VisDoc, error) {
 		err = f.errs[i]
 	}
 
-	return f.docs[i], err
+	return f.snaps[i], err
 }
 
-// callCount returns the number of completed GetVisibility calls, safely for
-// concurrent reads from test goroutines.
-func (f *fakeVisibility) callCount() int {
+// callCount returns the number of completed GetOriginatorTopology calls.
+func (f *fakeOrigScript) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	return f.idx
 }
 
-// fakeGateways scripts a deterministic sequence of gateway sets.
+// fakeGateways scripts a deterministic sequence of gateway sets — unchanged
+// from the pre-originator test file; the gateway path is independent of the
+// topology data source.
 type fakeGateways struct {
 	mu   sync.Mutex
 	sets []map[string]struct{}
@@ -73,8 +74,6 @@ func (f *fakeGateways) ListGateways() (map[string]struct{}, error) {
 	return f.sets[i], nil
 }
 
-// callCount returns the number of completed ListGateways calls, safely for
-// concurrent reads from test goroutines.
 func (f *fakeGateways) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -82,35 +81,38 @@ func (f *fakeGateways) callCount() int {
 	return f.idx
 }
 
-// mkVisDoc builds a VisDoc with a single node reporting the supplied
-// (router -> neighbor) edges.
-func mkVisDoc(router string, neighbors ...string) *batmanadv.VisDoc {
-	ns := make([]batmanadv.VisNeighbor, 0, len(neighbors))
-	for _, n := range neighbors {
-		ns = append(ns, batmanadv.VisNeighbor{Router: router, Neighbor: n, Metric: "1.0"})
-	}
-
-	return &batmanadv.VisDoc{
-		SourceVersion: "test",
-		Algorithm:     15,
-		Vis: []batmanadv.VisEntry{
-			{Primary: router, Neighbors: ns},
-		},
+// mkSnap builds a minimal OriginatorTopology with one best-route row per
+// (orig, nextHop, iface) tuple supplied. Tests use it to stitch together
+// route churn timelines without spelling out every field.
+func mkSnap(entries ...batmanadv.OriginatorEntry) *batmanadv.OriginatorTopology {
+	return &batmanadv.OriginatorTopology{
+		Algorithm:   "BATMAN_IV",
+		Originators: entries,
 	}
 }
 
+func entry(orig, next, iface string) batmanadv.OriginatorEntry {
+	return batmanadv.OriginatorEntry{
+		OrigMAC:    orig,
+		NextHopMAC: next,
+		HardIfname: iface,
+		Hops:       1,
+	}
+}
+
+// TestDeltaTracker_WindowRoutesAddedAndLost walks three snapshots that add
+// and then lose a route, and asserts the window aggregation matches.
 func TestDeltaTracker_WindowRoutesAddedAndLost(t *testing.T) {
-	vis := &fakeVisibility{
-		docs: []*batmanadv.VisDoc{
-			mkVisDoc("aa:01", "bb:01"),
-			mkVisDoc("aa:01", "bb:01", "bb:02"),
-			mkVisDoc("aa:01", "bb:02"),
+	orig := &fakeOrigScript{
+		snaps: []*batmanadv.OriginatorTopology{
+			mkSnap(entry("bb:01", "bb:01", "wlan0")),
+			mkSnap(entry("bb:01", "bb:01", "wlan0"), entry("bb:02", "bb:02", "wlan0")),
+			mkSnap(entry("bb:02", "bb:02", "wlan0")),
 		},
 	}
-
 	gw := &fakeGateways{sets: []map[string]struct{}{{}, {}, {}}}
 
-	tracker := handlers.NewDeltaTracker(zerolog.Nop(), vis, gw, 10*time.Millisecond, 120)
+	tracker := handlers.NewDeltaTracker(zerolog.Nop(), orig, gw, 10*time.Millisecond, 120)
 	tracker.DefaultWindow = 5 * time.Second
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -119,26 +121,48 @@ func TestDeltaTracker_WindowRoutesAddedAndLost(t *testing.T) {
 	tracker.Start(ctx)
 
 	require.Eventually(t, tracker.Ready, time.Second, 5*time.Millisecond, "tracker never became ready")
-
-	// Wait for all three scripted docs to have been consumed.
-	require.Eventually(t, func() bool {
-		return vis.callCount() >= 3
-	}, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return orig.callCount() >= 3 }, time.Second, 5*time.Millisecond)
 
 	tracker.Stop()
 
 	result := tracker.Window(5 * time.Second)
-
 	assert.GreaterOrEqual(t, result.RoutesAdded, uint32(1), "expected at least one route added")
 	assert.GreaterOrEqual(t, result.RoutesLost, uint32(1), "expected at least one route lost")
 	assert.Equal(t, uint32(0), result.GatewayChanges)
 }
 
-func TestDeltaTracker_GatewayChanges(t *testing.T) {
-	vis := &fakeVisibility{
-		docs: []*batmanadv.VisDoc{mkVisDoc("aa:01"), mkVisDoc("aa:01"), mkVisDoc("aa:01")},
+// TestDeltaTracker_RouteChangeOnInterfaceFlip verifies that a failover from
+// wlan0 to phy2-mesh0 (same orig, same next hop, different iface) registers
+// as a route change — this was the whole point of including hardIfname in
+// the edge key.
+func TestDeltaTracker_RouteChangeOnInterfaceFlip(t *testing.T) {
+	orig := &fakeOrigScript{
+		snaps: []*batmanadv.OriginatorTopology{
+			mkSnap(entry("bb:01", "bb:01", "wlan0")),
+			mkSnap(entry("bb:01", "bb:01", "phy2-mesh0")),
+		},
 	}
+	gw := &fakeGateways{sets: []map[string]struct{}{{}, {}}}
 
+	tracker := handlers.NewDeltaTracker(zerolog.Nop(), orig, gw, 10*time.Millisecond, 120)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	tracker.Start(ctx)
+	require.Eventually(t, func() bool { return orig.callCount() >= 2 }, time.Second, 5*time.Millisecond)
+	tracker.Stop()
+
+	result := tracker.Window(5 * time.Second)
+	assert.GreaterOrEqual(t, result.RoutesAdded+result.RoutesLost, uint32(2),
+		"interface flip should count as both a loss (old) and an add (new)")
+}
+
+// TestDeltaTracker_GatewayChanges keeps the pre-existing gateway-churn
+// assertion — the gateway feed doesn't depend on the originator provider.
+func TestDeltaTracker_GatewayChanges(t *testing.T) {
+	orig := &fakeOrigScript{
+		snaps: []*batmanadv.OriginatorTopology{mkSnap(), mkSnap(), mkSnap()},
+	}
 	gw := &fakeGateways{
 		sets: []map[string]struct{}{
 			{"aa:01": {}},
@@ -147,7 +171,7 @@ func TestDeltaTracker_GatewayChanges(t *testing.T) {
 		},
 	}
 
-	tracker := handlers.NewDeltaTracker(zerolog.Nop(), vis, gw, 10*time.Millisecond, 120)
+	tracker := handlers.NewDeltaTracker(zerolog.Nop(), orig, gw, 10*time.Millisecond, 120)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
@@ -156,26 +180,27 @@ func TestDeltaTracker_GatewayChanges(t *testing.T) {
 	tracker.Stop()
 
 	result := tracker.Window(5 * time.Second)
-	// add+add=1, then drop+add=2, total = 3.
 	assert.GreaterOrEqual(t, result.GatewayChanges, uint32(2))
 }
 
+// TestDeltaTracker_ReconvergeZeroWhenStable asserts a perfectly stable mesh
+// produces zero reconverge time — no unstable samples ⇒ no spread.
 func TestDeltaTracker_ReconvergeZeroWhenStable(t *testing.T) {
-	vis := &fakeVisibility{
-		docs: []*batmanadv.VisDoc{
-			mkVisDoc("aa:01", "bb:01"),
-			mkVisDoc("aa:01", "bb:01"),
-			mkVisDoc("aa:01", "bb:01"),
+	orig := &fakeOrigScript{
+		snaps: []*batmanadv.OriginatorTopology{
+			mkSnap(entry("bb:01", "bb:01", "wlan0")),
+			mkSnap(entry("bb:01", "bb:01", "wlan0")),
+			mkSnap(entry("bb:01", "bb:01", "wlan0")),
 		},
 	}
 	gw := &fakeGateways{sets: []map[string]struct{}{{}, {}, {}}}
 
-	tracker := handlers.NewDeltaTracker(zerolog.Nop(), vis, gw, 10*time.Millisecond, 120)
+	tracker := handlers.NewDeltaTracker(zerolog.Nop(), orig, gw, 10*time.Millisecond, 120)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
 	tracker.Start(ctx)
-	require.Eventually(t, func() bool { return vis.callCount() >= 3 }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return orig.callCount() >= 3 }, time.Second, 5*time.Millisecond)
 	tracker.Stop()
 
 	result := tracker.Window(5 * time.Second)
@@ -184,38 +209,39 @@ func TestDeltaTracker_ReconvergeZeroWhenStable(t *testing.T) {
 	assert.Equal(t, time.Duration(0), result.Reconverge)
 }
 
-func TestDeltaTracker_ToleratesVisUnavailable(t *testing.T) {
-	vis := &fakeVisibility{
-		docs: []*batmanadv.VisDoc{
-			mkVisDoc("aa:01", "bb:01"),
+// TestDeltaTracker_ToleratesUnavailable treats the sentinel as an empty
+// snapshot — the tracker keeps sampling and the churn counters pick up the
+// resulting add/lost pair on either side of the outage.
+func TestDeltaTracker_ToleratesUnavailable(t *testing.T) {
+	orig := &fakeOrigScript{
+		snaps: []*batmanadv.OriginatorTopology{
+			mkSnap(entry("bb:01", "bb:01", "wlan0")),
 			nil,
-			mkVisDoc("aa:01", "bb:01"),
+			mkSnap(entry("bb:01", "bb:01", "wlan0")),
 		},
-		errs: []error{nil, batmanadv.ErrVisUnavailable, nil},
+		errs: []error{nil, batmanadv.ErrOriginatorsUnavailable, nil},
 	}
-
 	gw := &fakeGateways{sets: []map[string]struct{}{{}, {}, {}}}
 
-	tracker := handlers.NewDeltaTracker(zerolog.Nop(), vis, gw, 10*time.Millisecond, 120)
+	tracker := handlers.NewDeltaTracker(zerolog.Nop(), orig, gw, 10*time.Millisecond, 120)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
 	tracker.Start(ctx)
-	require.Eventually(t, func() bool { return vis.callCount() >= 3 }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return orig.callCount() >= 3 }, time.Second, 5*time.Millisecond)
 	tracker.Stop()
 
-	// The middle sample had a vis-unavailable error; the tracker should still
-	// have three samples (each failure still appends an empty sample) and the
-	// churn counters should reflect a lost-then-added pair for the edge.
 	result := tracker.Window(5 * time.Second)
 	assert.GreaterOrEqual(t, result.RoutesAdded+result.RoutesLost, uint32(2))
 }
 
+// TestDeltaTracker_ShutsDownCleanly confirms a canceled context tears the
+// worker goroutine down quickly and that Stop is idempotent.
 func TestDeltaTracker_ShutsDownCleanly(t *testing.T) {
-	vis := &fakeVisibility{docs: []*batmanadv.VisDoc{mkVisDoc("aa:01")}}
+	orig := &fakeOrigScript{snaps: []*batmanadv.OriginatorTopology{mkSnap()}}
 	gw := &fakeGateways{sets: []map[string]struct{}{{}}}
 
-	tracker := handlers.NewDeltaTracker(zerolog.Nop(), vis, gw, 10*time.Millisecond, 120)
+	tracker := handlers.NewDeltaTracker(zerolog.Nop(), orig, gw, 10*time.Millisecond, 120)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	tracker.Start(ctx)
@@ -234,19 +260,17 @@ func TestDeltaTracker_ShutsDownCleanly(t *testing.T) {
 		t.Fatal("tracker did not stop within 2 seconds after context cancel")
 	}
 
-	// Idempotent stop must not panic.
-	tracker.Stop()
-
-	// Calling Window on a ring with 0 or 1 samples returns an empty result
-	// rather than panicking — guard against partial-start regressions.
+	tracker.Stop() // idempotent
 	result := tracker.Window(0)
 	assert.Equal(t, uint32(0), result.RoutesAdded)
 }
 
+// TestDeltaTracker_EmptyRingReturnsZero asserts Window on a tracker that was
+// never started returns an empty (non-panicking) result.
 func TestDeltaTracker_EmptyRingReturnsZero(t *testing.T) {
 	tracker := handlers.NewDeltaTracker(
 		zerolog.Nop(),
-		&fakeVisibility{docs: []*batmanadv.VisDoc{mkVisDoc("aa:01")}},
+		&fakeOrigScript{snaps: []*batmanadv.OriginatorTopology{mkSnap()}},
 		&fakeGateways{sets: []map[string]struct{}{{}}},
 		10*time.Millisecond,
 		120,
@@ -259,16 +283,12 @@ func TestDeltaTracker_EmptyRingReturnsZero(t *testing.T) {
 }
 
 // TestBatctlGatewayProvider_ListGateways_NotFoundReturnsError confirms the
-// production gateway provider surfaces errors from batctl (the binary is not
-// present in the test environment) rather than silently masking them. We
-// don't assert the exact error text — only that we get one.
+// production gateway provider surfaces batctl errors rather than silently
+// swallowing them. The binary is not present in the test environment.
 func TestBatctlGatewayProvider_ListGateways_NotFoundReturnsError(t *testing.T) {
 	p := handlers.BatctlGatewayProvider{}
 	_, err := p.ListGateways()
 	require.Error(t, err)
 
-	// The production implementation wraps the batctl exec error; the
-	// tracker logs it but does not crash. Ensure we don't accidentally
-	// return an unavailable-sentinel that would be ignored.
-	assert.False(t, errors.Is(err, batmanadv.ErrVisUnavailable))
+	assert.False(t, errors.Is(err, batmanadv.ErrOriginatorsUnavailable))
 }

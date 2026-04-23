@@ -83,25 +83,26 @@ export async function fetchMeshStatus() {
 // fetchMeshTopology()
 // -----------------------------------------------------------------------------
 // Calls MeshTopologyService.GetMeshTopology and returns a plain-JS object
-// suitable for the TopologyMap component. The shape mirrors the proto
-// snake_case keys converted to camelCase by connect-web:
+// suitable for the TopologyMap component. The wire format is one row per
+// best-route entry from the local batman-adv originator table, enriched with
+// bat-hosts hostnames:
 //
 //   {
-//     sourceVersion: string,
-//     algorithm: number,
-//     nodes: [
+//     selfMac, selfHostname, algorithm,            // who we are + batman version
+//     collectedAt: Date | null,
+//     originators: [
 //       {
-//         primaryMac, primaryHostname,
-//         secondaryMacs: string[],
-//         neighbors: [{ routerMac, neighborMac, neighborHostname, metric, signal, signalAverage }],
-//         clients: [{ mac, hostname }],
+//         origMac, origHostname,                   // the reachable peer
+//         nextHopMac, nextHopHostname,              // our forwarding target
+//         hardIfname,                               // wlan0 | phy2-mesh0 | vxlan0 | …
+//         tq, throughput,                           // BATMAN_IV TQ or BATMAN_V kbps
+//         lastSeenMs, hops,
 //       }
 //     ],
-//     collectedAt: Date | null,
 //   }
 //
-// Returns null on failure (alfred down, network error, etc.). Callers should
-// treat null as "topology temporarily unavailable" and render accordingly.
+// Returns null on failure. Callers treat null as "topology temporarily
+// unavailable" and render accordingly.
 export async function fetchMeshTopology() {
   try {
     const resp = await topologyClient.getMeshTopology({});
@@ -113,26 +114,20 @@ export async function fetchMeshTopology() {
       : null;
 
     return {
-      sourceVersion: t.sourceVersion ?? '',
-      algorithm: t.algorithm ?? 0,
+      selfMac: t.selfMac ?? '',
+      selfHostname: t.selfHostname ?? '',
+      algorithm: t.algorithm ?? '',
       collectedAt,
-      nodes: (t.nodes ?? []).map((n) => ({
-        primaryMac: n.primaryMac ?? '',
-        primaryHostname: n.primaryHostname ?? '',
-        secondaryMacs: n.secondaryMacs ?? [],
-        neighbors: (n.neighbors ?? []).map((e) => ({
-          routerMac: e.routerMac ?? '',
-          routerHostname: e.routerHostname ?? '',
-          neighborMac: e.neighborMac ?? '',
-          neighborHostname: e.neighborHostname ?? '',
-          metric: e.metric ?? 0,
-          signal: e.signal ?? 0,
-          signalAverage: e.signalAverage ?? 0,
-        })),
-        clients: (n.clients ?? []).map((c) => ({
-          mac: c.mac ?? '',
-          hostname: c.hostname ?? '',
-        })),
+      originators: (t.originators ?? []).map((o) => ({
+        origMac: o.origMac ?? '',
+        origHostname: o.origHostname ?? '',
+        nextHopMac: o.nextHopMac ?? '',
+        nextHopHostname: o.nextHopHostname ?? '',
+        hardIfname: o.hardIfname ?? '',
+        tq: o.tq ?? 0,
+        throughput: o.throughput ?? 0,
+        lastSeenMs: o.lastSeenMs ?? 0,
+        hops: o.hops ?? 0,
       })),
     };
   } catch {

@@ -1,10 +1,9 @@
 // =============================================================================
 // TopologyMap.test.jsx — Tests for mesh topology SVG renderer
 // =============================================================================
-// The component renders an SVG graph driven by buildTopologyView(). d3-zoom
-// is mocked because jsdom's SVG coordinate APIs are not fully implemented
-// and the tests don't need to assert on zoom behaviour itself. Pure-JS
-// transform tests live in topologyGraph.test.js.
+// Component-side tests only; the transform's own tests live in
+// topologyGraph.test.js. d3-zoom is mocked because jsdom's SVG coordinate
+// APIs are incomplete and the tests don't need to assert on zoom behavior.
 
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
@@ -30,98 +29,45 @@ import TopologyMap from '../../components/TopologyMap.jsx';
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
-// Two hosts with one RF link plus a client attached to alpha.
-function simplePair() {
+function directRF() {
   return {
-    nodes: [
+    selfMac: '00:00:00:00:00:00',
+    selfHostname: 'BCM2711-me01',
+    algorithm: 'BATMAN_IV',
+    originators: [
       {
-        primaryMac: '00:00:00:00:00:01',
-        primaryHostname: 'alpha_bat0',
-        secondaryMacs: ['00:00:00:00:aa:01'],
-        neighbors: [
-          {
-            routerMac: '00:00:00:00:aa:01', routerHostname: 'alpha_wlan0',
-            neighborMac: '00:00:00:00:aa:02', neighborHostname: 'bravo_wlan0',
-            metric: 1.02, signal: -55, signalAverage: -57,
-          },
-        ],
-        clients: [{ mac: '3c:22:7f:37:4c:0c', hostname: 'mobile_wlan0' }],
-      },
-      {
-        primaryMac: '00:00:00:00:00:02',
-        primaryHostname: 'bravo_bat0',
-        secondaryMacs: ['00:00:00:00:aa:02'],
-        neighbors: [
-          {
-            routerMac: '00:00:00:00:aa:02', routerHostname: 'bravo_wlan0',
-            neighborMac: '00:00:00:00:aa:01', neighborHostname: 'alpha_wlan0',
-            metric: 1.05, signal: 0, signalAverage: 0,
-          },
-        ],
-        clients: [],
+        origMac: 'aa:aa:aa:aa:aa:01', origHostname: 'BCM2711-alpha_wlan0',
+        nextHopMac: 'aa:aa:aa:aa:aa:01', nextHopHostname: 'BCM2711-alpha_wlan0',
+        hardIfname: 'wlan0', tq: 255, hops: 1,
       },
     ],
   };
 }
 
-// Two RF segments (alpha↔bravo and gamma↔delta) bridged by alpha↔gamma
-// over vxlan0.
-function twoSegmentBLOS() {
+function withBLOSGateway() {
   return {
-    nodes: [
+    selfMac: '00:00:00:00:00:00',
+    selfHostname: 'BCM2711-me01',
+    algorithm: 'BATMAN_IV',
+    originators: [
       {
-        primaryMac: '00:00:00:00:00:01',
-        primaryHostname: 'alpha_bat0',
-        secondaryMacs: ['00:00:00:00:aa:01', '00:00:00:00:cc:01'],
-        neighbors: [
-          {
-            routerMac: '00:00:00:00:aa:01', routerHostname: 'alpha_wlan0',
-            neighborMac: '00:00:00:00:aa:02', neighborHostname: 'bravo_wlan0',
-            metric: 1.02, signal: -55, signalAverage: -55,
-          },
-          {
-            routerMac: '00:00:00:00:cc:01', routerHostname: 'alpha_vxlan0',
-            neighborMac: '00:00:00:00:cc:03', neighborHostname: 'gamma_vxlan0',
-            metric: 1.20, signal: 0, signalAverage: 0,
-          },
-        ],
-        clients: [],
+        origMac: 'aa:aa:aa:aa:aa:01', origHostname: 'BCM2711-alpha_wlan0',
+        nextHopMac: 'aa:aa:aa:aa:aa:01', nextHopHostname: 'BCM2711-alpha_wlan0',
+        hardIfname: 'wlan0', tq: 255, hops: 1,
       },
       {
-        primaryMac: '00:00:00:00:00:02',
-        primaryHostname: 'bravo_bat0',
-        secondaryMacs: ['00:00:00:00:aa:02'],
-        neighbors: [],
-        clients: [],
-      },
-      {
-        primaryMac: '00:00:00:00:00:03',
-        primaryHostname: 'gamma_bat0',
-        secondaryMacs: ['00:00:00:00:aa:03', '00:00:00:00:cc:03'],
-        neighbors: [
-          {
-            routerMac: '00:00:00:00:aa:03', routerHostname: 'gamma_wlan0',
-            neighborMac: '00:00:00:00:aa:04', neighborHostname: 'delta_wlan0',
-            metric: 1.10, signal: -60, signalAverage: -60,
-          },
-        ],
-        clients: [],
-      },
-      {
-        primaryMac: '00:00:00:00:00:04',
-        primaryHostname: 'delta_bat0',
-        secondaryMacs: ['00:00:00:00:aa:04'],
-        neighbors: [],
-        clients: [],
+        origMac: 'cc:cc:cc:cc:cc:01', origHostname: 'BCM2711-gw1_vxlan0',
+        nextHopMac: 'cc:cc:cc:cc:cc:01', nextHopHostname: 'BCM2711-gw1_vxlan0',
+        hardIfname: 'vxlan0', tq: 230, hops: 1,
       },
     ],
   };
 }
 
-// ── Rendering ──────────────────────────────────────────────────────────────
+// ── Rendering ───────────────────────────────────────────────────────────────
 
 describe('TestTopologyMapEmpty', () => {
-  it('renders a placeholder when the topology has no hosts', () => {
+  it('renders a placeholder when there are no hosts', () => {
     const { container, getByText } = render(<TopologyMap topology={null} />);
     expect(getByText('No topology data')).toBeTruthy();
     expect(container.querySelector('svg')).toBeNull();
@@ -129,71 +75,66 @@ describe('TestTopologyMapEmpty', () => {
 });
 
 describe('TestTopologyMapSinglePair', () => {
-  it('renders one SVG with 2 hosts + 1 client + 1 RF edge + 1 client edge', () => {
-    const { container } = render(<TopologyMap topology={simplePair()} />);
-    const svg = container.querySelector('svg');
-    expect(svg).not.toBeNull();
-    // Hosts are rendered as .topo-node but not .client.
-    const hostNodes = container.querySelectorAll('.topo-node:not(.client)');
-    expect(hostNodes.length).toBe(2);
-    // One client dot.
-    expect(container.querySelectorAll('.topo-node.client').length).toBe(1);
-    // One aggregated RF edge line plus one client edge line.
-    expect(container.querySelectorAll('.topo-edge:not(.client)').length).toBe(1);
-    expect(container.querySelectorAll('.topo-edge.client').length).toBe(1);
-  });
-
-  it('renders interface badges for non-bat0 mesh interfaces', () => {
-    const { container } = render(<TopologyMap topology={simplePair()} />);
-    const badges = container.querySelectorAll('.topo-iface-badge');
-    // alpha and bravo each have one wlan0 badge (bat0 is hidden on purpose).
-    expect(badges.length).toBe(2);
-    for (const b of badges) expect(b.classList.contains('rf')).toBe(true);
-  });
-
-  it('does not draw a segment box in the single-segment case', () => {
-    const { container } = render(<TopologyMap topology={simplePair()} />);
+  it('renders one SVG with 2 hosts + 1 RF edge + no segment chrome', () => {
+    const { container } = render(<TopologyMap topology={directRF()} />);
+    expect(container.querySelector('svg')).not.toBeNull();
+    expect(container.querySelectorAll('.topo-node').length).toBe(2);
+    expect(container.querySelectorAll('.topo-edge:not(.blos)').length).toBe(1);
     expect(container.querySelectorAll('.topo-segment-box').length).toBe(0);
   });
 
-  it('hides clients and badges when compact', () => {
-    const { container } = render(<TopologyMap topology={simplePair()} compact />);
-    expect(container.querySelectorAll('.topo-node.client').length).toBe(0);
-    expect(container.querySelectorAll('.topo-edge.client').length).toBe(0);
+  it('renders the short hostname inside the circle and the full hostname label beneath', () => {
+    const { container } = render(<TopologyMap topology={directRF()} />);
+    // The circle-centered text is the short form (last dash-segment).
+    const circleTexts = Array.from(container.querySelectorAll('.topo-node > text:not(.topo-host-label)'))
+      .map((n) => n.textContent);
+    expect(circleTexts).toContain('me01');
+    expect(circleTexts).toContain('alpha');
+
+    // The label beneath the circle carries the full base hostname.
+    const labels = Array.from(container.querySelectorAll('.topo-host-label')).map((n) => n.textContent);
+    expect(labels).toContain('BCM2711-me01');
+    expect(labels).toContain('BCM2711-alpha');
+  });
+
+  it('renders interface badges for non-bat0 mesh interfaces', () => {
+    const { container } = render(<TopologyMap topology={directRF()} />);
+    const badges = container.querySelectorAll('.topo-iface-badge.rf');
+    // self + alpha each carry a wlan0 badge.
+    expect(badges.length).toBe(2);
+  });
+
+  it('hides badges and hostname label in compact mode', () => {
+    const { container } = render(<TopologyMap topology={directRF()} compact />);
     expect(container.querySelectorAll('.topo-iface-badge').length).toBe(0);
+    expect(container.querySelectorAll('.topo-host-label').length).toBe(0);
   });
 });
 
 describe('TestTopologyMapSegments', () => {
-  it('draws one segment box per segment when more than one exists', () => {
-    const { container } = render(<TopologyMap topology={twoSegmentBLOS()} />);
+  it('draws one local segment box and one remote segment box when a BLOS gateway is present', () => {
+    const { container } = render(<TopologyMap topology={withBLOSGateway()} />);
     const boxes = container.querySelectorAll('.topo-segment-box');
     expect(boxes.length).toBe(2);
-    // Segment labels include letters A and B.
-    const labels = Array.from(
-      container.querySelectorAll('.topo-segment-label'),
-    ).map((n) => n.textContent);
-    expect(labels.some((t) => t.startsWith('SEGMENT A'))).toBe(true);
-    expect(labels.some((t) => t.startsWith('SEGMENT B'))).toBe(true);
+    const labels = Array.from(container.querySelectorAll('.topo-segment-label')).map((n) => n.textContent);
+    expect(labels.some((t) => t.startsWith('LOCAL'))).toBe(true);
+    expect(labels.some((t) => t.startsWith('REMOTE · BCM2711-gw1'))).toBe(true);
   });
 
   it('renders the BLOS bridge with the .blos edge class', () => {
-    const { container } = render(<TopologyMap topology={twoSegmentBLOS()} />);
-    const blos = container.querySelectorAll('.topo-edge.blos');
-    expect(blos.length).toBe(1);
+    const { container } = render(<TopologyMap topology={withBLOSGateway()} />);
+    expect(container.querySelectorAll('.topo-edge.blos').length).toBe(1);
   });
 
-  it('renders a vxlan0 badge as role=blos for hosts with a BLOS interface', () => {
-    const { container } = render(<TopologyMap topology={twoSegmentBLOS()} />);
-    const blosBadges = container.querySelectorAll('.topo-iface-badge.blos');
-    // alpha and gamma each carry a vxlan0 badge.
-    expect(blosBadges.length).toBe(2);
+  it('renders a vxlan0 badge as role=blos for the gateway host', () => {
+    const { container } = render(<TopologyMap topology={withBLOSGateway()} />);
+    // Both self (carrying vxlan0 as the local hard_ifname for the BLOS
+    // route) and gw1 (the remote peer with vxlan0) own vxlan0 badges.
+    expect(container.querySelectorAll('.topo-iface-badge.blos').length).toBeGreaterThanOrEqual(2);
   });
 
   it('suppresses segment chrome when compact (Dashboard mini-map)', () => {
-    const { container } = render(
-      <TopologyMap topology={twoSegmentBLOS()} compact />,
-    );
+    const { container } = render(<TopologyMap topology={withBLOSGateway()} compact />);
     expect(container.querySelectorAll('.topo-segment-box').length).toBe(0);
     expect(container.querySelectorAll('.topo-edge.blos').length).toBe(0);
   });
@@ -201,26 +142,24 @@ describe('TestTopologyMapSegments', () => {
 
 describe('TestTopologyMapInteraction', () => {
   it('applies .selected to the node whose id matches selectedId', () => {
-    const view = buildTopologyView(simplePair());
+    const view = buildTopologyView(directRF());
     const firstHost = view.hosts[0];
     const { container } = render(
-      <TopologyMap topology={simplePair()} selectedId={firstHost.id} />,
+      <TopologyMap topology={directRF()} selectedId={firstHost.id} />,
     );
-    const selected = container.querySelectorAll('.topo-node.selected');
-    expect(selected.length).toBe(1);
+    expect(container.querySelectorAll('.topo-node.selected').length).toBe(1);
   });
 
   it('invokes onSelect with the clicked host record', () => {
     const spy = vi.fn();
     const { container } = render(
-      <TopologyMap topology={simplePair()} onSelect={spy} />,
+      <TopologyMap topology={directRF()} onSelect={spy} />,
     );
-    const nodes = container.querySelectorAll('.topo-node:not(.client)');
+    const nodes = container.querySelectorAll('.topo-node');
     fireEvent.click(nodes[0]);
     expect(spy).toHaveBeenCalledTimes(1);
     const arg = spy.mock.calls[0][0];
-    expect(arg).toHaveProperty('id');
-    expect(arg).toHaveProperty('tag');
+    expect(arg).toHaveProperty('baseHostname');
     expect(arg).toHaveProperty('interfaces');
   });
 });

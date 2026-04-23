@@ -119,13 +119,21 @@ func Start(staticFS fs.FS) {
 	// so a disabled deployment pays nothing beyond the adapter structs.
 	startInstrumentationWorker(ctx, cfg, blosManager, log)
 
-	// Start the mesh-topology delta tracker. The tracker polls batadv-vis
-	// on a fixed cadence and keeps a rolling snapshot ring so the
-	// MeshTopologyService.GetMeshTopologyDelta RPC can return churn
-	// metrics without re-shelling out per call. Exits on ctx cancellation.
+	// Build the originator-topology provider once and share it between the
+	// MeshTopologyService handler and the delta tracker, so a single
+	// snapshot source feeds both the RPC response and the churn ring.
+	meshOrigProvider := &batmanadv.BatctlOriginatorTopologyProvider{
+		Originators: &batmanadv.BatctlOriginatorProvider{},
+	}
+
+	// Start the mesh-topology delta tracker. The tracker polls the
+	// originator table on a fixed cadence and keeps a rolling snapshot
+	// ring so the MeshTopologyService.GetMeshTopologyDelta RPC can return
+	// churn metrics without re-shelling out per call. Exits on ctx
+	// cancellation.
 	meshDeltaTracker := handlers.NewDeltaTracker(
 		logger.GetLogger("mesh-delta"),
-		&batmanadv.BatadvVisProvider{},
+		meshOrigProvider,
 		handlers.BatctlGatewayProvider{},
 		time.Duration(cfg.GetMeshTopologyDeltaSampleInterval())*time.Second,
 		cfg.GetMeshTopologyMaxDeltaSamples(),
@@ -161,6 +169,7 @@ func Start(staticFS fs.FS) {
 		Tailscale:        blosManager,
 		CommsManager:     commsManager,
 		MeshDeltaTracker: meshDeltaTracker,
+		MeshOrigProvider: meshOrigProvider,
 		Interfaces:       interfaceProvider,
 		DHCP: &network.UCIDHCPConfigProvider{
 			DHCPReader:    network.NewUCIDHCPConfigReader(),

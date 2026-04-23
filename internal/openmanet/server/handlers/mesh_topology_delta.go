@@ -72,7 +72,7 @@ type deltaSample struct {
 // bounded by the context passed to Start.
 type DeltaTracker struct {
 	Log            zerolog.Logger
-	Visibility     batmanadv.VisibilityProvider
+	OrigProvider   batmanadv.OriginatorTopologyProvider
 	Gateways       GatewayProvider
 	cancel         context.CancelFunc
 	Now            func() time.Time
@@ -96,7 +96,7 @@ const defaultDeltaWindow = 60 * time.Second
 // override MaxSamples etc. before calling Start.
 func NewDeltaTracker(
 	log zerolog.Logger,
-	vis batmanadv.VisibilityProvider,
+	orig batmanadv.OriginatorTopologyProvider,
 	gws GatewayProvider,
 	sampleInterval time.Duration,
 	maxSamples int,
@@ -111,7 +111,7 @@ func NewDeltaTracker(
 
 	return &DeltaTracker{
 		Log:            log,
-		Visibility:     vis,
+		OrigProvider:   orig,
 		Gateways:       gws,
 		SampleInterval: sampleInterval,
 		MaxSamples:     maxSamples,
@@ -181,9 +181,9 @@ func (t *DeltaTracker) run(ctx context.Context) {
 	}
 }
 
-// sampleOnce executes a single sample of batadv-vis + batctl gwj and
-// appends a deltaSample to the ring. Failures are logged and do not kill
-// the loop — a transient batadv-vis failure should not lose the window.
+// sampleOnce executes a single sample of the originator table + batctl gwj
+// and appends a deltaSample to the ring. Failures are logged and do not kill
+// the loop — a transient batctl failure should not lose the window.
 func (t *DeltaTracker) sampleOnce() {
 	now := time.Now()
 	if t.Now != nil {
@@ -215,21 +215,25 @@ func (t *DeltaTracker) sampleOnce() {
 	}
 }
 
-// collectEdges fetches the current topology snapshot and flattens it into
-// the "router|neighbor" edge set used by the delta ring. An empty set is
-// returned on visibility failure — a complete outage is itself a data
-// point (prior-sample edges become "lost" on the next diff).
+// collectEdges fetches the current originator snapshot and flattens it into
+// the "origMac|nextHopMac|hardIfname" route-edge set used by the delta ring.
+// An empty set is returned on provider failure — a complete outage is itself
+// a data point (prior-sample edges become "lost" on the next diff).
 func (t *DeltaTracker) collectEdges() map[string]struct{} {
-	doc, err := t.Visibility.GetVisibility()
+	if t.OrigProvider == nil {
+		return map[string]struct{}{}
+	}
+
+	snap, err := t.OrigProvider.GetOriginatorTopology()
 	if err != nil {
-		if !errors.Is(err, batmanadv.ErrVisUnavailable) {
-			t.Log.Warn().Err(err).Msg("Mesh delta tracker: visibility failure")
+		if !errors.Is(err, batmanadv.ErrOriginatorsUnavailable) {
+			t.Log.Warn().Err(err).Msg("Mesh delta tracker: originator provider failure")
 		}
 
 		return map[string]struct{}{}
 	}
 
-	return edgesFromVisDoc(doc)
+	return edgesFromOriginators(snap)
 }
 
 // collectGateways fetches the current mesh-gateway set, returning an empty
@@ -267,21 +271,24 @@ func setDiff(curr, prev map[string]struct{}) (added, lost uint32) {
 	return added, lost
 }
 
-// edgesFromVisDoc flattens a VisDoc into a set of "router|neighbor" keys.
-// Lower-cased on insertion so MAC case never leaks into set-diff results.
-func edgesFromVisDoc(doc *batmanadv.VisDoc) map[string]struct{} {
-	if doc == nil {
+// edgesFromOriginators flattens an OriginatorTopology into a set of
+// "origMac|nextHopMac|hardIfname" keys. Including the hard interface means
+// that a route that fails over from wlan0 to phy2-mesh0 (same next hop, new
+// interface) still registers as a route change — which is what operators
+// care about. Lower-cased on insertion so MAC case never leaks into
+// set-diff results.
+func edgesFromOriginators(snap *batmanadv.OriginatorTopology) map[string]struct{} {
+	if snap == nil {
 		return map[string]struct{}{}
 	}
 
-	// Pre-size generously: each node typically reports 1-4 neighbors.
-	out := make(map[string]struct{}, len(doc.Vis)*2)
+	out := make(map[string]struct{}, len(snap.Originators))
 
-	for _, entry := range doc.Vis {
-		for _, n := range entry.Neighbors {
-			key := strings.ToLower(n.Router) + "|" + strings.ToLower(n.Neighbor)
-			out[key] = struct{}{}
-		}
+	for _, o := range snap.Originators {
+		key := strings.ToLower(o.OrigMAC) + "|" +
+			strings.ToLower(o.NextHopMAC) + "|" +
+			o.HardIfname
+		out[key] = struct{}{}
 	}
 
 	return out

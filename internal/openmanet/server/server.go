@@ -47,6 +47,7 @@ type APIServer struct {
 	Leases           handlers.LeaseProvider
 	Tailscale        handlers.TailscaleStatusProvider
 	MeshDeltaTracker *handlers.DeltaTracker
+	MeshOrigProvider batmanadv.OriginatorTopologyProvider
 	SessionStore     *auth.SessionStore
 	Authenticator    auth.Authenticator
 	AuthEnabled      bool
@@ -121,8 +122,7 @@ func NewAPIServer(cfg APIServer) *APIServer {
 
 	api.Handle(meshtopoconnect.NewMeshTopologyServiceHandler(&handlers.MeshTopologyService{
 		Log:          cfg.Log,
-		Visibility:   &batmanadv.BatadvVisProvider{},
-		Wifi:         cfg.Wifi,
+		OrigProvider: cfg.MeshOrigProvider,
 		DeltaTracker: cfg.MeshDeltaTracker,
 	}, connect.WithInterceptors(validateInterceptor)))
 

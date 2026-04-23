@@ -22,33 +22,61 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// MeshClient represents a translation-table (non-mesh) client attached to a
-// mesh node. Clients are identified by MAC address; the hostname is resolved
-// from /tmp/bat-hosts when available.
-type MeshClient struct {
+// MeshOriginator is one row of the local batman-adv originator table: an
+// originator we can reach and the local interface / next hop we send through
+// to reach it. Only best-route entries are surfaced — batctl emits multiple
+// candidate rows per originator but just one is the selected forwarding
+// state, and that's the only one that makes sense to visualize.
+type MeshOriginator struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// mac is the MAC address of the client, lowercase colon-separated form.
-	Mac string `protobuf:"bytes,1,opt,name=mac,proto3" json:"mac,omitempty"`
-	// hostname is the friendly name from /tmp/bat-hosts. Empty if unknown.
-	Hostname      string `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	// orig_mac is the MAC of the reachable originator (its bat0 address).
+	OrigMac string `protobuf:"bytes,1,opt,name=orig_mac,json=origMac,proto3" json:"orig_mac,omitempty"`
+	// orig_hostname is the friendly name of orig_mac from /tmp/bat-hosts
+	// (e.g. "BCM2711-97d6_bat0"). Empty when bat-hosts has no entry.
+	OrigHostname string `protobuf:"bytes,2,opt,name=orig_hostname,json=origHostname,proto3" json:"orig_hostname,omitempty"`
+	// next_hop_mac is the MAC of the peer our local node forwards through
+	// to reach the originator. Equal to orig_mac when the originator is a
+	// direct neighbor (one-hop).
+	NextHopMac string `protobuf:"bytes,3,opt,name=next_hop_mac,json=nextHopMac,proto3" json:"next_hop_mac,omitempty"`
+	// next_hop_hostname is the friendly name of next_hop_mac from
+	// /tmp/bat-hosts. Empty when bat-hosts has no entry.
+	NextHopHostname string `protobuf:"bytes,4,opt,name=next_hop_hostname,json=nextHopHostname,proto3" json:"next_hop_hostname,omitempty"`
+	// hard_ifname is the local interface that carries this route — e.g.
+	// "wlan0", "phy2-mesh0", or "vxlan0". The UI uses this to partition
+	// originators into local and remote (BLOS) segments.
+	HardIfname string `protobuf:"bytes,5,opt,name=hard_ifname,json=hardIfname,proto3" json:"hard_ifname,omitempty"`
+	// tq is the batman-adv transmit quality for BATMAN_IV, in the range
+	// 0–255 (higher is better). Zero when the algorithm is BATMAN_V or
+	// when the metric is unknown.
+	Tq int32 `protobuf:"varint,6,opt,name=tq,proto3" json:"tq,omitempty"`
+	// throughput is the BATMAN_V link throughput in kbps (higher is
+	// better). Zero when the algorithm is BATMAN_IV.
+	Throughput float64 `protobuf:"fixed64,7,opt,name=throughput,proto3" json:"throughput,omitempty"`
+	// last_seen_ms is the number of milliseconds since the local daemon
+	// last heard an originator message from this peer.
+	LastSeenMs int32 `protobuf:"varint,8,opt,name=last_seen_ms,json=lastSeenMs,proto3" json:"last_seen_ms,omitempty"`
+	// hops is the number of forwarding steps from the local node to the
+	// originator — 1 for a direct neighbor. Derived by walking the
+	// best_next_hop chain. 99 is a sentinel for "couldn't resolve".
+	Hops          int32 `protobuf:"varint,9,opt,name=hops,proto3" json:"hops,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *MeshClient) Reset() {
-	*x = MeshClient{}
+func (x *MeshOriginator) Reset() {
+	*x = MeshOriginator{}
 	mi := &file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *MeshClient) String() string {
+func (x *MeshOriginator) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*MeshClient) ProtoMessage() {}
+func (*MeshOriginator) ProtoMessage() {}
 
-func (x *MeshClient) ProtoReflect() protoreflect.Message {
+func (x *MeshOriginator) ProtoReflect() protoreflect.Message {
 	mi := &file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -60,243 +88,102 @@ func (x *MeshClient) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use MeshClient.ProtoReflect.Descriptor instead.
-func (*MeshClient) Descriptor() ([]byte, []int) {
+// Deprecated: Use MeshOriginator.ProtoReflect.Descriptor instead.
+func (*MeshOriginator) Descriptor() ([]byte, []int) {
 	return file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *MeshClient) GetMac() string {
+func (x *MeshOriginator) GetOrigMac() string {
 	if x != nil {
-		return x.Mac
+		return x.OrigMac
 	}
 	return ""
 }
 
-func (x *MeshClient) GetHostname() string {
+func (x *MeshOriginator) GetOrigHostname() string {
 	if x != nil {
-		return x.Hostname
+		return x.OrigHostname
 	}
 	return ""
 }
 
-// MeshEdge represents a single directed link in the mesh topology, from a
-// local radio interface (router) to a neighbor node.
-type MeshEdge struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// router_mac is the MAC address of the local radio interface (on the node
-	// whose perspective this edge is reported from).
-	RouterMac string `protobuf:"bytes,1,opt,name=router_mac,json=routerMac,proto3" json:"router_mac,omitempty"`
-	// neighbor_mac is the MAC address of the neighbor on the other end of this
-	// link.
-	NeighborMac string `protobuf:"bytes,2,opt,name=neighbor_mac,json=neighborMac,proto3" json:"neighbor_mac,omitempty"`
-	// neighbor_hostname is the friendly name of the neighbor MAC from
-	// /tmp/bat-hosts. Empty if unknown.
-	NeighborHostname string `protobuf:"bytes,3,opt,name=neighbor_hostname,json=neighborHostname,proto3" json:"neighbor_hostname,omitempty"`
-	// metric is the batman-adv transmit quality (TQ) reported by alfred,
-	// parsed from the jsondoc string form (e.g. "1.008" -> 1.008). Lower is
-	// better. Zero indicates an unparseable value.
-	Metric float32 `protobuf:"fixed32,4,opt,name=metric,proto3" json:"metric,omitempty"`
-	// signal is the most recent signal strength in dBm from the local wifi
-	// station entry matching neighbor_mac. Populated only when this node is
-	// the router and the MAC belongs to a local mesh station; zero otherwise.
-	Signal int32 `protobuf:"varint,5,opt,name=signal,proto3" json:"signal,omitempty"`
-	// signal_average is the averaged signal strength in dBm for the same
-	// station entry as signal. Zero when unknown.
-	SignalAverage int32 `protobuf:"varint,6,opt,name=signal_average,json=signalAverage,proto3" json:"signal_average,omitempty"`
-	// router_hostname is the friendly name of router_mac from
-	// /tmp/bat-hosts (e.g. "BCM2711-97d6_wlan0"). Empty if unknown.
-	RouterHostname string `protobuf:"bytes,7,opt,name=router_hostname,json=routerHostname,proto3" json:"router_hostname,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
-}
-
-func (x *MeshEdge) Reset() {
-	*x = MeshEdge{}
-	mi := &file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *MeshEdge) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*MeshEdge) ProtoMessage() {}
-
-func (x *MeshEdge) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes[1]
+func (x *MeshOriginator) GetNextHopMac() string {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use MeshEdge.ProtoReflect.Descriptor instead.
-func (*MeshEdge) Descriptor() ([]byte, []int) {
-	return file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *MeshEdge) GetRouterMac() string {
-	if x != nil {
-		return x.RouterMac
+		return x.NextHopMac
 	}
 	return ""
 }
 
-func (x *MeshEdge) GetNeighborMac() string {
+func (x *MeshOriginator) GetNextHopHostname() string {
 	if x != nil {
-		return x.NeighborMac
+		return x.NextHopHostname
 	}
 	return ""
 }
 
-func (x *MeshEdge) GetNeighborHostname() string {
+func (x *MeshOriginator) GetHardIfname() string {
 	if x != nil {
-		return x.NeighborHostname
+		return x.HardIfname
 	}
 	return ""
 }
 
-func (x *MeshEdge) GetMetric() float32 {
+func (x *MeshOriginator) GetTq() int32 {
 	if x != nil {
-		return x.Metric
+		return x.Tq
 	}
 	return 0
 }
 
-func (x *MeshEdge) GetSignal() int32 {
+func (x *MeshOriginator) GetThroughput() float64 {
 	if x != nil {
-		return x.Signal
+		return x.Throughput
 	}
 	return 0
 }
 
-func (x *MeshEdge) GetSignalAverage() int32 {
+func (x *MeshOriginator) GetLastSeenMs() int32 {
 	if x != nil {
-		return x.SignalAverage
+		return x.LastSeenMs
 	}
 	return 0
 }
 
-func (x *MeshEdge) GetRouterHostname() string {
+func (x *MeshOriginator) GetHops() int32 {
 	if x != nil {
-		return x.RouterHostname
+		return x.Hops
 	}
-	return ""
+	return 0
 }
 
-// MeshNode represents a single mesh node as seen by batadv-vis. The primary
-// MAC identifies the node; secondary MACs list any additional batman-adv
-// interfaces on that node.
-type MeshNode struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// primary_mac is the MAC of the node's primary batman-adv interface.
-	PrimaryMac string `protobuf:"bytes,1,opt,name=primary_mac,json=primaryMac,proto3" json:"primary_mac,omitempty"`
-	// primary_hostname is the friendly name of primary_mac from
-	// /tmp/bat-hosts. Empty if unknown.
-	PrimaryHostname string `protobuf:"bytes,2,opt,name=primary_hostname,json=primaryHostname,proto3" json:"primary_hostname,omitempty"`
-	// secondary_macs lists any additional batman-adv interface MACs on the
-	// node beyond the primary. May be empty.
-	SecondaryMacs []string `protobuf:"bytes,3,rep,name=secondary_macs,json=secondaryMacs,proto3" json:"secondary_macs,omitempty"`
-	// neighbors lists the directed links this node reports to its mesh
-	// neighbors, including the TQ metric.
-	Neighbors []*MeshEdge `protobuf:"bytes,4,rep,name=neighbors,proto3" json:"neighbors,omitempty"`
-	// clients lists the translation-table clients attached to this node.
-	Clients       []*MeshClient `protobuf:"bytes,5,rep,name=clients,proto3" json:"clients,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *MeshNode) Reset() {
-	*x = MeshNode{}
-	mi := &file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *MeshNode) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*MeshNode) ProtoMessage() {}
-
-func (x *MeshNode) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use MeshNode.ProtoReflect.Descriptor instead.
-func (*MeshNode) Descriptor() ([]byte, []int) {
-	return file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *MeshNode) GetPrimaryMac() string {
-	if x != nil {
-		return x.PrimaryMac
-	}
-	return ""
-}
-
-func (x *MeshNode) GetPrimaryHostname() string {
-	if x != nil {
-		return x.PrimaryHostname
-	}
-	return ""
-}
-
-func (x *MeshNode) GetSecondaryMacs() []string {
-	if x != nil {
-		return x.SecondaryMacs
-	}
-	return nil
-}
-
-func (x *MeshNode) GetNeighbors() []*MeshEdge {
-	if x != nil {
-		return x.Neighbors
-	}
-	return nil
-}
-
-func (x *MeshNode) GetClients() []*MeshClient {
-	if x != nil {
-		return x.Clients
-	}
-	return nil
-}
-
-// MeshTopology is a snapshot of the full mesh network topology as gathered
-// by alfred via batadv-vis.
+// MeshTopology is a snapshot of the local batman-adv originator table,
+// enriched with hostnames from /tmp/bat-hosts.
 type MeshTopology struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// source_version is the batadv-vis source version string that produced
-	// this snapshot (from the jsondoc "source_version" field).
-	SourceVersion string `protobuf:"bytes,1,opt,name=source_version,json=sourceVersion,proto3" json:"source_version,omitempty"`
-	// algorithm is the batman-adv routing algorithm identifier (from the
-	// jsondoc "algorithm" field).
-	Algorithm int32 `protobuf:"varint,2,opt,name=algorithm,proto3" json:"algorithm,omitempty"`
-	// nodes lists all mesh nodes visible in the alfred vis data.
-	Nodes []*MeshNode `protobuf:"bytes,3,rep,name=nodes,proto3" json:"nodes,omitempty"`
-	// collected_at is the time the snapshot was produced on the serving node.
-	CollectedAt   *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=collected_at,json=collectedAt,proto3" json:"collected_at,omitempty"`
+	// self_mac is the MAC of the local bat0 interface. Empty when the
+	// interface is not yet present (batman-adv module still loading, etc.).
+	SelfMac string `protobuf:"bytes,1,opt,name=self_mac,json=selfMac,proto3" json:"self_mac,omitempty"`
+	// self_hostname is the base hostname of the local node — the bat-hosts
+	// entry for self_mac with its "_bat0" suffix stripped. Empty when
+	// bat-hosts has no entry for self_mac.
+	SelfHostname string `protobuf:"bytes,2,opt,name=self_hostname,json=selfHostname,proto3" json:"self_hostname,omitempty"`
+	// algorithm is the batman-adv routing algorithm as surfaced by the
+	// originator table: "BATMAN_IV" when TQ values are present,
+	// "BATMAN_V" when throughput values are present, empty when neither.
+	Algorithm string `protobuf:"bytes,3,opt,name=algorithm,proto3" json:"algorithm,omitempty"`
+	// originators is the set of best-route rows from the local originator
+	// table.
+	Originators []*MeshOriginator `protobuf:"bytes,4,rep,name=originators,proto3" json:"originators,omitempty"`
+	// collected_at is the wall-clock time the snapshot was produced on the
+	// serving node.
+	CollectedAt   *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=collected_at,json=collectedAt,proto3" json:"collected_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MeshTopology) Reset() {
 	*x = MeshTopology{}
-	mi := &file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes[3]
+	mi := &file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -308,7 +195,7 @@ func (x *MeshTopology) String() string {
 func (*MeshTopology) ProtoMessage() {}
 
 func (x *MeshTopology) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes[3]
+	mi := &file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -321,26 +208,33 @@ func (x *MeshTopology) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeshTopology.ProtoReflect.Descriptor instead.
 func (*MeshTopology) Descriptor() ([]byte, []int) {
-	return file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDescGZIP(), []int{3}
+	return file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *MeshTopology) GetSourceVersion() string {
+func (x *MeshTopology) GetSelfMac() string {
 	if x != nil {
-		return x.SourceVersion
+		return x.SelfMac
 	}
 	return ""
 }
 
-func (x *MeshTopology) GetAlgorithm() int32 {
+func (x *MeshTopology) GetSelfHostname() string {
+	if x != nil {
+		return x.SelfHostname
+	}
+	return ""
+}
+
+func (x *MeshTopology) GetAlgorithm() string {
 	if x != nil {
 		return x.Algorithm
 	}
-	return 0
+	return ""
 }
 
-func (x *MeshTopology) GetNodes() []*MeshNode {
+func (x *MeshTopology) GetOriginators() []*MeshOriginator {
 	if x != nil {
-		return x.Nodes
+		return x.Originators
 	}
 	return nil
 }
@@ -356,32 +250,28 @@ var File_openmanet_mesh_topology_v1_mesh_topology_proto protoreflect.FileDescrip
 
 const file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc = "" +
 	"\n" +
-	".openmanet/mesh_topology/v1/mesh_topology.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1fgoogle/protobuf/timestamp.proto\":\n" +
+	".openmanet/mesh_topology/v1/mesh_topology.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa5\x02\n" +
+	"\x0eMeshOriginator\x12\x19\n" +
+	"\borig_mac\x18\x01 \x01(\tR\aorigMac\x12#\n" +
+	"\rorig_hostname\x18\x02 \x01(\tR\forigHostname\x12 \n" +
+	"\fnext_hop_mac\x18\x03 \x01(\tR\n" +
+	"nextHopMac\x12*\n" +
+	"\x11next_hop_hostname\x18\x04 \x01(\tR\x0fnextHopHostname\x12\x1f\n" +
+	"\vhard_ifname\x18\x05 \x01(\tR\n" +
+	"hardIfname\x12\x0e\n" +
+	"\x02tq\x18\x06 \x01(\x05R\x02tq\x12\x1e\n" +
 	"\n" +
-	"MeshClient\x12\x10\n" +
-	"\x03mac\x18\x01 \x01(\tR\x03mac\x12\x1a\n" +
-	"\bhostname\x18\x02 \x01(\tR\bhostname\"\xf9\x01\n" +
-	"\bMeshEdge\x12\x1d\n" +
-	"\n" +
-	"router_mac\x18\x01 \x01(\tR\trouterMac\x12!\n" +
-	"\fneighbor_mac\x18\x02 \x01(\tR\vneighborMac\x12+\n" +
-	"\x11neighbor_hostname\x18\x03 \x01(\tR\x10neighborHostname\x12\x16\n" +
-	"\x06metric\x18\x04 \x01(\x02R\x06metric\x12\x16\n" +
-	"\x06signal\x18\x05 \x01(\x05R\x06signal\x12%\n" +
-	"\x0esignal_average\x18\x06 \x01(\x05R\rsignalAverage\x12'\n" +
-	"\x0frouter_hostname\x18\a \x01(\tR\x0erouterHostname\"\x83\x02\n" +
-	"\bMeshNode\x12\x1f\n" +
-	"\vprimary_mac\x18\x01 \x01(\tR\n" +
-	"primaryMac\x12)\n" +
-	"\x10primary_hostname\x18\x02 \x01(\tR\x0fprimaryHostname\x12%\n" +
-	"\x0esecondary_macs\x18\x03 \x03(\tR\rsecondaryMacs\x12B\n" +
-	"\tneighbors\x18\x04 \x03(\v2$.openmanet.mesh_topology.v1.MeshEdgeR\tneighbors\x12@\n" +
-	"\aclients\x18\x05 \x03(\v2&.openmanet.mesh_topology.v1.MeshClientR\aclients\"\xce\x01\n" +
-	"\fMeshTopology\x12%\n" +
-	"\x0esource_version\x18\x01 \x01(\tR\rsourceVersion\x12\x1c\n" +
-	"\talgorithm\x18\x02 \x01(\x05R\talgorithm\x12:\n" +
-	"\x05nodes\x18\x03 \x03(\v2$.openmanet.mesh_topology.v1.MeshNodeR\x05nodes\x12=\n" +
-	"\fcollected_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\vcollectedAtB\x92\x02\n" +
+	"throughput\x18\a \x01(\x01R\n" +
+	"throughput\x12 \n" +
+	"\flast_seen_ms\x18\b \x01(\x05R\n" +
+	"lastSeenMs\x12\x12\n" +
+	"\x04hops\x18\t \x01(\x05R\x04hops\"\xf9\x01\n" +
+	"\fMeshTopology\x12\x19\n" +
+	"\bself_mac\x18\x01 \x01(\tR\aselfMac\x12#\n" +
+	"\rself_hostname\x18\x02 \x01(\tR\fselfHostname\x12\x1c\n" +
+	"\talgorithm\x18\x03 \x01(\tR\talgorithm\x12L\n" +
+	"\voriginators\x18\x04 \x03(\v2*.openmanet.mesh_topology.v1.MeshOriginatorR\voriginators\x12=\n" +
+	"\fcollected_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\vcollectedAtB\x92\x02\n" +
 	"\x1ecom.openmanet.mesh_topology.v1B\x11MeshTopologyProtoP\x01ZWgithub.com/openmanet/openmanetd/internal/api/openmanet/mesh_topology/v1;mesh_topologyv1\xa2\x02\x03OMX\xaa\x02\x19Openmanet.MeshTopology.V1\xca\x02\x19Openmanet\\MeshTopology\\V1\xe2\x02%Openmanet\\MeshTopology\\V1\\GPBMetadata\xea\x02\x1bOpenmanet::MeshTopology::V1b\x06proto3"
 
 var (
@@ -396,24 +286,20 @@ func file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDescGZIP() []byte {
 	return file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDescData
 }
 
-var file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_openmanet_mesh_topology_v1_mesh_topology_proto_goTypes = []any{
-	(*MeshClient)(nil),            // 0: openmanet.mesh_topology.v1.MeshClient
-	(*MeshEdge)(nil),              // 1: openmanet.mesh_topology.v1.MeshEdge
-	(*MeshNode)(nil),              // 2: openmanet.mesh_topology.v1.MeshNode
-	(*MeshTopology)(nil),          // 3: openmanet.mesh_topology.v1.MeshTopology
-	(*timestamppb.Timestamp)(nil), // 4: google.protobuf.Timestamp
+	(*MeshOriginator)(nil),        // 0: openmanet.mesh_topology.v1.MeshOriginator
+	(*MeshTopology)(nil),          // 1: openmanet.mesh_topology.v1.MeshTopology
+	(*timestamppb.Timestamp)(nil), // 2: google.protobuf.Timestamp
 }
 var file_openmanet_mesh_topology_v1_mesh_topology_proto_depIdxs = []int32{
-	1, // 0: openmanet.mesh_topology.v1.MeshNode.neighbors:type_name -> openmanet.mesh_topology.v1.MeshEdge
-	0, // 1: openmanet.mesh_topology.v1.MeshNode.clients:type_name -> openmanet.mesh_topology.v1.MeshClient
-	2, // 2: openmanet.mesh_topology.v1.MeshTopology.nodes:type_name -> openmanet.mesh_topology.v1.MeshNode
-	4, // 3: openmanet.mesh_topology.v1.MeshTopology.collected_at:type_name -> google.protobuf.Timestamp
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	0, // 0: openmanet.mesh_topology.v1.MeshTopology.originators:type_name -> openmanet.mesh_topology.v1.MeshOriginator
+	2, // 1: openmanet.mesh_topology.v1.MeshTopology.collected_at:type_name -> google.protobuf.Timestamp
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_openmanet_mesh_topology_v1_mesh_topology_proto_init() }
@@ -427,7 +313,7 @@ func file_openmanet_mesh_topology_v1_mesh_topology_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc), len(file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

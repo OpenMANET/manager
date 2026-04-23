@@ -61,6 +61,17 @@
   pointer-events: none;
   user-select: none;
 }
+.topo-node .topo-host-label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  fill: var(--muted);
+  dominant-baseline: hanging;
+  paint-order: stroke fill;
+  stroke: var(--bg);
+  stroke-width: 3px;
+}
+.topo-node.self .topo-host-label { fill: var(--ok); }
 
 .topo-node.self circle {
   stroke: var(--ok);
@@ -248,16 +259,21 @@
 }
 .topo-link-group:first-of-type { border-top: none; }
 .topo-link-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text);
   letter-spacing: 0.08em;
   margin-bottom: 3px;
 }
+.topo-link-metric { color: var(--accent); }
 .topo-link-group.blos .topo-link-header { color: var(--warn); }
+.topo-link-group.blos .topo-link-metric { color: var(--warn); }
 .topo-link-contrib {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
   gap: 8px;
   font-family: var(--font-mono);
   font-size: 10px;
@@ -266,6 +282,16 @@
 }
 .topo-link-contrib .iface { color: var(--muted); }
 .topo-link-contrib .metric { color: var(--accent); }
+.topo-link-contrib .lastseen { color: var(--dim); }
+.topo-link-group.blos .topo-link-contrib .metric { color: var(--warn); }
+
+/* Remote-segment box gets a subtle amber tint so operators can tell at a
+   glance that hosts inside are reached over BLOS, not local RF. */
+.topo-segment-box.remote rect {
+  fill: rgba(255, 179, 0, 0.04);
+  stroke: rgba(255, 179, 0, 0.25);
+}
+.topo-segment-box.remote .topo-segment-label { fill: var(--warn); }
 
 /* ── Mobile responsiveness: stack segments + shrink canvas height ──────── */
 

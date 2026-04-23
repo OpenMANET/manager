@@ -15,8 +15,10 @@ func TestParseBatHostsFile(t *testing.T) {
 		t.Fatalf("Failed to parse bat-hosts file: %v", err)
 	}
 
-	// Verify we have the expected number of nodes
-	expectedNodes := 5
+	// Verify we have the expected number of nodes. The fixture carries five
+	// RF nodes plus three single-entry BLOS stubs used by the originator
+	// topology tests.
+	expectedNodes := 8
 	if len(batHosts.Nodes) != expectedNodes {
 		t.Errorf("Expected %d nodes, got %d", expectedNodes, len(batHosts.Nodes))
 	}

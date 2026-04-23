@@ -33,3 +33,12 @@ e4:5f:01:df:f8:fe BCM2711-f8fd_wlan-f8-fe
 92:bc:bf:c5:2b:97 BCM2711-f8fd_bat0
 00:0a:52:08:ae:80 BCM2711-f8fd_phy1-mesh0
 e4:5f:01:df:f8:fd BCM2711-f8fd_br-ahwlan
+
+# Node 2c:cf:67:b8:88:bb — BLOS gateway peer (direct vxlan0 neighbor)
+2c:cf:67:b8:88:bb BLOS-GW1_vxlan0
+
+# Node aa:bb:cc:dd:01:01 — multi-hop peer reached via BLOS-GW1
+aa:bb:cc:dd:01:01 Remote-Node1_vxlan0
+
+# Node aa:bb:cc:dd:02:02 — second direct BLOS neighbor (distinct gateway)
+aa:bb:cc:dd:02:02 BLOS-GW2_vxlan0

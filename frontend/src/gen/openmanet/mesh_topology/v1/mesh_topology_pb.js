@@ -6,70 +6,43 @@
 import { proto3, Timestamp } from "@bufbuild/protobuf";
 
 /**
- * MeshClient represents a translation-table (non-mesh) client attached to a
- * mesh node. Clients are identified by MAC address; the hostname is resolved
- * from /tmp/bat-hosts when available.
+ * MeshOriginator is one row of the local batman-adv originator table: an
+ * originator we can reach and the local interface / next hop we send through
+ * to reach it. Only best-route entries are surfaced — batctl emits multiple
+ * candidate rows per originator but just one is the selected forwarding
+ * state, and that's the only one that makes sense to visualize.
  *
- * @generated from message openmanet.mesh_topology.v1.MeshClient
+ * @generated from message openmanet.mesh_topology.v1.MeshOriginator
  */
-export const MeshClient = /*@__PURE__*/ proto3.makeMessageType(
-  "openmanet.mesh_topology.v1.MeshClient",
+export const MeshOriginator = /*@__PURE__*/ proto3.makeMessageType(
+  "openmanet.mesh_topology.v1.MeshOriginator",
   () => [
-    { no: 1, name: "mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 1, name: "orig_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "orig_hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "next_hop_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "next_hop_hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "hard_ifname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 6, name: "tq", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 7, name: "throughput", kind: "scalar", T: 1 /* ScalarType.DOUBLE */ },
+    { no: 8, name: "last_seen_ms", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 9, name: "hops", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
   ],
 );
 
 /**
- * MeshEdge represents a single directed link in the mesh topology, from a
- * local radio interface (router) to a neighbor node.
- *
- * @generated from message openmanet.mesh_topology.v1.MeshEdge
- */
-export const MeshEdge = /*@__PURE__*/ proto3.makeMessageType(
-  "openmanet.mesh_topology.v1.MeshEdge",
-  () => [
-    { no: 1, name: "router_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "neighbor_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 3, name: "neighbor_hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 4, name: "metric", kind: "scalar", T: 2 /* ScalarType.FLOAT */ },
-    { no: 5, name: "signal", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
-    { no: 6, name: "signal_average", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
-    { no: 7, name: "router_hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-  ],
-);
-
-/**
- * MeshNode represents a single mesh node as seen by batadv-vis. The primary
- * MAC identifies the node; secondary MACs list any additional batman-adv
- * interfaces on that node.
- *
- * @generated from message openmanet.mesh_topology.v1.MeshNode
- */
-export const MeshNode = /*@__PURE__*/ proto3.makeMessageType(
-  "openmanet.mesh_topology.v1.MeshNode",
-  () => [
-    { no: 1, name: "primary_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "primary_hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 3, name: "secondary_macs", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
-    { no: 4, name: "neighbors", kind: "message", T: MeshEdge, repeated: true },
-    { no: 5, name: "clients", kind: "message", T: MeshClient, repeated: true },
-  ],
-);
-
-/**
- * MeshTopology is a snapshot of the full mesh network topology as gathered
- * by alfred via batadv-vis.
+ * MeshTopology is a snapshot of the local batman-adv originator table,
+ * enriched with hostnames from /tmp/bat-hosts.
  *
  * @generated from message openmanet.mesh_topology.v1.MeshTopology
  */
 export const MeshTopology = /*@__PURE__*/ proto3.makeMessageType(
   "openmanet.mesh_topology.v1.MeshTopology",
   () => [
-    { no: 1, name: "source_version", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "algorithm", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
-    { no: 3, name: "nodes", kind: "message", T: MeshNode, repeated: true },
-    { no: 4, name: "collected_at", kind: "message", T: Timestamp },
+    { no: 1, name: "self_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "self_hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "algorithm", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "originators", kind: "message", T: MeshOriginator, repeated: true },
+    { no: 5, name: "collected_at", kind: "message", T: Timestamp },
   ],
 );
 

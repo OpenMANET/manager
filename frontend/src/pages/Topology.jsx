@@ -2,10 +2,9 @@
 // Topology.jsx — Dedicated mesh topology view
 // =============================================================================
 // Hosts the SVG TopologyMap plus Legend, Selected-host inspector, and
-// short-term topology delta panels. Consumes the host-grouped view built by
-// buildTopologyView(): one node per physical host (merged across its mesh
-// interfaces), edges aggregated per host-pair, with BLOS vxlan bridges
-// separating RF-disjoint segments.
+// short-term topology delta panels. Consumes the originator-based view
+// produced by buildTopologyView() and partitioned into LOCAL + per-gateway
+// REMOTE segments.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchMeshStatus, fetchMeshTopology, fetchMeshTopologyDelta } from '../services/meshApi.js';
@@ -22,15 +21,31 @@ function formatLatency(ms) {
   return `${(ms / 1000).toFixed(1)} s`;
 }
 
-function formatSignal(dBm) {
-  return dBm && dBm !== 0 ? `${dBm} dBm` : '—';
+function formatLastSeen(ms) {
+  if (!ms || ms <= 0) return '—';
+  if (ms < 1000) return `${ms} ms ago`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s ago`;
+  return `${Math.round(ms / 60_000)} min ago`;
+}
+
+function formatMetric(edge, algorithm) {
+  if (edge.blos) {
+    return edge.bestTQ ? `TQ ${edge.bestTQ}` : '—';
+  }
+  if (algorithm === 'BATMAN_V' && edge.bestThroughput) {
+    return edge.bestThroughput >= 1000
+      ? `${(edge.bestThroughput / 1000).toFixed(1)} Mbps`
+      : `${Math.round(edge.bestThroughput)} kbps`;
+  }
+  if (edge.bestTQ) return `TQ ${edge.bestTQ}`;
+  return '—';
 }
 
 function roleLabelForHost(host, meshData) {
   if (host.isSelf && meshData?.status?.is_gateway) return 'SELF · GATEWAY';
   if (host.isSelf) return 'SELF';
-  if (host.degraded) return 'DEGRADED';
-  return 'PEER';
+  if (host.segmentId?.startsWith('remote:')) return 'REMOTE';
+  return 'LOCAL';
 }
 
 export default function TopologyPage() {
@@ -63,10 +78,9 @@ export default function TopologyPage() {
   }, [poll]);
 
   const view = useMemo(() => buildTopologyView(topology), [topology]);
-  const { self, hosts, segments, blosEdges, counts } = view;
+  const { self, hosts, segments, blosEdges, counts, algorithm } = view;
 
-  // Lookup table: base hostname → IP (the node service publishes both
-  // base-name and FQDN-style entries; case-insensitive).
+  // Lookup table: base hostname → IP from the node service.
   const ipByHostname = useMemo(() => {
     const map = new Map();
     for (const n of meshData?.nodes || []) {
@@ -103,30 +117,20 @@ export default function TopologyPage() {
     return m;
   }, [segments, blosEdges]);
 
-  // Resolve the currently-selected node (host or client).
   const selected = useMemo(() => {
     if (!selectedId) return null;
     const host = hostById.get(selectedId);
-    if (host) return { kind: 'host', host };
-    for (const h of hosts) {
-      for (const c of h.clients || []) {
-        if (c.id === selectedId) return { kind: 'client', host: h, client: c };
-      }
-    }
-    return null;
-  }, [selectedId, hosts, hostById]);
+    return host ? { kind: 'host', host } : null;
+  }, [selectedId, hostById]);
 
   const handleFit = useCallback(() => setFitSignal((n) => n + 1), []);
 
   const hostCount = counts.hosts;
-  const segmentCount = counts.segments;
+  const remoteSegmentCount = segments.filter((s) => s.kind === 'remote').length;
   const linkCount = counts.links;
   const blosCount = counts.blosLinks;
   const hopsMax = counts.hopsMax;
-  const degradedCount = counts.degraded;
-  const clientCount = counts.clients;
-  const selfTag = self?.tag || '—';
-  const selfHost = self?.baseHostname?.toUpperCase() || selfTag;
+  const selfHost = self?.baseHostname?.toUpperCase() || '—';
   const meshUp = hostCount > 0;
 
   return (
@@ -135,8 +139,9 @@ export default function TopologyPage() {
         <div className="node-id">
           NODE-{selfHost}
           <span className="ip">
-            {hostCount} hosts · {segmentCount} segment{segmentCount === 1 ? '' : 's'}
-            {blosCount > 0 ? ` · ${blosCount} BLOS` : ''} · {hopsMax} hops max
+            {hostCount} host{hostCount === 1 ? '' : 's'} · {linkCount} RF link{linkCount === 1 ? '' : 's'}
+            {remoteSegmentCount > 0 ? ` · ${remoteSegmentCount} remote segment${remoteSegmentCount === 1 ? '' : 's'}` : ''}
+            · {hopsMax} hops max
           </span>
         </div>
         <div className="chips">
@@ -146,15 +151,17 @@ export default function TopologyPage() {
           {blosCount > 0 && (
             <span className="lat-chip"><span className="dot" /> BLOS BRIDGED</span>
           )}
-          <span className="lat-chip"><span className="dot" /> AUTO-LAYOUT</span>
+          {algorithm && (
+            <span className="lat-chip"><span className="dot" /> {algorithm}</span>
+          )}
         </div>
       </div>
       <div className="lat-view-header">
         <div>
           <h2>◇ Topology</h2>
           <div className="crumb">
-            {segmentCount > 1
-              ? `${segmentCount} segments · ${linkCount} RF links · ${blosCount} BLOS bridge${blosCount === 1 ? '' : 's'}`
+            {remoteSegmentCount > 0
+              ? `LOCAL + ${remoteSegmentCount} REMOTE · ${linkCount} RF · ${blosCount} BLOS`
               : `Radial layout · ${linkCount} link${linkCount === 1 ? '' : 's'}`}
             {' · '}{(POLL_INTERVAL / 1000).toFixed(0)}s refresh
           </div>
@@ -178,19 +185,15 @@ export default function TopologyPage() {
             <div className="panel-head"><h3>Legend</h3></div>
             <div className="kv">
               <span className="k"><span className="dot-i ok" />Self</span>
-              <span className="v ok">{selfTag}</span>
+              <span className="v ok">{selfHost}</span>
             </div>
             <div className="kv">
               <span className="k"><span className="dot-i" style={{ background: 'var(--accent)' }} />Mesh host</span>
-              <span className="v accent">{hostCount} hosts</span>
+              <span className="v accent">{hostCount} host{hostCount === 1 ? '' : 's'}</span>
             </div>
             <div className="kv">
-              <span className="k"><span className="dot-i warn" />Degraded</span>
-              <span className={`v${degradedCount > 0 ? ' warn' : ''}`}>{degradedCount} hosts</span>
-            </div>
-            <div className="kv">
-              <span className="k"><span className="dot-i" style={{ background: 'var(--dim)' }} />Client</span>
-              <span className="v" style={{ color: 'var(--dim)' }}>{clientCount} devices</span>
+              <span className="k"><span className="dot-i warn" />Remote segment</span>
+              <span className={`v${remoteSegmentCount > 0 ? ' warn' : ''}`}>{remoteSegmentCount}</span>
             </div>
             <div className="kv">
               <span className="k">● Interface · RF</span>
@@ -202,7 +205,7 @@ export default function TopologyPage() {
             </div>
             <div className="kv">
               <span className="k">— RF link</span>
-              <span className="v">thickness = TQ</span>
+              <span className="v">thickness = metric</span>
             </div>
             <div className="kv">
               <span className="k">╌ BLOS link</span>
@@ -212,26 +215,23 @@ export default function TopologyPage() {
 
           <div className="lat-panel">
             <div className="panel-head">
-              <h3>{selected ? `Selected · ${selected.kind === 'client' ? selected.client.tag : selected.host.tag}` : 'Selected'}</h3>
+              <h3>
+                {selected
+                  ? `Selected · ${selected.host.baseHostname || selected.host.id}`
+                  : 'Selected'}
+              </h3>
             </div>
             {!selected && (
-              <div className="topo-empty-hint">Click a node to inspect</div>
+              <div className="topo-empty-hint">Click a host to inspect</div>
             )}
-            {selected && selected.kind === 'host' && (
+            {selected && (
               <HostInspector
                 host={selected.host}
                 meshData={meshData}
                 ipByHostname={ipByHostname}
                 hostById={hostById}
                 edges={edgesByHost.get(selected.host.id) || []}
-                segments={segments}
-              />
-            )}
-            {selected && selected.kind === 'client' && (
-              <ClientInspector
-                client={selected.client}
-                host={selected.host}
-                ipByHostname={ipByHostname}
+                algorithm={algorithm}
               />
             )}
           </div>
@@ -263,12 +263,16 @@ export default function TopologyPage() {
   );
 }
 
-function HostInspector({ host, meshData, ipByHostname, hostById, edges, segments }) {
+function HostInspector({ host, meshData, ipByHostname, hostById, edges, algorithm }) {
   const role = roleLabelForHost(host, meshData);
   const ip = ipByHostname.get((host.baseHostname || '').toLowerCase()) || '—';
-  const segmentId = host.segmentId || (segments.length === 1 ? segments[0].id : '—');
+  const segmentLabel = host.segmentId === 'local'
+    ? 'LOCAL'
+    : host.segmentId?.startsWith('remote:')
+      ? `REMOTE · ${hostById.get(host.segmentId.slice('remote:'.length))?.baseHostname || '?'}`
+      : '—';
 
-  // Split edges into RF (grouped by peer host) and BLOS.
+  // Split edges into RF and BLOS, grouped by peer host.
   const rfByPeer = new Map();
   const blosByPeer = new Map();
   for (const e of edges) {
@@ -281,7 +285,7 @@ function HostInspector({ host, meshData, ipByHostname, hostById, edges, segments
     <>
       <div className="kv">
         <span className="k">Role</span>
-        <span className={`v${host.degraded ? ' warn' : ' accent'}`}>{role}</span>
+        <span className={`v${host.segmentId?.startsWith('remote:') ? ' warn' : ' accent'}`}>{role}</span>
       </div>
       <div className="kv">
         <span className="k">Host</span>
@@ -297,7 +301,7 @@ function HostInspector({ host, meshData, ipByHostname, hostById, edges, segments
       </div>
       <div className="kv">
         <span className="k">Segment</span>
-        <span className="v">{segmentId}</span>
+        <span className="v">{segmentLabel}</span>
       </div>
       <div className="kv">
         <span className="k">Hops</span>
@@ -325,6 +329,7 @@ function HostInspector({ host, meshData, ipByHostname, hostById, edges, segments
           peerHost={hostById.get(peerKey)}
           self={host}
           blos={false}
+          algorithm={algorithm}
         />
       ))}
       {[...blosByPeer.entries()].map(([peerKey, edge]) => (
@@ -334,6 +339,7 @@ function HostInspector({ host, meshData, ipByHostname, hostById, edges, segments
           peerHost={hostById.get(peerKey)}
           self={host}
           blos
+          algorithm={algorithm}
         />
       ))}
 
@@ -349,69 +355,43 @@ function HostInspector({ host, meshData, ipByHostname, hostById, edges, segments
   );
 }
 
-function LinkRow({ edge, peerHost, self, blos }) {
+function LinkRow({ edge, peerHost, self, blos, algorithm }) {
   if (!peerHost) return null;
   const header = blos
-    ? `╌ ${peerHost.tag} (${peerHost.baseHostname}) · via BLOS`
-    : `↔ ${peerHost.tag} (${peerHost.baseHostname})`;
-  // Contributors were recorded oriented source→destination as sampled; the
-  // Selected panel orients them so the self host is always on the left.
+    ? `╌ ${peerHost.baseHostname} · via BLOS`
+    : `↔ ${peerHost.baseHostname}`;
+  const metric = formatMetric(edge, algorithm);
   const contributors = edge.contributors.map((c) => {
     const forward = c.srcHost === self.id;
     return {
       localIface: forward ? c.srcIface : c.dstIface,
       peerIface: forward ? c.dstIface : c.srcIface,
-      signal: c.signal,
-      metric: c.metric,
+      tq: c.tq,
+      throughput: c.throughput,
+      lastSeenMs: c.lastSeenMs,
     };
   });
   return (
     <div className={`topo-link-group${blos ? ' blos' : ''}`}>
-      <div className="topo-link-header">{header}</div>
+      <div className="topo-link-header">
+        <span>{header}</span>
+        <span className="topo-link-metric">{metric}</span>
+      </div>
       {contributors.map((c, i) => {
-        const body = c.signal
-          ? `${formatSignal(c.signal)}`
-          : c.metric
-            ? `TQ ${c.metric.toFixed(2)}`
-            : '—';
+        const detail = algorithm === 'BATMAN_V' && c.throughput
+          ? c.throughput >= 1000 ? `${(c.throughput / 1000).toFixed(1)} Mbps` : `${Math.round(c.throughput)} kbps`
+          : c.tq ? `TQ ${c.tq}` : '—';
         return (
           <div
             key={`${c.localIface}-${c.peerIface}-${i}`}
             className="topo-link-contrib"
           >
             <span className="iface">{c.localIface || '?'} ↔ {c.peerIface || '?'}</span>
-            <span className="metric">{body}</span>
+            <span className="metric">{detail}</span>
+            <span className="lastseen">{formatLastSeen(c.lastSeenMs)}</span>
           </div>
         );
       })}
     </div>
-  );
-}
-
-function ClientInspector({ client, host, ipByHostname }) {
-  const ip = ipByHostname.get((client.hostname || '').toLowerCase()) || '—';
-  return (
-    <>
-      <div className="kv">
-        <span className="k">Role</span>
-        <span className="v" style={{ color: 'var(--dim)' }}>CLIENT</span>
-      </div>
-      <div className="kv">
-        <span className="k">Hostname</span>
-        <span className="v">{client.hostname || '—'}</span>
-      </div>
-      <div className="kv">
-        <span className="k">MAC</span>
-        <span className="v">{client.mac || '—'}</span>
-      </div>
-      <div className="kv">
-        <span className="k">IP</span>
-        <span className="v">{ip}</span>
-      </div>
-      <div className="kv">
-        <span className="k">Attached to</span>
-        <span className="v">{host.tag} · {host.baseHostname}</span>
-      </div>
-    </>
   );
 }

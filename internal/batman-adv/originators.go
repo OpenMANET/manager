@@ -7,12 +7,18 @@ import (
 )
 
 // Originator represents a single entry from batctl's originator JSON output.
+//
+// batctl emits multiple rows per originator — one per candidate next hop — and
+// flags the selected route with Best=true. Only those flagged entries
+// describe the forwarding state; everything else is informational.
 type Originator struct {
-	OrigAddress string `json:"orig_address"`
-	HardIfname  string `json:"hard_ifname"`
-	BestNeigh   string `json:"best_next_hop"`
-	LastSeenMs  int    `json:"last_seen_msecs"`
-	TQ          int    `json:"tq"`
+	OrigAddress string  `json:"orig_address"`
+	HardIfname  string  `json:"hard_ifname"`
+	BestNeigh   string  `json:"best_next_hop"`
+	LastSeenMs  int     `json:"last_seen_msecs"`
+	TQ          int     `json:"tq"`
+	Throughput  float64 `json:"throughput"`
+	Best        bool    `json:"best"`
 }
 
 // OriginatorProvider abstracts originator retrieval for testability.

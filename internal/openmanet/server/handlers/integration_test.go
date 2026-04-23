@@ -80,10 +80,8 @@ func newTestServer(t *testing.T) *httptest.Server {
 	}, handlerOpt))
 
 	mux.Handle(meshtopoconnect.NewMeshTopologyServiceHandler(&handlers.MeshTopologyService{
-		Log:           zerolog.Nop(),
-		Visibility:    &fakeVisibilityProvider{doc: sampleVisDoc()},
-		Wifi:          fw,
-		ParseBatHosts: parseBatHosts,
+		Log:          zerolog.Nop(),
+		OrigProvider: &fakeOrigTopology{snap: sampleOrigTopology()},
 	}, handlerOpt))
 
 	mux.Handle(services.NewStatusServiceHandler(&handlers.StatusService{
@@ -219,19 +217,23 @@ func TestIntegration_GetMeshTopology(t *testing.T) {
 
 	topo := resp.GetTopology()
 	require.NotNil(t, topo)
-	assert.Equal(t, "2013.3.0-14-gcd34783", topo.GetSourceVersion())
-	require.Len(t, topo.GetNodes(), 2)
+	assert.Equal(t, "BCM2711-97d6", topo.GetSelfHostname())
+	assert.Equal(t, "BATMAN_IV", topo.GetAlgorithm())
 
-	node0 := topo.GetNodes()[0]
-	assert.Equal(t, "0a:d7:37:78:2d:3e", node0.GetPrimaryMac())
-	assert.Equal(t, "BCM2711-97d6_bat0", node0.GetPrimaryHostname())
-	require.Len(t, node0.GetNeighbors(), 2)
-	edge0 := node0.GetNeighbors()[0]
-	assert.Equal(t, "9c:ef:d5:f9:9e:02", edge0.GetNeighborMac())
-	// router_hostname must round-trip so the frontend can tell which local
-	// interface carried the edge (wlan0 vs phy2-mesh0 vs vxlan0).
-	assert.Equal(t, "BCM2711-97d6_phy2-mesh0", edge0.GetRouterHostname())
-	assert.Equal(t, "BCM2711-88ba_phy2-mesh0", edge0.GetNeighborHostname())
+	// The sample snapshot has one direct RF neighbor, one multi-hop RF peer,
+	// and one direct BLOS neighbor — make sure every one of those lands on
+	// the wire with its hard_ifname and hop count preserved.
+	require.Len(t, topo.GetOriginators(), 3)
+
+	byMAC := make(map[string]string, 3) // orig mac → hard_ifname
+	hopsByMAC := make(map[string]int32, 3)
+	for _, o := range topo.GetOriginators() {
+		byMAC[o.GetOrigMac()] = o.GetHardIfname()
+		hopsByMAC[o.GetOrigMac()] = o.GetHops()
+	}
+	assert.Equal(t, "phy2-mesh0", byMAC["9c:ef:d5:f9:9e:02"])
+	assert.Equal(t, "vxlan0", byMAC["2c:cf:67:b8:88:bb"], "BLOS edge keeps its hard_ifname")
+	assert.Equal(t, int32(2), hopsByMAC["00:0a:52:0b:7d:ae"], "multi-hop peer reports hops=2")
 }
 
 // ── StatusService ─────────────────────────────────────────────────────────────
