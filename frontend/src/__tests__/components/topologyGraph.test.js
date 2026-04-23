@@ -8,7 +8,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildTopologyView,
-  shortMac,
   shortHostname,
 } from '../../components/topologyGraph.js';
 
@@ -67,9 +66,10 @@ function oneBLOS() {
   };
 }
 
-// Two BLOS gateways, each with a multi-hop peer behind it. Exercises the
-// gateway-anchored remote-segment partition.
-function twoBLOSGateways() {
+// Two direct BLOS peers plus a multi-hop peer behind one of them. All three
+// share the same local vxlan0 interface so the partition collapses them into
+// ONE remote segment.
+function twoBLOSPeersOneInterface() {
   return {
     selfMac: '00:00:00:00:00:00',
     selfHostname: 'me',
@@ -100,6 +100,29 @@ function twoBLOSGateways() {
         hardIfname: 'vxlan0', tq: 210, hops: 1,
       },
     ],
+  };
+}
+
+// Self is itself a BLOS gateway: every reachable peer is a direct vxlan0
+// neighbor, no RF peers, no multi-hop. Mirrors the scenario in the user's
+// screenshot where the old gateway-keyed partition painted N remote boxes;
+// the new interface-keyed partition collapses them into ONE.
+function selfIsGatewayManyDirectPeers() {
+  const originators = [];
+  for (let i = 1; i <= 5; i += 1) {
+    const mac = `cc:cc:cc:cc:cc:0${i}`;
+    const host = `peer${i}_vxlan0`;
+    originators.push({
+      origMac: mac, origHostname: host,
+      nextHopMac: mac, nextHopHostname: host,
+      hardIfname: 'vxlan0', tq: 200 + i, hops: 1,
+    });
+  }
+  return {
+    selfMac: '00:00:00:00:00:00',
+    selfHostname: 'me',
+    algorithm: 'BATMAN_IV',
+    originators,
   };
 }
 
@@ -227,34 +250,56 @@ describe('TestAggregateEdgesAndHops', () => {
 // ── BLOS + segments ─────────────────────────────────────────────────────────
 
 describe('TestSegmentsAndBLOS', () => {
-  it('single direct BLOS neighbor produces LOCAL + one REMOTE segment', () => {
+  it('single direct BLOS neighbor produces LOCAL + one REMOTE MESH segment', () => {
     const v = buildTopologyView(oneBLOS());
     expect(v.segments).toHaveLength(2);
     const [local, remote] = v.segments;
     expect(local.kind).toBe('local');
     expect(local.label).toBe('LOCAL');
     expect(remote.kind).toBe('remote');
-    expect(remote.label).toBe('REMOTE · gw1');
+    expect(remote.label).toBe('REMOTE MESH');
+    expect(remote.id).toBe('remote:vxlan0');
     const remoteHosts = remote.hosts.map((h) => h.baseHostname);
     expect(remoteHosts).toEqual(['gw1']);
+    expect(remote.anchorHost).toBe('gw1');
   });
 
-  it('two distinct BLOS gateways → two distinct remote segments', () => {
-    const v = buildTopologyView(twoBLOSGateways());
+  it('peers sharing one local BLOS interface collapse into one segment', () => {
+    const v = buildTopologyView(twoBLOSPeersOneInterface());
     const remoteSegs = v.segments.filter((s) => s.kind === 'remote');
-    expect(remoteSegs).toHaveLength(2);
-    expect(remoteSegs.map((s) => s.label).sort()).toEqual(
-      ['REMOTE · gw1', 'REMOTE · gw2'],
-    );
+    expect(remoteSegs).toHaveLength(1);
+    expect(remoteSegs[0].label).toBe('REMOTE MESH');
+    // gw1, gw2, and remote1 all share the segment.
+    const remoteHosts = remoteSegs[0].hosts
+      .map((h) => h.baseHostname)
+      .sort();
+    expect(remoteHosts).toEqual(['gw1', 'gw2', 'remote1']);
   });
 
-  it('multi-hop BLOS peer stays in its gateway’s segment (not its own)', () => {
-    const v = buildTopologyView(twoBLOSGateways());
+  it('self-as-gateway: N direct vxlan0 peers collapse to ONE remote segment', () => {
+    const v = buildTopologyView(selfIsGatewayManyDirectPeers());
+    // Self is the only local host; 5 peers live in a single remote segment.
+    const localSeg = v.segments.find((s) => s.kind === 'local');
+    const remoteSegs = v.segments.filter((s) => s.kind === 'remote');
+    expect(localSeg.hosts.map((h) => h.baseHostname)).toEqual(['me']);
+    expect(remoteSegs).toHaveLength(1);
+    expect(remoteSegs[0].hosts).toHaveLength(5);
+    expect(remoteSegs[0].label).toBe('REMOTE MESH');
+    // Anchor is chosen by ascending base-hostname among direct neighbors —
+    // all 5 are hops=1, so peer1 wins.
+    expect(remoteSegs[0].anchorHost).toBe('peer1');
+    // Each peer yields a separate BLOS edge from self.
+    expect(v.blosEdges).toHaveLength(5);
+  });
+
+  it('multi-hop BLOS peer joins the same segment as its gateway', () => {
+    const v = buildTopologyView(twoBLOSPeersOneInterface());
     const remote1 = v.hosts.find((h) => h.baseHostname === 'remote1');
     const gw1 = v.hosts.find((h) => h.baseHostname === 'gw1');
     expect(remote1.segmentId).toBe(gw1.segmentId);
-    const gw1Seg = v.segments.find((s) => s.id === remote1.segmentId);
-    expect(gw1Seg.hosts.map((h) => h.baseHostname).sort()).toEqual(['gw1', 'remote1']);
+    const seg = v.segments.find((s) => s.id === remote1.segmentId);
+    // Anchor is the direct neighbor with the lowest base hostname — gw1.
+    expect(seg.anchorHost).toBe('gw1');
   });
 
   it('host reachable by BOTH RF and BLOS lands in LOCAL', () => {
@@ -275,7 +320,7 @@ describe('TestSegmentsAndBLOS', () => {
   });
 
   it('counts BLOS links separately from RF links', () => {
-    const v = buildTopologyView(twoBLOSGateways());
+    const v = buildTopologyView(twoBLOSPeersOneInterface());
     // Self↔alpha is one RF edge. Everything else (self↔gw1, gw1↔remote1,
     // self↔gw2) lives on vxlan0 and counts as BLOS.
     expect(v.counts.links).toBe(1);
@@ -308,11 +353,6 @@ describe('TestBatHostsMissing', () => {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 describe('TestShortHelpers', () => {
-  it('shortMac returns the last three MAC octets', () => {
-    expect(shortMac('aa:bb:cc:dd:ee:ff')).toBe('dd:ee:ff');
-    expect(shortMac('')).toBe('?');
-  });
-
   it('shortHostname returns the final dash segment, capped at 6 chars', () => {
     expect(shortHostname('BCM2711-97d6')).toBe('97d6');
     expect(shortHostname('alpha')).toBe('alpha');

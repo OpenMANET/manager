@@ -118,7 +118,7 @@ describe('TestTopologyMapSegments', () => {
     expect(boxes.length).toBe(2);
     const labels = Array.from(container.querySelectorAll('.topo-segment-label')).map((n) => n.textContent);
     expect(labels.some((t) => t.startsWith('LOCAL'))).toBe(true);
-    expect(labels.some((t) => t.startsWith('REMOTE · BCM2711-gw1'))).toBe(true);
+    expect(labels.some((t) => t.startsWith('REMOTE MESH'))).toBe(true);
   });
 
   it('renders the BLOS bridge with the .blos edge class', () => {

@@ -12,8 +12,10 @@
 //      suffix we've seen for that host.
 //   2. Partitions hosts into segments:
 //        - LOCAL:  hosts whose best route uses a non-vxlan0 interface.
-//        - REMOTE: one segment per distinct BLOS gateway. Multi-hop peers
-//          behind the same gateway stay in that gateway's segment.
+//        - REMOTE: one segment per local BLOS interface. Every originator
+//          reached via that interface — direct neighbors AND multi-hop peers
+//          behind them — collapses into the same segment, because from this
+//          node's point of view they share a single tunnel.
 //   3. Aggregates per-host-pair edges so two hosts linked on multiple radios
 //      render as a single line with a contributor list in the Selected panel.
 //   4. Preserves hops as reported by the server (no client-side BFS).
@@ -24,7 +26,7 @@
 //     self: HostRecord | null,
 //     hosts: [HostRecord, ...],
 //     segments: [
-//       { id, label, kind: 'local'|'remote', gatewayHost?, hosts, edges }
+//       { id, label, kind: 'local'|'remote', anchorHost?, hosts, edges }
 //     ],
 //     blosEdges: [AggregateEdge, ...],
 //     counts: { hosts, segments, links, blosLinks, clients, hopsMax },
@@ -43,14 +45,6 @@ function splitHostname(hostname) {
   const i = hostname.lastIndexOf('_');
   if (i < 0) return { base: hostname, iface: '' };
   return { base: hostname.slice(0, i), iface: hostname.slice(i + 1) };
-}
-
-// shortMac keeps the last three MAC octets — used as a last-resort display
-// label when bat-hosts has no friendly name for a host.
-export function shortMac(mac) {
-  if (!mac) return '?';
-  const parts = mac.split(':');
-  return parts.length === 6 ? parts.slice(3).join(':') : mac;
 }
 
 // shortHostname returns a compact label that fits inside a host circle.
@@ -164,9 +158,10 @@ export function buildTopologyView(topology) {
   }
 
   // Build hosts + per-originator pairs. We also track per-originator
-  // segment-assignment hints: the BLOS gateway of a vxlan0 originator is
-  // used to partition remote segments.
-  const blosOrigByKey = new Map();     // hostKey → originator with vxlan0 route
+  // segment-assignment hints: the local hard_ifname of every BLOS-reached
+  // originator becomes the key for its remote segment, so all peers sharing
+  // a tunnel collapse into one segment regardless of their far-side gateway.
+  const blosIfnameByKey = new Map();   // hostKey → local BLOS hard_ifname carrying the route
   const rfOrigByKey = new Map();       // hostKey → true when the host has any non-BLOS best route
   const aggregates = new Map();        // canonical (hostA|hostB) → AggregateEdge
 
@@ -186,9 +181,11 @@ export function buildTopologyView(topology) {
       addInterface(selfHost, o.hardIfname, topology.selfMac);
     }
 
-    // Track segment hints.
+    // Track segment hints. For BLOS-reached hosts we record the LOCAL
+    // hard_ifname (e.g. vxlan0); that becomes the remote segment's key, so
+    // every peer reached via that same interface collapses into one box.
     if (o.hardIfname === BLOS_INTERFACE) {
-      blosOrigByKey.set(orig.key, o);
+      if (!blosIfnameByKey.has(orig.key)) blosIfnameByKey.set(orig.key, o.hardIfname);
     } else if (o.hardIfname) {
       rfOrigByKey.set(orig.key, true);
     }
@@ -237,8 +234,9 @@ export function buildTopologyView(topology) {
 
   // ── Segment assignment ─────────────────────────────────────────────────
   // Rule: if a host has ANY non-BLOS best route, it's local. Otherwise it
-  // joins the remote segment keyed by its BLOS gateway (walk next-hops
-  // until we hit a direct BLOS neighbor).
+  // joins the remote segment keyed by the LOCAL hard_ifname carrying its
+  // BLOS route. All peers reached via the same local tunnel collapse into
+  // one segment regardless of how many distinct far-side gateways exist.
   const segmentByHost = new Map();
 
   // Local segment first — self is always local when it exists.
@@ -246,69 +244,40 @@ export function buildTopologyView(topology) {
   if (selfHost) localKeys.add(selfHost.id);
   for (const k of rfOrigByKey.keys()) localKeys.add(k);
 
-  // Remote segments: walk vxlan0 originators up to their direct-neighbor
-  // gateway. Any host on that chain inherits the gateway's segment.
-  const gatewayByHost = new Map(); // hostKey → gatewayHostKey
-  for (const hostKey of blosOrigByKey.keys()) {
+  // Remote segments: one per local BLOS interface.
+  const remoteByIfname = new Map(); // ifname → Set(hostKey)
+  for (const [hostKey, ifname] of blosIfnameByKey.entries()) {
     if (localKeys.has(hostKey)) continue; // host has a non-BLOS path, stays local
-
-    // Find the gateway by following next-hop chains. Safety-capped.
-    let cursor = hostKey;
-    let gatewayKey = hostKey;
-    const visited = new Set([hostKey]);
-    for (let depth = 0; depth < 16; depth++) {
-      const o = blosOrigByKey.get(cursor);
-      if (!o) break;
-      const next = resolveMac(o.nextHopMac);
-      if (!next.key || next.key === cursor) {
-        gatewayKey = cursor; // direct neighbor reached
-        break;
-      }
-      if (visited.has(next.key)) break; // cycle guard
-      visited.add(next.key);
-      cursor = next.key;
-      gatewayKey = next.key;
-    }
-    gatewayByHost.set(hostKey, gatewayKey);
+    if (!remoteByIfname.has(ifname)) remoteByIfname.set(ifname, new Set());
+    remoteByIfname.get(ifname).add(hostKey);
   }
 
-  // Build segment list. Local first, then remote segments sorted by gateway
-  // hostname for stable ordering across refreshes.
+  // Build segment list. Local first, then remote segments sorted by ifname.
   const segments = [];
   if (localKeys.size > 0) {
     segments.push({
       id: 'local',
       label: 'LOCAL',
       kind: 'local',
-      gatewayHost: null,
+      anchorHost: null,
       hosts: [],
       edges: [],
     });
     for (const k of localKeys) segmentByHost.set(k, 'local');
   }
 
-  // Group hosts by gateway, sorted by gateway base-hostname.
-  const remoteByGateway = new Map();
-  for (const [hostKey, gatewayKey] of gatewayByHost.entries()) {
-    if (!remoteByGateway.has(gatewayKey)) remoteByGateway.set(gatewayKey, new Set());
-    remoteByGateway.get(gatewayKey).add(hostKey);
-  }
-  const remoteGatewayKeys = [...remoteByGateway.keys()].sort();
-  for (const gwKey of remoteGatewayKeys) {
-    const gwHost = hostByKey.get(gwKey);
-    const label = gwHost
-      ? `REMOTE · ${gwHost.baseHostname}`
-      : `REMOTE · ${shortMac(gwKey)}`;
-    const segId = `remote:${gwKey}`;
+  const remoteIfnames = [...remoteByIfname.keys()].sort();
+  for (const ifname of remoteIfnames) {
+    const segId = `remote:${ifname}`;
     segments.push({
       id: segId,
-      label,
+      label: 'REMOTE MESH',
       kind: 'remote',
-      gatewayHost: gwKey,
+      anchorHost: null, // populated after host hops are finalized below
       hosts: [],
       edges: [],
     });
-    for (const k of remoteByGateway.get(gwKey)) segmentByHost.set(k, segId);
+    for (const k of remoteByIfname.get(ifname)) segmentByHost.set(k, segId);
   }
 
   // Populate segmentId on each host.
@@ -338,6 +307,19 @@ export function buildTopologyView(topology) {
   for (const h of hosts) {
     const seg = segByID.get(h.segmentId);
     if (seg) seg.hosts.push(h);
+  }
+
+  // Pick an anchor for each remote segment: the direct BLOS neighbor (min
+  // hops in the segment) with the lowest base hostname. Layout uses this
+  // as the radial root so the "entry point" into the remote mesh sits at
+  // the box center. Defensive fallback: first host in the segment.
+  for (const seg of segments) {
+    if (seg.kind !== 'remote' || seg.hosts.length === 0) continue;
+    const minHops = Math.min(...seg.hosts.map((h) => h.hops));
+    const candidates = seg.hosts
+      .filter((h) => h.hops === minHops)
+      .sort((a, b) => a.baseHostname.localeCompare(b.baseHostname));
+    seg.anchorHost = (candidates[0] || seg.hosts[0]).id;
   }
 
   // RF edges belong in the segment both endpoints share (by definition of

@@ -124,10 +124,11 @@ function globalLayout(view, compact) {
     let cursor = 0;
     for (const seg of view.segments) {
       // Local segment uses the self host as root; remote segments root on
-      // their gateway so the tunnel peer sits centered in its box.
+      // their anchor (a direct BLOS neighbor) so the tunnel's entry point
+      // sits centered in its box.
       const rootHost = seg.kind === 'local'
         ? (view.self && seg.hosts.find((h) => h.id === view.self.id)) || null
-        : seg.hosts.find((h) => h.id === seg.gatewayHost) || null;
+        : seg.hosts.find((h) => h.id === seg.anchorHost) || null;
       const { positions: local, bbox: rawBBox } = layoutSegment(seg, rootHost);
       const bbox = expandBBoxToLabel(rawBBox, seg);
       for (const [id, p] of local.entries()) {
