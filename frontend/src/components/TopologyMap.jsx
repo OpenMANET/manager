@@ -19,15 +19,22 @@ import { zoom, zoomIdentity } from 'd3-zoom';
 import { select } from 'd3-selection';
 import { buildTopologyView, shortHostname } from './topologyGraph.js';
 
-const RING_STEP = 130;
-const NODE_RADIUS = 22;
-const PADDING = 60;
-const SEGMENT_GUTTER = 140;
-const SEGMENT_PAD = 44;
-const BADGE_RADIUS = 3.2;
-const BADGE_SPACING = 9;
-const HOSTNAME_Y_OFFSET = NODE_RADIUS + 14;   // hostname text sits just below the circle
-const BADGE_Y_OFFSET = NODE_RADIUS + 28;      // badge row below the hostname label
+const RING_STEP = 170;
+const NODE_RADIUS = 28;
+const PADDING = 72;
+const SEGMENT_GUTTER = 160;
+const SEGMENT_PAD = 56;
+const BADGE_RADIUS = 4;
+const BADGE_SPACING = 11;
+const HOSTNAME_Y_OFFSET = NODE_RADIUS + 18;   // hostname text sits just below the circle
+const BADGE_Y_OFFSET = NODE_RADIUS + 36;      // badge row below the hostname label
+
+// Rough average glyph advance for the monospace segment label at 11px with
+// 0.18em letter-spacing. Used to guarantee the segment box is at least wide
+// enough to contain its header text (e.g. single-host remote segments whose
+// natural bbox is narrower than "REMOTE · HOSTNAME · 1 HOST").
+const SEGMENT_LABEL_CHAR_WIDTH = 8.4;
+const SEGMENT_LABEL_PADDING = 28;
 
 // ----------------------------------------------------------------------------
 // layoutSegment(seg, rootHost) → { positions, bbox }
@@ -81,6 +88,24 @@ function layoutSegment(seg, rootHost) {
   return { positions, bbox };
 }
 
+// segmentLabelText reproduces the header string SegmentBox renders so we can
+// size the box to fit it before layout is committed.
+function segmentLabelText(seg) {
+  const count = seg.hosts.length;
+  return `${seg.label} · ${count} HOST${count === 1 ? '' : 'S'}`;
+}
+
+// expandBBoxToLabel widens a segment's bbox symmetrically so its header label
+// doesn't spill past the right edge. Root-centered positioning is preserved
+// because the left edge shifts by the same delta.
+function expandBBoxToLabel(bbox, seg) {
+  const minW = segmentLabelText(seg).length * SEGMENT_LABEL_CHAR_WIDTH
+    + SEGMENT_LABEL_PADDING;
+  if (bbox.w >= minW) return bbox;
+  const delta = minW - bbox.w;
+  return { x: bbox.x - delta / 2, y: bbox.y, w: minW, h: bbox.h };
+}
+
 // ----------------------------------------------------------------------------
 // globalLayout(view, compact) → { positions, segmentBoxes, viewBox }
 // ----------------------------------------------------------------------------
@@ -103,7 +128,8 @@ function globalLayout(view, compact) {
       const rootHost = seg.kind === 'local'
         ? (view.self && seg.hosts.find((h) => h.id === view.self.id)) || null
         : seg.hosts.find((h) => h.id === seg.gatewayHost) || null;
-      const { positions: local, bbox } = layoutSegment(seg, rootHost);
+      const { positions: local, bbox: rawBBox } = layoutSegment(seg, rootHost);
+      const bbox = expandBBoxToLabel(rawBBox, seg);
       for (const [id, p] of local.entries()) {
         positions.set(id, { x: p.x + cursor - bbox.x, y: p.y });
       }

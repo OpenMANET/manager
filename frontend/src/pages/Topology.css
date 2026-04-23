@@ -23,7 +23,7 @@
 .topo-canvas {
   position: relative;
   width: 100%;
-  min-height: 420px;
+  min-height: 800px;
   background:
     linear-gradient(rgba(0, 229, 255, 0.05) 1px, transparent 1px) 0 0 / 32px 32px,
     linear-gradient(90deg, rgba(0, 229, 255, 0.05) 1px, transparent 1px) 0 0 / 32px 32px,
@@ -34,12 +34,13 @@
 }
 .topo-canvas svg {
   width: 100%;
-  height: 420px;
+  height: 800px;
   display: block;
   cursor: grab;
 }
 .topo-canvas svg:active { cursor: grabbing; }
-.topo-canvas.compact svg { height: 280px; }
+.topo-canvas.compact { min-height: 300px; }
+.topo-canvas.compact svg { height: 300px; }
 
 /* ── Nodes ──────────────────────────────────────────────────────────────── */
 
@@ -53,7 +54,7 @@
 .topo-node text {
   fill: var(--accent);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-anchor: middle;
@@ -62,7 +63,7 @@
   user-select: none;
 }
 .topo-node .topo-host-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.04em;
   fill: var(--muted);
@@ -134,7 +135,7 @@
 .topo-edge-label-text {
   fill: var(--muted);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.06em;
   text-anchor: middle;
   dominant-baseline: central;
@@ -146,7 +147,7 @@
 .topo-edge-count {
   fill: var(--dim);
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 9px;
   text-anchor: middle;
   pointer-events: none;
   paint-order: stroke fill;
@@ -172,7 +173,7 @@
 .topo-iface-overflow {
   fill: var(--muted);
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 9px;
   text-anchor: middle;
   pointer-events: none;
 }
@@ -188,7 +189,7 @@
 .topo-segment-label {
   fill: var(--muted);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   pointer-events: none;
@@ -219,12 +220,6 @@
   padding: 8px 0;
 }
 
-.topo-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-}
-.topo-actions .lat-btn { flex: 1; }
 
 /* ── Selected-panel: interfaces + links ─────────────────────────────────── */
 
@@ -296,8 +291,9 @@
 /* ── Mobile responsiveness: stack segments + shrink canvas height ──────── */
 
 @media (max-width: 600px) {
-  .topo-canvas svg { height: 320px; }
-  .topo-segment-label { font-size: 8px; letter-spacing: 0.12em; }
+  .topo-canvas { min-height: 440px; }
+  .topo-canvas svg { height: 440px; }
+  .topo-segment-label { font-size: 9px; letter-spacing: 0.12em; }
 }
 
 /* ── Accessibility ──────────────────────────────────────────────────────── */

@@ -342,15 +342,6 @@ function HostInspector({ host, meshData, ipByHostname, hostById, edges, algorith
           algorithm={algorithm}
         />
       ))}
-
-      {/*
-       * TODO(diag-rpc): wire PING and TRACE to a real probe RPC against the
-       *   selected host once DiagnosticsService lands. Buttons stay disabled.
-       */}
-      <div className="topo-actions">
-        <button className="lat-btn primary" type="button" disabled>PING</button>
-        <button className="lat-btn ghost" type="button" disabled>TRACE</button>
-      </div>
     </>
   );
 }

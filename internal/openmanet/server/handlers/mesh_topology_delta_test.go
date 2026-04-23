@@ -15,16 +15,18 @@ import (
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 )
 
-// fakeOrigScript scripts a deterministic sequence of OriginatorTopology
-// returns so DeltaTracker tests can walk a known timeline of route changes.
+// fakeOrigScript scripts a deterministic sequence of raw Originator row
+// sets so DeltaTracker tests can walk a known timeline of route changes.
+// The tracker consumes the raw provider now (see DeltaTracker.Originators),
+// so this fake implements the lighter OriginatorProvider interface.
 type fakeOrigScript struct {
 	mu    sync.Mutex
-	snaps []*batmanadv.OriginatorTopology
+	snaps [][]batmanadv.Originator
 	errs  []error
 	idx   int
 }
 
-func (f *fakeOrigScript) GetOriginatorTopology() (*batmanadv.OriginatorTopology, error) {
+func (f *fakeOrigScript) GetOriginators() ([]batmanadv.Originator, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -43,7 +45,7 @@ func (f *fakeOrigScript) GetOriginatorTopology() (*batmanadv.OriginatorTopology,
 	return f.snaps[i], err
 }
 
-// callCount returns the number of completed GetOriginatorTopology calls.
+// callCount returns the number of completed GetOriginators calls.
 func (f *fakeOrigScript) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -81,22 +83,20 @@ func (f *fakeGateways) callCount() int {
 	return f.idx
 }
 
-// mkSnap builds a minimal OriginatorTopology with one best-route row per
-// (orig, nextHop, iface) tuple supplied. Tests use it to stitch together
-// route churn timelines without spelling out every field.
-func mkSnap(entries ...batmanadv.OriginatorEntry) *batmanadv.OriginatorTopology {
-	return &batmanadv.OriginatorTopology{
-		Algorithm:   "BATMAN_IV",
-		Originators: entries,
-	}
+// mkSnap returns a raw-originator row set (one Best=true row per supplied
+// entry) matching the lighter OriginatorProvider interface the tracker now
+// consumes. Tests use it to stitch together route churn timelines without
+// spelling out every field.
+func mkSnap(entries ...batmanadv.Originator) []batmanadv.Originator {
+	return entries
 }
 
-func entry(orig, next, iface string) batmanadv.OriginatorEntry {
-	return batmanadv.OriginatorEntry{
-		OrigMAC:    orig,
-		NextHopMAC: next,
-		HardIfname: iface,
-		Hops:       1,
+func entry(orig, next, iface string) batmanadv.Originator {
+	return batmanadv.Originator{
+		OrigAddress: orig,
+		BestNeigh:   next,
+		HardIfname:  iface,
+		Best:        true,
 	}
 }
 
@@ -104,7 +104,7 @@ func entry(orig, next, iface string) batmanadv.OriginatorEntry {
 // and then lose a route, and asserts the window aggregation matches.
 func TestDeltaTracker_WindowRoutesAddedAndLost(t *testing.T) {
 	orig := &fakeOrigScript{
-		snaps: []*batmanadv.OriginatorTopology{
+		snaps: [][]batmanadv.Originator{
 			mkSnap(entry("bb:01", "bb:01", "wlan0")),
 			mkSnap(entry("bb:01", "bb:01", "wlan0"), entry("bb:02", "bb:02", "wlan0")),
 			mkSnap(entry("bb:02", "bb:02", "wlan0")),
@@ -137,7 +137,7 @@ func TestDeltaTracker_WindowRoutesAddedAndLost(t *testing.T) {
 // the edge key.
 func TestDeltaTracker_RouteChangeOnInterfaceFlip(t *testing.T) {
 	orig := &fakeOrigScript{
-		snaps: []*batmanadv.OriginatorTopology{
+		snaps: [][]batmanadv.Originator{
 			mkSnap(entry("bb:01", "bb:01", "wlan0")),
 			mkSnap(entry("bb:01", "bb:01", "phy2-mesh0")),
 		},
@@ -161,7 +161,7 @@ func TestDeltaTracker_RouteChangeOnInterfaceFlip(t *testing.T) {
 // assertion — the gateway feed doesn't depend on the originator provider.
 func TestDeltaTracker_GatewayChanges(t *testing.T) {
 	orig := &fakeOrigScript{
-		snaps: []*batmanadv.OriginatorTopology{mkSnap(), mkSnap(), mkSnap()},
+		snaps: [][]batmanadv.Originator{mkSnap(), mkSnap(), mkSnap()},
 	}
 	gw := &fakeGateways{
 		sets: []map[string]struct{}{
@@ -187,7 +187,7 @@ func TestDeltaTracker_GatewayChanges(t *testing.T) {
 // produces zero reconverge time — no unstable samples ⇒ no spread.
 func TestDeltaTracker_ReconvergeZeroWhenStable(t *testing.T) {
 	orig := &fakeOrigScript{
-		snaps: []*batmanadv.OriginatorTopology{
+		snaps: [][]batmanadv.Originator{
 			mkSnap(entry("bb:01", "bb:01", "wlan0")),
 			mkSnap(entry("bb:01", "bb:01", "wlan0")),
 			mkSnap(entry("bb:01", "bb:01", "wlan0")),
@@ -214,7 +214,7 @@ func TestDeltaTracker_ReconvergeZeroWhenStable(t *testing.T) {
 // resulting add/lost pair on either side of the outage.
 func TestDeltaTracker_ToleratesUnavailable(t *testing.T) {
 	orig := &fakeOrigScript{
-		snaps: []*batmanadv.OriginatorTopology{
+		snaps: [][]batmanadv.Originator{
 			mkSnap(entry("bb:01", "bb:01", "wlan0")),
 			nil,
 			mkSnap(entry("bb:01", "bb:01", "wlan0")),
@@ -238,7 +238,7 @@ func TestDeltaTracker_ToleratesUnavailable(t *testing.T) {
 // TestDeltaTracker_ShutsDownCleanly confirms a canceled context tears the
 // worker goroutine down quickly and that Stop is idempotent.
 func TestDeltaTracker_ShutsDownCleanly(t *testing.T) {
-	orig := &fakeOrigScript{snaps: []*batmanadv.OriginatorTopology{mkSnap()}}
+	orig := &fakeOrigScript{snaps: [][]batmanadv.Originator{mkSnap()}}
 	gw := &fakeGateways{sets: []map[string]struct{}{{}}}
 
 	tracker := handlers.NewDeltaTracker(zerolog.Nop(), orig, gw, 10*time.Millisecond, 120)
@@ -270,7 +270,7 @@ func TestDeltaTracker_ShutsDownCleanly(t *testing.T) {
 func TestDeltaTracker_EmptyRingReturnsZero(t *testing.T) {
 	tracker := handlers.NewDeltaTracker(
 		zerolog.Nop(),
-		&fakeOrigScript{snaps: []*batmanadv.OriginatorTopology{mkSnap()}},
+		&fakeOrigScript{snaps: [][]batmanadv.Originator{mkSnap()}},
 		&fakeGateways{sets: []map[string]struct{}{{}}},
 		10*time.Millisecond,
 		120,

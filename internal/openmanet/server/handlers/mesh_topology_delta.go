@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -70,9 +71,14 @@ type deltaSample struct {
 // rolling ring of snapshots so callers can compute churn metrics over a
 // look-back window. The tracker owns a single goroutine whose lifetime is
 // bounded by the context passed to Start.
+//
+// The tracker deliberately consumes the raw originator rows rather than the
+// enriched OriginatorTopology the RPC handler uses — the churn metric only
+// needs the (orig|nextHop|iface) tuple, so it can skip bat-hosts parsing,
+// self-MAC netlink lookup, and hop-chain derivation on every sample.
 type DeltaTracker struct {
 	Log            zerolog.Logger
-	OrigProvider   batmanadv.OriginatorTopologyProvider
+	Originators    batmanadv.OriginatorProvider
 	Gateways       GatewayProvider
 	cancel         context.CancelFunc
 	Now            func() time.Time
@@ -96,7 +102,7 @@ const defaultDeltaWindow = 60 * time.Second
 // override MaxSamples etc. before calling Start.
 func NewDeltaTracker(
 	log zerolog.Logger,
-	orig batmanadv.OriginatorTopologyProvider,
+	orig batmanadv.OriginatorProvider,
 	gws GatewayProvider,
 	sampleInterval time.Duration,
 	maxSamples int,
@@ -111,7 +117,7 @@ func NewDeltaTracker(
 
 	return &DeltaTracker{
 		Log:            log,
-		OrigProvider:   orig,
+		Originators:    orig,
 		Gateways:       gws,
 		SampleInterval: sampleInterval,
 		MaxSamples:     maxSamples,
@@ -215,25 +221,31 @@ func (t *DeltaTracker) sampleOnce() {
 	}
 }
 
-// collectEdges fetches the current originator snapshot and flattens it into
+// collectEdges fetches the current raw originator rows and flattens them into
 // the "origMac|nextHopMac|hardIfname" route-edge set used by the delta ring.
 // An empty set is returned on provider failure — a complete outage is itself
 // a data point (prior-sample edges become "lost" on the next diff).
+//
+// Uses the raw provider on purpose: the tracker doesn't need bat-hosts
+// enrichment, self-MAC lookup, or hop-chain derivation — only the edge tuple.
+// An *exec.ExitError here means bat0 isn't up yet (mesh not ready) and is
+// silent; anything else is logged.
 func (t *DeltaTracker) collectEdges() map[string]struct{} {
-	if t.OrigProvider == nil {
+	if t.Originators == nil {
 		return map[string]struct{}{}
 	}
 
-	snap, err := t.OrigProvider.GetOriginatorTopology()
+	rows, err := t.Originators.GetOriginators()
 	if err != nil {
-		if !errors.Is(err, batmanadv.ErrOriginatorsUnavailable) {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
 			t.Log.Warn().Err(err).Msg("Mesh delta tracker: originator provider failure")
 		}
 
 		return map[string]struct{}{}
 	}
 
-	return edgesFromOriginators(snap)
+	return edgesFromOriginators(rows)
 }
 
 // collectGateways fetches the current mesh-gateway set, returning an empty
@@ -271,22 +283,25 @@ func setDiff(curr, prev map[string]struct{}) (added, lost uint32) {
 	return added, lost
 }
 
-// edgesFromOriginators flattens an OriginatorTopology into a set of
-// "origMac|nextHopMac|hardIfname" keys. Including the hard interface means
-// that a route that fails over from wlan0 to phy2-mesh0 (same next hop, new
-// interface) still registers as a route change — which is what operators
-// care about. Lower-cased on insertion so MAC case never leaks into
-// set-diff results.
-func edgesFromOriginators(snap *batmanadv.OriginatorTopology) map[string]struct{} {
-	if snap == nil {
-		return map[string]struct{}{}
-	}
+// edgesFromOriginators flattens the raw batctl originator rows into a set of
+// "origAddress|bestNeigh|hardIfname" keys, filtered to best-route entries
+// only. Non-best rows describe alternative neighbors we aren't forwarding
+// through and would produce spurious "route change" counts on re-election.
+//
+// Including the hard interface means a failover from wlan0 to phy2-mesh0
+// (same next hop, new interface) still registers as a route change — which
+// is what operators care about. Lower-cased on insertion so MAC case never
+// leaks into set-diff results.
+func edgesFromOriginators(rows []batmanadv.Originator) map[string]struct{} {
+	out := make(map[string]struct{}, len(rows))
 
-	out := make(map[string]struct{}, len(snap.Originators))
+	for _, o := range rows {
+		if !o.Best {
+			continue
+		}
 
-	for _, o := range snap.Originators {
-		key := strings.ToLower(o.OrigMAC) + "|" +
-			strings.ToLower(o.NextHopMAC) + "|" +
+		key := strings.ToLower(o.OrigAddress) + "|" +
+			strings.ToLower(o.BestNeigh) + "|" +
 			o.HardIfname
 		out[key] = struct{}{}
 	}

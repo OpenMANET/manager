@@ -119,11 +119,14 @@ func Start(staticFS fs.FS) {
 	// so a disabled deployment pays nothing beyond the adapter structs.
 	startInstrumentationWorker(ctx, cfg, blosManager, log)
 
-	// Build the originator-topology provider once and share it between the
-	// MeshTopologyService handler and the delta tracker, so a single
-	// snapshot source feeds both the RPC response and the churn ring.
+	// Build the originator providers. The raw provider shells out to batctl
+	// and is shared with the delta tracker, which only needs the edge
+	// tuples. The enriched provider layers bat-hosts + self-MAC + hop
+	// derivation on top for the RPC handler. Sharing the raw provider
+	// halves the number of `batctl oj` shell invocations in the hot path.
+	rawOrigProvider := &batmanadv.BatctlOriginatorProvider{}
 	meshOrigProvider := &batmanadv.BatctlOriginatorTopologyProvider{
-		Originators: &batmanadv.BatctlOriginatorProvider{},
+		Originators: rawOrigProvider,
 	}
 
 	// Start the mesh-topology delta tracker. The tracker polls the
@@ -133,7 +136,7 @@ func Start(staticFS fs.FS) {
 	// cancellation.
 	meshDeltaTracker := handlers.NewDeltaTracker(
 		logger.GetLogger("mesh-delta"),
-		meshOrigProvider,
+		rawOrigProvider,
 		handlers.BatctlGatewayProvider{},
 		time.Duration(cfg.GetMeshTopologyDeltaSampleInterval())*time.Second,
 		cfg.GetMeshTopologyMaxDeltaSamples(),
