@@ -411,6 +411,60 @@ func TestListBLOSPeers_NotRunningReturnsEmpty(t *testing.T) {
 	assert.Empty(t, resp.Peers)
 }
 
+func TestListBLOSPeers_ConsecutiveCallsServeFromCache(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "blos:\n  enable: true\n")
+
+	status := &ipnstate.Status{BackendState: "Running", Peer: map[key.NodePublic]*ipnstate.PeerStatus{}}
+	status.Peer[stableNodeKey(1)] = newPeerStatus("alpha", "alpha.example.", "nyc", "", true, 1, 2)
+
+	mgr := &fakeBLOSManager{running: true, status: status}
+	svc := newBLOSService(t, cfg, mgr)
+
+	resp1, err := svc.ListBLOSPeers(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp1.Peers, 1)
+
+	resp2, err := svc.ListBLOSPeers(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp2.Peers, 1)
+
+	// Both calls must share the same underlying proto — the cache
+	// returns the same slice, not a fresh allocation per call.
+	assert.Same(t, resp1.Peers[0], resp2.Peers[0],
+		"cached peer protos should be shared across calls within TTL")
+
+	// Status is called exactly once — the cache skips the proto
+	// rebuild on the second call.
+	assert.Equal(t, 1, mgr.getStatusCalls(),
+		"BLOSManager.Status should be called once while the cache is warm")
+}
+
+func TestListBLOSPeers_NotRunningBypassesCache(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "blos:\n  enable: true\n")
+
+	status := &ipnstate.Status{BackendState: "Running", Peer: map[key.NodePublic]*ipnstate.PeerStatus{}}
+	status.Peer[stableNodeKey(1)] = newPeerStatus("alpha", "alpha.example.", "nyc", "", true, 0, 0)
+
+	mgr := &fakeBLOSManager{running: true, status: status}
+	svc := newBLOSService(t, cfg, mgr)
+
+	// Warm the cache with one peer.
+	resp, err := svc.ListBLOSPeers(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.Peers, 1)
+
+	// BLOS goes down — the cache must NOT be served; empty list is the
+	// truthful answer.
+	mgr.mu.Lock()
+	mgr.running = false
+	mgr.mu.Unlock()
+
+	resp, err = svc.ListBLOSPeers(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	assert.Empty(t, resp.Peers,
+		"once BLOS stops running the handler must return empty, not a stale cached list")
+}
+
 // StreamBLOSEvents is covered by the integration tests in
 // integration_test.go — a ConnectRPC server stream cannot be constructed
 // directly from unit tests because the connect.ServerStream type has no

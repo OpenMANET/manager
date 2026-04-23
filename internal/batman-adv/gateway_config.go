@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"sort"
+	"strings"
 )
 
 type Gateway struct {
@@ -29,11 +30,23 @@ func GetMeshGateways(iface string) (*Gateways, error) {
 		return nil, fmt.Errorf("batctl gwj: %w", err)
 	}
 
-	var gateways Gateways
+	return parseGateways(output)
+}
 
-	err = json.Unmarshal(output, &gateways)
-	if err != nil {
+// parseGateways unmarshals the `batctl gwj` JSON payload and lower-cases
+// MAC fields so downstream handlers key maps and compare addresses
+// without per-request strings.ToLower. Exposed separately from
+// GetMeshGateways so tests can exercise the normalization without
+// exec'ing batctl.
+func parseGateways(output []byte) (*Gateways, error) {
+	var gateways Gateways
+	if err := json.Unmarshal(output, &gateways); err != nil {
 		return nil, fmt.Errorf("unmarshal gateways: %w", err)
+	}
+
+	for i := range gateways {
+		gateways[i].OrigAddress = strings.ToLower(gateways[i].OrigAddress)
+		gateways[i].Router = strings.ToLower(gateways[i].Router)
 	}
 
 	return &gateways, nil

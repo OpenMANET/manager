@@ -23,7 +23,10 @@ import Transcript from '../components/Transcript.jsx';
 import RxWaveform from '../components/RxWaveform.jsx';
 import MicMeter from '../components/MicMeter.jsx';
 
-const COMMS_STATUS_POLL_INTERVAL = 5000;
+// Aligned with the mesh / batctl snapshot cadence — the CommsService
+// status only reflects enable/disable + talkgroup state, which changes
+// on operator action, so a 10s refresh is more than fast enough.
+const COMMS_STATUS_POLL_INTERVAL = 10000;
 const MESH_STATUS_POLL_INTERVAL = 10000;
 const MAX_LOGS = 80;
 const MAX_CHAT = 200;

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // Originator represents a single entry from batctl's originator JSON output.
@@ -38,9 +39,23 @@ func (p *BatctlOriginatorProvider) GetOriginators() ([]Originator, error) {
 		return nil, fmt.Errorf("batctl oj: %w", err)
 	}
 
+	return parseOriginators(output)
+}
+
+// parseOriginators unmarshals the `batctl oj` JSON payload and
+// lower-cases every MAC field so downstream handlers skip a
+// per-request strings.ToLower on every originator. Exposed separately
+// from GetOriginators so tests can exercise the normalization without
+// exec'ing batctl.
+func parseOriginators(output []byte) ([]Originator, error) {
 	var originators []Originator
 	if err := json.Unmarshal(output, &originators); err != nil {
 		return nil, fmt.Errorf("unmarshal originators: %w", err)
+	}
+
+	for i := range originators {
+		originators[i].OrigAddress = strings.ToLower(originators[i].OrigAddress)
+		originators[i].BestNeigh = strings.ToLower(originators[i].BestNeigh)
 	}
 
 	return originators, nil

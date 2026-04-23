@@ -28,6 +28,7 @@ type fakeBLOSManager struct {
 	configureAndEnableErr   error
 	configureAndEnableCalls int
 	disableCalls            int
+	statusCalls             int
 
 	status         *ipnstate.Status
 	prefs          *ipn.Prefs
@@ -112,7 +113,16 @@ func (f *fakeBLOSManager) Status() *ipnstate.Status {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.statusCalls++
+
 	return f.status
+}
+
+func (f *fakeBLOSManager) getStatusCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.statusCalls
 }
 
 func (f *fakeBLOSManager) Prefs(_ context.Context) (*ipn.Prefs, error) {

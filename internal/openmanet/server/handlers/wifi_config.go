@@ -333,10 +333,13 @@ func (s *WifiConfigService) ListConnectedClients(ctx context.Context, req *wific
 	clients := make([]*wificonfigv1.ConnectedClient, 0, len(stations))
 
 	for _, st := range stations {
+		// net.HardwareAddr.String() is documented to return lower-case
+		// hex; macToHostname is keyed by lower-case MACs from ingestion
+		// (see buildMACHostnameMap).
 		mac := st.HardwareAddr.String()
 
 		clients = append(clients, &wificonfigv1.ConnectedClient{
-			Hostname:   macToHostname[strings.ToLower(mac)],
+			Hostname:   macToHostname[mac],
 			MacAddress: mac,
 			SignalDbm:  int32(st.Signal),
 			RxRateBps:  int64(st.ReceiveBitrate),
@@ -476,6 +479,9 @@ func (s *WifiConfigService) buildMACHostnameMap(ctx context.Context) map[string]
 		return m
 	}
 
+	// ubus emits DHCP lease MACs in the case dnsmasq stored them (often
+	// upper-case). Normalize to lower-case keys so lookups by
+	// net.HardwareAddr.String() — which is always lower-case — hit.
 	for _, l := range resp.GetDHCPLeases() {
 		m[strings.ToLower(l.MacAddr)] = l.Hostname
 	}
@@ -503,14 +509,19 @@ func (s *WifiConfigService) buildMeshPeerList(
 	if iface != nil {
 		stInfos, err := s.Wifi.StationInfo(iface)
 		if err == nil {
+			// net.HardwareAddr.String() returns lower-case hex, so the
+			// map key is naturally normalized.
 			for _, st := range stInfos {
-				signalByMAC[strings.ToLower(st.HardwareAddr.String())] = st.Signal
+				signalByMAC[st.HardwareAddr.String()] = st.Signal
 			}
 		}
 	}
 
 	peers := make([]*wificonfigv1.MeshPeer, 0, len(filtered))
 
+	// batNeighbors were normalized to lower-case at ingestion by
+	// batmanadv.GetMeshNeighbors, so n.NeighAddress can be used as a
+	// direct map key.
 	for _, n := range filtered {
 		mac := n.NeighAddress
 		hostname := batHosts.GetHostByMAC(mac)
@@ -518,7 +529,7 @@ func (s *WifiConfigService) buildMeshPeerList(
 		peer := &wificonfigv1.MeshPeer{
 			Hostname:       hostname,
 			MacAddress:     mac,
-			SignalDbm:      int32(signalByMAC[strings.ToLower(mac)]),
+			SignalDbm:      int32(signalByMAC[mac]),
 			ThroughputMbps: float64(n.Throughput) / 10.0, // batman-adv reports in 100kbit/s
 			LastSeen:       durationpb.New(time.Duration(n.LastSeenMsecs) * time.Millisecond),
 		}

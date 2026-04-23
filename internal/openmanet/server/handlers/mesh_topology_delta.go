@@ -290,8 +290,9 @@ func setDiff(curr, prev map[string]struct{}) (added, lost uint32) {
 //
 // Including the hard interface means a failover from wlan0 to phy2-mesh0
 // (same next hop, new interface) still registers as a route change — which
-// is what operators care about. Lower-cased on insertion so MAC case never
-// leaks into set-diff results.
+// is what operators care about. MAC fields are normalized to lower-case by
+// batmanadv.GetOriginators at ingestion, so set-diff results are stable
+// without per-sample lower-casing here.
 func edgesFromOriginators(rows []batmanadv.Originator) map[string]struct{} {
 	out := make(map[string]struct{}, len(rows))
 
@@ -300,9 +301,7 @@ func edgesFromOriginators(rows []batmanadv.Originator) map[string]struct{} {
 			continue
 		}
 
-		key := strings.ToLower(o.OrigAddress) + "|" +
-			strings.ToLower(o.BestNeigh) + "|" +
-			o.HardIfname
+		key := o.OrigAddress + "|" + o.BestNeigh + "|" + o.HardIfname
 		out[key] = struct{}{}
 	}
 

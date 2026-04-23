@@ -31,11 +31,22 @@ func GetMeshNeighbors() (*Neighbors, error) {
 		return nil, err //nolint:wrapcheck // callers handle the error directly
 	}
 
-	var neighbors Neighbors
+	return parseNeighbors(output)
+}
 
-	err = json.Unmarshal(output, &neighbors)
-	if err != nil {
+// parseNeighbors unmarshals the `batctl nj` JSON payload and lower-cases
+// the neighbor MAC so downstream handlers can key maps without
+// per-request strings.ToLower. Exposed separately from
+// GetMeshNeighbors so tests can exercise the normalization without
+// exec'ing batctl.
+func parseNeighbors(output []byte) (*Neighbors, error) {
+	var neighbors Neighbors
+	if err := json.Unmarshal(output, &neighbors); err != nil {
 		return nil, err //nolint:wrapcheck // callers handle the error directly
+	}
+
+	for i := range neighbors {
+		neighbors[i].NeighAddress = strings.ToLower(neighbors[i].NeighAddress)
 	}
 
 	return &neighbors, nil

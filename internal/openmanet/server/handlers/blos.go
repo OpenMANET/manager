@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -35,11 +37,30 @@ const blosEventChanSize = 64
 // keepalive and openmanetd does not override it.
 const tailscaleKeepaliveInterval = 25 * time.Second
 
+// blosPeerCacheTTL bounds how long ListBLOSPeers can serve a cached proto
+// peer list. Tailscale peer churn is low-frequency and operators already
+// tolerate up to the frontend poll interval (10s) before a new peer
+// appears, so a 10s cache eliminates the per-request proto-build + sort
+// without any perceptible freshness loss.
+const blosPeerCacheTTL = 10 * time.Second
+
 // BLOSService implements the BLOS ConnectRPC service.
 type BLOSService struct {
 	Cfg         *config.Config
 	Log         zerolog.Logger
 	BLOSManager blos.BLOSLifecycle
+
+	peersCache atomic.Pointer[cachedBLOSPeers]
+	peersMu    sync.Mutex
+}
+
+// cachedBLOSPeers is the ListBLOSPeers proto slice built from the
+// Tailscale status snapshot. Dashboard + BLOS pages both poll
+// ListBLOSPeers every 10s, each currently re-allocating a BLOSPeer proto
+// per peer (100+ on large meshes) and sorting the list.
+type cachedBLOSPeers struct {
+	at    time.Time
+	peers []*v1.BLOSPeer
 }
 
 // GetBLOSStatus retrieves the current status of the BLOS subsystem.
@@ -88,32 +109,48 @@ func (b *BLOSService) GetBLOSStatus(ctx context.Context, _ *emptypb.Empty) (*v1.
 
 // ListBLOSPeers returns the remote peers visible on the Tailscale overlay.
 func (b *BLOSService) ListBLOSPeers(_ context.Context, _ *emptypb.Empty) (*v1.ListBLOSPeersResponse, error) {
-	resp := &v1.ListBLOSPeersResponse{}
-
+	// Report empty when the subsystem is down — bypassing the cache here
+	// prevents serving a stale peer list after BLOS is disabled.
 	if !b.BLOSManager.IsRunning() {
-		return resp, nil
+		return &v1.ListBLOSPeersResponse{}, nil
+	}
+
+	// Fast path: serve the cached proto slice while it's within TTL.
+	if entry := b.peersCache.Load(); entry != nil && time.Since(entry.at) < blosPeerCacheTTL {
+		return &v1.ListBLOSPeersResponse{Peers: entry.peers}, nil
+	}
+
+	b.peersMu.Lock()
+	defer b.peersMu.Unlock()
+
+	// Re-check under the refresh lock: a concurrent caller may have
+	// just rebuilt the cache.
+	if entry := b.peersCache.Load(); entry != nil && time.Since(entry.at) < blosPeerCacheTTL {
+		return &v1.ListBLOSPeersResponse{Peers: entry.peers}, nil
 	}
 
 	status := b.BLOSManager.Status()
 	if status == nil {
-		return resp, nil
+		return &v1.ListBLOSPeersResponse{}, nil
 	}
 
-	resp.Peers = make([]*v1.BLOSPeer, 0, len(status.Peer))
+	peers := make([]*v1.BLOSPeer, 0, len(status.Peer))
 
 	for _, p := range status.Peer {
 		if p == nil {
 			continue
 		}
 
-		resp.Peers = append(resp.Peers, peerToProto(p))
+		peers = append(peers, peerToProto(p))
 	}
 
-	sort.Slice(resp.Peers, func(i, j int) bool {
-		return resp.Peers[i].Hostname < resp.Peers[j].Hostname
+	sort.Slice(peers, func(i, j int) bool {
+		return peers[i].Hostname < peers[j].Hostname
 	})
 
-	return resp, nil
+	b.peersCache.Store(&cachedBLOSPeers{at: time.Now(), peers: peers})
+
+	return &v1.ListBLOSPeersResponse{Peers: peers}, nil
 }
 
 // StreamBLOSEvents streams BLOS state-change events to the client.
