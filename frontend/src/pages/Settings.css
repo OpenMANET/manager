@@ -73,6 +73,14 @@
   gap: 12px;
   margin-top: 12px;
 }
+
+.settings-password-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.settings-password-form .lat-input { width: 100%; }
+.settings-password-form .lat-btn { align-self: flex-start; }
 .settings-unsaved {
   font-family: var(--font-mono);
   font-size: 10px;

@@ -8,9 +8,11 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 // Mock the ConnectRPC transport and dashboard client used by Settings.jsx
 // for the restart button. vi.hoisted ensures the fn is available when
 // vi.mock factories execute (they are hoisted above imports).
-const { mockExecuteQuickAction, mockGetCommsConfig } = vi.hoisted(() => ({
+const { mockExecuteQuickAction, mockGetCommsConfig, mockChangePassword, authEnabledRef } = vi.hoisted(() => ({
   mockExecuteQuickAction: vi.fn().mockResolvedValue({ success: true, message: '' }),
   mockGetCommsConfig: vi.fn().mockResolvedValue({ commsEnabled: true, controlSource: 3 }),
+  mockChangePassword: vi.fn().mockResolvedValue(undefined),
+  authEnabledRef: { current: true },
 }));
 vi.mock('@connectrpc/connect', () => ({
   createClient: () => ({
@@ -19,6 +21,15 @@ vi.mock('@connectrpc/connect', () => ({
   }),
 }));
 vi.mock('../../services/connectClient.js', () => ({ transport: {} }));
+vi.mock('../../contexts/useAuth.js', () => ({
+  useAuth: () => ({
+    changePassword: mockChangePassword,
+    authEnabled: authEnabledRef.current,
+    user: 'root',
+    isAuthenticated: true,
+    logout: vi.fn(),
+  }),
+}));
 
 import SettingsPage from '../../pages/Settings.jsx';
 
@@ -28,6 +39,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
   mockExecuteQuickAction.mockReset().mockResolvedValue({ success: true, message: '' });
   mockGetCommsConfig.mockReset().mockResolvedValue({ commsEnabled: true, controlSource: 3 });
+  mockChangePassword.mockReset().mockResolvedValue(undefined);
+  authEnabledRef.current = true;
 });
 
 // ---------------------------------------------------------------------------
@@ -309,5 +322,98 @@ describe('TestSettingsControlSource', () => {
     fireEvent.change(select, { target: { value: 'openvlm' } });
     expect(screen.getByDisplayValue('OpenVLM (default)')).toBeTruthy();
     expect(screen.getByText('Unsaved changes')).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Passphrase panel
+// ---------------------------------------------------------------------------
+
+describe('TestSettingsPassphrasePanel', () => {
+  beforeEach(() => mockFetchSuccess());
+
+  async function waitForPanel() {
+    await waitFor(() => screen.getByText('Passphrase'));
+  }
+
+  it('renders the Passphrase panel when auth is enabled', async () => {
+    render(<SettingsPage />);
+    await waitForPanel();
+    expect(screen.getByLabelText('Current Passphrase')).toBeTruthy();
+    expect(screen.getByLabelText('New Passphrase')).toBeTruthy();
+    expect(screen.getByLabelText('Confirm New Passphrase')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Update Passphrase/i })).toBeTruthy();
+  });
+
+  it('hides the Passphrase panel when authEnabled is false', async () => {
+    authEnabledRef.current = false;
+    render(<SettingsPage />);
+    await waitFor(() => screen.getByText('Hostname'));
+    expect(screen.queryByText('Passphrase')).toBeNull();
+  });
+
+  it('submits current + new passphrase on success and clears fields', async () => {
+    render(<SettingsPage />);
+    await waitForPanel();
+
+    fireEvent.change(screen.getByLabelText('Current Passphrase'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('New Passphrase'), { target: { value: 'alpha123' } });
+    fireEvent.change(screen.getByLabelText('Confirm New Passphrase'), { target: { value: 'alpha123' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Update Passphrase/i }));
+
+    await waitFor(() => {
+      expect(mockChangePassword).toHaveBeenCalledWith('', 'alpha123');
+    });
+    await waitFor(() => {
+      expect(screen.getByText('Passphrase updated.')).toBeTruthy();
+    });
+    expect(screen.getByLabelText('New Passphrase').value).toBe('');
+    expect(screen.getByLabelText('Confirm New Passphrase').value).toBe('');
+  });
+
+  it('shows a mismatch error and does not call changePassword when confirm differs', async () => {
+    render(<SettingsPage />);
+    await waitForPanel();
+
+    fireEvent.change(screen.getByLabelText('New Passphrase'), { target: { value: 'alpha123' } });
+    fireEvent.change(screen.getByLabelText('Confirm New Passphrase'), { target: { value: 'alpha999' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Update Passphrase/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Passphrases do not match.')).toBeTruthy();
+    });
+    expect(mockChangePassword).not.toHaveBeenCalled();
+  });
+
+  it('disables the submit button when new or confirm is empty', async () => {
+    render(<SettingsPage />);
+    await waitForPanel();
+    const button = screen.getByRole('button', { name: /Update Passphrase/i });
+    expect(button.disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText('New Passphrase'), { target: { value: 'alpha' } });
+    expect(button.disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText('Confirm New Passphrase'), { target: { value: 'alpha' } });
+    expect(button.disabled).toBe(false);
+  });
+
+  it('renders a server error when the RPC rejects', async () => {
+    mockChangePassword.mockRejectedValueOnce(new Error('invalid credentials'));
+    render(<SettingsPage />);
+    await waitForPanel();
+
+    fireEvent.change(screen.getByLabelText('Current Passphrase'), { target: { value: 'wrong' } });
+    fireEvent.change(screen.getByLabelText('New Passphrase'), { target: { value: 'alpha123' } });
+    fireEvent.change(screen.getByLabelText('Confirm New Passphrase'), { target: { value: 'alpha123' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /Update Passphrase/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('invalid credentials')).toBeTruthy();
+    });
+    expect(mockChangePassword).toHaveBeenCalledTimes(1);
   });
 });

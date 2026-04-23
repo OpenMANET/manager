@@ -46,6 +46,7 @@ Management and operations daemon for OpenMANET mesh networks. Runs on OpenMANET 
 - Services: `CommsService`, `DashboardService`, `WifiConfigService`, `NetworkInterfaceService`, `BLOSService`, `MeshTopologyService`, `GNSSService`, node and status endpoints
 - Server-streaming RPCs for audio (`CommsService`) and BLOS events (`BLOSService`)
 - WebSocket endpoint for real-time audio streaming
+- Session-based authentication (PAM-backed); works via cookie for the Web UI or `Authorization: Bearer` header for direct callers — see [docs/api-authentication.md](docs/api-authentication.md)
 
 ## Architecture
 

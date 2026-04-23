@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 // ctxKey is an unexported type for context keys in this package.
@@ -18,8 +19,11 @@ const SessionCookieName = "session"
 
 // NewAPIAuthMiddleware returns HTTP middleware that enforces session
 // authentication for the ConnectRPC API server. When enabled is false the
-// middleware is a no-op. The following paths are always allowed without a
-// valid session:
+// middleware is a no-op. The session token may be supplied as the "session"
+// cookie (browser clients) or an "Authorization: Bearer <token>" header
+// (curl, scripts, ConnectRPC clients in other languages). When both are
+// present the Authorization header wins. The following paths are always
+// allowed without a valid session:
 //   - POST /auth/login
 //   - GET  /auth/check
 //   - POST /openmanet.dashboard.v1.DashboardService/GetDashboardStatus
@@ -32,21 +36,21 @@ func NewAPIAuthMiddleware(store *SessionStore, enabled bool) func(http.Handler) 
 				return
 			}
 
-			cookie, err := r.Cookie(SessionCookieName)
-			if err != nil {
+			token := extractSessionToken(r)
+			if token == "" {
 				writeUnauthorized(w)
 
 				return
 			}
 
-			sess, ok := store.Validate(cookie.Value)
+			sess, ok := store.Validate(token)
 			if !ok {
 				writeUnauthorized(w)
 
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), ctxKeyUsername, sess.Username)
+			ctx := ContextWithUsername(r.Context(), sess.Username)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -55,7 +59,9 @@ func NewAPIAuthMiddleware(store *SessionStore, enabled bool) func(http.Handler) 
 // NewFrontendAuthMiddleware returns HTTP middleware that enforces session
 // authentication for the frontend server. Only requests to /api/* and /ws
 // require a valid session. All other paths (SPA shell, static assets) pass
-// through. When enabled is false the middleware is a no-op.
+// through. When enabled is false the middleware is a no-op. Accepts the
+// session token via cookie or Authorization: Bearer header — same rules as
+// NewAPIAuthMiddleware.
 func NewFrontendAuthMiddleware(store *SessionStore, enabled bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -65,24 +71,47 @@ func NewFrontendAuthMiddleware(store *SessionStore, enabled bool) func(http.Hand
 				return
 			}
 
-			cookie, err := r.Cookie(SessionCookieName)
-			if err != nil {
+			token := extractSessionToken(r)
+			if token == "" {
 				writeUnauthorized(w)
 
 				return
 			}
 
-			sess, ok := store.Validate(cookie.Value)
+			sess, ok := store.Validate(token)
 			if !ok {
 				writeUnauthorized(w)
 
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), ctxKeyUsername, sess.Username)
+			ctx := ContextWithUsername(r.Context(), sess.Username)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// extractSessionToken pulls the session token from the request. Precedence:
+//  1. Authorization: Bearer <token> header — wins when present so a stale
+//     browser cookie cannot mask an explicit header.
+//  2. "session" cookie.
+//
+// Returns "" when neither is present or the header is malformed.
+func extractSessionToken(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); h != "" {
+		const prefix = "Bearer "
+		if len(h) > len(prefix) && strings.EqualFold(h[:len(prefix)], prefix) {
+			if token := strings.TrimSpace(h[len(prefix):]); token != "" {
+				return token
+			}
+		}
+	}
+
+	if cookie, err := r.Cookie(SessionCookieName); err == nil {
+		return cookie.Value
+	}
+
+	return ""
 }
 
 // UsernameFromContext returns the authenticated username stored in ctx, or an
@@ -91,6 +120,13 @@ func UsernameFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(ctxKeyUsername).(string)
 
 	return v
+}
+
+// ContextWithUsername returns a copy of ctx with the authenticated username
+// attached. Used by the auth middleware and by tests that exercise handlers
+// requiring a session without running the full middleware chain.
+func ContextWithUsername(ctx context.Context, username string) context.Context {
+	return context.WithValue(ctx, ctxKeyUsername, username)
 }
 
 // isAPISkipPath returns true for paths that are always allowed on the API

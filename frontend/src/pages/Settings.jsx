@@ -14,6 +14,7 @@ import { QuickAction } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
 import { CommsService } from "../gen/openmanet/comms/v1/comms_service_connect.js";
 import { ControlSource } from "../gen/openmanet/comms/v1/config_pb.js";
 import WhisperManager from "../components/WhisperManager.jsx";
+import { useAuth } from '../contexts/useAuth.js';
 import './Settings.css';
 
 const dashboardClient = createClient(DashboardService, transport);
@@ -61,6 +62,7 @@ function LatToggle({ checked, onChange, labelOn = 'On', labelOff = 'Off' }) {
 }
 
 export default function SettingsPage() {
+  const { changePassword, authEnabled } = useAuth();
   const [hostname, setHostname] = useState('');
   const [originalHostname, setOriginalHostname] = useState('');
   const [config, setConfig] = useState({
@@ -77,6 +79,14 @@ export default function SettingsPage() {
   const [restarting, setRestarting] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+
+  // Passphrase panel state.
+  const [currentPw, setCurrentPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwError, setPwError] = useState(null);
+  const [pwSuccess, setPwSuccess] = useState(null);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -209,6 +219,34 @@ export default function SettingsPage() {
     }
   };
 
+  const handleChangePassword = async (e) => {
+    e?.preventDefault?.();
+    setPwError(null);
+    setPwSuccess(null);
+
+    if (!newPw) {
+      setPwError('New passphrase is required.');
+      return;
+    }
+    if (newPw !== confirmPw) {
+      setPwError('Passphrases do not match.');
+      return;
+    }
+
+    setPwSaving(true);
+    try {
+      await changePassword(currentPw, newPw);
+      setPwSuccess('Passphrase updated.');
+      setCurrentPw('');
+      setNewPw('');
+      setConfirmPw('');
+    } catch (err) {
+      setPwError(err?.message || 'Failed to change passphrase.');
+    } finally {
+      setPwSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="settings-wrapper">
@@ -288,6 +326,62 @@ export default function SettingsPage() {
             {restarting ? 'Restarting...' : 'Restart openmanetd'}
           </button>
         </div>
+
+        {/* Passphrase (operator account) */}
+        {authEnabled && (
+          <div className="lat-panel">
+            <div className="panel-head"><h3>Passphrase</h3></div>
+            <form className="settings-password-form" onSubmit={handleChangePassword}>
+              <div className="lat-field">
+                <label htmlFor="current-pw">Current Passphrase</label>
+                <input
+                  id="current-pw"
+                  className="lat-input"
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPw}
+                  onChange={(e) => setCurrentPw(e.target.value)}
+                  disabled={pwSaving}
+                />
+              </div>
+              <div className="lat-field">
+                <label htmlFor="new-pw">New Passphrase</label>
+                <input
+                  id="new-pw"
+                  className="lat-input"
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPw}
+                  onChange={(e) => setNewPw(e.target.value)}
+                  disabled={pwSaving}
+                />
+              </div>
+              <div className="lat-field">
+                <label htmlFor="confirm-pw">Confirm New Passphrase</label>
+                <input
+                  id="confirm-pw"
+                  className="lat-input"
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmPw}
+                  onChange={(e) => setConfirmPw(e.target.value)}
+                  disabled={pwSaving}
+                />
+              </div>
+
+              {pwError && <div className="lat-alert crit" role="alert">{pwError}</div>}
+              {pwSuccess && <div className="lat-alert ok" role="status">{pwSuccess}</div>}
+
+              <button
+                type="submit"
+                className="lat-btn primary"
+                disabled={pwSaving || !newPw || !confirmPw}
+              >
+                {pwSaving ? 'Updating…' : 'Update Passphrase'}
+              </button>
+            </form>
+          </div>
+        )}
 
         {/* Whisper Speech-to-Text (its own card) */}
         <WhisperManager />

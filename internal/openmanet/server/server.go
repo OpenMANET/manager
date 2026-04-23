@@ -198,13 +198,15 @@ func NewAPIServer(cfg APIServer) *APIServer {
 	// the frontend can determine whether auth is required.
 	if cfg.Authenticator != nil && cfg.SessionStore != nil {
 		authHandler := &auth.AuthHandler{
-			Log:           cfg.Log.With().Str("service", "auth").Logger(),
-			Authenticator: cfg.Authenticator,
-			Store:         cfg.SessionStore,
+			Log:            cfg.Log.With().Str("service", "auth").Logger(),
+			Authenticator:  cfg.Authenticator,
+			Store:          cfg.SessionStore,
+			PasswordSetter: &auth.ChpasswdSetter{},
 		}
 		api.HandleFunc("/auth/login", authHandler.HandleLogin)
 		api.HandleFunc("/auth/logout", authHandler.HandleLogout)
 		api.HandleFunc("/auth/check", authHandler.HandleCheck)
+		api.HandleFunc("/auth/change-password", authHandler.HandleChangePassword)
 	} else {
 		// Auth disabled — always report authenticated so the frontend
 		// skips the login gate.
