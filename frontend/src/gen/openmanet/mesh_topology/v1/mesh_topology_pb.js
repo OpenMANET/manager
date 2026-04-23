@@ -35,6 +35,7 @@ export const MeshEdge = /*@__PURE__*/ proto3.makeMessageType(
     { no: 4, name: "metric", kind: "scalar", T: 2 /* ScalarType.FLOAT */ },
     { no: 5, name: "signal", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
     { no: 6, name: "signal_average", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 7, name: "router_hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ],
 );
 

@@ -114,6 +114,74 @@
   stroke-opacity: 0.6;
   stroke-dasharray: 2 3;
 }
+.topo-edge.blos {
+  stroke: var(--warn);
+  stroke-opacity: 0.75;
+  stroke-dasharray: 6 4;
+}
+
+.topo-edge-label-text {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  paint-order: stroke fill;
+  stroke: var(--bg);
+  stroke-width: 3px;
+}
+.topo-edge-count {
+  fill: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  text-anchor: middle;
+  pointer-events: none;
+  paint-order: stroke fill;
+  stroke: var(--bg);
+  stroke-width: 3px;
+}
+
+/* ── Interface badges ───────────────────────────────────────────────────── */
+
+.topo-iface-badge {
+  pointer-events: none;
+}
+.topo-iface-badge.rf {
+  fill: var(--accent);
+  stroke: none;
+}
+.topo-iface-badge.blos {
+  fill: none;
+  stroke: var(--warn);
+  stroke-width: 1.2;
+  stroke-dasharray: 2 1.5;
+}
+.topo-iface-overflow {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+/* ── Segment boxes ──────────────────────────────────────────────────────── */
+
+.topo-segment-box rect {
+  fill: rgba(0, 229, 255, 0.02);
+  stroke: var(--border);
+  stroke-width: 1;
+  pointer-events: none;
+}
+.topo-segment-label {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
 
 /* ── Empty states / selected panel ──────────────────────────────────────── */
 
@@ -146,6 +214,65 @@
   margin-top: 10px;
 }
 .topo-actions .lat-btn { flex: 1; }
+
+/* ── Selected-panel: interfaces + links ─────────────────────────────────── */
+
+.topo-section-head {
+  margin-top: 14px;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+
+.topo-iface-row .k { display: inline-flex; align-items: center; gap: 6px; }
+.topo-iface-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.topo-iface-dot.rf  { background: var(--accent); }
+.topo-iface-dot.blos {
+  background: transparent;
+  border: 1px dashed var(--warn);
+}
+
+.topo-link-group {
+  padding: 6px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.topo-link-group:first-of-type { border-top: none; }
+.topo-link-header {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text);
+  letter-spacing: 0.08em;
+  margin-bottom: 3px;
+}
+.topo-link-group.blos .topo-link-header { color: var(--warn); }
+.topo-link-contrib {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  padding-left: 10px;
+}
+.topo-link-contrib .iface { color: var(--muted); }
+.topo-link-contrib .metric { color: var(--accent); }
+
+/* ── Mobile responsiveness: stack segments + shrink canvas height ──────── */
+
+@media (max-width: 600px) {
+  .topo-canvas svg { height: 320px; }
+  .topo-segment-label { font-size: 8px; letter-spacing: 0.12em; }
+}
 
 /* ── Accessibility ──────────────────────────────────────────────────────── */
 

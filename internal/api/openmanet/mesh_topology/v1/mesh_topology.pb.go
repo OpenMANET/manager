@@ -103,8 +103,11 @@ type MeshEdge struct {
 	// signal_average is the averaged signal strength in dBm for the same
 	// station entry as signal. Zero when unknown.
 	SignalAverage int32 `protobuf:"varint,6,opt,name=signal_average,json=signalAverage,proto3" json:"signal_average,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// router_hostname is the friendly name of router_mac from
+	// /tmp/bat-hosts (e.g. "BCM2711-97d6_wlan0"). Empty if unknown.
+	RouterHostname string `protobuf:"bytes,7,opt,name=router_hostname,json=routerHostname,proto3" json:"router_hostname,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *MeshEdge) Reset() {
@@ -177,6 +180,13 @@ func (x *MeshEdge) GetSignalAverage() int32 {
 		return x.SignalAverage
 	}
 	return 0
+}
+
+func (x *MeshEdge) GetRouterHostname() string {
+	if x != nil {
+		return x.RouterHostname
+	}
+	return ""
 }
 
 // MeshNode represents a single mesh node as seen by batadv-vis. The primary
@@ -350,7 +360,7 @@ const file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc = "" +
 	"\n" +
 	"MeshClient\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12\x1a\n" +
-	"\bhostname\x18\x02 \x01(\tR\bhostname\"\xd0\x01\n" +
+	"\bhostname\x18\x02 \x01(\tR\bhostname\"\xf9\x01\n" +
 	"\bMeshEdge\x12\x1d\n" +
 	"\n" +
 	"router_mac\x18\x01 \x01(\tR\trouterMac\x12!\n" +
@@ -358,7 +368,8 @@ const file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc = "" +
 	"\x11neighbor_hostname\x18\x03 \x01(\tR\x10neighborHostname\x12\x16\n" +
 	"\x06metric\x18\x04 \x01(\x02R\x06metric\x12\x16\n" +
 	"\x06signal\x18\x05 \x01(\x05R\x06signal\x12%\n" +
-	"\x0esignal_average\x18\x06 \x01(\x05R\rsignalAverage\"\x83\x02\n" +
+	"\x0esignal_average\x18\x06 \x01(\x05R\rsignalAverage\x12'\n" +
+	"\x0frouter_hostname\x18\a \x01(\tR\x0erouterHostname\"\x83\x02\n" +
 	"\bMeshNode\x12\x1f\n" +
 	"\vprimary_mac\x18\x01 \x01(\tR\n" +
 	"primaryMac\x12)\n" +

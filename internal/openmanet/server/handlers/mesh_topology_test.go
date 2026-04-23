@@ -147,6 +147,8 @@ func TestGetMeshTopology_Success(t *testing.T) {
 	require.Len(t, node0.GetClients(), 2)
 
 	edge0 := node0.GetNeighbors()[0]
+	assert.Equal(t, "9c:ef:d5:f9:80:4d", edge0.GetRouterMac())
+	assert.Equal(t, "BCM2711-97d6_phy2-mesh0", edge0.GetRouterHostname())
 	assert.Equal(t, "9c:ef:d5:f9:9e:02", edge0.GetNeighborMac())
 	assert.Equal(t, "BCM2711-88ba_phy2-mesh0", edge0.GetNeighborHostname())
 	assert.Less(t, math.Abs(float64(edge0.GetMetric()-1.008)), 1e-4)
@@ -154,6 +156,8 @@ func TestGetMeshTopology_Success(t *testing.T) {
 	assert.Equal(t, int32(-65), edge0.GetSignalAverage())
 
 	edge1 := node0.GetNeighbors()[1]
+	assert.Equal(t, "9c:ef:d5:f9:80:4d", edge1.GetRouterMac())
+	assert.Equal(t, "BCM2711-97d6_phy2-mesh0", edge1.GetRouterHostname())
 	assert.Equal(t, "00:0a:52:0b:7d:ae", edge1.GetNeighborMac())
 	assert.Equal(t, "BCM2711-1003_phy1-mesh0", edge1.GetNeighborHostname())
 	assert.Zero(t, edge1.GetSignal(), "no station match — signal must be zero")
@@ -257,6 +261,7 @@ func TestGetMeshTopology_BatHostsMissing(t *testing.T) {
 
 	node0 := resp.GetTopology().GetNodes()[0]
 	assert.Empty(t, node0.GetPrimaryHostname())
+	assert.Empty(t, node0.GetNeighbors()[0].GetRouterHostname())
 	assert.Empty(t, node0.GetNeighbors()[0].GetNeighborHostname())
 	assert.Empty(t, node0.GetClients()[0].GetHostname())
 }
@@ -313,6 +318,7 @@ func TestGetMeshTopology_UnknownMAC(t *testing.T) {
 	node := resp.GetTopology().GetNodes()[0]
 	assert.Equal(t, "ff:ff:ff:ff:ff:ff", node.GetPrimaryMac())
 	assert.Empty(t, node.GetPrimaryHostname())
+	assert.Empty(t, node.GetNeighbors()[0].GetRouterHostname())
 	assert.Empty(t, node.GetNeighbors()[0].GetNeighborHostname())
 	assert.Empty(t, node.GetClients()[0].GetHostname())
 }

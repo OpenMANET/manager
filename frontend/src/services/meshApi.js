@@ -122,6 +122,7 @@ export async function fetchMeshTopology() {
         secondaryMacs: n.secondaryMacs ?? [],
         neighbors: (n.neighbors ?? []).map((e) => ({
           routerMac: e.routerMac ?? '',
+          routerHostname: e.routerHostname ?? '',
           neighborMac: e.neighborMac ?? '',
           neighborHostname: e.neighborHostname ?? '',
           metric: e.metric ?? 0,

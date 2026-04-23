@@ -226,7 +226,12 @@ func TestIntegration_GetMeshTopology(t *testing.T) {
 	assert.Equal(t, "0a:d7:37:78:2d:3e", node0.GetPrimaryMac())
 	assert.Equal(t, "BCM2711-97d6_bat0", node0.GetPrimaryHostname())
 	require.Len(t, node0.GetNeighbors(), 2)
-	assert.Equal(t, "9c:ef:d5:f9:9e:02", node0.GetNeighbors()[0].GetNeighborMac())
+	edge0 := node0.GetNeighbors()[0]
+	assert.Equal(t, "9c:ef:d5:f9:9e:02", edge0.GetNeighborMac())
+	// router_hostname must round-trip so the frontend can tell which local
+	// interface carried the edge (wlan0 vs phy2-mesh0 vs vxlan0).
+	assert.Equal(t, "BCM2711-97d6_phy2-mesh0", edge0.GetRouterHostname())
+	assert.Equal(t, "BCM2711-88ba_phy2-mesh0", edge0.GetNeighborHostname())
 }
 
 // ── StatusService ─────────────────────────────────────────────────────────────

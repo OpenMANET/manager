@@ -98,6 +98,7 @@ func (s *MeshTopologyService) GetMeshTopology(_ context.Context, _ *emptypb.Empt
 		for _, n := range entry.Neighbors {
 			edge := &meshtopov1.MeshEdge{
 				RouterMac:        n.Router,
+				RouterHostname:   batHosts.GetHostByMAC(n.Router),
 				NeighborMac:      n.Neighbor,
 				NeighborHostname: batHosts.GetHostByMAC(n.Neighbor),
 				Metric:           batmanadv.ParseMetric(n.Metric),
