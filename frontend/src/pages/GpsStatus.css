@@ -1,6 +1,8 @@
 /* =============================================================================
- * GpsStatus.css — GPS / GNSS page-specific styles (mostly SkyPlot SVG)
+ * GpsStatus.css — GPS / GNSS page styles
  * ============================================================================= */
+
+/* ── Sky plot SVG (shared with SkyPlot.jsx) ─────────────────────────────── */
 
 .skyplot-svg {
   display: block;
@@ -55,4 +57,160 @@
 
 @media (prefers-reduced-motion: reduce) {
   .skyplot-sat { filter: none !important; }
+}
+
+/* ── Grid body ──────────────────────────────────────────────────────────── */
+
+.gps-body {
+  gap: 14px;
+}
+
+/* ── Globe panel ────────────────────────────────────────────────────────── */
+
+.gps-panel-globe {
+  align-items: center;
+}
+
+.gps-globe-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.gps-globe-canvas {
+  display: block;
+  cursor: grab;
+  touch-action: none;
+  max-width: 100%;
+}
+
+.gps-globe-coord {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+.gps-globe-coord.muted {
+  color: var(--muted);
+}
+
+.gps-globe-hint {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+/* ── Sky plot panel ─────────────────────────────────────────────────────── */
+
+.gps-sky-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.gps-sky-hint {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+/* ── Position panel ─────────────────────────────────────────────────────── */
+
+.gps-position {
+  font-family: var(--font-mono);
+  line-height: 1.4;
+}
+
+.gps-pos-label {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-top: 8px;
+}
+.gps-pos-label:first-child {
+  margin-top: 0;
+}
+
+.gps-pos-value {
+  color: var(--text);
+  font-size: 13px;
+}
+.gps-pos-value.accent {
+  color: var(--accent);
+}
+.gps-pos-mgrs {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+/* ── Satellite SNR panel ────────────────────────────────────────────────── */
+
+.gps-table-scroll {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.gps-filter-active {
+  color: var(--accent) !important;
+  border-bottom: 1px solid var(--accent);
+}
+
+.gps-empty {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  padding: 16px 0;
+  text-align: center;
+}
+
+/* ── Output protocols panel ─────────────────────────────────────────────── */
+
+.gps-output-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.gps-output-save {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+/* ── Loading fallback ───────────────────────────────────────────────────── */
+
+.gps-loading {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  padding: 40px 0;
+  text-align: center;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .gps-output-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .gps-output-row {
+    grid-template-columns: 1fr;
+  }
 }

@@ -79,7 +79,7 @@ describe('TestGpsStatusLoading', () => {
     mockGetGNSSConfig.mockReturnValue(new Promise(() => {}));
     mockGetGNSSStatus.mockReturnValue(new Promise(() => {}));
     render(<GpsStatusPage />);
-    expect(screen.getByText('Loading GNSS data...')).toBeTruthy();
+    expect(screen.getAllByText('Loading GNSS data...').length).toBeGreaterThan(0);
   });
 });
 
@@ -99,12 +99,12 @@ describe('TestGpsStatusConfigError', () => {
 // ── No GPS data ─────────────────────────────────────────────────────────────
 
 describe('TestGpsStatusNoData', () => {
-  it('renders page with no position data', async () => {
+  it('renders page shell with no position data', async () => {
     mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
     mockGetGNSSStatus.mockResolvedValue(null);
     render(<GpsStatusPage />);
     await waitFor(() => {
-      expect(screen.getByText('GPS / GNSS')).toBeTruthy();
+      expect(screen.getByRole('heading', { name: /GPS \/ GNSS/ })).toBeTruthy();
     });
     expect(screen.getByText('No position data')).toBeTruthy();
     expect(screen.getByText('No satellite data available.')).toBeTruthy();
@@ -114,14 +114,15 @@ describe('TestGpsStatusNoData', () => {
 // ── No fix state ────────────────────────────────────────────────────────────
 
 describe('TestGpsStatusNoFix', () => {
-  it('shows No Fix when fix type is 0', async () => {
+  it('shows No Fix big-num when fix type is 0', async () => {
     mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
     mockGetGNSSStatus.mockResolvedValue(STATUS_NO_FIX);
     render(<GpsStatusPage />);
     await waitFor(() => {
-      expect(screen.getByText('No Fix')).toBeTruthy();
+      expect(screen.getAllByText('No Fix').length).toBeGreaterThan(0);
     });
-    expect(screen.getByText('Satellites (0 used / 0 in view)')).toBeTruthy();
+    // Topbar subtitle should also show NO FIX with satellite count.
+    expect(screen.getByText(/NO FIX · 0\/0 SATS/)).toBeTruthy();
   });
 });
 
@@ -133,115 +134,153 @@ describe('TestGpsStatus3DFix', () => {
     mockGetGNSSStatus.mockResolvedValue(STATUS_3D_FIX);
     render(<GpsStatusPage />);
     await waitFor(() => {
-      expect(screen.getByText('3D Fix')).toBeTruthy();
+      expect(screen.getByText('3D')).toBeTruthy();
     });
-    expect(screen.getByText('34.052200')).toBeTruthy();
-    expect(screen.getByText('-118.243700')).toBeTruthy();
-    expect(screen.getByText('71 m MSL')).toBeTruthy();
-    expect(screen.getByText('0.0 km/h')).toBeTruthy();
-    expect(screen.getByText('245.0 deg')).toBeTruthy();
+    // Topbar subtitle
+    expect(screen.getByText(/3D FIX · 8\/12 SATS/)).toBeTruthy();
+    // Position values rendered as DMS
+    expect(screen.getByText(/34° 03′ .*″ N/)).toBeTruthy();
+    expect(screen.getByText(/118° 14′ .*″ W/)).toBeTruthy();
+    expect(screen.getByText('71.0 m')).toBeTruthy();
+    // Fix quality KV values
+    expect(screen.getByText('FIXED')).toBeTruthy();
     expect(screen.getByText('1.2')).toBeTruthy();
     expect(screen.getByText('0.9')).toBeTruthy();
   });
 });
 
-// ── Map view ────────────────────────────────────────────────────────────────
+// ── Globe panel ─────────────────────────────────────────────────────────────
 
-describe('TestGpsStatusMapView', () => {
-  it('shows coordinates in map view', async () => {
+describe('TestGpsStatusGlobePanel', () => {
+  it('shows Globe panel with coordinate line', async () => {
     mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
     mockGetGNSSStatus.mockResolvedValue(STATUS_3D_FIX);
     const { container } = render(<GpsStatusPage />);
     await waitFor(() => {
-      expect(screen.getByText('Globe View')).toBeTruthy();
+      expect(screen.getByRole('heading', { name: /Globe · WGS84/ })).toBeTruthy();
     });
-    // Coordinate div uses toFixed(6) with N/S E/W suffixes
-    const coordDiv = container.querySelector('div[style*="monospace"][style*="color: var(--green)"]');
-    expect(coordDiv).toBeTruthy();
-    expect(coordDiv.textContent).toContain('34.052200');
-    expect(coordDiv.textContent).toContain('N');
-    expect(coordDiv.textContent).toContain('118.243700');
-    expect(coordDiv.textContent).toContain('W');
-    // Altitude line
-    expect(screen.getByText(/71m MSL/)).toBeTruthy();
+    const coord = container.querySelector('.gps-globe-coord');
+    expect(coord).toBeTruthy();
+    expect(coord.textContent).toContain('34.0522');
+    expect(coord.textContent).toContain('N');
+    expect(coord.textContent).toContain('118.2437');
+    expect(coord.textContent).toContain('W');
   });
 });
 
-// ── Satellite table ─────────────────────────────────────────────────────────
+// ── MGRS ────────────────────────────────────────────────────────────────────
 
-describe('TestGpsStatusSatellites', () => {
-  it('renders satellite table with correct data', async () => {
+describe('TestGpsStatusMGRS', () => {
+  it('renders MGRS derived from lat/lon', async () => {
     mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
     mockGetGNSSStatus.mockResolvedValue(STATUS_3D_FIX);
     render(<GpsStatusPage />);
     await waitFor(() => {
-      expect(screen.getByText('Satellites (8 used / 12 in view)')).toBeTruthy();
+      expect(screen.getByText('MGRS')).toBeTruthy();
     });
-    // PRN labels
-    expect(screen.getByText('G2')).toBeTruthy();
-    expect(screen.getByText('G5')).toBeTruthy();
-    expect(screen.getByText('G7')).toBeTruthy();
-    // Elevation
-    expect(screen.getByText('45 deg')).toBeTruthy();
-    expect(screen.getByText('72 deg')).toBeTruthy();
-    expect(screen.getByText('15 deg')).toBeTruthy();
-    // Azimuth
-    expect(screen.getByText('120 deg')).toBeTruthy();
-    expect(screen.getByText('210 deg')).toBeTruthy();
-    expect(screen.getByText('330 deg')).toBeTruthy();
-    // SNR values
-    expect(screen.getByText('38')).toBeTruthy();
-    expect(screen.getByText('42')).toBeTruthy();
-    expect(screen.getByText('18')).toBeTruthy();
+    // LA area is in UTM zone 11S, expect "11S" prefix.
+    expect(screen.getByText(/^11S /)).toBeTruthy();
   });
 });
 
-// ── GPS settings panel ──────────────────────────────────────────────────────
+// ── Topbar chips ────────────────────────────────────────────────────────────
 
-describe('TestGpsStatusSettingsDisabled', () => {
-  it('shows GPS disabled state', async () => {
+describe('TestGpsStatusTopbarChips', () => {
+  it('renders HDOP / PDOP / GPGGA chips with values', async () => {
+    mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
+    mockGetGNSSStatus.mockResolvedValue(STATUS_3D_FIX);
+    render(<GpsStatusPage />);
+    await waitFor(() => {
+      expect(screen.getByText(/HDOP 0.9/)).toBeTruthy();
+    });
+    expect(screen.getByText(/PDOP 1.2/)).toBeTruthy();
+    expect(screen.getByText(/GPGGA /)).toBeTruthy();
+  });
+});
+
+// ── Satellite SNR table ─────────────────────────────────────────────────────
+
+describe('TestGpsStatusSatellites', () => {
+  it('renders satellite SNR table with PRN, constellation, elev, azim, snr, used', async () => {
+    mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
+    mockGetGNSSStatus.mockResolvedValue(STATUS_3D_FIX);
+    const { container } = render(<GpsStatusPage />);
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /Satellite SNR/ })).toBeTruthy();
+    });
+    const rows = container.querySelectorAll('.gps-panel-snr tbody tr');
+    expect(rows.length).toBe(3);
+    // Row 1 — PRN 2, GPS, 45°, 120°, 38, ✓
+    const row1 = rows[0].querySelectorAll('td');
+    expect(row1[0].textContent).toBe('2');
+    expect(row1[1].textContent).toBe('GPS');
+    expect(row1[2].textContent).toBe('45°');
+    expect(row1[3].textContent).toBe('120°');
+    expect(row1[4].textContent).toBe('38');
+    expect(row1[5].textContent).toBe('✓');
+    // Row 3 — PRN 7, not used
+    const row3 = rows[2].querySelectorAll('td');
+    expect(row3[0].textContent).toBe('7');
+    expect(row3[4].textContent).toBe('18');
+    expect(row3[5].textContent).toBe('✗');
+  });
+
+  it('filters to used-only when USED button clicked', async () => {
+    mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
+    mockGetGNSSStatus.mockResolvedValue(STATUS_3D_FIX);
+    const { container } = render(<GpsStatusPage />);
+    await waitFor(() => {
+      expect(container.querySelectorAll('.gps-panel-snr tbody tr').length).toBe(3);
+    });
+    fireEvent.click(screen.getByText('USED'));
+    // Only 2 used satellites remain.
+    expect(container.querySelectorAll('.gps-panel-snr tbody tr').length).toBe(2);
+  });
+});
+
+// ── Output protocols panel ──────────────────────────────────────────────────
+
+describe('TestGpsStatusOutputDisabled', () => {
+  it('renders output protocol toggles and save button', async () => {
     mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
     mockGetGNSSStatus.mockResolvedValue(STATUS_NO_FIX);
     render(<GpsStatusPage />);
     await waitFor(() => {
-      expect(screen.getByText('GPS Settings')).toBeTruthy();
+      expect(screen.getByRole('heading', { name: /Output Protocols/ })).toBeTruthy();
     });
-    expect(screen.getByText('Enable GPS')).toBeTruthy();
-    expect(screen.getByText('Send as NMEA')).toBeTruthy();
-    expect(screen.getByText('Send as CoT (Cursor on Target)')).toBeTruthy();
-    expect(screen.getByText('Save Settings')).toBeTruthy();
+    expect(screen.getByText('GPS Enabled')).toBeTruthy();
+    expect(screen.getByText('NMEA Out')).toBeTruthy();
+    expect(screen.getByText('CoT Out')).toBeTruthy();
+    expect(screen.getByText('SAVE GNSS CONFIG')).toBeTruthy();
   });
 });
 
-describe('TestGpsStatusSettingsEnabled', () => {
-  it('shows GPS enabled state with config values', async () => {
+describe('TestGpsStatusOutputEnabled', () => {
+  it('shows config values when GPS is enabled', async () => {
     mockGetGNSSConfig.mockResolvedValue(CONFIG_ENABLED);
     mockGetGNSSStatus.mockResolvedValue(STATUS_3D_FIX);
     render(<GpsStatusPage />);
     await waitFor(() => {
-      expect(screen.getByText('GPS Settings')).toBeTruthy();
+      expect(screen.getByRole('heading', { name: /Output Protocols/ })).toBeTruthy();
     });
-    // CoT UID input should have the value from config
-    const cotInput = screen.getByPlaceholderText('Leave empty for hostname');
-    expect(cotInput.value).toBe('my-device-123');
+    const cotInput = screen.getByDisplayValue('my-device-123');
+    expect(cotInput).toBeTruthy();
   });
 });
 
-// ── Toggle interactions ─────────────────────────────────────────────────────
+// ── Toggle interaction ──────────────────────────────────────────────────────
 
 describe('TestGpsStatusToggleGPS', () => {
-  it('toggles Enable GPS switch', async () => {
+  it('clicking a toggle track does not trigger save by itself', async () => {
     mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
     mockGetGNSSStatus.mockResolvedValue(STATUS_NO_FIX);
     const { container } = render(<GpsStatusPage />);
-    await waitFor(() => screen.getByText('GPS Settings'));
+    await waitFor(() => screen.getByText('GPS Enabled'));
 
-    // Find the first toggle (Enable GPS) and click it
-    const toggles = container.querySelectorAll('div[style*="width: 42px"]');
-    expect(toggles.length).toBeGreaterThanOrEqual(1);
-    fireEvent.click(toggles[0]);
+    const track = container.querySelector('.lat-toggle .track');
+    expect(track).toBeTruthy();
+    fireEvent.click(track);
 
-    // After clicking, updateGNSSConfig hasn't been called yet (need to click Save)
     expect(mockUpdateGNSSConfig).not.toHaveBeenCalled();
   });
 });
@@ -255,9 +294,9 @@ describe('TestGpsStatusSaveSuccess', () => {
     mockUpdateGNSSConfig.mockResolvedValue({ success: true, message: 'GNSS configuration updated successfully.' });
 
     render(<GpsStatusPage />);
-    await waitFor(() => screen.getByText('Save Settings'));
+    await waitFor(() => screen.getByText('SAVE GNSS CONFIG'));
 
-    fireEvent.click(screen.getByText('Save Settings'));
+    fireEvent.click(screen.getByText('SAVE GNSS CONFIG'));
 
     await waitFor(() => {
       expect(screen.getByText('GNSS configuration updated successfully.')).toBeTruthy();
@@ -278,9 +317,9 @@ describe('TestGpsStatusSaveFailure', () => {
     mockUpdateGNSSConfig.mockRejectedValue(new Error('permission denied'));
 
     render(<GpsStatusPage />);
-    await waitFor(() => screen.getByText('Save Settings'));
+    await waitFor(() => screen.getByText('SAVE GNSS CONFIG'));
 
-    fireEvent.click(screen.getByText('Save Settings'));
+    fireEvent.click(screen.getByText('SAVE GNSS CONFIG'));
 
     await waitFor(() => {
       expect(screen.getByText(/Failed to save GNSS config: permission denied/)).toBeTruthy();
@@ -293,9 +332,9 @@ describe('TestGpsStatusSaveFailure', () => {
     mockUpdateGNSSConfig.mockResolvedValue({ success: false, message: 'config file locked' });
 
     render(<GpsStatusPage />);
-    await waitFor(() => screen.getByText('Save Settings'));
+    await waitFor(() => screen.getByText('SAVE GNSS CONFIG'));
 
-    fireEvent.click(screen.getByText('Save Settings'));
+    fireEvent.click(screen.getByText('SAVE GNSS CONFIG'));
 
     await waitFor(() => {
       expect(screen.getByText(/Failed to save GNSS config/)).toBeTruthy();
@@ -311,14 +350,15 @@ describe('TestGpsStatusCoTUIDInput', () => {
     mockGetGNSSStatus.mockResolvedValue(STATUS_NO_FIX);
     mockUpdateGNSSConfig.mockResolvedValue({ success: true, message: 'saved' });
 
-    render(<GpsStatusPage />);
-    await waitFor(() => screen.getByText('Save Settings'));
+    const { container } = render(<GpsStatusPage />);
+    await waitFor(() => screen.getByText('SAVE GNSS CONFIG'));
 
-    const cotInput = screen.getByPlaceholderText('Leave empty for hostname');
+    const cotInput = container.querySelector('.gps-panel-output .lat-input');
+    expect(cotInput).toBeTruthy();
     fireEvent.change(cotInput, { target: { value: 'test-uid-456' } });
     expect(cotInput.value).toBe('test-uid-456');
 
-    fireEvent.click(screen.getByText('Save Settings'));
+    fireEvent.click(screen.getByText('SAVE GNSS CONFIG'));
 
     await waitFor(() => {
       expect(mockUpdateGNSSConfig).toHaveBeenCalledWith(
@@ -333,66 +373,22 @@ describe('TestGpsStatusCoTUIDInput', () => {
 // ── 2D fix ──────────────────────────────────────────────────────────────────
 
 describe('TestGpsStatus2DFix', () => {
-  it('displays 2D Fix label for fix type 2', async () => {
+  it('displays 2D big-num for fix type 2', async () => {
     const status2D = {
-      position: { fixType: 2, latitude: 51.5074, longitude: -0.1278, altitude: 0, speed: 3.0, heading: 90.0, pdop: 0, hdop: 1.5 },
+      position: {
+        fixType: 2, latitude: 51.5074, longitude: -0.1278,
+        altitude: 0, speed: 3.0, heading: 90.0, pdop: 0, hdop: 1.5,
+      },
       satelliteStatus: { satellitesUsed: 4, satellitesInView: 6, satellites: [] },
     };
     mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
     mockGetGNSSStatus.mockResolvedValue(status2D);
     render(<GpsStatusPage />);
     await waitFor(() => {
-      expect(screen.getByText('2D Fix')).toBeTruthy();
+      expect(screen.getByText('2D')).toBeTruthy();
     });
-    expect(screen.getByText('51.507400')).toBeTruthy();
-    expect(screen.getByText('10.8 km/h')).toBeTruthy();
-  });
-});
-
-// ── Speed conversion ────────────────────────────────────────────────────────
-
-describe('TestGpsStatusSpeedConversion', () => {
-  it('converts m/s to km/h correctly', async () => {
-    const status = {
-      position: { fixType: 3, latitude: 1, longitude: 1, speed: 10, heading: 0, pdop: 0, hdop: 0 },
-      satelliteStatus: { satellitesUsed: 0, satellitesInView: 0, satellites: [] },
-    };
-    mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
-    mockGetGNSSStatus.mockResolvedValue(status);
-    render(<GpsStatusPage />);
-    await waitFor(() => {
-      // 10 m/s * 3.6 = 36.0 km/h
-      expect(screen.getByText('36.0 km/h')).toBeTruthy();
-    });
-  });
-});
-
-// ── Timestamp formatting ────────────────────────────────────────────────────
-
-describe('TestGpsStatusTimestamp', () => {
-  it('formats timestamp as HH:MM:SS UTC', async () => {
-    mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
-    mockGetGNSSStatus.mockResolvedValue(STATUS_3D_FIX);
-    render(<GpsStatusPage />);
-    await waitFor(() => {
-      expect(screen.getByText('09:42:15 UTC')).toBeTruthy();
-    });
-  });
-
-  it('shows dash when no timestamp', async () => {
-    const statusNoTs = {
-      position: { fixType: 3, latitude: 1, longitude: 1, speed: 0, heading: 0, pdop: 0, hdop: 0 },
-      satelliteStatus: { satellitesUsed: 0, satellitesInView: 0, satellites: [] },
-    };
-    mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
-    mockGetGNSSStatus.mockResolvedValue(statusNoTs);
-    render(<GpsStatusPage />);
-    await waitFor(() => {
-      expect(screen.getByText('3D Fix')).toBeTruthy();
-    });
-    // Last Update row should show '-'
-    const cells = screen.getAllByText('-');
-    expect(cells.length).toBeGreaterThan(0);
+    expect(screen.getByText(/2D FIX · 4\/6 SATS/)).toBeTruthy();
+    expect(screen.getByText(/51° 30′ .*″ N/)).toBeTruthy();
   });
 });
 
@@ -405,12 +401,10 @@ describe('TestGpsStatusPolling', () => {
     mockGetGNSSStatus.mockResolvedValue(STATUS_NO_FIX);
 
     render(<GpsStatusPage />);
-    await waitFor(() => screen.getByText('GPS / GNSS'));
+    await waitFor(() => screen.getByRole('heading', { name: /GPS \/ GNSS/ }));
 
-    // Initial calls: fetchConfig + fetchStatus
     const initialCalls = mockGetGNSSStatus.mock.calls.length;
 
-    // Advance by one poll interval (2000ms)
     vi.advanceTimersByTime(2000);
     await waitFor(() => {
       expect(mockGetGNSSStatus.mock.calls.length).toBeGreaterThan(initialCalls);

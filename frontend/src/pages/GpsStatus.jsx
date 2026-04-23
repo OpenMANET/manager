@@ -2,43 +2,69 @@
 // GpsStatus.jsx — GPS / GNSS status and configuration page
 // =============================================================================
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { createClient } from "@connectrpc/connect";
-import { transport } from "../services/connectClient.js";
-import { GNSSService } from "../gen/openmanet/gnss/v1/gnss_service_connect.js";
-import WidgetGrid from '../components/WidgetGrid.jsx';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createClient } from '@connectrpc/connect';
+import { transport } from '../services/connectClient.js';
+import { GNSSService } from '../gen/openmanet/gnss/v1/gnss_service_connect.js';
 import SkyPlot from '../components/SkyPlot.jsx';
+import { coastlines } from '../data/coastlines.js';
+import { latLonToMGRS } from '../utils/mgrs.js';
+import {
+  prnToConstellation,
+  estimateCEP95,
+  computeFixRateHz,
+  dopSeverity,
+} from '../utils/gnss.js';
 import './GpsStatus.css';
 
 const gnssClient = createClient(GNSSService, transport);
 
-const FIX_LABELS = { 0: 'No Fix', 1: 'No Fix', 2: '2D Fix', 3: '3D Fix' };
+const FIX_LABELS = { 0: 'No Fix', 1: 'No Fix', 2: '2D', 3: '3D' };
+const FIX_SUBTITLE = { 0: 'NO FIX', 1: 'NO FIX', 2: '2D FIX', 3: '3D FIX' };
 const POLL_INTERVAL = 2000;
+const FIX_RATE_SAMPLES = 6;
 
-function snrColor(snr) {
-  if (snr >= 25) return 'var(--green)';
-  if (snr >= 15) return 'var(--yellow)';
-  return 'var(--red)';
-}
-
-function formatTime(ts) {
-  if (!ts) return '-';
-  const d = ts instanceof Date ? ts : new Date(ts);
-  if (isNaN(d.getTime())) return '-';
-  return d.toISOString().slice(11, 19) + ' UTC';
-}
-
-// ── Globe View ──────────────────────────────────────────────────────────────
-import { coastlines } from '../data/coastlines.js';
-
-const GLOBE_SIZE = 420;
+const GLOBE_SIZE = 300;
 const MIN_ZOOM = 0.8;
 const MAX_ZOOM = 4;
 const DEG2RAD = Math.PI / 180;
 
+const nodeName = (() => {
+  const raw = typeof window !== 'undefined' ? window.location.hostname : '';
+  const head = (raw || '').split('.')[0].toUpperCase();
+  if (!head || /^\d+$/.test(head) || head === 'LOCALHOST') return 'NODE';
+  return head;
+})();
+
+function formatDMS(deg, posSign, negSign) {
+  if (deg == null || !Number.isFinite(deg)) return '—';
+  const abs = Math.abs(deg);
+  const d = Math.floor(abs);
+  const mf = (abs - d) * 60;
+  const m = Math.floor(mf);
+  const s = (mf - m) * 60;
+  const suffix = deg >= 0 ? posSign : negSign;
+  return `${d}° ${m.toString().padStart(2, '0')}′ ${s.toFixed(2).padStart(5, '0')}″ ${suffix}`;
+}
+
+function fixColor(fixType) {
+  if (fixType === 3) return 'ok';
+  if (fixType === 2) return 'warn';
+  return 'crit';
+}
+
+function snrBadge(snr) {
+  if (snr == null || !Number.isFinite(snr)) return '';
+  if (snr >= 30) return 'badge-ok';
+  if (snr >= 15) return 'badge-warn';
+  return 'badge-crit';
+}
+
+// ── Globe rendering ─────────────────────────────────────────────────────────
+
 function drawGlobe(canvas, viewLat, viewLon, zoom) {
   const ctx = canvas.getContext('2d');
-  if (!ctx) return;
+  if (!ctx) return null;
 
   const dpr = window.devicePixelRatio || 1;
   canvas.width = GLOBE_SIZE * dpr;
@@ -50,15 +76,13 @@ function drawGlobe(canvas, viewLat, viewLon, zoom) {
 
   const cx = GLOBE_SIZE / 2;
   const cy = GLOBE_SIZE / 2;
-  const r = (GLOBE_SIZE / 2 - 16) * zoom;
+  const r = (GLOBE_SIZE / 2 - 14) * zoom;
 
   const lonRad = -viewLon * DEG2RAD;
   const latRad = viewLat * DEG2RAD;
   const cosLatR = Math.cos(latRad);
   const sinLatR = Math.sin(latRad);
 
-  // Project lat/lon to screen coordinates. Returns { x, y, z } always.
-  // z > 0 means the point is on the visible hemisphere.
   function projectFull(pLat, pLon) {
     const phi = pLat * DEG2RAD;
     const lam = pLon * DEG2RAD + lonRad;
@@ -71,37 +95,29 @@ function drawGlobe(canvas, viewLat, viewLon, zoom) {
     return { x: cx + x3 * r, y: cy - yr * r, z: zr };
   }
 
-  // Convenience: returns null for back-face (used by grid lines).
   function project(pLat, pLon) {
     const p = projectFull(pLat, pLon);
     return p.z < -0.05 ? null : p;
   }
 
-  // Clip a polygon to the visible hemisphere. Where edges cross the
-  // horizon, insert points along the globe rim arc so the fill follows
-  // the circular edge instead of cutting straight across.
   function clipToHemisphere(poly) {
     const full = poly.map((pt) => projectFull(pt[1], pt[0]));
     const clipped = [];
-    const threshold = 0;
 
-    // Interpolate the horizon crossing and snap it onto the globe rim.
     function edgePoint(a, b) {
-      const t = (threshold - a.z) / (b.z - a.z);
+      const t = (0 - a.z) / (b.z - a.z);
       const ix = a.x + t * (b.x - a.x);
       const iy = a.y + t * (b.y - a.y);
-      // Snap to rim: normalize direction from center, scale to radius.
-      const dx = ix - cx, dy = iy - cy;
+      const dx = ix - cx;
+      const dy = iy - cy;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
       return { x: cx + (dx / dist) * r, y: cy + (dy / dist) * r };
     }
 
-    // Insert arc points along the globe rim between two rim points.
     function addRimArc(from, to) {
       const a1 = Math.atan2(from.y - cy, from.x - cx);
       const a2 = Math.atan2(to.y - cy, to.x - cx);
       let delta = a2 - a1;
-      // Pick the shorter arc direction.
       if (delta > Math.PI) delta -= 2 * Math.PI;
       if (delta < -Math.PI) delta += 2 * Math.PI;
       const steps = Math.max(2, Math.ceil(Math.abs(delta) / 0.15));
@@ -116,45 +132,35 @@ function drawGlobe(canvas, viewLat, viewLon, zoom) {
     for (let i = 0; i < full.length; i++) {
       const curr = full[i];
       const prev = full[(i + full.length - 1) % full.length];
-      const currVisible = curr.z >= threshold;
-      const prevVisible = prev.z >= threshold;
+      const currVisible = curr.z >= 0;
+      const prevVisible = prev.z >= 0;
 
       if (prevVisible && !currVisible) {
-        // Exiting visible hemisphere.
         const ep = edgePoint(prev, curr);
         clipped.push(ep);
         lastExit = ep;
       } else if (!prevVisible && currVisible) {
-        // Entering visible hemisphere.
         const ep = edgePoint(prev, curr);
-        // Walk along the rim from last exit to this entry.
-        if (lastExit) {
-          addRimArc(lastExit, ep);
-        }
+        if (lastExit) addRimArc(lastExit, ep);
         clipped.push(ep);
       }
 
-      if (currVisible) {
-        clipped.push({ x: curr.x, y: curr.y });
-      }
+      if (currVisible) clipped.push({ x: curr.x, y: curr.y });
     }
 
     return clipped;
   }
 
-  // Clip to globe circle.
   ctx.save();
   ctx.beginPath();
-  ctx.arc(cx, cy, (GLOBE_SIZE / 2 - 16) * Math.max(zoom, 1), 0, Math.PI * 2);
+  ctx.arc(cx, cy, (GLOBE_SIZE / 2 - 14) * Math.max(zoom, 1), 0, Math.PI * 2);
   ctx.clip();
 
-  // Globe background — dark cool blue, Lattice accent edge.
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fillStyle = '#0b161e';
   ctx.fill();
 
-  // Grid lines — cyan, brighter on equator + prime meridian.
   ctx.lineWidth = 0.4;
   for (let gLat = -80; gLat <= 80; gLat += 20) {
     ctx.beginPath();
@@ -181,7 +187,6 @@ function drawGlobe(canvas, viewLat, viewLon, zoom) {
     ctx.stroke();
   }
 
-  // Draw coastlines — Lattice ok-green fill + stroke.
   coastlines.forEach((poly) => {
     const clipped = clipToHemisphere(poly);
     if (clipped.length < 3) return;
@@ -195,7 +200,7 @@ function drawGlobe(canvas, viewLat, viewLon, zoom) {
     ctx.fillStyle = 'rgba(0,230,118,0.18)';
     ctx.fill();
 
-    ctx.lineWidth = 1.2;
+    ctx.lineWidth = 1.0;
     ctx.strokeStyle = 'rgba(0,230,118,0.5)';
     ctx.beginPath();
     let started = false;
@@ -208,10 +213,9 @@ function drawGlobe(canvas, viewLat, viewLon, zoom) {
     ctx.stroke();
   });
 
-  // Globe rim — cyan edge at full radius.
   ctx.restore();
   ctx.beginPath();
-  ctx.arc(cx, cy, (GLOBE_SIZE / 2 - 16) * Math.max(zoom, 1), 0, Math.PI * 2);
+  ctx.arc(cx, cy, (GLOBE_SIZE / 2 - 14) * Math.max(zoom, 1), 0, Math.PI * 2);
   ctx.strokeStyle = 'rgba(0,229,255,0.45)';
   ctx.lineWidth = 1.2;
   ctx.stroke();
@@ -219,7 +223,9 @@ function drawGlobe(canvas, viewLat, viewLon, zoom) {
   return project;
 }
 
-function MapView({ position }) {
+// ── Globe panel ─────────────────────────────────────────────────────────────
+
+function GlobePanel({ position, actionsRef }) {
   const canvasRef = useRef(null);
   const viewRef = useRef({ lat: 20, lon: 0, zoom: 1 });
   const dragRef = useRef(null);
@@ -230,7 +236,6 @@ function MapView({ position }) {
   const alt = position?.altitude;
   const hasPos = lat != null && lon != null && (lat !== 0 || lon !== 0);
 
-  // Center on position when it first becomes available.
   const centeredRef = useRef(false);
   if (hasPos && !centeredRef.current) {
     viewRef.current.lat = lat;
@@ -238,39 +243,31 @@ function MapView({ position }) {
     centeredRef.current = true;
   }
 
-  // Draw the globe.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const v = viewRef.current;
     const project = drawGlobe(canvas, v.lat, v.lon, v.zoom);
-    if (!project) return;
+    if (!project || !hasPos) return;
 
-    // Plot position marker — cyan pulse.
-    if (hasPos) {
-      const ctx = canvas.getContext('2d');
-      const p = project(lat, lon);
-      if (p && ctx) {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 14, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(0,229,255,0.12)';
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(0,229,255,0.6)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = '#00e5ff';
-        ctx.fill();
-      }
-    }
+    const ctx = canvas.getContext('2d');
+    const p = project(lat, lon);
+    if (!p || !ctx) return;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 12, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,229,255,0.12)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(0,229,255,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#00e5ff';
+    ctx.fill();
   });
 
-  // Mouse/touch handlers for drag-to-rotate and scroll-to-zoom.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -282,12 +279,10 @@ function MapView({ position }) {
       v.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, v.zoom * delta));
       forceRender((n) => n + 1);
     };
-
     const onPointerDown = (e) => {
       canvas.setPointerCapture(e.pointerId);
       dragRef.current = { x: e.clientX, y: e.clientY };
     };
-
     const onPointerMove = (e) => {
       if (!dragRef.current) return;
       const dx = e.clientX - dragRef.current.x;
@@ -300,7 +295,6 @@ function MapView({ position }) {
       v.lat = Math.max(-85, Math.min(85, v.lat));
       forceRender((n) => n + 1);
     };
-
     const onPointerUp = () => {
       dragRef.current = null;
     };
@@ -320,181 +314,164 @@ function MapView({ position }) {
     };
   }, []);
 
-  const resetView = () => {
+  const resetView = useCallback(() => {
+    const v = viewRef.current;
+    v.lat = 20;
+    v.lon = 0;
+    v.zoom = 1;
+    forceRender((n) => n + 1);
+  }, []);
+
+  const centerView = useCallback(() => {
     const v = viewRef.current;
     if (hasPos) {
       v.lat = lat;
       v.lon = lon;
-    } else {
-      v.lat = 20;
-      v.lon = 0;
+      forceRender((n) => n + 1);
     }
-    v.zoom = 1;
-    forceRender((n) => n + 1);
-  };
+  }, [hasPos, lat, lon]);
+
+  if (actionsRef) actionsRef.current = { resetView, centerView };
 
   return (
-    <div className="card">
-      <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        Globe View
-        <button
-          onClick={resetView}
-          style={{
-            background: 'var(--border)', border: 'none', borderRadius: 4,
-            color: 'var(--muted)', fontSize: '0.75em', padding: '3px 8px', cursor: 'pointer',
-          }}
-        >
-          Reset
-        </button>
+    <div className="lat-panel gps-panel-globe">
+      <div className="panel-head">
+        <h3>Globe · WGS84</h3>
+        <div className="actions">
+          <button type="button" onClick={resetView}>RESET</button>
+        </div>
       </div>
-      <div style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        padding: '12px 0',
-      }}>
-        <canvas
-          ref={canvasRef}
-          style={{ display: 'block', marginBottom: 10, cursor: 'grab', touchAction: 'none' }}
-        />
+      <div className="gps-globe-wrap">
+        <canvas ref={canvasRef} className="gps-globe-canvas" />
         {hasPos ? (
-          <div style={{ textAlign: 'center', fontSize: '0.85em' }}>
-            <div style={{ fontFamily: 'monospace', color: 'var(--green)', fontSize: '1em', marginBottom: 2 }}>
-              {lat.toFixed(6)} {lat >= 0 ? 'N' : 'S'}, {Math.abs(lon).toFixed(6)} {lon >= 0 ? 'E' : 'W'}
-            </div>
-            {alt != null && <div style={{ color: 'var(--muted)' }}>Altitude: {alt.toFixed(0)}m MSL</div>}
+          <div className="gps-globe-coord">
+            {lat.toFixed(4)} {lat >= 0 ? 'N' : 'S'} · {Math.abs(lon).toFixed(4)} {lon >= 0 ? 'E' : 'W'}
+            {alt != null && <> · {alt.toFixed(1)} m</>}
           </div>
         ) : (
-          <div style={{ color: 'var(--muted)', fontSize: '0.85em' }}>No position data</div>
+          <div className="gps-globe-coord muted">No position data</div>
         )}
-        <div style={{ color: 'var(--muted)', fontSize: '0.72em', marginTop: 4 }}>
-          Drag to rotate, scroll to zoom
-        </div>
+        <div className="gps-globe-hint">Drag to rotate · scroll to zoom</div>
       </div>
     </div>
   );
 }
 
-// ── Sky Plot Panel ──────────────────────────────────────────────────────────
+// ── Sky plot panel ──────────────────────────────────────────────────────────
+
 function SkyPlotPanel({ satelliteStatus }) {
   const sats = satelliteStatus?.satellites ?? [];
-  const used = satelliteStatus?.satellitesUsed ?? 0;
   const inView = satelliteStatus?.satellitesInView ?? sats.length;
 
   return (
-    <div className="card">
-      <div className="card-title">Sky Plot ({used} used / {inView} in view)</div>
-      <div style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center',
-        padding: '4px 0',
-      }}>
+    <div className="lat-panel gps-panel-sky">
+      <div className="panel-head">
+        <h3>Sky Plot · {inView} Sats</h3>
+        <div className="actions">
+          <button type="button" title="Band filter (coming soon)">BAND</button>
+        </div>
+      </div>
+      <div className="gps-sky-wrap">
         <SkyPlot satellites={sats} />
-        <div style={{
-          color: 'var(--muted)', fontFamily: 'var(--font-mono)',
-          fontSize: '0.72em', marginTop: 6,
-          letterSpacing: '0.14em', textTransform: 'uppercase',
-        }}>
-          Zenith · N up · rings = 30° elevation
+        <div className="gps-sky-hint">Zenith · N up · rings = 30° elevation</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Position panel ──────────────────────────────────────────────────────────
+
+function PositionPanel({ position, mgrs }) {
+  const lat = position?.latitude;
+  const lon = position?.longitude;
+  const alt = position?.altitude;
+  const speed = position?.speed;
+  const heading = position?.heading;
+
+  return (
+    <div className="lat-panel gps-panel-position">
+      <div className="panel-head"><h3>Position</h3></div>
+      <div className="gps-position">
+        <div className="gps-pos-label">Latitude</div>
+        <div className="gps-pos-value accent">{formatDMS(lat, 'N', 'S')}</div>
+        <div className="gps-pos-label">Longitude</div>
+        <div className="gps-pos-value accent">{formatDMS(lon, 'E', 'W')}</div>
+        <div className="gps-pos-label">Alt · MSL</div>
+        <div className="gps-pos-value">{alt != null ? `${alt.toFixed(1)} m` : '—'}</div>
+        <div className="gps-pos-label">MGRS</div>
+        <div className="gps-pos-value gps-pos-mgrs">{mgrs ?? '—'}</div>
+        <div className="gps-pos-label">Heading · Speed</div>
+        <div className="gps-pos-value">
+          {heading != null ? `${heading.toFixed(0)}°` : '—'}
+          {' · '}
+          {speed != null ? `${speed.toFixed(1)} m/s` : '—'}
         </div>
       </div>
     </div>
   );
 }
 
-// ── Position Panel ──────────────────────────────────────────────────────────
-function PositionPanel({ position }) {
-  const fixType = position?.fixType ?? 0;
-  const hasfix = fixType >= 2;
+// ── Satellite SNR table panel ───────────────────────────────────────────────
 
-  const rows = [
-    { label: 'Fix Type', value: (
-      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span className="status-dot" style={{ background: hasfix ? 'var(--green)' : 'var(--red)' }} />
-        <span style={{ fontWeight: 600 }}>{FIX_LABELS[fixType] ?? 'Unknown'}</span>
-      </span>
-    )},
-    { label: 'Latitude', value: position?.latitude != null ? position.latitude.toFixed(6) : '-' },
-    { label: 'Longitude', value: position?.longitude != null ? position.longitude.toFixed(6) : '-' },
-    { label: 'Altitude', value: position?.altitude != null ? `${position.altitude.toFixed(0)} m MSL` : '-' },
-    { label: 'Speed', value: position?.speed != null ? `${(position.speed * 3.6).toFixed(1)} km/h` : '-' },
-    { label: 'Heading', value: position?.heading != null ? `${position.heading.toFixed(1)} deg` : '-' },
-    { label: 'PDOP', value: position?.pdop != null && position.pdop > 0 ? position.pdop.toFixed(1) : '-' },
-    { label: 'HDOP', value: position?.hdop != null && position.hdop > 0 ? position.hdop.toFixed(1) : '-' },
-    { label: 'Last Update', value: formatTime(position?.lastUpdate) },
-  ];
-
-  return (
-    <div className="card">
-      <div className="card-title">Position</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85em' }}>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td style={{ padding: '5px 8px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>{r.label}</td>
-              <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 600, fontFamily: typeof r.value === 'string' ? 'monospace' : undefined }}>
-                {r.value}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ── Satellite Table ─────────────────────────────────────────────────────────
-function SatellitePanel({ satelliteStatus }) {
+function SatelliteSnrPanel({ satelliteStatus }) {
+  const [filter, setFilter] = useState('all');
   const sats = satelliteStatus?.satellites ?? [];
-  const used = satelliteStatus?.satellitesUsed ?? 0;
-  const inView = satelliteStatus?.satellitesInView ?? sats.length;
+  const rows = filter === 'used' ? sats.filter((s) => s.used) : sats;
 
   return (
-    <div className="card">
-      <div className="card-title">
-        Satellites ({used} used / {inView} in view)
+    <div className="lat-panel col-span-2 gps-panel-snr">
+      <div className="panel-head">
+        <h3>Satellite SNR</h3>
+        <div className="actions">
+          <button
+            type="button"
+            className={filter === 'used' ? 'gps-filter-active' : ''}
+            onClick={() => setFilter('used')}
+          >
+            USED
+          </button>
+          <button
+            type="button"
+            className={filter === 'all' ? 'gps-filter-active' : ''}
+            onClick={() => setFilter('all')}
+          >
+            ALL
+          </button>
+        </div>
       </div>
-      {sats.length === 0 ? (
-        <div style={{ color: 'var(--muted)', fontSize: '0.85em', padding: '12px 0' }}>No satellite data available.</div>
+      {rows.length === 0 ? (
+        <div className="gps-empty">No satellite data available.</div>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82em' }}>
+        <div className="gps-table-scroll">
+          <table className="lat-table">
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--muted)' }}>
-                <th style={{ textAlign: 'left', padding: '4px 8px' }}>PRN</th>
-                <th style={{ textAlign: 'right', padding: '4px 8px' }}>ELEV</th>
-                <th style={{ textAlign: 'right', padding: '4px 8px' }}>AZIM</th>
-                <th style={{ textAlign: 'left', padding: '4px 8px', width: '30%' }}>SNR</th>
-                <th style={{ textAlign: 'center', padding: '4px 8px' }}>USED</th>
+              <tr>
+                <th>PRN</th>
+                <th>Constellation</th>
+                <th>Elev</th>
+                <th>Azim</th>
+                <th>SNR</th>
+                <th>Used</th>
               </tr>
             </thead>
             <tbody>
-              {sats.map((sat, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '5px 8px', fontWeight: 600 }}>G{sat.prn}</td>
-                  <td style={{ padding: '5px 8px', textAlign: 'right' }}>{sat.elevation?.toFixed(0) ?? '-'} deg</td>
-                  <td style={{ padding: '5px 8px', textAlign: 'right' }}>{sat.azimuth?.toFixed(0) ?? '-'} deg</td>
-                  <td style={{ padding: '5px 8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <div style={{
-                        flex: 1, height: 10, background: 'var(--border)', borderRadius: 3, overflow: 'hidden',
-                      }}>
-                        <div style={{
-                          width: `${Math.min((sat.snr / 50) * 100, 100)}%`,
-                          height: '100%', borderRadius: 3,
-                          background: snrColor(sat.snr),
-                          transition: 'width 0.3s',
-                        }} />
-                      </div>
-                      <span style={{ minWidth: 24, textAlign: 'right', fontSize: '0.9em', fontFamily: 'monospace' }}>
-                        {sat.snr?.toFixed(0) ?? '-'}
-                      </span>
-                    </div>
-                  </td>
-                  <td style={{ textAlign: 'center', padding: '5px 8px' }}>
-                    <span className="status-dot" style={{
-                      background: sat.used ? 'var(--green)' : 'var(--border)',
-                    }} />
-                  </td>
-                </tr>
-              ))}
+              {rows.map((sat, i) => {
+                const snrClass = snrBadge(sat.snr);
+                const usedClass = sat.used ? 'badge-ok' : 'badge-crit';
+                const usedGlyph = sat.used ? '✓' : '✗';
+                const elev = sat.elevation != null ? `${sat.elevation.toFixed(0)}°` : '—';
+                const azim = sat.azimuth != null ? `${sat.azimuth.toFixed(0).padStart(3, '0')}°` : '—';
+                return (
+                  <tr key={`${sat.prn}-${i}`}>
+                    <td>{sat.prn}</td>
+                    <td>{prnToConstellation(sat.prn)}</td>
+                    <td>{elev}</td>
+                    <td>{azim}</td>
+                    <td className={snrClass}>{sat.snr != null ? sat.snr.toFixed(0) : '—'}</td>
+                    <td className={usedClass}>{usedGlyph}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -503,8 +480,46 @@ function SatellitePanel({ satelliteStatus }) {
   );
 }
 
-// ── GPS Settings & Output Protocols ─────────────────────────────────────────
-function SettingsPanel({ config, onConfigChange, onSave, saving }) {
+// ── Fix quality panel ───────────────────────────────────────────────────────
+
+function FixQualityPanel({ position }) {
+  const fixType = position?.fixType ?? 0;
+  const hasFix = fixType >= 2;
+  const hdop = position?.hdop;
+  const pdop = position?.pdop;
+  const cep95 = estimateCEP95(hdop);
+
+  return (
+    <div className="lat-panel gps-panel-fix">
+      <div className="panel-head"><h3>Fix Quality</h3></div>
+      <div className={`big-num ${fixColor(fixType)}`}>{FIX_LABELS[fixType] ?? 'No Fix'}</div>
+      <div className="kv">
+        <span className="k">Fix type</span>
+        <span className={`v ${hasFix ? 'ok' : 'crit'}`}>{hasFix ? 'FIXED' : 'NO FIX'}</span>
+      </div>
+      <div className="kv">
+        <span className="k">HDOP</span>
+        <span className={`v ${dopSeverity(hdop) || ''}`}>
+          {hdop != null && hdop > 0 ? hdop.toFixed(1) : '—'}
+        </span>
+      </div>
+      <div className="kv">
+        <span className="k">PDOP</span>
+        <span className={`v ${dopSeverity(pdop) || ''}`}>
+          {pdop != null && pdop > 0 ? pdop.toFixed(1) : '—'}
+        </span>
+      </div>
+      <div className="kv">
+        <span className="k">CEP 95% · EST.</span>
+        <span className="v">{cep95 != null ? `${cep95.toFixed(1)} m` : '—'}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Output protocols panel ──────────────────────────────────────────────────
+
+function OutputProtocolsPanel({ config, onConfigChange, onSave, saving }) {
   const settings = config?.settings ?? {};
   const output = config?.outputProtocols ?? {};
 
@@ -512,92 +527,59 @@ function SettingsPanel({ config, onConfigChange, onSave, saving }) {
     onConfigChange({ ...config, [section]: { ...config[section], [key]: val } });
   };
 
-  const inputStyle = {
-    background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)',
-    borderRadius: 6, padding: '6px 10px', fontSize: '0.88em', outline: 'none', width: '100%', maxWidth: 350,
-  };
-  const btnStyle = {
-    padding: '8px 20px', border: 'none', borderRadius: 6, cursor: 'pointer',
-    fontSize: '0.85em', fontWeight: 600, background: 'var(--accent)', color: 'var(--text)',
-  };
+  const toggle = (on, label, onChange) => (
+    <label className={`lat-toggle${on ? ' on' : ''}`}>
+      <span className="track" onClick={() => onChange(!on)}>
+        <span className="thumb" />
+      </span>
+      <span className="label">{label}</span>
+    </label>
+  );
 
   return (
-    <div className="card">
-      <div className="card-title">GPS Settings</div>
-      <div style={{ marginBottom: 16 }}>
-        <Toggle
-          label="Enable GPS"
-          checked={settings.enableGps ?? false}
-          onChange={(v) => update('settings', 'enableGps', v)}
-        />
+    <div className="lat-panel col-span-3 gps-panel-output">
+      <div className="panel-head">
+        <h3>Output Protocols</h3>
+        <div className="actions">
+          <button
+            type="button"
+            title="Test output (coming soon)"
+            onClick={() => console.debug('GNSS TEST OUT: not yet implemented')}
+          >
+            TEST OUT
+          </button>
+        </div>
       </div>
-
-      <div className="card-title" style={{ marginTop: 12 }}>Output Protocols</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <Toggle
-          label="Send as NMEA"
-          checked={output.sendAsNmea ?? false}
-          onChange={(v) => update('outputProtocols', 'sendAsNmea', v)}
-        />
-        <Toggle
-          label="Send as CoT (Cursor on Target)"
-          checked={output.sendAsCot ?? false}
-          onChange={(v) => update('outputProtocols', 'sendAsCot', v)}
-        />
-        <div>
-          <label style={{ fontSize: '0.82em', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>CoT UID</label>
+      <div className="gps-output-row">
+        {toggle(settings.enableGps ?? false, 'GPS Enabled', (v) => update('settings', 'enableGps', v))}
+        {toggle(output.sendAsNmea ?? false, 'NMEA Out', (v) => update('outputProtocols', 'sendAsNmea', v))}
+        {toggle(output.sendAsCot ?? false, 'CoT Out', (v) => update('outputProtocols', 'sendAsCot', v))}
+        <div className="lat-field">
+          <label>CoT UID</label>
           <input
-            style={inputStyle}
+            className="lat-input"
             value={output.cotUid ?? ''}
             onChange={(e) => update('outputProtocols', 'cotUid', e.target.value)}
-            placeholder="Leave empty for hostname"
+            placeholder={nodeName}
           />
         </div>
       </div>
-
-      <div style={{ marginTop: 16 }}>
-        <button onClick={onSave} disabled={saving} style={{ ...btnStyle, opacity: saving ? 0.5 : 1 }}>
-          {saving ? 'Saving...' : 'Save Settings'}
+      <div className="gps-output-save">
+        <button
+          type="button"
+          className="lat-btn primary"
+          onClick={onSave}
+          disabled={saving}
+        >
+          {saving ? 'SAVING…' : 'SAVE GNSS CONFIG'}
         </button>
       </div>
     </div>
   );
 }
 
-// ── Toggle Switch ───────────────────────────────────────────────────────────
-function Toggle({ label, checked, onChange }) {
-  return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.88em' }}>
-      <div
-        onClick={() => onChange(!checked)}
-        style={{
-          width: 42, height: 22, borderRadius: 11, padding: 2,
-          background: checked ? 'var(--green)' : 'var(--border)',
-          cursor: 'pointer', transition: 'background 0.2s', display: 'flex', alignItems: 'center',
-        }}
-      >
-        <div style={{
-          width: 18, height: 18, borderRadius: '50%', background: '#fff',
-          transition: 'transform 0.2s',
-          transform: checked ? 'translateX(20px)' : 'translateX(0)',
-        }} />
-      </div>
-      {label}
-    </label>
-  );
-}
+// ── Page ────────────────────────────────────────────────────────────────────
 
-// ── Widget configuration ───────────────────────────────────────────────────
-
-const GPS_WIDGETS = [
-  { id: 'globe',      label: 'Globe View',   minWidth: 25, defaultWidth: 33 },
-  { id: 'skyplot',    label: 'Sky Plot',     minWidth: 25, defaultWidth: 33 },
-  { id: 'position',   label: 'Position',     minWidth: 25, defaultWidth: 34 },
-  { id: 'satellites', label: 'Satellites',   minWidth: 40, defaultWidth: 66 },
-  { id: 'settings',   label: 'GPS Settings', minWidth: 40, defaultWidth: 34 },
-];
-
-// ── Main Page ───────────────────────────────────────────────────────────────
 export default function GpsStatusPage() {
   const [status, setStatus] = useState(null);
   const [config, setConfig] = useState(null);
@@ -606,13 +588,26 @@ export default function GpsStatusPage() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const pollRef = useRef(null);
+  const mapActionsRef = useRef(null);
+  const fixTimesRef = useRef([]);
 
   const fetchStatus = useCallback(async () => {
     try {
       const resp = await gnssClient.getGNSSStatus({});
       setStatus(resp);
+      const ts = resp?.position?.lastUpdate;
+      if (ts) {
+        const d = ts instanceof Date ? ts : new Date(ts);
+        if (!isNaN(d.getTime())) {
+          const arr = fixTimesRef.current;
+          if (arr.length === 0 || arr[arr.length - 1].getTime() !== d.getTime()) {
+            arr.push(d);
+            if (arr.length > FIX_RATE_SAMPLES) arr.shift();
+          }
+        }
+      }
     } catch {
-      // Status polling errors are non-fatal; just keep previous data.
+      // Polling errors are non-fatal.
     }
   }, []);
 
@@ -633,7 +628,6 @@ export default function GpsStatusPage() {
     fetchStatus();
   }, [fetchConfig, fetchStatus]);
 
-  // Poll for status updates.
   useEffect(() => {
     pollRef.current = setInterval(fetchStatus, POLL_INTERVAL);
     return () => clearInterval(pollRef.current);
@@ -661,48 +655,128 @@ export default function GpsStatusPage() {
   const position = status?.position;
   const satelliteStatus = status?.satelliteStatus;
 
-  const renderWidget = useCallback((id) => {
-    switch (id) {
-      case 'globe':      return <MapView position={position} />;
-      case 'skyplot':    return <SkyPlotPanel satelliteStatus={satelliteStatus} />;
-      case 'position':   return <PositionPanel position={position} satelliteStatus={satelliteStatus} />;
-      case 'satellites':  return <SatellitePanel satelliteStatus={satelliteStatus} />;
-      case 'settings':   return <SettingsPanel config={config} onConfigChange={setConfig} onSave={handleSave} saving={saving} />;
-      default:           return null;
+  const mgrs = useMemo(
+    () => (position ? latLonToMGRS(position.latitude, position.longitude) : null),
+    [position],
+  );
+
+  const fixRateHz = useMemo(
+    () => computeFixRateHz(fixTimesRef.current),
+    // Recompute on every status update so the chip stays fresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [status],
+  );
+
+  const handleCopyMgrs = useCallback(async () => {
+    if (!mgrs) return;
+    try {
+      await navigator.clipboard.writeText(mgrs);
+      setSuccess(`MGRS copied: ${mgrs}`);
+      setTimeout(() => setSuccess(null), 1500);
+    } catch (e) {
+      setError('Clipboard unavailable: ' + e.message);
     }
-  }, [position, satelliteStatus, config, handleSave, saving]);
+  }, [mgrs]);
 
   if (loading) {
     return (
-      <div style={{ width: '100%', maxWidth: '100%' }}>
-        <h2 style={{ fontSize: '1.2em', marginBottom: 12 }}>GPS / GNSS</h2>
-        <div className="card" style={{ textAlign: 'center', padding: 40 }}>
-          <div style={{ color: 'var(--muted)', fontSize: '0.85em' }}>Loading GNSS data...</div>
+      <>
+        <div className="lat-topbar">
+          <div className="node-id">
+            {nodeName}
+            <span className="ip">Loading GNSS data...</span>
+          </div>
         </div>
-      </div>
+        <div className="lat-view-header">
+          <div>
+            <h2>◇ GPS / GNSS</h2>
+            <div className="crumb">Globe · Sky plot · Position · Satellites · Output</div>
+          </div>
+        </div>
+        <div className="lat-body">
+          <div className="lat-panel col-span-all gps-loading">Loading GNSS data...</div>
+        </div>
+      </>
     );
   }
 
+  const fixType = position?.fixType ?? 0;
+  const satsUsed = satelliteStatus?.satellitesUsed ?? 0;
+  const satsInView = satelliteStatus?.satellitesInView ?? (satelliteStatus?.satellites?.length ?? 0);
+  const hdop = position?.hdop;
+  const pdop = position?.pdop;
+  const hdopSev = dopSeverity(hdop);
+  const pdopSev = dopSeverity(pdop);
+
   return (
     <>
-      {error && (
-        <div style={{
-          background: 'rgba(204,51,51,0.1)', border: '1px solid var(--red)', borderRadius: 6,
-          padding: '8px 12px', marginBottom: 8, fontSize: '0.85em', color: 'var(--red)', maxWidth: '100%',
-        }}>{error}</div>
-      )}
-      {success && (
-        <div style={{
-          background: 'rgba(107,142,35,0.1)', border: '1px solid var(--green)', borderRadius: 6,
-          padding: '8px 12px', marginBottom: 8, fontSize: '0.85em', color: 'var(--green)', maxWidth: '100%',
-        }}>{success}</div>
-      )}
-      <WidgetGrid
-        pageId="gps"
-        title="GPS / GNSS"
-        widgets={GPS_WIDGETS}
-        renderWidget={renderWidget}
-      />
+      <div className="lat-topbar">
+        <div className="node-id">
+          {nodeName}
+          <span className="ip">{FIX_SUBTITLE[fixType] ?? 'NO FIX'} · {satsUsed}/{satsInView} SATS</span>
+        </div>
+        <div className="chips">
+          <span className={`lat-chip ${hdopSev}`}>
+            <span className="dot" /> HDOP {hdop != null && hdop > 0 ? hdop.toFixed(1) : '—'}
+          </span>
+          <span className={`lat-chip ${pdopSev}`}>
+            <span className="dot" /> PDOP {pdop != null && pdop > 0 ? pdop.toFixed(1) : '—'}
+          </span>
+          <span className="lat-chip">
+            <span className="dot" /> GPGGA {fixRateHz != null ? `${fixRateHz}HZ` : '—'}
+          </span>
+        </div>
+      </div>
+
+      <div className="lat-view-header">
+        <div>
+          <h2>◇ GPS / GNSS</h2>
+          <div className="crumb">Globe · Sky plot · Position · Satellites · Output</div>
+        </div>
+        <div className="lat-view-toolbar">
+          <button
+            type="button"
+            className="lat-btn ghost"
+            onClick={handleCopyMgrs}
+            disabled={!mgrs}
+            title={mgrs ? 'Copy MGRS to clipboard' : 'No fix'}
+          >
+            COPY MGRS
+          </button>
+          <button
+            type="button"
+            className="lat-btn ghost"
+            onClick={() => mapActionsRef.current?.resetView()}
+          >
+            RESET VIEW
+          </button>
+          <button
+            type="button"
+            className="lat-btn"
+            onClick={() => mapActionsRef.current?.centerView()}
+            disabled={position?.latitude == null || (position.latitude === 0 && position.longitude === 0)}
+          >
+            CENTER
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="lat-alert crit">{error}</div>}
+      {success && <div className="lat-alert ok">{success}</div>}
+
+      <div className="lat-body grid-3 gps-body">
+        <GlobePanel position={position} actionsRef={mapActionsRef} />
+        <SkyPlotPanel satelliteStatus={satelliteStatus} />
+        <PositionPanel position={position} mgrs={mgrs} />
+        <SatelliteSnrPanel satelliteStatus={satelliteStatus} />
+        <FixQualityPanel position={position} />
+        <OutputProtocolsPanel
+          config={config}
+          onConfigChange={setConfig}
+          onSave={handleSave}
+          saving={saving}
+        />
+      </div>
     </>
   );
 }
