@@ -25,6 +25,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
+	"github.com/openmanet/openmanetd/internal/system"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/openmanet/openmanetd/internal/util/logger"
 	"github.com/rs/zerolog"
@@ -130,6 +131,20 @@ func Start(staticFS fs.FS) {
 	)
 	batctlSnapshotter.Start(ctx)
 
+	// SystemSnapshotter refreshes /proc/uptime, /proc/meminfo,
+	// /proc/loadavg, /overlay, and service PID files every 2s. Each
+	// Dashboard.GetDashboardStatus RPC used to re-open all of those
+	// synchronously; now they are read once per cycle and served from
+	// the cache to every concurrent caller.
+	sysSnapshotter := handlers.NewSystemSnapshotter(
+		logger.GetLogger("system-snapshot"),
+		&system.LinuxSysInfo{},
+		&system.InitDServiceChecker{},
+		system.DefaultMonitoredServices(),
+		handlers.DefaultSystemSnapshotInterval,
+	)
+	sysSnapshotter.Start(ctx)
+
 	// The topology provider enriches the cached originator list with
 	// bat-hosts + self-MAC + hop derivation for the RPC handler. Because
 	// the snapshotter implements OriginatorProvider, the `batctl oj` call
@@ -182,6 +197,7 @@ func Start(staticFS fs.FS) {
 		MeshDeltaTracker:  meshDeltaTracker,
 		MeshOrigProvider:  meshOrigProvider,
 		BatctlSnapshotter: batctlSnapshotter,
+		SystemSnapshotter: sysSnapshotter,
 		Interfaces:        interfaceProvider,
 		DHCP: &network.UCIDHCPConfigProvider{
 			DHCPReader:    network.NewUCIDHCPConfigReader(),

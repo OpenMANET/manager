@@ -49,6 +49,7 @@ type APIServer struct {
 	MeshDeltaTracker  *handlers.DeltaTracker
 	MeshOrigProvider  batmanadv.OriginatorTopologyProvider
 	BatctlSnapshotter *handlers.BatctlSnapshotter
+	SystemSnapshotter *handlers.SystemSnapshotter
 	SessionStore      *auth.SessionStore
 	Authenticator     auth.Authenticator
 	AuthEnabled       bool
@@ -60,6 +61,30 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		validateInterceptor = validate.NewInterceptor()
 	)
 
+	// Wrap the DHCP lease provider with a short TTL cache so concurrent
+	// ListActiveDHCPLeases / GetDHCPServerConfig / ListConnectedClients
+	// calls share a single ubus invocation.
+	leases := cfg.Leases
+	if leases != nil {
+		leases = handlers.NewCachedLeaseProvider(leases, handlers.DefaultDHCPLeaseCacheTTL)
+	}
+
+	// Wrap the netlink interface provider with a TTL cache so
+	// ListNetworkInterfaces and Dashboard.buildNetworkSummary share one
+	// LinkList+AddrList walk per interval.
+	interfaces := cfg.Interfaces
+	if interfaces != nil {
+		interfaces = handlers.NewCachedInterfaceProvider(interfaces, handlers.DefaultInterfaceCacheTTL)
+	}
+
+	// Wrap the wireless netlink provider with a TTL cache so
+	// Interfaces() + per-iface StationInfo() are fetched once per TTL
+	// and shared across all handlers that read wifi state.
+	var wifi mgmt.WirelessProvider
+	if cfg.Wifi != nil {
+		wifi = handlers.NewCachedWirelessProvider(cfg.Wifi, handlers.DefaultWirelessCacheTTL)
+	}
+
 	api.Handle(services.NewNodeServiceHandler(&handlers.NodeService{
 		DB:  cfg.DB,
 		Log: cfg.Log,
@@ -67,12 +92,12 @@ func NewAPIServer(cfg APIServer) *APIServer {
 
 	api.Handle(services.NewInterfaceServiceHandler(&handlers.InterfaceService{
 		Log:  cfg.Log,
-		Wifi: cfg.Wifi,
+		Wifi: wifi,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	meshSvc := &handlers.MeshService{
 		Log:  cfg.Log,
-		Wifi: cfg.Wifi,
+		Wifi: wifi,
 	}
 	if cfg.BatctlSnapshotter != nil {
 		meshSvc.ParseBatHosts = cfg.BatctlSnapshotter.ParseBatHosts
@@ -84,7 +109,7 @@ func NewAPIServer(cfg APIServer) *APIServer {
 	statusSvc := &handlers.StatusService{
 		Cfg:  cfg.Cfg,
 		Log:  cfg.Log,
-		Wifi: cfg.Wifi,
+		Wifi: wifi,
 		GPS:  cfg.GPS,
 	}
 	if cfg.BatctlSnapshotter != nil {
@@ -109,9 +134,9 @@ func NewAPIServer(cfg APIServer) *APIServer {
 
 	api.Handle(niconnect.NewNetworkInterfaceServiceHandler(&handlers.NetworkInterfaceService{
 		Log:        cfg.Log,
-		Interfaces: cfg.Interfaces,
+		Interfaces: interfaces,
 		DHCP:       cfg.DHCP,
-		Leases:     cfg.Leases,
+		Leases:     leases,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	var dashOrigProvider batmanadv.OriginatorProvider = &batmanadv.BatctlOriginatorProvider{}
@@ -119,16 +144,25 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		dashOrigProvider = cfg.BatctlSnapshotter
 	}
 
+	var (
+		dashSysInfo  system.SysInfoProvider = &system.LinuxSysInfo{}
+		dashServices system.ServiceChecker  = &system.InitDServiceChecker{}
+	)
+	if cfg.SystemSnapshotter != nil {
+		dashSysInfo = cfg.SystemSnapshotter
+		dashServices = cfg.SystemSnapshotter
+	}
+
 	api.Handle(dashboardconnect.NewDashboardServiceHandler(&handlers.DashboardService{
 		Log:         cfg.Log,
-		Board:       &handlers.DefaultBoardProvider{},
-		SysInfo:     &system.LinuxSysInfo{},
-		Firmware:    &system.OpenWrtFirmwareProvider{},
-		Interfaces:  cfg.Interfaces,
-		Wifi:        &handlers.DefaultWifiStationProvider{Wifi: cfg.Wifi},
+		Board:       handlers.NewCachedBoardProvider(&handlers.DefaultBoardProvider{}),
+		SysInfo:     dashSysInfo,
+		Firmware:    handlers.NewCachedFirmwareProvider(&system.OpenWrtFirmwareProvider{}),
+		Interfaces:  interfaces,
+		Wifi:        &handlers.DefaultWifiStationProvider{Wifi: wifi},
 		Originators: dashOrigProvider,
 		Tailscale:   cfg.Tailscale,
-		Services:    &system.InitDServiceChecker{},
+		Services:    dashServices,
 		Actions:     &system.InitDActionExecutor{},
 	}, connect.WithInterceptors(validateInterceptor)))
 
@@ -147,10 +181,10 @@ func NewAPIServer(cfg APIServer) *APIServer {
 	wifiSvc := &handlers.WifiConfigService{
 		Log:            cfg.Log,
 		IwinfoClient:   iwinfo.NewClient(),
-		Wifi:           cfg.Wifi,
+		Wifi:           wifi,
 		WirelessStatus: network.NewDefaultWirelessStatusProvider(),
 		ConfigReader:   network.NewUCIWirelessConfigReader(),
-		DHCPLeases:     cfg.Leases,
+		DHCPLeases:     leases,
 	}
 	if cfg.BatctlSnapshotter != nil {
 		wifiSvc.ParseBatHosts = cfg.BatctlSnapshotter.ParseBatHosts
