@@ -3,7 +3,7 @@
 // =============================================================================
 //
 // Fixed-grid tactical dashboard:
-//   topbar: NODE id + MESH / GPS / BLOS chips + UTC clock
+//   topbar: NODE id + MESH / GPS / BLOS chips + local-timezone clock
 //   row 1:  3 KPI panels — Mesh Peers · Link Quality 5m · Battery & Power
 //   row 2:  Mesh Peers Live (col-span-3) · Alerts (col-span-1)
 //   row 3:  System Resources (col-span-2) · Network Interfaces (col-span-2)
@@ -76,8 +76,16 @@ function formatLast(tsMs, nowMs) {
   return `${Math.floor(diff / 3_600_000)}h`;
 }
 
-function clockUtc(now) {
-  return now.toISOString().slice(11, 19) + ' UTC';
+// Formats the current time in the browser's local timezone — the frontend
+// runs in the operator's browser, so this matches the host the operator is
+// looking at. `timeZoneName: 'short'` produces a short label like "PDT",
+// "EST", or "GMT+10" depending on the locale's conventions.
+function clockLocal(now) {
+  const time = now.toLocaleTimeString('en-GB', { hour12: false });
+  const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
+    .formatToParts(now);
+  const tz = parts.find((p) => p.type === 'timeZoneName')?.value || 'UTC';
+  return `${time} ${tz}`;
 }
 
 // ── Signal / link quality ──────────────────────────────────────────────────
@@ -440,7 +448,7 @@ export default function DashboardPage() {
             <span className="dot" /> BLOS · {blosPeers} PEERS
           </span>
           {/* TODO(api-plan): battery percent — add BATT chip when backend exposes it */}
-          <span>{clockUtc(new Date(now))}</span>
+          <span className="dash-clock">{clockLocal(new Date(now))}</span>
         </div>
       </div>
 
