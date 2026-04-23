@@ -20,6 +20,9 @@ const blosClient = createClient(BLOSService, transport);
 // entries are discarded so the panel never grows unbounded.
 const MAX_EVENTS = 50;
 
+// Rolling traffic-history window for the RX/TX spark bars.
+const TRAFFIC_HISTORY_CAP = 12;
+
 const EVENT_KIND_LABELS = {
   [BLOSEventKind.BACKEND_STATE]: 'STATE',
   [BLOSEventKind.PEER_ADDED]: 'PEER+',
@@ -76,10 +79,29 @@ function stripTrailingDot(s) {
   return s && s.endsWith('.') ? s.slice(0, -1) : s || '';
 }
 
+// Tiny bar-style sparkline matching the mockup's `.spark` primitive.
+// `data` is a rolling array of non-negative numbers (newest last). Bar heights
+// scale relative to the window max so a quiet tunnel still produces visible
+// bars when traffic is present. A minimum of 2% prevents disappearing slivers.
+function SparkBars({ data, variant }) {
+  if (!data || data.length === 0) return <div className="spark blos-spark-empty" />;
+  const max = Math.max(...data, 1);
+  return (
+    <div className={`spark${variant ? ' ' + variant : ''} blos-spark`}>
+      {data.map((v, i) => {
+        const pct = Math.max(2, (Number(v) / max) * 100);
+        return <span key={i} style={{ height: `${pct}%` }} />;
+      })}
+    </div>
+  );
+}
+
 export default function BLOSPage() {
   const [status, setStatus] = useState(null);
   const [peers, setPeers] = useState([]);
   const [events, setEvents] = useState([]);
+  const [rxHistory, setRxHistory] = useState([]);
+  const [txHistory, setTxHistory] = useState([]);
   const [enableBlos, setEnableBlos] = useState(false);
   const [authKey, setAuthKey] = useState('');
   const [loginServer, setLoginServer] = useState('');
@@ -93,6 +115,10 @@ export default function BLOSPage() {
       const resp = await blosClient.getBLOSStatus({});
       setStatus(resp);
       setEnableBlos(resp.blosEnabled ?? false);
+      const rx = Number(resp?.counters?.rxBytesPerSec ?? 0);
+      const tx = Number(resp?.counters?.txBytesPerSec ?? 0);
+      setRxHistory((prev) => [...prev, rx].slice(-TRAFFIC_HISTORY_CAP));
+      setTxHistory((prev) => [...prev, tx].slice(-TRAFFIC_HISTORY_CAP));
       setError(null);
     } catch (e) {
       setError(e.message);
@@ -239,6 +265,7 @@ export default function BLOSPage() {
             {formatKbps(counters?.rxBytesPerSec)}
             <span className="unit">kbps</span>
           </div>
+          <SparkBars data={rxHistory} />
           <div className="kv">
             <span className="k">Total RX</span>
             <span className="v">{formatBytes(counters?.rxBytesTotal)}</span>
@@ -251,6 +278,7 @@ export default function BLOSPage() {
             {formatKbps(counters?.txBytesPerSec)}
             <span className="unit">kbps</span>
           </div>
+          <SparkBars data={txHistory} variant="warn" />
           <div className="kv">
             <span className="k">Total TX</span>
             <span className="v">{formatBytes(counters?.txBytesTotal)}</span>

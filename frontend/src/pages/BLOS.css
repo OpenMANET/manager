@@ -58,6 +58,16 @@
   text-align: center;
 }
 
+.blos-spark {
+  height: 46px;
+  margin-top: 6px;
+}
+.blos-spark-empty {
+  height: 46px;
+  margin-top: 6px;
+  opacity: 0.25;
+}
+
 .blos-toggle-row {
   display: flex;
   justify-content: space-between;
