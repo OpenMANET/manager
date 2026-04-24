@@ -753,6 +753,139 @@ func TestUpdateSatelliteInfo_PartialSKYPreservesConstellation(t *testing.T) {
 	}
 }
 
+// TestUpdateSatelliteInfo_DerivesCountsWhenSummaryMissing guards against the
+// bug where the dashboard and GPS page showed an incorrect "satellites
+// locked" count because gpsd emitted a populated satellites array without
+// the summary uSat/nSat fields. The constellation array is authoritative;
+// the cache must derive USat from `used:true` entries and NSat from the
+// array length when gpsd's summary is absent or zero.
+func TestUpdateSatelliteInfo_DerivesCountsWhenSummaryMissing(t *testing.T) {
+	gps := &GPSService{Log: zerolog.Nop()}
+
+	sky := SKYReport{
+		Class: "SKY",
+		HDOP:  1.0,
+		PDOP:  2.0,
+		// uSat and nSat intentionally absent.
+		Satellites: []struct {
+			PRN  int     `json:"PRN"`
+			El   float64 `json:"el"`
+			Az   float64 `json:"az"`
+			Ss   float64 `json:"ss"`
+			Used bool    `json:"used"`
+		}{
+			{PRN: 2, El: 45.0, Az: 120.0, Ss: 38.0, Used: true},
+			{PRN: 5, El: 72.0, Az: 210.0, Ss: 42.0, Used: true},
+			{PRN: 7, El: 15.0, Az: 330.0, Ss: 18.0, Used: false},
+			{PRN: 9, El: 60.0, Az: 200.0, Ss: 35.0, Used: true},
+		},
+	}
+	gps.updateSatelliteInfo(sky)
+
+	report := gps.GetSatelliteReport()
+	if report.NSat != 4 {
+		t.Errorf("Expected NSat derived as 4 from array length, got %d", report.NSat)
+	}
+
+	if report.USat != 3 {
+		t.Errorf("Expected USat derived as 3 from used:true entries, got %d", report.USat)
+	}
+
+	pos := gps.GetPosition()
+	if pos.SatellitesUsed != 3 {
+		t.Errorf("Expected position.SatellitesUsed mirrored as 3, got %d", pos.SatellitesUsed)
+	}
+}
+
+// TestUpdateSatelliteInfo_SummaryWinsWhenLargerThanArray verifies that
+// gpsd's summary is preferred when it reports more satellites than the
+// array carries (e.g. the receiver is tracking PRNs that the SKY message
+// truncated). The array's count is treated as a lower bound.
+func TestUpdateSatelliteInfo_SummaryWinsWhenLargerThanArray(t *testing.T) {
+	gps := &GPSService{Log: zerolog.Nop()}
+
+	sky := SKYReport{
+		Class: "SKY",
+		NSat:  18,
+		USat:  11,
+		Satellites: []struct {
+			PRN  int     `json:"PRN"`
+			El   float64 `json:"el"`
+			Az   float64 `json:"az"`
+			Ss   float64 `json:"ss"`
+			Used bool    `json:"used"`
+		}{
+			{PRN: 2, El: 45.0, Az: 120.0, Ss: 38.0, Used: true},
+			{PRN: 5, El: 72.0, Az: 210.0, Ss: 42.0, Used: true},
+		},
+	}
+	gps.updateSatelliteInfo(sky)
+
+	report := gps.GetSatelliteReport()
+	if report.NSat != 18 {
+		t.Errorf("Expected NSat from summary (18), got %d", report.NSat)
+	}
+
+	if report.USat != 11 {
+		t.Errorf("Expected USat from summary (11), got %d", report.USat)
+	}
+}
+
+// TestUpdateSatelliteInfo_LossOfLockClearsUSat covers the loss-of-lock
+// scenario: when a constellation-bearing SKY arrives with all entries
+// flagged used:false, the cached USat must drop to 0 rather than holding
+// a stale value from the prior full SKY.
+func TestUpdateSatelliteInfo_LossOfLockClearsUSat(t *testing.T) {
+	gps := &GPSService{Log: zerolog.Nop()}
+
+	good := SKYReport{
+		Class: "SKY",
+		USat:  8,
+		NSat:  12,
+		Satellites: []struct {
+			PRN  int     `json:"PRN"`
+			El   float64 `json:"el"`
+			Az   float64 `json:"az"`
+			Ss   float64 `json:"ss"`
+			Used bool    `json:"used"`
+		}{
+			{PRN: 2, Used: true},
+			{PRN: 5, Used: true},
+		},
+	}
+	gps.updateSatelliteInfo(good)
+
+	if gps.GetSatelliteReport().USat != 8 {
+		t.Fatalf("Expected USat 8 after good SKY, got %d", gps.GetSatelliteReport().USat)
+	}
+
+	lost := SKYReport{
+		Class: "SKY",
+		// Receiver no longer treats any tracked sat as part of the
+		// solution. uSat is absent and the array shows used:false.
+		Satellites: []struct {
+			PRN  int     `json:"PRN"`
+			El   float64 `json:"el"`
+			Az   float64 `json:"az"`
+			Ss   float64 `json:"ss"`
+			Used bool    `json:"used"`
+		}{
+			{PRN: 2, Used: false},
+			{PRN: 5, Used: false},
+		},
+	}
+	gps.updateSatelliteInfo(lost)
+
+	report := gps.GetSatelliteReport()
+	if report.USat != 0 {
+		t.Errorf("Expected USat 0 after loss of lock, got %d", report.USat)
+	}
+
+	if report.NSat != 2 {
+		t.Errorf("Expected NSat 2 derived from array, got %d", report.NSat)
+	}
+}
+
 func TestGetSatelliteReport_ConcurrentAccess(t *testing.T) {
 	gps := &GPSService{Log: zerolog.Nop()}
 
