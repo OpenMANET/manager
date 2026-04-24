@@ -109,27 +109,41 @@ func (s *MeshNeighborsSnapshotter) refresh() {
 	now := s.now()
 	next := make(map[string]*MeshNeighborsRecord, len(records))
 
+	var dropped int
+
 	for i := range records {
 		record := records[i]
 
 		payload := &netv1.MeshNeighbors{}
 		if err := payload.UnmarshalVT(record.Data); err != nil {
-			s.Log.Warn().Err(err).Int("record", i).Msg("mesh-neighbors: unmarshal failed; skipping record")
+			s.Log.Warn().
+				Err(err).
+				Int("record", i).
+				Str("source", macString(record.Source)).
+				Int("data_bytes", len(record.Data)).
+				Msg("mesh-neighbors: unmarshal failed; skipping record")
 
-			continue
-		}
-
-		// Drop pre-v1 / malformed payloads that lack a timestamp. We no
-		// longer use CollectedAt for staleness (clock skew across the
-		// mesh makes that unreliable), but an empty timestamp is still a
-		// signal that the record didn't round-trip cleanly.
-		if !payload.GetCollectedAt().IsValid() || payload.GetCollectedAt().AsTime().IsZero() {
-			s.Log.Warn().Int("record", i).Msg("mesh-neighbors: record has no collected_at; skipping")
+			dropped++
 
 			continue
 		}
 
 		src := macString(record.Source)
+
+		// Per-record trace. Debug level so production logs stay quiet;
+		// operators flip the daemon log level to diagnose why a peer's
+		// gossip isn't landing in the topology handler (envelope MAC vs
+		// payload.primary_mac vs vis primary — any of the three can
+		// disagree across mesh boundaries and must match for Lookup to
+		// hit).
+		s.Log.Debug().
+			Int("record", i).
+			Str("source", src).
+			Str("primary_mac", strings.ToLower(payload.GetPrimaryMac())).
+			Str("hostname", payload.GetHostname()).
+			Int("neighbor_count", len(payload.GetNeighbors())).
+			Int64("collected_unix", payload.GetCollectedAt().GetSeconds()).
+			Msg("mesh-neighbors: cached record")
 
 		next[src] = &MeshNeighborsRecord{
 			Payload:   payload,
@@ -142,6 +156,16 @@ func (s *MeshNeighborsSnapshotter) refresh() {
 	s.byMac = next
 	s.ready = true
 	s.mu.Unlock()
+
+	// One-line per-refresh summary at Info so operators can confirm the
+	// cache is populating without turning on Debug for the whole daemon.
+	// "Cached N" is the single number that tells them whether alfred
+	// gossip is reaching this node.
+	s.Log.Info().
+		Int("received", len(records)).
+		Int("cached", len(next)).
+		Int("dropped", dropped).
+		Msg("mesh-neighbors: refreshed")
 }
 
 func (s *MeshNeighborsSnapshotter) now() time.Time {

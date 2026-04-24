@@ -140,16 +140,13 @@ func TestMeshNeighborsSnapshotter_OldRecordsStillCached(t *testing.T) {
 	require.NotNil(t, rec.Payload)
 }
 
-// TestMeshNeighborsSnapshotter_EmptyTimestampDropped confirms records
-// with no collected_at timestamp (pre-v1 publishers or malformed
-// payloads that round-tripped through the decoder) are dropped from
-// the cache rather than cached as "stale". An empty timestamp is a
-// parse-level signal that the record didn't round-trip cleanly, not a
-// staleness signal.
-func TestMeshNeighborsSnapshotter_EmptyTimestampDropped(t *testing.T) {
-	// makePayloadNoTimestamp builds a MeshNeighbors payload with no
-	// collected_at set. Equivalent to what a publisher older than
-	// v1 would emit.
+// TestMeshNeighborsSnapshotter_EmptyTimestampStillCached confirms
+// records without collected_at are still cached. The snapshotter does
+// not second-guess alfred on whether a record is "real" — if alfred
+// returned it, the handler gets to see it. Age reporting will surface
+// the missing timestamp to the UI (gossip_age_seconds=-1) but the
+// record still drives classification.
+func TestMeshNeighborsSnapshotter_EmptyTimestampStillCached(t *testing.T) {
 	pb := &netv1.MeshNeighbors{
 		PrimaryMac: "aa:bb:cc:dd:ee:01",
 		Hostname:   "BCM2711-notimestamp",
@@ -175,8 +172,12 @@ func TestMeshNeighborsSnapshotter_EmptyTimestampDropped(t *testing.T) {
 
 	s.Start(ctx)
 
-	_, ok := s.Lookup("aa:bb:cc:dd:ee:01")
-	assert.False(t, ok, "record with empty collected_at is dropped")
+	rec, ok := s.Lookup("aa:bb:cc:dd:ee:01")
+	require.True(t, ok, "record without collected_at is still cached")
+	require.NotNil(t, rec.Payload)
+	// Confirm the missing timestamp round-tripped: GetCollectedAt()
+	// returns nil and AsTime() is the zero time.
+	assert.Nil(t, rec.Payload.GetCollectedAt())
 
 	_, ok = s.Lookup("aa:bb:cc:dd:ee:02")
 	assert.True(t, ok, "valid timestamped record is kept")
