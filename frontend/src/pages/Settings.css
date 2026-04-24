@@ -122,3 +122,38 @@
   -webkit-user-select: text;
   user-select: text;
 }
+
+/* Whisper card ---------------------------------------------------------- */
+
+.whisper-blurb {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.whisper-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.whisper-progress {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+}
+
+.whisper-footnote {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  color: var(--dim);
+  text-transform: none;
+}

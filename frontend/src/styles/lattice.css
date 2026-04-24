@@ -211,6 +211,10 @@ html, body {
   text-transform: uppercase;
   color: var(--muted);
   user-select: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  align-self: flex-start;
 }
 .lat-toggle .track {
   width: 40px;

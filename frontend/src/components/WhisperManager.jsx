@@ -87,83 +87,66 @@ export default function WhisperManager() {
 
   const available = status?.available === true;
 
-  const btnStyle = {
-    padding: '8px 20px', border: 'none', borderRadius: 6, cursor: 'pointer',
-    fontSize: '0.85em', fontWeight: 600, transition: 'opacity 0.15s',
-  };
-  const primaryBtn = { ...btnStyle, background: 'var(--accent)', color: 'var(--text)' };
-  const dangerBtn = { ...btnStyle, background: 'rgba(204,51,51,0.15)', border: '1px solid var(--red)', color: 'var(--red)' };
+  let statusNode;
+  if (downloading) {
+    statusNode = <span className="v warn">Downloading...</span>;
+  } else if (available) {
+    statusNode = <span className="v ok">Available</span>;
+  } else {
+    statusNode = <span className="v">Not downloaded</span>;
+  }
 
   return (
-    <div className="card">
-      <div className="card-title">Whisper Speech-to-Text</div>
-      <p style={{ fontSize: '0.82em', color: 'var(--muted)', margin: '0 0 10px' }}>
+    <div className="lat-panel">
+      <div className="panel-head"><h3>Whisper Speech-to-Text</h3></div>
+
+      <p className="whisper-blurb">
         Offline speech-to-text for closed captions. The model (~75 MB) is downloaded
         on-demand and stored temporarily.
       </p>
 
-      {/* Status */}
-      <div style={{ fontSize: '0.85em', marginBottom: 10 }}>
-        Status:{' '}
-        {downloading ? (
-          <span style={{ color: 'var(--yellow)' }}>Downloading...</span>
-        ) : available ? (
-          <span style={{ color: 'var(--green)' }}>Available</span>
-        ) : (
-          <span style={{ color: 'var(--muted)' }}>Not downloaded</span>
-        )}
+      <div className="kv">
+        <span className="k">Status</span>
+        {statusNode}
       </div>
 
-      {/* Progress bar */}
       {downloading && (
-        <div style={{
-          background: 'var(--border)', borderRadius: 4, height: 8,
-          marginBottom: 10, overflow: 'hidden',
-        }}>
-          <div style={{
-            background: 'var(--green)', height: '100%', borderRadius: 4,
-            width: `${progress}%`, transition: 'width 0.3s ease',
-          }} />
+        <div className="pbar">
+          <span style={{ width: `${progress}%` }} />
         </div>
       )}
 
-      {/* Error */}
       {error && (
-        <div style={{
-          background: 'rgba(204,51,51,0.1)', border: '1px solid var(--red)', borderRadius: 6,
-          padding: '6px 10px', marginBottom: 10, fontSize: '0.82em', color: 'var(--red)',
-        }}>
-          {error}
-        </div>
+        <div className="lat-alert crit" role="alert">{error}</div>
       )}
 
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        {!available && !downloading && (
-          <button onClick={handleDownload} style={primaryBtn}>
+      <div className="whisper-actions">
+        {!available && !downloading && !error && (
+          <button type="button" className="lat-btn primary" onClick={handleDownload}>
             Download Model
           </button>
         )}
         {downloading && (
-          <span style={{ fontSize: '0.82em', color: 'var(--muted)' }}>{progress}%</span>
+          <span className="whisper-progress">{progress}%</span>
         )}
         {error && !downloading && (
-          <button onClick={handleDownload} style={primaryBtn}>
+          <button type="button" className="lat-btn primary" onClick={handleDownload}>
             Retry Download
           </button>
         )}
         {available && (
           <button
+            type="button"
+            className="lat-btn danger"
             onClick={handleRemove}
             disabled={removing}
-            style={{ ...dangerBtn, opacity: removing ? 0.5 : 1 }}
           >
             {removing ? 'Removing...' : 'Remove Model'}
           </button>
         )}
       </div>
 
-      <p style={{ fontSize: '0.75em', color: 'var(--muted)', margin: '10px 0 0' }}>
+      <p className="whisper-footnote">
         Files stored in /tmp and will need to be re-downloaded after a device reboot.
       </p>
     </div>
