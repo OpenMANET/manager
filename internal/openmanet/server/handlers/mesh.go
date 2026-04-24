@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"math"
 
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
@@ -81,13 +82,30 @@ func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*s
 				HardwareAddress: station.HardwareAddr.String(),
 				SignalStrength:  int32(station.SignalAverage),
 				Signal:          int32(station.Signal),
-				Throughput:      int32(station.TransmitBitrate),
+				// MeshNeighbor.Throughput is bits-per-second on the wire
+				// (matches the frontend's formatMbps assumption). The
+				// mdlayher/wifi station bitrate is already bits/sec so
+				// this field goes through as-is; batman-adv overrides
+				// below do the 100 kbit/s → bits/sec conversion.
+				Throughput: int32(station.TransmitBitrate),
 			}
 
-			// Enrich with batman-adv neighbor data if available
+			// Enrich with batman-adv neighbor data if available. batctl
+			// reports `throughput` in units of 100 kbit/s (batman-adv's
+			// historical internal unit); a raw assignment would make a
+			// 240 Mbit/s link surface as 2400 bits/s on the wire, which
+			// the UI then formatted as "2 Kbps". Convert to bits/sec
+			// with an int64 intermediate and clamp so values above the
+			// int32 ceiling (≈2.1 Gbps) saturate instead of wrapping.
 			if batNeighbor := batNeighbors.FindByNeighAddress(station.HardwareAddr.String()); batNeighbor != nil {
 				neighbor.LastSeen = int64(batNeighbor.LastSeenMsecs)
-				neighbor.Throughput = int32(batNeighbor.Throughput)
+
+				bps := int64(batNeighbor.Throughput) * 100_000
+				if bps > math.MaxInt32 {
+					bps = math.MaxInt32
+				}
+
+				neighbor.Throughput = int32(bps)
 			}
 
 			protoNeighbors = append(protoNeighbors, neighbor)

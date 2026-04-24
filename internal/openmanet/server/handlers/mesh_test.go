@@ -161,6 +161,79 @@ func TestListMeshNeighbors_UnknownMAC(t *testing.T) {
 	assert.Equal(t, "ff:ff:ff:ff:ff:ff", resp.GetNeighbors()[0].GetHardwareAddress())
 }
 
+// TestListMeshNeighbors_BatmanAdvThroughputConversion pins the unit
+// contract: batctl reports throughput in 100 kbit/s ticks, and the
+// handler has to convert to bits/second before putting the value on
+// the wire so the frontend's Mbps formatter reads correctly.
+//
+// Regression: a value of 2400 (= 240 Mbit/s) used to land on the wire
+// as a raw 2400, which the UI rendered as "2 Kbps".
+func TestListMeshNeighbors_BatmanAdvThroughputConversion(t *testing.T) {
+	meshIface := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
+	mac := "9c:ef:d5:f9:80:4d"
+	station := makeStation(mac, -65)
+
+	batNeighbors := batmanadv.Neighbors{
+		{
+			HardIfname:    "mesh0",
+			NeighAddress:  mac,
+			LastSeenMsecs: 1200,
+			Throughput:    2400, // batman-adv internal unit = 100 kbit/s → 240 Mbit/s
+		},
+	}
+
+	fw := &fakeWireless{
+		meshInterfaces: []*wifi.Interface{meshIface},
+		stationInfo:    []*wifi.StationInfo{station},
+	}
+	svc := newMeshService(fw, func(_ string) (*batmanadv.BatHosts, error) {
+		return batmanadv.ParseBatHostsFile(fixtureBatHostsPath())
+	})
+	svc.GetMeshNeighbors = func() (*batmanadv.Neighbors, error) {
+		return &batNeighbors, nil
+	}
+
+	resp, err := svc.ListMeshNeighbors(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetNeighbors(), 1)
+
+	n := resp.GetNeighbors()[0]
+	assert.Equal(t, int64(1200), n.GetLastSeen(), "LastSeenMsecs should propagate")
+	assert.Equal(t, int32(240_000_000), n.GetThroughput(),
+		"batctl 100 kbit/s ticks should convert to bits-per-second: 2400 × 100_000 = 240 Mbit/s")
+}
+
+func TestListMeshNeighbors_BatmanAdvThroughputClampsOnOverflow(t *testing.T) {
+	meshIface := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
+	mac := "9c:ef:d5:f9:80:4d"
+	station := makeStation(mac, -55)
+
+	// 50_000 × 100 kbit/s = 5 Gbit/s; as bits/sec that overflows int32.
+	// The handler must saturate at int32 max rather than wrap around.
+	batNeighbors := batmanadv.Neighbors{
+		{HardIfname: "mesh0", NeighAddress: mac, Throughput: 50_000},
+	}
+
+	fw := &fakeWireless{
+		meshInterfaces: []*wifi.Interface{meshIface},
+		stationInfo:    []*wifi.StationInfo{station},
+	}
+	svc := newMeshService(fw, func(_ string) (*batmanadv.BatHosts, error) {
+		return batmanadv.ParseBatHostsFile(fixtureBatHostsPath())
+	})
+	svc.GetMeshNeighbors = func() (*batmanadv.Neighbors, error) {
+		return &batNeighbors, nil
+	}
+
+	resp, err := svc.ListMeshNeighbors(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetNeighbors(), 1)
+
+	// int32 max is 2_147_483_647 bps ≈ 2.15 Gbit/s; saturate here instead
+	// of wrapping to a negative value.
+	assert.Equal(t, int32(2_147_483_647), resp.GetNeighbors()[0].GetThroughput())
+}
+
 func TestListMeshNeighbors_FieldMapping(t *testing.T) {
 	meshIface := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
 	station := makeStation("9c:ef:d5:f9:80:4d", -65)
