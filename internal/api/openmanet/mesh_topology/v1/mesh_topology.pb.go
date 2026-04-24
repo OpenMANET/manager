@@ -54,9 +54,15 @@ type MeshNode struct {
 	// node has no route to this node in its originator table.
 	MyHardIfname string `protobuf:"bytes,7,opt,name=my_hard_ifname,json=myHardIfname,proto3" json:"my_hard_ifname,omitempty"`
 	// is_self is true when this node is the serving node.
-	IsSelf        bool `protobuf:"varint,8,opt,name=is_self,json=isSelf,proto3" json:"is_self,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	IsSelf bool `protobuf:"varint,8,opt,name=is_self,json=isSelf,proto3" json:"is_self,omitempty"`
+	// remote_gateway_mac is the MAC of the direct BLOS neighbor (vxlan0)
+	// through which the serving node reaches this remote node. Empty for
+	// local-segment nodes. Remote nodes sharing the same gateway form one
+	// remote mesh segment in the UI; distinct gateways produce distinct
+	// segments.
+	RemoteGatewayMac string `protobuf:"bytes,9,opt,name=remote_gateway_mac,json=remoteGatewayMac,proto3" json:"remote_gateway_mac,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *MeshNode) Reset() {
@@ -143,6 +149,13 @@ func (x *MeshNode) GetIsSelf() bool {
 		return x.IsSelf
 	}
 	return false
+}
+
+func (x *MeshNode) GetRemoteGatewayMac() string {
+	if x != nil {
+		return x.RemoteGatewayMac
+	}
+	return ""
 }
 
 // MeshEdge is one link in the mesh, canonicalized so A↔B appears once
@@ -340,7 +353,7 @@ var File_openmanet_mesh_topology_v1_mesh_topology_proto protoreflect.FileDescrip
 
 const file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc = "" +
 	"\n" +
-	".openmanet/mesh_topology/v1/mesh_topology.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x81\x02\n" +
+	".openmanet/mesh_topology/v1/mesh_topology.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xaf\x02\n" +
 	"\bMeshNode\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12%\n" +
 	"\x0esecondary_macs\x18\x02 \x03(\tR\rsecondaryMacs\x12\x1a\n" +
@@ -349,7 +362,8 @@ const file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc = "" +
 	"\fclient_count\x18\x05 \x01(\x05R\vclientCount\x12$\n" +
 	"\x0ehops_from_self\x18\x06 \x01(\x05R\fhopsFromSelf\x12$\n" +
 	"\x0emy_hard_ifname\x18\a \x01(\tR\fmyHardIfname\x12\x17\n" +
-	"\ais_self\x18\b \x01(\bR\x06isSelf\"\x86\x01\n" +
+	"\ais_self\x18\b \x01(\bR\x06isSelf\x12,\n" +
+	"\x12remote_gateway_mac\x18\t \x01(\tR\x10remoteGatewayMac\"\x86\x01\n" +
 	"\bMeshEdge\x12\x19\n" +
 	"\bfrom_mac\x18\x01 \x01(\tR\afromMac\x12\x15\n" +
 	"\x06to_mac\x18\x02 \x01(\tR\x05toMac\x12\x16\n" +

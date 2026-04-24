@@ -67,7 +67,7 @@ export function buildTopologyView(topology) {
     hosts: [],
     segments: [],
     blosEdges: [],
-    counts: { hosts: 0, segments: 0, links: 0, blosLinks: 0, clients: 0, hopsMax: 0 },
+    counts: { hosts: 0, segments: 0, links: 0, blosLinks: 0, hopsMax: 0 },
     algorithm: '',
   };
 
@@ -83,7 +83,12 @@ export function buildTopologyView(topology) {
     if (!key) continue;
 
     const base = n.hostname || shortMac(n.mac);
-    const segmentId = n.segment === 'remote' ? 'remote' : 'local';
+    const remoteGatewayMac = (n.remoteGatewayMac || '').toLowerCase();
+    // Each remote gateway gets its own segment id; hosts sharing a
+    // gateway collapse into one segment. Local hosts share "local".
+    const segmentId = n.segment === 'remote'
+      ? (remoteGatewayMac ? `remote:${remoteGatewayMac}` : 'remote:unknown')
+      : 'local';
 
     const host = {
       id: key,
@@ -91,11 +96,11 @@ export function buildTopologyView(topology) {
       baseHostname: base,
       primaryMac: n.mac,
       tag: '',
-      interfaces: hostInterfacesForSegment(segmentId),
+      interfaces: hostInterfacesForKind(n.segment === 'remote' ? 'remote' : 'local'),
       segmentId,
+      remoteGatewayMac,
       hops: Number.isFinite(n.hopsFromSelf) ? n.hopsFromSelf : HOPS_UNKNOWN,
       isSelf: Boolean(n.isSelf),
-      clientCount: n.clientCount || 0,
       myHardIfname: n.myHardIfname || '',
       secondaryMacs: n.secondaryMacs || [],
     };
@@ -121,15 +126,12 @@ export function buildTopologyView(topology) {
   }
 
   // ── Segment construction ───────────────────────────────────────────────
+  // LOCAL holds every local-segment host; one REMOTE MESH segment per
+  // distinct BLOS gateway.
   const segments = [];
-  const localHosts = [];
-  const remoteHosts = [];
-  for (const h of hostByMac.values()) {
-    if (h.segmentId === 'remote') remoteHosts.push(h);
-    else localHosts.push(h);
-  }
+  const hasLocalHost = [...hostByMac.values()].some((h) => h.segmentId === 'local');
 
-  if (localHosts.length > 0) {
+  if (hasLocalHost) {
     segments.push({
       id: 'local',
       label: 'LOCAL',
@@ -139,12 +141,36 @@ export function buildTopologyView(topology) {
       edges: [],
     });
   }
-  if (remoteHosts.length > 0) {
+
+  // Collect distinct remote segment ids in deterministic order (by
+  // gateway's base hostname when available, else by the MAC suffix).
+  const remoteGatewayHosts = new Map(); // segmentId → gatewayHost (may be null)
+  for (const h of hostByMac.values()) {
+    if (h.segmentId === 'local') continue;
+    if (!remoteGatewayHosts.has(h.segmentId)) {
+      const gw = hostByMac.get(h.remoteGatewayMac) || null;
+      remoteGatewayHosts.set(h.segmentId, gw);
+    }
+  }
+
+  const remoteSegIds = [...remoteGatewayHosts.keys()].sort((a, b) => {
+    const ga = remoteGatewayHosts.get(a);
+    const gb = remoteGatewayHosts.get(b);
+    const na = ga?.baseHostname || a;
+    const nb = gb?.baseHostname || b;
+    return na.localeCompare(nb);
+  });
+
+  for (const segId of remoteSegIds) {
+    const gw = remoteGatewayHosts.get(segId);
+    const label = gw
+      ? `REMOTE MESH · ${gw.baseHostname}`
+      : `REMOTE MESH · ${shortMac(segId.slice('remote:'.length))}`;
     segments.push({
-      id: 'remote',
-      label: 'REMOTE MESH',
+      id: segId,
+      label,
       kind: 'remote',
-      anchorHost: null,
+      anchorHost: gw ? gw.id : null,
       hosts: [],
       edges: [],
     });
@@ -164,11 +190,12 @@ export function buildTopologyView(topology) {
     if (seg) seg.hosts.push(h);
   }
 
-  // Anchor selection for the remote segment — the direct BLOS neighbor
-  // (min hops in the segment) with the lowest base hostname, so the
-  // tunnel's entry point sits at the radial center.
+  // Fill in anchorHost for remote segments whose gateway didn't show up
+  // as a rendered host (edge case: chain walk surfaced a MAC vis
+  // doesn't have a primary entry for). Fall back to the min-hops host.
   for (const seg of segments) {
     if (seg.kind !== 'remote' || seg.hosts.length === 0) continue;
+    if (seg.anchorHost && seg.hosts.some((h) => h.id === seg.anchorHost)) continue;
     const minHops = Math.min(...seg.hosts.map((h) => h.hops));
     const candidates = seg.hosts
       .filter((h) => h.hops === minHops)
@@ -212,7 +239,6 @@ export function buildTopologyView(topology) {
     .filter((h) => !h.isSelf && h.hops < HOPS_UNKNOWN)
     .map((h) => h.hops);
   const hopsMax = peerHops.length > 0 ? Math.max(...peerHops) : 0;
-  const clientTotal = hosts.reduce((acc, h) => acc + (h.clientCount || 0), 0);
 
   return {
     self: selfHost,
@@ -224,18 +250,17 @@ export function buildTopologyView(topology) {
       segments: segments.length,
       links: rfLinkCount,
       blosLinks: blosEdges.length,
-      clients: clientTotal,
       hopsMax,
     },
     algorithm: topology.algorithm || '',
   };
 }
 
-// hostInterfacesForSegment returns a single segment-derived badge so
+// hostInterfacesForKind returns a single segment-derived badge so
 // peers carry a consistent visual cue even though the mesh-wide feed
 // doesn't report per-peer interface names.
-function hostInterfacesForSegment(segmentId) {
-  if (segmentId === 'remote') {
+function hostInterfacesForKind(kind) {
+  if (kind === 'remote') {
     return [{ name: 'vxlan0', role: 'blos' }];
   }
   return [{ name: 'mesh', role: 'rf' }];

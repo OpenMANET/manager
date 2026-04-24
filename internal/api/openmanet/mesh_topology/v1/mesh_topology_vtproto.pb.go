@@ -36,6 +36,7 @@ func (m *MeshNode) CloneVT() *MeshNode {
 	r.HopsFromSelf = m.HopsFromSelf
 	r.MyHardIfname = m.MyHardIfname
 	r.IsSelf = m.IsSelf
+	r.RemoteGatewayMac = m.RemoteGatewayMac
 	if rhs := m.SecondaryMacs; rhs != nil {
 		tmpContainer := make([]string, len(rhs))
 		copy(tmpContainer, rhs)
@@ -141,6 +142,9 @@ func (this *MeshNode) EqualVT(that *MeshNode) bool {
 		return false
 	}
 	if this.IsSelf != that.IsSelf {
+		return false
+	}
+	if this.RemoteGatewayMac != that.RemoteGatewayMac {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -275,6 +279,13 @@ func (m *MeshNode) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.RemoteGatewayMac) > 0 {
+		i -= len(m.RemoteGatewayMac)
+		copy(dAtA[i:], m.RemoteGatewayMac)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.RemoteGatewayMac)))
+		i--
+		dAtA[i] = 0x4a
 	}
 	if m.IsSelf {
 		i--
@@ -526,6 +537,13 @@ func (m *MeshNode) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.RemoteGatewayMac) > 0 {
+		i -= len(m.RemoteGatewayMac)
+		copy(dAtA[i:], m.RemoteGatewayMac)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.RemoteGatewayMac)))
+		i--
+		dAtA[i] = 0x4a
 	}
 	if m.IsSelf {
 		i--
@@ -784,6 +802,10 @@ func (m *MeshNode) SizeVT() (n int) {
 	}
 	if m.IsSelf {
 		n += 2
+	}
+	l = len(m.RemoteGatewayMac)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1101,6 +1123,38 @@ func (m *MeshNode) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.IsSelf = bool(v != 0)
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RemoteGatewayMac", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.RemoteGatewayMac = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -1807,6 +1861,42 @@ func (m *MeshNode) UnmarshalVTUnsafe(dAtA []byte) error {
 				}
 			}
 			m.IsSelf = bool(v != 0)
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RemoteGatewayMac", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.RemoteGatewayMac = stringValue
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

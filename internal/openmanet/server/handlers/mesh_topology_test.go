@@ -279,6 +279,117 @@ func TestGetMeshTopology_OriginatorFailureDegradesGracefully(t *testing.T) {
 	}
 }
 
+// TestGetMeshTopology_RemoteGatewaySplit asserts that remote peers
+// reached through two DIFFERENT direct BLOS neighbors land in SEPARATE
+// mesh segments via distinct remote_gateway_mac values. Peers behind
+// the same gateway (multi-hop chain) share a segment.
+func TestGetMeshTopology_RemoteGatewaySplit(t *testing.T) {
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: "aa:aa:aa:aa:aa:00"}, // self
+			{Primary: "cc:cc:cc:cc:cc:00"}, // gw1 (direct BLOS)
+			{Primary: "dd:dd:dd:dd:dd:00"}, // behind gw1
+			{Primary: "ee:ee:ee:ee:ee:00"}, // gw2 (different direct BLOS)
+			{Primary: "ff:ff:ff:ff:ff:00"}, // behind gw2
+		},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC:      "aa:aa:aa:aa:aa:00",
+		SelfHostname: "me",
+		Algorithm:    "BATMAN_V",
+		Originators: []batmanadv.OriginatorEntry{
+			{
+				OrigMAC: "cc:cc:cc:cc:cc:00", NextHopMAC: "cc:cc:cc:cc:cc:00",
+				HardIfname: "vxlan0", Hops: 1,
+			},
+			{
+				OrigMAC: "dd:dd:dd:dd:dd:00", NextHopMAC: "cc:cc:cc:cc:cc:00",
+				HardIfname: "vxlan0", Hops: 2,
+			},
+			{
+				OrigMAC: "ee:ee:ee:ee:ee:00", NextHopMAC: "ee:ee:ee:ee:ee:00",
+				HardIfname: "vxlan0", Hops: 1,
+			},
+			{
+				OrigMAC: "ff:ff:ff:ff:ff:00", NextHopMAC: "ee:ee:ee:ee:ee:00",
+				HardIfname: "vxlan0", Hops: 2,
+			},
+		},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	gwByMac := map[string]string{}
+	for _, n := range resp.GetTopology().GetNodes() {
+		gwByMac[n.GetMac()] = n.GetRemoteGatewayMac()
+	}
+
+	assert.Equal(t, "cc:cc:cc:cc:cc:00", gwByMac["cc:cc:cc:cc:cc:00"], "direct BLOS peer is its own gateway")
+	assert.Equal(t, "cc:cc:cc:cc:cc:00", gwByMac["dd:dd:dd:dd:dd:00"], "multi-hop peer inherits the chain's gateway")
+	assert.Equal(t, "ee:ee:ee:ee:ee:00", gwByMac["ee:ee:ee:ee:ee:00"], "second direct BLOS peer is its own gateway")
+	assert.Equal(t, "ee:ee:ee:ee:ee:00", gwByMac["ff:ff:ff:ff:ff:00"], "multi-hop behind gw2 inherits gw2")
+	assert.Empty(t, gwByMac["aa:aa:aa:aa:aa:00"], "self has no gateway")
+}
+
+// TestGetMeshTopology_SynthesizesEdgesWhenVisEmpty verifies the
+// originator-derived edge fallback: when batadv-vis returns only node
+// stubs with no neighbor reports (alfred cold-start, peer vis-servers
+// silent), the handler still emits enough edges to visually connect
+// every peer we route to.
+func TestGetMeshTopology_SynthesizesEdgesWhenVisEmpty(t *testing.T) {
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: "aa:aa:aa:aa:aa:00"},
+			{Primary: "bb:bb:bb:bb:bb:00"},
+			{Primary: "cc:cc:cc:cc:cc:00"},
+		},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC: "aa:aa:aa:aa:aa:00",
+		Originators: []batmanadv.OriginatorEntry{
+			{OrigMAC: "bb:bb:bb:bb:bb:00", NextHopMAC: "bb:bb:bb:bb:bb:00", HardIfname: "wlan0", Hops: 1},
+			{OrigMAC: "cc:cc:cc:cc:cc:00", NextHopMAC: "bb:bb:bb:bb:bb:00", HardIfname: "wlan0", Hops: 2},
+		},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	edges := resp.GetTopology().GetEdges()
+	require.Len(t, edges, 2, "direct-neighbor edge + downstream chain edge")
+
+	for _, e := range edges {
+		assert.True(t, e.GetOnMyPath(), "originator-derived edges are by definition on my path")
+	}
+}
+
+// TestGetMeshTopology_AlgorithmFromBatmanAdv asserts the algorithm chip
+// reads the batman-adv (originator) algorithm label, never the
+// batadv-vis header, so the UI mirrors what batctl reports.
+func TestGetMeshTopology_AlgorithmFromBatmanAdv(t *testing.T) {
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Algorithm: 15, // BATMAN_V in vis header
+		Vis:       []batmanadv.VisNode{{Primary: "aa:aa:aa:aa:aa:00"}},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC:   "aa:aa:aa:aa:aa:00",
+		Algorithm: "BATMAN_IV", // what batctl actually reported
+	}}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "BATMAN_IV", resp.GetTopology().GetAlgorithm(),
+		"algorithm reflects batman-adv (batctl), not the vis-header")
+}
+
 // TestGetMeshTopology_BidirectionalDedup asserts that a vis fixture with
 // A→B and B→A reports produces ONE edge, and the better metric wins.
 func TestGetMeshTopology_BidirectionalDedup(t *testing.T) {

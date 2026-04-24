@@ -200,16 +200,6 @@ function InterfaceBadges({ interfaces }) {
   );
 }
 
-function ClientCountBadge({ count }) {
-  if (!count) return null;
-  return (
-    <g className="topo-client-badge" transform={`translate(${NODE_RADIUS + 2},-${NODE_RADIUS - 4})`}>
-      <rect x="0" y="0" width="22" height="14" rx="2" ry="2" />
-      <text x="11" y="7.5">{`·${count}`}</text>
-    </g>
-  );
-}
-
 function HostNode({ host, pos, kind, onSelect, selectedId, compact }) {
   if (!pos) return null;
   const isSelected = selectedId === host.id;
@@ -234,7 +224,6 @@ function HostNode({ host, pos, kind, onSelect, selectedId, compact }) {
         </text>
       )}
       {!compact && <InterfaceBadges interfaces={host.interfaces} />}
-      {!compact && <ClientCountBadge count={host.clientCount} />}
     </g>
   );
 }

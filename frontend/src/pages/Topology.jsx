@@ -277,12 +277,6 @@ function HostInspector({ host, meshData, ipByHostname, hostById, edges }) {
           <span className="v">{onMyRoute ? host.myHardIfname : '— · NOT ON MY ROUTE'}</span>
         </div>
       )}
-      {host.clientCount > 0 && (
-        <div className="kv">
-          <span className="k">Clients</span>
-          <span className="v">{host.clientCount}</span>
-        </div>
-      )}
 
       <div className="topo-section-head">Links</div>
       {edges.length === 0 && <div className="topo-empty-hint">No links</div>}

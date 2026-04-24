@@ -96,78 +96,107 @@ func (s *MeshTopologyService) GetMeshTopology(ctx context.Context, _ *emptypb.Em
 
 // mergeMeshTopology transforms vis + originator + bat-hosts inputs into
 // the wire-shape MeshTopology. Factored out for test readability.
+//
+// Edges are always derived from the serving node's originator table so
+// the UI renders connectivity even when batadv-vis returns a bare node
+// list (alfred reachable, peer vis-servers silent). Vis-neighbor edges
+// are layered on top for links that don't touch the serving node.
 func mergeMeshTopology(
 	visDoc *batmanadv.VisDoc,
 	origSnap *batmanadv.OriginatorTopology,
 	batHosts *batmanadv.BatHosts,
 ) *meshtopov1.MeshTopology {
-	if visDoc == nil || len(visDoc.Vis) == 0 {
-		return &meshtopov1.MeshTopology{
-			SelfMac:      origSnap.SelfMAC,
-			SelfHostname: origSnap.SelfHostname,
-		}
+	// 1. MAC → primary index for every vis node (primary + secondaries
+	//    all map to the same primary). Originator-only nodes that vis
+	//    hasn't heard about yet get added in buildMeshNodes.
+	visNodes := []batmanadv.VisNode(nil)
+	if visDoc != nil {
+		visNodes = visDoc.Vis
 	}
 
-	// 1. MAC → primary index for every node (primary and every secondary
-	//    share the node's primary MAC as their key).
-	primaryByMac := make(map[string]string, len(visDoc.Vis)*2)
-	for _, v := range visDoc.Vis {
+	primaryByMac := make(map[string]string, len(visNodes)*2)
+	for _, v := range visNodes {
 		primaryByMac[v.Primary] = v.Primary
 		for _, sec := range v.Secondary {
 			primaryByMac[sec] = v.Primary
 		}
 	}
 
+	// Ensure every originator MAC resolves to some primary so segment
+	// classification captures peers that appear in our route table but
+	// haven't surfaced in vis yet.
 	selfMAC := strings.ToLower(origSnap.SelfMAC)
-	selfPrimary := primaryByMac[selfMAC]
-
-	// 2. Segment assignment.
-	segmentByPrimary := segmentMap(origSnap, primaryByMac)
-	if selfPrimary != "" {
-		segmentByPrimary[selfPrimary] = segmentLocal // self is always local
+	if selfMAC != "" && primaryByMac[selfMAC] == "" {
+		primaryByMac[selfMAC] = selfMAC
 	}
 
-	// 3. My originator entries indexed by orig MAC for overlay lookups.
+	for _, o := range origSnap.Originators {
+		mac := strings.ToLower(o.OrigMAC)
+		if mac != "" && primaryByMac[mac] == "" {
+			primaryByMac[mac] = mac
+		}
+	}
+
+	selfPrimary := primaryByMac[selfMAC]
+
+	// 2. Segment assignment + per-node BLOS gateway.
+	segmentByPrimary, gatewayByPrimary := classifyNodes(origSnap, primaryByMac, selfMAC)
+	if selfPrimary != "" {
+		segmentByPrimary[selfPrimary] = segmentLocal // self is always local
+		delete(gatewayByPrimary, selfPrimary)
+	}
+
+	// 3. Originator lookup by primary MAC for overlay data.
 	origByMac := make(map[string]*batmanadv.OriginatorEntry, len(origSnap.Originators))
 	for i := range origSnap.Originators {
 		origByMac[strings.ToLower(origSnap.Originators[i].OrigMAC)] = &origSnap.Originators[i]
 	}
 
-	// 4. Canonical edges that lie on MY forwarding tree (for on_my_path).
-	//    Direct neighbors have OrigMAC == NextHopMAC in my originator
-	//    table, so we anchor those edges on selfMAC.
-	myEdges := myForwardingEdges(origSnap.Originators, selfMAC)
+	// 4. Build MeshNode list.
+	nodes := buildMeshNodes(visNodes, origByMac, batHosts, segmentByPrimary, gatewayByPrimary, selfPrimary, origSnap.SelfHostname, primaryByMac)
 
-	// 5. Build MeshNode list.
-	nodes := buildMeshNodes(visDoc, origByMac, batHosts, segmentByPrimary, selfPrimary, origSnap.SelfHostname)
-
-	// 6. Build MeshEdge list.
-	edges := buildMeshEdges(visDoc, primaryByMac, segmentByPrimary, myEdges)
-
-	// 7. Algorithm label — prefer vis, fall back to originator-derived.
-	algorithm := visDoc.AlgorithmLabel()
-	if algorithm == "" {
-		algorithm = origSnap.Algorithm
-	}
+	// 5. Build MeshEdge list — originator-derived first, then vis neighbors.
+	edges := buildMeshEdges(visDoc, origSnap.Originators, primaryByMac, segmentByPrimary, selfMAC, renderedPrimaries(nodes))
 
 	return &meshtopov1.MeshTopology{
 		SelfMac:      origSnap.SelfMAC,
 		SelfHostname: origSnap.SelfHostname,
-		Algorithm:    algorithm,
+		Algorithm:    origSnap.Algorithm, // always the batman-adv algorithm, never the vis header
 		Nodes:        nodes,
 		Edges:        edges,
 	}
 }
 
-// segmentMap classifies each vis primary as "local" or "remote" based on
-// the serving node's originator table: any route via vxlan0 → remote,
-// unless the same primary also has a non-vxlan0 route (RF wins).
-// Primaries absent from the originator table default to local.
-func segmentMap(
+// renderedPrimaries returns the set of primary MACs we emitted in the
+// node list so edge-building can drop references to MACs without a
+// rendered node (e.g. an originator's next hop that vis never mentioned
+// and that we also couldn't synthesize).
+func renderedPrimaries(nodes []*meshtopov1.MeshNode) map[string]struct{} {
+	out := make(map[string]struct{}, len(nodes))
+	for _, n := range nodes {
+		out[strings.ToLower(n.Mac)] = struct{}{}
+	}
+
+	return out
+}
+
+// classifyNodes assigns each primary to a segment and — for remote-segment
+// nodes — resolves the direct BLOS neighbor (the "gateway") on the other
+// end of the vxlan0 tunnel. Remote nodes sharing a gateway form one UI
+// segment; distinct gateways produce distinct segments.
+//
+// Rule: any vxlan0 route → remote unless the same primary also has a
+// non-vxlan0 route (RF wins). Primaries absent from the originator table
+// default to local with no gateway.
+func classifyNodes(
 	origSnap *batmanadv.OriginatorTopology,
 	primaryByMac map[string]string,
-) map[string]string {
+	selfMAC string,
+) (map[string]string, map[string]string) {
+	// Collect hard_ifnames each primary is reachable over.
 	ifsByPrimary := make(map[string]map[string]struct{})
+	// Track each primary's vxlan0 originator entry (for gateway chain walk).
+	blosEntryByPrimary := make(map[string]batmanadv.OriginatorEntry)
 
 	for _, o := range origSnap.Originators {
 		primary := primaryByMac[strings.ToLower(o.OrigMAC)]
@@ -175,16 +204,21 @@ func segmentMap(
 			continue
 		}
 
-		m, ok := ifsByPrimary[primary]
+		ifs, ok := ifsByPrimary[primary]
 		if !ok {
-			m = make(map[string]struct{})
-			ifsByPrimary[primary] = m
+			ifs = make(map[string]struct{})
+			ifsByPrimary[primary] = ifs
 		}
 
-		m[o.HardIfname] = struct{}{}
+		ifs[o.HardIfname] = struct{}{}
+
+		if o.HardIfname == blosIfname {
+			blosEntryByPrimary[primary] = o
+		}
 	}
 
-	out := make(map[string]string, len(ifsByPrimary))
+	segments := make(map[string]string, len(ifsByPrimary))
+	gateways := make(map[string]string, len(blosEntryByPrimary))
 
 	for primary, ifs := range ifsByPrimary {
 		hasRF := false
@@ -200,70 +234,80 @@ func segmentMap(
 
 		switch {
 		case hasRF:
-			out[primary] = segmentLocal
+			segments[primary] = segmentLocal
 		case hasBLOS:
-			out[primary] = segmentRemote
-		default:
-			out[primary] = segmentLocal
-		}
-	}
+			segments[primary] = segmentRemote
 
-	return out
-}
-
-// myForwardingEdges returns the set of canonical (from|to) edge keys on
-// the serving node's best-route tree, used to flag on_my_path edges.
-// Direct neighbors (NextHopMAC == OrigMAC) anchor on selfMAC so the
-// (self, peer) edge is represented in the set.
-func myForwardingEdges(origs []batmanadv.OriginatorEntry, selfMAC string) map[string]struct{} {
-	out := make(map[string]struct{}, len(origs))
-
-	for _, o := range origs {
-		origMAC := strings.ToLower(o.OrigMAC)
-		nextMAC := strings.ToLower(o.NextHopMAC)
-
-		if origMAC == "" {
-			continue
-		}
-
-		// Direct neighbor: the forwarding edge is self → origMAC.
-		if nextMAC == "" || nextMAC == origMAC {
-			if selfMAC == "" || selfMAC == origMAC {
-				continue
+			gw := resolveBLOSGateway(primary, blosEntryByPrimary, primaryByMac, selfMAC)
+			if gw != "" {
+				gateways[primary] = gw
 			}
-
-			a, b := canonicalPair(selfMAC, origMAC)
-			out[a+"|"+b] = struct{}{}
-
-			continue
+		default:
+			segments[primary] = segmentLocal
 		}
-
-		// Multi-hop: forwarding edge is nextHop → origMAC (the next
-		// link in the chain originating from our forwarder).
-		a, b := canonicalPair(nextMAC, origMAC)
-		if a == b {
-			continue
-		}
-
-		out[a+"|"+b] = struct{}{}
 	}
 
-	return out
+	return segments, gateways
 }
 
-// buildMeshNodes materializes MeshNode records from the vis payload,
-// joining in originator overlay and bat-hosts hostnames.
+// resolveBLOSGateway walks a BLOS-reached primary's next-hop chain until
+// it hits a direct neighbor (hopsRemaining == 0 or nextHop == primary).
+// That direct neighbor's primary MAC identifies the remote mesh segment.
+// Cycle-safe, capped at hopsMaxWalk steps.
+func resolveBLOSGateway(
+	primary string,
+	blosByPrimary map[string]batmanadv.OriginatorEntry,
+	primaryByMac map[string]string,
+	selfMAC string,
+) string {
+	const hopsMaxWalk = 16
+
+	cursor := primary
+
+	for i := 0; i < hopsMaxWalk; i++ {
+		entry, ok := blosByPrimary[cursor]
+		if !ok {
+			return cursor
+		}
+
+		nextMAC := strings.ToLower(entry.NextHopMAC)
+		origMAC := strings.ToLower(entry.OrigMAC)
+
+		// Direct neighbor: we reach cursor in one hop via vxlan0. cursor
+		// itself is the gateway for its remote mesh segment.
+		if nextMAC == "" || nextMAC == origMAC || nextMAC == selfMAC {
+			return cursor
+		}
+
+		nextPrimary := primaryByMac[nextMAC]
+		if nextPrimary == "" || nextPrimary == cursor {
+			return cursor
+		}
+
+		cursor = nextPrimary
+	}
+
+	return cursor
+}
+
+// buildMeshNodes materializes MeshNode records from the vis payload, and
+// synthesizes nodes for originators vis hasn't surfaced yet so the UI has
+// a record for every peer we know how to route to. Overlay data comes
+// from the originator table; hostnames from bat-hosts.
 func buildMeshNodes(
-	visDoc *batmanadv.VisDoc,
+	visNodes []batmanadv.VisNode,
 	origByMac map[string]*batmanadv.OriginatorEntry,
 	batHosts *batmanadv.BatHosts,
 	segmentByPrimary map[string]string,
+	gatewayByPrimary map[string]string,
 	selfPrimary string,
 	selfHostname string,
+	primaryByMac map[string]string,
 ) []*meshtopov1.MeshNode {
-	nodes := make([]*meshtopov1.MeshNode, 0, len(visDoc.Vis))
+	nodes := make([]*meshtopov1.MeshNode, 0, len(visNodes)+len(origByMac)+1)
+	seenPrimary := make(map[string]struct{}, len(visNodes))
 
-	for _, v := range visDoc.Vis {
+	for _, v := range visNodes {
 		node := &meshtopov1.MeshNode{
 			Mac:           v.Primary,
 			SecondaryMacs: append([]string(nil), v.Secondary...),
@@ -271,30 +315,57 @@ func buildMeshNodes(
 			IsSelf:        v.Primary == selfPrimary && selfPrimary != "",
 		}
 
-		if seg, ok := segmentByPrimary[v.Primary]; ok {
-			node.Segment = seg
-		} else {
-			node.Segment = segmentLocal
-		}
-
-		entry := lookupOrigEntry(v, origByMac)
-		switch {
-		case node.IsSelf:
-			node.HopsFromSelf = 0
-		case entry != nil:
-			node.HopsFromSelf = int32(entry.Hops)
-			node.MyHardIfname = entry.HardIfname
-		default:
-			node.HopsFromSelf = hopsUnknown
-		}
+		applySegment(node, segmentByPrimary, gatewayByPrimary, v.Primary)
+		applyOverlay(node, lookupOrigEntry(v, origByMac))
 
 		if node.IsSelf {
 			node.Hostname = stripIfaceSuffix(selfHostname)
 		} else {
-			node.Hostname = lookupHostname(v, entry, batHosts)
+			node.Hostname = lookupHostname(v, lookupOrigEntry(v, origByMac), batHosts)
 		}
 
 		nodes = append(nodes, node)
+		seenPrimary[v.Primary] = struct{}{}
+	}
+
+	// Synthesize nodes for originators vis didn't mention yet. Without
+	// this, the "vis returned a sparse doc" case drops peers we can still
+	// route to from the rendered graph.
+	for mac, entry := range origByMac {
+		primary := primaryByMac[mac]
+		if primary == "" {
+			primary = mac
+		}
+
+		if _, ok := seenPrimary[primary]; ok {
+			continue
+		}
+
+		node := &meshtopov1.MeshNode{
+			Mac:    primary,
+			IsSelf: primary == selfPrimary && selfPrimary != "",
+		}
+
+		applySegment(node, segmentByPrimary, gatewayByPrimary, primary)
+		applyOverlay(node, entry)
+		node.Hostname = stripIfaceSuffix(entry.OrigHostname)
+
+		nodes = append(nodes, node)
+		seenPrimary[primary] = struct{}{}
+	}
+
+	// Self may be absent from both vis and the originator table during
+	// cold-start; add a stub so the UI still has a node to root on.
+	if selfPrimary != "" {
+		if _, ok := seenPrimary[selfPrimary]; !ok {
+			nodes = append(nodes, &meshtopov1.MeshNode{
+				Mac:          selfPrimary,
+				Hostname:     stripIfaceSuffix(selfHostname),
+				Segment:      segmentLocal,
+				IsSelf:       true,
+				HopsFromSelf: 0,
+			})
+		}
 	}
 
 	sort.Slice(nodes, func(i, j int) bool {
@@ -320,48 +391,63 @@ func buildMeshNodes(
 	return nodes
 }
 
-// buildMeshEdges deduplicates vis neighbor entries into canonical edges
-// and tags each with its BLOS / on_my_path flags.
+// applySegment copies segment + gateway fields onto a MeshNode.
+func applySegment(
+	node *meshtopov1.MeshNode,
+	segmentByPrimary map[string]string,
+	gatewayByPrimary map[string]string,
+	primary string,
+) {
+	if seg, ok := segmentByPrimary[primary]; ok {
+		node.Segment = seg
+	} else {
+		node.Segment = segmentLocal
+	}
+
+	if gw, ok := gatewayByPrimary[primary]; ok && node.Segment == segmentRemote {
+		node.RemoteGatewayMac = gw
+	}
+}
+
+// applyOverlay populates HopsFromSelf + MyHardIfname from an originator
+// entry, respecting the self-node short-circuit.
+func applyOverlay(node *meshtopov1.MeshNode, entry *batmanadv.OriginatorEntry) {
+	switch {
+	case node.IsSelf:
+		node.HopsFromSelf = 0
+	case entry != nil:
+		node.HopsFromSelf = int32(entry.Hops)
+		node.MyHardIfname = entry.HardIfname
+	default:
+		node.HopsFromSelf = hopsUnknown
+	}
+}
+
+// buildMeshEdges derives the edge list in two passes:
+//
+//  1. Seed from the serving node's originator table so every peer we
+//     route to is visually connected, even when batadv-vis returns a
+//     bare node list with no neighbor entries. These edges are all on
+//     my forwarding path by definition.
+//  2. Layer in vis-reported neighbor edges for links that don't touch
+//     the serving node (peer-to-peer connectivity we learn from other
+//     nodes' publications). Bidirectional reports dedupe by canonical
+//     MAC pair.
+//
+// Edges whose endpoints map to nodes we didn't render are dropped so
+// the frontend never receives dangling references.
 func buildMeshEdges(
 	visDoc *batmanadv.VisDoc,
+	origs []batmanadv.OriginatorEntry,
 	primaryByMac map[string]string,
 	segmentByPrimary map[string]string,
-	myEdges map[string]struct{},
+	selfMAC string,
+	knownPrimaries map[string]struct{},
 ) []*meshtopov1.MeshEdge {
 	edgeByKey := make(map[string]*meshtopov1.MeshEdge)
 
-	for _, v := range visDoc.Vis {
-		for _, n := range v.Neighbors {
-			a, b := canonicalPair(n.Router, n.Neighbor)
-			if a == "" || b == "" || a == b {
-				continue
-			}
-
-			key := a + "|" + b
-			metric := batmanadv.ParseMetric(n.Metric)
-
-			if e, ok := edgeByKey[key]; ok {
-				if isBetterMetric(metric, e.Metric, visDoc.Algorithm) {
-					e.Metric = metric
-				}
-
-				continue
-			}
-
-			segA := segmentOrDefault(segmentByPrimary, primaryByMac[a])
-			segB := segmentOrDefault(segmentByPrimary, primaryByMac[b])
-
-			_, onPath := myEdges[key]
-
-			edgeByKey[key] = &meshtopov1.MeshEdge{
-				FromMac:  a,
-				ToMac:    b,
-				Metric:   metric,
-				Blos:     segA != segB,
-				OnMyPath: onPath,
-			}
-		}
-	}
+	seedOriginatorEdges(edgeByKey, origs, primaryByMac, segmentByPrimary, knownPrimaries, selfMAC)
+	layerVisEdges(edgeByKey, visDoc, primaryByMac, segmentByPrimary, knownPrimaries)
 
 	edges := make([]*meshtopov1.MeshEdge, 0, len(edgeByKey))
 	for _, e := range edgeByKey {
@@ -381,6 +467,178 @@ func buildMeshEdges(
 	})
 
 	return edges
+}
+
+// seedOriginatorEdges populates edgeByKey with the serving node's
+// forwarding tree so every peer we route to gets at least one visual
+// edge, even when batadv-vis reports no neighbors.
+func seedOriginatorEdges(
+	edgeByKey map[string]*meshtopov1.MeshEdge,
+	origs []batmanadv.OriginatorEntry,
+	primaryByMac map[string]string,
+	segmentByPrimary map[string]string,
+	knownPrimaries map[string]struct{},
+	selfMAC string,
+) {
+	for _, o := range origs {
+		fromPrimary, toPrimary, ok := originatorEdgeEndpoints(o, primaryByMac, selfMAC)
+		if !ok {
+			continue
+		}
+
+		addEdge(edgeByKey, fromPrimary, toPrimary, segmentByPrimary, knownPrimaries, 0, true)
+	}
+}
+
+// originatorEdgeEndpoints projects an originator entry to a canonical
+// (from, to) primary pair. Direct neighbors anchor on selfMAC; multi-hop
+// entries anchor on the next-hop → origin leg. Returns ok=false when
+// the entry can't produce a valid edge (e.g. self-loop, missing data).
+func originatorEdgeEndpoints(
+	o batmanadv.OriginatorEntry,
+	primaryByMac map[string]string,
+	selfMAC string,
+) (string, string, bool) {
+	origMAC := strings.ToLower(o.OrigMAC)
+	if origMAC == "" {
+		return "", "", false
+	}
+
+	nextMAC := strings.ToLower(o.NextHopMAC)
+
+	var fromMAC, toMAC string
+
+	if nextMAC == "" || nextMAC == origMAC {
+		if selfMAC == "" || selfMAC == origMAC {
+			return "", "", false
+		}
+
+		fromMAC, toMAC = selfMAC, origMAC
+	} else {
+		fromMAC, toMAC = nextMAC, origMAC
+	}
+
+	return resolvePrimary(primaryByMac, fromMAC), resolvePrimary(primaryByMac, toMAC), true
+}
+
+// layerVisEdges merges vis-reported neighbor entries over the originator
+// seeds. Existing edges get their metric enriched; new pairs get added
+// as off-my-path edges.
+func layerVisEdges(
+	edgeByKey map[string]*meshtopov1.MeshEdge,
+	visDoc *batmanadv.VisDoc,
+	primaryByMac map[string]string,
+	segmentByPrimary map[string]string,
+	knownPrimaries map[string]struct{},
+) {
+	if visDoc == nil {
+		return
+	}
+
+	for _, v := range visDoc.Vis {
+		for _, n := range v.Neighbors {
+			applyVisNeighbor(edgeByKey, n, visDoc.Algorithm, primaryByMac, segmentByPrimary, knownPrimaries)
+		}
+	}
+}
+
+func applyVisNeighbor(
+	edgeByKey map[string]*meshtopov1.MeshEdge,
+	n batmanadv.VisNeighbor,
+	algorithm int,
+	primaryByMac map[string]string,
+	segmentByPrimary map[string]string,
+	knownPrimaries map[string]struct{},
+) {
+	aMAC := strings.ToLower(n.Router)
+
+	bMAC := strings.ToLower(n.Neighbor)
+	if aMAC == "" || bMAC == "" || aMAC == bMAC {
+		return
+	}
+
+	aPrimary := resolvePrimary(primaryByMac, aMAC)
+	bPrimary := resolvePrimary(primaryByMac, bMAC)
+
+	metric := batmanadv.ParseMetric(n.Metric)
+
+	if existing, ok := edgeByKey[canonicalKey(aPrimary, bPrimary)]; ok {
+		if isBetterMetric(metric, existing.Metric, algorithm) {
+			existing.Metric = metric
+		}
+
+		return
+	}
+
+	addEdge(edgeByKey, aPrimary, bPrimary, segmentByPrimary, knownPrimaries, metric, false)
+}
+
+// resolvePrimary looks up a MAC's primary, falling back to the MAC itself
+// when no mapping exists (keeps callers tidy vs inlining the check).
+func resolvePrimary(primaryByMac map[string]string, mac string) string {
+	if p, ok := primaryByMac[mac]; ok && p != "" {
+		return p
+	}
+
+	return mac
+}
+
+// canonicalKey returns a stable "from|to" key for an edge, ordered by
+// lowercase MAC so (a,b) == (b,a).
+func canonicalKey(a, b string) string {
+	la, lb := canonicalPair(a, b)
+
+	return la + "|" + lb
+}
+
+// addEdge inserts or upgrades an edge record keyed on the canonical MAC
+// pair. Drops edges whose endpoints aren't both in the rendered-node
+// set so the frontend never sees dangling endpoints.
+func addEdge(
+	edgeByKey map[string]*meshtopov1.MeshEdge,
+	a, b string,
+	segmentByPrimary map[string]string,
+	knownPrimaries map[string]struct{},
+	metric float64,
+	onMyPath bool,
+) {
+	la, lb := canonicalPair(a, b)
+	if la == lb {
+		return
+	}
+
+	if _, ok := knownPrimaries[la]; !ok {
+		return
+	}
+
+	if _, ok := knownPrimaries[lb]; !ok {
+		return
+	}
+
+	key := la + "|" + lb
+
+	if existing, ok := edgeByKey[key]; ok {
+		if onMyPath {
+			existing.OnMyPath = true
+		}
+
+		if metric != 0 && existing.Metric == 0 {
+			existing.Metric = metric
+		}
+
+		return
+	}
+
+	segA := segmentOrDefault(segmentByPrimary, la)
+	segB := segmentOrDefault(segmentByPrimary, lb)
+
+	edgeByKey[key] = &meshtopov1.MeshEdge{
+		FromMac:  la,
+		ToMac:    lb,
+		Metric:   metric,
+		Blos:     segA != segB,
+		OnMyPath: onMyPath,
+	}
 }
 
 // hopsUnknown mirrors the sentinel the frontend treats as "no route info".

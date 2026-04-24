@@ -69,24 +69,6 @@ function withBLOSGateway() {
   };
 }
 
-function withClients() {
-  return {
-    selfMac: '00:00:00:00:00:00',
-    selfHostname: 'me',
-    algorithm: 'BATMAN_V',
-    nodes: [
-      { mac: '00:00:00:00:00:00', hostname: 'me', segment: 'local',
-        hopsFromSelf: 0, isSelf: true, clientCount: 0, myHardIfname: '' },
-      { mac: 'aa:aa:aa:aa:aa:01', hostname: 'alpha', segment: 'local',
-        hopsFromSelf: 1, isSelf: false, clientCount: 3, myHardIfname: 'wlan0' },
-    ],
-    edges: [
-      { fromMac: '00:00:00:00:00:00', toMac: 'aa:aa:aa:aa:aa:01',
-        metric: 5, blos: false, onMyPath: true },
-    ],
-  };
-}
-
 // ── Rendering ───────────────────────────────────────────────────────────────
 
 describe('TestTopologyMapEmpty', () => {
@@ -171,20 +153,6 @@ describe('TestTopologyMapMyPathsOverlay', () => {
     );
     expect(container.querySelectorAll('.topo-edge.mypath').length).toBe(2);
     expect(container.querySelectorAll('.topo-edge.muted').length).toBe(1);
-  });
-});
-
-describe('TestTopologyMapClientBadge', () => {
-  it('renders a client-count badge when a host has attached clients', () => {
-    const { container } = render(<TopologyMap topology={withClients()} />);
-    const badges = container.querySelectorAll('.topo-client-badge');
-    expect(badges.length).toBe(1);
-    expect(badges[0].querySelector('text').textContent).toBe('·3');
-  });
-
-  it('renders no client badges when all client counts are zero', () => {
-    const { container } = render(<TopologyMap topology={directRF()} />);
-    expect(container.querySelectorAll('.topo-client-badge').length).toBe(0);
   });
 });
 

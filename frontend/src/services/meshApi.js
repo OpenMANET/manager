@@ -131,6 +131,7 @@ export async function fetchMeshTopology() {
         secondaryMacs: n.secondaryMacs ?? [],
         hostname: n.hostname ?? '',
         segment: n.segment ?? 'local',
+        remoteGatewayMac: n.remoteGatewayMac ?? '',
         clientCount: n.clientCount ?? 0,
         hopsFromSelf: n.hopsFromSelf ?? 0,
         myHardIfname: n.myHardIfname ?? '',
