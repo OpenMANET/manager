@@ -499,27 +499,22 @@ function InterfaceBadges({ interfaces }) {
 }
 
 // formatHostLabel returns the secondary text drawn below each node's
-// circle. Priority order (first match wins):
+// circle. Only reserved for role / degraded-state callouts — regular
+// peers render with no secondary label so the canvas stays readable at
+// high node counts. Hops and interface data live in the inspector
+// panel instead. Priority order (first match wins):
 //   - self          → "SELF"
 //   - stale record  → "STALE · 2m 14s" (age takes the slot so operators
 //                     see *how* stale; ageMissing falls through)
-//   - gateway       → "GATEWAY · HOPS N" (anchor of a remote segment)
-//   - peer          → "HOPS N · <ifname>" / "HOPS N" / "<ifname>"
-//   - fallback      → baseHostname (keeps SVG non-empty on malformed data)
+//   - gateway       → "GATEWAY" (anchor of a remote segment)
+//   - peer          → "" (suppressed)
 function formatHostLabel(host, isGateway) {
   if (host.isSelf) return 'SELF';
   if (host.gossipStale && Number.isFinite(host.gossipAgeSeconds) && host.gossipAgeSeconds >= 0) {
     return `STALE · ${formatAge(host.gossipAgeSeconds)}`;
   }
-  const hopsPart = host.hops < 99 ? `HOPS ${host.hops}` : '';
-  if (isGateway) {
-    return hopsPart ? `GATEWAY · ${hopsPart}` : 'GATEWAY';
-  }
-  const ifPart = host.myHardIfname || '';
-  if (hopsPart && ifPart) return `${hopsPart} · ${ifPart}`;
-  if (hopsPart) return hopsPart;
-  if (ifPart) return ifPart;
-  return host.baseHostname || '';
+  if (isGateway) return 'GATEWAY';
+  return '';
 }
 
 // ClientCountBadge draws the "·N" pill above the node when the host has
@@ -542,6 +537,7 @@ function HostNode({ host, pos, kind, onSelect, selectedId, compact, isGateway })
   if (isSelected) classes.push('selected');
   if (host.gossipStale && !host.isSelf) classes.push('stale');
   const radius = compact ? NODE_RADIUS - 4 : NODE_RADIUS;
+  const label = compact ? '' : formatHostLabel(host, isGateway);
   return (
     <g
       className={classes.join(' ')}
@@ -554,9 +550,9 @@ function HostNode({ host, pos, kind, onSelect, selectedId, compact, isGateway })
       {kind === 'self' && <circle className="halo" r={radius + 10} />}
       <circle r={radius} />
       <text>{shortHostname(host.baseHostname) || host.tag}</text>
-      {!compact && (
+      {label && (
         <text className="topo-host-label" y={HOSTNAME_Y_OFFSET}>
-          {formatHostLabel(host, isGateway)}
+          {label}
         </text>
       )}
       {!compact && <InterfaceBadges interfaces={host.interfaces} />}
@@ -565,22 +561,13 @@ function HostNode({ host, pos, kind, onSelect, selectedId, compact, isGateway })
   );
 }
 
-function formatEdgeLabel(edge, algorithm) {
-  // BLOS edges surface as the tunnel ifname so operators can tell at a
-  // glance that the link is vxlan-mediated, not RF. When a throughput
-  // metric is available for the tunnel we append it.
-  if (edge.blos) {
-    if (!edge.metric || algorithm !== 'BATMAN_V') return 'vxlan0';
-    return `vxlan0 · ${Math.round(edge.metric)} Mbps`;
-  }
-  if (!edge.metric) return '';
-  // BATMAN_V metrics are throughput-derived Mbps (q-strong >= 20, q-ok
-  // >= 5, q-weak < 5). BATMAN_IV reports 255/TQ (lower = better); we
-  // show it as "TQ N.NN" so operators don't confuse it with throughput.
-  if (algorithm === 'BATMAN_V') {
-    return `${Math.round(edge.metric)} Mbps`;
-  }
-  return `TQ ${edge.metric.toFixed(2)}`;
+function formatEdgeLabel(edge) {
+  // Inline RF edge labels are intentionally empty — throughput values
+  // live in the inspector panel's Links section. Only BLOS edges get an
+  // inline annotation so operators can distinguish a vxlan0 tunnel from
+  // an RF link at a glance when the selection panel is collapsed.
+  if (edge.blos) return 'vxlan0';
+  return '';
 }
 
 function EdgeLine({ edge, positions, algorithm, myPathsOverlay }) {
@@ -607,7 +594,7 @@ function EdgeLine({ edge, positions, algorithm, myPathsOverlay }) {
     else if (edge.metric <= 1.4) strokeWidth = 1.6;
   }
 
-  const label = formatEdgeLabel(edge, algorithm);
+  const label = formatEdgeLabel(edge);
   const mx = (a.x + b.x) / 2;
   const my = (a.y + b.y) / 2;
 

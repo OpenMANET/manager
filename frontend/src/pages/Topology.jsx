@@ -23,21 +23,42 @@ function formatLatency(ms) {
   return `${(ms / 1000).toFixed(1)} s`;
 }
 
-function formatMetric(edge) {
+function formatMetric(edge, algorithm) {
   if (!edge || !edge.metric) return '—';
-  // BATMAN_V: higher metric = better (throughput-derived). BATMAN_IV:
-  // metric is 255/TQ (lower = better). Show the raw value; the header
-  // chip already tells operators which algorithm is in play.
-  return edge.metric >= 1
-    ? `${edge.metric.toFixed(2)}`
-    : `${edge.metric.toFixed(3)}`;
+  // BATMAN_V metrics are throughput-derived Mbps. BATMAN_IV metrics
+  // are 255/TQ (unitless ratio, lower is better) — show "TQ N.NN" so
+  // operators reading the panel don't confuse the two scales.
+  if (algorithm === 'BATMAN_V') {
+    return `${edge.metric.toFixed(2)} Mbps`;
+  }
+  return `TQ ${edge.metric.toFixed(2)}`;
+}
+
+// isRemoteSegmentId returns true when a host record's segmentId marks
+// it as living in any REMOTE MESH segment. topologyGraph builds
+// per-gateway remote segments keyed "remote:<mac>", never bare
+// "remote", so a simple equality check misses every remote peer —
+// that's the inspector's "Role: LOCAL" bug for remote-mesh nodes.
+function isRemoteSegmentId(segmentId) {
+  return typeof segmentId === 'string' && segmentId.startsWith('remote');
+}
+
+// isGatewayHost marks the anchor of a remote segment — the node that
+// terminates the vxlan0 tunnel from the serving node's local mesh.
+// Derived here (rather than passed down from the renderer) because the
+// inspector isn't plumbed into the segment list; we use the same
+// remoteGatewayMac field topologyGraph copies off the wire.
+function isGatewayHost(host) {
+  if (!host || !isRemoteSegmentId(host.segmentId)) return false;
+  const gwMac = (host.remoteGatewayMac || '').toLowerCase();
+  return gwMac !== '' && gwMac === (host.primaryMac || '').toLowerCase();
 }
 
 function roleLabelForHost(host, meshData) {
   if (host.isSelf && meshData?.status?.is_gateway) return 'SELF · GATEWAY';
   if (host.isSelf) return 'SELF';
-  if (host.segmentId === 'remote') return 'REMOTE';
-  return 'LOCAL';
+  if (isGatewayHost(host)) return 'GATEWAY';
+  return 'MESH NODE';
 }
 
 export default function TopologyPage() {
@@ -141,8 +162,6 @@ export default function TopologyPage() {
         </div>
         <div className="lat-view-toolbar">
           <GossipCoverageBadge coverage={gossipCoverage} />
-          <button className="lat-btn ghost" type="button">LAYOUT</button>
-          <button className="lat-btn ghost" type="button">FILTER</button>
           <button
             className={`lat-btn${myPathsOn ? '' : ' ghost'}`}
             type="button"
@@ -187,7 +206,7 @@ export default function TopologyPage() {
             </div>
             <div className="kv">
               <span className="k"><span className="swatch ok" /> q-strong</span>
-              <span className="v muted">high throughput / low TQ</span>
+              <span className="v muted">high throughput</span>
             </div>
             <div className="kv">
               <span className="k"><span className="swatch accent" /> q-ok</span>
@@ -225,6 +244,7 @@ export default function TopologyPage() {
                 ipByHostname={ipByHostname}
                 hostById={hostById}
                 edges={edgesByHost.get(selected.host.id) || []}
+                algorithm={algorithm}
               />
             )}
           </div>
@@ -306,17 +326,18 @@ function GossipCoverageBadge({ coverage }) {
   );
 }
 
-function HostInspector({ host, meshData, ipByHostname, hostById, edges }) {
+function HostInspector({ host, meshData, ipByHostname, hostById, edges, algorithm }) {
   const role = roleLabelForHost(host, meshData);
   const ip = ipByHostname.get((host.baseHostname || '').toLowerCase()) || '—';
-  const segmentLabel = host.segmentId === 'remote' ? 'REMOTE MESH' : 'LOCAL';
+  const isRemote = isRemoteSegmentId(host.segmentId);
+  const segmentLabel = isRemote ? 'REMOTE' : 'LOCAL';
   const onMyRoute = host.isSelf || Boolean(host.myHardIfname);
 
   return (
     <>
       <div className="kv">
         <span className="k">Role</span>
-        <span className={`v${host.segmentId === 'remote' ? ' warn' : ' accent'}`}>{role}</span>
+        <span className={`v${isRemote ? ' warn' : ' accent'}`}>{role}</span>
       </div>
       <div className="kv">
         <span className="k">Host</span>
@@ -360,6 +381,7 @@ function HostInspector({ host, meshData, ipByHostname, hostById, edges }) {
             key={edge.id}
             edge={edge}
             peerHost={peer}
+            algorithm={algorithm}
           />
         );
       })}
@@ -395,12 +417,12 @@ function GossipFreshnessRow({ host }) {
   );
 }
 
-function LinkRow({ edge, peerHost }) {
+function LinkRow({ edge, peerHost, algorithm }) {
   if (!peerHost) return null;
   const header = edge.blos
     ? `╌ ${peerHost.baseHostname || peerHost.id} · via BLOS`
     : `↔ ${peerHost.baseHostname || peerHost.id}`;
-  const metric = formatMetric(edge);
+  const metric = formatMetric(edge, algorithm);
   return (
     <div className={`topo-link-group${edge.blos ? ' blos' : ''}`}>
       <div className="topo-link-header">

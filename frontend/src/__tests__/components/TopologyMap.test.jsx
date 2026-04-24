@@ -88,7 +88,7 @@ describe('TestTopologyMapSinglePair', () => {
     expect(container.querySelectorAll('.topo-segment-box').length).toBe(0);
   });
 
-  it('renders the short hostname inside the circle and the role/hops label beneath', () => {
+  it('renders the short hostname inside the circle and a role label for self/gateway/stale only', () => {
     const { container } = render(<TopologyMap topology={directRF()} />);
     const circleTexts = Array.from(
       container.querySelectorAll('.topo-node > text:not(.topo-host-label):not(.topo-iface-overflow)'),
@@ -96,10 +96,11 @@ describe('TestTopologyMapSinglePair', () => {
     expect(circleTexts).toContain('me01');
     expect(circleTexts).toContain('alpha');
 
-    // Self gets "SELF"; a peer 1 hop away reached via wlan0 gets "HOPS 1 · wlan0".
+    // Self gets "SELF". The regular peer (alpha) shows no secondary
+    // label so the canvas stays readable at high node counts — hops
+    // and interface info live in the inspector panel.
     const labels = Array.from(container.querySelectorAll('.topo-host-label')).map((n) => n.textContent);
-    expect(labels).toContain('SELF');
-    expect(labels).toContain('HOPS 1 · wlan0');
+    expect(labels).toEqual(['SELF']);
   });
 
   it('hides badges and hostname label in compact mode', () => {
@@ -437,9 +438,9 @@ describe('TestTopologyMapRemoteKindAndGateway', () => {
     const { container } = render(<TopologyMap topology={withBLOSGateway()} />);
     const remoteNode = container.querySelector('.topo-node.remote');
     const label = remoteNode.querySelector('.topo-host-label')?.textContent || '';
-    // gw1 is the only remote host → anchor of its segment.
-    expect(label.startsWith('GATEWAY')).toBe(true);
-    expect(label).toContain('HOPS 1');
+    // gw1 is the only remote host → anchor of its segment. The label
+    // is just "GATEWAY" — hops/ifname detail lives in the inspector.
+    expect(label).toBe('GATEWAY');
   });
 
   it('labels self as SELF even when gossipStale is incorrectly set', () => {
@@ -483,7 +484,7 @@ describe('TestTopologyMapClientCountBadge', () => {
 });
 
 describe('TestTopologyMapEdgeLabels', () => {
-  it('renders BATMAN_V metrics as "N Mbps"', () => {
+  it('suppresses inline metric labels on RF edges (throughput lives in the inspector)', () => {
     const fixture = {
       ...directRF(),
       algorithm: 'BATMAN_V',
@@ -491,20 +492,22 @@ describe('TestTopologyMapEdgeLabels', () => {
     };
     const { container } = render(<TopologyMap topology={fixture} />);
     const labels = Array.from(container.querySelectorAll('.topo-edge-label-text')).map((n) => n.textContent);
-    expect(labels).toContain('32 Mbps');
+    // Non-BLOS edges render no inline text — the canvas stays readable
+    // and operators get throughput detail via the Links inspector rows.
+    for (const t of labels) {
+      expect(t).not.toMatch(/Mbps|TQ /);
+    }
   });
 
-  it('renders BATMAN_IV metrics as "TQ N.NN"', () => {
-    const fixture = { ...directRF(), algorithm: 'BATMAN_IV' };
-    const { container } = render(<TopologyMap topology={fixture} />);
-    const labels = Array.from(container.querySelectorAll('.topo-edge-label-text')).map((n) => n.textContent);
-    expect(labels.some((t) => t.startsWith('TQ '))).toBe(true);
-  });
-
-  it('labels BLOS edges with the vxlan0 tunnel name', () => {
+  it('labels BLOS edges with the vxlan0 tunnel name (no throughput)', () => {
     const { container } = render(<TopologyMap topology={withBLOSGateway()} />);
     const labels = Array.from(container.querySelectorAll('.topo-edge-label-text')).map((n) => n.textContent);
-    expect(labels.some((t) => t.startsWith('vxlan0'))).toBe(true);
+    // BLOS edges keep an ifname annotation so vxlan tunnels stay
+    // distinguishable from RF links, but not the Mbps suffix.
+    expect(labels).toContain('vxlan0');
+    for (const t of labels) {
+      expect(t).not.toMatch(/Mbps|TQ /);
+    }
   });
 });
 
@@ -536,10 +539,12 @@ describe('TestTopologyMapSegmentSizing', () => {
     return { selfMac: '00:00:00:00:00:00', selfHostname: 'self', algorithm: 'BATMAN_V', nodes, edges };
   }
 
-  it('keeps sibling host labels from overlapping (LEAF_SPACING > max label width)', () => {
-    // Five siblings along a row. If LEAF_SPACING is smaller than the
-    // width of the "HOPS 1 · wlan0" secondary label (~105px), adjacent
-    // nodes' labels would paint on top of each other.
+  it('keeps sibling node footprints from overlapping (LEAF_SPACING > 2 * node half-width)', () => {
+    // Five siblings along a row. Even though regular peers no longer
+    // render a secondary label, the layout still has to keep each
+    // node's full footprint (circle + optional client badge) from
+    // touching its neighbor's. LEAF_SPACING sits well above the
+    // inter-node floor so adjacent siblings remain visually distinct.
     const { container } = render(<TopologyMap topology={localWithSiblings(5)} />);
     const nodes = [...container.querySelectorAll('.topo-node:not(.self)')];
     const xs = nodes
@@ -547,9 +552,10 @@ describe('TestTopologyMapSegmentSizing', () => {
       .sort((a, b) => a - b);
     const gaps = xs.slice(1).map((x, i) => x - xs[i]);
     for (const g of gaps) {
-      // 15-char label ≈ 105px wide; siblings must sit at least that far
-      // apart so labels don't overlap.
-      expect(g).toBeGreaterThanOrEqual(105);
+      // Two NODE_RADIUS circles plus a comfortable gutter — LEAF_SPACING
+      // is currently 140, this lower bound catches it dropping below
+      // roughly the diameter of a node.
+      expect(g).toBeGreaterThanOrEqual(2 * 28);
     }
   });
 

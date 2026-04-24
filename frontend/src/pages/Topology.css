@@ -182,18 +182,23 @@
   filter: grayscale(1);
 }
 
-/* Gossip coverage badge in the header row. Faded when coverage is
-   100 % (quiet good-state), red when coverage drops below 50 % so
-   partial fleet participation draws attention. */
+/* Gossip coverage badge in the header row. Sized to match .lat-btn so
+   it lines up vertically with the LAYOUT / MY PATHS / FIT buttons next
+   to it. Faded when coverage is 100 % (quiet good-state), red when
+   coverage drops below 50 % so partial fleet participation draws
+   attention. */
 .topo-coverage {
+  display: inline-flex;
+  align-items: center;
   font-family: var(--font-mono);
-  font-size: 12px;
-  letter-spacing: 0.06em;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--muted);
-  opacity: 0.5;
-  padding: 2px 6px;
+  opacity: 0.7;
+  padding: 5px 12px;
+  min-height: 32px;
   border: 1px solid var(--dim);
-  border-radius: 2px;
 }
 .topo-coverage.warn {
   color: var(--warn);
