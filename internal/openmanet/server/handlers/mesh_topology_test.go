@@ -461,6 +461,70 @@ func TestGetMeshTopology_DedupesSelfAcrossAliasedVisEntries(t *testing.T) {
 		"canonical primary wins; duplicate entry's primary is dropped")
 }
 
+// TestGetMeshTopology_DedupesByHostname asserts that two vis entries
+// with different primaries and no shared secondary list collapse to one
+// MeshNode when they resolve to the same base hostname. This is the
+// common multi-radio-node case: each interface publishes its own vis
+// entry (bat0, eth0, wlan0) carrying a distinct MAC, but all three
+// belong to the same physical device identified by bat-hosts name
+// "BCM2711-1003".
+func TestGetMeshTopology_DedupesByHostname(t *testing.T) {
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			// Self (bare MAC, no hostname in vis payload).
+			{Primary: "aa:aa:aa:aa:aa:00"},
+			// Two entries for the same physical remote node. Neither
+			// lists the other as a secondary — the only cross-entry
+			// link is the shared base hostname "BCM2711-1003".
+			{Primary: "bb:bb:bb:bb:bb:01"},
+			{Primary: "bb:bb:bb:bb:bb:02"},
+		},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC:      "aa:aa:aa:aa:aa:00",
+		SelfHostname: "self-node",
+		Originators: []batmanadv.OriginatorEntry{
+			{
+				OrigMAC: "bb:bb:bb:bb:bb:01", OrigHostname: "BCM2711-1003_bat0",
+				NextHopMAC: "bb:bb:bb:bb:bb:01", HardIfname: "wlan0", Hops: 1,
+			},
+			{
+				OrigMAC: "bb:bb:bb:bb:bb:02", OrigHostname: "BCM2711-1003_eth0",
+				NextHopMAC: "bb:bb:bb:bb:bb:02", HardIfname: "wlan0", Hops: 1,
+			},
+		},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	nodes := resp.GetTopology().GetNodes()
+	require.Len(t, nodes, 2, "BCM2711-1003's two vis entries must collapse to one")
+
+	var remote *struct {
+		hostname string
+		mac      string
+	}
+
+	for _, n := range nodes {
+		if n.GetIsSelf() {
+			continue
+		}
+
+		remote = &struct {
+			hostname string
+			mac      string
+		}{n.GetHostname(), n.GetMac()}
+	}
+
+	require.NotNil(t, remote, "non-self node exists")
+	assert.Equal(t, "BCM2711-1003", remote.hostname, "base hostname is retained")
+	assert.Equal(t, "bb:bb:bb:bb:bb:01", remote.mac,
+		"lex-smallest MAC in the group wins when self isn't in the group")
+}
+
 // TestGetMeshTopology_DeltaUnchanged asserts the delta RPC still works
 // against the renamed service (contract preserved from the prior plan).
 func TestGetMeshTopology_DeltaUnchanged(t *testing.T) {

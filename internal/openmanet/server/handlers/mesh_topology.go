@@ -155,6 +155,19 @@ func mergeMeshTopology(
 		}
 	}
 
+	// Originator lookup built early so the hostname dedup pass below can
+	// resolve OrigHostname without scanning the slice per-node.
+	origByMac := make(map[string]*batmanadv.OriginatorEntry, len(origSnap.Originators))
+	for i := range origSnap.Originators {
+		origByMac[strings.ToLower(origSnap.Originators[i].OrigMAC)] = &origSnap.Originators[i]
+	}
+
+	// Multi-radio dedup: fold vis entries sharing a base hostname into a
+	// single canonical primary. The `secondary[]` field alone can't catch
+	// this when a node publishes a separate vis entry per interface
+	// without cross-listing the sibling MACs.
+	foldHostnameAliases(visNodes, primaryByMac, origByMac, batHosts, selfMAC, origSnap.SelfHostname)
+
 	selfPrimary := primaryByMac[selfMAC]
 
 	// 2. Segment assignment + per-node BLOS gateway.
@@ -162,12 +175,6 @@ func mergeMeshTopology(
 	if selfPrimary != "" {
 		segmentByPrimary[selfPrimary] = segmentLocal // self is always local
 		delete(gatewayByPrimary, selfPrimary)
-	}
-
-	// 3. Originator lookup by primary MAC for overlay data.
-	origByMac := make(map[string]*batmanadv.OriginatorEntry, len(origSnap.Originators))
-	for i := range origSnap.Originators {
-		origByMac[strings.ToLower(origSnap.Originators[i].OrigMAC)] = &origSnap.Originators[i]
 	}
 
 	// 4. Build MeshNode list.
@@ -196,6 +203,121 @@ func renderedPrimaries(nodes []*meshtopov1.MeshNode) map[string]struct{} {
 	}
 
 	return out
+}
+
+// foldHostnameAliases extends primaryByMac so that vis entries sharing a
+// base hostname collapse to one canonical primary. Handles multi-radio
+// nodes where each interface publishes its own vis entry without
+// cross-listing the sibling MACs as secondaries — without this, the
+// same physical node renders once per interface.
+//
+// Canonical selection prefers selfMAC when present in the group so the
+// IsSelf flag lands on the retained node; otherwise the lexicographically
+// smallest primary wins for determinism. Secondaries of any folded
+// primary are rewritten to point at the canonical as well, so edges
+// whose endpoints reference those secondaries still resolve correctly.
+func foldHostnameAliases(
+	visNodes []batmanadv.VisNode,
+	primaryByMac map[string]string,
+	origByMac map[string]*batmanadv.OriginatorEntry,
+	batHosts *batmanadv.BatHosts,
+	selfMAC, selfHostname string,
+) {
+	if len(visNodes) < 2 {
+		return
+	}
+
+	groups := groupPrimariesByHostname(visNodes, primaryByMac, origByMac, batHosts, selfMAC, selfHostname)
+
+	for _, group := range groups {
+		if len(group) < 2 {
+			continue
+		}
+
+		canonical := pickCanonicalPrimary(group, selfMAC)
+		applyCanonicalPrimary(visNodes, primaryByMac, group, canonical)
+	}
+}
+
+// groupPrimariesByHostname builds the base-hostname → primary-MAC groups
+// used by foldHostnameAliases. Entries already aliased by secondary-MAC
+// dedup are skipped so we don't re-group shadow primaries.
+func groupPrimariesByHostname(
+	visNodes []batmanadv.VisNode,
+	primaryByMac map[string]string,
+	origByMac map[string]*batmanadv.OriginatorEntry,
+	batHosts *batmanadv.BatHosts,
+	selfMAC, selfHostname string,
+) map[string][]string {
+	hostnameByPrimary := make(map[string]string, len(visNodes))
+
+	for _, v := range visNodes {
+		if c, ok := primaryByMac[v.Primary]; ok && c != v.Primary {
+			continue
+		}
+
+		name := lookupHostname(v, lookupOrigEntry(v, origByMac), batHosts)
+		if name != "" {
+			hostnameByPrimary[v.Primary] = name
+		}
+	}
+
+	if selfMAC != "" && selfHostname != "" {
+		hostnameByPrimary[selfMAC] = stripIfaceSuffix(selfHostname)
+	}
+
+	groups := make(map[string][]string)
+	for primary, hostname := range hostnameByPrimary {
+		groups[hostname] = append(groups[hostname], primary)
+	}
+
+	return groups
+}
+
+// pickCanonicalPrimary selects the MAC that survives hostname dedup:
+// selfMAC wins when present so IsSelf lands on the retained node;
+// otherwise the lexicographically smallest MAC wins for determinism.
+func pickCanonicalPrimary(group []string, selfMAC string) string {
+	canonical := group[0]
+
+	for _, p := range group {
+		switch {
+		case p == selfMAC:
+			return p
+		case canonical != selfMAC && p < canonical:
+			canonical = p
+		}
+	}
+
+	return canonical
+}
+
+// applyCanonicalPrimary rewrites primaryByMac so every non-canonical
+// primary in the group (and its declared secondaries) points at the
+// chosen canonical primary.
+func applyCanonicalPrimary(
+	visNodes []batmanadv.VisNode,
+	primaryByMac map[string]string,
+	group []string,
+	canonical string,
+) {
+	for _, p := range group {
+		if p == canonical {
+			continue
+		}
+
+		primaryByMac[p] = canonical
+
+		for _, v := range visNodes {
+			if v.Primary != p {
+				continue
+			}
+
+			for _, sec := range v.Secondary {
+				primaryByMac[sec] = canonical
+			}
+		}
+	}
 }
 
 // classifyNodes assigns each primary to a segment and — for remote-segment
