@@ -72,7 +72,9 @@ func macBytes(mac string) net.HardwareAddr {
 
 // TestMeshNeighborsSnapshotter_RefreshDecodesAndKeysByEnvelopeMAC
 // confirms the snapshotter stores decoded records keyed by the alfred
-// envelope MAC and marks fresh records as non-stale.
+// envelope MAC. The cache no longer exposes a Stale bool — records
+// present in the cache are implicitly fresh (alfred's own TTL purges
+// records whose publisher has gone quiet).
 func TestMeshNeighborsSnapshotter_RefreshDecodesAndKeysByEnvelopeMAC(t *testing.T) {
 	fixedNow := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
@@ -86,7 +88,6 @@ func TestMeshNeighborsSnapshotter_RefreshDecodesAndKeysByEnvelopeMAC(t *testing.
 		Log:      zerolog.Nop(),
 		Client:   fake,
 		Interval: time.Hour, // ticker never fires; refresh is called by Start()
-		StaleAge: 30 * time.Second,
 		Now:      func() time.Time { return fixedNow },
 	}
 
@@ -97,7 +98,6 @@ func TestMeshNeighborsSnapshotter_RefreshDecodesAndKeysByEnvelopeMAC(t *testing.
 
 	rec1, ok := s.Lookup("aa:bb:cc:dd:ee:01")
 	require.True(t, ok)
-	assert.False(t, rec1.Stale, "record 5 s old < StaleAge")
 	assert.Equal(t, "aa:bb:cc:dd:ee:01", rec1.SourceMac)
 	assert.Equal(t, int32(15), rec1.Payload.GetAlgorithm())
 
@@ -108,13 +108,18 @@ func TestMeshNeighborsSnapshotter_RefreshDecodesAndKeysByEnvelopeMAC(t *testing.
 	assert.Len(t, all, 2)
 }
 
-// TestMeshNeighborsSnapshotter_MarksStaleRecords confirms records whose
-// collected_at is older than StaleAge are served with Stale=true.
-func TestMeshNeighborsSnapshotter_MarksStaleRecords(t *testing.T) {
+// TestMeshNeighborsSnapshotter_OldRecordsStillCached confirms that a
+// record whose publisher wall-clock is far in the past (a stand-in for
+// large cross-mesh clock skew) is still cached and served. Staleness
+// is never decided by the snapshotter any more — alfred's own record
+// TTL is the sole "publisher gone quiet" signal.
+func TestMeshNeighborsSnapshotter_OldRecordsStillCached(t *testing.T) {
 	fixedNow := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
 	fake := &fakeAlfredRead{}
 	fake.setRecords([]alfred.Record{
+		// 90 s skew used to cross the old 45 s StaleAge; the consumer
+		// must not reject it any more.
 		{Source: macBytes("aa:bb:cc:dd:ee:01"), Data: makePayload(t, "aa:bb:cc:dd:ee:01", fixedNow.Add(-90*time.Second))},
 	})
 
@@ -122,7 +127,6 @@ func TestMeshNeighborsSnapshotter_MarksStaleRecords(t *testing.T) {
 		Log:      zerolog.Nop(),
 		Client:   fake,
 		Interval: time.Hour,
-		StaleAge: 45 * time.Second,
 		Now:      func() time.Time { return fixedNow },
 	}
 
@@ -132,8 +136,50 @@ func TestMeshNeighborsSnapshotter_MarksStaleRecords(t *testing.T) {
 	s.Start(ctx)
 
 	rec, ok := s.Lookup("aa:bb:cc:dd:ee:01")
-	require.True(t, ok)
-	assert.True(t, rec.Stale, "90 s > 45 s StaleAge")
+	require.True(t, ok, "record with large publisher-clock skew is still cached")
+	require.NotNil(t, rec.Payload)
+}
+
+// TestMeshNeighborsSnapshotter_EmptyTimestampDropped confirms records
+// with no collected_at timestamp (pre-v1 publishers or malformed
+// payloads that round-tripped through the decoder) are dropped from
+// the cache rather than cached as "stale". An empty timestamp is a
+// parse-level signal that the record didn't round-trip cleanly, not a
+// staleness signal.
+func TestMeshNeighborsSnapshotter_EmptyTimestampDropped(t *testing.T) {
+	// makePayloadNoTimestamp builds a MeshNeighbors payload with no
+	// collected_at set. Equivalent to what a publisher older than
+	// v1 would emit.
+	pb := &netv1.MeshNeighbors{
+		PrimaryMac: "aa:bb:cc:dd:ee:01",
+		Hostname:   "BCM2711-notimestamp",
+		Algorithm:  15,
+	}
+	buf, err := pb.MarshalVT()
+	require.NoError(t, err)
+
+	fake := &fakeAlfredRead{}
+	fake.setRecords([]alfred.Record{
+		{Source: macBytes("aa:bb:cc:dd:ee:01"), Data: buf},
+		{Source: macBytes("aa:bb:cc:dd:ee:02"), Data: makePayload(t, "aa:bb:cc:dd:ee:02", time.Now())},
+	})
+
+	s := &batmanadv.MeshNeighborsSnapshotter{
+		Log:      zerolog.Nop(),
+		Client:   fake,
+		Interval: time.Hour,
+	}
+
+	ctx, cancel := contextCancel()
+	defer cancel()
+
+	s.Start(ctx)
+
+	_, ok := s.Lookup("aa:bb:cc:dd:ee:01")
+	assert.False(t, ok, "record with empty collected_at is dropped")
+
+	_, ok = s.Lookup("aa:bb:cc:dd:ee:02")
+	assert.True(t, ok, "valid timestamped record is kept")
 }
 
 // TestMeshNeighborsSnapshotter_MalformedPayloadSkipped confirms that a
@@ -163,14 +209,19 @@ func TestMeshNeighborsSnapshotter_MalformedPayloadSkipped(t *testing.T) {
 	assert.True(t, ok, "valid record kept")
 }
 
-// TestMeshNeighborsSnapshotter_CoverageCountsFreshRecords verifies
-// Coverage() counts only non-stale records.
-func TestMeshNeighborsSnapshotter_CoverageCountsFreshRecords(t *testing.T) {
+// TestMeshNeighborsSnapshotter_CoverageCountsPresentRecords verifies
+// Coverage() counts every primary whose record is present in the cache.
+// The snapshotter no longer judges freshness by publisher timestamp —
+// alfred's own TTL drops records whose publisher has gone quiet, so
+// "present" is a sufficient signal.
+func TestMeshNeighborsSnapshotter_CoverageCountsPresentRecords(t *testing.T) {
 	fixedNow := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
 	fake := &fakeAlfredRead{}
 	fake.setRecords([]alfred.Record{
 		{Source: macBytes("aa:bb:cc:dd:ee:01"), Data: makePayload(t, "aa:bb:cc:dd:ee:01", fixedNow.Add(-5*time.Second))},
+		// Large publisher-clock skew — previously this would have been
+		// rejected as "stale"; now it counts toward coverage.
 		{Source: macBytes("aa:bb:cc:dd:ee:02"), Data: makePayload(t, "aa:bb:cc:dd:ee:02", fixedNow.Add(-90*time.Second))},
 	})
 
@@ -178,7 +229,6 @@ func TestMeshNeighborsSnapshotter_CoverageCountsFreshRecords(t *testing.T) {
 		Log:      zerolog.Nop(),
 		Client:   fake,
 		Interval: time.Hour,
-		StaleAge: 30 * time.Second,
 		Now:      func() time.Time { return fixedNow },
 	}
 
@@ -188,12 +238,12 @@ func TestMeshNeighborsSnapshotter_CoverageCountsFreshRecords(t *testing.T) {
 	s.Start(ctx)
 
 	published, total := s.Coverage([]string{
-		"aa:bb:cc:dd:ee:01", // fresh
-		"aa:bb:cc:dd:ee:02", // stale
-		"aa:bb:cc:dd:ee:03", // not in gossip
+		"aa:bb:cc:dd:ee:01", // present
+		"aa:bb:cc:dd:ee:02", // present, but old publisher clock
+		"aa:bb:cc:dd:ee:03", // absent from alfred
 	})
 	assert.Equal(t, 3, total)
-	assert.Equal(t, 1, published, "only fresh records count")
+	assert.Equal(t, 2, published, "every present record counts — clock skew is not a rejection reason")
 }
 
 // TestMeshNeighborsSnapshotter_RequestErrorKeepsPreviousData confirms a

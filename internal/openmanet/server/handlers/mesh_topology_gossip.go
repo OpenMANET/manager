@@ -73,7 +73,7 @@ func buildGossipView(
 		}
 
 		rec, ok := provider.Lookup(primary)
-		if !ok || rec == nil || rec.Stale || rec.Payload == nil {
+		if !ok || rec == nil || rec.Payload == nil {
 			view.staleByPrimary[primary] = true
 			view.ageByPrimary[primary] = gossipRecordAge(rec, now)
 

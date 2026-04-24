@@ -372,7 +372,6 @@ func startMeshNeighborsSnapshotter(
 		Log:      logger.GetLogger("mesh-neighbors"),
 		Client:   alfredClient,
 		Interval: batmanadv.DefaultMeshNeighborsSnapshotInterval,
-		StaleAge: batmanadv.DefaultMeshNeighborsStaleAge,
 	}
 	snap.Start(ctx)
 

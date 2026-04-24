@@ -23,18 +23,15 @@ var ErrMeshNeighborsSnapshotNotReady = errors.New("mesh-neighbors snapshot not r
 // two caches converge on the same roll-over rhythm.
 const DefaultMeshNeighborsSnapshotInterval = 5 * time.Second
 
-// DefaultMeshNeighborsStaleAge is three times the publish interval
-// (15 s). Records older than that are served as Stale=true so the UI
-// can visually dim their owning host.
-const DefaultMeshNeighborsStaleAge = 45 * time.Second
-
 // MeshNeighborsRecord wraps a decoded gossip payload with the
-// snapshotter's bookkeeping.
+// snapshotter's bookkeeping. Presence in the cache implies the alfred
+// daemon returned the record on the most recent refresh — its own TTL
+// purges records whose publisher has gone quiet, so the handler treats
+// Lookup misses as the sole "publisher absent" signal.
 type MeshNeighborsRecord struct {
 	Received  time.Time
 	Payload   *netv1.MeshNeighbors
 	SourceMac string
-	Stale     bool
 }
 
 // MeshNeighborsProvider is the read interface mesh_topology handlers
@@ -55,7 +52,6 @@ type MeshNeighborsSnapshotter struct {
 	Now      func() time.Time
 	byMac    map[string]*MeshNeighborsRecord
 	Interval time.Duration
-	StaleAge time.Duration
 	mu       sync.RWMutex
 	DataType uint8
 	ready    bool
@@ -66,10 +62,6 @@ type MeshNeighborsSnapshotter struct {
 func (s *MeshNeighborsSnapshotter) Start(ctx context.Context) {
 	if s.Interval <= 0 {
 		s.Interval = DefaultMeshNeighborsSnapshotInterval
-	}
-
-	if s.StaleAge <= 0 {
-		s.StaleAge = DefaultMeshNeighborsStaleAge
 	}
 
 	if s.DataType == 0 {
@@ -127,13 +119,22 @@ func (s *MeshNeighborsSnapshotter) refresh() {
 			continue
 		}
 
+		// Drop pre-v1 / malformed payloads that lack a timestamp. We no
+		// longer use CollectedAt for staleness (clock skew across the
+		// mesh makes that unreliable), but an empty timestamp is still a
+		// signal that the record didn't round-trip cleanly.
+		if !payload.GetCollectedAt().IsValid() || payload.GetCollectedAt().AsTime().IsZero() {
+			s.Log.Warn().Int("record", i).Msg("mesh-neighbors: record has no collected_at; skipping")
+
+			continue
+		}
+
 		src := macString(record.Source)
 
 		next[src] = &MeshNeighborsRecord{
 			Payload:   payload,
 			SourceMac: src,
 			Received:  now,
-			Stale:     s.isStale(payload.GetCollectedAt().AsTime(), now),
 		}
 	}
 
@@ -149,16 +150,6 @@ func (s *MeshNeighborsSnapshotter) now() time.Time {
 	}
 
 	return time.Now()
-}
-
-func (s *MeshNeighborsSnapshotter) isStale(collectedAt, now time.Time) bool {
-	if collectedAt.IsZero() {
-		// Records with no timestamp (pre-v1 publishers or malformed
-		// payloads) are treated as stale so the UI can still dim them.
-		return true
-	}
-
-	return now.Sub(collectedAt) > s.StaleAge
 }
 
 // Lookup returns the cached record for a publisher MAC. Both SourceMac
@@ -207,8 +198,11 @@ func (s *MeshNeighborsSnapshotter) All() map[string]*MeshNeighborsRecord {
 	return out
 }
 
-// Coverage reports how many of the supplied primaries have a non-stale
-// gossip record. Used by the handler to populate MeshTopology.gossip_coverage.
+// Coverage reports how many of the supplied primaries have a gossip
+// record present in the cache. Used by the handler to populate
+// MeshTopology.gossip_coverage. Presence alone is sufficient: alfred
+// expires records whose publisher has gone quiet, so a cache hit
+// implies the publisher was heard recently enough to matter.
 func (s *MeshNeighborsSnapshotter) Coverage(primaries []string) (published, total int) {
 	total = len(primaries)
 	if total == 0 {
@@ -223,16 +217,9 @@ func (s *MeshNeighborsSnapshotter) Coverage(primaries []string) (published, tota
 	}
 
 	for _, p := range primaries {
-		rec, ok := s.byMac[strings.ToLower(p)]
-		if !ok {
-			continue
+		if _, ok := s.byMac[strings.ToLower(p)]; ok {
+			published++
 		}
-
-		if rec.Stale {
-			continue
-		}
-
-		published++
 	}
 
 	return published, total

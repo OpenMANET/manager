@@ -601,8 +601,8 @@ func TestGetMeshTopology_GossipClassifiesNodeBehindRemoteGateway(t *testing.T) {
 	}
 
 	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
-		gwMAC:  {Payload: gwPayload, SourceMac: gwMAC, Stale: false},
-		behMAC: {Payload: behPayload, SourceMac: behMAC, Stale: false},
+		gwMAC:  {Payload: gwPayload, SourceMac: gwMAC},
+		behMAC: {Payload: behPayload, SourceMac: behMAC},
 	}}
 
 	svc := newMeshTopologyService(vis, orig, nil)
@@ -648,7 +648,7 @@ func TestGetMeshTopology_GossipCoverageReflectsPublishers(t *testing.T) {
 	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{SelfMAC: selfMAC}}
 
 	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
-		pubMAC: {Payload: &netv1.MeshNeighbors{PrimaryMac: pubMAC}, SourceMac: pubMAC, Stale: false},
+		pubMAC: {Payload: &netv1.MeshNeighbors{PrimaryMac: pubMAC}, SourceMac: pubMAC},
 	}}
 
 	svc := newMeshTopologyService(vis, orig, nil)
@@ -664,16 +664,18 @@ func TestGetMeshTopology_GossipCoverageReflectsPublishers(t *testing.T) {
 }
 
 // TestGetMeshTopology_GossipStatePropagates confirms the wire shape of
-// gossip bookkeeping — stale flag and age-in-seconds — is populated
-// from the record's payload.collected_at timestamp. Covers three cases:
-// fresh record (age = now - collected_at), stale record (flag set; age
-// still reflects the payload timestamp), and no record (age = -1).
+// gossip bookkeeping. Under the post-clock-skew design, staleness is
+// purely a presence check — alfred's own record TTL drops publishers
+// that have gone quiet, so a cache miss is the sole "stale" signal.
+// Age is still reported from payload.collected_at as an independent
+// dimension, so the UI can distinguish "just heard" from "heard long
+// ago" without using age for any rejection decisions.
 func TestGetMeshTopology_GossipStatePropagates(t *testing.T) {
 	const (
-		selfMAC    = "aa:aa:aa:aa:aa:00"
-		freshMAC   = "bb:bb:bb:bb:bb:00"
-		staleMAC   = "cc:cc:cc:cc:cc:00"
-		missingMAC = "dd:dd:dd:dd:dd:00"
+		selfMAC      = "aa:aa:aa:aa:aa:00"
+		recentMAC    = "bb:bb:bb:bb:bb:00"
+		clockSkewMAC = "cc:cc:cc:cc:cc:00"
+		missingMAC   = "dd:dd:dd:dd:dd:00"
 	)
 
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
@@ -681,26 +683,27 @@ func TestGetMeshTopology_GossipStatePropagates(t *testing.T) {
 	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
 		Vis: []batmanadv.VisNode{
 			{Primary: selfMAC},
-			{Primary: freshMAC},
-			{Primary: staleMAC},
+			{Primary: recentMAC},
+			{Primary: clockSkewMAC},
 			{Primary: missingMAC},
 		},
 	}}
 	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{SelfMAC: selfMAC}}
 
-	freshCollected := now.Add(-8 * time.Second)
-	staleCollected := now.Add(-134 * time.Second) // 2m 14s
+	recentCollected := now.Add(-8 * time.Second)
+	// clockSkewMAC's publisher wall-clock reports 2m 14s in the past.
+	// Previously this crossed the 45 s StaleAge and was rejected; now
+	// the handler must accept it because alfred returned the record.
+	clockSkewCollected := now.Add(-134 * time.Second)
 
 	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
-		freshMAC: {
-			Payload:   &netv1.MeshNeighbors{PrimaryMac: freshMAC, CollectedAt: timestamppb.New(freshCollected)},
-			SourceMac: freshMAC,
-			Stale:     false,
+		recentMAC: {
+			Payload:   &netv1.MeshNeighbors{PrimaryMac: recentMAC, CollectedAt: timestamppb.New(recentCollected)},
+			SourceMac: recentMAC,
 		},
-		staleMAC: {
-			Payload:   &netv1.MeshNeighbors{PrimaryMac: staleMAC, CollectedAt: timestamppb.New(staleCollected)},
-			SourceMac: staleMAC,
-			Stale:     true,
+		clockSkewMAC: {
+			Payload:   &netv1.MeshNeighbors{PrimaryMac: clockSkewMAC, CollectedAt: timestamppb.New(clockSkewCollected)},
+			SourceMac: clockSkewMAC,
 		},
 	}}
 
@@ -722,24 +725,31 @@ func TestGetMeshTopology_GossipStatePropagates(t *testing.T) {
 	assert.False(t, self.GetGossipStale(), "self is never stale")
 	assert.Equal(t, int32(0), self.GetGossipAgeSeconds(), "self carries zero age")
 
-	// Fresh record — age rounds to the raw second delta.
-	fresh := byMac[freshMAC]
-	require.NotNil(t, fresh)
-	assert.False(t, fresh.GetGossipStale(), "fresh record is not stale")
-	assert.Equal(t, int32(8), fresh.GetGossipAgeSeconds(), "age matches (now - collected_at) in seconds")
+	// Recent record — not stale, age rounds to the raw second delta.
+	recent := byMac[recentMAC]
+	require.NotNil(t, recent)
+	assert.False(t, recent.GetGossipStale(), "record present in cache is not stale")
+	assert.Equal(t, int32(8), recent.GetGossipAgeSeconds(), "age matches (now - collected_at) in seconds")
 
-	// Stale record — flag set, but age still reflects the publisher's
-	// last-known timestamp so the UI can show "stale · 2m 14s".
-	stale := byMac[staleMAC]
-	require.NotNil(t, stale)
-	assert.True(t, stale.GetGossipStale(), "stale record propagates to GossipStale")
-	assert.Equal(t, int32(134), stale.GetGossipAgeSeconds(), "stale record retains its age for UI display")
+	// Record with large publisher-clock skew — still NOT stale, because
+	// the record is present in alfred's cache. The reported age reflects
+	// the publisher's wall-clock so the UI can show the lag, but the
+	// stale flag stays false so classification and dimming use the
+	// record's actual neighbor set.
+	skew := byMac[clockSkewMAC]
+	require.NotNil(t, skew)
+	assert.False(t, skew.GetGossipStale(),
+		"record with large publisher-clock skew is still fresh — presence alone is the stale signal")
+	assert.Equal(t, int32(134), skew.GetGossipAgeSeconds(),
+		"age still reflects the publisher's collected_at for UI display")
 
-	// Missing record — -1 sentinel so the UI can render "no gossip".
+	// Missing record — stale, -1 sentinel age.
 	missing := byMac[missingMAC]
 	require.NotNil(t, missing)
-	assert.True(t, missing.GetGossipStale(), "no-record node is treated as stale")
-	assert.Equal(t, int32(-1), missing.GetGossipAgeSeconds(), "missing record surfaces ageMissing sentinel")
+	assert.True(t, missing.GetGossipStale(),
+		"no cached record is the sole stale signal after the clock-skew fix")
+	assert.Equal(t, int32(-1), missing.GetGossipAgeSeconds(),
+		"missing record surfaces ageMissing sentinel")
 }
 
 // TestGetMeshTopology_MissingGossipFallsBackToHeuristic asserts that

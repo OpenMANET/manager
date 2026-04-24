@@ -209,11 +209,15 @@ func mergeMeshTopology(
 }
 
 // applyGossipState sets the GossipStale bool and GossipAgeSeconds on
-// every non-self MeshNode based on the pre-computed gossipView. Self is
-// always current and gets the zero-value defaults (GossipStale=false,
-// GossipAgeSeconds=0). Nodes without a tracked record get
-// GossipAgeSeconds=ageMissing (-1) so the UI can distinguish
-// "never observed" from a legitimate fresh reading.
+// every non-self MeshNode based on the pre-computed gossipView. A node
+// is Stale when its primary has no current gossip record in the cache —
+// alfred's own daemon-side TTL drops records whose publisher has gone
+// quiet, so a cache miss is the sole "stale" signal. Age is reported
+// from the payload's collected_at for UI display only; it no longer
+// feeds any staleness decision, because cross-mesh clock skew makes
+// publisher wall-clocks unreliable. Self is always current and gets
+// the zero-value defaults (GossipStale=false, GossipAgeSeconds=0).
+// Nodes without a tracked record get GossipAgeSeconds=ageMissing (-1).
 func applyGossipState(nodes []*meshtopov1.MeshNode, gossip *gossipView) {
 	if gossip == nil {
 		return
