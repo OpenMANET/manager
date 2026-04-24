@@ -426,6 +426,162 @@ func TestGetMeshTopology_SuppressesPeerReportedCrossSegmentEdges(t *testing.T) {
 	assert.True(t, have[edgeKey(selfMAC, gwMAC)].GetBlos(), "self ↔ fc96 is BLOS")
 }
 
+// TestGetMeshTopology_RoutesThroughGatewayFromRemoteView covers the
+// reverse of the previous test: the serving node is fc96 looking at a
+// remote mesh rooted on BCM2711-1003 with Venice peers behind it.
+//
+// fc96's own originator table lists every BLOS-reachable node as a
+// direct vxlan0 neighbor — that's how the broadcast overlay presents
+// to batman-adv. Without this fix, the UI draws one vxlan line per
+// remote node straight from fc96, which hides the real routing:
+// fc96 ↔ 1003 via vxlan0, then 1003 ↔ Venice via RF on 1003's local
+// mesh. The fix uses 1003's gossip record (which fc96 has cached) to
+// promote the gateway↔peer RF edges and suppress the direct fc96↔peer
+// edges whose "neighbor" status is a broadcast-overlay artifact.
+func TestGetMeshTopology_RoutesThroughGatewayFromRemoteView(t *testing.T) {
+	const (
+		fcMAC      = "aa:aa:aa:aa:aa:00" // BCM2711-fc96, serving node (self)
+		gwMAC      = "bb:bb:bb:bb:bb:00" // BCM2711-1003, remote gateway
+		venice1MAC = "cc:cc:cc:cc:cc:00" // Venice-A47B, behind 1003
+		venice2MAC = "dd:dd:dd:dd:dd:00" // Venice-035c, behind 1003
+	)
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: fcMAC},
+			{Primary: gwMAC},
+			{Primary: venice1MAC},
+			{Primary: venice2MAC},
+		},
+	}}
+
+	// fc96's originator table — every remote peer appears as a direct
+	// vxlan0 neighbor (broadcast overlay). This is exactly the runtime
+	// state reported from the field.
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC:      fcMAC,
+		SelfHostname: "BCM2711-fc96",
+		Algorithm:    "BATMAN_V",
+		Originators: []batmanadv.OriginatorEntry{
+			{OrigMAC: gwMAC, OrigHostname: "BCM2711-1003", NextHopMAC: gwMAC, HardIfname: "vxlan0", Hops: 1},
+			{OrigMAC: venice1MAC, OrigHostname: "Venice-A47B", NextHopMAC: venice1MAC, HardIfname: "vxlan0", Hops: 1},
+			{OrigMAC: venice2MAC, OrigHostname: "Venice-035c", NextHopMAC: venice2MAC, HardIfname: "vxlan0", Hops: 1},
+		},
+	}}
+
+	// 1003's gossip record. On the real mesh this reaches fc96 via
+	// alfred; the fake here hands the handler exactly what the
+	// snapshotter would cache. The RF neighbor set is what promotes
+	// 1003↔Venice edges into the rendered topology.
+	gwPayload := &netv1.MeshNeighbors{
+		PrimaryMac: gwMAC,
+		Hostname:   "BCM2711-1003",
+		Neighbors: []*netv1.MeshNeighbor{
+			{Mac: venice1MAC, HardIfname: "phy1-mesh0"},
+			{Mac: venice2MAC, HardIfname: "phy1-mesh0"},
+			{Mac: fcMAC, HardIfname: "vxlan0", Blos: true}, // back-link, cross-segment → filtered
+		},
+	}
+	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
+		gwMAC: {Payload: gwPayload, SourceMac: gwMAC},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+	svc.NeighborsProvider = neighbors
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	edgeKey := func(a, b string) string {
+		if a < b {
+			return a + "|" + b
+		}
+
+		return b + "|" + a
+	}
+
+	have := make(map[string]*meshtopov1.MeshEdge, len(resp.GetTopology().GetEdges()))
+	for _, e := range resp.GetTopology().GetEdges() {
+		have[edgeKey(e.GetFromMac(), e.GetToMac())] = e
+	}
+
+	// The one real tunnel — fc96 ↔ 1003 — must render as BLOS.
+	require.Contains(t, have, edgeKey(fcMAC, gwMAC), "fc96 ↔ 1003 BLOS tunnel must render")
+	assert.True(t, have[edgeKey(fcMAC, gwMAC)].GetBlos(), "fc96 ↔ 1003 is the vxlan0 tunnel")
+
+	// Gateway↔peer RF edges derived from 1003's gossip record.
+	require.Contains(t, have, edgeKey(gwMAC, venice1MAC), "1003 ↔ Venice-A47B RF edge from gossip")
+	require.Contains(t, have, edgeKey(gwMAC, venice2MAC), "1003 ↔ Venice-035c RF edge from gossip")
+	assert.False(t, have[edgeKey(gwMAC, venice1MAC)].GetBlos(), "1003 ↔ Venice-A47B is intra-remote RF, not BLOS")
+	assert.False(t, have[edgeKey(gwMAC, venice2MAC)].GetBlos(), "1003 ↔ Venice-035c is intra-remote RF, not BLOS")
+
+	// The spurious direct self↔peer edges must be suppressed — Venice
+	// nodes are behind 1003, not directly tunneled from fc96.
+	assert.NotContains(t, have, edgeKey(fcMAC, venice1MAC),
+		"fc96 ↔ Venice-A47B must not render: Venice is behind 1003, not directly tunneled from fc96")
+	assert.NotContains(t, have, edgeKey(fcMAC, venice2MAC),
+		"fc96 ↔ Venice-035c must not render for the same reason")
+}
+
+// TestGetMeshTopology_KeepsDirectEdgeWhenGossipIsAbsent guards against
+// an over-aggressive suppression: if the gateway's gossip record is
+// missing (mixed-fleet cold start, publisher stopped), we can't safely
+// promote a gw↔peer RF edge, so we must keep the direct self↔peer edge
+// to avoid orphaning the peer in the UI.
+func TestGetMeshTopology_KeepsDirectEdgeWhenGossipIsAbsent(t *testing.T) {
+	const (
+		selfMAC = "aa:aa:aa:aa:aa:00"
+		gwMAC   = "bb:bb:bb:bb:bb:00"
+		peerMAC = "cc:cc:cc:cc:cc:00"
+	)
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: selfMAC},
+			{Primary: gwMAC},
+			{Primary: peerMAC},
+		},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC:      selfMAC,
+		SelfHostname: "self",
+		Algorithm:    "BATMAN_V",
+		Originators: []batmanadv.OriginatorEntry{
+			{OrigMAC: gwMAC, NextHopMAC: gwMAC, HardIfname: "vxlan0", Hops: 1},
+			// peerMAC reached via gw (multi-hop) — this is what makes
+			// peerMAC a "behind-gateway" node without direct vxlan0 path.
+			{OrigMAC: peerMAC, NextHopMAC: gwMAC, HardIfname: "vxlan0", Hops: 2},
+		},
+	}}
+
+	// No gossip provider — the fallback case.
+	svc := newMeshTopologyService(vis, orig, nil)
+	svc.NeighborsProvider = nil
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	edgeKey := func(a, b string) string {
+		if a < b {
+			return a + "|" + b
+		}
+
+		return b + "|" + a
+	}
+
+	have := make(map[string]*meshtopov1.MeshEdge, len(resp.GetTopology().GetEdges()))
+	for _, e := range resp.GetTopology().GetEdges() {
+		have[edgeKey(e.GetFromMac(), e.GetToMac())] = e
+	}
+
+	// Without gossip confirmation, the originator's gw↔peer multi-hop
+	// seed still renders so the peer isn't orphaned.
+	assert.Contains(t, have, edgeKey(gwMAC, peerMAC),
+		"without gossip, the originator's multi-hop gw↔peer edge still renders")
+	assert.Contains(t, have, edgeKey(selfMAC, gwMAC),
+		"self↔gw BLOS tunnel always renders")
+}
+
 // TestGetMeshTopology_SynthesizesEdgesWhenVisEmpty verifies the
 // originator-derived edge fallback: when batadv-vis returns only node
 // stubs with no neighbor reports (alfred cold-start, peer vis-servers

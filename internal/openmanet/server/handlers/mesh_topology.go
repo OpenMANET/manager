@@ -205,7 +205,7 @@ func mergeMeshTopology(
 	applyGossipState(nodes, gossip)
 
 	// 5. Build MeshEdge list — originator-derived first, then vis neighbors.
-	edges := buildMeshEdges(visDoc, origSnap.Originators, primaryByMac, segmentByPrimary, selfMAC, renderedPrimaries(nodes))
+	edges := buildMeshEdges(visDoc, origSnap.Originators, primaryByMac, segmentByPrimary, gatewayByPrimary, selfMAC, selfPrimary, gossip, renderedPrimaries(nodes))
 
 	return &meshtopov1.MeshTopology{
 		SelfMac:        origSnap.SelfMAC,
@@ -690,12 +690,16 @@ func buildMeshEdges(
 	origs []batmanadv.OriginatorEntry,
 	primaryByMac map[string]string,
 	segmentByPrimary map[string]string,
+	gatewayByPrimary map[string]string,
 	selfMAC string,
+	selfPrimary string,
+	gossip *gossipView,
 	knownPrimaries map[string]struct{},
 ) []*meshtopov1.MeshEdge {
 	edgeByKey := make(map[string]*meshtopov1.MeshEdge)
 
-	seedOriginatorEdges(edgeByKey, origs, primaryByMac, segmentByPrimary, knownPrimaries, selfMAC)
+	seedOriginatorEdges(edgeByKey, origs, primaryByMac, segmentByPrimary, gatewayByPrimary, knownPrimaries, selfMAC, selfPrimary, gossip)
+	layerGossipEdges(edgeByKey, gossip, segmentByPrimary, knownPrimaries)
 	layerVisEdges(edgeByKey, visDoc, primaryByMac, segmentByPrimary, knownPrimaries)
 
 	edges := make([]*meshtopov1.MeshEdge, 0, len(edgeByKey))
@@ -721,13 +725,26 @@ func buildMeshEdges(
 // seedOriginatorEdges populates edgeByKey with the serving node's
 // forwarding tree so every peer we route to gets at least one visual
 // edge, even when batadv-vis reports no neighbors.
+//
+// Direct self↔peer edges are suppressed when the peer lives behind a
+// different gateway AND that gateway's gossip record confirms the peer
+// as one of its RF neighbors. The vxlan0 broadcast overlay makes every
+// BLOS-reachable node look like a direct vxlan0 neighbor in batman-adv,
+// but the real tunnel terminates at the gateway; the non-gateway peers
+// render via the RF edges that layerGossipEdges derives from the
+// gateway's gossip payload. When gossip doesn't confirm the
+// gateway↔peer adjacency (mixed-fleet cold start, missing publisher)
+// we keep the direct edge so the peer still shows as connected.
 func seedOriginatorEdges(
 	edgeByKey map[string]*meshtopov1.MeshEdge,
 	origs []batmanadv.OriginatorEntry,
 	primaryByMac map[string]string,
 	segmentByPrimary map[string]string,
+	gatewayByPrimary map[string]string,
 	knownPrimaries map[string]struct{},
 	selfMAC string,
+	selfPrimary string,
+	gossip *gossipView,
 ) {
 	for _, o := range origs {
 		fromPrimary, toPrimary, ok := originatorEdgeEndpoints(o, primaryByMac, selfMAC)
@@ -735,7 +752,92 @@ func seedOriginatorEdges(
 			continue
 		}
 
+		if shouldSuppressSelfPeerEdge(fromPrimary, toPrimary, selfPrimary, gatewayByPrimary, gossip) {
+			continue
+		}
+
 		addEdge(edgeByKey, fromPrimary, toPrimary, segmentByPrimary, knownPrimaries, 0, true)
+	}
+}
+
+// shouldSuppressSelfPeerEdge returns true when (from, to) is a
+// self↔peer pair AND the peer lives behind a different gateway AND
+// the gateway's gossip confirms that peer is one of its RF neighbors.
+// In that case the gw↔peer edge will render via layerGossipEdges and
+// the direct self↔peer edge would be a spurious vxlan0 overlay
+// artifact. All other originator entries (multi-hop seeds that don't
+// touch self, the gateway itself, peers with no gossip confirmation)
+// are left alone.
+func shouldSuppressSelfPeerEdge(
+	from, to, selfPrimary string,
+	gatewayByPrimary map[string]string,
+	gossip *gossipView,
+) bool {
+	if selfPrimary == "" {
+		return false
+	}
+
+	var peer string
+
+	switch selfPrimary {
+	case from:
+		peer = to
+	case to:
+		peer = from
+	default:
+		return false
+	}
+
+	gw := gatewayByPrimary[peer]
+	if gw == "" || gw == peer {
+		// Peer is its own gateway (a direct BLOS tunnel endpoint) or
+		// unclassified — keep the direct edge.
+		return false
+	}
+
+	if gossip == nil {
+		return false
+	}
+
+	rf := gossip.rfByPrimary[gw]
+	if _, ok := rf[peer]; !ok {
+		// Gateway's gossip doesn't confirm this peer — stay on the
+		// direct edge rather than orphaning the peer in the UI.
+		return false
+	}
+
+	return true
+}
+
+// layerGossipEdges synthesizes RF edges between each gossip-publishing
+// primary and its declared RF neighbors. This is the authoritative
+// source for gateway↔peer adjacency when viewing a remote mesh from
+// outside: the serving node's originator table can't distinguish "peer
+// behind gateway X" from "peer reached by some other route" on the
+// vxlan0 broadcast overlay, so only the gateway's own gossip record
+// knows the real physical RF topology in its mesh.
+//
+// Only same-segment edges are emitted — a cross-segment RF edge would
+// be nonsensical. addEdge further drops pairs where either endpoint
+// isn't rendered.
+func layerGossipEdges(
+	edgeByKey map[string]*meshtopov1.MeshEdge,
+	gossip *gossipView,
+	segmentByPrimary map[string]string,
+	knownPrimaries map[string]struct{},
+) {
+	if gossip == nil {
+		return
+	}
+
+	for primary, rfSet := range gossip.rfByPrimary {
+		for neighbor := range rfSet {
+			if segmentOrDefault(segmentByPrimary, primary) != segmentOrDefault(segmentByPrimary, neighbor) {
+				continue
+			}
+
+			addEdge(edgeByKey, primary, neighbor, segmentByPrimary, knownPrimaries, 0, false)
+		}
 	}
 }
 
