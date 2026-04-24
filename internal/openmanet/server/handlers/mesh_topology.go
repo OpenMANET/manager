@@ -114,11 +114,29 @@ func mergeMeshTopology(
 		visNodes = visDoc.Vis
 	}
 
+	// secondaryOwners captures "MAC X is listed as a secondary of entry Y".
+	// When a different entry also exists with Primary=X, those two entries
+	// describe the same physical node (multi-radio host) and X's entry is
+	// the duplicate. Without this dedup, a node reported under both roles
+	// renders twice — the self-twice bug in practice.
+	secondaryOwners := make(map[string]string)
+
+	for _, v := range visNodes {
+		for _, sec := range v.Secondary {
+			secondaryOwners[sec] = v.Primary
+		}
+	}
+
 	primaryByMac := make(map[string]string, len(visNodes)*2)
 	for _, v := range visNodes {
-		primaryByMac[v.Primary] = v.Primary
+		canonical := v.Primary
+		if owner, ok := secondaryOwners[canonical]; ok && owner != "" {
+			canonical = owner
+		}
+
+		primaryByMac[v.Primary] = canonical
 		for _, sec := range v.Secondary {
-			primaryByMac[sec] = v.Primary
+			primaryByMac[sec] = canonical
 		}
 	}
 
@@ -308,6 +326,17 @@ func buildMeshNodes(
 	seenPrimary := make(map[string]struct{}, len(visNodes))
 
 	for _, v := range visNodes {
+		// Skip vis entries whose canonical primary lives elsewhere.
+		// Happens when a multi-radio node is republished under a
+		// secondary MAC as its "primary" in a separate entry —
+		// without this guard the node renders twice (canonical +
+		// shadow). Neighbor info from the shadow entry still flows
+		// via layerVisEdges since it resolves MACs through
+		// primaryByMac.
+		if canonical, ok := primaryByMac[v.Primary]; ok && canonical != v.Primary {
+			continue
+		}
+
 		node := &meshtopov1.MeshNode{
 			Mac:           v.Primary,
 			SecondaryMacs: append([]string(nil), v.Secondary...),

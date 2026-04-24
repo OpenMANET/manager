@@ -422,6 +422,45 @@ func TestGetMeshTopology_BidirectionalDedup(t *testing.T) {
 	assert.InDelta(t, 5.0, edges[0].GetMetric(), 1e-9, "BATMAN_V picks the higher metric")
 }
 
+// TestGetMeshTopology_DedupesSelfAcrossAliasedVisEntries asserts that when
+// batadv-vis publishes two entries describing the same physical node
+// (self reported once as Primary, once as a Secondary under another
+// Primary), only one MeshNode is emitted. Without the dedup, operators
+// see self twice on the canvas.
+func TestGetMeshTopology_DedupesSelfAcrossAliasedVisEntries(t *testing.T) {
+	const selfMAC = "aa:aa:aa:aa:aa:00"
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			// The canonical entry claims selfMAC as a secondary —
+			// this "11:..." primary is the authoritative identity.
+			{
+				Primary:   "11:11:11:11:11:11",
+				Secondary: []string{selfMAC},
+			},
+			// Alfred also republished a bare entry with selfMAC as
+			// its primary. Without dedup this produces a duplicate
+			// node.
+			{Primary: selfMAC},
+		},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC: selfMAC,
+	}}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	nodes := resp.GetTopology().GetNodes()
+	require.Len(t, nodes, 1, "aliased vis entries must collapse to one node")
+
+	assert.True(t, nodes[0].GetIsSelf(), "the surviving node represents self")
+	assert.Equal(t, "11:11:11:11:11:11", nodes[0].GetMac(),
+		"canonical primary wins; duplicate entry's primary is dropped")
+}
+
 // TestGetMeshTopology_DeltaUnchanged asserts the delta RPC still works
 // against the renamed service (contract preserved from the prior plan).
 func TestGetMeshTopology_DeltaUnchanged(t *testing.T) {
