@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OpenMANET · Full-Mesh Topology Mockup</title>
+<style>
+  :root {
+    --bg:         #0a0e12;
+    --surface:    #111820;
+    --surface-2:  #1a2330;
+    --border:     #233040;
+    --border-2:   rgba(0, 229, 255, 0.14);
+    --accent:     #00e5ff;
+    --ok:         #00e676;
+    --warn:       #ffb300;
+    --muted:      #6b7c90;
+    --dim:        #3d4a5c;
+    --text:       #c9d4e0;
+    --font-mono:  "IBM Plex Mono", Menlo, Monaco, "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--font-mono); }
+  body { padding: 28px 36px 60px; }
+  h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.14em; color: var(--accent); margin: 0 0 4px; }
+  .subtitle { color: var(--muted); font-size: 11px; letter-spacing: 0.12em; margin-bottom: 22px; }
+  .chrome {
+    display: flex; align-items: center; justify-content: space-between;
+    border: 1px solid var(--border); padding: 12px 18px; margin-bottom: 12px;
+    background: var(--surface);
+  }
+  .chrome .left { display: flex; gap: 18px; align-items: center; }
+  .chrome .title { color: var(--accent); font-size: 12px; letter-spacing: 0.2em; }
+  .chrome .stat  { color: var(--muted); font-size: 10px; letter-spacing: 0.14em; }
+  .chrome .stat b { color: var(--text); font-weight: 500; }
+  .chrome .toggles { display: flex; gap: 8px; }
+  .toggle {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em;
+    padding: 6px 12px; background: transparent; color: var(--muted);
+    border: 1px solid var(--border); cursor: default;
+  }
+  .toggle.on  { color: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px rgba(0,229,255,0.2) inset; }
+  .panel-label {
+    font-size: 10px; letter-spacing: 0.2em; color: var(--muted); margin: 18px 0 6px;
+  }
+  .canvas {
+    position: relative;
+    width: 100%; height: 540px;
+    border: 1px solid var(--border);
+    background:
+      radial-gradient(circle at 1px 1px, rgba(0,229,255,0.08) 1px, transparent 1px) 0 0 / 22px 22px,
+      var(--surface);
+  }
+  .notes {
+    margin-top: 30px; padding: 18px 22px;
+    border: 1px solid var(--border); background: var(--surface);
+    font-size: 12px; line-height: 1.55;
+  }
+  .notes h2 {
+    font-size: 11px; letter-spacing: 0.18em; color: var(--accent);
+    margin: 0 0 10px; font-weight: 600;
+  }
+  .notes ul { margin: 0 0 10px 0; padding-left: 22px; color: var(--text); }
+  .notes li { margin-bottom: 4px; }
+  .notes .legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: middle; margin-right: 6px; }
+
+  /* SVG element styles */
+  .topo-segment-box rect { fill: rgba(0,229,255,0.02); stroke: var(--border); stroke-width: 1; }
+  .topo-segment-box.remote rect { fill: rgba(255,179,0,0.04); stroke: rgba(255,179,0,0.25); }
+  .topo-segment-label { fill: var(--muted); font: 500 11px var(--font-mono); letter-spacing: 0.18em; text-transform: uppercase; }
+  .topo-segment-box.remote .topo-segment-label { fill: var(--warn); }
+
+  .topo-node circle.body { fill: var(--surface-2); stroke: var(--accent); stroke-width: 1.5; }
+  .topo-node.self circle.body { stroke: var(--ok); fill: rgba(0,230,118,0.12); filter: drop-shadow(0 0 8px var(--ok)); }
+  .topo-node.self circle.halo { fill: none; stroke: var(--ok); stroke-opacity: 0.3; stroke-dasharray: 3 3; }
+
+  .topo-node text.tag  { fill: var(--accent); font: 600 13px var(--font-mono); letter-spacing: 0.08em; text-anchor: middle; dominant-baseline: central; }
+  .topo-node.self text.tag { fill: var(--ok); }
+  .topo-node text.host { fill: var(--muted); font: 500 11px var(--font-mono); letter-spacing: 0.04em; text-anchor: middle; dominant-baseline: hanging; paint-order: stroke fill; stroke: var(--bg); stroke-width: 3px; }
+  .topo-node.self text.host { fill: var(--ok); }
+
+  .topo-iface-badge.rf   { fill: var(--accent); }
+  .topo-iface-badge.blos { fill: none; stroke: var(--warn); stroke-width: 1.2; stroke-dasharray: 2 1.5; }
+
+  .topo-client-badge rect { fill: rgba(0,229,255,0.08); stroke: var(--accent); stroke-width: 0.8; }
+  .topo-client-badge text { fill: var(--accent); font: 600 9px var(--font-mono); letter-spacing: 0.06em; text-anchor: middle; dominant-baseline: central; }
+
+  /* Edge styles */
+  .topo-edge        { stroke: var(--accent); stroke-opacity: 0.42; stroke-width: 1.1; fill: none; }
+  .topo-edge.blos   { stroke: var(--warn); stroke-opacity: 0.7; stroke-width: 1.3; stroke-dasharray: 6 4; }
+  .topo-edge.muted  { stroke-opacity: 0.18; }
+  .topo-edge.mypath { stroke-opacity: 0.85; stroke-width: 2; filter: drop-shadow(0 0 4px currentColor); }
+  .topo-edge.blos.mypath { stroke-opacity: 0.95; stroke-width: 2.2; }
+
+  .topo-edge-metric { fill: var(--muted); font: 500 9px var(--font-mono); text-anchor: middle; dominant-baseline: central;
+                      paint-order: stroke fill; stroke: var(--bg); stroke-width: 3; letter-spacing: 0.04em; }
+</style>
+</head>
+<body>
+
+<h1>◇ OPENMANET · TOPOLOGY MOCKUP</h1>
+<div class="subtitle">Full mesh render sourced from batadv-vis (Alfred) · MY PATHS toggle compared side-by-side</div>
+
+<!-- Header chrome (shared context for both canvases) -->
+<div class="chrome">
+  <div class="left">
+    <span class="title">TOPOLOGY</span>
+    <span class="stat">LOCAL + 1 REMOTE · 6 RF · 1 BLOS · 2S REFRESH</span>
+  </div>
+  <div class="toggles">
+    <span class="toggle">LAYOUT</span>
+    <span class="toggle">FILTER</span>
+    <span class="toggle" id="toggle-mypath">MY PATHS</span>
+    <span class="toggle on">FIT</span>
+  </div>
+</div>
+
+<div class="panel-label">◇ STATE 1 · MY PATHS · OFF (DEFAULT) — every mesh edge rendered with uniform weight</div>
+<div class="canvas">
+  <svg viewBox="0 0 1160 520" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+    <!-- Segment boxes -->
+    <g class="topo-segment-box local">
+      <rect x="30" y="30" width="530" height="460" rx="4" ry="4"/>
+      <text class="topo-segment-label" x="44" y="52">LOCAL · 4 HOSTS</text>
+    </g>
+    <g class="topo-segment-box remote">
+      <rect x="610" y="30" width="520" height="460" rx="4" ry="4"/>
+      <text class="topo-segment-label" x="624" y="52">REMOTE MESH · 4 HOSTS</text>
+    </g>
+
+    <!-- RF edges — LOCAL segment (full connectivity: 5 edges across 4 nodes) -->
+    <line class="topo-edge" x1="200" y1="280" x2="130" y2="170"/>
+    <line class="topo-edge" x1="200" y1="280" x2="380" y2="170"/>
+    <line class="topo-edge" x1="200" y1="280" x2="250" y2="410"/>
+    <line class="topo-edge" x1="130" y1="170" x2="380" y2="170"/>
+    <line class="topo-edge" x1="380" y1="170" x2="250" y2="410"/>
+
+    <!-- RF edges — REMOTE segment -->
+    <line class="topo-edge" x1="720" y1="170" x2="870" y2="280"/>
+    <line class="topo-edge" x1="870" y1="280" x2="1020" y2="170"/>
+    <line class="topo-edge" x1="720" y1="170" x2="1020" y2="170"/>
+    <line class="topo-edge" x1="870" y1="280" x2="870" y2="410"/>
+    <line class="topo-edge" x1="1020" y1="170" x2="870" y2="410"/>
+
+    <!-- BLOS bridge edge: self → gw1 -->
+    <line class="topo-edge blos" x1="200" y1="280" x2="720" y2="170"/>
+    <text class="topo-edge-metric" x="460" y="215">BLOS · 0.9 Mbps</text>
+
+    <!-- Edge metric labels (a few representative ones, not all, to keep the canvas readable) -->
+    <text class="topo-edge-metric" x="162" y="222">TQ 248</text>
+    <text class="topo-edge-metric" x="292" y="222">TQ 236</text>
+    <text class="topo-edge-metric" x="220" y="346">TQ 212</text>
+    <text class="topo-edge-metric" x="253" y="160">TQ 205</text>
+    <text class="topo-edge-metric" x="790" y="220">TQ 222</text>
+    <text class="topo-edge-metric" x="943" y="220">TQ 230</text>
+
+    <!-- Nodes — LOCAL segment -->
+    <!-- self -->
+    <g class="topo-node self" transform="translate(200,280)">
+      <circle class="halo" r="38"/>
+      <circle class="body" r="28"/>
+      <text class="tag">me</text>
+      <text class="host" y="46">ME-GATEWAY</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf"   cx="-11" cy="0" r="4"/>
+        <circle class="topo-iface-badge rf"   cx="0"   cy="0" r="4"/>
+        <circle class="topo-iface-badge blos" cx="11"  cy="0" r="4"/>
+      </g>
+    </g>
+
+    <!-- alpha -->
+    <g class="topo-node" transform="translate(130,170)">
+      <circle class="body" r="28"/>
+      <text class="tag">alpha</text>
+      <text class="host" y="46">NODE-ALPHA</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf" cx="-5" cy="0" r="4"/>
+        <circle class="topo-iface-badge rf" cx="5"  cy="0" r="4"/>
+      </g>
+      <!-- client-count badge -->
+      <g class="topo-client-badge" transform="translate(26,-22)">
+        <rect x="0" y="0" width="22" height="14" rx="2" ry="2"/>
+        <text x="11" y="7.5">·3</text>
+      </g>
+    </g>
+
+    <!-- bravo -->
+    <g class="topo-node" transform="translate(380,170)">
+      <circle class="body" r="28"/>
+      <text class="tag">bravo</text>
+      <text class="host" y="46">NODE-BRAVO</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf" cx="-5" cy="0" r="4"/>
+        <circle class="topo-iface-badge rf" cx="5"  cy="0" r="4"/>
+      </g>
+    </g>
+
+    <!-- charlie -->
+    <g class="topo-node" transform="translate(250,410)">
+      <circle class="body" r="28"/>
+      <text class="tag">char</text>
+      <text class="host" y="46">NODE-CHARLIE</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf" cx="0" cy="0" r="4"/>
+      </g>
+    </g>
+
+    <!-- Nodes — REMOTE MESH segment -->
+    <g class="topo-node" transform="translate(720,170)">
+      <circle class="body" r="28"/>
+      <text class="tag">gw1</text>
+      <text class="host" y="46">REMOTE-GW1</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf"   cx="-5" cy="0" r="4"/>
+        <circle class="topo-iface-badge blos" cx="5"  cy="0" r="4"/>
+      </g>
+    </g>
+
+    <g class="topo-node" transform="translate(870,280)">
+      <circle class="body" r="28"/>
+      <text class="tag">pr-E</text>
+      <text class="host" y="46">REMOTE-PEER-E</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf" cx="0" cy="0" r="4"/>
+      </g>
+    </g>
+
+    <g class="topo-node" transform="translate(1020,170)">
+      <circle class="body" r="28"/>
+      <text class="tag">pr-F</text>
+      <text class="host" y="46">REMOTE-PEER-F</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf" cx="-5" cy="0" r="4"/>
+        <circle class="topo-iface-badge rf" cx="5"  cy="0" r="4"/>
+      </g>
+      <g class="topo-client-badge" transform="translate(26,-22)">
+        <rect x="0" y="0" width="22" height="14" rx="2" ry="2"/>
+        <text x="11" y="7.5">·2</text>
+      </g>
+    </g>
+
+    <g class="topo-node" transform="translate(870,410)">
+      <circle class="body" r="28"/>
+      <text class="tag">pr-G</text>
+      <text class="host" y="46">REMOTE-PEER-G</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf" cx="0" cy="0" r="4"/>
+      </g>
+    </g>
+  </svg>
+</div>
+
+<div class="panel-label">◇ STATE 2 · MY PATHS · ON — my best-route tree highlighted; non-path mesh edges recede</div>
+<div class="canvas">
+  <svg viewBox="0 0 1160 520" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+    <g class="topo-segment-box local">
+      <rect x="30" y="30" width="530" height="460" rx="4" ry="4"/>
+      <text class="topo-segment-label" x="44" y="52">LOCAL · 4 HOSTS</text>
+    </g>
+    <g class="topo-segment-box remote">
+      <rect x="610" y="30" width="520" height="460" rx="4" ry="4"/>
+      <text class="topo-segment-label" x="624" y="52">REMOTE MESH · 4 HOSTS</text>
+    </g>
+
+    <!-- LOCAL edges — my-path edges bright, non-path muted -->
+    <!-- Tree (my-path): self↔alpha, self↔bravo, self↔charlie -->
+    <line class="topo-edge mypath" x1="200" y1="280" x2="130" y2="170"/>
+    <line class="topo-edge mypath" x1="200" y1="280" x2="380" y2="170"/>
+    <line class="topo-edge mypath" x1="200" y1="280" x2="250" y2="410"/>
+    <!-- Non-path mesh connectivity (alpha↔bravo, bravo↔charlie) -->
+    <line class="topo-edge muted" x1="130" y1="170" x2="380" y2="170"/>
+    <line class="topo-edge muted" x1="380" y1="170" x2="250" y2="410"/>
+
+    <!-- REMOTE edges — my forward tree inside remote mesh: gw1↔pr-E, gw1↔pr-F, pr-E↔pr-G -->
+    <line class="topo-edge mypath" x1="720" y1="170" x2="870" y2="280"/>
+    <line class="topo-edge mypath" x1="720" y1="170" x2="1020" y2="170"/>
+    <line class="topo-edge mypath" x1="870" y1="280" x2="870" y2="410"/>
+    <!-- Non-path remote mesh edges -->
+    <line class="topo-edge muted" x1="870" y1="280" x2="1020" y2="170"/>
+    <line class="topo-edge muted" x1="1020" y1="170" x2="870" y2="410"/>
+
+    <!-- BLOS edge (always on my path when present) -->
+    <line class="topo-edge blos mypath" x1="200" y1="280" x2="720" y2="170"/>
+    <text class="topo-edge-metric" x="460" y="215">BLOS · 0.9 Mbps</text>
+
+    <!-- Nodes (identical positions to State 1) -->
+    <g class="topo-node self" transform="translate(200,280)">
+      <circle class="halo" r="38"/>
+      <circle class="body" r="28"/>
+      <text class="tag">me</text>
+      <text class="host" y="46">ME-GATEWAY</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf"   cx="-11" cy="0" r="4"/>
+        <circle class="topo-iface-badge rf"   cx="0"   cy="0" r="4"/>
+        <circle class="topo-iface-badge blos" cx="11"  cy="0" r="4"/>
+      </g>
+    </g>
+    <g class="topo-node" transform="translate(130,170)">
+      <circle class="body" r="28"/>
+      <text class="tag">alpha</text>
+      <text class="host" y="46">NODE-ALPHA</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf" cx="-5" cy="0" r="4"/>
+        <circle class="topo-iface-badge rf" cx="5"  cy="0" r="4"/>
+      </g>
+      <g class="topo-client-badge" transform="translate(26,-22)">
+        <rect x="0" y="0" width="22" height="14" rx="2" ry="2"/>
+        <text x="11" y="7.5">·3</text>
+      </g>
+    </g>
+    <g class="topo-node" transform="translate(380,170)">
+      <circle class="body" r="28"/>
+      <text class="tag">bravo</text>
+      <text class="host" y="46">NODE-BRAVO</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf" cx="-5" cy="0" r="4"/>
+        <circle class="topo-iface-badge rf" cx="5"  cy="0" r="4"/>
+      </g>
+    </g>
+    <g class="topo-node" transform="translate(250,410)">
+      <circle class="body" r="28"/>
+      <text class="tag">char</text>
+      <text class="host" y="46">NODE-CHARLIE</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf" cx="0" cy="0" r="4"/>
+      </g>
+    </g>
+    <g class="topo-node" transform="translate(720,170)">
+      <circle class="body" r="28"/>
+      <text class="tag">gw1</text>
+      <text class="host" y="46">REMOTE-GW1</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf"   cx="-5" cy="0" r="4"/>
+        <circle class="topo-iface-badge blos" cx="5"  cy="0" r="4"/>
+      </g>
+    </g>
+    <g class="topo-node" transform="translate(870,280)">
+      <circle class="body" r="28"/>
+      <text class="tag">pr-E</text>
+      <text class="host" y="46">REMOTE-PEER-E</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf" cx="0" cy="0" r="4"/>
+      </g>
+    </g>
+    <g class="topo-node" transform="translate(1020,170)">
+      <circle class="body" r="28"/>
+      <text class="tag">pr-F</text>
+      <text class="host" y="46">REMOTE-PEER-F</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf" cx="-5" cy="0" r="4"/>
+        <circle class="topo-iface-badge rf" cx="5"  cy="0" r="4"/>
+      </g>
+      <g class="topo-client-badge" transform="translate(26,-22)">
+        <rect x="0" y="0" width="22" height="14" rx="2" ry="2"/>
+        <text x="11" y="7.5">·2</text>
+      </g>
+    </g>
+    <g class="topo-node" transform="translate(870,410)">
+      <circle class="body" r="28"/>
+      <text class="tag">pr-G</text>
+      <text class="host" y="46">REMOTE-PEER-G</text>
+      <g transform="translate(0,64)">
+        <circle class="topo-iface-badge rf" cx="0" cy="0" r="4"/>
+      </g>
+    </g>
+  </svg>
+</div>
+
+<div class="notes">
+  <h2>READING THE MOCKUP</h2>
+  <ul>
+    <li><span class="legend-dot" style="background:var(--ok)"></span><b>Self node</b> — glowing green; the node rendering the page.</li>
+    <li><span class="legend-dot" style="background:var(--accent)"></span><b>Mesh peer</b> — cyan stroke; every node batadv-vis/Alfred has a publication for.</li>
+    <li><span class="legend-dot" style="background:var(--accent)"></span><b>Solid cyan edge</b> — an RF link between two mesh peers (intra-segment).</li>
+    <li><span class="legend-dot" style="border:1px dashed var(--warn); background:transparent"></span><b>Dashed amber edge</b> — a BLOS (vxlan0) bridge between segments.</li>
+    <li><b>Client badge</b> — the small <code>·N</code> chip next to a node = count of non-mesh clients attached (transtable entries in the vis payload). Individual client MACs are <i>not</i> rendered.</li>
+    <li><b>MY PATHS toggle</b> — off by default (State 1). When on (State 2), edges on my originator best-route tree render full-opacity + drop-shadow; every other mesh edge dims to ~18 % opacity so it stays visible as context but doesn't compete.</li>
+  </ul>
+  <h2>WHAT THIS SOLVES</h2>
+  <ul>
+    <li>In <b>State 1</b>, the triangle (<code>alpha ↔ bravo</code> and <code>bravo ↔ charlie</code>) and the remote cycle (<code>pr-E ↔ pr-F</code>, <code>pr-F ↔ pr-G</code>) are visible. The current production page would render <i>none</i> of those — only my three direct-neighbor edges and my single BLOS edge. The operator now sees actual field connectivity.</li>
+    <li>In <b>State 2</b>, the per-node "how do I reach X" story is still recoverable via the toggle. Nothing is lost; the default just leads with mesh reality.</li>
+  </ul>
+  <h2>DATA-SOURCE FIT CHECK</h2>
+  <ul>
+    <li>Node primary MACs + secondaries → direct from <code>vis[].primary</code>/<code>vis[].secondary</code>.</li>
+    <li>Hostnames → joined from <code>/tmp/bat-hosts</code> (existing lookup).</li>
+    <li>Edges → from <code>vis[].neighbors[{router,neighbor,metric}]</code>.</li>
+    <li>Segment (LOCAL vs REMOTE MESH) → from <i>our</i> originator table (<code>batctl oj</code>): a node is REMOTE if any of its MACs appears with <code>hard_ifname=vxlan0</code>.</li>
+    <li>"On my path" flag → match edge <code>(router,neighbor)</code> against our originator table's <code>(orig,best_next_hop)</code> pairs.</li>
+    <li>Client badge → length of <code>vis[].clients</code>.</li>
+  </ul>
+</div>
+
+</body>
+</html>
