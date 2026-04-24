@@ -156,6 +156,96 @@ describe('TestTopologyMapMyPathsOverlay', () => {
   });
 });
 
+// ── Intra-mesh tree layout ──────────────────────────────────────────────────
+//
+// The renderer places each segment's hosts in a BFS spanning tree rooted on
+// the anchor (self for LOCAL, gateway for REMOTE MESH). A peer reachable
+// only through another non-anchor node should land directly below its
+// actual parent, not on an arbitrary concentric ring — that's the core
+// fix behind this layout.
+
+function positionsByLabel(container) {
+  const out = {};
+  for (const n of container.querySelectorAll('.topo-node')) {
+    const label = n.querySelector('.topo-host-label')?.textContent;
+    const m = n.getAttribute('transform')?.match(/translate\(([-\d.]+),([-\d.]+)\)/);
+    if (label && m) out[label] = { x: parseFloat(m[1]), y: parseFloat(m[2]) };
+  }
+  return out;
+}
+
+// User-drawn topology — chain on one side of the gateway, singleton on the
+// other:
+//
+//   gw ─ B ─ A ─ C
+//   │
+//   D
+//
+// Every node is in the LOCAL segment. BFS from gw should place B/D as
+// siblings at depth 1, A below B at depth 2, C below A at depth 3.
+function chainAndSingleton() {
+  return {
+    selfMac: 'aa:aa:aa:aa:aa:00',
+    selfHostname: 'gw',
+    algorithm: 'BATMAN_V',
+    nodes: [
+      { mac: 'aa:aa:aa:aa:aa:00', hostname: 'gw',  segment: 'local', hopsFromSelf: 0, isSelf: true,  clientCount: 0, myHardIfname: '' },
+      { mac: 'bb:bb:bb:bb:bb:00', hostname: 'B',   segment: 'local', hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+      { mac: 'dd:dd:dd:dd:dd:00', hostname: 'D',   segment: 'local', hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+      { mac: 'cc:cc:cc:cc:cc:00', hostname: 'A',   segment: 'local', hopsFromSelf: 2, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+      { mac: 'ee:ee:ee:ee:ee:00', hostname: 'C',   segment: 'local', hopsFromSelf: 3, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+    ],
+    edges: [
+      { fromMac: 'aa:aa:aa:aa:aa:00', toMac: 'bb:bb:bb:bb:bb:00', metric: 1.1, blos: false, onMyPath: true },
+      { fromMac: 'aa:aa:aa:aa:aa:00', toMac: 'dd:dd:dd:dd:dd:00', metric: 1.2, blos: false, onMyPath: true },
+      { fromMac: 'bb:bb:bb:bb:bb:00', toMac: 'cc:cc:cc:cc:cc:00', metric: 1.3, blos: false, onMyPath: true },
+      { fromMac: 'cc:cc:cc:cc:cc:00', toMac: 'ee:ee:ee:ee:ee:00', metric: 1.4, blos: false, onMyPath: false },
+    ],
+  };
+}
+
+describe('TestTopologyMapTreeLayout', () => {
+  it('places descendants below their real parent, not on a hop ring', () => {
+    const { container } = render(<TopologyMap topology={chainAndSingleton()} />);
+    const pos = positionsByLabel(container);
+
+    expect(pos.gw).toBeDefined();
+    expect(pos.gw.y).toBe(0);
+
+    // B and D are both direct children of gw — same depth, different x.
+    expect(pos.B.y).toBe(pos.D.y);
+    expect(pos.B.y).toBeGreaterThan(pos.gw.y);
+    expect(pos.B.x).not.toBe(pos.D.x);
+
+    // A sits one level below B (its BFS parent), not on a ring keyed by
+    // hops-from-self. Before this fix A would have been placed on the
+    // same ring as D with no relationship to B's x coordinate.
+    expect(pos.A.y).toBeGreaterThan(pos.B.y);
+    expect(pos.A.x).toBe(pos.B.x);
+
+    // C is a leaf below A.
+    expect(pos.C.y).toBeGreaterThan(pos.A.y);
+    expect(pos.C.x).toBe(pos.A.x);
+  });
+
+  it('attaches hosts without edges to the root as orphan children', () => {
+    const topology = chainAndSingleton();
+    topology.nodes.push({
+      mac: 'ff:ff:ff:ff:ff:00', hostname: 'Z', segment: 'local',
+      hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0',
+    });
+    // No edges referencing Z — it should still land on the canvas.
+
+    const { container } = render(<TopologyMap topology={topology} />);
+    const pos = positionsByLabel(container);
+
+    expect(pos.Z).toBeDefined();
+    // Orphans attach to the root, so they sit at depth 1 alongside other
+    // direct children.
+    expect(pos.Z.y).toBe(pos.B.y);
+  });
+});
+
 describe('TestTopologyMapInteraction', () => {
   it('applies .selected to the node whose id matches selectedId', () => {
     const view = buildTopologyView(directRF());

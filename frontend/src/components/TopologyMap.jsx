@@ -21,7 +21,8 @@ import { zoom, zoomIdentity } from 'd3-zoom';
 import { select } from 'd3-selection';
 import { buildTopologyView, shortHostname } from './topologyGraph.js';
 
-const RING_STEP = 170;
+const LEVEL_HEIGHT = 150;                     // vertical spacing between BFS tree depths
+const LEAF_SPACING = 2 * 28 + 40;             // horizontal spacing between sibling leaves (node dia + gutter)
 const NODE_RADIUS = 28;
 const PADDING = 72;
 const SEGMENT_GUTTER = 160;
@@ -41,37 +42,93 @@ const SEGMENT_LABEL_PADDING = 28;
 // ----------------------------------------------------------------------------
 // layoutSegment(seg, rootHost) → { positions, bbox }
 // ----------------------------------------------------------------------------
-// Local radial layout for one segment. Root goes at (0,0); other hosts are
-// placed on concentric rings by hop depth (normalized to the root's depth).
+// Builds a BFS spanning tree over the segment's own RF edges, rooted at the
+// anchor (self for LOCAL, gateway for each REMOTE MESH). Each node sits
+// directly below its parent in the tree, with siblings spaced by a leaf
+// count so subtrees don't overlap — i.e. a two-hop peer renders next to
+// its actual upstream neighbor, not at an arbitrary angle.
+//
+// Nodes that the segment's edges don't reach (isolated peers, reporting
+// gaps) attach to the root as extra children so every host still lands
+// somewhere sensible.
 function layoutSegment(seg, rootHost) {
   const positions = new Map();
   if (!seg.hosts.length) return { positions, bbox: { x: 0, y: 0, w: 0, h: 0 } };
 
-  const root = rootHost || [...seg.hosts]
-    .slice()
-    .sort((a, b) => (a.hops - b.hops) || a.tag.localeCompare(b.tag))[0];
-  positions.set(root.id, { x: 0, y: 0 });
+  const root = rootHost && seg.hosts.some((h) => h.id === rootHost.id)
+    ? rootHost
+    : [...seg.hosts]
+      .slice()
+      .sort((a, b) => (a.hops - b.hops) || a.tag.localeCompare(b.tag))[0];
 
-  const ring = new Map();
-  for (const h of seg.hosts) {
-    if (h.id === root.id) continue;
-    const rawHops = h.hops < 99 ? h.hops : 1;
-    const k = Math.max(1, rawHops - root.hops);
-    if (!ring.has(k)) ring.set(k, []);
-    ring.get(k).push(h);
+  const hostIds = new Set(seg.hosts.map((h) => h.id));
+  const adj = new Map(seg.hosts.map((h) => [h.id, []]));
+  for (const e of seg.edges || []) {
+    if (!hostIds.has(e.hostA) || !hostIds.has(e.hostB)) continue;
+    adj.get(e.hostA).push(e.hostB);
+    adj.get(e.hostB).push(e.hostA);
   }
-  for (const [k, peers] of ring.entries()) {
-    peers.sort((a, b) => a.tag.localeCompare(b.tag));
-    const radius = RING_STEP * k;
-    const offset = (k % 2 === 0 ? Math.PI / peers.length : 0) - Math.PI / 2;
-    peers.forEach((peer, i) => {
-      const angle = offset + (i / peers.length) * Math.PI * 2;
-      positions.set(peer.id, {
-        x: Math.cos(angle) * radius,
-        y: Math.sin(angle) * radius,
-      });
-    });
+  // Sort neighbors deterministically so the layout doesn't flip between
+  // refreshes just because the edge list re-orders.
+  for (const [id, neighbors] of adj.entries()) {
+    neighbors.sort();
+    adj.set(id, neighbors);
   }
+
+  // BFS from root along adjacency; parent-of-child wins the enqueue order.
+  const children = new Map(seg.hosts.map((h) => [h.id, []]));
+  const visited = new Set([root.id]);
+  const queue = [root.id];
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    for (const nb of adj.get(cur) || []) {
+      if (visited.has(nb)) continue;
+      visited.add(nb);
+      children.get(cur).push(nb);
+      queue.push(nb);
+    }
+  }
+  // Orphans (unreachable from root via this segment's edges) hang off the
+  // root so they still render — sorted by hostname for stability.
+  const orphans = seg.hosts
+    .filter((h) => !visited.has(h.id))
+    .sort((a, b) => a.baseHostname.localeCompare(b.baseHostname))
+    .map((h) => h.id);
+  for (const id of orphans) children.get(root.id).push(id);
+
+  // Count leaves under each node so internal nodes can sit centered above
+  // the horizontal extent they occupy.
+  const leafCount = new Map();
+  function countLeaves(id) {
+    const kids = children.get(id) || [];
+    if (kids.length === 0) {
+      leafCount.set(id, 1);
+      return 1;
+    }
+    let sum = 0;
+    for (const k of kids) sum += countLeaves(k);
+    leafCount.set(id, sum);
+    return sum;
+  }
+  countLeaves(root.id);
+
+  // Assign tree positions (root at x=0, y=0; children flow downward and
+  // spread horizontally by leaf-count share).
+  function place(id, depth, xCenter) {
+    positions.set(id, { x: xCenter, y: depth * LEVEL_HEIGHT });
+    const kids = children.get(id) || [];
+    if (kids.length === 0) return;
+    const totalLeaves = leafCount.get(id);
+    const totalWidth = (totalLeaves - 1) * LEAF_SPACING;
+    let cursor = xCenter - totalWidth / 2;
+    for (const k of kids) {
+      const kLeaves = leafCount.get(k);
+      const kWidth = (kLeaves - 1) * LEAF_SPACING;
+      place(k, depth + 1, cursor + kWidth / 2);
+      cursor += kWidth + LEAF_SPACING;
+    }
+  }
+  place(root.id, 0, 0);
 
   let minX = -NODE_RADIUS, minY = -NODE_RADIUS;
   let maxX = NODE_RADIUS, maxY = NODE_RADIUS + BADGE_Y_OFFSET;
