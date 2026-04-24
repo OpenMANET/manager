@@ -46,6 +46,21 @@ export function shortHostname(baseHostname) {
   return tail.length <= 6 ? tail : tail.slice(0, 6);
 }
 
+// formatAge renders a non-negative second count as a compact duration
+// ("8s" / "2m 14s" / "1h 03m"). Used by the topology UI to display
+// gossip record freshness on both host labels and the inspector panel.
+// Negative or non-finite inputs return the em dash placeholder.
+export function formatAge(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '—';
+  if (seconds < 60) return `${Math.floor(seconds)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  if (m < 60) return `${m}m ${String(s).padStart(2, '0')}s`;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${h}h ${String(mm).padStart(2, '0')}m`;
+}
+
 // shortMac keeps the last three MAC octets — used as a fallback host label
 // when bat-hosts has no friendly name.
 function shortMac(mac) {
@@ -107,6 +122,9 @@ export function buildTopologyView(topology) {
       secondaryMacs: n.secondaryMacs || [],
       clientCount: Number.isFinite(n.clientCount) ? n.clientCount : 0,
       gossipStale: Boolean(n.gossipStale),
+      // gossipAgeSeconds: -1 means "no record observed"; any other value
+      // is seconds since the publisher's payload.collected_at. Self is 0.
+      gossipAgeSeconds: Number.isFinite(n.gossipAgeSeconds) ? n.gossipAgeSeconds : -1,
     };
 
     hostByMac.set(key, host);

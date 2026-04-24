@@ -93,6 +93,16 @@
 }
 .topo-node.weak text { fill: var(--warn); }
 
+/* Remote-segment peers get an amber treatment so operators can tell
+   at a glance that a host is reached over BLOS, not local RF. Mirrors
+   the remote segment-box tint further down. */
+.topo-node.remote circle {
+  stroke: var(--warn);
+  fill: rgba(255, 179, 0, 0.08);
+}
+.topo-node.remote text { fill: var(--warn); }
+.topo-node.remote .topo-host-label { fill: var(--warn); }
+
 .topo-node.client circle {
   stroke: var(--dim);
   fill: var(--surface-2);
@@ -225,6 +235,30 @@
   pointer-events: none;
 }
 
+/* Client-count pill drawn at the top-right of a node whenever the
+   host has attached non-mesh clients (laptops / phones bridged over
+   ethernet or an AP). Sized to fit up to three digits without
+   overflowing; hidden entirely when the count is zero. */
+.topo-client-badge {
+  pointer-events: none;
+}
+.topo-client-badge rect {
+  fill: rgba(0, 229, 255, 0.10);
+  stroke: var(--accent);
+  stroke-width: 0.8;
+}
+.topo-client-badge text {
+  fill: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+.topo-node.remote .topo-client-badge rect { stroke: var(--warn); fill: rgba(255, 179, 0, 0.10); }
+.topo-node.remote .topo-client-badge text  { fill: var(--warn); }
+
 /* ── Segment boxes ──────────────────────────────────────────────────────── */
 
 .topo-segment-box rect {
@@ -240,6 +274,26 @@
   letter-spacing: 0.18em;
   text-transform: uppercase;
   pointer-events: none;
+}
+
+/* Inline swatches used by the Legend panel to mirror the canvas colors
+   for each edge-quality tier. Kept small (22×2) so they sit beside the
+   tier label inside a normal `.kv` row. */
+.topology-side .swatch {
+  display: inline-block;
+  width: 22px;
+  height: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+  background: var(--accent);
+}
+.topology-side .swatch.ok    { background: var(--ok); }
+.topology-side .swatch.warn  { background: var(--warn); }
+.topology-side .swatch.dim   { background: var(--dim); opacity: 0.7; }
+.topology-side .swatch.dashed {
+  background: transparent;
+  border-top: 2px dashed var(--dim);
+  height: 0;
 }
 
 /* ── Empty states / selected panel ──────────────────────────────────────── */

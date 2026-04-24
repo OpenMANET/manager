@@ -25,6 +25,7 @@ export const MeshNode = /*@__PURE__*/ proto3.makeMessageType(
     { no: 8, name: "is_self", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 9, name: "remote_gateway_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 10, name: "gossip_stale", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 11, name: "gossip_age_seconds", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
   ],
 );
 

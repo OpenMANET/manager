@@ -2,9 +2,15 @@ package handlers
 
 import (
 	"strings"
+	"time"
 
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 )
+
+// ageMissing is the sentinel gossipView.ageByPrimary carries when a
+// primary has no observed gossip record (or the publisher did not
+// timestamp the payload). Surfaces to the proto as gossip_age_seconds=-1.
+const ageMissing int32 = -1
 
 // gossipView is the handler-local projection of MeshNeighborsProvider
 // data: per-primary RF and BLOS neighbor sets, plus a per-primary
@@ -14,6 +20,11 @@ type gossipView struct {
 	rfByPrimary    map[string]map[string]struct{}
 	blosByPrimary  map[string]map[string]struct{}
 	staleByPrimary map[string]bool
+	// ageByPrimary is the per-primary age (whole seconds) of the most
+	// recent gossip record, measured as (now - payload.collected_at).
+	// ageMissing (-1) when the primary has no record or the publisher
+	// omitted its collected_at timestamp.
+	ageByPrimary map[string]int32
 	// originatorsByPrimary is the publisher's own best-route tree, used
 	// for multi-hop vxlan0 chain resolution when a remote component has
 	// no direct BLOS edge to the local component.
@@ -33,15 +44,21 @@ type gossipOriginator struct {
 // buildGossipView projects a MeshNeighborsProvider into the handler's
 // working representation. Returns a non-nil (empty) view even when the
 // provider is nil so downstream code doesn't need nil-checks.
+//
+// now is used to compute per-primary gossip ages against each record's
+// payload.collected_at timestamp. Callers in production pass time.Now();
+// tests inject a fixed clock for deterministic age assertions.
 func buildGossipView(
 	provider batmanadv.MeshNeighborsProvider,
 	visNodes []batmanadv.VisNode,
 	primaryByMac map[string]string,
+	now time.Time,
 ) *gossipView {
 	view := &gossipView{
 		rfByPrimary:          make(map[string]map[string]struct{}),
 		blosByPrimary:        make(map[string]map[string]struct{}),
 		staleByPrimary:       make(map[string]bool),
+		ageByPrimary:         make(map[string]int32),
 		originatorsByPrimary: make(map[string][]gossipOriginator),
 	}
 
@@ -58,11 +75,13 @@ func buildGossipView(
 		rec, ok := provider.Lookup(primary)
 		if !ok || rec == nil || rec.Stale || rec.Payload == nil {
 			view.staleByPrimary[primary] = true
+			view.ageByPrimary[primary] = gossipRecordAge(rec, now)
 
 			continue
 		}
 
 		view.coverage++
+		view.ageByPrimary[primary] = gossipRecordAge(rec, now)
 		rfSet := make(map[string]struct{})
 		blosSet := make(map[string]struct{})
 
@@ -95,6 +114,35 @@ func buildGossipView(
 	}
 
 	return view
+}
+
+// gossipRecordAge returns the age of a gossip record's payload in whole
+// seconds against the serving node's "now". Returns ageMissing when the
+// record is absent, its payload is nil, or the publisher omitted the
+// collected_at timestamp. Negative raw deltas (publisher clock ahead of
+// the serving node) round to 0 rather than ageMissing — a real-but-tiny
+// age is more useful than a "no data" marker.
+func gossipRecordAge(rec *batmanadv.MeshNeighborsRecord, now time.Time) int32 {
+	if rec == nil || rec.Payload == nil {
+		return ageMissing
+	}
+
+	ts := rec.Payload.GetCollectedAt()
+	if ts == nil {
+		return ageMissing
+	}
+
+	collected := ts.AsTime()
+	if collected.IsZero() {
+		return ageMissing
+	}
+
+	seconds := int64(now.Sub(collected).Seconds())
+	if seconds < 0 {
+		return 0
+	}
+
+	return int32(seconds)
 }
 
 // classifyNodesWithGossip replaces the heuristic segment/gateway pass

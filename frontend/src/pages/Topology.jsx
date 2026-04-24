@@ -6,7 +6,7 @@
 // by buildTopologyView() from batadv-vis + originator overlay data.
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { buildTopologyView } from '../components/topologyGraph.js';
+import { buildTopologyView, formatAge } from '../components/topologyGraph.js';
 import TopologyMap from '../components/TopologyMap.jsx';
 import { useMeshStatus } from '../hooks/useMeshStatus.js';
 import { useMeshTopology } from '../hooks/useMeshTopology.js';
@@ -186,6 +186,22 @@ export default function TopologyPage() {
               <span className="v">bridge between segments</span>
             </div>
             <div className="kv">
+              <span className="k"><span className="swatch ok" /> q-strong</span>
+              <span className="v muted">high throughput / low TQ</span>
+            </div>
+            <div className="kv">
+              <span className="k"><span className="swatch accent" /> q-ok</span>
+              <span className="v muted">median</span>
+            </div>
+            <div className="kv">
+              <span className="k"><span className="swatch warn" /> q-weak</span>
+              <span className="v muted">low</span>
+            </div>
+            <div className="kv">
+              <span className="k"><span className="swatch dim dashed" /> q-unknown</span>
+              <span className="v muted">no metric yet</span>
+            </div>
+            <div className="kv">
               <span className="k">MY PATHS</span>
               <span className="v">{myPathsOn ? 'ON · my tree highlighted' : 'OFF · uniform edges'}</span>
             </div>
@@ -210,6 +226,38 @@ export default function TopologyPage() {
                 hostById={hostById}
                 edges={edgesByHost.get(selected.host.id) || []}
               />
+            )}
+          </div>
+
+          <div className="lat-panel">
+            <div className="panel-head"><h3>Counts</h3></div>
+            <div className="kv">
+              <span className="k">Hosts</span>
+              <span className="v">{hostCount}</span>
+            </div>
+            <div className="kv">
+              <span className="k">Segments</span>
+              <span className="v">{segments.length}</span>
+            </div>
+            <div className="kv">
+              <span className="k">RF links</span>
+              <span className="v">{linkCount}</span>
+            </div>
+            <div className="kv">
+              <span className="k">BLOS links</span>
+              <span className={`v${blosCount > 0 ? ' warn' : ''}`}>{blosCount}</span>
+            </div>
+            <div className="kv">
+              <span className="k">Max hops</span>
+              <span className="v">{hopsMax}</span>
+            </div>
+            {gossipCoverage && gossipCoverage.total > 0 && (
+              <div className="kv">
+                <span className="k">Gossip cov.</span>
+                <span className={`v${gossipCoverage.published * 2 < gossipCoverage.total ? ' warn' : ''}`}>
+                  {`${gossipCoverage.published} / ${gossipCoverage.total}`}
+                </span>
+              </div>
             )}
           </div>
 
@@ -290,6 +338,11 @@ function HostInspector({ host, meshData, ipByHostname, hostById, edges }) {
         <span className="k">Hops</span>
         <span className="v">{host.hops < 99 ? host.hops : '—'}</span>
       </div>
+      <div className="kv">
+        <span className="k">Clients</span>
+        <span className="v">{host.clientCount ?? 0}</span>
+      </div>
+      {!host.isSelf && <GossipFreshnessRow host={host} />}
       {!host.isSelf && (
         <div className="kv">
           <span className="k">My route via</span>
@@ -311,6 +364,34 @@ function HostInspector({ host, meshData, ipByHostname, hostById, edges }) {
         );
       })}
     </>
+  );
+}
+
+// GossipFreshnessRow renders the "Gossip · fresh · 8s ago" line in the
+// inspector. Signals three distinct states so operators can triage a
+// quiet host — "no record" (backend never saw a publish), "stale" (age
+// exceeds the snapshotter's StaleAge), and "fresh" (happy path). Self
+// is suppressed upstream because self is always current.
+function GossipFreshnessRow({ host }) {
+  const age = host.gossipAgeSeconds;
+  const hasAge = Number.isFinite(age) && age >= 0;
+  let label = '— · NO RECORD';
+  let cls = 'v muted';
+  if (host.gossipStale && hasAge) {
+    label = `stale · ${formatAge(age)}`;
+    cls = 'v warn';
+  } else if (host.gossipStale) {
+    label = 'stale · no record';
+    cls = 'v warn';
+  } else if (hasAge) {
+    label = `fresh · ${formatAge(age)} ago`;
+    cls = 'v ok';
+  }
+  return (
+    <div className="kv">
+      <span className="k">Gossip</span>
+      <span className={cls}>{label}</span>
+    </div>
   );
 }
 

@@ -88,16 +88,18 @@ describe('TestTopologyMapSinglePair', () => {
     expect(container.querySelectorAll('.topo-segment-box').length).toBe(0);
   });
 
-  it('renders the short hostname inside the circle and the full hostname label beneath', () => {
+  it('renders the short hostname inside the circle and the role/hops label beneath', () => {
     const { container } = render(<TopologyMap topology={directRF()} />);
-    const circleTexts = Array.from(container.querySelectorAll('.topo-node > text:not(.topo-host-label)'))
-      .map((n) => n.textContent);
+    const circleTexts = Array.from(
+      container.querySelectorAll('.topo-node > text:not(.topo-host-label):not(.topo-iface-overflow)'),
+    ).map((n) => n.textContent);
     expect(circleTexts).toContain('me01');
     expect(circleTexts).toContain('alpha');
 
+    // Self gets "SELF"; a peer 1 hop away reached via wlan0 gets "HOPS 1 · wlan0".
     const labels = Array.from(container.querySelectorAll('.topo-host-label')).map((n) => n.textContent);
-    expect(labels).toContain('BCM2711-me01');
-    expect(labels).toContain('BCM2711-alpha');
+    expect(labels).toContain('SELF');
+    expect(labels).toContain('HOPS 1 · wlan0');
   });
 
   it('hides badges and hostname label in compact mode', () => {
@@ -164,10 +166,16 @@ describe('TestTopologyMapMyPathsOverlay', () => {
 // actual parent, not on an arbitrary concentric ring — that's the core
 // fix behind this layout.
 
+// positionsByLabel keys every rendered node by the short hostname in its
+// inner circle (e.g. "gw", "B", "alpha") and returns the {x,y} offset
+// from its translate attribute. Uses the inner text rather than the
+// secondary .topo-host-label because the latter now carries role/hops
+// info (SELF / HOPS N · ifname / STALE · …), which wouldn't uniquely
+// identify a fixture node.
 function positionsByLabel(container) {
   const out = {};
   for (const n of container.querySelectorAll('.topo-node')) {
-    const label = n.querySelector('.topo-host-label')?.textContent;
+    const label = n.querySelector('text:not(.topo-host-label):not(.topo-iface-overflow)')?.textContent;
     const m = n.getAttribute('transform')?.match(/translate\(([-\d.]+),([-\d.]+)\)/);
     if (label && m) out[label] = { x: parseFloat(m[1]), y: parseFloat(m[2]) };
   }
@@ -366,6 +374,109 @@ describe('TestTopologyMapStaleNode', () => {
     for (const n of staleNodes) {
       expect(n.classList.contains('self')).toBe(false);
     }
+  });
+});
+
+describe('TestTopologyMapRemoteKindAndGateway', () => {
+  it('tags remote-segment peers with the .remote class', () => {
+    const { container } = render(<TopologyMap topology={withBLOSGateway()} />);
+    // gw1 is remote; alpha is local; me01 is self.
+    const remote = container.querySelectorAll('.topo-node.remote');
+    expect(remote.length).toBe(1);
+    // Self must not pick up the remote class.
+    const self = container.querySelector('.topo-node.self');
+    expect(self).not.toBeNull();
+    expect(self.classList.contains('remote')).toBe(false);
+  });
+
+  it('labels the anchor of a remote segment as GATEWAY', () => {
+    const { container } = render(<TopologyMap topology={withBLOSGateway()} />);
+    const remoteNode = container.querySelector('.topo-node.remote');
+    const label = remoteNode.querySelector('.topo-host-label')?.textContent || '';
+    // gw1 is the only remote host → anchor of its segment.
+    expect(label.startsWith('GATEWAY')).toBe(true);
+    expect(label).toContain('HOPS 1');
+  });
+
+  it('labels self as SELF even when gossipStale is incorrectly set', () => {
+    const fixture = {
+      ...directRF(),
+      nodes: directRF().nodes.map((n) => (n.isSelf ? { ...n, gossipStale: true } : n)),
+    };
+    const { container } = render(<TopologyMap topology={fixture} />);
+    const selfLabel = container.querySelector('.topo-node.self .topo-host-label')?.textContent;
+    expect(selfLabel).toBe('SELF');
+  });
+});
+
+describe('TestTopologyMapClientCountBadge', () => {
+  it('renders a client-count pill when clientCount > 0 and hides it when zero', () => {
+    const fixture = {
+      ...directRF(),
+      nodes: [
+        { ...directRF().nodes[0] },
+        { ...directRF().nodes[1], clientCount: 3 },
+      ],
+    };
+    const { container } = render(<TopologyMap topology={fixture} />);
+    const badges = container.querySelectorAll('.topo-client-badge');
+    // Self has clientCount=0 → no badge; alpha has 3 → one badge.
+    expect(badges.length).toBe(1);
+    expect(badges[0].querySelector('text')?.textContent).toBe('·3');
+  });
+
+  it('suppresses the badge entirely in compact mode', () => {
+    const fixture = {
+      ...directRF(),
+      nodes: [
+        { ...directRF().nodes[0] },
+        { ...directRF().nodes[1], clientCount: 5 },
+      ],
+    };
+    const { container } = render(<TopologyMap topology={fixture} compact />);
+    expect(container.querySelectorAll('.topo-client-badge').length).toBe(0);
+  });
+});
+
+describe('TestTopologyMapEdgeLabels', () => {
+  it('renders BATMAN_V metrics as "N Mbps"', () => {
+    const fixture = {
+      ...directRF(),
+      algorithm: 'BATMAN_V',
+      edges: [{ fromMac: '00:00:00:00:00:00', toMac: 'aa:aa:aa:aa:aa:01', metric: 32.4, blos: false, onMyPath: true }],
+    };
+    const { container } = render(<TopologyMap topology={fixture} />);
+    const labels = Array.from(container.querySelectorAll('.topo-edge-label-text')).map((n) => n.textContent);
+    expect(labels).toContain('32 Mbps');
+  });
+
+  it('renders BATMAN_IV metrics as "TQ N.NN"', () => {
+    const fixture = { ...directRF(), algorithm: 'BATMAN_IV' };
+    const { container } = render(<TopologyMap topology={fixture} />);
+    const labels = Array.from(container.querySelectorAll('.topo-edge-label-text')).map((n) => n.textContent);
+    expect(labels.some((t) => t.startsWith('TQ '))).toBe(true);
+  });
+
+  it('labels BLOS edges with the vxlan0 tunnel name', () => {
+    const { container } = render(<TopologyMap topology={withBLOSGateway()} />);
+    const labels = Array.from(container.querySelectorAll('.topo-edge-label-text')).map((n) => n.textContent);
+    expect(labels.some((t) => t.startsWith('vxlan0'))).toBe(true);
+  });
+});
+
+describe('TestTopologyMapStaleHostLabel', () => {
+  it('replaces HOPS/ifname with STALE · <age> when gossip is stale and age is known', () => {
+    const fixture = {
+      ...directRF(),
+      nodes: [
+        { ...directRF().nodes[0] },
+        { ...directRF().nodes[1], gossipStale: true, gossipAgeSeconds: 134 },
+      ],
+    };
+    const { container } = render(<TopologyMap topology={fixture} />);
+    const labels = Array.from(container.querySelectorAll('.topo-host-label')).map((n) => n.textContent);
+    // 134s → "2m 14s"
+    expect(labels.some((t) => t.includes('STALE') && t.includes('2m 14s'))).toBe(true);
   });
 });
 

@@ -89,8 +89,9 @@ func (s *MeshTopologyService) GetMeshTopology(ctx context.Context, _ *emptypb.Em
 		batHosts, _ = s.ParseBatHosts(s.BatHostsPath)
 	}
 
-	merged := mergeMeshTopology(visDoc, origSnap, batHosts, s.NeighborsProvider)
-	merged.CollectedAt = timestamppb.New(s.now())
+	now := s.now()
+	merged := mergeMeshTopology(visDoc, origSnap, batHosts, s.NeighborsProvider, now)
+	merged.CollectedAt = timestamppb.New(now)
 
 	return &meshtopov1.GetMeshTopologyResponse{Topology: merged}, nil
 }
@@ -107,6 +108,7 @@ func mergeMeshTopology(
 	origSnap *batmanadv.OriginatorTopology,
 	batHosts *batmanadv.BatHosts,
 	neighborsProvider batmanadv.MeshNeighborsProvider,
+	now time.Time,
 ) *meshtopov1.MeshTopology {
 	// 1. MAC → primary index for every vis node (primary + secondaries
 	//    all map to the same primary). Originator-only nodes that vis
@@ -176,7 +178,7 @@ func mergeMeshTopology(
 	// primary its RF/BLOS neighbor sets drive segment assignment and
 	// gateway identification; primaries without coverage fall through to
 	// the heuristic classifier.
-	gossip := buildGossipView(neighborsProvider, visNodes, primaryByMac)
+	gossip := buildGossipView(neighborsProvider, visNodes, primaryByMac, now)
 
 	segmentByPrimary, gatewayByPrimary := classifyNodesWithGossip(
 		origSnap, primaryByMac, selfMAC, selfPrimary, gossip)
@@ -188,8 +190,10 @@ func mergeMeshTopology(
 	// 4. Build MeshNode list.
 	nodes := buildMeshNodes(visNodes, origByMac, batHosts, segmentByPrimary, gatewayByPrimary, selfPrimary, origSnap.SelfHostname, primaryByMac)
 
-	// 4a. Mark gossip-stale nodes so the UI can dim them.
-	applyGossipStale(nodes, gossip)
+	// 4a. Mark gossip state (staleness + age in seconds) on every non-self
+	// node so the UI can dim stale ones and surface freshness in the
+	// inspector.
+	applyGossipState(nodes, gossip)
 
 	// 5. Build MeshEdge list — originator-derived first, then vis neighbors.
 	edges := buildMeshEdges(visDoc, origSnap.Originators, primaryByMac, segmentByPrimary, selfMAC, renderedPrimaries(nodes))
@@ -204,9 +208,13 @@ func mergeMeshTopology(
 	}
 }
 
-// applyGossipStale sets the GossipStale bool on every MeshNode based on
-// the pre-computed gossipView. Self is never considered stale.
-func applyGossipStale(nodes []*meshtopov1.MeshNode, gossip *gossipView) {
+// applyGossipState sets the GossipStale bool and GossipAgeSeconds on
+// every non-self MeshNode based on the pre-computed gossipView. Self is
+// always current and gets the zero-value defaults (GossipStale=false,
+// GossipAgeSeconds=0). Nodes without a tracked record get
+// GossipAgeSeconds=ageMissing (-1) so the UI can distinguish
+// "never observed" from a legitimate fresh reading.
+func applyGossipState(nodes []*meshtopov1.MeshNode, gossip *gossipView) {
 	if gossip == nil {
 		return
 	}
@@ -219,6 +227,12 @@ func applyGossipStale(nodes []*meshtopov1.MeshNode, gossip *gossipView) {
 		primary := strings.ToLower(n.GetMac())
 		if gossip.staleByPrimary[primary] {
 			n.GossipStale = true
+		}
+
+		if age, ok := gossip.ageByPrimary[primary]; ok {
+			n.GossipAgeSeconds = age
+		} else {
+			n.GossipAgeSeconds = ageMissing
 		}
 	}
 }

@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildTopologyView,
+  formatAge,
   shortHostname,
 } from '../../components/topologyGraph.js';
 
@@ -244,5 +245,54 @@ describe('TestShortHelpers', () => {
     expect(shortHostname('alpha')).toBe('alpha');
     expect(shortHostname('node-ABCDEFGH')).toBe('ABCDEF');
     expect(shortHostname('')).toBe('?');
+  });
+
+  it('formatAge renders sub-minute durations in seconds', () => {
+    expect(formatAge(0)).toBe('0s');
+    expect(formatAge(8)).toBe('8s');
+    expect(formatAge(59)).toBe('59s');
+  });
+
+  it('formatAge renders minute-scale durations with zero-padded seconds', () => {
+    expect(formatAge(60)).toBe('1m 00s');
+    expect(formatAge(134)).toBe('2m 14s');
+    expect(formatAge(3599)).toBe('59m 59s');
+  });
+
+  it('formatAge renders hour-scale durations with zero-padded minutes', () => {
+    expect(formatAge(3600)).toBe('1h 00m');
+    expect(formatAge(3780)).toBe('1h 03m');
+  });
+
+  it('formatAge returns the em dash placeholder for non-finite or negative inputs', () => {
+    expect(formatAge(-1)).toBe('—');
+    expect(formatAge(NaN)).toBe('—');
+    expect(formatAge(undefined)).toBe('—');
+  });
+});
+
+describe('TestGossipAgePropagates', () => {
+  it('copies gossipAgeSeconds from the input onto the host record', () => {
+    const view = buildTopologyView({
+      selfMac: 'aa:aa:aa:aa:aa:00',
+      selfHostname: 'me',
+      algorithm: 'BATMAN_V',
+      nodes: [
+        { mac: 'aa:aa:aa:aa:aa:00', hostname: 'me', segment: 'local',
+          hopsFromSelf: 0, isSelf: true, gossipStale: false, gossipAgeSeconds: 0 },
+        { mac: 'bb:bb:bb:bb:bb:00', hostname: 'fresh', segment: 'local',
+          hopsFromSelf: 1, isSelf: false, gossipStale: false, gossipAgeSeconds: 8 },
+        { mac: 'cc:cc:cc:cc:cc:00', hostname: 'stale', segment: 'local',
+          hopsFromSelf: 1, isSelf: false, gossipStale: true, gossipAgeSeconds: 134 },
+        { mac: 'dd:dd:dd:dd:dd:00', hostname: 'nogossip', segment: 'local',
+          hopsFromSelf: 1, isSelf: false, gossipStale: true, gossipAgeSeconds: -1 },
+      ],
+      edges: [],
+    });
+    const byHost = {};
+    for (const h of view.hosts) byHost[h.baseHostname] = h;
+    expect(byHost.fresh.gossipAgeSeconds).toBe(8);
+    expect(byHost.stale.gossipAgeSeconds).toBe(134);
+    expect(byHost.nogossip.gossipAgeSeconds).toBe(-1);
   });
 });

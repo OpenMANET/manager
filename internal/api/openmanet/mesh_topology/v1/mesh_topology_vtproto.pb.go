@@ -38,6 +38,7 @@ func (m *MeshNode) CloneVT() *MeshNode {
 	r.IsSelf = m.IsSelf
 	r.RemoteGatewayMac = m.RemoteGatewayMac
 	r.GossipStale = m.GossipStale
+	r.GossipAgeSeconds = m.GossipAgeSeconds
 	if rhs := m.SecondaryMacs; rhs != nil {
 		tmpContainer := make([]string, len(rhs))
 		copy(tmpContainer, rhs)
@@ -168,6 +169,9 @@ func (this *MeshNode) EqualVT(that *MeshNode) bool {
 		return false
 	}
 	if this.GossipStale != that.GossipStale {
+		return false
+	}
+	if this.GossipAgeSeconds != that.GossipAgeSeconds {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -327,6 +331,11 @@ func (m *MeshNode) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.GossipAgeSeconds != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.GossipAgeSeconds))
+		i--
+		dAtA[i] = 0x58
 	}
 	if m.GossipStale {
 		i--
@@ -648,6 +657,11 @@ func (m *MeshNode) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.GossipAgeSeconds != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.GossipAgeSeconds))
+		i--
+		dAtA[i] = 0x58
 	}
 	if m.GossipStale {
 		i--
@@ -983,6 +997,9 @@ func (m *MeshNode) SizeVT() (n int) {
 	}
 	if m.GossipStale {
 		n += 2
+	}
+	if m.GossipAgeSeconds != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.GossipAgeSeconds))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1372,6 +1389,25 @@ func (m *MeshNode) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.GossipStale = bool(v != 0)
+		case 11:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GossipAgeSeconds", wireType)
+			}
+			m.GossipAgeSeconds = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GossipAgeSeconds |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -2259,6 +2295,25 @@ func (m *MeshNode) UnmarshalVTUnsafe(dAtA []byte) error {
 				}
 			}
 			m.GossipStale = bool(v != 0)
+		case 11:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GossipAgeSeconds", wireType)
+			}
+			m.GossipAgeSeconds = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GossipAgeSeconds |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

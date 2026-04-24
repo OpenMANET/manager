@@ -19,7 +19,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { zoom, zoomIdentity } from 'd3-zoom';
 import { select } from 'd3-selection';
-import { buildTopologyView, shortHostname } from './topologyGraph.js';
+import { buildTopologyView, formatAge, shortHostname } from './topologyGraph.js';
 
 const LEVEL_HEIGHT = 150;                     // vertical spacing between BFS tree depths
 const LEAF_SPACING = 2 * 28 + 40;             // horizontal spacing between sibling leaves (node dia + gutter)
@@ -405,7 +405,44 @@ function InterfaceBadges({ interfaces }) {
   );
 }
 
-function HostNode({ host, pos, kind, onSelect, selectedId, compact }) {
+// formatHostLabel returns the secondary text drawn below each node's
+// circle. Priority order (first match wins):
+//   - self          → "SELF"
+//   - stale record  → "STALE · 2m 14s" (age takes the slot so operators
+//                     see *how* stale; ageMissing falls through)
+//   - gateway       → "GATEWAY · HOPS N" (anchor of a remote segment)
+//   - peer          → "HOPS N · <ifname>" / "HOPS N" / "<ifname>"
+//   - fallback      → baseHostname (keeps SVG non-empty on malformed data)
+function formatHostLabel(host, isGateway) {
+  if (host.isSelf) return 'SELF';
+  if (host.gossipStale && Number.isFinite(host.gossipAgeSeconds) && host.gossipAgeSeconds >= 0) {
+    return `STALE · ${formatAge(host.gossipAgeSeconds)}`;
+  }
+  const hopsPart = host.hops < 99 ? `HOPS ${host.hops}` : '';
+  if (isGateway) {
+    return hopsPart ? `GATEWAY · ${hopsPart}` : 'GATEWAY';
+  }
+  const ifPart = host.myHardIfname || '';
+  if (hopsPart && ifPart) return `${hopsPart} · ${ifPart}`;
+  if (hopsPart) return hopsPart;
+  if (ifPart) return ifPart;
+  return host.baseHostname || '';
+}
+
+// ClientCountBadge draws the "·N" pill above the node when the host has
+// attached non-mesh clients (laptops / phones bridged over ethernet or
+// an AP). Hidden when clientCount is 0 so quiet nodes stay unembellished.
+function ClientCountBadge({ count }) {
+  if (!Number.isFinite(count) || count <= 0) return null;
+  return (
+    <g className="topo-client-badge" transform="translate(14, -36)">
+      <rect x={0} y={0} width={22} height={14} rx={2} />
+      <text x={11} y={8}>{`·${count}`}</text>
+    </g>
+  );
+}
+
+function HostNode({ host, pos, kind, onSelect, selectedId, compact, isGateway }) {
   if (!pos) return null;
   const isSelected = selectedId === host.id;
   const classes = ['topo-node', kind];
@@ -426,27 +463,31 @@ function HostNode({ host, pos, kind, onSelect, selectedId, compact }) {
       <text>{shortHostname(host.baseHostname) || host.tag}</text>
       {!compact && (
         <text className="topo-host-label" y={HOSTNAME_Y_OFFSET}>
-          {host.baseHostname}
+          {formatHostLabel(host, isGateway)}
         </text>
       )}
       {!compact && <InterfaceBadges interfaces={host.interfaces} />}
+      {!compact && <ClientCountBadge count={host.clientCount} />}
     </g>
   );
 }
 
 function formatEdgeLabel(edge, algorithm) {
-  if (edge.blos) return 'BLOS';
-  if (!edge.metric) return '';
-  // BATMAN_V: metric is throughput-derived (higher = better).
-  // BATMAN_IV: metric is 255/TQ (lower = better). Display the raw value
-  // in both cases — operators reading the canvas already know the
-  // algorithm from the header chip.
-  if (algorithm === 'BATMAN_V') {
-    return edge.metric >= 1
-      ? `${edge.metric.toFixed(1)}`
-      : `${edge.metric.toFixed(2)}`;
+  // BLOS edges surface as the tunnel ifname so operators can tell at a
+  // glance that the link is vxlan-mediated, not RF. When a throughput
+  // metric is available for the tunnel we append it.
+  if (edge.blos) {
+    if (!edge.metric || algorithm !== 'BATMAN_V') return 'vxlan0';
+    return `vxlan0 · ${Math.round(edge.metric)} Mbps`;
   }
-  return `${edge.metric.toFixed(2)}`;
+  if (!edge.metric) return '';
+  // BATMAN_V metrics are throughput-derived Mbps (q-strong >= 20, q-ok
+  // >= 5, q-weak < 5). BATMAN_IV reports 255/TQ (lower = better); we
+  // show it as "TQ N.NN" so operators don't confuse it with throughput.
+  if (algorithm === 'BATMAN_V') {
+    return `${Math.round(edge.metric)} Mbps`;
+  }
+  return `TQ ${edge.metric.toFixed(2)}`;
 }
 
 function EdgeLine({ edge, positions, algorithm, myPathsOverlay }) {
@@ -532,6 +573,15 @@ const TopologyMap = React.memo(function TopologyMap({
     () => globalLayout(view, compact),
     [view, compact],
   );
+  // Remote-segment anchors are labelled "GATEWAY" on their secondary
+  // line. Computed here so HostNode stays a pure presentational component.
+  const anchorHostIds = useMemo(() => {
+    const ids = new Set();
+    for (const seg of view.segments) {
+      if (seg.kind === 'remote' && seg.anchorHost) ids.add(seg.anchorHost);
+    }
+    return ids;
+  }, [view]);
   const svgRef = useRef(null);
   const gRef = useRef(null);
   const zoomRef = useRef(null);
@@ -601,7 +651,12 @@ const TopologyMap = React.memo(function TopologyMap({
           ))}
 
           {view.hosts.map((host) => {
-            const kind = host.isSelf ? 'self' : 'peer';
+            const isRemote = typeof host.segmentId === 'string'
+              && host.segmentId !== 'local';
+            const kind = host.isSelf
+              ? 'self'
+              : isRemote ? 'remote' : 'peer';
+            const isGateway = isRemote && anchorHostIds.has(host.id);
             return (
               <HostNode
                 key={host.id}
@@ -611,6 +666,7 @@ const TopologyMap = React.memo(function TopologyMap({
                 onSelect={onSelect}
                 selectedId={selectedId}
                 compact={compact}
+                isGateway={isGateway}
               />
             );
           })}

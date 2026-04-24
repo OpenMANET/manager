@@ -65,9 +65,15 @@ type MeshNode struct {
 	// node has not been refreshed within the snapshotter's StaleAge
 	// window, or when no gossip record exists at all. The UI dims stale
 	// hosts to signal that their topology data is aging.
-	GossipStale   bool `protobuf:"varint,10,opt,name=gossip_stale,json=gossipStale,proto3" json:"gossip_stale,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	GossipStale bool `protobuf:"varint,10,opt,name=gossip_stale,json=gossipStale,proto3" json:"gossip_stale,omitempty"`
+	// gossip_age_seconds is the age (in whole seconds) of the publisher's
+	// most recent gossip record for this node — the delta between the
+	// serving node's "now" and the payload's collected_at. -1 when no
+	// record exists or the publisher did not timestamp the payload. Unset
+	// (0) for self, which is always current.
+	GossipAgeSeconds int32 `protobuf:"varint,11,opt,name=gossip_age_seconds,json=gossipAgeSeconds,proto3" json:"gossip_age_seconds,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *MeshNode) Reset() {
@@ -168,6 +174,13 @@ func (x *MeshNode) GetGossipStale() bool {
 		return x.GossipStale
 	}
 	return false
+}
+
+func (x *MeshNode) GetGossipAgeSeconds() int32 {
+	if x != nil {
+		return x.GossipAgeSeconds
+	}
+	return 0
 }
 
 // MeshEdge is one link in the mesh, canonicalized so A↔B appears once
@@ -435,7 +448,7 @@ var File_openmanet_mesh_topology_v1_mesh_topology_proto protoreflect.FileDescrip
 
 const file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc = "" +
 	"\n" +
-	".openmanet/mesh_topology/v1/mesh_topology.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd2\x02\n" +
+	".openmanet/mesh_topology/v1/mesh_topology.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x80\x03\n" +
 	"\bMeshNode\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12%\n" +
 	"\x0esecondary_macs\x18\x02 \x03(\tR\rsecondaryMacs\x12\x1a\n" +
@@ -447,7 +460,8 @@ const file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc = "" +
 	"\ais_self\x18\b \x01(\bR\x06isSelf\x12,\n" +
 	"\x12remote_gateway_mac\x18\t \x01(\tR\x10remoteGatewayMac\x12!\n" +
 	"\fgossip_stale\x18\n" +
-	" \x01(\bR\vgossipStale\"\x86\x01\n" +
+	" \x01(\bR\vgossipStale\x12,\n" +
+	"\x12gossip_age_seconds\x18\v \x01(\x05R\x10gossipAgeSeconds\"\x86\x01\n" +
 	"\bMeshEdge\x12\x19\n" +
 	"\bfrom_mac\x18\x01 \x01(\tR\afromMac\x12\x15\n" +
 	"\x06to_mac\x18\x02 \x01(\tR\x05toMac\x12\x16\n" +

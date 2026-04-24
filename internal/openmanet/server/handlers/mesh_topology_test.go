@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // fakeVisProvider scripts a single response for MeshTopologyService.
@@ -662,43 +663,83 @@ func TestGetMeshTopology_GossipCoverageReflectsPublishers(t *testing.T) {
 	assert.Equal(t, int32(1), cov.GetPublished(), "only pubMAC has a fresh record")
 }
 
-// TestGetMeshTopology_GossipStalePropagates confirms stale gossip
-// records mark their owning node GossipStale=true on the wire.
-func TestGetMeshTopology_GossipStalePropagates(t *testing.T) {
+// TestGetMeshTopology_GossipStatePropagates confirms the wire shape of
+// gossip bookkeeping — stale flag and age-in-seconds — is populated
+// from the record's payload.collected_at timestamp. Covers three cases:
+// fresh record (age = now - collected_at), stale record (flag set; age
+// still reflects the payload timestamp), and no record (age = -1).
+func TestGetMeshTopology_GossipStatePropagates(t *testing.T) {
 	const (
-		selfMAC  = "aa:aa:aa:aa:aa:00"
-		staleMAC = "bb:bb:bb:bb:bb:00"
+		selfMAC    = "aa:aa:aa:aa:aa:00"
+		freshMAC   = "bb:bb:bb:bb:bb:00"
+		staleMAC   = "cc:cc:cc:cc:cc:00"
+		missingMAC = "dd:dd:dd:dd:dd:00"
 	)
+
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
 	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
 		Vis: []batmanadv.VisNode{
 			{Primary: selfMAC},
+			{Primary: freshMAC},
 			{Primary: staleMAC},
+			{Primary: missingMAC},
 		},
 	}}
 	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{SelfMAC: selfMAC}}
 
-	// Stale record — handler treats it as "no gossip" and marks the
-	// node stale.
+	freshCollected := now.Add(-8 * time.Second)
+	staleCollected := now.Add(-134 * time.Second) // 2m 14s
+
 	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
-		staleMAC: {Payload: &netv1.MeshNeighbors{PrimaryMac: staleMAC}, SourceMac: staleMAC, Stale: true},
+		freshMAC: {
+			Payload:   &netv1.MeshNeighbors{PrimaryMac: freshMAC, CollectedAt: timestamppb.New(freshCollected)},
+			SourceMac: freshMAC,
+			Stale:     false,
+		},
+		staleMAC: {
+			Payload:   &netv1.MeshNeighbors{PrimaryMac: staleMAC, CollectedAt: timestamppb.New(staleCollected)},
+			SourceMac: staleMAC,
+			Stale:     true,
+		},
 	}}
 
-	svc := newMeshTopologyService(vis, orig, nil)
+	svc := newMeshTopologyService(vis, orig, func() time.Time { return now })
 	svc.NeighborsProvider = neighbors
 
 	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
 	require.NoError(t, err)
 
+	byMac := make(map[string]*meshtopov1.MeshNode)
 	for _, n := range resp.GetTopology().GetNodes() {
-		if n.GetMac() == staleMAC {
-			assert.True(t, n.GetGossipStale(), "stale gossip record propagates to MeshNode.GossipStale")
-		}
-
-		if n.GetIsSelf() {
-			assert.False(t, n.GetGossipStale(), "self is never stale")
-		}
+		byMac[n.GetMac()] = n
 	}
+
+	// Self is never stale and carries no explicit age.
+	self := byMac[selfMAC]
+	require.NotNil(t, self)
+	assert.True(t, self.GetIsSelf())
+	assert.False(t, self.GetGossipStale(), "self is never stale")
+	assert.Equal(t, int32(0), self.GetGossipAgeSeconds(), "self carries zero age")
+
+	// Fresh record — age rounds to the raw second delta.
+	fresh := byMac[freshMAC]
+	require.NotNil(t, fresh)
+	assert.False(t, fresh.GetGossipStale(), "fresh record is not stale")
+	assert.Equal(t, int32(8), fresh.GetGossipAgeSeconds(), "age matches (now - collected_at) in seconds")
+
+	// Stale record — flag set, but age still reflects the publisher's
+	// last-known timestamp so the UI can show "stale · 2m 14s".
+	stale := byMac[staleMAC]
+	require.NotNil(t, stale)
+	assert.True(t, stale.GetGossipStale(), "stale record propagates to GossipStale")
+	assert.Equal(t, int32(134), stale.GetGossipAgeSeconds(), "stale record retains its age for UI display")
+
+	// Missing record — -1 sentinel so the UI can render "no gossip".
+	missing := byMac[missingMAC]
+	require.NotNil(t, missing)
+	assert.True(t, missing.GetGossipStale(), "no-record node is treated as stale")
+	assert.Equal(t, int32(-1), missing.GetGossipAgeSeconds(), "missing record surfaces ageMissing sentinel")
 }
 
 // TestGetMeshTopology_MissingGossipFallsBackToHeuristic asserts that

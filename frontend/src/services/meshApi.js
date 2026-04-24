@@ -100,6 +100,7 @@ export async function fetchMeshStatus() {
 //         myHardIfname,                              // local ifname I'd forward on, "" if unknown
 //         isSelf,
 //         gossipStale,                               // true when the node's gossip record is missing/stale
+//         gossipAgeSeconds,                          // seconds since publisher's collected_at, or -1 if no record
 //       }
 //     ],
 //     edges: [
@@ -145,6 +146,7 @@ export async function fetchMeshTopology() {
         myHardIfname: n.myHardIfname ?? '',
         isSelf: n.isSelf ?? false,
         gossipStale: n.gossipStale ?? false,
+        gossipAgeSeconds: Number.isFinite(n.gossipAgeSeconds) ? n.gossipAgeSeconds : -1,
       })),
       edges: (t.edges ?? []).map((e) => ({
         fromMac: e.fromMac ?? '',
