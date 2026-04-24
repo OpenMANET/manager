@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	netv1 "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 )
 
@@ -12,13 +13,28 @@ import (
 // timestamp the payload). Surfaces to the proto as gossip_age_seconds=-1.
 const ageMissing int32 = -1
 
+// Batman-adv algorithm IDs as carried in MeshNeighbors.algorithm.
+// Mirrors the constants in internal/batman-adv/vis.go; duplicated here
+// so the gossip metric helper doesn't pull in that package solely for
+// two integer constants.
+const (
+	batmanAlgorithmIV int32 = 4
+	batmanAlgorithmV  int32 = 15
+)
+
 // gossipView is the handler-local projection of MeshNeighborsProvider
-// data: per-primary RF and BLOS neighbor sets, plus a per-primary
+// data: per-primary RF and BLOS neighbor adjacency (carrying the
+// publisher-reported metric for each edge), plus a per-primary
 // staleness bool so the renderer can dim nodes whose publishers have
 // gone quiet. Every lookup key is a lowercased canonical primary MAC.
+//
+// Values in rfByPrimary/blosByPrimary are the edge metric as the UI
+// consumes it: throughput in Mbps on BATMAN_V, 255/TQ on BATMAN_IV, 0
+// when the publisher did not report a metric. Callers that only care
+// about adjacency iterate the map keys and ignore the value.
 type gossipView struct {
-	rfByPrimary    map[string]map[string]struct{}
-	blosByPrimary  map[string]map[string]struct{}
+	rfByPrimary    map[string]map[string]float64
+	blosByPrimary  map[string]map[string]float64
 	staleByPrimary map[string]bool
 	// ageByPrimary is the per-primary age (whole seconds) of the most
 	// recent gossip record, measured as (now - payload.collected_at).
@@ -31,6 +47,32 @@ type gossipView struct {
 	originatorsByPrimary map[string][]gossipOriginator
 	// coverage counts primaries whose records are present and fresh.
 	coverage int
+}
+
+// gossipNeighborMetric converts a MeshNeighbor's publisher-reported
+// link quality into the float64 edge metric the UI consumes. BATMAN_V
+// is throughput-derived (Mbps, higher is better); BATMAN_IV is 255/TQ
+// (lower is better). Zero signals "no metric reported" and propagates
+// through addEdge's upgrade-from-zero rule unchanged.
+func gossipNeighborMetric(n *netv1.MeshNeighbor, algorithm int32) float64 {
+	if n == nil {
+		return 0
+	}
+
+	switch algorithm {
+	case batmanAlgorithmV:
+		// throughput_kbps → Mbps; qualityClass thresholds are in Mbps.
+		if kbps := n.GetThroughputKbps(); kbps > 0 {
+			return float64(kbps) / 1000.0
+		}
+	case batmanAlgorithmIV:
+		// 255/TQ matches ParseMetric's handling of the vis string field.
+		if tq := n.GetTq(); tq > 0 {
+			return 255.0 / float64(tq)
+		}
+	}
+
+	return 0
 }
 
 // gossipOriginator is the minimum subset of the proto Originator that
@@ -62,8 +104,8 @@ func buildGossipView(
 	now time.Time,
 ) *gossipView {
 	view := &gossipView{
-		rfByPrimary:          make(map[string]map[string]struct{}),
-		blosByPrimary:        make(map[string]map[string]struct{}),
+		rfByPrimary:          make(map[string]map[string]float64),
+		blosByPrimary:        make(map[string]map[string]float64),
 		staleByPrimary:       make(map[string]bool),
 		ageByPrimary:         make(map[string]int32),
 		originatorsByPrimary: make(map[string][]gossipOriginator),
@@ -101,22 +143,7 @@ func buildGossipView(
 
 		view.coverage++
 		view.ageByPrimary[primary] = gossipRecordAge(rec, now)
-		rfSet := make(map[string]struct{})
-		blosSet := make(map[string]struct{})
-
-		for _, n := range rec.Payload.GetNeighbors() {
-			nmac := resolvePrimary(primaryByMac, strings.ToLower(n.GetMac()))
-			if nmac == "" {
-				continue
-			}
-
-			if n.GetBlos() || n.GetHardIfname() == blosIfname {
-				blosSet[nmac] = struct{}{}
-			} else if n.GetHardIfname() != "" {
-				rfSet[nmac] = struct{}{}
-			}
-		}
-
+		rfSet, blosSet := classifyGossipNeighbors(rec.Payload, primaryByMac)
 		view.rfByPrimary[primary] = rfSet
 		view.blosByPrimary[primary] = blosSet
 
@@ -133,6 +160,51 @@ func buildGossipView(
 	}
 
 	return view
+}
+
+// classifyGossipNeighbors splits a publisher's MeshNeighbors payload
+// into RF and BLOS adjacency maps keyed by primary MAC, each value
+// carrying the edge metric the UI will display. Extracted out of
+// buildGossipView so the surrounding loop stays under the gocognit
+// threshold; it is never called elsewhere.
+func classifyGossipNeighbors(
+	payload *netv1.MeshNeighbors,
+	primaryByMac map[string]string,
+) (map[string]float64, map[string]float64) {
+	rfSet := make(map[string]float64)
+	blosSet := make(map[string]float64)
+
+	if payload == nil {
+		return rfSet, blosSet
+	}
+
+	algorithm := payload.GetAlgorithm()
+
+	for _, n := range payload.GetNeighbors() {
+		nmac := resolvePrimary(primaryByMac, strings.ToLower(n.GetMac()))
+		if nmac == "" {
+			continue
+		}
+
+		metric := gossipNeighborMetric(n, algorithm)
+		target := rfSet
+
+		if n.GetBlos() || n.GetHardIfname() == blosIfname {
+			target = blosSet
+		} else if n.GetHardIfname() == "" {
+			continue // ignore entries that can't be classified at all
+		}
+
+		// Keep the better of two reports of the same neighbor: either
+		// its first appearance or the first one that actually carried a
+		// metric. Avoids a perfect-TQ entry being overwritten by a
+		// later zero-metric duplicate.
+		if existing, seen := target[nmac]; !seen || (metric > 0 && existing == 0) {
+			target[nmac] = metric
+		}
+	}
+
+	return rfSet, blosSet
 }
 
 // gossipRecordAge returns the age of a gossip record's payload in whole

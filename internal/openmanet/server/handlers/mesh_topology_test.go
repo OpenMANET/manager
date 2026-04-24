@@ -1122,6 +1122,164 @@ func TestGetMeshTopology_MissingGossipFallsBackToHeuristic(t *testing.T) {
 	}
 }
 
+// TestGetMeshTopology_GossipMetricsPopulateEdges covers the "no metric
+// data on any edge" regression: when gossip data is the only source of
+// a link's existence (e.g. the RF edge between a remote gateway and a
+// peer behind it, or the vxlan0 BLOS edge self uses to reach the
+// gateway), the handler must thread each neighbor's throughput_kbps /
+// tq onto the canonical edge record so the UI can color and label it.
+// Before the fix every gossip-derived edge rendered as q-unknown / no
+// label because layerGossipEdges added them with metric=0.
+func TestGetMeshTopology_GossipMetricsPopulateEdges(t *testing.T) {
+	const (
+		selfMAC = "aa:aa:aa:aa:aa:01"
+		gwMAC   = "bb:bb:bb:bb:bb:01"
+		behMAC  = "cc:cc:cc:cc:cc:01"
+	)
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: selfMAC},
+			{Primary: gwMAC},
+			{Primary: behMAC},
+		},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC:      selfMAC,
+		SelfHostname: "self",
+		Algorithm:    batmanadv.AlgorithmBATMANV,
+		Originators: []batmanadv.OriginatorEntry{
+			{OrigMAC: gwMAC, NextHopMAC: gwMAC, HardIfname: "vxlan0", Hops: 1},
+			{OrigMAC: behMAC, NextHopMAC: behMAC, HardIfname: "vxlan0", Hops: 1},
+		},
+	}}
+
+	// Self publishes its own gossip: 6 Mbps vxlan0 to the gateway.
+	selfPayload := &netv1.MeshNeighbors{
+		PrimaryMac: selfMAC,
+		Algorithm:  15, // BATMAN_V
+		Neighbors: []*netv1.MeshNeighbor{
+			{Mac: gwMAC, HardIfname: "vxlan0", Blos: true, ThroughputKbps: 6000},
+		},
+	}
+	// Gateway sees behMAC over wlan0 at 48 Mbps.
+	gwPayload := &netv1.MeshNeighbors{
+		PrimaryMac: gwMAC,
+		Algorithm:  15,
+		Neighbors: []*netv1.MeshNeighbor{
+			{Mac: behMAC, HardIfname: "wlan0", Blos: false, ThroughputKbps: 48000},
+			{Mac: selfMAC, HardIfname: "vxlan0", Blos: true, ThroughputKbps: 6200},
+		},
+	}
+	behPayload := &netv1.MeshNeighbors{
+		PrimaryMac: behMAC,
+		Algorithm:  15,
+		Neighbors: []*netv1.MeshNeighbor{
+			{Mac: gwMAC, HardIfname: "wlan0", Blos: false, ThroughputKbps: 47800},
+		},
+	}
+
+	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
+		selfMAC: {Payload: selfPayload, SourceMac: selfMAC},
+		gwMAC:   {Payload: gwPayload, SourceMac: gwMAC},
+		behMAC:  {Payload: behPayload, SourceMac: behMAC},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+	svc.NeighborsProvider = neighbors
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	metricByKey := make(map[string]float64)
+
+	for _, e := range resp.GetTopology().GetEdges() {
+		a, b := e.GetFromMac(), e.GetToMac()
+		if a > b {
+			a, b = b, a
+		}
+
+		metricByKey[a+"|"+b] = e.GetMetric()
+	}
+
+	// Remote RF edge gw ↔ behMAC picks up 48 Mbps (the publisher with
+	// the higher reported throughput). Range check, not exact, because
+	// either publisher's value is acceptable as long as it's non-zero.
+	rfKey := gwMAC + "|" + behMAC
+	if gwMAC > behMAC {
+		rfKey = behMAC + "|" + gwMAC
+	}
+
+	require.Contains(t, metricByKey, rfKey, "gw↔beh RF edge must be present")
+	assert.InDelta(t, 48.0, metricByKey[rfKey], 1.0,
+		"gw↔beh edge should surface the ~48 Mbps gossip throughput")
+
+	// Self ↔ gateway BLOS edge upgrades from 0 to ~6 Mbps via the
+	// gossip BLOS pass — originator/vis never supply a metric here.
+	blosKey := selfMAC + "|" + gwMAC
+	if selfMAC > gwMAC {
+		blosKey = gwMAC + "|" + selfMAC
+	}
+
+	require.Contains(t, metricByKey, blosKey, "self↔gw BLOS edge must be present")
+	assert.Greater(t, metricByKey[blosKey], 0.0,
+		"self↔gw BLOS edge should carry a gossip-derived metric, not 0")
+}
+
+// TestGetMeshTopology_GossipMetricsBATMANIV confirms the metric
+// conversion for TQ-based meshes: the handler must emit edge.metric =
+// 255/TQ, matching ParseMetric's treatment of vis strings, so the UI's
+// q-strong/q-ok thresholds tuned against that scale still apply.
+func TestGetMeshTopology_GossipMetricsBATMANIV(t *testing.T) {
+	const (
+		selfMAC = "aa:aa:aa:aa:aa:02"
+		peerMAC = "bb:bb:bb:bb:bb:02"
+	)
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{{Primary: selfMAC}, {Primary: peerMAC}},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC:   selfMAC,
+		Algorithm: batmanadv.AlgorithmBATMANIV,
+	}}
+
+	selfPayload := &netv1.MeshNeighbors{
+		PrimaryMac: selfMAC,
+		Algorithm:  4, // BATMAN_IV
+		Neighbors: []*netv1.MeshNeighbor{
+			{Mac: peerMAC, HardIfname: "wlan0", Blos: false, Tq: 255}, // perfect TQ → 255/255 = 1.0
+		},
+	}
+	peerPayload := &netv1.MeshNeighbors{
+		PrimaryMac: peerMAC,
+		Algorithm:  4,
+		Neighbors: []*netv1.MeshNeighbor{
+			{Mac: selfMAC, HardIfname: "wlan0", Blos: false, Tq: 200}, // 255/200 = 1.275
+		},
+	}
+
+	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
+		selfMAC: {Payload: selfPayload, SourceMac: selfMAC},
+		peerMAC: {Payload: peerPayload, SourceMac: peerMAC},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+	svc.NeighborsProvider = neighbors
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	// Exactly one edge (self↔peer). The metric should be in the
+	// ParseMetric format (255/TQ) so it sits in the same range the vis
+	// loader would have produced — call it ~1.0 to ~1.3.
+	edges := resp.GetTopology().GetEdges()
+	require.Len(t, edges, 1, "self↔peer is the only pair in this fixture")
+	m := edges[0].GetMetric()
+	assert.InDelta(t, 1.0, m, 0.3,
+		"BATMAN_IV gossip metric must convert to 255/TQ, got %v", m)
+}
+
 // TestGetMeshTopology_DeltaUnchanged asserts the delta RPC still works
 // against the renamed service (contract preserved from the prior plan).
 func TestGetMeshTopology_DeltaUnchanged(t *testing.T) {

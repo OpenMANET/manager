@@ -831,13 +831,48 @@ func layerGossipEdges(
 	}
 
 	for primary, rfSet := range gossip.rfByPrimary {
-		for neighbor := range rfSet {
+		for neighbor, metric := range rfSet {
 			if segmentOrDefault(segmentByPrimary, primary) != segmentOrDefault(segmentByPrimary, neighbor) {
 				continue
 			}
 
-			addEdge(edgeByKey, primary, neighbor, segmentByPrimary, knownPrimaries, 0, false)
+			addEdge(edgeByKey, primary, neighbor, segmentByPrimary, knownPrimaries, metric, false)
 		}
+	}
+
+	// BLOS edges get their metric upgraded — never created — from gossip.
+	// The serving node's originator table already seeds cross-segment
+	// BLOS edges with metric=0; publisher gossip is the only place the
+	// vxlan0 link throughput / TQ surfaces for upgrade. Creating new
+	// BLOS edges here would resurrect the vxlan0 broadcast-overlay
+	// artifacts that layerVisEdges is careful to drop.
+	for primary, blosSet := range gossip.blosByPrimary {
+		for neighbor, metric := range blosSet {
+			if metric <= 0 {
+				continue
+			}
+
+			upgradeEdgeMetric(edgeByKey, primary, neighbor, metric)
+		}
+	}
+}
+
+// upgradeEdgeMetric sets an existing edge's metric when the edge has
+// none, leaving non-zero metrics alone. Does nothing when the edge
+// isn't already in edgeByKey — we want metric enrichment, not edge
+// creation.
+func upgradeEdgeMetric(edgeByKey map[string]*meshtopov1.MeshEdge, a, b string, metric float64) {
+	if metric <= 0 {
+		return
+	}
+
+	existing, ok := edgeByKey[canonicalKey(a, b)]
+	if !ok {
+		return
+	}
+
+	if existing.Metric == 0 {
+		existing.Metric = metric
 	}
 }
 
