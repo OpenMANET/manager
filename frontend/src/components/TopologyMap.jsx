@@ -21,8 +21,6 @@ import { zoom, zoomIdentity } from 'd3-zoom';
 import { select } from 'd3-selection';
 import { buildTopologyView, formatAge, shortHostname } from './topologyGraph.js';
 
-const LEVEL_HEIGHT = 150;                     // vertical spacing between BFS tree depths
-const LEAF_SPACING = 2 * 28 + 40;             // horizontal spacing between sibling leaves (node dia + gutter)
 const NODE_RADIUS = 28;
 const PADDING = 72;
 const SEGMENT_GUTTER = 160;
@@ -31,6 +29,38 @@ const BADGE_RADIUS = 4;
 const BADGE_SPACING = 11;
 const HOSTNAME_Y_OFFSET = NODE_RADIUS + 18;   // hostname text sits just below the circle
 const BADGE_Y_OFFSET = NODE_RADIUS + 36;      // badge row below the hostname label
+
+// Rough average glyph advance for the monospace secondary label at 11px
+// with 0.04em letter-spacing. The text is middle-anchored, so each side
+// of the circle has to accommodate half the rendered width. Used by the
+// sibling-spacing and bbox-width calculations so longer labels like
+// "GATEWAY · HOPS 2" or "STALE · 2m 14s" never run into their neighbors
+// or spill out of the segment box.
+const HOST_LABEL_CHAR_WIDTH = 7;
+// Upper bound on the character count of any label formatHostLabel can
+// emit — "STALE · 99m 59s" (15), "HOPS 99 · vxlan0" (16), "GATEWAY ·
+// HOPS 99" (17). Padded by one so estimates round up rather than down.
+const HOST_LABEL_MAX_CHARS = 18;
+const HOST_LABEL_HALF_WIDTH = (HOST_LABEL_MAX_CHARS * HOST_LABEL_CHAR_WIDTH) / 2;
+
+// Client-count pill lives at translate(14, -36), width 22 × height 14.
+// Captured here so the bbox math picks up its top-right extent without
+// hard-coding the magic numbers twice.
+const CLIENT_BADGE_TOP = -36;
+const CLIENT_BADGE_RIGHT = 14 + 22;
+
+// Per-node drawing extents — used by every bbox/spacing computation so
+// the segment box, sibling gutter, and viewBox all agree on how much
+// space one rendered node actually occupies (circle + label + pill).
+const NODE_HALF_WIDTH = Math.max(NODE_RADIUS, HOST_LABEL_HALF_WIDTH, CLIENT_BADGE_RIGHT);
+const NODE_TOP_EXTENT = Math.max(NODE_RADIUS, -CLIENT_BADGE_TOP);
+
+// Horizontal spacing between sibling leaves. Must exceed twice the
+// per-node half-width so two adjacent labels still leave a breathing
+// gap; the constant takes the max so tweaking NODE_RADIUS or label size
+// can't re-introduce the overlap.
+const LEAF_SPACING = Math.max(2 * NODE_RADIUS + 40, 2 * NODE_HALF_WIDTH + 24);
+const LEVEL_HEIGHT = 150;                     // vertical spacing between BFS tree depths
 
 // Rough average glyph advance for the monospace segment label at 11px with
 // 0.18em letter-spacing. Used to guarantee the segment box is at least wide
@@ -146,12 +176,17 @@ function layoutSegment(seg, rootHost) {
   // edge is already in the BFS spanning tree.
   relaxSegmentPositions(seg, positions, depth, root.id);
 
-  let minX = -NODE_RADIUS, minY = -NODE_RADIUS;
-  let maxX = NODE_RADIUS, maxY = NODE_RADIUS + BADGE_Y_OFFSET;
+  // Bbox envelopes every node's full rendered footprint — circle, the
+  // secondary label beneath it, and the client-count pill above it. Using
+  // NODE_HALF_WIDTH / NODE_TOP_EXTENT rather than NODE_RADIUS prevents
+  // wide labels like "GATEWAY · HOPS 2" from spilling out of the segment
+  // box or into the next remote segment's space.
+  let minX = -NODE_HALF_WIDTH, minY = -NODE_TOP_EXTENT;
+  let maxX = NODE_HALF_WIDTH, maxY = BADGE_Y_OFFSET;
   for (const { x, y } of positions.values()) {
-    if (x - NODE_RADIUS < minX) minX = x - NODE_RADIUS;
-    if (y - NODE_RADIUS < minY) minY = y - NODE_RADIUS;
-    if (x + NODE_RADIUS > maxX) maxX = x + NODE_RADIUS;
+    if (x - NODE_HALF_WIDTH < minX) minX = x - NODE_HALF_WIDTH;
+    if (y - NODE_TOP_EXTENT < minY) minY = y - NODE_TOP_EXTENT;
+    if (x + NODE_HALF_WIDTH > maxX) maxX = x + NODE_HALF_WIDTH;
     if (y + BADGE_Y_OFFSET > maxY) maxY = y + BADGE_Y_OFFSET;
   }
   const bbox = {
@@ -204,7 +239,10 @@ function relaxSegmentPositions(seg, positions, depth, rootId) {
   const IDEAL_CROSS = LEAF_SPACING * 0.35; // connected siblings want to be closer
   const SPRING_K = 0.15;
   const REPULSION = LEAF_SPACING * LEAF_SPACING * 0.6;
-  const MIN_SEP = NODE_RADIUS * 2.5;
+  // Minimum center-to-center separation used by the repulsion term. Has
+  // to leave room for two label half-widths plus a small gap — otherwise
+  // the spring can pull cross-edge siblings into overlapping labels.
+  const MIN_SEP = Math.max(NODE_RADIUS * 2.5, 2 * NODE_HALF_WIDTH + 12);
 
   let alpha = 0.5;
   const cooling = alpha / RELAX_ITERS;

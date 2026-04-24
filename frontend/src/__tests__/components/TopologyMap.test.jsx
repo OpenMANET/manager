@@ -464,6 +464,101 @@ describe('TestTopologyMapEdgeLabels', () => {
   });
 });
 
+describe('TestTopologyMapSegmentSizing', () => {
+  // Builds a local segment with `n` siblings of the self root so we
+  // can check that a segment box contains every node's rendered
+  // footprint (circle + secondary label). Before the label-aware
+  // bbox pass, a segment with many children could have its right-
+  // most host's "HOPS 1 · wlan0" text spilling past the box edge.
+  function localWithSiblings(n) {
+    const nodes = [{
+      mac: '00:00:00:00:00:00', hostname: 'self', segment: 'local',
+      hopsFromSelf: 0, isSelf: true, clientCount: 0, myHardIfname: '',
+    }];
+    const edges = [];
+    for (let i = 0; i < n; i++) {
+      const mac = `aa:aa:aa:aa:aa:${String(i + 1).padStart(2, '0')}`;
+      nodes.push({
+        mac,
+        hostname: `BCM2711-peer${i}`,
+        segment: 'local',
+        hopsFromSelf: 1,
+        isSelf: false,
+        clientCount: 0,
+        myHardIfname: 'wlan0',
+      });
+      edges.push({ fromMac: '00:00:00:00:00:00', toMac: mac, metric: 1.2, blos: false, onMyPath: true });
+    }
+    return { selfMac: '00:00:00:00:00:00', selfHostname: 'self', algorithm: 'BATMAN_V', nodes, edges };
+  }
+
+  it('keeps sibling host labels from overlapping (LEAF_SPACING > max label width)', () => {
+    // Five siblings along a row. If LEAF_SPACING is smaller than the
+    // width of the "HOPS 1 · wlan0" secondary label (~105px), adjacent
+    // nodes' labels would paint on top of each other.
+    const { container } = render(<TopologyMap topology={localWithSiblings(5)} />);
+    const nodes = [...container.querySelectorAll('.topo-node:not(.self)')];
+    const xs = nodes
+      .map((n) => parseFloat(n.getAttribute('transform').match(/translate\(([-\d.]+),/)[1]))
+      .sort((a, b) => a - b);
+    const gaps = xs.slice(1).map((x, i) => x - xs[i]);
+    for (const g of gaps) {
+      // 15-char label ≈ 105px wide; siblings must sit at least that far
+      // apart so labels don't overlap.
+      expect(g).toBeGreaterThanOrEqual(105);
+    }
+  });
+
+  it('sizes segment bboxes so every rendered node fits inside', () => {
+    // Two segments (LOCAL with 4 siblings + a REMOTE gateway) — assert
+    // that every rendered node's center sits inside its segment box.
+    const topology = {
+      selfMac: '00:00:00:00:00:00',
+      selfHostname: 'self',
+      algorithm: 'BATMAN_V',
+      nodes: [
+        { mac: '00:00:00:00:00:00', hostname: 'self', segment: 'local', hopsFromSelf: 0, isSelf: true, clientCount: 0, myHardIfname: '' },
+        { mac: 'aa:aa:aa:aa:aa:01', hostname: 'BCM2711-a', segment: 'local', hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+        { mac: 'aa:aa:aa:aa:aa:02', hostname: 'BCM2711-b', segment: 'local', hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+        { mac: 'cc:cc:cc:cc:cc:01', hostname: 'BCM2711-gw', segment: 'remote', hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'vxlan0' },
+        { mac: 'cc:cc:cc:cc:cc:02', hostname: 'BCM2711-rm1', segment: 'remote', hopsFromSelf: 2, isSelf: false, clientCount: 0, myHardIfname: 'vxlan0' },
+        { mac: 'cc:cc:cc:cc:cc:03', hostname: 'BCM2711-rm2', segment: 'remote', hopsFromSelf: 2, isSelf: false, clientCount: 0, myHardIfname: 'vxlan0' },
+      ],
+      edges: [
+        { fromMac: '00:00:00:00:00:00', toMac: 'aa:aa:aa:aa:aa:01', metric: 2, blos: false, onMyPath: true },
+        { fromMac: '00:00:00:00:00:00', toMac: 'aa:aa:aa:aa:aa:02', metric: 2, blos: false, onMyPath: true },
+        { fromMac: '00:00:00:00:00:00', toMac: 'cc:cc:cc:cc:cc:01', metric: 2, blos: true,  onMyPath: true },
+        { fromMac: 'cc:cc:cc:cc:cc:01', toMac: 'cc:cc:cc:cc:cc:02', metric: 2, blos: false, onMyPath: false },
+        { fromMac: 'cc:cc:cc:cc:cc:01', toMac: 'cc:cc:cc:cc:cc:03', metric: 2, blos: false, onMyPath: false },
+      ],
+    };
+    const { container } = render(<TopologyMap topology={topology} />);
+
+    // Collect every rendered segment box.
+    const boxes = [...container.querySelectorAll('.topo-segment-box rect')].map((r) => ({
+      x: parseFloat(r.getAttribute('x')),
+      y: parseFloat(r.getAttribute('y')),
+      w: parseFloat(r.getAttribute('width')),
+      h: parseFloat(r.getAttribute('height')),
+    }));
+    expect(boxes.length).toBeGreaterThan(0);
+
+    // Collect every rendered node's center.
+    const centers = [...container.querySelectorAll('.topo-node')].map((n) => {
+      const m = n.getAttribute('transform').match(/translate\(([-\d.]+),([-\d.]+)\)/);
+      return { x: parseFloat(m[1]), y: parseFloat(m[2]) };
+    });
+
+    // Each node center must sit inside at least one segment box —
+    // segments don't overlap in the packer, so a node without a
+    // containing box would be rendered outside the remote/local chrome.
+    for (const c of centers) {
+      const inside = boxes.some((b) => c.x >= b.x && c.x <= b.x + b.w && c.y >= b.y && c.y <= b.y + b.h);
+      expect(inside).toBe(true);
+    }
+  });
+});
+
 describe('TestTopologyMapStaleHostLabel', () => {
   it('replaces HOPS/ifname with STALE · <age> when gossip is stale and age is known', () => {
     const fixture = {
