@@ -2,9 +2,8 @@
 // Topology.jsx — Dedicated mesh topology view
 // =============================================================================
 // Hosts the SVG TopologyMap plus Legend, Selected-host inspector, and
-// short-term topology delta panels. Consumes the originator-based view
-// produced by buildTopologyView() and partitioned into LOCAL + per-gateway
-// REMOTE segments.
+// short-term topology delta panels. Consumes the mesh-wide view produced
+// by buildTopologyView() from batadv-vis + originator overlay data.
 
 import React, { useCallback, useMemo, useState } from 'react';
 import { buildTopologyView } from '../components/topologyGraph.js';
@@ -24,30 +23,20 @@ function formatLatency(ms) {
   return `${(ms / 1000).toFixed(1)} s`;
 }
 
-function formatLastSeen(ms) {
-  if (!ms || ms <= 0) return '—';
-  if (ms < 1000) return `${ms} ms ago`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s ago`;
-  return `${Math.round(ms / 60_000)} min ago`;
-}
-
-function formatMetric(edge, algorithm) {
-  if (edge.blos) {
-    return edge.bestTQ ? `TQ ${edge.bestTQ}` : '—';
-  }
-  if (algorithm === 'BATMAN_V' && edge.bestThroughput) {
-    return edge.bestThroughput >= 1000
-      ? `${(edge.bestThroughput / 1000).toFixed(1)} Mbps`
-      : `${Math.round(edge.bestThroughput)} kbps`;
-  }
-  if (edge.bestTQ) return `TQ ${edge.bestTQ}`;
-  return '—';
+function formatMetric(edge) {
+  if (!edge || !edge.metric) return '—';
+  // BATMAN_V: higher metric = better (throughput-derived). BATMAN_IV:
+  // metric is 255/TQ (lower = better). Show the raw value; the header
+  // chip already tells operators which algorithm is in play.
+  return edge.metric >= 1
+    ? `${edge.metric.toFixed(2)}`
+    : `${edge.metric.toFixed(3)}`;
 }
 
 function roleLabelForHost(host, meshData) {
   if (host.isSelf && meshData?.status?.is_gateway) return 'SELF · GATEWAY';
   if (host.isSelf) return 'SELF';
-  if (host.segmentId?.startsWith('remote:')) return 'REMOTE';
+  if (host.segmentId === 'remote') return 'REMOTE';
   return 'LOCAL';
 }
 
@@ -59,6 +48,7 @@ export default function TopologyPage() {
 
   const [selectedId, setSelectedId] = useState(null);
   const [fitSignal, setFitSignal] = useState(0);
+  const [myPathsOn, setMyPathsOn] = useState(false);
 
   const view = useMemo(() => buildTopologyView(topology), [topology]);
   const { self, hosts, segments, blosEdges, counts, algorithm } = view;
@@ -78,9 +68,8 @@ export default function TopologyPage() {
     return m;
   }, [hosts]);
 
-  // Index every aggregate edge (RF + BLOS) by either endpoint so the
-  // Selected panel can list every peer connection with per-interface
-  // contributors.
+  // Index every edge (RF + BLOS) by either endpoint so the Selected panel
+  // can list every peer connection.
   const edgesByHost = useMemo(() => {
     const m = new Map();
     const add = (key, edge) => {
@@ -107,6 +96,7 @@ export default function TopologyPage() {
   }, [selectedId, hostById]);
 
   const handleFit = useCallback(() => setFitSignal((n) => n + 1), []);
+  const handleToggleMyPaths = useCallback(() => setMyPathsOn((v) => !v), []);
 
   const hostCount = counts.hosts;
   const remoteSegmentCount = segments.filter((s) => s.kind === 'remote').length;
@@ -150,9 +140,16 @@ export default function TopologyPage() {
           </div>
         </div>
         <div className="lat-view-toolbar">
-          {/* TODO: wire layout/filter actions */}
           <button className="lat-btn ghost" type="button">LAYOUT</button>
           <button className="lat-btn ghost" type="button">FILTER</button>
+          <button
+            className={`lat-btn${myPathsOn ? '' : ' ghost'}`}
+            type="button"
+            aria-pressed={myPathsOn}
+            onClick={handleToggleMyPaths}
+          >
+            MY PATHS
+          </button>
           <button className="lat-btn" type="button" onClick={handleFit}>FIT</button>
         </div>
       </div>
@@ -162,6 +159,7 @@ export default function TopologyPage() {
           onSelect={(node) => setSelectedId(node.id)}
           selectedId={selectedId}
           fitSignal={fitSignal}
+          myPathsOverlay={myPathsOn}
         />
         <div className="topology-side">
           <div className="lat-panel">
@@ -175,24 +173,20 @@ export default function TopologyPage() {
               <span className="v accent">{hostCount} host{hostCount === 1 ? '' : 's'}</span>
             </div>
             <div className="kv">
-              <span className="k"><span className="dot-i warn" />Remote segment</span>
+              <span className="k"><span className="dot-i warn" />Remote mesh</span>
               <span className={`v${remoteSegmentCount > 0 ? ' warn' : ''}`}>{remoteSegmentCount}</span>
             </div>
             <div className="kv">
-              <span className="k">● Interface · RF</span>
-              <span className="v" style={{ color: 'var(--accent)' }}>wlan0, phy-mesh…</span>
-            </div>
-            <div className="kv">
-              <span className="k">○ Interface · BLOS</span>
-              <span className="v warn">vxlan0</span>
-            </div>
-            <div className="kv">
               <span className="k">— RF link</span>
-              <span className="v">thickness = metric</span>
+              <span className="v">within a segment</span>
             </div>
             <div className="kv">
               <span className="k">╌ BLOS link</span>
               <span className="v">bridge between segments</span>
+            </div>
+            <div className="kv">
+              <span className="k">MY PATHS</span>
+              <span className="v">{myPathsOn ? 'ON · my tree highlighted' : 'OFF · uniform edges'}</span>
             </div>
           </div>
 
@@ -214,7 +208,6 @@ export default function TopologyPage() {
                 ipByHostname={ipByHostname}
                 hostById={hostById}
                 edges={edgesByHost.get(selected.host.id) || []}
-                algorithm={algorithm}
               />
             )}
           </div>
@@ -246,29 +239,17 @@ export default function TopologyPage() {
   );
 }
 
-function HostInspector({ host, meshData, ipByHostname, hostById, edges, algorithm }) {
+function HostInspector({ host, meshData, ipByHostname, hostById, edges }) {
   const role = roleLabelForHost(host, meshData);
   const ip = ipByHostname.get((host.baseHostname || '').toLowerCase()) || '—';
-  const segmentLabel = host.segmentId === 'local'
-    ? 'LOCAL'
-    : host.segmentId?.startsWith('remote:')
-      ? `REMOTE · ${hostById.get(host.segmentId.slice('remote:'.length))?.baseHostname || '?'}`
-      : '—';
-
-  // Split edges into RF and BLOS, grouped by peer host.
-  const rfByPeer = new Map();
-  const blosByPeer = new Map();
-  for (const e of edges) {
-    const peerKey = e.hostA === host.id ? e.hostB : e.hostA;
-    const bucket = e.blos ? blosByPeer : rfByPeer;
-    if (!bucket.has(peerKey)) bucket.set(peerKey, e);
-  }
+  const segmentLabel = host.segmentId === 'remote' ? 'REMOTE MESH' : 'LOCAL';
+  const onMyRoute = host.isSelf || Boolean(host.myHardIfname);
 
   return (
     <>
       <div className="kv">
         <span className="k">Role</span>
-        <span className={`v${host.segmentId?.startsWith('remote:') ? ' warn' : ' accent'}`}>{role}</span>
+        <span className={`v${host.segmentId === 'remote' ? ' warn' : ' accent'}`}>{role}</span>
       </div>
       <div className="kv">
         <span className="k">Host</span>
@@ -290,82 +271,53 @@ function HostInspector({ host, meshData, ipByHostname, hostById, edges, algorith
         <span className="k">Hops</span>
         <span className="v">{host.hops < 99 ? host.hops : '—'}</span>
       </div>
-
-      <div className="topo-section-head">Interfaces</div>
-      {host.interfaces.length === 0 && <div className="topo-empty-hint">—</div>}
-      {host.interfaces.map((iface) => (
-        <div key={iface.name} className="kv topo-iface-row">
-          <span className="k">
-            <span className={`topo-iface-dot ${iface.role}`} />
-            {iface.name}
-          </span>
-          <span className="v">{iface.role === 'blos' ? 'BLOS' : 'RF'}</span>
+      {!host.isSelf && (
+        <div className="kv">
+          <span className="k">My route via</span>
+          <span className="v">{onMyRoute ? host.myHardIfname : '— · NOT ON MY ROUTE'}</span>
         </div>
-      ))}
+      )}
+      {host.clientCount > 0 && (
+        <div className="kv">
+          <span className="k">Clients</span>
+          <span className="v">{host.clientCount}</span>
+        </div>
+      )}
 
       <div className="topo-section-head">Links</div>
       {edges.length === 0 && <div className="topo-empty-hint">No links</div>}
-      {[...rfByPeer.entries()].map(([peerKey, edge]) => (
-        <LinkRow
-          key={`rf:${peerKey}`}
-          edge={edge}
-          peerHost={hostById.get(peerKey)}
-          self={host}
-          blos={false}
-          algorithm={algorithm}
-        />
-      ))}
-      {[...blosByPeer.entries()].map(([peerKey, edge]) => (
-        <LinkRow
-          key={`blos:${peerKey}`}
-          edge={edge}
-          peerHost={hostById.get(peerKey)}
-          self={host}
-          blos
-          algorithm={algorithm}
-        />
-      ))}
+      {edges.map((edge) => {
+        const peerKey = edge.hostA === host.id ? edge.hostB : edge.hostA;
+        const peer = hostById.get(peerKey);
+        return (
+          <LinkRow
+            key={edge.id}
+            edge={edge}
+            peerHost={peer}
+          />
+        );
+      })}
     </>
   );
 }
 
-function LinkRow({ edge, peerHost, self, blos, algorithm }) {
+function LinkRow({ edge, peerHost }) {
   if (!peerHost) return null;
-  const header = blos
-    ? `╌ ${peerHost.baseHostname} · via BLOS`
-    : `↔ ${peerHost.baseHostname}`;
-  const metric = formatMetric(edge, algorithm);
-  const contributors = edge.contributors.map((c) => {
-    const forward = c.srcHost === self.id;
-    return {
-      localIface: forward ? c.srcIface : c.dstIface,
-      peerIface: forward ? c.dstIface : c.srcIface,
-      tq: c.tq,
-      throughput: c.throughput,
-      lastSeenMs: c.lastSeenMs,
-    };
-  });
+  const header = edge.blos
+    ? `╌ ${peerHost.baseHostname || peerHost.id} · via BLOS`
+    : `↔ ${peerHost.baseHostname || peerHost.id}`;
+  const metric = formatMetric(edge);
   return (
-    <div className={`topo-link-group${blos ? ' blos' : ''}`}>
+    <div className={`topo-link-group${edge.blos ? ' blos' : ''}`}>
       <div className="topo-link-header">
         <span>{header}</span>
         <span className="topo-link-metric">{metric}</span>
       </div>
-      {contributors.map((c, i) => {
-        const detail = algorithm === 'BATMAN_V' && c.throughput
-          ? c.throughput >= 1000 ? `${(c.throughput / 1000).toFixed(1)} Mbps` : `${Math.round(c.throughput)} kbps`
-          : c.tq ? `TQ ${c.tq}` : '—';
-        return (
-          <div
-            key={`${c.localIface}-${c.peerIface}-${i}`}
-            className="topo-link-contrib"
-          >
-            <span className="iface">{c.localIface || '?'} ↔ {c.peerIface || '?'}</span>
-            <span className="metric">{detail}</span>
-            <span className="lastseen">{formatLastSeen(c.lastSeenMs)}</span>
-          </div>
-        );
-      })}
+      {edge.onMyPath && (
+        <div className="topo-link-contrib">
+          <span className="iface">on my forwarding path</span>
+        </div>
+      )}
     </div>
   );
 }

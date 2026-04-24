@@ -14,6 +14,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// nopVisFetch satisfies the snapshotter's vis fetcher without forking the
+// batadv-vis binary; the default fetcher would exec the real tool (which
+// is absent from the CI environment) and fail the tests that don't care
+// about vis data.
+func nopVisFetch(context.Context) (*batmanadv.VisDoc, error) {
+	return nil, batmanadv.ErrVisUnavailable
+}
+
 // newTestSnapshotter builds a BatctlSnapshotter whose fetchers are all
 // fake and whose Interval is deliberately long so refreshes only happen
 // when the test explicitly invokes refresh() via Start.
@@ -34,6 +42,7 @@ func newTestSnapshotter(
 		FetchMeshConfig:  cfgFn,
 		FetchGateways:    gwFn,
 		FetchBatHosts:    hostsFn,
+		FetchVis:         nopVisFetch,
 	}
 }
 
@@ -53,6 +62,9 @@ func TestBatctlSnapshotter_AccessorsReturnNotReadyBeforeStart(t *testing.T) {
 	require.ErrorIs(t, err, handlers.ErrBatctlSnapshotNotReady)
 
 	_, err = s.ParseBatHosts("/tmp/bat-hosts")
+	require.ErrorIs(t, err, handlers.ErrBatctlSnapshotNotReady)
+
+	_, err = s.GetMeshVis(context.Background())
 	require.ErrorIs(t, err, handlers.ErrBatctlSnapshotNotReady)
 }
 
@@ -175,6 +187,55 @@ func TestBatctlSnapshotter_ListGatewaysReturnsEmptyMapWhenNoGateways(t *testing.
 	assert.Empty(t, got)
 }
 
+func TestBatctlSnapshotter_GetMeshVisReturnsCached(t *testing.T) {
+	wantDoc := &batmanadv.VisDoc{SourceVersion: "2025.4", Algorithm: 15}
+
+	s := &handlers.BatctlSnapshotter{
+		Log:              zerolog.Nop(),
+		Interval:         time.Hour,
+		Iface:            "bat0",
+		FetchOriginators: func() ([]batmanadv.Originator, error) { return nil, nil },
+		FetchNeighbors:   func() (*batmanadv.Neighbors, error) { return nil, nil },
+		FetchMeshConfig:  func(string) (*batmanadv.MeshConfig, error) { return nil, nil },
+		FetchGateways:    func(string) (*batmanadv.Gateways, error) { return nil, nil },
+		FetchBatHosts:    func(string) (*batmanadv.BatHosts, error) { return nil, nil },
+		FetchVis:         func(context.Context) (*batmanadv.VisDoc, error) { return wantDoc, nil },
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	s.Start(ctx)
+
+	got, err := s.GetMeshVis(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, wantDoc, got)
+}
+
+func TestBatctlSnapshotter_GetMeshVisSurfacesUnavailable(t *testing.T) {
+	s := &handlers.BatctlSnapshotter{
+		Log:              zerolog.Nop(),
+		Interval:         time.Hour,
+		Iface:            "bat0",
+		FetchOriginators: func() ([]batmanadv.Originator, error) { return nil, nil },
+		FetchNeighbors:   func() (*batmanadv.Neighbors, error) { return nil, nil },
+		FetchMeshConfig:  func(string) (*batmanadv.MeshConfig, error) { return nil, nil },
+		FetchGateways:    func(string) (*batmanadv.Gateways, error) { return nil, nil },
+		FetchBatHosts:    func(string) (*batmanadv.BatHosts, error) { return nil, nil },
+		FetchVis: func(context.Context) (*batmanadv.VisDoc, error) {
+			return nil, batmanadv.ErrVisUnavailable
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	s.Start(ctx)
+
+	_, err := s.GetMeshVis(context.Background())
+	assert.ErrorIs(t, err, batmanadv.ErrVisUnavailable)
+}
+
 func TestBatctlSnapshotter_BackgroundLoopStopsOnContextCancel(t *testing.T) {
 	var origCalls atomic.Int64
 
@@ -191,6 +252,7 @@ func TestBatctlSnapshotter_BackgroundLoopStopsOnContextCancel(t *testing.T) {
 		FetchMeshConfig: func(string) (*batmanadv.MeshConfig, error) { return nil, nil },
 		FetchGateways:   func(string) (*batmanadv.Gateways, error) { return nil, nil },
 		FetchBatHosts:   func(string) (*batmanadv.BatHosts, error) { return nil, nil },
+		FetchVis:        nopVisFetch,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

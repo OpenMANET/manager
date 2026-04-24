@@ -48,6 +48,7 @@ type APIServer struct {
 	Tailscale         handlers.TailscaleStatusProvider
 	MeshDeltaTracker  *handlers.DeltaTracker
 	MeshOrigProvider  batmanadv.OriginatorTopologyProvider
+	MeshVisProvider   batmanadv.VisProvider
 	BatctlSnapshotter *handlers.BatctlSnapshotter
 	SystemSnapshotter *handlers.SystemSnapshotter
 	SessionStore      *auth.SessionStore
@@ -172,11 +173,17 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		GPS: cfg.GPS,
 	}, connect.WithInterceptors(validateInterceptor)))
 
-	api.Handle(meshtopoconnect.NewMeshTopologyServiceHandler(&handlers.MeshTopologyService{
+	meshTopoSvc := &handlers.MeshTopologyService{
 		Log:          cfg.Log,
+		VisProvider:  cfg.MeshVisProvider,
 		OrigProvider: cfg.MeshOrigProvider,
 		DeltaTracker: cfg.MeshDeltaTracker,
-	}, connect.WithInterceptors(validateInterceptor)))
+	}
+	if cfg.BatctlSnapshotter != nil {
+		meshTopoSvc.ParseBatHosts = cfg.BatctlSnapshotter.ParseBatHosts
+	}
+
+	api.Handle(meshtopoconnect.NewMeshTopologyServiceHandler(meshTopoSvc, connect.WithInterceptors(validateInterceptor)))
 
 	wifiSvc := &handlers.WifiConfigService{
 		Log:            cfg.Log,

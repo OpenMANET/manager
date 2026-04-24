@@ -41,6 +41,7 @@ type BatctlSnapshotter struct {
 	FetchMeshConfig  func(string) (*batmanadv.MeshConfig, error)
 	FetchGateways    func(string) (*batmanadv.Gateways, error)
 	FetchBatHosts    func(string) (*batmanadv.BatHosts, error)
+	FetchVis         func(context.Context) (*batmanadv.VisDoc, error)
 	Iface            string
 	BatHostsPath     string
 	cached           batctlCache
@@ -59,10 +60,12 @@ type batctlCache struct {
 	meshConfigErr  error
 	gatewaysErr    error
 	batHostsErr    error
+	visErr         error
 	neighbors      *batmanadv.Neighbors
 	meshConfig     *batmanadv.MeshConfig
 	gateways       *batmanadv.Gateways
 	batHosts       *batmanadv.BatHosts
+	vis            *batmanadv.VisDoc
 	originators    []batmanadv.Originator
 }
 
@@ -105,7 +108,7 @@ func (s *BatctlSnapshotter) loop(ctx context.Context) {
 }
 
 func (s *BatctlSnapshotter) refresh() {
-	origFn, neighFn, cfgFn, gwFn, hostsFn := s.resolveFetchers()
+	origFn, neighFn, cfgFn, gwFn, hostsFn, visFn := s.resolveFetchers()
 
 	var next batctlCache
 
@@ -115,6 +118,13 @@ func (s *BatctlSnapshotter) refresh() {
 	next.meshConfig, next.meshConfigErr = cfgFn(s.Iface)
 	next.gateways, next.gatewaysErr = gwFn(s.Iface)
 	next.batHosts, next.batHostsErr = hostsFn(s.hostsPath())
+
+	// vis gets its own context bounded to the sampling interval so a
+	// hung exec can never wedge the refresh loop.
+	visCtx, cancel := context.WithTimeout(context.Background(), s.Interval)
+	next.vis, next.visErr = visFn(visCtx)
+
+	cancel()
 
 	s.mu.Lock()
 	s.cached = next
@@ -136,6 +146,7 @@ func (s *BatctlSnapshotter) resolveFetchers() (
 	cfgFn func(string) (*batmanadv.MeshConfig, error),
 	gwFn func(string) (*batmanadv.Gateways, error),
 	hostsFn func(string) (*batmanadv.BatHosts, error),
+	visFn func(context.Context) (*batmanadv.VisDoc, error),
 ) {
 	origFn = s.FetchOriginators
 	if origFn == nil {
@@ -161,6 +172,12 @@ func (s *BatctlSnapshotter) resolveFetchers() (
 	hostsFn = s.FetchBatHosts
 	if hostsFn == nil {
 		hostsFn = batmanadv.ParseBatHostsFile
+	}
+
+	visFn = s.FetchVis
+	if visFn == nil {
+		p := batmanadv.BatadvVisProvider{}
+		visFn = p.GetMeshVis
 	}
 
 	return
@@ -239,6 +256,20 @@ func (s *BatctlSnapshotter) ParseBatHosts(_ string) (*batmanadv.BatHosts, error)
 	}
 
 	return s.cached.batHosts, s.cached.batHostsErr
+}
+
+// GetMeshVis implements batmanadv.VisProvider using the cached vis doc.
+// The ctx argument is accepted for interface compatibility; the actual
+// exec ran at refresh time with its own bounded context.
+func (s *BatctlSnapshotter) GetMeshVis(_ context.Context) (*batmanadv.VisDoc, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if !s.ready {
+		return nil, ErrBatctlSnapshotNotReady
+	}
+
+	return s.cached.vis, s.cached.visErr
 }
 
 // ListGateways implements the DeltaTracker GatewayProvider interface

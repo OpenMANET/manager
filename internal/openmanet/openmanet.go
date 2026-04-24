@@ -196,6 +196,7 @@ func Start(staticFS fs.FS) {
 		CommsManager:      commsManager,
 		MeshDeltaTracker:  meshDeltaTracker,
 		MeshOrigProvider:  meshOrigProvider,
+		MeshVisProvider:   batctlSnapshotter,
 		BatctlSnapshotter: batctlSnapshotter,
 		SystemSnapshotter: sysSnapshotter,
 		Interfaces:        interfaceProvider,

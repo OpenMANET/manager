@@ -1,24 +1,23 @@
 // =============================================================================
-// topologyGraph.js — Transform MeshTopology (originator rows) → render view
+// topologyGraph.js — Transform MeshTopology (mesh-wide graph) → render view
 // =============================================================================
-// Input is the host's local batman-adv originator table. Each row is one
-// best-route entry: a reachable originator, the local next hop we forward
-// through, and the hardware interface that carries the route.
+// Input is the server-merged mesh graph from batadv-vis + this node's
+// originator overlay:
+//
+//   {
+//     selfMac, selfHostname, algorithm, collectedAt,
+//     nodes: [{ mac, secondaryMacs, hostname, segment, clientCount,
+//               hopsFromSelf, myHardIfname, isSelf }],
+//     edges: [{ fromMac, toMac, metric, blos, onMyPath }],
+//   }
 //
 // The transform:
-//   1. Groups rows by base hostname (stripping the "_iface" suffix that
-//      /tmp/bat-hosts uses to disambiguate interfaces on one physical node).
-//      One HostRecord per physical device; its `interfaces[]` captures every
-//      suffix we've seen for that host.
-//   2. Partitions hosts into segments:
-//        - LOCAL:  hosts whose best route uses a non-vxlan0 interface.
-//        - REMOTE: one segment per local BLOS interface. Every originator
-//          reached via that interface — direct neighbors AND multi-hop peers
-//          behind them — collapses into the same segment, because from this
-//          node's point of view they share a single tunnel.
-//   3. Aggregates per-host-pair edges so two hosts linked on multiple radios
-//      render as a single line with a contributor list in the Selected panel.
-//   4. Preserves hops as reported by the server (no client-side BFS).
+//   1. Lifts each mesh node into a HostRecord keyed by lower-cased primary MAC.
+//   2. Partitions hosts into segments (LOCAL / REMOTE MESH) using the server's
+//      per-node segment classification — no client-side derivation.
+//   3. Resolves edges into intra-segment RF edges and inter-segment BLOS edges.
+//   4. Preserves hops / my_hard_ifname / on_my_path overlay so the renderer can
+//      highlight the serving node's forwarding tree on demand.
 //
 // Output shape (stable for the renderer):
 //
@@ -28,24 +27,14 @@
 //     segments: [
 //       { id, label, kind: 'local'|'remote', anchorHost?, hosts, edges }
 //     ],
-//     blosEdges: [AggregateEdge, ...],
+//     blosEdges: [Edge, ...],
 //     counts: { hosts, segments, links, blosLinks, clients, hopsMax },
 //     algorithm: 'BATMAN_IV' | 'BATMAN_V' | '',
 //   }
 
-const BLOS_INTERFACE = 'vxlan0';
+const HOPS_UNKNOWN = 99;
 
 // ── small helpers ──────────────────────────────────────────────────────────
-
-// Split a bat-hosts friendly name at the LAST underscore so base hostnames
-// containing '-' still round-trip.
-//   "BCM2711-97d6_phy2-mesh0" → { base: "BCM2711-97d6", iface: "phy2-mesh0" }
-function splitHostname(hostname) {
-  if (!hostname) return { base: '', iface: '' };
-  const i = hostname.lastIndexOf('_');
-  if (i < 0) return { base: hostname, iface: '' };
-  return { base: hostname.slice(0, i), iface: hostname.slice(i + 1) };
-}
 
 // shortHostname returns a compact label that fits inside a host circle.
 // For hyphenated hostnames we use the final segment (e.g. "BCM2711-97d6" →
@@ -57,8 +46,12 @@ export function shortHostname(baseHostname) {
   return tail.length <= 6 ? tail : tail.slice(0, 6);
 }
 
-function interfaceRole(name) {
-  return name === BLOS_INTERFACE ? 'blos' : 'rf';
+// shortMac keeps the last three MAC octets — used as a fallback host label
+// when bat-hosts has no friendly name.
+function shortMac(mac) {
+  if (!mac) return '?';
+  const parts = mac.split(':');
+  return parts.length === 6 ? parts.slice(3).join(':') : mac;
 }
 
 function padTag(i) {
@@ -78,183 +71,65 @@ export function buildTopologyView(topology) {
     algorithm: '',
   };
 
-  if (!topology || !Array.isArray(topology.originators)) return empty;
+  if (!topology || !Array.isArray(topology.nodes)) return empty;
+  if (topology.nodes.length === 0) return empty;
 
-  const originators = topology.originators;
-  if (originators.length === 0 && !topology.selfHostname) return empty;
-
-  // ── MAC → { base, iface } lookup, for resolving next-hop MACs to hosts ──
-  const macToHost = new Map();
-  const noteMac = (mac, hostname) => {
-    if (!mac) return;
-    const key = mac.toLowerCase();
-    if (macToHost.has(key)) return;
-    const { base, iface } = splitHostname(hostname);
-    if (!base) return;
-    macToHost.set(key, { base, iface });
-  };
-  for (const o of originators) {
-    noteMac(o.origMac, o.origHostname);
-    noteMac(o.nextHopMac, o.nextHopHostname);
-  }
-  // Self gets its own entry so next-hop MACs that point back to us resolve.
-  if (topology.selfMac) {
-    noteMac(topology.selfMac, `${topology.selfHostname || topology.selfMac}_bat0`);
-  }
-
-  const resolveMac = (mac) => {
-    if (!mac) return { base: '', iface: '', key: '' };
-    const key = mac.toLowerCase();
-    const hit = macToHost.get(key);
-    if (hit) return { base: hit.base, iface: hit.iface, key: hit.base.toLowerCase() };
-    return { base: mac, iface: '', key };
-  };
-
-  // ── Host records keyed by base hostname (lowercase) ────────────────────
-  const hostByKey = new Map();
-  const ensureHost = (base, primaryMac) => {
-    const key = base.toLowerCase();
-    let h = hostByKey.get(key);
-    if (!h) {
-      h = {
-        id: key,
-        baseHostname: base,
-        primaryMac: primaryMac || '',
-        tag: '',
-        interfaces: [],
-        ifaceByName: new Map(),
-        segmentId: '',
-        hops: Number.MAX_SAFE_INTEGER,
-        isSelf: false,
-        clients: [],
-      };
-      hostByKey.set(key, h);
-    } else if (!h.primaryMac && primaryMac) {
-      h.primaryMac = primaryMac;
-    }
-    return h;
-  };
-
-  const addInterface = (host, name, mac) => {
-    if (!name) return;
-    const existing = host.ifaceByName.get(name);
-    if (existing) {
-      if (!existing.mac && mac) existing.mac = mac;
-      return;
-    }
-    const entry = { name, role: interfaceRole(name), mac: mac || '' };
-    host.ifaceByName.set(name, entry);
-    host.interfaces.push(entry);
-  };
-
-  // Seed the self host even when there are zero originators — the UI still
-  // needs something to render.
+  // ── Host records keyed by lower-cased primary MAC ──────────────────────
+  const hostByMac = new Map();
   let selfHost = null;
-  if (topology.selfHostname || topology.selfMac) {
-    const selfBase = topology.selfHostname || topology.selfMac;
-    selfHost = ensureHost(selfBase, topology.selfMac);
-    selfHost.isSelf = true;
-    selfHost.hops = 0;
+
+  for (const n of topology.nodes) {
+    const key = (n.mac || '').toLowerCase();
+    if (!key) continue;
+
+    const base = n.hostname || shortMac(n.mac);
+    const segmentId = n.segment === 'remote' ? 'remote' : 'local';
+
+    const host = {
+      id: key,
+      mac: n.mac,
+      baseHostname: base,
+      primaryMac: n.mac,
+      tag: '',
+      interfaces: hostInterfacesForSegment(segmentId),
+      segmentId,
+      hops: Number.isFinite(n.hopsFromSelf) ? n.hopsFromSelf : HOPS_UNKNOWN,
+      isSelf: Boolean(n.isSelf),
+      clientCount: n.clientCount || 0,
+      myHardIfname: n.myHardIfname || '',
+      secondaryMacs: n.secondaryMacs || [],
+    };
+
+    hostByMac.set(key, host);
+    if (host.isSelf) selfHost = host;
   }
 
-  // Build hosts + per-originator pairs. We also track per-originator
-  // segment-assignment hints: the local hard_ifname of every BLOS-reached
-  // originator becomes the key for its remote segment, so all peers sharing
-  // a tunnel collapse into one segment regardless of their far-side gateway.
-  const blosIfnameByKey = new Map();   // hostKey → local BLOS hard_ifname carrying the route
-  const rfOrigByKey = new Map();       // hostKey → true when the host has any non-BLOS best route
-  const aggregates = new Map();        // canonical (hostA|hostB) → AggregateEdge
-
-  const selfKey = selfHost ? selfHost.id : '';
-
-  for (const o of originators) {
-    const orig = resolveMac(o.origMac);
-    if (!orig.key) continue;
-
-    const origHost = ensureHost(orig.base, o.origMac);
-    if (orig.iface) addInterface(origHost, orig.iface, o.origMac);
-    origHost.hops = Math.min(origHost.hops, o.hops || 99);
-
-    // The local hard_ifname carried the route — add it as one of OUR
-    // interfaces so the self node's badge row stays complete.
-    if (selfHost && o.hardIfname) {
-      addInterface(selfHost, o.hardIfname, topology.selfMac);
+  // The self host carries its actual set of local interfaces used for any
+  // reachable peer (my_hard_ifname rolled up across all nodes). That gives
+  // a correct multi-badge picture of self instead of the segment-default.
+  if (selfHost) {
+    const ifnames = new Set();
+    for (const n of topology.nodes) {
+      if (!n.isSelf && n.myHardIfname) ifnames.add(n.myHardIfname);
     }
-
-    // Track segment hints. For BLOS-reached hosts we record the LOCAL
-    // hard_ifname (e.g. vxlan0); that becomes the remote segment's key, so
-    // every peer reached via that same interface collapses into one box.
-    if (o.hardIfname === BLOS_INTERFACE) {
-      if (!blosIfnameByKey.has(orig.key)) blosIfnameByKey.set(orig.key, o.hardIfname);
-    } else if (o.hardIfname) {
-      rfOrigByKey.set(orig.key, true);
+    if (ifnames.size > 0) {
+      selfHost.interfaces = [...ifnames].sort().map((name) => ({
+        name,
+        role: name === 'vxlan0' ? 'blos' : 'rf',
+      }));
     }
-
-    // Aggregate into a per-host-pair edge. Direct neighbors form a (self,
-    // host) edge; multi-hop peers form a (nextHopHost, origHost) edge so
-    // the chain renders as concatenated links rather than spokes back to us.
-    const next = resolveMac(o.nextHopMac);
-    let hostA = selfKey;
-    let hostB = orig.key;
-    if (o.hops > 1 && next.key && next.key !== orig.key) {
-      hostA = next.key;
-      hostB = orig.key;
-    }
-    if (!hostA || !hostB || hostA === hostB) continue;
-
-    const [aKey, bKey] = hostA < hostB ? [hostA, hostB] : [hostB, hostA];
-    const aggKey = `${aKey}|${bKey}`;
-    let agg = aggregates.get(aggKey);
-    if (!agg) {
-      agg = {
-        id: `agg:${aggKey}`,
-        hostA: aKey,
-        hostB: bKey,
-        bestTQ: 0,
-        bestThroughput: 0,
-        blos: false,
-        contributors: [],
-      };
-      aggregates.set(aggKey, agg);
-    }
-    agg.contributors.push({
-      srcHost: hostA,
-      srcIface: o.hardIfname,
-      dstHost: hostB,
-      dstIface: orig.iface,
-      tq: o.tq || 0,
-      throughput: o.throughput || 0,
-      hops: o.hops || 0,
-      lastSeenMs: o.lastSeenMs || 0,
-    });
-    if ((o.tq || 0) > agg.bestTQ) agg.bestTQ = o.tq || 0;
-    if ((o.throughput || 0) > agg.bestThroughput) agg.bestThroughput = o.throughput || 0;
-    if (o.hardIfname === BLOS_INTERFACE) agg.blos = true;
   }
 
-  // ── Segment assignment ─────────────────────────────────────────────────
-  // Rule: if a host has ANY non-BLOS best route, it's local. Otherwise it
-  // joins the remote segment keyed by the LOCAL hard_ifname carrying its
-  // BLOS route. All peers reached via the same local tunnel collapse into
-  // one segment regardless of how many distinct far-side gateways exist.
-  const segmentByHost = new Map();
-
-  // Local segment first — self is always local when it exists.
-  const localKeys = new Set();
-  if (selfHost) localKeys.add(selfHost.id);
-  for (const k of rfOrigByKey.keys()) localKeys.add(k);
-
-  // Remote segments: one per local BLOS interface.
-  const remoteByIfname = new Map(); // ifname → Set(hostKey)
-  for (const [hostKey, ifname] of blosIfnameByKey.entries()) {
-    if (localKeys.has(hostKey)) continue; // host has a non-BLOS path, stays local
-    if (!remoteByIfname.has(ifname)) remoteByIfname.set(ifname, new Set());
-    remoteByIfname.get(ifname).add(hostKey);
-  }
-
-  // Build segment list. Local first, then remote segments sorted by ifname.
+  // ── Segment construction ───────────────────────────────────────────────
   const segments = [];
-  if (localKeys.size > 0) {
+  const localHosts = [];
+  const remoteHosts = [];
+  for (const h of hostByMac.values()) {
+    if (h.segmentId === 'remote') remoteHosts.push(h);
+    else localHosts.push(h);
+  }
+
+  if (localHosts.length > 0) {
     segments.push({
       id: 'local',
       label: 'LOCAL',
@@ -263,56 +138,35 @@ export function buildTopologyView(topology) {
       hosts: [],
       edges: [],
     });
-    for (const k of localKeys) segmentByHost.set(k, 'local');
   }
-
-  const remoteIfnames = [...remoteByIfname.keys()].sort();
-  for (const ifname of remoteIfnames) {
-    const segId = `remote:${ifname}`;
+  if (remoteHosts.length > 0) {
     segments.push({
-      id: segId,
+      id: 'remote',
       label: 'REMOTE MESH',
       kind: 'remote',
-      anchorHost: null, // populated after host hops are finalized below
+      anchorHost: null,
       hosts: [],
       edges: [],
     });
-    for (const k of remoteByIfname.get(ifname)) segmentByHost.set(k, segId);
   }
 
-  // Populate segmentId on each host.
-  for (const host of hostByKey.values()) {
-    host.segmentId = segmentByHost.get(host.id) || (segments[0]?.id || '');
-  }
-
-  // ── Assign tags: self first, then hops asc, then hostname asc ──────────
-  const hosts = [...hostByKey.values()].sort((a, b) => {
+  // ── Tag & sort hosts: self first, then hops asc, then hostname asc ─────
+  const hosts = [...hostByMac.values()].sort((a, b) => {
     if (a.isSelf !== b.isSelf) return a.isSelf ? -1 : 1;
     if (a.hops !== b.hops) return a.hops - b.hops;
-    return a.id.localeCompare(b.id);
+    return a.baseHostname.localeCompare(b.baseHostname);
   });
   hosts.forEach((h, i) => { h.tag = padTag(i); });
 
-  // Stable-sort each host's interface list so badges don't shuffle.
-  for (const h of hosts) {
-    h.interfaces.sort((a, b) => {
-      if (a.role !== b.role) return a.role === 'blos' ? 1 : -1;
-      return a.name.localeCompare(b.name);
-    });
-    delete h.ifaceByName;
-  }
-
-  // Place hosts into their segments (in tag order).
   const segByID = new Map(segments.map((s) => [s.id, s]));
   for (const h of hosts) {
     const seg = segByID.get(h.segmentId);
     if (seg) seg.hosts.push(h);
   }
 
-  // Pick an anchor for each remote segment: the direct BLOS neighbor (min
-  // hops in the segment) with the lowest base hostname. Layout uses this
-  // as the radial root so the "entry point" into the remote mesh sits at
-  // the box center. Defensive fallback: first host in the segment.
+  // Anchor selection for the remote segment — the direct BLOS neighbor
+  // (min hops in the segment) with the lowest base hostname, so the
+  // tunnel's entry point sits at the radial center.
   for (const seg of segments) {
     if (seg.kind !== 'remote' || seg.hosts.length === 0) continue;
     const minHops = Math.min(...seg.hosts.map((h) => h.hops));
@@ -322,24 +176,43 @@ export function buildTopologyView(topology) {
     seg.anchorHost = (candidates[0] || seg.hosts[0]).id;
   }
 
-  // RF edges belong in the segment both endpoints share (by definition of
-  // the partition, only intra-segment edges are RF). BLOS edges are the
-  // bridges between segments.
+  // ── Edges ──────────────────────────────────────────────────────────────
+  const edges = (topology.edges || [])
+    .map((e) => {
+      const a = (e.fromMac || '').toLowerCase();
+      const b = (e.toMac || '').toLowerCase();
+      if (!a || !b || a === b) return null;
+      if (!hostByMac.has(a) || !hostByMac.has(b)) return null;
+
+      return {
+        id: `edge:${a}|${b}`,
+        hostA: a,
+        hostB: b,
+        metric: e.metric || 0,
+        blos: Boolean(e.blos),
+        onMyPath: Boolean(e.onMyPath),
+      };
+    })
+    .filter(Boolean);
+
   const blosEdges = [];
-  for (const agg of aggregates.values()) {
-    if (agg.blos) {
-      blosEdges.push(agg);
+  let rfLinkCount = 0;
+  for (const edge of edges) {
+    if (edge.blos) {
+      blosEdges.push(edge);
       continue;
     }
-    const segA = segmentByHost.get(agg.hostA);
-    const segB = segmentByHost.get(agg.hostB);
-    if (segA && segA === segB) {
-      segByID.get(segA)?.edges.push(agg);
-    }
+    rfLinkCount++;
+    const segId = hostByMac.get(edge.hostA)?.segmentId;
+    segByID.get(segId)?.edges.push(edge);
   }
 
-  const peerHops = hosts.filter((h) => !h.isSelf).map((h) => h.hops).filter((h) => h < 99);
+  // ── Counts for the header strip ────────────────────────────────────────
+  const peerHops = hosts
+    .filter((h) => !h.isSelf && h.hops < HOPS_UNKNOWN)
+    .map((h) => h.hops);
   const hopsMax = peerHops.length > 0 ? Math.max(...peerHops) : 0;
+  const clientTotal = hosts.reduce((acc, h) => acc + (h.clientCount || 0), 0);
 
   return {
     self: selfHost,
@@ -349,11 +222,21 @@ export function buildTopologyView(topology) {
     counts: {
       hosts: hosts.length,
       segments: segments.length,
-      links: aggregates.size - blosEdges.length,
+      links: rfLinkCount,
       blosLinks: blosEdges.length,
-      clients: 0,
+      clients: clientTotal,
       hopsMax,
     },
     algorithm: topology.algorithm || '',
   };
+}
+
+// hostInterfacesForSegment returns a single segment-derived badge so
+// peers carry a consistent visual cue even though the mesh-wide feed
+// doesn't report per-peer interface names.
+function hostInterfacesForSegment(segmentId) {
+  if (segmentId === 'remote') {
+    return [{ name: 'vxlan0', role: 'blos' }];
+  }
+  return [{ name: 'mesh', role: 'rf' }];
 }

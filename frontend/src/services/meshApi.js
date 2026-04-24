@@ -83,20 +83,28 @@ export async function fetchMeshStatus() {
 // fetchMeshTopology()
 // -----------------------------------------------------------------------------
 // Calls MeshTopologyService.GetMeshTopology and returns a plain-JS object
-// suitable for the TopologyMap component. The wire format is one row per
-// best-route entry from the local batman-adv originator table, enriched with
-// bat-hosts hostnames:
+// suitable for the TopologyMap component. The wire format is the full
+// mesh graph from batadv-vis + Alfred, with each vis node enriched by
+// this node's bat-hosts entries and originator-table overlay:
 //
 //   {
 //     selfMac, selfHostname, algorithm,            // who we are + batman version
 //     collectedAt: Date | null,
-//     originators: [
+//     nodes: [
 //       {
-//         origMac, origHostname,                   // the reachable peer
-//         nextHopMac, nextHopHostname,              // our forwarding target
-//         hardIfname,                               // wlan0 | phy2-mesh0 | vxlan0 | …
-//         tq, throughput,                           // BATMAN_IV TQ or BATMAN_V kbps
-//         lastSeenMs, hops,
+//         mac, secondaryMacs, hostname,
+//         segment,                                   // "local" | "remote"
+//         clientCount,                               // non-mesh MACs attached
+//         hopsFromSelf,                              // 0 self, 99 unknown
+//         myHardIfname,                              // local ifname I'd forward on, "" if unknown
+//         isSelf,
+//       }
+//     ],
+//     edges: [
+//       {
+//         fromMac, toMac, metric,
+//         blos,                                      // endpoints in different segments
+//         onMyPath,                                  // matches my (orig, next-hop) pair
 //       }
 //     ],
 //   }
@@ -118,16 +126,22 @@ export async function fetchMeshTopology() {
       selfHostname: t.selfHostname ?? '',
       algorithm: t.algorithm ?? '',
       collectedAt,
-      originators: (t.originators ?? []).map((o) => ({
-        origMac: o.origMac ?? '',
-        origHostname: o.origHostname ?? '',
-        nextHopMac: o.nextHopMac ?? '',
-        nextHopHostname: o.nextHopHostname ?? '',
-        hardIfname: o.hardIfname ?? '',
-        tq: o.tq ?? 0,
-        throughput: o.throughput ?? 0,
-        lastSeenMs: o.lastSeenMs ?? 0,
-        hops: o.hops ?? 0,
+      nodes: (t.nodes ?? []).map((n) => ({
+        mac: n.mac ?? '',
+        secondaryMacs: n.secondaryMacs ?? [],
+        hostname: n.hostname ?? '',
+        segment: n.segment ?? 'local',
+        clientCount: n.clientCount ?? 0,
+        hopsFromSelf: n.hopsFromSelf ?? 0,
+        myHardIfname: n.myHardIfname ?? '',
+        isSelf: n.isSelf ?? false,
+      })),
+      edges: (t.edges ?? []).map((e) => ({
+        fromMac: e.fromMac ?? '',
+        toMac: e.toMac ?? '',
+        metric: e.metric ?? 0,
+        blos: e.blos ?? false,
+        onMyPath: e.onMyPath ?? false,
       })),
     };
   } catch {

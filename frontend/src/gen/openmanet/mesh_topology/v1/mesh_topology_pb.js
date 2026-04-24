@@ -6,32 +6,47 @@
 import { proto3, Timestamp } from "@bufbuild/protobuf";
 
 /**
- * MeshOriginator is one row of the local batman-adv originator table: an
- * originator we can reach and the local interface / next hop we send through
- * to reach it. Only best-route entries are surfaced — batctl emits multiple
- * candidate rows per originator but just one is the selected forwarding
- * state, and that's the only one that makes sense to visualize.
+ * MeshNode is one physical node in the mesh, as reported by alfred /
+ * batadv-vis -f jsondoc and enriched with /tmp/bat-hosts metadata plus
+ * self-originator overlay data.
  *
- * @generated from message openmanet.mesh_topology.v1.MeshOriginator
+ * @generated from message openmanet.mesh_topology.v1.MeshNode
  */
-export const MeshOriginator = /*@__PURE__*/ proto3.makeMessageType(
-  "openmanet.mesh_topology.v1.MeshOriginator",
+export const MeshNode = /*@__PURE__*/ proto3.makeMessageType(
+  "openmanet.mesh_topology.v1.MeshNode",
   () => [
-    { no: 1, name: "orig_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "orig_hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 3, name: "next_hop_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 4, name: "next_hop_hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 5, name: "hard_ifname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 6, name: "tq", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
-    { no: 7, name: "throughput", kind: "scalar", T: 1 /* ScalarType.DOUBLE */ },
-    { no: 8, name: "last_seen_ms", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
-    { no: 9, name: "hops", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 1, name: "mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "secondary_macs", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 3, name: "hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "segment", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "client_count", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 6, name: "hops_from_self", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 7, name: "my_hard_ifname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 8, name: "is_self", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ],
 );
 
 /**
- * MeshTopology is a snapshot of the local batman-adv originator table,
- * enriched with hostnames from /tmp/bat-hosts.
+ * MeshEdge is one link in the mesh, canonicalized so A↔B appears once
+ * regardless of whether vis reported it from A's or B's perspective.
+ *
+ * @generated from message openmanet.mesh_topology.v1.MeshEdge
+ */
+export const MeshEdge = /*@__PURE__*/ proto3.makeMessageType(
+  "openmanet.mesh_topology.v1.MeshEdge",
+  () => [
+    { no: 1, name: "from_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "to_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "metric", kind: "scalar", T: 1 /* ScalarType.DOUBLE */ },
+    { no: 4, name: "blos", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 5, name: "on_my_path", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ],
+);
+
+/**
+ * MeshTopology is the full mesh graph: every reachable node's neighbor
+ * set as published to alfred by every node's batadv-vis -s, enriched
+ * with bat-hosts hostnames and the serving node's own routing overlay.
  *
  * @generated from message openmanet.mesh_topology.v1.MeshTopology
  */
@@ -41,8 +56,9 @@ export const MeshTopology = /*@__PURE__*/ proto3.makeMessageType(
     { no: 1, name: "self_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "self_hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "algorithm", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 4, name: "originators", kind: "message", T: MeshOriginator, repeated: true },
-    { no: 5, name: "collected_at", kind: "message", T: Timestamp },
+    { no: 4, name: "nodes", kind: "message", T: MeshNode, repeated: true },
+    { no: 5, name: "edges", kind: "message", T: MeshEdge, repeated: true },
+    { no: 6, name: "collected_at", kind: "message", T: Timestamp },
   ],
 );
 

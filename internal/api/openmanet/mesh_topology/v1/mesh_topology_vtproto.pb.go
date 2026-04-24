@@ -24,20 +24,23 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-func (m *MeshOriginator) CloneVT() *MeshOriginator {
+func (m *MeshNode) CloneVT() *MeshNode {
 	if m == nil {
-		return (*MeshOriginator)(nil)
+		return (*MeshNode)(nil)
 	}
-	r := new(MeshOriginator)
-	r.OrigMac = m.OrigMac
-	r.OrigHostname = m.OrigHostname
-	r.NextHopMac = m.NextHopMac
-	r.NextHopHostname = m.NextHopHostname
-	r.HardIfname = m.HardIfname
-	r.Tq = m.Tq
-	r.Throughput = m.Throughput
-	r.LastSeenMs = m.LastSeenMs
-	r.Hops = m.Hops
+	r := new(MeshNode)
+	r.Mac = m.Mac
+	r.Hostname = m.Hostname
+	r.Segment = m.Segment
+	r.ClientCount = m.ClientCount
+	r.HopsFromSelf = m.HopsFromSelf
+	r.MyHardIfname = m.MyHardIfname
+	r.IsSelf = m.IsSelf
+	if rhs := m.SecondaryMacs; rhs != nil {
+		tmpContainer := make([]string, len(rhs))
+		copy(tmpContainer, rhs)
+		r.SecondaryMacs = tmpContainer
+	}
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -45,7 +48,28 @@ func (m *MeshOriginator) CloneVT() *MeshOriginator {
 	return r
 }
 
-func (m *MeshOriginator) CloneMessageVT() proto.Message {
+func (m *MeshNode) CloneMessageVT() proto.Message {
+	return m.CloneVT()
+}
+
+func (m *MeshEdge) CloneVT() *MeshEdge {
+	if m == nil {
+		return (*MeshEdge)(nil)
+	}
+	r := new(MeshEdge)
+	r.FromMac = m.FromMac
+	r.ToMac = m.ToMac
+	r.Metric = m.Metric
+	r.Blos = m.Blos
+	r.OnMyPath = m.OnMyPath
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = make([]byte, len(m.unknownFields))
+		copy(r.unknownFields, m.unknownFields)
+	}
+	return r
+}
+
+func (m *MeshEdge) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
@@ -58,12 +82,19 @@ func (m *MeshTopology) CloneVT() *MeshTopology {
 	r.SelfHostname = m.SelfHostname
 	r.Algorithm = m.Algorithm
 	r.CollectedAt = (*timestamppb.Timestamp)((*timestamppb1.Timestamp)(m.CollectedAt).CloneVT())
-	if rhs := m.Originators; rhs != nil {
-		tmpContainer := make([]*MeshOriginator, len(rhs))
+	if rhs := m.Nodes; rhs != nil {
+		tmpContainer := make([]*MeshNode, len(rhs))
 		for k, v := range rhs {
 			tmpContainer[k] = v.CloneVT()
 		}
-		r.Originators = tmpContainer
+		r.Nodes = tmpContainer
+	}
+	if rhs := m.Edges; rhs != nil {
+		tmpContainer := make([]*MeshEdge, len(rhs))
+		for k, v := range rhs {
+			tmpContainer[k] = v.CloneVT()
+		}
+		r.Edges = tmpContainer
 	}
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
@@ -76,44 +107,78 @@ func (m *MeshTopology) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
-func (this *MeshOriginator) EqualVT(that *MeshOriginator) bool {
+func (this *MeshNode) EqualVT(that *MeshNode) bool {
 	if this == that {
 		return true
 	} else if this == nil || that == nil {
 		return false
 	}
-	if this.OrigMac != that.OrigMac {
+	if this.Mac != that.Mac {
 		return false
 	}
-	if this.OrigHostname != that.OrigHostname {
+	if len(this.SecondaryMacs) != len(that.SecondaryMacs) {
 		return false
 	}
-	if this.NextHopMac != that.NextHopMac {
+	for i, vx := range this.SecondaryMacs {
+		vy := that.SecondaryMacs[i]
+		if vx != vy {
+			return false
+		}
+	}
+	if this.Hostname != that.Hostname {
 		return false
 	}
-	if this.NextHopHostname != that.NextHopHostname {
+	if this.Segment != that.Segment {
 		return false
 	}
-	if this.HardIfname != that.HardIfname {
+	if this.ClientCount != that.ClientCount {
 		return false
 	}
-	if this.Tq != that.Tq {
+	if this.HopsFromSelf != that.HopsFromSelf {
 		return false
 	}
-	if this.Throughput != that.Throughput {
+	if this.MyHardIfname != that.MyHardIfname {
 		return false
 	}
-	if this.LastSeenMs != that.LastSeenMs {
-		return false
-	}
-	if this.Hops != that.Hops {
+	if this.IsSelf != that.IsSelf {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
 }
 
-func (this *MeshOriginator) EqualMessageVT(thatMsg proto.Message) bool {
-	that, ok := thatMsg.(*MeshOriginator)
+func (this *MeshNode) EqualMessageVT(thatMsg proto.Message) bool {
+	that, ok := thatMsg.(*MeshNode)
+	if !ok {
+		return false
+	}
+	return this.EqualVT(that)
+}
+func (this *MeshEdge) EqualVT(that *MeshEdge) bool {
+	if this == that {
+		return true
+	} else if this == nil || that == nil {
+		return false
+	}
+	if this.FromMac != that.FromMac {
+		return false
+	}
+	if this.ToMac != that.ToMac {
+		return false
+	}
+	if this.Metric != that.Metric {
+		return false
+	}
+	if this.Blos != that.Blos {
+		return false
+	}
+	if this.OnMyPath != that.OnMyPath {
+		return false
+	}
+	return string(this.unknownFields) == string(that.unknownFields)
+}
+
+func (this *MeshEdge) EqualMessageVT(thatMsg proto.Message) bool {
+	that, ok := thatMsg.(*MeshEdge)
 	if !ok {
 		return false
 	}
@@ -134,17 +199,34 @@ func (this *MeshTopology) EqualVT(that *MeshTopology) bool {
 	if this.Algorithm != that.Algorithm {
 		return false
 	}
-	if len(this.Originators) != len(that.Originators) {
+	if len(this.Nodes) != len(that.Nodes) {
 		return false
 	}
-	for i, vx := range this.Originators {
-		vy := that.Originators[i]
+	for i, vx := range this.Nodes {
+		vy := that.Nodes[i]
 		if p, q := vx, vy; p != q {
 			if p == nil {
-				p = &MeshOriginator{}
+				p = &MeshNode{}
 			}
 			if q == nil {
-				q = &MeshOriginator{}
+				q = &MeshNode{}
+			}
+			if !p.EqualVT(q) {
+				return false
+			}
+		}
+	}
+	if len(this.Edges) != len(that.Edges) {
+		return false
+	}
+	for i, vx := range this.Edges {
+		vy := that.Edges[i]
+		if p, q := vx, vy; p != q {
+			if p == nil {
+				p = &MeshEdge{}
+			}
+			if q == nil {
+				q = &MeshEdge{}
 			}
 			if !p.EqualVT(q) {
 				return false
@@ -164,7 +246,7 @@ func (this *MeshTopology) EqualMessageVT(thatMsg proto.Message) bool {
 	}
 	return this.EqualVT(that)
 }
-func (m *MeshOriginator) MarshalVT() (dAtA []byte, err error) {
+func (m *MeshNode) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -177,12 +259,12 @@ func (m *MeshOriginator) MarshalVT() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *MeshOriginator) MarshalToVT(dAtA []byte) (int, error) {
+func (m *MeshNode) MarshalToVT(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVT(dAtA[:size])
 }
 
-func (m *MeshOriginator) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+func (m *MeshNode) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -194,59 +276,133 @@ func (m *MeshOriginator) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if m.Hops != 0 {
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Hops))
+	if m.IsSelf {
 		i--
-		dAtA[i] = 0x48
-	}
-	if m.LastSeenMs != 0 {
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.LastSeenMs))
+		if m.IsSelf {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
 		i--
 		dAtA[i] = 0x40
 	}
-	if m.Throughput != 0 {
-		i -= 8
-		binary.LittleEndian.PutUint64(dAtA[i:], uint64(math.Float64bits(float64(m.Throughput))))
+	if len(m.MyHardIfname) > 0 {
+		i -= len(m.MyHardIfname)
+		copy(dAtA[i:], m.MyHardIfname)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.MyHardIfname)))
 		i--
-		dAtA[i] = 0x39
+		dAtA[i] = 0x3a
 	}
-	if m.Tq != 0 {
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Tq))
+	if m.HopsFromSelf != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.HopsFromSelf))
 		i--
 		dAtA[i] = 0x30
 	}
-	if len(m.HardIfname) > 0 {
-		i -= len(m.HardIfname)
-		copy(dAtA[i:], m.HardIfname)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.HardIfname)))
+	if m.ClientCount != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.ClientCount))
 		i--
-		dAtA[i] = 0x2a
+		dAtA[i] = 0x28
 	}
-	if len(m.NextHopHostname) > 0 {
-		i -= len(m.NextHopHostname)
-		copy(dAtA[i:], m.NextHopHostname)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.NextHopHostname)))
+	if len(m.Segment) > 0 {
+		i -= len(m.Segment)
+		copy(dAtA[i:], m.Segment)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Segment)))
 		i--
 		dAtA[i] = 0x22
 	}
-	if len(m.NextHopMac) > 0 {
-		i -= len(m.NextHopMac)
-		copy(dAtA[i:], m.NextHopMac)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.NextHopMac)))
+	if len(m.Hostname) > 0 {
+		i -= len(m.Hostname)
+		copy(dAtA[i:], m.Hostname)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Hostname)))
 		i--
 		dAtA[i] = 0x1a
 	}
-	if len(m.OrigHostname) > 0 {
-		i -= len(m.OrigHostname)
-		copy(dAtA[i:], m.OrigHostname)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.OrigHostname)))
+	if len(m.SecondaryMacs) > 0 {
+		for iNdEx := len(m.SecondaryMacs) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.SecondaryMacs[iNdEx])
+			copy(dAtA[i:], m.SecondaryMacs[iNdEx])
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.SecondaryMacs[iNdEx])))
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if len(m.Mac) > 0 {
+		i -= len(m.Mac)
+		copy(dAtA[i:], m.Mac)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Mac)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MeshEdge) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MeshEdge) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *MeshEdge) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.OnMyPath {
+		i--
+		if m.OnMyPath {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x28
+	}
+	if m.Blos {
+		i--
+		if m.Blos {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.Metric != 0 {
+		i -= 8
+		binary.LittleEndian.PutUint64(dAtA[i:], uint64(math.Float64bits(float64(m.Metric))))
+		i--
+		dAtA[i] = 0x19
+	}
+	if len(m.ToMac) > 0 {
+		i -= len(m.ToMac)
+		copy(dAtA[i:], m.ToMac)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.ToMac)))
 		i--
 		dAtA[i] = 0x12
 	}
-	if len(m.OrigMac) > 0 {
-		i -= len(m.OrigMac)
-		copy(dAtA[i:], m.OrigMac)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.OrigMac)))
+	if len(m.FromMac) > 0 {
+		i -= len(m.FromMac)
+		copy(dAtA[i:], m.FromMac)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.FromMac)))
 		i--
 		dAtA[i] = 0xa
 	}
@@ -291,11 +447,23 @@ func (m *MeshTopology) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= size
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
 		i--
-		dAtA[i] = 0x2a
+		dAtA[i] = 0x32
 	}
-	if len(m.Originators) > 0 {
-		for iNdEx := len(m.Originators) - 1; iNdEx >= 0; iNdEx-- {
-			size, err := m.Originators[iNdEx].MarshalToSizedBufferVT(dAtA[:i])
+	if len(m.Edges) > 0 {
+		for iNdEx := len(m.Edges) - 1; iNdEx >= 0; iNdEx-- {
+			size, err := m.Edges[iNdEx].MarshalToSizedBufferVT(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+			i--
+			dAtA[i] = 0x2a
+		}
+	}
+	if len(m.Nodes) > 0 {
+		for iNdEx := len(m.Nodes) - 1; iNdEx >= 0; iNdEx-- {
+			size, err := m.Nodes[iNdEx].MarshalToSizedBufferVT(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -329,7 +497,7 @@ func (m *MeshTopology) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *MeshOriginator) MarshalVTStrict() (dAtA []byte, err error) {
+func (m *MeshNode) MarshalVTStrict() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -342,12 +510,12 @@ func (m *MeshOriginator) MarshalVTStrict() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *MeshOriginator) MarshalToVTStrict(dAtA []byte) (int, error) {
+func (m *MeshNode) MarshalToVTStrict(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVTStrict(dAtA[:size])
 }
 
-func (m *MeshOriginator) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
+func (m *MeshNode) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -359,59 +527,133 @@ func (m *MeshOriginator) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) 
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if m.Hops != 0 {
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Hops))
+	if m.IsSelf {
 		i--
-		dAtA[i] = 0x48
-	}
-	if m.LastSeenMs != 0 {
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.LastSeenMs))
+		if m.IsSelf {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
 		i--
 		dAtA[i] = 0x40
 	}
-	if m.Throughput != 0 {
-		i -= 8
-		binary.LittleEndian.PutUint64(dAtA[i:], uint64(math.Float64bits(float64(m.Throughput))))
+	if len(m.MyHardIfname) > 0 {
+		i -= len(m.MyHardIfname)
+		copy(dAtA[i:], m.MyHardIfname)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.MyHardIfname)))
 		i--
-		dAtA[i] = 0x39
+		dAtA[i] = 0x3a
 	}
-	if m.Tq != 0 {
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Tq))
+	if m.HopsFromSelf != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.HopsFromSelf))
 		i--
 		dAtA[i] = 0x30
 	}
-	if len(m.HardIfname) > 0 {
-		i -= len(m.HardIfname)
-		copy(dAtA[i:], m.HardIfname)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.HardIfname)))
+	if m.ClientCount != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.ClientCount))
 		i--
-		dAtA[i] = 0x2a
+		dAtA[i] = 0x28
 	}
-	if len(m.NextHopHostname) > 0 {
-		i -= len(m.NextHopHostname)
-		copy(dAtA[i:], m.NextHopHostname)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.NextHopHostname)))
+	if len(m.Segment) > 0 {
+		i -= len(m.Segment)
+		copy(dAtA[i:], m.Segment)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Segment)))
 		i--
 		dAtA[i] = 0x22
 	}
-	if len(m.NextHopMac) > 0 {
-		i -= len(m.NextHopMac)
-		copy(dAtA[i:], m.NextHopMac)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.NextHopMac)))
+	if len(m.Hostname) > 0 {
+		i -= len(m.Hostname)
+		copy(dAtA[i:], m.Hostname)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Hostname)))
 		i--
 		dAtA[i] = 0x1a
 	}
-	if len(m.OrigHostname) > 0 {
-		i -= len(m.OrigHostname)
-		copy(dAtA[i:], m.OrigHostname)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.OrigHostname)))
+	if len(m.SecondaryMacs) > 0 {
+		for iNdEx := len(m.SecondaryMacs) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.SecondaryMacs[iNdEx])
+			copy(dAtA[i:], m.SecondaryMacs[iNdEx])
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.SecondaryMacs[iNdEx])))
+			i--
+			dAtA[i] = 0x12
+		}
+	}
+	if len(m.Mac) > 0 {
+		i -= len(m.Mac)
+		copy(dAtA[i:], m.Mac)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Mac)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MeshEdge) MarshalVTStrict() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVTStrict(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MeshEdge) MarshalToVTStrict(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVTStrict(dAtA[:size])
+}
+
+func (m *MeshEdge) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.OnMyPath {
+		i--
+		if m.OnMyPath {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x28
+	}
+	if m.Blos {
+		i--
+		if m.Blos {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.Metric != 0 {
+		i -= 8
+		binary.LittleEndian.PutUint64(dAtA[i:], uint64(math.Float64bits(float64(m.Metric))))
+		i--
+		dAtA[i] = 0x19
+	}
+	if len(m.ToMac) > 0 {
+		i -= len(m.ToMac)
+		copy(dAtA[i:], m.ToMac)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.ToMac)))
 		i--
 		dAtA[i] = 0x12
 	}
-	if len(m.OrigMac) > 0 {
-		i -= len(m.OrigMac)
-		copy(dAtA[i:], m.OrigMac)
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.OrigMac)))
+	if len(m.FromMac) > 0 {
+		i -= len(m.FromMac)
+		copy(dAtA[i:], m.FromMac)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.FromMac)))
 		i--
 		dAtA[i] = 0xa
 	}
@@ -456,11 +698,23 @@ func (m *MeshTopology) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 		i -= size
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
 		i--
-		dAtA[i] = 0x2a
+		dAtA[i] = 0x32
 	}
-	if len(m.Originators) > 0 {
-		for iNdEx := len(m.Originators) - 1; iNdEx >= 0; iNdEx-- {
-			size, err := m.Originators[iNdEx].MarshalToSizedBufferVTStrict(dAtA[:i])
+	if len(m.Edges) > 0 {
+		for iNdEx := len(m.Edges) - 1; iNdEx >= 0; iNdEx-- {
+			size, err := m.Edges[iNdEx].MarshalToSizedBufferVTStrict(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+			i--
+			dAtA[i] = 0x2a
+		}
+	}
+	if len(m.Nodes) > 0 {
+		for iNdEx := len(m.Nodes) - 1; iNdEx >= 0; iNdEx-- {
+			size, err := m.Nodes[iNdEx].MarshalToSizedBufferVTStrict(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -494,43 +748,69 @@ func (m *MeshTopology) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *MeshOriginator) SizeVT() (n int) {
+func (m *MeshNode) SizeVT() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	l = len(m.OrigMac)
+	l = len(m.Mac)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	l = len(m.OrigHostname)
+	if len(m.SecondaryMacs) > 0 {
+		for _, s := range m.SecondaryMacs {
+			l = len(s)
+			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+		}
+	}
+	l = len(m.Hostname)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	l = len(m.NextHopMac)
+	l = len(m.Segment)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	l = len(m.NextHopHostname)
+	if m.ClientCount != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.ClientCount))
+	}
+	if m.HopsFromSelf != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.HopsFromSelf))
+	}
+	l = len(m.MyHardIfname)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	l = len(m.HardIfname)
+	if m.IsSelf {
+		n += 2
+	}
+	n += len(m.unknownFields)
+	return n
+}
+
+func (m *MeshEdge) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.FromMac)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	if m.Tq != 0 {
-		n += 1 + protohelpers.SizeOfVarint(uint64(m.Tq))
+	l = len(m.ToMac)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	if m.Throughput != 0 {
+	if m.Metric != 0 {
 		n += 9
 	}
-	if m.LastSeenMs != 0 {
-		n += 1 + protohelpers.SizeOfVarint(uint64(m.LastSeenMs))
+	if m.Blos {
+		n += 2
 	}
-	if m.Hops != 0 {
-		n += 1 + protohelpers.SizeOfVarint(uint64(m.Hops))
+	if m.OnMyPath {
+		n += 2
 	}
 	n += len(m.unknownFields)
 	return n
@@ -554,8 +834,14 @@ func (m *MeshTopology) SizeVT() (n int) {
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	if len(m.Originators) > 0 {
-		for _, e := range m.Originators {
+	if len(m.Nodes) > 0 {
+		for _, e := range m.Nodes {
+			l = e.SizeVT()
+			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+		}
+	}
+	if len(m.Edges) > 0 {
+		for _, e := range m.Edges {
 			l = e.SizeVT()
 			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 		}
@@ -568,7 +854,7 @@ func (m *MeshTopology) SizeVT() (n int) {
 	return n
 }
 
-func (m *MeshOriginator) UnmarshalVT(dAtA []byte) error {
+func (m *MeshNode) UnmarshalVT(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -591,15 +877,15 @@ func (m *MeshOriginator) UnmarshalVT(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: MeshOriginator: wiretype end group for non-group")
+			return fmt.Errorf("proto: MeshNode: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: MeshOriginator: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: MeshNode: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field OrigMac", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Mac", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -627,11 +913,11 @@ func (m *MeshOriginator) UnmarshalVT(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.OrigMac = string(dAtA[iNdEx:postIndex])
+			m.Mac = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field OrigHostname", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field SecondaryMacs", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -659,11 +945,11 @@ func (m *MeshOriginator) UnmarshalVT(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.OrigHostname = string(dAtA[iNdEx:postIndex])
+			m.SecondaryMacs = append(m.SecondaryMacs, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field NextHopMac", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Hostname", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -691,11 +977,11 @@ func (m *MeshOriginator) UnmarshalVT(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.NextHopMac = string(dAtA[iNdEx:postIndex])
+			m.Hostname = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 4:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field NextHopHostname", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Segment", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -723,13 +1009,13 @@ func (m *MeshOriginator) UnmarshalVT(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.NextHopHostname = string(dAtA[iNdEx:postIndex])
+			m.Segment = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 5:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field HardIfname", wireType)
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ClientCount", wireType)
 			}
-			var stringLen uint64
+			m.ClientCount = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -739,29 +1025,16 @@ func (m *MeshOriginator) UnmarshalVT(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.ClientCount |= int32(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.HardIfname = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
 		case 6:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Tq", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field HopsFromSelf", wireType)
 			}
-			m.Tq = 0
+			m.HopsFromSelf = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -771,14 +1044,181 @@ func (m *MeshOriginator) UnmarshalVT(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Tq |= int32(b&0x7F) << shift
+				m.HopsFromSelf |= int32(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
 		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MyHardIfname", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.MyHardIfname = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field IsSelf", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.IsSelf = bool(v != 0)
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MeshEdge) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MeshEdge: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MeshEdge: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field FromMac", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.FromMac = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ToMac", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ToMac = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
 			if wireType != 1 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Throughput", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Metric", wireType)
 			}
 			var v uint64
 			if (iNdEx + 8) > l {
@@ -786,12 +1226,12 @@ func (m *MeshOriginator) UnmarshalVT(dAtA []byte) error {
 			}
 			v = uint64(binary.LittleEndian.Uint64(dAtA[iNdEx:]))
 			iNdEx += 8
-			m.Throughput = float64(math.Float64frombits(v))
-		case 8:
+			m.Metric = float64(math.Float64frombits(v))
+		case 4:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field LastSeenMs", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Blos", wireType)
 			}
-			m.LastSeenMs = 0
+			var v int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -801,16 +1241,17 @@ func (m *MeshOriginator) UnmarshalVT(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.LastSeenMs |= int32(b&0x7F) << shift
+				v |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-		case 9:
+			m.Blos = bool(v != 0)
+		case 5:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Hops", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field OnMyPath", wireType)
 			}
-			m.Hops = 0
+			var v int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -820,11 +1261,12 @@ func (m *MeshOriginator) UnmarshalVT(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Hops |= int32(b&0x7F) << shift
+				v |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
+			m.OnMyPath = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -974,7 +1416,7 @@ func (m *MeshTopology) UnmarshalVT(dAtA []byte) error {
 			iNdEx = postIndex
 		case 4:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Originators", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Nodes", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -1001,12 +1443,46 @@ func (m *MeshTopology) UnmarshalVT(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Originators = append(m.Originators, &MeshOriginator{})
-			if err := m.Originators[len(m.Originators)-1].UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+			m.Nodes = append(m.Nodes, &MeshNode{})
+			if err := m.Nodes[len(m.Nodes)-1].UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Edges", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Edges = append(m.Edges, &MeshEdge{})
+			if err := m.Edges[len(m.Edges)-1].UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 6:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CollectedAt", wireType)
 			}
@@ -1064,7 +1540,7 @@ func (m *MeshTopology) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *MeshOriginator) UnmarshalVTUnsafe(dAtA []byte) error {
+func (m *MeshNode) UnmarshalVTUnsafe(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -1087,15 +1563,15 @@ func (m *MeshOriginator) UnmarshalVTUnsafe(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: MeshOriginator: wiretype end group for non-group")
+			return fmt.Errorf("proto: MeshNode: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: MeshOriginator: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: MeshNode: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field OrigMac", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Mac", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -1127,11 +1603,11 @@ func (m *MeshOriginator) UnmarshalVTUnsafe(dAtA []byte) error {
 			if intStringLen > 0 {
 				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
 			}
-			m.OrigMac = stringValue
+			m.Mac = stringValue
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field OrigHostname", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field SecondaryMacs", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -1163,11 +1639,11 @@ func (m *MeshOriginator) UnmarshalVTUnsafe(dAtA []byte) error {
 			if intStringLen > 0 {
 				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
 			}
-			m.OrigHostname = stringValue
+			m.SecondaryMacs = append(m.SecondaryMacs, stringValue)
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field NextHopMac", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Hostname", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -1199,11 +1675,11 @@ func (m *MeshOriginator) UnmarshalVTUnsafe(dAtA []byte) error {
 			if intStringLen > 0 {
 				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
 			}
-			m.NextHopMac = stringValue
+			m.Hostname = stringValue
 			iNdEx = postIndex
 		case 4:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field NextHopHostname", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Segment", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -1235,13 +1711,13 @@ func (m *MeshOriginator) UnmarshalVTUnsafe(dAtA []byte) error {
 			if intStringLen > 0 {
 				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
 			}
-			m.NextHopHostname = stringValue
+			m.Segment = stringValue
 			iNdEx = postIndex
 		case 5:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field HardIfname", wireType)
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ClientCount", wireType)
 			}
-			var stringLen uint64
+			m.ClientCount = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -1251,33 +1727,16 @@ func (m *MeshOriginator) UnmarshalVTUnsafe(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				m.ClientCount |= int32(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return protohelpers.ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			var stringValue string
-			if intStringLen > 0 {
-				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
-			}
-			m.HardIfname = stringValue
-			iNdEx = postIndex
 		case 6:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Tq", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field HopsFromSelf", wireType)
 			}
-			m.Tq = 0
+			m.HopsFromSelf = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -1287,14 +1746,193 @@ func (m *MeshOriginator) UnmarshalVTUnsafe(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Tq |= int32(b&0x7F) << shift
+				m.HopsFromSelf |= int32(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
 		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MyHardIfname", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.MyHardIfname = stringValue
+			iNdEx = postIndex
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field IsSelf", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.IsSelf = bool(v != 0)
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MeshEdge) UnmarshalVTUnsafe(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MeshEdge: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MeshEdge: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field FromMac", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.FromMac = stringValue
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ToMac", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.ToMac = stringValue
+			iNdEx = postIndex
+		case 3:
 			if wireType != 1 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Throughput", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Metric", wireType)
 			}
 			var v uint64
 			if (iNdEx + 8) > l {
@@ -1302,12 +1940,12 @@ func (m *MeshOriginator) UnmarshalVTUnsafe(dAtA []byte) error {
 			}
 			v = uint64(binary.LittleEndian.Uint64(dAtA[iNdEx:]))
 			iNdEx += 8
-			m.Throughput = float64(math.Float64frombits(v))
-		case 8:
+			m.Metric = float64(math.Float64frombits(v))
+		case 4:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field LastSeenMs", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Blos", wireType)
 			}
-			m.LastSeenMs = 0
+			var v int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -1317,16 +1955,17 @@ func (m *MeshOriginator) UnmarshalVTUnsafe(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.LastSeenMs |= int32(b&0x7F) << shift
+				v |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-		case 9:
+			m.Blos = bool(v != 0)
+		case 5:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Hops", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field OnMyPath", wireType)
 			}
-			m.Hops = 0
+			var v int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return protohelpers.ErrIntOverflow
@@ -1336,11 +1975,12 @@ func (m *MeshOriginator) UnmarshalVTUnsafe(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Hops |= int32(b&0x7F) << shift
+				v |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
+			m.OnMyPath = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -1502,7 +2142,7 @@ func (m *MeshTopology) UnmarshalVTUnsafe(dAtA []byte) error {
 			iNdEx = postIndex
 		case 4:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Originators", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Nodes", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -1529,12 +2169,46 @@ func (m *MeshTopology) UnmarshalVTUnsafe(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Originators = append(m.Originators, &MeshOriginator{})
-			if err := m.Originators[len(m.Originators)-1].UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
+			m.Nodes = append(m.Nodes, &MeshNode{})
+			if err := m.Nodes[len(m.Nodes)-1].UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Edges", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Edges = append(m.Edges, &MeshEdge{})
+			if err := m.Edges[len(m.Edges)-1].UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 6:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CollectedAt", wireType)
 			}

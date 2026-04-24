@@ -144,6 +144,33 @@
   stroke: var(--bg);
   stroke-width: 3px;
 }
+
+/* My-paths overlay: when the toggle is on, my forwarding-tree edges
+   render bright with a drop-shadow; everything else dims to context. */
+.topo-edge.muted { stroke-opacity: 0.18; }
+.topo-edge.mypath {
+  stroke-opacity: 0.85;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+.topo-edge.blos.mypath { stroke-opacity: 0.95; }
+
+/* Count-only client badge anchored to each host node. */
+.topo-client-badge rect {
+  fill: rgba(0, 229, 255, 0.08);
+  stroke: var(--accent);
+  stroke-width: 0.8;
+  pointer-events: none;
+}
+.topo-client-badge text {
+  fill: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
 .topo-edge-count {
   fill: var(--dim);
   font-family: var(--font-mono);

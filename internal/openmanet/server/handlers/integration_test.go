@@ -81,7 +81,8 @@ func newTestServer(t *testing.T) *httptest.Server {
 
 	mux.Handle(meshtopoconnect.NewMeshTopologyServiceHandler(&handlers.MeshTopologyService{
 		Log:          zerolog.Nop(),
-		OrigProvider: &fakeOrigTopology{snap: sampleOrigTopology()},
+		VisProvider:  &fakeVisProvider{doc: sampleVisDoc()},
+		OrigProvider: &fakeOrigTopology{snap: sampleOrigSnap()},
 	}, handlerOpt))
 
 	mux.Handle(services.NewStatusServiceHandler(&handlers.StatusService{
@@ -217,23 +218,32 @@ func TestIntegration_GetMeshTopology(t *testing.T) {
 
 	topo := resp.GetTopology()
 	require.NotNil(t, topo)
-	assert.Equal(t, "BCM2711-97d6", topo.GetSelfHostname())
-	assert.Equal(t, "BATMAN_IV", topo.GetAlgorithm())
+	assert.Equal(t, "me", topo.GetSelfHostname())
+	assert.Equal(t, "BATMAN_V", topo.GetAlgorithm())
 
-	// The sample snapshot has one direct RF neighbor, one multi-hop RF peer,
-	// and one direct BLOS neighbor — make sure every one of those lands on
-	// the wire with its hard_ifname and hop count preserved.
-	require.Len(t, topo.GetOriginators(), 3)
+	// sampleVisDoc has 4 nodes (me, alpha, gw1, remoteA) and 3 canonical
+	// edges (me↔alpha, me↔gw1, gw1↔remoteA). Segments come from the
+	// originator overlay: me + alpha are local, gw1 + remoteA are remote.
+	require.Len(t, topo.GetNodes(), 4)
+	require.Len(t, topo.GetEdges(), 3)
 
-	byMAC := make(map[string]string, 3) // orig mac → hard_ifname
-	hopsByMAC := make(map[string]int32, 3)
-	for _, o := range topo.GetOriginators() {
-		byMAC[o.GetOrigMac()] = o.GetHardIfname()
-		hopsByMAC[o.GetOrigMac()] = o.GetHops()
+	segByMAC := map[string]string{}
+	for _, n := range topo.GetNodes() {
+		segByMAC[n.GetMac()] = n.GetSegment()
 	}
-	assert.Equal(t, "phy2-mesh0", byMAC["9c:ef:d5:f9:9e:02"])
-	assert.Equal(t, "vxlan0", byMAC["2c:cf:67:b8:88:bb"], "BLOS edge keeps its hard_ifname")
-	assert.Equal(t, int32(2), hopsByMAC["00:0a:52:0b:7d:ae"], "multi-hop peer reports hops=2")
+	assert.Equal(t, "local", segByMAC["aa:aa:aa:aa:aa:00"])
+	assert.Equal(t, "local", segByMAC["bb:bb:bb:bb:bb:00"])
+	assert.Equal(t, "remote", segByMAC["cc:cc:cc:cc:cc:00"])
+	assert.Equal(t, "remote", segByMAC["dd:dd:dd:dd:dd:00"])
+
+	// BLOS edge: exactly one, the me↔gw1 tunnel.
+	blosEdges := 0
+	for _, e := range topo.GetEdges() {
+		if e.GetBlos() {
+			blosEdges++
+		}
+	}
+	assert.Equal(t, 1, blosEdges)
 }
 
 // ── StatusService ─────────────────────────────────────────────────────────────

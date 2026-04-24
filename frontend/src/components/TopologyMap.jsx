@@ -13,6 +13,8 @@
 //   props.compact          — smaller canvas + drop segment chrome for
 //                             Dashboard's inlined mini-map
 //   props.fitSignal        — counter; change resets zoom/pan to identity
+//   props.myPathsOverlay   — when true, brighten edges on the serving
+//                             node's best-route tree and dim the rest
 
 import React, { useEffect, useMemo, useRef } from 'react';
 import { zoom, zoomIdentity } from 'd3-zoom';
@@ -198,6 +200,16 @@ function InterfaceBadges({ interfaces }) {
   );
 }
 
+function ClientCountBadge({ count }) {
+  if (!count) return null;
+  return (
+    <g className="topo-client-badge" transform={`translate(${NODE_RADIUS + 2},-${NODE_RADIUS - 4})`}>
+      <rect x="0" y="0" width="22" height="14" rx="2" ry="2" />
+      <text x="11" y="7.5">{`·${count}`}</text>
+    </g>
+  );
+}
+
 function HostNode({ host, pos, kind, onSelect, selectedId, compact }) {
   if (!pos) return null;
   const isSelected = selectedId === host.id;
@@ -222,45 +234,54 @@ function HostNode({ host, pos, kind, onSelect, selectedId, compact }) {
         </text>
       )}
       {!compact && <InterfaceBadges interfaces={host.interfaces} />}
+      {!compact && <ClientCountBadge count={host.clientCount} />}
     </g>
   );
 }
 
 function formatEdgeLabel(edge, algorithm) {
   if (edge.blos) return 'BLOS';
-  if (algorithm === 'BATMAN_V' && edge.bestThroughput) {
-    // Display kbps or Mbps depending on magnitude.
-    return edge.bestThroughput >= 1000
-      ? `${(edge.bestThroughput / 1000).toFixed(1)} Mbps`
-      : `${Math.round(edge.bestThroughput)} kbps`;
+  if (!edge.metric) return '';
+  // BATMAN_V: metric is throughput-derived (higher = better).
+  // BATMAN_IV: metric is 255/TQ (lower = better). Display the raw value
+  // in both cases — operators reading the canvas already know the
+  // algorithm from the header chip.
+  if (algorithm === 'BATMAN_V') {
+    return edge.metric >= 1
+      ? `${edge.metric.toFixed(1)}`
+      : `${edge.metric.toFixed(2)}`;
   }
-  if (edge.bestTQ) return `TQ ${edge.bestTQ}`;
-  return '';
+  return `${edge.metric.toFixed(2)}`;
 }
 
-function AggregateEdgeLine({ edge, positions, blos, algorithm }) {
+function EdgeLine({ edge, positions, algorithm, myPathsOverlay }) {
   const a = positions.get(edge.hostA);
   const b = positions.get(edge.hostB);
   if (!a || !b) return null;
-  const classes = ['topo-edge'];
-  if (blos) classes.push('blos');
 
-  // Thickness: higher TQ / throughput ⇒ thicker line.
-  let strokeWidth = 1;
+  const classes = ['topo-edge'];
+  if (edge.blos) classes.push('blos');
+  if (myPathsOverlay) {
+    if (edge.onMyPath) classes.push('mypath');
+    else classes.push('muted');
+  }
+
+  // Thickness grows with a better metric. Overlay mode's .mypath rule
+  // adds a further bump via CSS, so we keep this base light.
+  let strokeWidth = 1.1;
   if (algorithm === 'BATMAN_V') {
-    const tp = edge.bestThroughput || 0;
-    if (tp >= 10000) strokeWidth = 2.5;
-    else if (tp >= 1000) strokeWidth = 1.75;
-  } else {
-    const tq = edge.bestTQ || 0;
-    if (tq >= 230) strokeWidth = 2.5;
-    else if (tq >= 180) strokeWidth = 1.75;
+    if (edge.metric >= 10) strokeWidth = 2.2;
+    else if (edge.metric >= 2) strokeWidth = 1.6;
+  } else if (edge.metric > 0) {
+    // BATMAN_IV: lower metric is better; invert.
+    if (edge.metric <= 1.1) strokeWidth = 2.2;
+    else if (edge.metric <= 1.4) strokeWidth = 1.6;
   }
 
   const label = formatEdgeLabel(edge, algorithm);
   const mx = (a.x + b.x) / 2;
   const my = (a.y + b.y) / 2;
-  const count = edge.contributors?.length || 0;
+
   return (
     <g className="topo-edge-group">
       <line
@@ -271,9 +292,6 @@ function AggregateEdgeLine({ edge, positions, blos, algorithm }) {
       {label && (
         <g className="topo-edge-label" transform={`translate(${mx},${my})`}>
           <text className="topo-edge-label-text">{label}</text>
-          {count > 1 && (
-            <text className="topo-edge-count" y={12}>{`(${count} paths)`}</text>
-          )}
         </g>
       )}
     </g>
@@ -312,6 +330,7 @@ const TopologyMap = React.memo(function TopologyMap({
   selectedId,
   compact = false,
   fitSignal = 0,
+  myPathsOverlay = false,
 }) {
   const view = useMemo(() => buildTopologyView(topology), [topology]);
   const { positions, segmentBoxes, viewBox } = useMemo(
@@ -364,12 +383,12 @@ const TopologyMap = React.memo(function TopologyMap({
           {view.segments.map((seg) => (
             <g key={`seg-edges:${seg.id}`}>
               {seg.edges.map((e) => (
-                <AggregateEdgeLine
+                <EdgeLine
                   key={e.id}
                   edge={e}
                   positions={positions}
-                  blos={false}
                   algorithm={view.algorithm}
+                  myPathsOverlay={myPathsOverlay}
                 />
               ))}
             </g>
@@ -377,12 +396,12 @@ const TopologyMap = React.memo(function TopologyMap({
 
           {/* BLOS bridges — drawn across segment boundaries. */}
           {!compact && view.blosEdges.map((e) => (
-            <AggregateEdgeLine
+            <EdgeLine
               key={e.id}
               edge={e}
               positions={positions}
-              blos
               algorithm={view.algorithm}
+              myPathsOverlay={myPathsOverlay}
             />
           ))}
 
