@@ -90,6 +90,7 @@ func Start(staticFS fs.FS) {
 			NodeDataType:               cfg.GetAlfredDataTypeNode(),
 			PositionDataType:           cfg.GetAlfredDataTypePosition(),
 			AddressReservationDataType: cfg.GetAlfredDataTypeAddressReservation(),
+			MeshNeighborsDataType:      cfg.GetAlfredDataTypeMeshNeighbors(),
 			BatmanMulticastForceflood:  cfg.GetBatmanMulticastForceflood(),
 			DB:                         db,
 		})
@@ -166,6 +167,13 @@ func Start(staticFS fs.FS) {
 	)
 	meshDeltaTracker.Start(ctx)
 
+	// Mesh-neighbors gossip snapshotter: consumes MeshNeighbors records
+	// published by every node's mgmt.MeshNeighborsWorker and caches them
+	// for the topology handler's gossip-aware classifier. Shares the
+	// Alfred client opened by the management module so we don't open a
+	// second connection to the socket.
+	meshNeighborsSnap := startMeshNeighborsSnapshotter(ctx, cfg, manager)
+
 	// Set up session-based authentication when enabled.
 	var (
 		sessionStore  *auth.SessionStore
@@ -187,19 +195,20 @@ func Start(staticFS fs.FS) {
 	interfaceProvider := &network.NetlinkInterfaceProvider{}
 
 	apiServer := server.APIServer{
-		Cfg:               cfg,
-		Log:               logger.GetLogger("api"),
-		DB:                db,
-		GPS:               gps,
-		BLOSManager:       blosManager,
-		Tailscale:         blosManager,
-		CommsManager:      commsManager,
-		MeshDeltaTracker:  meshDeltaTracker,
-		MeshOrigProvider:  meshOrigProvider,
-		MeshVisProvider:   batctlSnapshotter,
-		BatctlSnapshotter: batctlSnapshotter,
-		SystemSnapshotter: sysSnapshotter,
-		Interfaces:        interfaceProvider,
+		Cfg:                   cfg,
+		Log:                   logger.GetLogger("api"),
+		DB:                    db,
+		GPS:                   gps,
+		BLOSManager:           blosManager,
+		Tailscale:             blosManager,
+		CommsManager:          commsManager,
+		MeshDeltaTracker:      meshDeltaTracker,
+		MeshOrigProvider:      meshOrigProvider,
+		MeshVisProvider:       batctlSnapshotter,
+		MeshNeighborsProvider: meshNeighborsSnap,
+		BatctlSnapshotter:     batctlSnapshotter,
+		SystemSnapshotter:     sysSnapshotter,
+		Interfaces:            interfaceProvider,
 		DHCP: &network.UCIDHCPConfigProvider{
 			DHCPReader:    network.NewUCIDHCPConfigReader(),
 			NetworkReader: network.NewUCINetworkConfigReader(),
@@ -338,6 +347,36 @@ func applyRuntimeTuning(cfg *config.Config, log zerolog.Logger) {
 			}
 		}()
 	}
+}
+
+// startMeshNeighborsSnapshotter constructs and starts the
+// MeshNeighborsSnapshotter when alfred is enabled and the manager has
+// produced a client. Returns a typed-nil-safe interface value (the
+// literal `nil`, not a typed nil pointer wrapped in an interface) so
+// the APIServer nil-check on the field behaves correctly.
+func startMeshNeighborsSnapshotter(
+	ctx context.Context,
+	cfg *config.Config,
+	manager *mgmt.ManagementConfig,
+) batmanadv.MeshNeighborsProvider {
+	if manager == nil || !cfg.GetAlfredDataTypeMeshNeighbors() {
+		return nil
+	}
+
+	alfredClient := manager.Client()
+	if alfredClient == nil {
+		return nil
+	}
+
+	snap := &batmanadv.MeshNeighborsSnapshotter{
+		Log:      logger.GetLogger("mesh-neighbors"),
+		Client:   alfredClient,
+		Interval: batmanadv.DefaultMeshNeighborsSnapshotInterval,
+		StaleAge: batmanadv.DefaultMeshNeighborsStaleAge,
+	}
+	snap.Start(ctx)
+
+	return snap
 }
 
 func resetDBOnStart(ctx context.Context, db *models.Queries, log zerolog.Logger) error {

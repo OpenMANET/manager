@@ -51,7 +51,7 @@ export default function TopologyPage() {
   const [myPathsOn, setMyPathsOn] = useState(false);
 
   const view = useMemo(() => buildTopologyView(topology), [topology]);
-  const { self, hosts, segments, blosEdges, counts, algorithm } = view;
+  const { self, hosts, segments, blosEdges, counts, algorithm, gossipCoverage } = view;
 
   // Lookup table: base hostname → IP from the node service.
   const ipByHostname = useMemo(() => {
@@ -140,6 +140,7 @@ export default function TopologyPage() {
           </div>
         </div>
         <div className="lat-view-toolbar">
+          <GossipCoverageBadge coverage={gossipCoverage} />
           <button className="lat-btn ghost" type="button">LAYOUT</button>
           <button className="lat-btn ghost" type="button">FILTER</button>
           <button
@@ -236,6 +237,24 @@ export default function TopologyPage() {
         </div>
       </div>
     </>
+  );
+}
+
+// GossipCoverageBadge renders "GOSSIP N/M" in the header so operators
+// see at a glance how many mesh members are actively publishing the
+// neighbor-list datatype. Muted when coverage is complete (100%), red
+// when a majority is missing — it only draws attention when something
+// is wrong. Renders nothing when the backend didn't populate the field.
+function GossipCoverageBadge({ coverage }) {
+  if (!coverage || coverage.total <= 0) return null;
+  const { published, total } = coverage;
+  const isLow = published * 2 < total;
+  const classes = ['topo-coverage'];
+  if (isLow) classes.push('warn');
+  return (
+    <span className={classes.join(' ')} title={`${published} of ${total} mesh members publish neighbor gossip`}>
+      {`GOSSIP ${published}/${total}`}
+    </span>
   );
 }
 

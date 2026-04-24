@@ -31,6 +31,7 @@ const (
 	DefaultAlfredDataTypeNode                        bool    = true
 	DefaultAlfredDataTypePosition                    bool    = true
 	DefaultAlfredDataTypeAddressReserv               bool    = true
+	DefaultAlfredDataTypeMeshNeighbors               bool    = true
 	DefaultCommsEnable                               bool    = false
 	DefaultCommsProtocol                             string  = "rtp"
 	DefaultCommsDebug                                bool    = false
@@ -203,6 +204,7 @@ type Config struct {
 	AlfredDataTypePosition                    bool
 	AlfredEnable                              bool
 	AlfredDataTypeGateway                     bool
+	AlfredDataTypeMeshNeighbors               bool
 	CommsLoopback                             bool
 	BLOSEnable                                bool
 	AuthEnable                                bool
@@ -360,6 +362,12 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.AlfredDataTypeAddressReserv = c.v.GetBool("alfred.dataTypes.addressReservation")
 	} else {
 		c.AlfredDataTypeAddressReserv = DefaultAlfredDataTypeAddressReserv
+	}
+
+	if c.v.IsSet("alfred.dataTypes.meshNeighbors") {
+		c.AlfredDataTypeMeshNeighbors = c.v.GetBool("alfred.dataTypes.meshNeighbors")
+	} else {
+		c.AlfredDataTypeMeshNeighbors = DefaultAlfredDataTypeMeshNeighbors
 	}
 
 	// Load comms configuration
@@ -796,6 +804,18 @@ func (c *Config) GetAlfredDataTypeAddressReservation() bool {
 	defer c.mu.RUnlock()
 
 	return c.AlfredDataTypeAddressReserv
+}
+
+// GetAlfredDataTypeMeshNeighbors returns whether the mesh-neighbors gossip
+// data type is enabled. When true, each node publishes its direct L2
+// batman-adv neighbor table (partitioned by RF vs vxlan0) and its own
+// best-route originator rows so the serving node can build a true
+// mesh-wide topology graph.
+func (c *Config) GetAlfredDataTypeMeshNeighbors() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.AlfredDataTypeMeshNeighbors
 }
 
 // GetCommsEnable returns whether the comms subsystem is enabled.

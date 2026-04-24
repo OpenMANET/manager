@@ -90,6 +90,7 @@ export async function fetchMeshStatus() {
 //   {
 //     selfMac, selfHostname, algorithm,            // who we are + batman version
 //     collectedAt: Date | null,
+//     gossipCoverage: { published, total },        // how many peers publish neighbor gossip
 //     nodes: [
 //       {
 //         mac, secondaryMacs, hostname,
@@ -98,6 +99,7 @@ export async function fetchMeshStatus() {
 //         hopsFromSelf,                              // 0 self, 99 unknown
 //         myHardIfname,                              // local ifname I'd forward on, "" if unknown
 //         isSelf,
+//         gossipStale,                               // true when the node's gossip record is missing/stale
 //       }
 //     ],
 //     edges: [
@@ -126,6 +128,12 @@ export async function fetchMeshTopology() {
       selfHostname: t.selfHostname ?? '',
       algorithm: t.algorithm ?? '',
       collectedAt,
+      gossipCoverage: t.gossipCoverage
+        ? {
+            published: t.gossipCoverage.published ?? 0,
+            total: t.gossipCoverage.total ?? 0,
+          }
+        : null,
       nodes: (t.nodes ?? []).map((n) => ({
         mac: n.mac ?? '',
         secondaryMacs: n.secondaryMacs ?? [],
@@ -136,6 +144,7 @@ export async function fetchMeshTopology() {
         hopsFromSelf: n.hopsFromSelf ?? 0,
         myHardIfname: n.myHardIfname ?? '',
         isSelf: n.isSelf ?? false,
+        gossipStale: n.gossipStale ?? false,
       })),
       edges: (t.edges ?? []).map((e) => ({
         fromMac: e.fromMac ?? '',

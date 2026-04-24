@@ -33,13 +33,14 @@ const (
 // batadv-vis (primary) and overlays this node's best-route information
 // from its originator table.
 type MeshTopologyService struct {
-	Log           zerolog.Logger
-	VisProvider   batmanadv.VisProvider
-	OrigProvider  batmanadv.OriginatorTopologyProvider
-	DeltaTracker  *DeltaTracker
-	ParseBatHosts func(string) (*batmanadv.BatHosts, error)
-	Now           func() time.Time
-	BatHostsPath  string
+	Log               zerolog.Logger
+	VisProvider       batmanadv.VisProvider
+	OrigProvider      batmanadv.OriginatorTopologyProvider
+	NeighborsProvider batmanadv.MeshNeighborsProvider
+	DeltaTracker      *DeltaTracker
+	ParseBatHosts     func(string) (*batmanadv.BatHosts, error)
+	Now               func() time.Time
+	BatHostsPath      string
 }
 
 func (s *MeshTopologyService) now() time.Time {
@@ -88,7 +89,7 @@ func (s *MeshTopologyService) GetMeshTopology(ctx context.Context, _ *emptypb.Em
 		batHosts, _ = s.ParseBatHosts(s.BatHostsPath)
 	}
 
-	merged := mergeMeshTopology(visDoc, origSnap, batHosts)
+	merged := mergeMeshTopology(visDoc, origSnap, batHosts, s.NeighborsProvider)
 	merged.CollectedAt = timestamppb.New(s.now())
 
 	return &meshtopov1.GetMeshTopologyResponse{Topology: merged}, nil
@@ -105,6 +106,7 @@ func mergeMeshTopology(
 	visDoc *batmanadv.VisDoc,
 	origSnap *batmanadv.OriginatorTopology,
 	batHosts *batmanadv.BatHosts,
+	neighborsProvider batmanadv.MeshNeighborsProvider,
 ) *meshtopov1.MeshTopology {
 	// 1. MAC → primary index for every vis node (primary + secondaries
 	//    all map to the same primary). Originator-only nodes that vis
@@ -170,8 +172,14 @@ func mergeMeshTopology(
 
 	selfPrimary := primaryByMac[selfMAC]
 
-	// 2. Segment assignment + per-node BLOS gateway.
-	segmentByPrimary, gatewayByPrimary := classifyNodes(origSnap, primaryByMac, selfMAC)
+	// 2. Build gossip view if a provider is wired. When gossip covers any
+	// primary its RF/BLOS neighbor sets drive segment assignment and
+	// gateway identification; primaries without coverage fall through to
+	// the heuristic classifier.
+	gossip := buildGossipView(neighborsProvider, visNodes, primaryByMac)
+
+	segmentByPrimary, gatewayByPrimary := classifyNodesWithGossip(
+		origSnap, primaryByMac, selfMAC, selfPrimary, gossip)
 	if selfPrimary != "" {
 		segmentByPrimary[selfPrimary] = segmentLocal // self is always local
 		delete(gatewayByPrimary, selfPrimary)
@@ -180,15 +188,68 @@ func mergeMeshTopology(
 	// 4. Build MeshNode list.
 	nodes := buildMeshNodes(visNodes, origByMac, batHosts, segmentByPrimary, gatewayByPrimary, selfPrimary, origSnap.SelfHostname, primaryByMac)
 
+	// 4a. Mark gossip-stale nodes so the UI can dim them.
+	applyGossipStale(nodes, gossip)
+
 	// 5. Build MeshEdge list — originator-derived first, then vis neighbors.
 	edges := buildMeshEdges(visDoc, origSnap.Originators, primaryByMac, segmentByPrimary, selfMAC, renderedPrimaries(nodes))
 
 	return &meshtopov1.MeshTopology{
-		SelfMac:      origSnap.SelfMAC,
-		SelfHostname: origSnap.SelfHostname,
-		Algorithm:    origSnap.Algorithm, // always the batman-adv algorithm, never the vis header
-		Nodes:        nodes,
-		Edges:        edges,
+		SelfMac:        origSnap.SelfMAC,
+		SelfHostname:   origSnap.SelfHostname,
+		Algorithm:      origSnap.Algorithm, // always the batman-adv algorithm, never the vis header
+		Nodes:          nodes,
+		Edges:          edges,
+		GossipCoverage: gossipCoverage(gossip, nodes),
+	}
+}
+
+// applyGossipStale sets the GossipStale bool on every MeshNode based on
+// the pre-computed gossipView. Self is never considered stale.
+func applyGossipStale(nodes []*meshtopov1.MeshNode, gossip *gossipView) {
+	if gossip == nil {
+		return
+	}
+
+	for _, n := range nodes {
+		if n.GetIsSelf() {
+			continue
+		}
+
+		primary := strings.ToLower(n.GetMac())
+		if gossip.staleByPrimary[primary] {
+			n.GossipStale = true
+		}
+	}
+}
+
+// gossipCoverage summarizes how many rendered non-self nodes have fresh
+// gossip records. Emitted into the MeshTopology response so the frontend
+// can render a "GOSSIP N/M" badge.
+func gossipCoverage(gossip *gossipView, nodes []*meshtopov1.MeshNode) *meshtopov1.GossipCoverage {
+	if gossip == nil {
+		return nil
+	}
+
+	published := 0
+	total := 0
+
+	for _, n := range nodes {
+		if n.GetIsSelf() {
+			continue
+		}
+
+		total++
+
+		primary := strings.ToLower(n.GetMac())
+		if !gossip.staleByPrimary[primary] {
+			published++
+		}
+	}
+
+	return &meshtopov1.GossipCoverage{
+		Published: int32(published), //nolint:gosec // bounded by mesh size
+		Total:     int32(total),     //nolint:gosec // bounded by mesh size
 	}
 }
 
@@ -320,15 +381,18 @@ func applyCanonicalPrimary(
 	}
 }
 
-// classifyNodes assigns each primary to a segment and — for remote-segment
-// nodes — resolves the direct BLOS neighbor (the "gateway") on the other
-// end of the vxlan0 tunnel. Remote nodes sharing a gateway form one UI
-// segment; distinct gateways produce distinct segments.
+// classifyNodesHeuristic assigns each primary to a segment and — for
+// remote-segment nodes — resolves the direct BLOS neighbor (the
+// "gateway") on the other end of the vxlan0 tunnel using only the
+// serving node's own originator table. This is the fallback
+// classifier: it runs for every primary when gossip is unavailable,
+// and for individual primaries whose gossip record is missing or
+// stale when gossip is partially available.
 //
 // Rule: any vxlan0 route → remote unless the same primary also has a
 // non-vxlan0 route (RF wins). Primaries absent from the originator table
 // default to local with no gateway.
-func classifyNodes(
+func classifyNodesHeuristic(
 	origSnap *batmanadv.OriginatorTopology,
 	primaryByMac map[string]string,
 	selfMAC string,

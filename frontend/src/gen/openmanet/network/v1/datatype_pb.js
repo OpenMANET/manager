@@ -20,6 +20,7 @@ export const DataType = /*@__PURE__*/ proto3.makeEnum(
     {no: 100, name: "DATA_TYPE_GATEWAY", localName: "GATEWAY"},
     {no: 101, name: "DATA_TYPE_ADDRESS_RESERVATION", localName: "ADDRESS_RESERVATION"},
     {no: 102, name: "DATA_TYPE_NODE", localName: "NODE"},
+    {no: 103, name: "DATA_TYPE_MESH_NEIGHBORS", localName: "MESH_NEIGHBORS"},
   ],
 );
 

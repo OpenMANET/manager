@@ -24,6 +24,7 @@ export const MeshNode = /*@__PURE__*/ proto3.makeMessageType(
     { no: 7, name: "my_hard_ifname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 8, name: "is_self", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 9, name: "remote_gateway_mac", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 10, name: "gossip_stale", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ],
 );
 
@@ -60,6 +61,21 @@ export const MeshTopology = /*@__PURE__*/ proto3.makeMessageType(
     { no: 4, name: "nodes", kind: "message", T: MeshNode, repeated: true },
     { no: 5, name: "edges", kind: "message", T: MeshEdge, repeated: true },
     { no: 6, name: "collected_at", kind: "message", T: Timestamp },
+    { no: 7, name: "gossip_coverage", kind: "message", T: GossipCoverage },
+  ],
+);
+
+/**
+ * GossipCoverage summarizes MeshNeighbors gossip participation across
+ * the mesh at the serving node's most recent refresh.
+ *
+ * @generated from message openmanet.mesh_topology.v1.GossipCoverage
+ */
+export const GossipCoverage = /*@__PURE__*/ proto3.makeMessageType(
+  "openmanet.mesh_topology.v1.GossipCoverage",
+  () => [
+    { no: 1, name: "published", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 2, name: "total", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
   ],
 );
 

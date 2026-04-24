@@ -154,6 +154,43 @@
 }
 .topo-edge.blos.mypath { stroke-opacity: 0.95; }
 
+/* Link-quality coloring from gossip-provided edge metrics. q-unknown
+   keeps the default accent; strong/ok/weak let operators eyeball mesh
+   hot spots at a glance. BLOS edges keep their warn tint (set above)
+   — quality classes only win on the RF edge case. */
+.topo-edge.q-strong { stroke: var(--ok); }
+.topo-edge.q-ok     { stroke: var(--accent); }
+.topo-edge.q-weak   { stroke: var(--warn); stroke-opacity: 0.75; }
+.topo-edge.q-unknown { stroke: var(--dim); stroke-opacity: 0.4; stroke-dasharray: 3 3; }
+
+/* Stale gossip: the publisher hasn't refreshed its record within
+   StaleAge. Dim + desaturate the node so operators know its topology
+   data is aging (distinct from "offline" which gets handled by the
+   weak class above). */
+.topo-node.stale {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+
+/* Gossip coverage badge in the header row. Faded when coverage is
+   100 % (quiet good-state), red when coverage drops below 50 % so
+   partial fleet participation draws attention. */
+.topo-coverage {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  opacity: 0.5;
+  padding: 2px 6px;
+  border: 1px solid var(--dim);
+  border-radius: 2px;
+}
+.topo-coverage.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+  opacity: 1;
+}
+
 .topo-edge-count {
   fill: var(--dim);
   font-family: var(--font-mono);

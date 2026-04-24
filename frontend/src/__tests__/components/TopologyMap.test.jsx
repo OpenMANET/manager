@@ -246,6 +246,129 @@ describe('TestTopologyMapTreeLayout', () => {
   });
 });
 
+// ringWithCrossEdge is a topology where four depth-1 siblings form a
+// ring — gw has four direct children but two of them (B and C) also
+// have a non-tree edge between them. The BFS tree alone places the
+// four siblings in insertion order across the depth band; the hybrid
+// relaxation should pull B and C closer together than their non-
+// connected sibling A is to them.
+function ringWithCrossEdge() {
+  return {
+    selfMac: 'aa:aa:aa:aa:aa:00',
+    selfHostname: 'gw',
+    algorithm: 'BATMAN_V',
+    nodes: [
+      { mac: 'aa:aa:aa:aa:aa:00', hostname: 'gw', segment: 'local', hopsFromSelf: 0, isSelf: true,  clientCount: 0, myHardIfname: '' },
+      { mac: 'bb:bb:bb:bb:bb:00', hostname: 'A',  segment: 'local', hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+      { mac: 'cc:cc:cc:cc:cc:00', hostname: 'B',  segment: 'local', hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+      { mac: 'dd:dd:dd:dd:dd:00', hostname: 'C',  segment: 'local', hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+      { mac: 'ee:ee:ee:ee:ee:00', hostname: 'D',  segment: 'local', hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+    ],
+    edges: [
+      { fromMac: 'aa:aa:aa:aa:aa:00', toMac: 'bb:bb:bb:bb:bb:00', metric: 15, blos: false, onMyPath: true },
+      { fromMac: 'aa:aa:aa:aa:aa:00', toMac: 'cc:cc:cc:cc:cc:00', metric: 15, blos: false, onMyPath: true },
+      { fromMac: 'aa:aa:aa:aa:aa:00', toMac: 'dd:dd:dd:dd:dd:00', metric: 15, blos: false, onMyPath: true },
+      { fromMac: 'aa:aa:aa:aa:aa:00', toMac: 'ee:ee:ee:ee:ee:00', metric: 15, blos: false, onMyPath: true },
+      // Non-tree edge: B ↔ C. The hybrid relaxation should pull these
+      // two same-depth siblings toward each other.
+      { fromMac: 'cc:cc:cc:cc:cc:00', toMac: 'dd:dd:dd:dd:dd:00', metric: 25, blos: false, onMyPath: false },
+    ],
+  };
+}
+
+describe('TestTopologyMapHybridLayout', () => {
+  it('preserves BFS y-depth for every node even after relaxation', () => {
+    const { container } = render(<TopologyMap topology={ringWithCrossEdge()} />);
+    const pos = positionsByLabel(container);
+
+    expect(pos.gw.y).toBe(0);
+    // All four direct children of gw sit at the same BFS depth →
+    // identical y coordinates; relaxation only touches x.
+    expect(pos.A.y).toBe(pos.B.y);
+    expect(pos.A.y).toBe(pos.C.y);
+    expect(pos.A.y).toBe(pos.D.y);
+    expect(pos.A.y).toBeGreaterThan(pos.gw.y);
+  });
+
+  it('pulls edge-connected same-depth siblings closer than disconnected ones', () => {
+    const { container } = render(<TopologyMap topology={ringWithCrossEdge()} />);
+    const pos = positionsByLabel(container);
+
+    // B and C share a non-tree edge. A and D do not share any edge
+    // with B/C beyond the gw root. After relaxation, |B.x - C.x|
+    // should be at most the gap between B and its nearest non-C
+    // sibling (A). If the assertion fails the relaxation either
+    // skipped when it shouldn't have, or its parameters are too weak.
+    const distBC = Math.abs(pos.B.x - pos.C.x);
+    const distBA = Math.abs(pos.B.x - pos.A.x);
+    const distCD = Math.abs(pos.C.x - pos.D.x);
+    expect(distBC).toBeLessThanOrEqual(Math.min(distBA, distCD));
+  });
+
+  it('short-circuits for pure trees so tree-layout tests still hold', () => {
+    // Reuse chainAndSingleton (no non-tree edges) — positions should be
+    // unchanged vs the pure-BFS era. The TestTopologyMapTreeLayout block
+    // above already asserts this; a direct assertion here confirms the
+    // short-circuit triggers rather than running and converging to the
+    // same answer.
+    const { container } = render(<TopologyMap topology={chainAndSingleton()} />);
+    const pos = positionsByLabel(container);
+    // A should sit directly below its BFS parent B (no x drift).
+    expect(pos.A.x).toBe(pos.B.x);
+  });
+});
+
+describe('TestTopologyMapEdgeQuality', () => {
+  it('tags edges with a quality class derived from metric + algorithm', () => {
+    const { container } = render(<TopologyMap topology={ringWithCrossEdge()} />);
+    const edges = container.querySelectorAll('.topo-edge');
+    expect(edges.length).toBeGreaterThan(0);
+    // Every edge must carry one of the four quality classes.
+    for (const edge of edges) {
+      const cls = edge.getAttribute('class') || '';
+      const hasQuality = /q-(strong|ok|weak|unknown)/.test(cls);
+      expect(hasQuality).toBe(true);
+    }
+  });
+
+  it('marks unknown-metric edges with q-unknown', () => {
+    const fixture = {
+      ...directRF(),
+      edges: [{ fromMac: '00:00:00:00:00:00', toMac: 'aa:aa:aa:aa:aa:01', metric: 0, blos: false, onMyPath: false }],
+    };
+    const { container } = render(<TopologyMap topology={fixture} />);
+    const edge = container.querySelector('.topo-edge');
+    expect(edge.getAttribute('class')).toContain('q-unknown');
+  });
+});
+
+describe('TestTopologyMapStaleNode', () => {
+  it('adds .stale to a non-self node whose gossip record is stale', () => {
+    const fixture = {
+      ...directRF(),
+      nodes: [
+        { ...directRF().nodes[0] }, // self — never stale
+        { ...directRF().nodes[1], gossipStale: true },
+      ],
+    };
+    const { container } = render(<TopologyMap topology={fixture} />);
+    const stale = container.querySelectorAll('.topo-node.stale');
+    expect(stale.length).toBe(1);
+  });
+
+  it('does not mark self as stale even when the field is true', () => {
+    const fixture = {
+      ...directRF(),
+      nodes: directRF().nodes.map((n) => ({ ...n, gossipStale: true })),
+    };
+    const { container } = render(<TopologyMap topology={fixture} />);
+    const staleNodes = [...container.querySelectorAll('.topo-node.stale')];
+    for (const n of staleNodes) {
+      expect(n.classList.contains('self')).toBe(false);
+    }
+  });
+});
+
 describe('TestTopologyMapInteraction', () => {
   it('applies .selected to the node whose id matches selectedId', () => {
     const view = buildTopologyView(directRF());

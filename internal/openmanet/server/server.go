@@ -34,26 +34,27 @@ import (
 )
 
 type APIServer struct {
-	Cfg               *config.Config
-	Log               zerolog.Logger
-	DB                *models.Queries
-	ApiServer         *http.Server
-	Wifi              *mgmt.WirelessConfig
-	GPS               *gpsd.GPSService
-	BLOSManager       blos.BLOSLifecycle
-	CommsManager      comms.CommsLifecycle
-	Interfaces        handlers.InterfaceProvider
-	DHCP              handlers.DHCPConfigProvider
-	Leases            handlers.LeaseProvider
-	Tailscale         handlers.TailscaleStatusProvider
-	MeshDeltaTracker  *handlers.DeltaTracker
-	MeshOrigProvider  batmanadv.OriginatorTopologyProvider
-	MeshVisProvider   batmanadv.VisProvider
-	BatctlSnapshotter *handlers.BatctlSnapshotter
-	SystemSnapshotter *handlers.SystemSnapshotter
-	SessionStore      *auth.SessionStore
-	Authenticator     auth.Authenticator
-	AuthEnabled       bool
+	Cfg                   *config.Config
+	Log                   zerolog.Logger
+	DB                    *models.Queries
+	ApiServer             *http.Server
+	Wifi                  *mgmt.WirelessConfig
+	GPS                   *gpsd.GPSService
+	BLOSManager           blos.BLOSLifecycle
+	CommsManager          comms.CommsLifecycle
+	Interfaces            handlers.InterfaceProvider
+	DHCP                  handlers.DHCPConfigProvider
+	Leases                handlers.LeaseProvider
+	Tailscale             handlers.TailscaleStatusProvider
+	MeshDeltaTracker      *handlers.DeltaTracker
+	MeshOrigProvider      batmanadv.OriginatorTopologyProvider
+	MeshVisProvider       batmanadv.VisProvider
+	MeshNeighborsProvider batmanadv.MeshNeighborsProvider
+	BatctlSnapshotter     *handlers.BatctlSnapshotter
+	SystemSnapshotter     *handlers.SystemSnapshotter
+	SessionStore          *auth.SessionStore
+	Authenticator         auth.Authenticator
+	AuthEnabled           bool
 }
 
 func NewAPIServer(cfg APIServer) *APIServer {
@@ -174,10 +175,11 @@ func NewAPIServer(cfg APIServer) *APIServer {
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	meshTopoSvc := &handlers.MeshTopologyService{
-		Log:          cfg.Log,
-		VisProvider:  cfg.MeshVisProvider,
-		OrigProvider: cfg.MeshOrigProvider,
-		DeltaTracker: cfg.MeshDeltaTracker,
+		Log:               cfg.Log,
+		VisProvider:       cfg.MeshVisProvider,
+		OrigProvider:      cfg.MeshOrigProvider,
+		NeighborsProvider: cfg.MeshNeighborsProvider,
+		DeltaTracker:      cfg.MeshDeltaTracker,
 	}
 	if cfg.BatctlSnapshotter != nil {
 		meshTopoSvc.ParseBatHosts = cfg.BatctlSnapshotter.ParseBatHosts

@@ -37,6 +37,12 @@ const (
 	DataType_DATA_TYPE_ADDRESS_RESERVATION DataType = 101
 	// Node data type
 	DataType_DATA_TYPE_NODE DataType = 102
+	// Mesh neighbors data type. Published by every node every 15 s.
+	// Payload: openmanet.network.v1.MeshNeighbors (see mesh_neighbors.proto).
+	// Consumed by the serving node's mesh topology handler to classify
+	// vxlan0-reached peers into the physical mesh of whichever publisher
+	// hears them on a non-vxlan interface.
+	DataType_DATA_TYPE_MESH_NEIGHBORS DataType = 103
 )
 
 // Enum value maps for DataType.
@@ -46,12 +52,14 @@ var (
 		100: "DATA_TYPE_GATEWAY",
 		101: "DATA_TYPE_ADDRESS_RESERVATION",
 		102: "DATA_TYPE_NODE",
+		103: "DATA_TYPE_MESH_NEIGHBORS",
 	}
 	DataType_value = map[string]int32{
 		"DATA_TYPE_UNSPECIFIED":         0,
 		"DATA_TYPE_GATEWAY":             100,
 		"DATA_TYPE_ADDRESS_RESERVATION": 101,
 		"DATA_TYPE_NODE":                102,
+		"DATA_TYPE_MESH_NEIGHBORS":      103,
 	}
 )
 
@@ -86,12 +94,13 @@ var File_openmanet_network_v1_datatype_proto protoreflect.FileDescriptor
 
 const file_openmanet_network_v1_datatype_proto_rawDesc = "" +
 	"\n" +
-	"#openmanet/network/v1/datatype.proto\x12\x14openmanet.network.v1*w\n" +
+	"#openmanet/network/v1/datatype.proto\x12\x14openmanet.network.v1*\x95\x01\n" +
 	"\bDataType\x12\x19\n" +
 	"\x15DATA_TYPE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11DATA_TYPE_GATEWAY\x10d\x12%\n" +
 	"\x1dDATA_TYPE_ADDRESS_RESERVATION\x10e\x1a\x02\b\x01\x12\x12\n" +
-	"\x0eDATA_TYPE_NODE\x10fB\xe8\x01\n" +
+	"\x0eDATA_TYPE_NODE\x10f\x12\x1c\n" +
+	"\x18DATA_TYPE_MESH_NEIGHBORS\x10gB\xe8\x01\n" +
 	"\x18com.openmanet.network.v1B\rDatatypeProtoP\x01ZKgithub.com/openmanet/openmanetd/internal/api/openmanet/network/v1;networkv1\xa2\x02\x03ONX\xaa\x02\x14Openmanet.Network.V1\xca\x02\x14Openmanet\\Network\\V1\xe2\x02 Openmanet\\Network\\V1\\GPBMetadata\xea\x02\x16Openmanet::Network::V1b\x06proto3"
 
 var (

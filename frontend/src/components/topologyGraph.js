@@ -105,6 +105,8 @@ export function buildTopologyView(topology) {
       isSelf: Boolean(n.isSelf),
       myHardIfname: n.myHardIfname || '',
       secondaryMacs: n.secondaryMacs || [],
+      clientCount: Number.isFinite(n.clientCount) ? n.clientCount : 0,
+      gossipStale: Boolean(n.gossipStale),
     };
 
     hostByMac.set(key, host);
@@ -269,6 +271,12 @@ export function buildTopologyView(topology) {
       hopsMax,
     },
     algorithm: topology.algorithm || '',
+    gossipCoverage: topology.gossipCoverage
+      ? {
+          published: Number(topology.gossipCoverage.published) || 0,
+          total: Number(topology.gossipCoverage.total) || 0,
+        }
+      : null,
   };
 }
 

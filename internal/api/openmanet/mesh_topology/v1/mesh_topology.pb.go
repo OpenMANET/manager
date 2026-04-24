@@ -61,8 +61,13 @@ type MeshNode struct {
 	// remote mesh segment in the UI; distinct gateways produce distinct
 	// segments.
 	RemoteGatewayMac string `protobuf:"bytes,9,opt,name=remote_gateway_mac,json=remoteGatewayMac,proto3" json:"remote_gateway_mac,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// gossip_stale is true when the mesh-neighbors gossip record for this
+	// node has not been refreshed within the snapshotter's StaleAge
+	// window, or when no gossip record exists at all. The UI dims stale
+	// hosts to signal that their topology data is aging.
+	GossipStale   bool `protobuf:"varint,10,opt,name=gossip_stale,json=gossipStale,proto3" json:"gossip_stale,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MeshNode) Reset() {
@@ -156,6 +161,13 @@ func (x *MeshNode) GetRemoteGatewayMac() string {
 		return x.RemoteGatewayMac
 	}
 	return ""
+}
+
+func (x *MeshNode) GetGossipStale() bool {
+	if x != nil {
+		return x.GossipStale
+	}
+	return false
 }
 
 // MeshEdge is one link in the mesh, canonicalized so A↔B appears once
@@ -272,9 +284,13 @@ type MeshTopology struct {
 	Edges []*MeshEdge `protobuf:"bytes,5,rep,name=edges,proto3" json:"edges,omitempty"`
 	// collected_at is the wall-clock time the snapshot was produced on
 	// the serving node.
-	CollectedAt   *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=collected_at,json=collectedAt,proto3" json:"collected_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	CollectedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=collected_at,json=collectedAt,proto3" json:"collected_at,omitempty"`
+	// gossip_coverage reports how many mesh members are currently
+	// publishing MeshNeighbors gossip. Lets the UI show a "GOSSIP N/M"
+	// badge so operators can spot partial coverage.
+	GossipCoverage *GossipCoverage `protobuf:"bytes,7,opt,name=gossip_coverage,json=gossipCoverage,proto3" json:"gossip_coverage,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *MeshTopology) Reset() {
@@ -349,11 +365,77 @@ func (x *MeshTopology) GetCollectedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *MeshTopology) GetGossipCoverage() *GossipCoverage {
+	if x != nil {
+		return x.GossipCoverage
+	}
+	return nil
+}
+
+// GossipCoverage summarizes MeshNeighbors gossip participation across
+// the mesh at the serving node's most recent refresh.
+type GossipCoverage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// published is the number of primary MACs for which a gossip record
+	// was present and not stale.
+	Published int32 `protobuf:"varint,1,opt,name=published,proto3" json:"published,omitempty"`
+	// total is the number of primary MACs the serving node is aware of
+	// (from vis + originators). When published == total every mesh
+	// member is participating.
+	Total         int32 `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GossipCoverage) Reset() {
+	*x = GossipCoverage{}
+	mi := &file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GossipCoverage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GossipCoverage) ProtoMessage() {}
+
+func (x *GossipCoverage) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GossipCoverage.ProtoReflect.Descriptor instead.
+func (*GossipCoverage) Descriptor() ([]byte, []int) {
+	return file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *GossipCoverage) GetPublished() int32 {
+	if x != nil {
+		return x.Published
+	}
+	return 0
+}
+
+func (x *GossipCoverage) GetTotal() int32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
 var File_openmanet_mesh_topology_v1_mesh_topology_proto protoreflect.FileDescriptor
 
 const file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc = "" +
 	"\n" +
-	".openmanet/mesh_topology/v1/mesh_topology.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xaf\x02\n" +
+	".openmanet/mesh_topology/v1/mesh_topology.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd2\x02\n" +
 	"\bMeshNode\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12%\n" +
 	"\x0esecondary_macs\x18\x02 \x03(\tR\rsecondaryMacs\x12\x1a\n" +
@@ -363,21 +445,27 @@ const file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc = "" +
 	"\x0ehops_from_self\x18\x06 \x01(\x05R\fhopsFromSelf\x12$\n" +
 	"\x0emy_hard_ifname\x18\a \x01(\tR\fmyHardIfname\x12\x17\n" +
 	"\ais_self\x18\b \x01(\bR\x06isSelf\x12,\n" +
-	"\x12remote_gateway_mac\x18\t \x01(\tR\x10remoteGatewayMac\"\x86\x01\n" +
+	"\x12remote_gateway_mac\x18\t \x01(\tR\x10remoteGatewayMac\x12!\n" +
+	"\fgossip_stale\x18\n" +
+	" \x01(\bR\vgossipStale\"\x86\x01\n" +
 	"\bMeshEdge\x12\x19\n" +
 	"\bfrom_mac\x18\x01 \x01(\tR\afromMac\x12\x15\n" +
 	"\x06to_mac\x18\x02 \x01(\tR\x05toMac\x12\x16\n" +
 	"\x06metric\x18\x03 \x01(\x01R\x06metric\x12\x12\n" +
 	"\x04blos\x18\x04 \x01(\bR\x04blos\x12\x1c\n" +
 	"\n" +
-	"on_my_path\x18\x05 \x01(\bR\bonMyPath\"\xa3\x02\n" +
+	"on_my_path\x18\x05 \x01(\bR\bonMyPath\"\xf8\x02\n" +
 	"\fMeshTopology\x12\x19\n" +
 	"\bself_mac\x18\x01 \x01(\tR\aselfMac\x12#\n" +
 	"\rself_hostname\x18\x02 \x01(\tR\fselfHostname\x12\x1c\n" +
 	"\talgorithm\x18\x03 \x01(\tR\talgorithm\x12:\n" +
 	"\x05nodes\x18\x04 \x03(\v2$.openmanet.mesh_topology.v1.MeshNodeR\x05nodes\x12:\n" +
 	"\x05edges\x18\x05 \x03(\v2$.openmanet.mesh_topology.v1.MeshEdgeR\x05edges\x12=\n" +
-	"\fcollected_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\vcollectedAtB\x92\x02\n" +
+	"\fcollected_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\vcollectedAt\x12S\n" +
+	"\x0fgossip_coverage\x18\a \x01(\v2*.openmanet.mesh_topology.v1.GossipCoverageR\x0egossipCoverage\"D\n" +
+	"\x0eGossipCoverage\x12\x1c\n" +
+	"\tpublished\x18\x01 \x01(\x05R\tpublished\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05totalB\x92\x02\n" +
 	"\x1ecom.openmanet.mesh_topology.v1B\x11MeshTopologyProtoP\x01ZWgithub.com/openmanet/openmanetd/internal/api/openmanet/mesh_topology/v1;mesh_topologyv1\xa2\x02\x03OMX\xaa\x02\x19Openmanet.MeshTopology.V1\xca\x02\x19Openmanet\\MeshTopology\\V1\xe2\x02%Openmanet\\MeshTopology\\V1\\GPBMetadata\xea\x02\x1bOpenmanet::MeshTopology::V1b\x06proto3"
 
 var (
@@ -392,22 +480,24 @@ func file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDescGZIP() []byte {
 	return file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDescData
 }
 
-var file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_openmanet_mesh_topology_v1_mesh_topology_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_openmanet_mesh_topology_v1_mesh_topology_proto_goTypes = []any{
 	(*MeshNode)(nil),              // 0: openmanet.mesh_topology.v1.MeshNode
 	(*MeshEdge)(nil),              // 1: openmanet.mesh_topology.v1.MeshEdge
 	(*MeshTopology)(nil),          // 2: openmanet.mesh_topology.v1.MeshTopology
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+	(*GossipCoverage)(nil),        // 3: openmanet.mesh_topology.v1.GossipCoverage
+	(*timestamppb.Timestamp)(nil), // 4: google.protobuf.Timestamp
 }
 var file_openmanet_mesh_topology_v1_mesh_topology_proto_depIdxs = []int32{
 	0, // 0: openmanet.mesh_topology.v1.MeshTopology.nodes:type_name -> openmanet.mesh_topology.v1.MeshNode
 	1, // 1: openmanet.mesh_topology.v1.MeshTopology.edges:type_name -> openmanet.mesh_topology.v1.MeshEdge
-	3, // 2: openmanet.mesh_topology.v1.MeshTopology.collected_at:type_name -> google.protobuf.Timestamp
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	4, // 2: openmanet.mesh_topology.v1.MeshTopology.collected_at:type_name -> google.protobuf.Timestamp
+	3, // 3: openmanet.mesh_topology.v1.MeshTopology.gossip_coverage:type_name -> openmanet.mesh_topology.v1.GossipCoverage
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_openmanet_mesh_topology_v1_mesh_topology_proto_init() }
@@ -421,7 +511,7 @@ func file_openmanet_mesh_topology_v1_mesh_topology_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc), len(file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

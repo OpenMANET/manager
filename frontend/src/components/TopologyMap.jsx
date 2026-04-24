@@ -77,14 +77,19 @@ function layoutSegment(seg, rootHost) {
 
   // BFS from root along adjacency; parent-of-child wins the enqueue order.
   const children = new Map(seg.hosts.map((h) => [h.id, []]));
+  const parent = new Map();
+  const depth = new Map();
   const visited = new Set([root.id]);
   const queue = [root.id];
+  depth.set(root.id, 0);
   while (queue.length > 0) {
     const cur = queue.shift();
     for (const nb of adj.get(cur) || []) {
       if (visited.has(nb)) continue;
       visited.add(nb);
       children.get(cur).push(nb);
+      parent.set(nb, cur);
+      depth.set(nb, depth.get(cur) + 1);
       queue.push(nb);
     }
   }
@@ -94,7 +99,11 @@ function layoutSegment(seg, rootHost) {
     .filter((h) => !visited.has(h.id))
     .sort((a, b) => a.baseHostname.localeCompare(b.baseHostname))
     .map((h) => h.id);
-  for (const id of orphans) children.get(root.id).push(id);
+  for (const id of orphans) {
+    children.get(root.id).push(id);
+    parent.set(id, root.id);
+    depth.set(id, 1);
+  }
 
   // Count leaves under each node so internal nodes can sit centered above
   // the horizontal extent they occupy.
@@ -114,8 +123,8 @@ function layoutSegment(seg, rootHost) {
 
   // Assign tree positions (root at x=0, y=0; children flow downward and
   // spread horizontally by leaf-count share).
-  function place(id, depth, xCenter) {
-    positions.set(id, { x: xCenter, y: depth * LEVEL_HEIGHT });
+  function place(id, dep, xCenter) {
+    positions.set(id, { x: xCenter, y: dep * LEVEL_HEIGHT });
     const kids = children.get(id) || [];
     if (kids.length === 0) return;
     const totalLeaves = leafCount.get(id);
@@ -124,11 +133,18 @@ function layoutSegment(seg, rootHost) {
     for (const k of kids) {
       const kLeaves = leafCount.get(k);
       const kWidth = (kLeaves - 1) * LEAF_SPACING;
-      place(k, depth + 1, cursor + kWidth / 2);
+      place(k, dep + 1, cursor + kWidth / 2);
       cursor += kWidth + LEAF_SPACING;
     }
   }
   place(root.id, 0, 0);
+
+  // Hybrid relaxation: run a bounded 2D force pass that pins y (depth
+  // stays the BFS-assigned level) and pins the root at x=0, nudging
+  // sibling x-coordinates so edge-connected peers within a depth band
+  // end up adjacent. Skipped for pure-tree segments where every segment
+  // edge is already in the BFS spanning tree.
+  relaxSegmentPositions(seg, positions, depth, root.id);
 
   let minX = -NODE_RADIUS, minY = -NODE_RADIUS;
   let maxX = NODE_RADIUS, maxY = NODE_RADIUS + BADGE_Y_OFFSET;
@@ -145,6 +161,106 @@ function layoutSegment(seg, rootHost) {
     h: (maxY - minY) + SEGMENT_PAD * 2,
   };
   return { positions, bbox };
+}
+
+// qualityClass maps a link metric to a CSS class bucket. BATMAN_V
+// reports throughput-derived kbps/unit (higher is better); BATMAN_IV
+// reports 255/TQ (lower is better). Unknown → q-unknown so operators
+// can visually tell "we have no reading" apart from "reading is weak".
+function qualityClass(metric, algorithm) {
+  if (!Number.isFinite(metric) || metric <= 0) return 'q-unknown';
+  if (algorithm === 'BATMAN_V') {
+    if (metric >= 20) return 'q-strong';
+    if (metric >= 5) return 'q-ok';
+    return 'q-weak';
+  }
+  // BATMAN_IV and default: lower is better (metric = 255/TQ).
+  if (metric <= 1.3) return 'q-strong';
+  if (metric <= 1.8) return 'q-ok';
+  return 'q-weak';
+}
+
+// relaxSegmentPositions runs a bounded horizontal force simulation over
+// the segment's own edges. y stays fixed (BFS depth); x is nudged so
+// non-tree same-depth edges pull their endpoints together. Cap
+// iterations at RELAX_ITERS and skip entirely when there are no
+// same-depth cross edges to untangle — the BFS layout is already
+// optimal for pure trees.
+function relaxSegmentPositions(seg, positions, depth, rootId) {
+  const hostIds = new Set(seg.hosts.map((h) => h.id));
+  // Same-depth (cross) edges are the only ones relaxation acts on.
+  // Tree / parent-child edges are already satisfied by the BFS layout;
+  // adding springs for them just tugs on already-correct positions.
+  const crossEdges = [];
+  for (const e of seg.edges || []) {
+    if (!hostIds.has(e.hostA) || !hostIds.has(e.hostB)) continue;
+    if (depth.get(e.hostA) === depth.get(e.hostB)) {
+      crossEdges.push([e.hostA, e.hostB]);
+    }
+  }
+  if (crossEdges.length === 0) return;
+
+  const RELAX_ITERS = 60;
+  const IDEAL_CROSS = LEAF_SPACING * 0.35; // connected siblings want to be closer
+  const SPRING_K = 0.15;
+  const REPULSION = LEAF_SPACING * LEAF_SPACING * 0.6;
+  const MIN_SEP = NODE_RADIUS * 2.5;
+
+  let alpha = 0.5;
+  const cooling = alpha / RELAX_ITERS;
+
+  // Bucket nodes by depth for same-depth repulsion.
+  const byDepth = new Map();
+  for (const id of hostIds) {
+    const d = depth.get(id) ?? 0;
+    if (!byDepth.has(d)) byDepth.set(d, []);
+    byDepth.get(d).push(id);
+  }
+
+  for (let iter = 0; iter < RELAX_ITERS; iter++) {
+    const dx = new Map();
+    for (const id of hostIds) dx.set(id, 0);
+
+    // Attractive spring on same-depth cross edges only.
+    for (const [a, b] of crossEdges) {
+      const pa = positions.get(a);
+      const pb = positions.get(b);
+      if (!pa || !pb) continue;
+      const delta = pb.x - pa.x;
+      const dist = Math.abs(delta) || 0.01;
+      const force = (dist - IDEAL_CROSS) * SPRING_K * Math.sign(delta);
+      dx.set(a, dx.get(a) + force);
+      dx.set(b, dx.get(b) - force);
+    }
+
+    // Repulsion between same-depth siblings — keeps unrelated peers
+    // from stacking on top of each other as the springs contract.
+    for (const band of byDepth.values()) {
+      for (let i = 0; i < band.length; i++) {
+        for (let j = i + 1; j < band.length; j++) {
+          const pa = positions.get(band[i]);
+          const pb = positions.get(band[j]);
+          if (!pa || !pb) continue;
+          const delta = pb.x - pa.x;
+          const distSq = Math.max(delta * delta, MIN_SEP * MIN_SEP);
+          const sign = delta >= 0 ? 1 : -1;
+          const force = (REPULSION / distSq) * sign;
+          dx.set(band[i], dx.get(band[i]) - force);
+          dx.set(band[j], dx.get(band[j]) + force);
+        }
+      }
+    }
+
+    // Apply, except for root which is pinned at x=0.
+    for (const id of hostIds) {
+      if (id === rootId) continue;
+      const p = positions.get(id);
+      if (!p) continue;
+      p.x += dx.get(id) * alpha;
+    }
+
+    alpha = Math.max(0, alpha - cooling);
+  }
 }
 
 // segmentLabelText reproduces the header string SegmentBox renders so we can
@@ -294,6 +410,7 @@ function HostNode({ host, pos, kind, onSelect, selectedId, compact }) {
   const isSelected = selectedId === host.id;
   const classes = ['topo-node', kind];
   if (isSelected) classes.push('selected');
+  if (host.gossipStale && !host.isSelf) classes.push('stale');
   const radius = compact ? NODE_RADIUS - 4 : NODE_RADIUS;
   return (
     <g
@@ -337,7 +454,7 @@ function EdgeLine({ edge, positions, algorithm, myPathsOverlay }) {
   const b = positions.get(edge.hostB);
   if (!a || !b) return null;
 
-  const classes = ['topo-edge'];
+  const classes = ['topo-edge', qualityClass(edge.metric, algorithm)];
   if (edge.blos) classes.push('blos');
   if (myPathsOverlay) {
     if (edge.onMyPath) classes.push('mypath');

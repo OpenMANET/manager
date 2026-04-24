@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	meshtopov1 "github.com/openmanet/openmanetd/internal/api/openmanet/mesh_topology/v1"
+	netv1 "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/rs/zerolog"
@@ -523,6 +525,203 @@ func TestGetMeshTopology_DedupesByHostname(t *testing.T) {
 	assert.Equal(t, "BCM2711-1003", remote.hostname, "base hostname is retained")
 	assert.Equal(t, "bb:bb:bb:bb:bb:01", remote.mac,
 		"lex-smallest MAC in the group wins when self isn't in the group")
+}
+
+// fakeNeighborsProvider scripts MeshNeighbors gossip responses for the
+// handler. Maps lowercase primary MACs to their canned MeshNeighbors
+// payload. Missing entries cause Lookup to return (nil, false).
+type fakeNeighborsProvider struct {
+	records map[string]*batmanadv.MeshNeighborsRecord
+}
+
+func (f *fakeNeighborsProvider) Lookup(primaryMac string) (*batmanadv.MeshNeighborsRecord, bool) {
+	if rec, ok := f.records[primaryMac]; ok {
+		return rec, true
+	}
+
+	return nil, false
+}
+
+func (f *fakeNeighborsProvider) All() map[string]*batmanadv.MeshNeighborsRecord {
+	out := make(map[string]*batmanadv.MeshNeighborsRecord, len(f.records))
+	for k, v := range f.records {
+		out[k] = v
+	}
+
+	return out
+}
+
+// TestGetMeshTopology_GossipClassifiesNodeBehindRemoteGateway is the
+// canonical regression test for the BCM2711-fc8e → BCM2711-fc96 bug:
+// fc8e is an RF peer of fc96 (the gateway), but without gossip the
+// handler would render fc8e as its own remote segment. With gossip,
+// fc96's record says fc8e is on wlan0 → fc8e lives in fc96's remote
+// mesh component and inherits fc96 as its gateway.
+func TestGetMeshTopology_GossipClassifiesNodeBehindRemoteGateway(t *testing.T) {
+	const (
+		selfMAC = "aa:aa:aa:aa:aa:01"
+		gwMAC   = "bb:bb:bb:bb:bb:01" // fc96
+		behMAC  = "cc:cc:cc:cc:cc:01" // fc8e
+	)
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: selfMAC},
+			{Primary: gwMAC},
+			{Primary: behMAC},
+		},
+	}}
+
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC:      selfMAC,
+		SelfHostname: "self",
+		Originators: []batmanadv.OriginatorEntry{
+			// Both remote peers look like direct vxlan0 neighbors from
+			// self's perspective — exactly the broadcast-overlay case
+			// the heuristic can't disambiguate.
+			{OrigMAC: gwMAC, NextHopMAC: gwMAC, HardIfname: "vxlan0", Hops: 1},
+			{OrigMAC: behMAC, NextHopMAC: behMAC, HardIfname: "vxlan0", Hops: 1},
+		},
+	}}
+
+	// fc96 publishes gossip stating fc8e is an RF peer on wlan0.
+	gwPayload := &netv1.MeshNeighbors{
+		PrimaryMac: gwMAC,
+		Neighbors: []*netv1.MeshNeighbor{
+			{Mac: behMAC, HardIfname: "wlan0", Blos: false},
+			{Mac: selfMAC, HardIfname: "vxlan0", Blos: true},
+		},
+	}
+	behPayload := &netv1.MeshNeighbors{
+		PrimaryMac: behMAC,
+		Neighbors: []*netv1.MeshNeighbor{
+			{Mac: gwMAC, HardIfname: "wlan0", Blos: false},
+		},
+	}
+
+	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
+		gwMAC:  {Payload: gwPayload, SourceMac: gwMAC, Stale: false},
+		behMAC: {Payload: behPayload, SourceMac: behMAC, Stale: false},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+	svc.NeighborsProvider = neighbors
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	byMac := make(map[string]*meshtopov1.MeshNode)
+	for _, n := range resp.GetTopology().GetNodes() {
+		byMac[n.GetMac()] = n
+	}
+
+	require.Contains(t, byMac, gwMAC)
+	require.Contains(t, byMac, behMAC)
+
+	assert.Equal(t, "remote", byMac[gwMAC].GetSegment())
+	assert.Equal(t, "remote", byMac[behMAC].GetSegment(),
+		"fc8e must land in a remote segment, not local")
+	assert.Equal(t, gwMAC, byMac[behMAC].GetRemoteGatewayMac(),
+		"fc8e's remote gateway is fc96, not itself")
+	assert.Equal(t, gwMAC, byMac[gwMAC].GetRemoteGatewayMac(),
+		"the gateway itself points at itself so UI groups them together")
+}
+
+// TestGetMeshTopology_GossipCoverageReflectsPublishers confirms the
+// MeshTopology.GossipCoverage field counts non-self nodes with fresh
+// gossip records.
+func TestGetMeshTopology_GossipCoverageReflectsPublishers(t *testing.T) {
+	const (
+		selfMAC  = "aa:aa:aa:aa:aa:00"
+		pubMAC   = "bb:bb:bb:bb:bb:00"
+		quietMAC = "cc:cc:cc:cc:cc:00"
+	)
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: selfMAC},
+			{Primary: pubMAC},
+			{Primary: quietMAC},
+		},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{SelfMAC: selfMAC}}
+
+	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
+		pubMAC: {Payload: &netv1.MeshNeighbors{PrimaryMac: pubMAC}, SourceMac: pubMAC, Stale: false},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+	svc.NeighborsProvider = neighbors
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	cov := resp.GetTopology().GetGossipCoverage()
+	require.NotNil(t, cov)
+	assert.Equal(t, int32(2), cov.GetTotal(), "2 non-self nodes exist")
+	assert.Equal(t, int32(1), cov.GetPublished(), "only pubMAC has a fresh record")
+}
+
+// TestGetMeshTopology_GossipStalePropagates confirms stale gossip
+// records mark their owning node GossipStale=true on the wire.
+func TestGetMeshTopology_GossipStalePropagates(t *testing.T) {
+	const (
+		selfMAC  = "aa:aa:aa:aa:aa:00"
+		staleMAC = "bb:bb:bb:bb:bb:00"
+	)
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: selfMAC},
+			{Primary: staleMAC},
+		},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{SelfMAC: selfMAC}}
+
+	// Stale record — handler treats it as "no gossip" and marks the
+	// node stale.
+	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
+		staleMAC: {Payload: &netv1.MeshNeighbors{PrimaryMac: staleMAC}, SourceMac: staleMAC, Stale: true},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+	svc.NeighborsProvider = neighbors
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	for _, n := range resp.GetTopology().GetNodes() {
+		if n.GetMac() == staleMAC {
+			assert.True(t, n.GetGossipStale(), "stale gossip record propagates to MeshNode.GossipStale")
+		}
+
+		if n.GetIsSelf() {
+			assert.False(t, n.GetGossipStale(), "self is never stale")
+		}
+	}
+}
+
+// TestGetMeshTopology_MissingGossipFallsBackToHeuristic asserts that
+// when gossip is absent for a primary, the legacy chain-walk classifier
+// still runs for it. This is the mixed-fleet safety net.
+func TestGetMeshTopology_MissingGossipFallsBackToHeuristic(t *testing.T) {
+	// Same fixture as the original merge test but with a nil
+	// NeighborsProvider — behavior must match pre-gossip handler.
+	vis := &fakeVisProvider{doc: sampleVisDoc()}
+	orig := &fakeOrigTopology{snap: sampleOrigSnap()}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+	svc.NeighborsProvider = nil // explicit — fallback path
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	// Assert a known gw1 node is remote — unchanged from the pre-gossip test.
+	for _, n := range resp.GetTopology().GetNodes() {
+		if n.GetMac() == "cc:cc:cc:cc:cc:00" {
+			assert.Equal(t, "remote", n.GetSegment())
+		}
+	}
 }
 
 // TestGetMeshTopology_DeltaUnchanged asserts the delta RPC still works

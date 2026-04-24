@@ -19,6 +19,11 @@ const (
 	gatewayDataWorkerRecvInterval time.Duration = 10 * time.Second
 
 	addressReservationWorkerReserveInterval time.Duration = 125 * time.Second
+
+	// meshNeighborsWorkerInterval balances topology responsiveness against
+	// gossip bandwidth. 15 s is ~4× the batadv-vis heartbeat and fast
+	// enough to reflect field changes within half a minute.
+	meshNeighborsWorkerInterval time.Duration = 15 * time.Second
 )
 
 type ManagementConfig struct {
@@ -30,19 +35,21 @@ type ManagementConfig struct {
 	uciNetworkConfig                        *network.UCINetworkConfigReader
 	boardConfigInfo                         *board.Board
 	WirelessConfig                          *WirelessConfig
-	BatInterface                            string
-	AlfredMode                              string
+	alfredClient                            *alfred.Client
 	SocketPath                              string
+	AlfredMode                              string
 	IFace                                   string
+	BatInterface                            string
 	gatewayWorkerSendInterval               time.Duration
 	gatewayWorkerRecvInterval               time.Duration
 	addressReservationWorkerReserveInterval time.Duration
-	GatewayDataType                         bool
 	NodeDataType                            bool
 	PositionDataType                        bool
 	AddressReservationDataType              bool
+	MeshNeighborsDataType                   bool
 	BatmanMulticastEnhancementsEnabled      bool
 	BatmanMulticastForceflood               bool
+	GatewayDataType                         bool
 }
 
 func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
@@ -67,6 +74,7 @@ func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
 		NodeDataType:               cfg.NodeDataType,
 		PositionDataType:           cfg.PositionDataType,
 		AddressReservationDataType: cfg.AddressReservationDataType,
+		MeshNeighborsDataType:      cfg.MeshNeighborsDataType,
 		WirelessConfig:             wirelessConfig,
 		DB:                         cfg.DB,
 		GPS:                        cfg.GPS,
@@ -107,6 +115,8 @@ func (m *ManagementConfig) Start(ctx context.Context) {
 		m.Log.Fatal().Err(err).Msg("Failed to create Alfred client")
 	}
 
+	m.alfredClient = client
+
 	m.Log.Info().Msg("Alfred Client Started")
 
 	if m.AddressReservationDataType {
@@ -127,4 +137,17 @@ func (m *ManagementConfig) Start(ctx context.Context) {
 		go gatewayDataWorker.StartSend()
 		go gatewayDataWorker.StartReceive()
 	}
+
+	if m.MeshNeighborsDataType {
+		meshNeighborsWorker := NewMeshNeighborsWorker(m, client, meshNeighborsWorkerInterval, ctx)
+		go meshNeighborsWorker.StartSend()
+	}
+}
+
+// Client returns the shared alfred client created during Start. Callers
+// outside the mgmt package (e.g. the mesh-neighbors snapshotter) use
+// this to consume gossip without opening a second connection. Returns
+// nil before Start has run or when Alfred is disabled.
+func (m *ManagementConfig) Client() *alfred.Client {
+	return m.alfredClient
 }

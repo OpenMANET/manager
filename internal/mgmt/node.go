@@ -15,12 +15,10 @@ import (
 	"github.com/openmanet/openmanetd/internal/network"
 )
 
-// alfredClient abstracts the alfred.Client methods used by management workers,
-// allowing tests to inject a fake implementation.
-type alfredClient interface {
-	Set(dataType uint8, version uint8, payload []byte) error
-	Request(dataType uint8) ([]alfred.Record, error)
-}
+// alfredClient is an alias for alfred.ReadWriteClient so in-package code
+// can keep using the short name while external tests and consumers depend
+// on the exported interface in the alfred package.
+type alfredClient = alfred.ReadWriteClient
 
 const (
 	NodeDataType        uint8 = uint8(proto.DataType_DATA_TYPE_NODE)
