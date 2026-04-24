@@ -84,11 +84,13 @@ export function buildTopologyView(topology) {
 
     const base = n.hostname || shortMac(n.mac);
     const remoteGatewayMac = (n.remoteGatewayMac || '').toLowerCase();
-    // All vxlan0-reached nodes share one REMOTE MESH segment. The
-    // remote_gateway_mac field still rides along for operator debug
-    // (which direct BLOS neighbor a peer sits behind) but no longer
-    // fragments the segment.
-    const segmentId = n.segment === 'remote' ? 'remote' : 'local';
+    // Each distinct BLOS gateway forms its own REMOTE MESH segment —
+    // operators want to see each tunnel-attached mesh as a separate
+    // radial cluster, not a single mixed blob. Local hosts share
+    // "local".
+    const segmentId = n.segment === 'remote'
+      ? (remoteGatewayMac ? `remote:${remoteGatewayMac}` : 'remote:unknown')
+      : 'local';
 
     const host = {
       id: key,
@@ -126,13 +128,12 @@ export function buildTopologyView(topology) {
   }
 
   // ── Segment construction ───────────────────────────────────────────────
-  // At most two segments: LOCAL (self + RF-reachable peers) and REMOTE
-  // MESH (everything behind any vxlan0 tunnel, grouped together). Each
-  // side lays out like its own radial mesh; the BLOS edge between self
-  // and the remote-side anchor represents the vxlan0 bridge.
+  // LOCAL holds every local-segment host; one REMOTE MESH segment per
+  // distinct BLOS gateway. Gateway nodes sit at the root of their own
+  // radial layout; the vxlan0 tunnel renders as a BLOS edge between
+  // the local-side gateway (self) and the remote gateway.
   const segments = [];
   const hasLocalHost = [...hostByMac.values()].some((h) => h.segmentId === 'local');
-  const hasRemoteHost = [...hostByMac.values()].some((h) => h.segmentId === 'remote');
 
   if (hasLocalHost) {
     segments.push({
@@ -145,12 +146,35 @@ export function buildTopologyView(topology) {
     });
   }
 
-  if (hasRemoteHost) {
+  // Collect distinct remote segment ids in deterministic order (by
+  // gateway's base hostname when available, else by the MAC suffix).
+  const remoteGatewayHosts = new Map(); // segmentId → gatewayHost (may be null)
+  for (const h of hostByMac.values()) {
+    if (h.segmentId === 'local') continue;
+    if (!remoteGatewayHosts.has(h.segmentId)) {
+      const gw = hostByMac.get(h.remoteGatewayMac) || null;
+      remoteGatewayHosts.set(h.segmentId, gw);
+    }
+  }
+
+  const remoteSegIds = [...remoteGatewayHosts.keys()].sort((a, b) => {
+    const ga = remoteGatewayHosts.get(a);
+    const gb = remoteGatewayHosts.get(b);
+    const na = ga?.baseHostname || a;
+    const nb = gb?.baseHostname || b;
+    return na.localeCompare(nb);
+  });
+
+  for (const segId of remoteSegIds) {
+    const gw = remoteGatewayHosts.get(segId);
+    const label = gw
+      ? `REMOTE MESH · ${gw.baseHostname}`
+      : `REMOTE MESH · ${shortMac(segId.slice('remote:'.length))}`;
     segments.push({
-      id: 'remote',
-      label: 'REMOTE MESH',
+      id: segId,
+      label,
       kind: 'remote',
-      anchorHost: null,
+      anchorHost: gw ? gw.id : null,
       hosts: [],
       edges: [],
     });
@@ -170,19 +194,14 @@ export function buildTopologyView(topology) {
     if (seg) seg.hosts.push(h);
   }
 
-  // Anchor the remote segment on a direct BLOS neighbor — the vxlan0
-  // "gateway" on the far side of the tunnel. Prefer a host whose own
-  // next-hop to self is one hop; fall back to the min-hops remote host
-  // so the radial layout always has a root.
+  // Anchor each remote segment on its gateway host — that's the node
+  // terminating the vxlan0 tunnel and is the natural root of the radial
+  // layout. The backend sets anchorHost from remoteGatewayMac; fall back
+  // to the host with the smallest hops if that gateway wasn't itself
+  // rendered (edge case where the chain walk surfaced an unlisted MAC).
   for (const seg of segments) {
     if (seg.kind !== 'remote' || seg.hosts.length === 0) continue;
-    const directBLOS = seg.hosts
-      .filter((h) => h.hops === 1 && h.myHardIfname === 'vxlan0')
-      .sort((a, b) => a.baseHostname.localeCompare(b.baseHostname));
-    if (directBLOS.length > 0) {
-      seg.anchorHost = directBLOS[0].id;
-      continue;
-    }
+    if (seg.anchorHost && seg.hosts.some((h) => h.id === seg.anchorHost)) continue;
     const minHops = Math.min(...seg.hosts.map((h) => h.hops));
     const candidates = seg.hosts
       .filter((h) => h.hops === minHops)
@@ -191,19 +210,29 @@ export function buildTopologyView(topology) {
   }
 
   // ── Edges ──────────────────────────────────────────────────────────────
+  // BLOS edges are any edge crossing a segment boundary — the backend
+  // sets blos when the coarse local/remote segments differ, but the
+  // frontend splits remote into per-gateway sub-segments, so an edge
+  // between two distinct remote gateways (a gateway-to-gateway vxlan0
+  // tunnel) also needs to render as BLOS even though the backend left
+  // its blos flag false.
   const edges = (topology.edges || [])
     .map((e) => {
       const a = (e.fromMac || '').toLowerCase();
       const b = (e.toMac || '').toLowerCase();
       if (!a || !b || a === b) return null;
-      if (!hostByMac.has(a) || !hostByMac.has(b)) return null;
+      const ha = hostByMac.get(a);
+      const hb = hostByMac.get(b);
+      if (!ha || !hb) return null;
+
+      const crossSegment = ha.segmentId !== hb.segmentId;
 
       return {
         id: `edge:${a}|${b}`,
         hostA: a,
         hostB: b,
         metric: e.metric || 0,
-        blos: Boolean(e.blos),
+        blos: Boolean(e.blos) || crossSegment,
         onMyPath: Boolean(e.onMyPath),
       };
     })

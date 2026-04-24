@@ -111,6 +111,17 @@ function expandBBoxToLabel(bbox, seg) {
 // ----------------------------------------------------------------------------
 // globalLayout(view, compact) → { positions, segmentBoxes, viewBox }
 // ----------------------------------------------------------------------------
+// Segments are arranged in a two-row plan:
+//   Row 0: the LOCAL segment (self-rooted).
+//   Row 1+: REMOTE MESH segments in a wrap-grid, each rooted on its gateway.
+//
+// A pure-horizontal row becomes unreadable once more than two or three
+// gateways are attached — wrapping to a grid keeps each remote mesh
+// readable at zoom=1 while still letting operators pan/zoom to explore.
+// Targeted column count is conservative so each radial cluster gets
+// enough breathing room.
+const MAX_COLS = 3;
+
 function globalLayout(view, compact) {
   const segmentBoxes = [];
   const positions = new Map();
@@ -121,31 +132,52 @@ function globalLayout(view, compact) {
       : [{ id: '', label: '', hosts: view.hosts, edges: [], kind: 'local' }];
     const { positions: local, bbox } = layoutSegment(seg, view.self);
     for (const [id, p] of local.entries()) positions.set(id, p);
-    segmentBoxes.push({ ...seg, bbox, offsetX: 0 });
+    segmentBoxes.push({ ...seg, bbox, offsetX: 0, offsetY: 0 });
   } else {
-    let cursor = 0;
-    for (const seg of view.segments) {
-      // Local segment uses the self host as root; remote segments root on
-      // their anchor (a direct BLOS neighbor) so the tunnel's entry point
-      // sits centered in its box.
+    // 1) Lay out each segment independently and expand its bbox so the
+    //    header label fits. Collect them into a list we can pack.
+    const laidOut = view.segments.map((seg) => {
       const rootHost = seg.kind === 'local'
         ? (view.self && seg.hosts.find((h) => h.id === view.self.id)) || null
         : seg.hosts.find((h) => h.id === seg.anchorHost) || null;
       const { positions: local, bbox: rawBBox } = layoutSegment(seg, rootHost);
       const bbox = expandBBoxToLabel(rawBBox, seg);
-      for (const [id, p] of local.entries()) {
-        positions.set(id, { x: p.x + cursor - bbox.x, y: p.y });
+      return { seg, local, bbox };
+    });
+
+    // 2) Pack into rows: LOCAL gets its own row on top; remote segments
+    //    wrap at MAX_COLS. Row height = tallest bbox in that row.
+    const localRow = laidOut.filter((e) => e.seg.kind === 'local');
+    const remoteRow = laidOut.filter((e) => e.seg.kind !== 'local');
+
+    const rows = [];
+    if (localRow.length > 0) rows.push(localRow);
+    for (let i = 0; i < remoteRow.length; i += MAX_COLS) {
+      rows.push(remoteRow.slice(i, i + MAX_COLS));
+    }
+
+    let cursorY = 0;
+    for (const row of rows) {
+      const rowHeight = Math.max(...row.map((e) => e.bbox.h));
+      let cursorX = 0;
+      for (const entry of row) {
+        const { seg, local, bbox } = entry;
+        const offsetX = cursorX - bbox.x;
+        const offsetY = cursorY - bbox.y;
+        for (const [id, p] of local.entries()) {
+          positions.set(id, { x: p.x + offsetX, y: p.y + offsetY });
+        }
+        segmentBoxes.push({ ...seg, bbox, offsetX, offsetY });
+        cursorX += bbox.w + SEGMENT_GUTTER;
       }
-      const offsetX = cursor - bbox.x;
-      segmentBoxes.push({ ...seg, bbox, offsetX });
-      cursor += bbox.w + SEGMENT_GUTTER;
+      cursorY += rowHeight + SEGMENT_GUTTER;
     }
   }
 
   let minX = 0, minY = 0, maxX = 0, maxY = 0;
   for (const box of segmentBoxes) {
     const x1 = box.bbox.x + box.offsetX;
-    const y1 = box.bbox.y;
+    const y1 = box.bbox.y + (box.offsetY || 0);
     const x2 = x1 + box.bbox.w;
     const y2 = y1 + box.bbox.h;
     if (x1 < minX) minX = x1;
@@ -289,7 +321,7 @@ function EdgeLine({ edge, positions, algorithm, myPathsOverlay }) {
 
 function SegmentBox({ box }) {
   const x = box.bbox.x + box.offsetX;
-  const y = box.bbox.y;
+  const y = box.bbox.y + (box.offsetY || 0);
   return (
     <g className={`topo-segment-box ${box.kind}`}>
       <rect

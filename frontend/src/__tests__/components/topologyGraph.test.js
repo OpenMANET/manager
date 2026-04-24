@@ -158,7 +158,7 @@ describe('TestSegmentsAndEdges', () => {
     const remote = v.segments.find((s) => s.kind === 'remote');
     expect(local.hosts.map((h) => h.baseHostname).sort()).toEqual(['alpha', 'me']);
     expect(remote.hosts.map((h) => h.baseHostname).sort()).toEqual(['gw1', 'peer-e', 'peer-f']);
-    expect(remote.label).toBe('REMOTE MESH');
+    expect(remote.label).toBe('REMOTE MESH · gw1');
 
     // 1 local RF edge (me↔alpha), 3 remote RF edges (gw1↔e, gw1↔f, e↔f), 1 BLOS edge.
     expect(local.edges).toHaveLength(1);
@@ -166,13 +166,17 @@ describe('TestSegmentsAndEdges', () => {
     expect(v.blosEdges).toHaveLength(1);
   });
 
-  it('multiple BLOS gateways collapse into one REMOTE MESH segment', () => {
+  it('distinct BLOS gateways produce distinct REMOTE MESH segments', () => {
     const v = buildTopologyView(twoRemoteMeshes());
     const remotes = v.segments.filter((s) => s.kind === 'remote');
-    expect(remotes).toHaveLength(1);
-    expect(remotes[0].label).toBe('REMOTE MESH');
-    expect(remotes[0].hosts.map((h) => h.baseHostname).sort())
-      .toEqual(['gw1', 'gw2', 'r1a', 'r2a']);
+    expect(remotes).toHaveLength(2);
+    expect(remotes.map((s) => s.label).sort()).toEqual([
+      'REMOTE MESH · gw1',
+      'REMOTE MESH · gw2',
+    ]);
+    const gw1Seg = remotes.find((s) => s.label.endsWith('gw1'));
+    expect(gw1Seg.hosts.map((h) => h.baseHostname).sort()).toEqual(['gw1', 'r1a']);
+    expect(gw1Seg.anchorHost).toBe('cc:cc:cc:cc:cc:00');
   });
 
   it('counts RF vs BLOS links separately', () => {
