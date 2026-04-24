@@ -206,6 +206,11 @@ func (gw *GatewayWorker) receiveGatewayDataOnceWithDeps( //nolint:gocognit
 	}
 
 	batGw := batGwys.GetBest()
+	if batGw == nil {
+		gw.Config.Log.Debug().Msg("No best gateway selected in batman-adv yet")
+
+		return nil
+	}
 
 	for _, rec := range records {
 		var gatewayData proto.Gateway

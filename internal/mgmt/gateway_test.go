@@ -349,6 +349,37 @@ func TestReceiveGatewayDataOnce_NoMatchingMAC(t *testing.T) {
 	assert.False(t, routeCalled, "route should not be replaced when MAC doesn't match")
 }
 
+func TestReceiveGatewayDataOnce_NoBestGateway(t *testing.T) {
+	gw := newGatewayTestWorker()
+	gw.Config.IFace = "br-ahwlan"
+
+	client := &fakeAlfredClient{
+		records: []alfred.Record{makeGatewayRecord(t, "aa:bb:cc:dd:ee:ff", "10.0.0.1", "gw1")},
+	}
+
+	// Gateways list is non-empty but none are flagged Best — GetBest() returns nil.
+	// Regression test for SIGSEGV at gateway.go:219 dereferencing nil *Gateway.
+	batGwys := batmanadv.Gateways{
+		{OrigAddress: "aa:bb:cc:dd:ee:ff", Best: false},
+		{OrigAddress: "11:22:33:44:55:66", Best: false},
+	}
+	routeCalled := false
+
+	err := gw.receiveGatewayDataOnceWithDeps(client,
+		func(_ string) (*batmanadv.MeshConfig, error) { return makeMeshConfig("client", ""), nil },
+		func(_ string) (*batmanadv.Gateways, error) { return &batGwys, nil },
+		func(_ net.IP, _ string) error {
+			routeCalled = true
+
+			return nil
+		},
+		func(_, _ string, _ network.ConfigReader) error { return nil },
+		newFakeNetworkReader(),
+	)
+	require.NoError(t, err)
+	assert.False(t, routeCalled, "route should not be replaced when no gateway is marked best")
+}
+
 func TestReceiveGatewayDataOnce_RequestError(t *testing.T) {
 	gw := newGatewayTestWorker()
 	client := &fakeAlfredClient{requestErr: assert.AnError}
