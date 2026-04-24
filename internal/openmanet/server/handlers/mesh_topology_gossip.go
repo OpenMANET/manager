@@ -45,6 +45,12 @@ type gossipOriginator struct {
 // working representation. Returns a non-nil (empty) view even when the
 // provider is nil so downstream code doesn't need nil-checks.
 //
+// hostnameByPrimary maps each vis primary to its display hostname and
+// is used as a fallback join key: on multi-mesh deployments the
+// publisher's alfred envelope MAC and payload.primary_mac both reflect
+// a batman-adv instance different from the one vis reports, so only
+// the hostname matches across the two address spaces.
+//
 // now is used to compute per-primary gossip ages against each record's
 // payload.collected_at timestamp. Callers in production pass time.Now();
 // tests inject a fixed clock for deterministic age assertions.
@@ -52,6 +58,7 @@ func buildGossipView(
 	provider batmanadv.MeshNeighborsProvider,
 	visNodes []batmanadv.VisNode,
 	primaryByMac map[string]string,
+	hostnameByPrimary map[string]string,
 	now time.Time,
 ) *gossipView {
 	view := &gossipView{
@@ -73,6 +80,18 @@ func buildGossipView(
 		}
 
 		rec, ok := provider.Lookup(primary)
+		if !ok || rec == nil || rec.Payload == nil {
+			// Multi-mesh fallback: the publisher's addressing doesn't
+			// share a MAC with the vis primary, but both sides agree
+			// on the display hostname (bat-hosts + os.Hostname).
+			if hostname := hostnameByPrimary[primary]; hostname != "" {
+				if hrec, hok := provider.LookupByHostname(hostname); hok {
+					rec = hrec
+					ok = true
+				}
+			}
+		}
+
 		if !ok || rec == nil || rec.Payload == nil {
 			view.staleByPrimary[primary] = true
 			view.ageByPrimary[primary] = gossipRecordAge(rec, now)

@@ -39,6 +39,13 @@ type MeshNeighborsRecord struct {
 // to heuristic classification per-primary.
 type MeshNeighborsProvider interface {
 	Lookup(primaryMac string) (*MeshNeighborsRecord, bool)
+	// LookupByHostname matches on the payload's stripped hostname.
+	// Needed in multi-mesh deployments where alfred gossip runs on a
+	// different batman-adv interface than the one batadv-vis reports
+	// from: envelope MAC and payload.primary_mac both reflect the
+	// gossip mesh, while the handler queries by the vis mesh's primary.
+	// Hostname is the one identifier both meshes share.
+	LookupByHostname(hostname string) (*MeshNeighborsRecord, bool)
 	All() map[string]*MeshNeighborsRecord
 }
 
@@ -157,11 +164,11 @@ func (s *MeshNeighborsSnapshotter) refresh() {
 	s.ready = true
 	s.mu.Unlock()
 
-	// One-line per-refresh summary at Info so operators can confirm the
-	// cache is populating without turning on Debug for the whole daemon.
-	// "Cached N" is the single number that tells them whether alfred
-	// gossip is reaching this node.
-	s.Log.Info().
+	// Per-refresh summary. Debug level so production logs stay quiet;
+	// flip the daemon log level to diagnose whether alfred gossip is
+	// reaching this node (received>0) and whether records are being
+	// dropped before caching (dropped>0).
+	s.Log.Debug().
 		Int("received", len(records)).
 		Int("cached", len(next)).
 		Int("dropped", dropped).
@@ -197,6 +204,39 @@ func (s *MeshNeighborsSnapshotter) Lookup(primaryMac string) (*MeshNeighborsReco
 	// vis data when their MAC normalization paths disagree.
 	for _, rec := range s.byMac {
 		if rec.Payload != nil && strings.EqualFold(rec.Payload.GetPrimaryMac(), primaryMac) {
+			return rec, true
+		}
+	}
+
+	return nil, false
+}
+
+// LookupByHostname returns the first cached record whose payload
+// hostname matches the argument case-insensitively. Used as a fallback
+// when MAC-based Lookup fails because the publisher's identity space
+// (alfred envelope MAC + payload.primary_mac) lives on a different
+// batman-adv instance than the vis-reported primary. Linear scan is
+// intentional — fleet sizes top out around 100 peers in practice, and
+// the per-poll amortization is negligible compared to the alfred
+// round-trip.
+func (s *MeshNeighborsSnapshotter) LookupByHostname(hostname string) (*MeshNeighborsRecord, bool) {
+	if hostname == "" {
+		return nil, false
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if !s.ready || len(s.byMac) == 0 {
+		return nil, false
+	}
+
+	for _, rec := range s.byMac {
+		if rec.Payload == nil {
+			continue
+		}
+
+		if strings.EqualFold(rec.Payload.GetHostname(), hostname) {
 			return rec, true
 		}
 	}

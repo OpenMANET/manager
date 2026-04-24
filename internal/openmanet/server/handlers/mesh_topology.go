@@ -174,11 +174,20 @@ func mergeMeshTopology(
 
 	selfPrimary := primaryByMac[selfMAC]
 
+	// Pre-resolve each vis primary's display hostname so the gossip
+	// view can fall back to hostname matching when MAC-based Lookup
+	// fails. Needed on multi-mesh deployments where alfred gossip
+	// runs on a different batman-adv instance than vis — the envelope
+	// MAC and payload.primary_mac both reflect the gossip mesh while
+	// the handler queries by the vis mesh's primary. Hostname is the
+	// one identifier both meshes share.
+	hostnameByPrimary := buildHostnameIndex(visNodes, origByMac, batHosts, primaryByMac, selfMAC, origSnap.SelfHostname)
+
 	// 2. Build gossip view if a provider is wired. When gossip covers any
 	// primary its RF/BLOS neighbor sets drive segment assignment and
 	// gateway identification; primaries without coverage fall through to
 	// the heuristic classifier.
-	gossip := buildGossipView(neighborsProvider, visNodes, primaryByMac, now)
+	gossip := buildGossipView(neighborsProvider, visNodes, primaryByMac, hostnameByPrimary, now)
 
 	segmentByPrimary, gatewayByPrimary := classifyNodesWithGossip(
 		origSnap, primaryByMac, selfMAC, selfPrimary, gossip)
@@ -241,9 +250,16 @@ func applyGossipState(nodes []*meshtopov1.MeshNode, gossip *gossipView) {
 	}
 }
 
-// gossipCoverage summarizes how many rendered non-self nodes have fresh
-// gossip records. Emitted into the MeshTopology response so the frontend
-// can render a "GOSSIP N/M" badge.
+// gossipCoverage summarizes how many rendered non-self nodes have
+// fresh gossip records. Emitted into the MeshTopology response so the
+// frontend can render a "GOSSIP N/M" badge.
+//
+// A node is counted published only when buildGossipView actually
+// matched a record to its primary (presence in rfByPrimary is that
+// positive confirmation). Originator-synthesized nodes — primaries
+// that never reach buildGossipView because they aren't in visNodes —
+// don't get counted as published by accident, which was the
+// false-positive the previous accounting produced.
 func gossipCoverage(gossip *gossipView, nodes []*meshtopov1.MeshNode) *meshtopov1.GossipCoverage {
 	if gossip == nil {
 		return nil
@@ -260,7 +276,7 @@ func gossipCoverage(gossip *gossipView, nodes []*meshtopov1.MeshNode) *meshtopov
 		total++
 
 		primary := strings.ToLower(n.GetMac())
-		if !gossip.staleByPrimary[primary] {
+		if _, ok := gossip.rfByPrimary[primary]; ok {
 			published++
 		}
 	}
@@ -926,6 +942,47 @@ func lookupOrigEntry(
 	}
 
 	return nil
+}
+
+// buildHostnameIndex precomputes each canonical primary's display
+// hostname so the gossip view can match records by hostname when the
+// MAC lookup fails. Mirrors the resolution order of lookupHostname and
+// buildMeshNodes so the index key matches whatever the UI will render.
+// Self is indexed separately from origSnap.SelfHostname because vis
+// sometimes lacks an entry for the serving node at cold start.
+func buildHostnameIndex(
+	visNodes []batmanadv.VisNode,
+	origByMac map[string]*batmanadv.OriginatorEntry,
+	batHosts *batmanadv.BatHosts,
+	primaryByMac map[string]string,
+	selfMAC string,
+	selfHostname string,
+) map[string]string {
+	out := make(map[string]string, len(visNodes)+1)
+
+	for _, v := range visNodes {
+		canonical := primaryByMac[v.Primary]
+		if canonical == "" {
+			canonical = v.Primary
+		}
+
+		// Don't overwrite an earlier-resolved name for the same canonical
+		// primary — multi-radio dedup folds several vis entries onto one
+		// canonical and the first resolve wins for determinism.
+		if _, seen := out[canonical]; seen {
+			continue
+		}
+
+		if name := lookupHostname(v, lookupOrigEntry(v, origByMac), batHosts); name != "" {
+			out[canonical] = name
+		}
+	}
+
+	if selfPrimary := primaryByMac[selfMAC]; selfPrimary != "" && out[selfPrimary] == "" && selfHostname != "" {
+		out[selfPrimary] = stripIfaceSuffix(selfHostname)
+	}
+
+	return out
 }
 
 // lookupHostname resolves a display hostname for a node using (in order):

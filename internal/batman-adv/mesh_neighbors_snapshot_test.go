@@ -45,9 +45,18 @@ func (f *fakeAlfredRead) setRecords(records []alfred.Record) {
 func makePayload(t *testing.T, primary string, collected time.Time) []byte {
 	t.Helper()
 
+	return makePayloadWithHostname(t, primary, "BCM2711-test", collected)
+}
+
+// makePayloadWithHostname is the full constructor that lets tests
+// explicitly vary the payload hostname. Used by LookupByHostname tests
+// and the multi-mesh fallback scenarios.
+func makePayloadWithHostname(t *testing.T, primary, hostname string, collected time.Time) []byte {
+	t.Helper()
+
 	pb := &netv1.MeshNeighbors{
 		PrimaryMac:  primary,
-		Hostname:    "BCM2711-test",
+		Hostname:    hostname,
 		Algorithm:   15,
 		CollectedAt: timestamppb.New(collected),
 		Neighbors: []*netv1.MeshNeighbor{
@@ -208,6 +217,59 @@ func TestMeshNeighborsSnapshotter_MalformedPayloadSkipped(t *testing.T) {
 
 	_, ok = s.Lookup("aa:bb:cc:dd:ee:02")
 	assert.True(t, ok, "valid record kept")
+}
+
+// TestMeshNeighborsSnapshotter_LookupByHostname covers the multi-mesh
+// fallback path. On deployments where alfred gossip runs on a
+// different batman-adv instance than the one batadv-vis reports from,
+// the envelope MAC and payload.primary_mac both reflect the gossip
+// mesh — neither matches a vis primary. Hostname is the one join key
+// shared across meshes. Record lookups by hostname must succeed and
+// be case-insensitive.
+func TestMeshNeighborsSnapshotter_LookupByHostname(t *testing.T) {
+	fixedNow := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+
+	fake := &fakeAlfredRead{}
+	fake.setRecords([]alfred.Record{
+		// envelope MAC, payload.primary_mac, and any hypothetical vis
+		// primary would all be different on a real multi-mesh node.
+		// The hostname is the only stable identifier.
+		{
+			Source: macBytes("f2:5e:31:f3:01:81"),
+			Data:   makePayloadWithHostname(t, "12:9d:04:6c:2d:75", "BCM2711-1003", fixedNow.Add(-5*time.Second)),
+		},
+		{
+			Source: macBytes("f2:20:f9:84:c3:67"),
+			Data:   makePayloadWithHostname(t, "2a:f0:44:57:4e:a9", "BCM2711-fc96", fixedNow.Add(-5*time.Second)),
+		},
+	})
+
+	s := &batmanadv.MeshNeighborsSnapshotter{
+		Log:      zerolog.Nop(),
+		Client:   fake,
+		Interval: time.Hour,
+		Now:      func() time.Time { return fixedNow },
+	}
+
+	ctx, cancel := contextCancel()
+	defer cancel()
+
+	s.Start(ctx)
+
+	rec, ok := s.LookupByHostname("BCM2711-1003")
+	require.True(t, ok, "hostname match returns the correct record")
+	assert.Equal(t, "12:9d:04:6c:2d:75", rec.Payload.GetPrimaryMac())
+
+	// Case-insensitive, matching what the handler's hostname index does.
+	rec, ok = s.LookupByHostname("bcm2711-fc96")
+	require.True(t, ok, "hostname lookup is case-insensitive")
+	assert.Equal(t, "2a:f0:44:57:4e:a9", rec.Payload.GetPrimaryMac())
+
+	_, ok = s.LookupByHostname("Venice-unknown")
+	assert.False(t, ok, "unknown hostname returns no record")
+
+	_, ok = s.LookupByHostname("")
+	assert.False(t, ok, "empty hostname returns no record — protects against handler passing through a missing bat-hosts entry")
 }
 
 // TestMeshNeighborsSnapshotter_CoverageCountsPresentRecords verifies

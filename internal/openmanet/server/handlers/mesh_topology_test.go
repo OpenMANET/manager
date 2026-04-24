@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -543,6 +544,20 @@ func (f *fakeNeighborsProvider) Lookup(primaryMac string) (*batmanadv.MeshNeighb
 	return nil, false
 }
 
+func (f *fakeNeighborsProvider) LookupByHostname(hostname string) (*batmanadv.MeshNeighborsRecord, bool) {
+	if hostname == "" {
+		return nil, false
+	}
+
+	for _, rec := range f.records {
+		if rec.Payload != nil && strings.EqualFold(rec.Payload.GetHostname(), hostname) {
+			return rec, true
+		}
+	}
+
+	return nil, false
+}
+
 func (f *fakeNeighborsProvider) All() map[string]*batmanadv.MeshNeighborsRecord {
 	out := make(map[string]*batmanadv.MeshNeighborsRecord, len(f.records))
 	for k, v := range f.records {
@@ -630,12 +645,20 @@ func TestGetMeshTopology_GossipClassifiesNodeBehindRemoteGateway(t *testing.T) {
 
 // TestGetMeshTopology_GossipCoverageReflectsPublishers confirms the
 // MeshTopology.GossipCoverage field counts non-self nodes with fresh
-// gossip records.
+// gossip records — and *only* those confirmed via a successful
+// buildGossipView match. Originator-synthesized nodes (present in the
+// route table but not in vis) must not be counted as published by
+// accident; that was the pre-fix false positive where a node without
+// any gossip record still showed GOSSIP N/M with N inflated by one.
 func TestGetMeshTopology_GossipCoverageReflectsPublishers(t *testing.T) {
 	const (
 		selfMAC  = "aa:aa:aa:aa:aa:00"
 		pubMAC   = "bb:bb:bb:bb:bb:00"
 		quietMAC = "cc:cc:cc:cc:cc:00"
+		// synthMAC appears only in the originator table, never in vis —
+		// buildGossipView never visits it, so it should neither count
+		// toward published nor provoke a stale flag.
+		synthMAC = "dd:dd:dd:dd:dd:00"
 	)
 
 	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
@@ -645,7 +668,12 @@ func TestGetMeshTopology_GossipCoverageReflectsPublishers(t *testing.T) {
 			{Primary: quietMAC},
 		},
 	}}
-	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{SelfMAC: selfMAC}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC: selfMAC,
+		Originators: []batmanadv.OriginatorEntry{
+			{OrigMAC: synthMAC, NextHopMAC: synthMAC, HardIfname: "wlan0", Hops: 1},
+		},
+	}}
 
 	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
 		pubMAC: {Payload: &netv1.MeshNeighbors{PrimaryMac: pubMAC}, SourceMac: pubMAC},
@@ -659,8 +687,83 @@ func TestGetMeshTopology_GossipCoverageReflectsPublishers(t *testing.T) {
 
 	cov := resp.GetTopology().GetGossipCoverage()
 	require.NotNil(t, cov)
-	assert.Equal(t, int32(2), cov.GetTotal(), "2 non-self nodes exist")
-	assert.Equal(t, int32(1), cov.GetPublished(), "only pubMAC has a fresh record")
+	assert.Equal(t, int32(3), cov.GetTotal(), "3 non-self nodes rendered: pubMAC, quietMAC, and the synthesized originator-only node")
+	assert.Equal(t, int32(1), cov.GetPublished(),
+		"only pubMAC has a gossip record; quietMAC has none and synthMAC was never visited by buildGossipView")
+}
+
+// TestGetMeshTopology_GossipHostnameFallback covers the multi-mesh
+// deployment where alfred gossip runs on a different batman-adv
+// instance than the one vis reports. The record's envelope MAC and
+// payload.primary_mac both differ from the vis primary; only the
+// hostname matches. buildGossipView must fall back to LookupByHostname
+// before marking the node stale.
+func TestGetMeshTopology_GossipHostnameFallback(t *testing.T) {
+	const (
+		selfMAC    = "aa:aa:aa:aa:aa:00"
+		visPrimary = "3c:22:7f:71:df:30" // batadv-vis's view of the peer (bat0)
+		gossipMAC  = "2a:f0:44:57:4e:a9" // the same peer's MAC on the batmesh1 address space
+		sharedHost = "BCM2711-fc96"
+	)
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: selfMAC},
+			{Primary: visPrimary},
+		},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC: selfMAC,
+		Originators: []batmanadv.OriginatorEntry{
+			{OrigMAC: visPrimary, OrigHostname: sharedHost + "_bat0", NextHopMAC: visPrimary, HardIfname: "vxlan0", Hops: 1},
+		},
+	}}
+
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	collected := now.Add(-10 * time.Second)
+
+	// Record's keys don't match the vis primary at all — exactly the
+	// BCM2711-fc96 case from the field evidence. Only the hostname
+	// connects the two meshes.
+	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
+		// Keyed by envelope MAC, which the fake keeps for Lookup tests;
+		// real snapshotter key is arbitrary and irrelevant here since
+		// no lookup path will target it.
+		"f2:20:f9:84:c3:67": {
+			Payload: &netv1.MeshNeighbors{
+				PrimaryMac:  gossipMAC,
+				Hostname:    sharedHost,
+				CollectedAt: timestamppb.New(collected),
+				Neighbors: []*netv1.MeshNeighbor{
+					{Mac: "some-rf-peer", HardIfname: "wlan0"},
+				},
+			},
+			SourceMac: "f2:20:f9:84:c3:67",
+		},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, func() time.Time { return now })
+	svc.NeighborsProvider = neighbors
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	byMac := make(map[string]*meshtopov1.MeshNode)
+	for _, n := range resp.GetTopology().GetNodes() {
+		byMac[n.GetMac()] = n
+	}
+
+	peer := byMac[visPrimary]
+	require.NotNil(t, peer, "peer is rendered under its vis primary MAC")
+	assert.False(t, peer.GetGossipStale(),
+		"hostname-based fallback must match the gossip record across mesh boundaries")
+	assert.Equal(t, int32(10), peer.GetGossipAgeSeconds(),
+		"age still computed from payload.collected_at after the fallback hit")
+
+	cov := resp.GetTopology().GetGossipCoverage()
+	require.NotNil(t, cov)
+	assert.Equal(t, int32(1), cov.GetPublished(),
+		"coverage reflects the hostname-matched record")
 }
 
 // TestGetMeshTopology_GossipStatePropagates confirms the wire shape of
