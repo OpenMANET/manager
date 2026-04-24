@@ -560,7 +560,6 @@ func buildMeshNodes(
 		node := &meshtopov1.MeshNode{
 			Mac:           v.Primary,
 			SecondaryMacs: append([]string(nil), v.Secondary...),
-			ClientCount:   int32(len(v.Clients)),
 			IsSelf:        v.Primary == selfPrimary && selfPrimary != "",
 		}
 

@@ -359,10 +359,6 @@ function HostInspector({ host, meshData, ipByHostname, hostById, edges, algorith
         <span className="k">Hops</span>
         <span className="v">{host.hops < 99 ? host.hops : '—'}</span>
       </div>
-      <div className="kv">
-        <span className="k">Clients</span>
-        <span className="v">{host.clientCount ?? 0}</span>
-      </div>
       {!host.isSelf && <GossipFreshnessRow host={host} />}
       {!host.isSelf && (
         <div className="kv">

@@ -6,7 +6,7 @@
 //
 //   {
 //     selfMac, selfHostname, algorithm, collectedAt,
-//     nodes: [{ mac, secondaryMacs, hostname, segment, clientCount,
+//     nodes: [{ mac, secondaryMacs, hostname, segment,
 //               hopsFromSelf, myHardIfname, isSelf }],
 //     edges: [{ fromMac, toMac, metric, blos, onMyPath }],
 //   }
@@ -120,7 +120,6 @@ export function buildTopologyView(topology) {
       isSelf: Boolean(n.isSelf),
       myHardIfname: n.myHardIfname || '',
       secondaryMacs: n.secondaryMacs || [],
-      clientCount: Number.isFinite(n.clientCount) ? n.clientCount : 0,
       gossipStale: Boolean(n.gossipStale),
       // gossipAgeSeconds: -1 means "no record observed"; any other value
       // is seconds since the publisher's payload.collected_at. Self is 0.

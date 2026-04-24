@@ -32,7 +32,6 @@ func (m *MeshNode) CloneVT() *MeshNode {
 	r.Mac = m.Mac
 	r.Hostname = m.Hostname
 	r.Segment = m.Segment
-	r.ClientCount = m.ClientCount
 	r.HopsFromSelf = m.HopsFromSelf
 	r.MyHardIfname = m.MyHardIfname
 	r.IsSelf = m.IsSelf
@@ -151,9 +150,6 @@ func (this *MeshNode) EqualVT(that *MeshNode) bool {
 		return false
 	}
 	if this.Segment != that.Segment {
-		return false
-	}
-	if this.ClientCount != that.ClientCount {
 		return false
 	}
 	if this.HopsFromSelf != that.HopsFromSelf {
@@ -375,11 +371,6 @@ func (m *MeshNode) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.HopsFromSelf))
 		i--
 		dAtA[i] = 0x30
-	}
-	if m.ClientCount != 0 {
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.ClientCount))
-		i--
-		dAtA[i] = 0x28
 	}
 	if len(m.Segment) > 0 {
 		i -= len(m.Segment)
@@ -702,11 +693,6 @@ func (m *MeshNode) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x30
 	}
-	if m.ClientCount != 0 {
-		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.ClientCount))
-		i--
-		dAtA[i] = 0x28
-	}
 	if len(m.Segment) > 0 {
 		i -= len(m.Segment)
 		copy(dAtA[i:], m.Segment)
@@ -978,9 +964,6 @@ func (m *MeshNode) SizeVT() (n int) {
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	if m.ClientCount != 0 {
-		n += 1 + protohelpers.SizeOfVarint(uint64(m.ClientCount))
-	}
 	if m.HopsFromSelf != 0 {
 		n += 1 + protohelpers.SizeOfVarint(uint64(m.HopsFromSelf))
 	}
@@ -1247,25 +1230,6 @@ func (m *MeshNode) UnmarshalVT(dAtA []byte) error {
 			}
 			m.Segment = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 5:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ClientCount", wireType)
-			}
-			m.ClientCount = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.ClientCount |= int32(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
 		case 6:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field HopsFromSelf", wireType)
@@ -2145,25 +2109,6 @@ func (m *MeshNode) UnmarshalVTUnsafe(dAtA []byte) error {
 			}
 			m.Segment = stringValue
 			iNdEx = postIndex
-		case 5:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ClientCount", wireType)
-			}
-			m.ClientCount = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.ClientCount |= int32(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
 		case 6:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field HopsFromSelf", wireType)

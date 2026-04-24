@@ -185,7 +185,6 @@ func TestGetMeshTopology_MergesVisAndOriginators(t *testing.T) {
 	assert.Equal(t, int32(1), alphaNode.GetHopsFromSelf())
 	assert.Equal(t, "wlan0", alphaNode.GetMyHardIfname())
 	assert.Equal(t, "alpha", alphaNode.GetHostname())
-	assert.Equal(t, int32(2), alphaNode.GetClientCount())
 
 	gw1Node := nodes[byMac["cc:cc:cc:cc:cc:00"]]
 	assert.Equal(t, "remote", gw1Node.GetSegment(), "vxlan0-only route → remote segment")

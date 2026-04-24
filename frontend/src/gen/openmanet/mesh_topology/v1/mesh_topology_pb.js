@@ -19,7 +19,6 @@ export const MeshNode = /*@__PURE__*/ proto3.makeMessageType(
     { no: 2, name: "secondary_macs", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 3, name: "hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "segment", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 5, name: "client_count", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
     { no: 6, name: "hops_from_self", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
     { no: 7, name: "my_hard_ifname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 8, name: "is_self", kind: "scalar", T: 8 /* ScalarType.BOOL */ },

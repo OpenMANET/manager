@@ -34,26 +34,19 @@ const BADGE_Y_OFFSET = NODE_RADIUS + 36;      // badge row below the hostname la
 // with 0.04em letter-spacing. The text is middle-anchored, so each side
 // of the circle has to accommodate half the rendered width. Used by the
 // sibling-spacing and bbox-width calculations so longer labels like
-// "GATEWAY · HOPS 2" or "STALE · 2m 14s" never run into their neighbors
-// or spill out of the segment box.
+// "GATEWAY" or "STALE · 2m 14s" never run into their neighbors or spill
+// out of the segment box.
 const HOST_LABEL_CHAR_WIDTH = 7;
 // Upper bound on the character count of any label formatHostLabel can
-// emit — "STALE · 99m 59s" (15), "HOPS 99 · vxlan0" (16), "GATEWAY ·
-// HOPS 99" (17). Padded by one so estimates round up rather than down.
-const HOST_LABEL_MAX_CHARS = 18;
+// emit — "STALE · 99m 59s" (15) is the widest case. Padded for safety.
+const HOST_LABEL_MAX_CHARS = 16;
 const HOST_LABEL_HALF_WIDTH = (HOST_LABEL_MAX_CHARS * HOST_LABEL_CHAR_WIDTH) / 2;
-
-// Client-count pill lives at translate(14, -36), width 22 × height 14.
-// Captured here so the bbox math picks up its top-right extent without
-// hard-coding the magic numbers twice.
-const CLIENT_BADGE_TOP = -36;
-const CLIENT_BADGE_RIGHT = 14 + 22;
 
 // Per-node drawing extents — used by every bbox/spacing computation so
 // the segment box, sibling gutter, and viewBox all agree on how much
-// space one rendered node actually occupies (circle + label + pill).
-const NODE_HALF_WIDTH = Math.max(NODE_RADIUS, HOST_LABEL_HALF_WIDTH, CLIENT_BADGE_RIGHT);
-const NODE_TOP_EXTENT = Math.max(NODE_RADIUS, -CLIENT_BADGE_TOP);
+// space one rendered node actually occupies (circle + label).
+const NODE_HALF_WIDTH = Math.max(NODE_RADIUS, HOST_LABEL_HALF_WIDTH);
+const NODE_TOP_EXTENT = NODE_RADIUS;
 
 // Horizontal spacing between sibling leaves. Must exceed twice the
 // per-node half-width so two adjacent labels still leave a breathing
@@ -517,19 +510,6 @@ function formatHostLabel(host, isGateway) {
   return '';
 }
 
-// ClientCountBadge draws the "·N" pill above the node when the host has
-// attached non-mesh clients (laptops / phones bridged over ethernet or
-// an AP). Hidden when clientCount is 0 so quiet nodes stay unembellished.
-function ClientCountBadge({ count }) {
-  if (!Number.isFinite(count) || count <= 0) return null;
-  return (
-    <g className="topo-client-badge" transform="translate(14, -36)">
-      <rect x={0} y={0} width={22} height={14} rx={2} />
-      <text x={11} y={8}>{`·${count}`}</text>
-    </g>
-  );
-}
-
 function HostNode({ host, pos, kind, onSelect, selectedId, compact, isGateway }) {
   if (!pos) return null;
   const isSelected = selectedId === host.id;
@@ -556,7 +536,6 @@ function HostNode({ host, pos, kind, onSelect, selectedId, compact, isGateway })
         </text>
       )}
       {!compact && <InterfaceBadges interfaces={host.interfaces} />}
-      {!compact && <ClientCountBadge count={host.clientCount} />}
     </g>
   );
 }

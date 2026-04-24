@@ -240,30 +240,6 @@
   pointer-events: none;
 }
 
-/* Client-count pill drawn at the top-right of a node whenever the
-   host has attached non-mesh clients (laptops / phones bridged over
-   ethernet or an AP). Sized to fit up to three digits without
-   overflowing; hidden entirely when the count is zero. */
-.topo-client-badge {
-  pointer-events: none;
-}
-.topo-client-badge rect {
-  fill: rgba(0, 229, 255, 0.10);
-  stroke: var(--accent);
-  stroke-width: 0.8;
-}
-.topo-client-badge text {
-  fill: var(--accent);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-anchor: middle;
-  dominant-baseline: central;
-}
-.topo-node.remote .topo-client-badge rect { stroke: var(--warn); fill: rgba(255, 179, 0, 0.10); }
-.topo-node.remote .topo-client-badge text  { fill: var(--warn); }
-
 /* ── Segment boxes ──────────────────────────────────────────────────────── */
 
 .topo-segment-box rect {

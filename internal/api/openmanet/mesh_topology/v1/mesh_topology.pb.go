@@ -41,10 +41,6 @@ type MeshNode struct {
 	// it over a non-vxlan0 interface, "remote" when the best route is
 	// over vxlan0 (BLOS). Always "local" for the serving node itself.
 	Segment string `protobuf:"bytes,4,opt,name=segment,proto3" json:"segment,omitempty"`
-	// client_count is the number of non-mesh MACs attached to this node
-	// (the length of the vis "clients" array — transtable entries such
-	// as laptops or phones bridged via ethernet or AP).
-	ClientCount int32 `protobuf:"varint,5,opt,name=client_count,json=clientCount,proto3" json:"client_count,omitempty"`
 	// hops_from_self is the number of forwarding hops from the serving
 	// node to this node, as derived from the serving node's originator
 	// table. 0 for the serving node itself; 99 for "unknown".
@@ -132,13 +128,6 @@ func (x *MeshNode) GetSegment() string {
 		return x.Segment
 	}
 	return ""
-}
-
-func (x *MeshNode) GetClientCount() int32 {
-	if x != nil {
-		return x.ClientCount
-	}
-	return 0
 }
 
 func (x *MeshNode) GetHopsFromSelf() int32 {
@@ -448,20 +437,19 @@ var File_openmanet_mesh_topology_v1_mesh_topology_proto protoreflect.FileDescrip
 
 const file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc = "" +
 	"\n" +
-	".openmanet/mesh_topology/v1/mesh_topology.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x80\x03\n" +
+	".openmanet/mesh_topology/v1/mesh_topology.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf1\x02\n" +
 	"\bMeshNode\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12%\n" +
 	"\x0esecondary_macs\x18\x02 \x03(\tR\rsecondaryMacs\x12\x1a\n" +
 	"\bhostname\x18\x03 \x01(\tR\bhostname\x12\x18\n" +
-	"\asegment\x18\x04 \x01(\tR\asegment\x12!\n" +
-	"\fclient_count\x18\x05 \x01(\x05R\vclientCount\x12$\n" +
+	"\asegment\x18\x04 \x01(\tR\asegment\x12$\n" +
 	"\x0ehops_from_self\x18\x06 \x01(\x05R\fhopsFromSelf\x12$\n" +
 	"\x0emy_hard_ifname\x18\a \x01(\tR\fmyHardIfname\x12\x17\n" +
 	"\ais_self\x18\b \x01(\bR\x06isSelf\x12,\n" +
 	"\x12remote_gateway_mac\x18\t \x01(\tR\x10remoteGatewayMac\x12!\n" +
 	"\fgossip_stale\x18\n" +
 	" \x01(\bR\vgossipStale\x12,\n" +
-	"\x12gossip_age_seconds\x18\v \x01(\x05R\x10gossipAgeSeconds\"\x86\x01\n" +
+	"\x12gossip_age_seconds\x18\v \x01(\x05R\x10gossipAgeSecondsJ\x04\b\x05\x10\x06R\fclient_count\"\x86\x01\n" +
 	"\bMeshEdge\x12\x19\n" +
 	"\bfrom_mac\x18\x01 \x01(\tR\afromMac\x12\x15\n" +
 	"\x06to_mac\x18\x02 \x01(\tR\x05toMac\x12\x16\n" +

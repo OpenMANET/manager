@@ -23,17 +23,17 @@ function localTriangle() {
     nodes: [
       {
         mac: 'aa:aa:aa:aa:aa:00', hostname: 'me', segment: 'local',
-        hopsFromSelf: 0, isSelf: true, clientCount: 0, myHardIfname: '',
+        hopsFromSelf: 0, isSelf: true, myHardIfname: '',
         secondaryMacs: [],
       },
       {
         mac: 'bb:bb:bb:bb:bb:00', hostname: 'alpha', segment: 'local',
-        hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0',
+        hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0',
         secondaryMacs: [],
       },
       {
         mac: 'cc:cc:cc:cc:cc:00', hostname: 'bravo', segment: 'local',
-        hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0',
+        hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0',
         secondaryMacs: [],
       },
     ],

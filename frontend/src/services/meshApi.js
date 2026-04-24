@@ -95,7 +95,6 @@ export async function fetchMeshStatus() {
 //       {
 //         mac, secondaryMacs, hostname,
 //         segment,                                   // "local" | "remote"
-//         clientCount,                               // non-mesh MACs attached
 //         hopsFromSelf,                              // 0 self, 99 unknown
 //         myHardIfname,                              // local ifname I'd forward on, "" if unknown
 //         isSelf,
@@ -141,7 +140,6 @@ export async function fetchMeshTopology() {
         hostname: n.hostname ?? '',
         segment: n.segment ?? 'local',
         remoteGatewayMac: n.remoteGatewayMac ?? '',
-        clientCount: n.clientCount ?? 0,
         hopsFromSelf: n.hopsFromSelf ?? 0,
         myHardIfname: n.myHardIfname ?? '',
         isSelf: n.isSelf ?? false,
