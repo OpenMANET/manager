@@ -338,6 +338,94 @@ func TestGetMeshTopology_RemoteGatewaySplit(t *testing.T) {
 	assert.Empty(t, gwByMac["aa:aa:aa:aa:aa:00"], "self has no gateway")
 }
 
+// TestGetMeshTopology_SuppressesPeerReportedCrossSegmentEdges reproduces
+// the field bug where BCM2711-fc96 (a remote BLOS gateway) lists
+// Venice-A47B / Venice-035c (local RF peers) as "neighbors" on vxlan0
+// in its own batadv-vis output. That's an artifact of the vxlan0
+// broadcast overlay — every BLOS-reachable node appears as a direct
+// neighbor in peer vis data, even though the actual path is
+// fc96 → vxlan0 → self → RF → Venice. The handler must not promote
+// these into cross-segment MeshEdges; if it does, the UI renders fake
+// vxlan lines from Venice to fc96 instead of the correct self ↔ fc96
+// tunnel.
+func TestGetMeshTopology_SuppressesPeerReportedCrossSegmentEdges(t *testing.T) {
+	const (
+		selfMAC = "aa:aa:aa:aa:aa:00" // BCM2711-1003
+		gwMAC   = "bb:bb:bb:bb:bb:00" // BCM2711-fc96 — real BLOS tunnel endpoint
+		venice1 = "cc:cc:cc:cc:cc:00" // Venice-A47B — local RF peer
+		venice2 = "dd:dd:dd:dd:dd:00" // Venice-035c — local RF peer
+	)
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			// self reports its RF neighbors + the BLOS gateway
+			{Primary: selfMAC, Neighbors: []batmanadv.VisNeighbor{
+				{Router: selfMAC, Neighbor: venice1, Metric: "1.200"},
+				{Router: selfMAC, Neighbor: venice2, Metric: "1.300"},
+				{Router: selfMAC, Neighbor: gwMAC, Metric: "0.500"},
+			}},
+			// fc96's vis says it sees the Venice nodes over vxlan0 — the
+			// broadcast overlay artifact we must filter out.
+			{Primary: gwMAC, Neighbors: []batmanadv.VisNeighbor{
+				{Router: gwMAC, Neighbor: selfMAC, Metric: "0.500"},
+				{Router: gwMAC, Neighbor: venice1, Metric: "0.400"}, // spurious
+				{Router: gwMAC, Neighbor: venice2, Metric: "0.400"}, // spurious
+			}},
+			{Primary: venice1, Neighbors: []batmanadv.VisNeighbor{
+				{Router: venice1, Neighbor: selfMAC, Metric: "1.200"},
+			}},
+			{Primary: venice2, Neighbors: []batmanadv.VisNeighbor{
+				{Router: venice2, Neighbor: selfMAC, Metric: "1.300"},
+			}},
+		},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC:      selfMAC,
+		SelfHostname: "self",
+		Algorithm:    "BATMAN_V",
+		Originators: []batmanadv.OriginatorEntry{
+			// Self's real routing view: Venice nodes over RF, fc96 over vxlan0.
+			{OrigMAC: venice1, NextHopMAC: venice1, HardIfname: "phy1-mesh0", Hops: 1},
+			{OrigMAC: venice2, NextHopMAC: venice2, HardIfname: "phy1-mesh0", Hops: 1},
+			{OrigMAC: gwMAC, NextHopMAC: gwMAC, HardIfname: "vxlan0", Hops: 1},
+		},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	edges := resp.GetTopology().GetEdges()
+
+	edgeKey := func(a, b string) string {
+		if a < b {
+			return a + "|" + b
+		}
+
+		return b + "|" + a
+	}
+
+	// Build a set of canonical edge keys for easy assertions.
+	have := make(map[string]*meshtopov1.MeshEdge, len(edges))
+	for _, e := range edges {
+		have[edgeKey(e.GetFromMac(), e.GetToMac())] = e
+	}
+
+	assert.Contains(t, have, edgeKey(selfMAC, venice1), "self ↔ Venice1 RF edge kept")
+	assert.Contains(t, have, edgeKey(selfMAC, venice2), "self ↔ Venice2 RF edge kept")
+	assert.Contains(t, have, edgeKey(selfMAC, gwMAC), "self ↔ fc96 BLOS tunnel kept")
+
+	assert.NotContains(t, have, edgeKey(venice1, gwMAC),
+		"fc96 ↔ Venice1 must be suppressed — peer-reported cross-segment edge is a vxlan0 broadcast-overlay artifact, not a real tunnel")
+	assert.NotContains(t, have, edgeKey(venice2, gwMAC),
+		"fc96 ↔ Venice2 must be suppressed for the same reason")
+
+	// Sanity-check: the real BLOS edge we kept has blos=true.
+	require.NotNil(t, have[edgeKey(selfMAC, gwMAC)])
+	assert.True(t, have[edgeKey(selfMAC, gwMAC)].GetBlos(), "self ↔ fc96 is BLOS")
+}
+
 // TestGetMeshTopology_SynthesizesEdgesWhenVisEmpty verifies the
 // originator-derived edge fallback: when batadv-vis returns only node
 // stubs with no neighbor reports (alfred cold-start, peer vis-servers

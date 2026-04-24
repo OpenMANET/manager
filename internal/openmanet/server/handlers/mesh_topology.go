@@ -819,6 +819,19 @@ func applyVisNeighbor(
 		return
 	}
 
+	// Peer-reported cross-segment edges are artifacts of the vxlan0
+	// broadcast overlay: every BLOS-reachable node appears as a direct
+	// neighbor to every other BLOS-reachable node in peer vis entries,
+	// even when the actual path is peer → vxlan0 → serving-node → RF →
+	// target. Real BLOS tunnels originate at the serving node and are
+	// already seeded via seedOriginatorEdges, so any *new* cross-segment
+	// edge discovered here is an overlay artifact. Drop it — otherwise
+	// the UI draws spurious vxlan lines between local peers and remote
+	// gateways they don't actually tunnel to.
+	if segmentOrDefault(segmentByPrimary, aPrimary) != segmentOrDefault(segmentByPrimary, bPrimary) {
+		return
+	}
+
 	addEdge(edgeByKey, aPrimary, bPrimary, segmentByPrimary, knownPrimaries, metric, false)
 }
 
