@@ -77,6 +77,7 @@ func (m *SatelliteStatus) CloneVT() *SatelliteStatus {
 	r := new(SatelliteStatus)
 	r.SatellitesUsed = m.SatellitesUsed
 	r.SatellitesInView = m.SatellitesInView
+	r.LastUpdate = (*timestamppb.Timestamp)((*timestamppb1.Timestamp)(m.LastUpdate).CloneVT())
 	if rhs := m.Satellites; rhs != nil {
 		tmpContainer := make([]*Satellite, len(rhs))
 		for k, v := range rhs {
@@ -308,6 +309,9 @@ func (this *SatelliteStatus) EqualVT(that *SatelliteStatus) bool {
 				return false
 			}
 		}
+	}
+	if !(*timestamppb1.Timestamp)(this.LastUpdate).EqualVT((*timestamppb1.Timestamp)(that.LastUpdate)) {
+		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
 }
@@ -636,6 +640,16 @@ func (m *SatelliteStatus) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.LastUpdate != nil {
+		size, err := (*timestamppb1.Timestamp)(m.LastUpdate).MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x22
 	}
 	if len(m.Satellites) > 0 {
 		for iNdEx := len(m.Satellites) - 1; iNdEx >= 0; iNdEx-- {
@@ -1160,6 +1174,16 @@ func (m *SatelliteStatus) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error)
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.LastUpdate != nil {
+		size, err := (*timestamppb1.Timestamp)(m.LastUpdate).MarshalToSizedBufferVTStrict(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x22
+	}
 	if len(m.Satellites) > 0 {
 		for iNdEx := len(m.Satellites) - 1; iNdEx >= 0; iNdEx-- {
 			size, err := m.Satellites[iNdEx].MarshalToSizedBufferVTStrict(dAtA[:i])
@@ -1577,6 +1601,10 @@ func (m *SatelliteStatus) SizeVT() (n int) {
 			l = e.SizeVT()
 			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 		}
+	}
+	if m.LastUpdate != nil {
+		l = (*timestamppb1.Timestamp)(m.LastUpdate).SizeVT()
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -2090,6 +2118,42 @@ func (m *SatelliteStatus) UnmarshalVT(dAtA []byte) error {
 			}
 			m.Satellites = append(m.Satellites, &Satellite{})
 			if err := m.Satellites[len(m.Satellites)-1].UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastUpdate", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.LastUpdate == nil {
+				m.LastUpdate = &timestamppb.Timestamp{}
+			}
+			if err := (*timestamppb1.Timestamp)(m.LastUpdate).UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -3186,6 +3250,42 @@ func (m *SatelliteStatus) UnmarshalVTUnsafe(dAtA []byte) error {
 			}
 			m.Satellites = append(m.Satellites, &Satellite{})
 			if err := m.Satellites[len(m.Satellites)-1].UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LastUpdate", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.LastUpdate == nil {
+				m.LastUpdate = &timestamppb.Timestamp{}
+			}
+			if err := (*timestamppb1.Timestamp)(m.LastUpdate).UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex

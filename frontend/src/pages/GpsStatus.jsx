@@ -15,6 +15,7 @@ import {
   estimateCEP95,
   computeFixRateHz,
   dopSeverity,
+  formatAgo,
 } from '../utils/gnss.js';
 import './GpsStatus.css';
 
@@ -363,6 +364,7 @@ function GlobePanel({ position, actionsRef }) {
 function SkyPlotPanel({ satelliteStatus }) {
   const sats = satelliteStatus?.satellites ?? [];
   const inView = satelliteStatus?.satellitesInView ?? sats.length;
+  const ago = formatAgo(satelliteStatus?.lastUpdate);
 
   return (
     <div className="lat-panel gps-panel-sky">
@@ -375,6 +377,7 @@ function SkyPlotPanel({ satelliteStatus }) {
       <div className="gps-sky-wrap">
         <SkyPlot satellites={sats} />
         <div className="gps-sky-hint">Zenith · N up · rings = 30° elevation</div>
+        <div className="gps-sky-hint">Updated {ago ?? '—'}</div>
       </div>
     </div>
   );

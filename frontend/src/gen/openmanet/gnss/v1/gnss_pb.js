@@ -72,6 +72,7 @@ export const SatelliteStatus = /*@__PURE__*/ proto3.makeMessageType(
     { no: 1, name: "satellites_used", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
     { no: 2, name: "satellites_in_view", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
     { no: 3, name: "satellites", kind: "message", T: Satellite, repeated: true },
+    { no: 4, name: "last_update", kind: "message", T: Timestamp },
   ],
 );
 

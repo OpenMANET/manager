@@ -589,6 +589,170 @@ func TestGetSatelliteReport_EmptySatelliteList(t *testing.T) {
 	}
 }
 
+// TestUpdateSatelliteInfo_TimestampOnlyOnConstellation guards the contract
+// that SatelliteReport.Timestamp advances only when a SKY message carries a
+// satellites array. DOP-only updates must leave the prior timestamp in
+// place so the UI can distinguish "fresh constellation data" from "the
+// gpsd link is alive but not reporting sky-in-view."
+func TestUpdateSatelliteInfo_TimestampOnlyOnConstellation(t *testing.T) {
+	gps := &GPSService{Log: zerolog.Nop()}
+
+	if !gps.GetSatelliteReport().Timestamp.IsZero() {
+		t.Fatalf("Expected zero timestamp on fresh service")
+	}
+
+	full := SKYReport{
+		Class: "SKY",
+		Time:  "2026-04-24T22:03:54Z",
+		HDOP:  1.08,
+		PDOP:  1.98,
+		NSat:  12,
+		USat:  8,
+		Satellites: []struct {
+			PRN  int     `json:"PRN"`
+			El   float64 `json:"el"`
+			Az   float64 `json:"az"`
+			Ss   float64 `json:"ss"`
+			Used bool    `json:"used"`
+		}{
+			{PRN: 2, El: 45.0, Az: 120.0, Ss: 38.0, Used: true},
+		},
+	}
+	gps.updateSatelliteInfo(full)
+
+	first := gps.GetSatelliteReport().Timestamp
+	expected, _ := time.Parse(time.RFC3339, "2026-04-24T22:03:54Z")
+	if !first.Equal(expected) {
+		t.Errorf("Expected timestamp %v from sky.Time, got %v", expected, first)
+	}
+
+	// DOP-only update must not advance the timestamp.
+	partial := SKYReport{
+		Class: "SKY",
+		Time:  "2026-04-24T22:04:00Z",
+		HDOP:  1.10,
+		PDOP:  2.00,
+	}
+	gps.updateSatelliteInfo(partial)
+
+	if got := gps.GetSatelliteReport().Timestamp; !got.Equal(first) {
+		t.Errorf("Expected timestamp preserved at %v after DOP-only update, got %v", first, got)
+	}
+
+	// A second full SKY advances it.
+	full.Time = "2026-04-24T22:04:05Z"
+	gps.updateSatelliteInfo(full)
+
+	advanced, _ := time.Parse(time.RFC3339, "2026-04-24T22:04:05Z")
+	if got := gps.GetSatelliteReport().Timestamp; !got.Equal(advanced) {
+		t.Errorf("Expected timestamp advanced to %v after second full SKY, got %v", advanced, got)
+	}
+}
+
+// TestUpdateSatelliteInfo_TimestampFallsBackToNow covers the case where
+// gpsd emits a SKY without a parseable Time field. The cache must still
+// stamp something so the UI can show freshness.
+func TestUpdateSatelliteInfo_TimestampFallsBackToNow(t *testing.T) {
+	gps := &GPSService{Log: zerolog.Nop()}
+
+	before := time.Now()
+	gps.updateSatelliteInfo(SKYReport{
+		Class: "SKY",
+		Satellites: []struct {
+			PRN  int     `json:"PRN"`
+			El   float64 `json:"el"`
+			Az   float64 `json:"az"`
+			Ss   float64 `json:"ss"`
+			Used bool    `json:"used"`
+		}{
+			{PRN: 1, El: 30.0, Az: 90.0, Ss: 25.0, Used: true},
+		},
+	})
+	after := time.Now()
+
+	ts := gps.GetSatelliteReport().Timestamp
+	if ts.Before(before) || ts.After(after) {
+		t.Errorf("Expected timestamp between %v and %v, got %v", before, after, ts)
+	}
+}
+
+// TestUpdateSatelliteInfo_PartialSKYPreservesConstellation guards the merge
+// behaviour of updateSatelliteInfo: a SKY report that carries only DOP values
+// (as gpsd emits when the receiver is feeding $GSA but not $GSV) must not wipe
+// the cached satellite list or counters from the previous full SKY. This
+// regresses the bug where GpsStatus.jsx rendered an empty satelliteStatus
+// alongside a populated position.pdop.
+func TestUpdateSatelliteInfo_PartialSKYPreservesConstellation(t *testing.T) {
+	gps := &GPSService{Log: zerolog.Nop()}
+
+	full := SKYReport{
+		Class: "SKY",
+		HDOP:  1.08,
+		VDOP:  1.4,
+		PDOP:  1.98,
+		NSat:  12,
+		USat:  8,
+		Satellites: []struct {
+			PRN  int     `json:"PRN"`
+			El   float64 `json:"el"`
+			Az   float64 `json:"az"`
+			Ss   float64 `json:"ss"`
+			Used bool    `json:"used"`
+		}{
+			{PRN: 2, El: 45.0, Az: 120.0, Ss: 38.0, Used: true},
+			{PRN: 5, El: 72.0, Az: 210.0, Ss: 42.0, Used: true},
+			{PRN: 7, El: 15.0, Az: 330.0, Ss: 18.0, Used: false},
+		},
+	}
+	gps.updateSatelliteInfo(full)
+
+	partial := SKYReport{
+		Class: "SKY",
+		HDOP:  1.10,
+		PDOP:  2.00,
+	}
+	gps.updateSatelliteInfo(partial)
+
+	report := gps.GetSatelliteReport()
+
+	if len(report.Satellites) != 3 {
+		t.Fatalf("Expected 3 satellites preserved, got %d", len(report.Satellites))
+	}
+
+	if report.Satellites[0].PRN != 2 || report.Satellites[2].PRN != 7 {
+		t.Errorf("Satellite list corrupted: %+v", report.Satellites)
+	}
+
+	if report.NSat != 12 {
+		t.Errorf("Expected NSat preserved at 12, got %d", report.NSat)
+	}
+
+	if report.USat != 8 {
+		t.Errorf("Expected USat preserved at 8, got %d", report.USat)
+	}
+
+	if report.VDOP != 1.4 {
+		t.Errorf("Expected VDOP preserved at 1.4, got %f", report.VDOP)
+	}
+
+	if report.HDOP != 1.10 {
+		t.Errorf("Expected HDOP updated to 1.10, got %f", report.HDOP)
+	}
+
+	if report.PDOP != 2.00 {
+		t.Errorf("Expected PDOP updated to 2.00, got %f", report.PDOP)
+	}
+
+	pos := gps.GetPosition()
+	if pos.SatellitesUsed != 8 {
+		t.Errorf("Expected position.SatellitesUsed preserved at 8, got %d", pos.SatellitesUsed)
+	}
+
+	if pos.HDOP != 1.10 {
+		t.Errorf("Expected position.HDOP updated to 1.10, got %f", pos.HDOP)
+	}
+}
+
 func TestGetSatelliteReport_ConcurrentAccess(t *testing.T) {
 	gps := &GPSService{Log: zerolog.Nop()}
 

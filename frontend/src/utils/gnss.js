@@ -55,6 +55,25 @@ export function computeFixRateHz(timestamps) {
   return 1;
 }
 
+// Compact "X ago" formatter for GNSS freshness indicators. Accepts a Date
+// or ISO-string / proto Timestamp value; returns null when the input is
+// missing or unparseable so callers can render a dash placeholder.
+export function formatAgo(ts, now = Date.now()) {
+  if (ts == null) return null;
+  const d = ts instanceof Date ? ts : new Date(ts);
+  const t = d.getTime();
+  if (Number.isNaN(t)) return null;
+  const deltaMs = now - t;
+  if (deltaMs < 1500) return 'just now';
+  const s = Math.floor(deltaMs / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 // HDOP/PDOP chip severity bucket matching the mockup color bands.
 // Thresholds follow common GNSS practice: ≤ 2 is "ideal/excellent",
 // 2–5 is "good/moderate", > 5 is "fair/poor".

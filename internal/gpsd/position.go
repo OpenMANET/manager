@@ -51,40 +51,65 @@ func (g *GPSService) updatePosition(tpv TPVReport) {
 	}
 }
 
-// updateSatelliteInfo updates the satellite and precision information from a SKY report
+// updateSatelliteInfo merges satellite and precision data from a SKY report
+// into the cached report. gpsd legitimately emits SKY messages that omit the
+// satellites array or the nSat/uSat counters (for example when the receiver
+// supplies $GSA but not $GSV), so each field is updated only when the
+// incoming message actually carries it.
 func (g *GPSService) updateSatelliteInfo(sky SKYReport) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	// Only update if we have valid satellite data
 	if sky.USat > 0 {
 		g.position.SatellitesUsed = sky.USat
 	}
 
-	// Update HDOP if available
 	if sky.HDOP > 0 {
 		g.position.HDOP = sky.HDOP
 	}
 
-	// Cache full satellite constellation data
-	sats := make([]SatelliteInfo, 0, len(sky.Satellites))
-	for _, s := range sky.Satellites {
-		sats = append(sats, SatelliteInfo{
-			PRN:  s.PRN,
-			El:   s.El,
-			Az:   s.Az,
-			Ss:   s.Ss,
-			Used: s.Used,
-		})
+	if len(sky.Satellites) > 0 {
+		sats := make([]SatelliteInfo, 0, len(sky.Satellites))
+		for _, s := range sky.Satellites {
+			sats = append(sats, SatelliteInfo{
+				PRN:  s.PRN,
+				El:   s.El,
+				Az:   s.Az,
+				Ss:   s.Ss,
+				Used: s.Used,
+			})
+		}
+
+		g.satellites.Satellites = sats
+
+		// Stamp only when the message actually carries a constellation so
+		// the timestamp reflects sky-in-view freshness, not DOP-only chatter.
+		ts, err := time.Parse(time.RFC3339, sky.Time)
+		if err != nil {
+			ts = time.Now()
+		}
+
+		g.satellites.Timestamp = ts
 	}
 
-	g.satellites = SatelliteReport{
-		Satellites: sats,
-		HDOP:       sky.HDOP,
-		VDOP:       sky.VDOP,
-		PDOP:       sky.PDOP,
-		NSat:       sky.NSat,
-		USat:       sky.USat,
+	if sky.HDOP > 0 {
+		g.satellites.HDOP = sky.HDOP
+	}
+
+	if sky.VDOP > 0 {
+		g.satellites.VDOP = sky.VDOP
+	}
+
+	if sky.PDOP > 0 {
+		g.satellites.PDOP = sky.PDOP
+	}
+
+	if sky.NSat > 0 {
+		g.satellites.NSat = sky.NSat
+	}
+
+	if sky.USat > 0 {
+		g.satellites.USat = sky.USat
 	}
 }
 

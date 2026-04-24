@@ -69,6 +69,10 @@ func (g *GNSSService) GetGNSSStatus(_ context.Context, _ *emptypb.Empty) (*gnssv
 		Satellites:       sats,
 	}
 
+	if !satReport.Timestamp.IsZero() {
+		resp.SatelliteStatus.LastUpdate = timestamppb.New(satReport.Timestamp)
+	}
+
 	return resp, nil
 }
 

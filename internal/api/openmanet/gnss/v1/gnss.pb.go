@@ -315,7 +315,12 @@ type SatelliteStatus struct {
 	SatellitesInView int32 `protobuf:"varint,2,opt,name=satellites_in_view,json=satellitesInView,proto3" json:"satellites_in_view,omitempty"`
 	// satellites contains detailed information for each satellite currently
 	// visible to the receiver.
-	Satellites    []*Satellite `protobuf:"bytes,3,rep,name=satellites,proto3" json:"satellites,omitempty"`
+	Satellites []*Satellite `protobuf:"bytes,3,rep,name=satellites,proto3" json:"satellites,omitempty"`
+	// last_update is the UTC timestamp of the most recent SKY report that
+	// carried constellation detail. Partial SKY reports that only refresh
+	// DOP values do not advance this timestamp, so it reflects the freshness
+	// of the sky-in-view data rather than liveness of the gpsd link.
+	LastUpdate    *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_update,json=lastUpdate,proto3" json:"last_update,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -367,6 +372,13 @@ func (x *SatelliteStatus) GetSatellitesInView() int32 {
 func (x *SatelliteStatus) GetSatellites() []*Satellite {
 	if x != nil {
 		return x.Satellites
+	}
+	return nil
+}
+
+func (x *SatelliteStatus) GetLastUpdate() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastUpdate
 	}
 	return nil
 }
@@ -738,13 +750,15 @@ const file_openmanet_gnss_v1_gnss_proto_rawDesc = "" +
 	"\televation\x18\x02 \x01(\x01R\televation\x12\x18\n" +
 	"\aazimuth\x18\x03 \x01(\x01R\aazimuth\x12\x10\n" +
 	"\x03snr\x18\x04 \x01(\x01R\x03snr\x12\x12\n" +
-	"\x04used\x18\x05 \x01(\bR\x04used\"\xa6\x01\n" +
+	"\x04used\x18\x05 \x01(\bR\x04used\"\xe3\x01\n" +
 	"\x0fSatelliteStatus\x12'\n" +
 	"\x0fsatellites_used\x18\x01 \x01(\x05R\x0esatellitesUsed\x12,\n" +
 	"\x12satellites_in_view\x18\x02 \x01(\x05R\x10satellitesInView\x12<\n" +
 	"\n" +
 	"satellites\x18\x03 \x03(\v2\x1c.openmanet.gnss.v1.SatelliteR\n" +
-	"satellites\"-\n" +
+	"satellites\x12;\n" +
+	"\vlast_update\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"lastUpdate\"-\n" +
 	"\fGNSSSettings\x12\x1d\n" +
 	"\n" +
 	"enable_gps\x18\x01 \x01(\bR\tenableGps\"l\n" +
@@ -805,17 +819,18 @@ var file_openmanet_gnss_v1_gnss_proto_depIdxs = []int32{
 	0,  // 0: openmanet.gnss.v1.Position.fix_type:type_name -> openmanet.gnss.v1.FixType
 	10, // 1: openmanet.gnss.v1.Position.last_update:type_name -> google.protobuf.Timestamp
 	2,  // 2: openmanet.gnss.v1.SatelliteStatus.satellites:type_name -> openmanet.gnss.v1.Satellite
-	1,  // 3: openmanet.gnss.v1.GetGNSSStatusResponse.position:type_name -> openmanet.gnss.v1.Position
-	3,  // 4: openmanet.gnss.v1.GetGNSSStatusResponse.satellite_status:type_name -> openmanet.gnss.v1.SatelliteStatus
-	4,  // 5: openmanet.gnss.v1.GetGNSSConfigResponse.settings:type_name -> openmanet.gnss.v1.GNSSSettings
-	5,  // 6: openmanet.gnss.v1.GetGNSSConfigResponse.output_protocols:type_name -> openmanet.gnss.v1.OutputProtocols
-	4,  // 7: openmanet.gnss.v1.UpdateGNSSConfigRequest.settings:type_name -> openmanet.gnss.v1.GNSSSettings
-	5,  // 8: openmanet.gnss.v1.UpdateGNSSConfigRequest.output_protocols:type_name -> openmanet.gnss.v1.OutputProtocols
-	9,  // [9:9] is the sub-list for method output_type
-	9,  // [9:9] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	10, // 3: openmanet.gnss.v1.SatelliteStatus.last_update:type_name -> google.protobuf.Timestamp
+	1,  // 4: openmanet.gnss.v1.GetGNSSStatusResponse.position:type_name -> openmanet.gnss.v1.Position
+	3,  // 5: openmanet.gnss.v1.GetGNSSStatusResponse.satellite_status:type_name -> openmanet.gnss.v1.SatelliteStatus
+	4,  // 6: openmanet.gnss.v1.GetGNSSConfigResponse.settings:type_name -> openmanet.gnss.v1.GNSSSettings
+	5,  // 7: openmanet.gnss.v1.GetGNSSConfigResponse.output_protocols:type_name -> openmanet.gnss.v1.OutputProtocols
+	4,  // 8: openmanet.gnss.v1.UpdateGNSSConfigRequest.settings:type_name -> openmanet.gnss.v1.GNSSSettings
+	5,  // 9: openmanet.gnss.v1.UpdateGNSSConfigRequest.output_protocols:type_name -> openmanet.gnss.v1.OutputProtocols
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_openmanet_gnss_v1_gnss_proto_init() }

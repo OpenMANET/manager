@@ -83,6 +83,7 @@ type SatelliteInfo struct {
 
 // SatelliteReport holds the cached satellite constellation data from the last SKY report.
 type SatelliteReport struct {
+	Timestamp  time.Time       // Time of the last SKY report that carried constellation data
 	Satellites []SatelliteInfo // Individual satellite data
 	HDOP       float64         // Horizontal dilution of precision
 	VDOP       float64         // Vertical dilution of precision
