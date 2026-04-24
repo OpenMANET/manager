@@ -621,6 +621,7 @@ func TestUpdateSatelliteInfo_TimestampOnlyOnConstellation(t *testing.T) {
 	gps.updateSatelliteInfo(full)
 
 	first := gps.GetSatelliteReport().Timestamp
+
 	expected, _ := time.Parse(time.RFC3339, "2026-04-24T22:03:54Z")
 	if !first.Equal(expected) {
 		t.Errorf("Expected timestamp %v from sky.Time, got %v", expected, first)
@@ -656,6 +657,7 @@ func TestUpdateSatelliteInfo_TimestampFallsBackToNow(t *testing.T) {
 	gps := &GPSService{Log: zerolog.Nop()}
 
 	before := time.Now()
+
 	gps.updateSatelliteInfo(SKYReport{
 		Class: "SKY",
 		Satellites: []struct {
@@ -668,6 +670,7 @@ func TestUpdateSatelliteInfo_TimestampFallsBackToNow(t *testing.T) {
 			{PRN: 1, El: 30.0, Az: 90.0, Ss: 25.0, Used: true},
 		},
 	})
+
 	after := time.Now()
 
 	ts := gps.GetSatelliteReport().Timestamp
@@ -677,7 +680,7 @@ func TestUpdateSatelliteInfo_TimestampFallsBackToNow(t *testing.T) {
 }
 
 // TestUpdateSatelliteInfo_PartialSKYPreservesConstellation guards the merge
-// behaviour of updateSatelliteInfo: a SKY report that carries only DOP values
+// behavior of updateSatelliteInfo: a SKY report that carries only DOP values
 // (as gpsd emits when the receiver is feeding $GSA but not $GSV) must not wipe
 // the cached satellite list or counters from the previous full SKY. This
 // regresses the bug where GpsStatus.jsx rendered an empty satelliteStatus

@@ -74,6 +74,7 @@ func (g *GPSService) updateSatelliteInfo(sky SKYReport) {
 		sats := make([]SatelliteInfo, 0, len(sky.Satellites))
 
 		usedFromArray := 0
+
 		for _, s := range sky.Satellites {
 			sats = append(sats, SatelliteInfo{
 				PRN:  s.PRN,

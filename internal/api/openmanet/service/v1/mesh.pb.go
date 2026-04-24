@@ -34,10 +34,7 @@ type MeshNeighbor struct {
 	Signal int32 `protobuf:"varint,4,opt,name=signal,proto3" json:"signal,omitempty"`
 	// Last seen in miliseconds
 	LastSeen int64 `protobuf:"varint,5,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
-	// Throughput to the neighbor node in bits per second. Derived from
-	// the wifi station's current transmit bitrate, overridden (in the
-	// same unit) with batman-adv's reported link throughput when the
-	// neighbor is present in `batctl nj`.
+	// throughput to the neighbor node.
 	Throughput    int32 `protobuf:"varint,6,opt,name=throughput,proto3" json:"throughput,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
