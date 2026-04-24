@@ -236,13 +236,19 @@ function relaxSegmentPositions(seg, positions, depth, rootId) {
   if (crossEdges.length === 0) return;
 
   const RELAX_ITERS = 60;
-  const IDEAL_CROSS = LEAF_SPACING * 0.35; // connected siblings want to be closer
+  // Minimum center-to-center separation. Has to leave room for two
+  // label half-widths plus a small gap, otherwise the spring pulls
+  // cross-edge siblings into overlapping labels.
+  const MIN_SEP = Math.max(NODE_RADIUS * 2.5, 2 * NODE_HALF_WIDTH + 12);
+  // Target distance for connected siblings. Previous value (LEAF_SPACING
+  // * 0.35 ≈ 49) sat far below MIN_SEP, so a fully-connected depth band
+  // (K4 of peers all advertising each other as RF neighbors) let the
+  // springs pull everyone together until repulsion saturated and nodes
+  // stacked. Anchoring the spring equilibrium at MIN_SEP keeps connected
+  // siblings visibly tighter than unrelated peers without overlapping.
+  const IDEAL_CROSS = MIN_SEP;
   const SPRING_K = 0.15;
   const REPULSION = LEAF_SPACING * LEAF_SPACING * 0.6;
-  // Minimum center-to-center separation used by the repulsion term. Has
-  // to leave room for two label half-widths plus a small gap — otherwise
-  // the spring can pull cross-edge siblings into overlapping labels.
-  const MIN_SEP = Math.max(NODE_RADIUS * 2.5, 2 * NODE_HALF_WIDTH + 12);
 
   let alpha = 0.5;
   const cooling = alpha / RELAX_ITERS;
@@ -298,6 +304,55 @@ function relaxSegmentPositions(seg, positions, depth, rootId) {
     }
 
     alpha = Math.max(0, alpha - cooling);
+  }
+
+  // Soft spring + repulsion can't guarantee spacing when a depth band
+  // is fully cross-connected (e.g. all four peers advertise each other
+  // as RF neighbors — the repulsion force saturates at MIN_SEP² while
+  // springs keep pulling). Finalize with a hard left-to-right sweep
+  // per band so adjacent siblings always sit at least MIN_SEP apart,
+  // re-centering each band so nodes don't drift away from their parent
+  // column.
+  enforceSiblingMinSep(positions, byDepth, rootId, MIN_SEP);
+}
+
+// enforceSiblingMinSep is the hard spacing guarantee for each BFS depth
+// band. Walks left-to-right pushing overlapping siblings rightward,
+// then shifts the band back so its pre-sweep center is preserved. The
+// root node's x stays pinned at 0 — when the root is in a band, the
+// shift uses the root as the anchor instead.
+function enforceSiblingMinSep(positions, byDepth, rootId, minSep) {
+  for (const [, ids] of byDepth.entries()) {
+    if (ids.length < 2) continue;
+
+    const sorted = ids.slice().sort((a, b) => positions.get(a).x - positions.get(b).x);
+    const originalFirst = positions.get(sorted[0]).x;
+    const originalLast = positions.get(sorted[sorted.length - 1]).x;
+    const originalCenter = (originalFirst + originalLast) / 2;
+
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = positions.get(sorted[i - 1]).x;
+      const cur = positions.get(sorted[i]);
+      if (cur.x - prev < minSep) {
+        cur.x = prev + minSep;
+      }
+    }
+
+    const rootInBand = sorted.some((id) => id === rootId);
+    let shift;
+    if (rootInBand) {
+      shift = 0 - positions.get(rootId).x;
+    } else {
+      const newFirst = positions.get(sorted[0]).x;
+      const newLast = positions.get(sorted[sorted.length - 1]).x;
+      shift = originalCenter - (newFirst + newLast) / 2;
+    }
+
+    if (shift !== 0) {
+      for (const id of sorted) {
+        positions.get(id).x += shift;
+      }
+    }
   }
 }
 

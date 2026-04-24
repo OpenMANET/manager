@@ -313,6 +313,50 @@ describe('TestTopologyMapHybridLayout', () => {
     expect(distBC).toBeLessThanOrEqual(Math.min(distBA, distCD));
   });
 
+  it('keeps fully-connected same-depth siblings at least MIN_SEP apart', () => {
+    // Real-world regression: a mesh where every depth-1 peer advertises
+    // every other depth-1 peer as an RF neighbor (K4 cross-connectivity)
+    // used to let the springs pull all four on top of each other — the
+    // repulsion force saturated at MIN_SEP² while the springs kept
+    // pulling, so nodes visually stacked at the parent's x. The hard
+    // post-relaxation sweep must guarantee visible spacing.
+    const fullyConnected = {
+      selfMac: 'aa:aa:aa:aa:aa:00',
+      selfHostname: 'gw',
+      algorithm: 'BATMAN_V',
+      nodes: [
+        { mac: 'aa:aa:aa:aa:aa:00', hostname: 'gw', segment: 'local', hopsFromSelf: 0, isSelf: true,  clientCount: 0, myHardIfname: '' },
+        { mac: 'bb:bb:bb:bb:bb:00', hostname: 'A',  segment: 'local', hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+        { mac: 'cc:cc:cc:cc:cc:00', hostname: 'B',  segment: 'local', hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+        { mac: 'dd:dd:dd:dd:dd:00', hostname: 'C',  segment: 'local', hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+        { mac: 'ee:ee:ee:ee:ee:00', hostname: 'D',  segment: 'local', hopsFromSelf: 1, isSelf: false, clientCount: 0, myHardIfname: 'wlan0' },
+      ],
+      // Tree edges from gw to every sibling PLUS every sibling-pair edge.
+      edges: [
+        { fromMac: 'aa:aa:aa:aa:aa:00', toMac: 'bb:bb:bb:bb:bb:00', metric: 20, blos: false, onMyPath: true },
+        { fromMac: 'aa:aa:aa:aa:aa:00', toMac: 'cc:cc:cc:cc:cc:00', metric: 20, blos: false, onMyPath: true },
+        { fromMac: 'aa:aa:aa:aa:aa:00', toMac: 'dd:dd:dd:dd:dd:00', metric: 20, blos: false, onMyPath: true },
+        { fromMac: 'aa:aa:aa:aa:aa:00', toMac: 'ee:ee:ee:ee:ee:00', metric: 20, blos: false, onMyPath: true },
+        { fromMac: 'bb:bb:bb:bb:bb:00', toMac: 'cc:cc:cc:cc:cc:00', metric: 20, blos: false, onMyPath: false },
+        { fromMac: 'bb:bb:bb:bb:bb:00', toMac: 'dd:dd:dd:dd:dd:00', metric: 20, blos: false, onMyPath: false },
+        { fromMac: 'bb:bb:bb:bb:bb:00', toMac: 'ee:ee:ee:ee:ee:00', metric: 20, blos: false, onMyPath: false },
+        { fromMac: 'cc:cc:cc:cc:cc:00', toMac: 'dd:dd:dd:dd:dd:00', metric: 20, blos: false, onMyPath: false },
+        { fromMac: 'cc:cc:cc:cc:cc:00', toMac: 'ee:ee:ee:ee:ee:00', metric: 20, blos: false, onMyPath: false },
+        { fromMac: 'dd:dd:dd:dd:dd:00', toMac: 'ee:ee:ee:ee:ee:00', metric: 20, blos: false, onMyPath: false },
+      ],
+    };
+    const { container } = render(<TopologyMap topology={fullyConnected} />);
+    const pos = positionsByLabel(container);
+    const xs = [pos.A.x, pos.B.x, pos.C.x, pos.D.x].sort((a, b) => a - b);
+    const gaps = xs.slice(1).map((x, i) => x - xs[i]);
+    // MIN_SEP is 2*NODE_HALF_WIDTH + 12 = 2*63 + 12 = 138 when label
+    // width dominates. Use a lower bound just shy of that to avoid a
+    // flaky test if the constant shifts by a pixel.
+    for (const g of gaps) {
+      expect(g).toBeGreaterThanOrEqual(130);
+    }
+  });
+
   it('short-circuits for pure trees so tree-layout tests still hold', () => {
     // Reuse chainAndSingleton (no non-tree edges) — positions should be
     // unchanged vs the pure-BFS era. The TestTopologyMapTreeLayout block
