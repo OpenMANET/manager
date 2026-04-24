@@ -28,7 +28,13 @@ const SEGMENT_PAD = 56;
 const BADGE_RADIUS = 4;
 const BADGE_SPACING = 11;
 const HOSTNAME_Y_OFFSET = NODE_RADIUS + 18;   // hostname text sits just below the circle
-const BADGE_Y_OFFSET = NODE_RADIUS + 36;      // badge row below the hostname label
+// Badge row y-offset is computed per-node now: when a secondary label
+// (SELF / GATEWAY / STALE) is present the badges drop below it; when it
+// isn't, the badges sit right under the circle so quiet peers don't
+// carry a blank column of whitespace between circle and badge.
+const BADGE_Y_OFFSET_WITH_LABEL = NODE_RADIUS + 36;
+const BADGE_Y_OFFSET_NO_LABEL = NODE_RADIUS + 14;
+const BADGE_Y_OFFSET = BADGE_Y_OFFSET_WITH_LABEL; // legacy alias used by bbox math
 
 // Rough average glyph advance for the monospace secondary label at 11px
 // with 0.04em letter-spacing. The text is middle-anchored, so each side
@@ -454,7 +460,7 @@ function globalLayout(view, compact) {
 // ----------------------------------------------------------------------------
 // Presentational components
 // ----------------------------------------------------------------------------
-function InterfaceBadges({ interfaces }) {
+function InterfaceBadges({ interfaces, yOffset }) {
   if (!interfaces || interfaces.length === 0) return null;
   // bat0 is always present on mesh nodes — hide it from the badge row so
   // the visuals stay focused on the radios that actually carry traffic.
@@ -466,7 +472,7 @@ function InterfaceBadges({ interfaces }) {
   const n = visible.length + (extra > 0 ? 1 : 0);
   const startX = -((n - 1) * BADGE_SPACING) / 2;
   return (
-    <g className="topo-badges" transform={`translate(0, ${BADGE_Y_OFFSET})`}>
+    <g className="topo-badges" transform={`translate(0, ${yOffset ?? BADGE_Y_OFFSET})`}>
       {visible.map((iface, i) => (
         <circle
           key={iface.name}
@@ -535,7 +541,12 @@ function HostNode({ host, pos, kind, onSelect, selectedId, compact, isGateway })
           {label}
         </text>
       )}
-      {!compact && <InterfaceBadges interfaces={host.interfaces} />}
+      {!compact && (
+        <InterfaceBadges
+          interfaces={host.interfaces}
+          yOffset={label ? BADGE_Y_OFFSET_WITH_LABEL : BADGE_Y_OFFSET_NO_LABEL}
+        />
+      )}
     </g>
   );
 }

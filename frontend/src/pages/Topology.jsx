@@ -415,15 +415,19 @@ function GossipFreshnessRow({ host }) {
 
 function LinkRow({ edge, peerHost, algorithm }) {
   if (!peerHost) return null;
+  // BLOS edges intentionally suppress the throughput reading — batman-adv
+  // reports the vxlan0 broadcast-overlay metric which isn't a real link
+  // speed, so showing a number would mislead operators. The "via BLOS"
+  // tag takes the metric slot instead as the identifying callout.
   const header = edge.blos
-    ? `╌ ${peerHost.baseHostname || peerHost.id} · via BLOS`
+    ? `↔ ${peerHost.baseHostname || peerHost.id}`
     : `↔ ${peerHost.baseHostname || peerHost.id}`;
-  const metric = formatMetric(edge, algorithm);
+  const trailing = edge.blos ? 'via BLOS' : formatMetric(edge, algorithm);
   return (
     <div className={`topo-link-group${edge.blos ? ' blos' : ''}`}>
       <div className="topo-link-header">
         <span>{header}</span>
-        <span className="topo-link-metric">{metric}</span>
+        <span className="topo-link-metric">{trailing}</span>
       </div>
       {edge.onMyPath && (
         <div className="topo-link-contrib">

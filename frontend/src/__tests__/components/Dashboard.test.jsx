@@ -170,8 +170,9 @@ describe('TestDashboardChrome', () => {
 
     const toolbarBtns = [...container.querySelectorAll('.lat-view-toolbar .lat-btn')]
       .map((b) => b.textContent.trim());
-    expect(toolbarBtns).toContain('EXPORT');
     expect(toolbarBtns).toContain('CUSTOMIZE');
+    // EXPORT button was removed; the toolbar should no longer carry it.
+    expect(toolbarBtns).not.toContain('EXPORT');
   });
 
   it('does not render a PTT Latency card (PTT lives on Comms)', async () => {
@@ -277,6 +278,33 @@ describe('TestDashboardPanels', () => {
     await waitFor(() => {
       expect(screen.getByText('No neighbors reporting')).toBeTruthy();
     });
+  });
+
+  it('peers-live table headers show Throughput instead of TQ', async () => {
+    mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse());
+    const { container } = render(<DashboardPage />);
+    await waitFor(() => screen.getByText('Mesh Peers · Live'));
+    // The mesh-peers table <th> row should carry a Throughput column
+    // and no longer carry a TQ column.
+    const headers = [...container.querySelectorAll('.lat-table thead th')]
+      .map((th) => th.textContent.trim());
+    expect(headers).toContain('Throughput');
+    expect(headers).not.toContain('TQ');
+  });
+
+  it('renders CPU load to 2 decimal places', async () => {
+    mockGetDashboardStatus.mockResolvedValue(
+      makeDashboardResponse({
+        systemResources: makeSystemResources({ cpuLoadPercent: 12.345 }),
+      }),
+    );
+    const { container } = render(<DashboardPage />);
+    await waitFor(() => screen.getByText('System Resources'));
+    // Find the CPU row's detail cell — it sits alongside the "CPU" label.
+    const pbarText = [...container.querySelectorAll('.pbar-row')]
+      .map((row) => row.textContent)
+      .find((t) => t.startsWith('CPU'));
+    expect(pbarText).toContain('12.35%'); // toFixed(2) rounds half up
   });
 });
 

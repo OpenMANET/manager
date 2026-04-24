@@ -13,7 +13,14 @@ import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { BLOSService } from "../gen/openmanet/blos/v1/blos_service_connect.js";
 import { BLOSEventKind } from "../gen/openmanet/blos/v1/blos_pb.js";
+import { pushSparklineSample, useSparklineSamples } from '../services/sparklineStore.js';
 import './BLOS.css';
+
+// Keys for the shared sparkline store. Keep them in sync with every
+// producer/consumer or the two sides would quietly operate on separate
+// buffers.
+const RX_SERIES_KEY = 'blos.rxBytesPerSec';
+const TX_SERIES_KEY = 'blos.txBytesPerSec';
 
 const blosClient = createClient(BLOSService, transport);
 
@@ -101,8 +108,11 @@ export default function BLOSPage() {
   const [status, setStatus] = useState(null);
   const [peers, setPeers] = useState([]);
   const [events, setEvents] = useState([]);
-  const [rxHistory, setRxHistory] = useState([]);
-  const [txHistory, setTxHistory] = useState([]);
+  // RX/TX traffic series live in the module-scoped sparkline store so
+  // the bars persist across navigation — component-local useState was
+  // resetting to [] every time the user left and returned to the page.
+  const rxHistory = useSparklineSamples(RX_SERIES_KEY);
+  const txHistory = useSparklineSamples(TX_SERIES_KEY);
   const [enableBlos, setEnableBlos] = useState(false);
   const [authKey, setAuthKey] = useState('');
   const [loginServer, setLoginServer] = useState('');
@@ -118,8 +128,8 @@ export default function BLOSPage() {
       setEnableBlos(resp.blosEnabled ?? false);
       const rx = Number(resp?.counters?.rxBytesPerSec ?? 0);
       const tx = Number(resp?.counters?.txBytesPerSec ?? 0);
-      setRxHistory((prev) => [...prev, rx].slice(-TRAFFIC_HISTORY_CAP));
-      setTxHistory((prev) => [...prev, tx].slice(-TRAFFIC_HISTORY_CAP));
+      pushSparklineSample(RX_SERIES_KEY, rx, TRAFFIC_HISTORY_CAP);
+      pushSparklineSample(TX_SERIES_KEY, tx, TRAFFIC_HISTORY_CAP);
       setError(null);
     } catch (e) {
       setError(e.message);

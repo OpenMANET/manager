@@ -23,7 +23,12 @@ import { useVisibleInterval } from '../hooks/useVisibleInterval.js';
 import { useMeshStatus } from '../hooks/useMeshStatus.js';
 import { useMeshTopology } from '../hooks/useMeshTopology.js';
 import { useGnssStatus } from '../hooks/useGnssStatus.js';
+import { pushSparklineSample, useSparklineSamples } from '../services/sparklineStore.js';
 import './Dashboard.css';
+
+// Key used by the module-scoped sparkline store. Kept as a constant so
+// a rename can't silently split the series between reader and writer.
+const LQ_SERIES_KEY = 'dashboard.linkQualityPct';
 
 const dashClient = createClient(DashboardService, transport);
 const blosClient = createClient(BLOSService, transport);
@@ -112,13 +117,6 @@ function sigBars(dbm) {
   });
 }
 
-function tqBadge(tq) {
-  if (!Number.isFinite(tq) || tq <= 0) return '';
-  if (tq >= 200) return 'badge-ok';
-  if (tq >= 100) return 'badge-ok';
-  return 'badge-warn';
-}
-
 // ── Topology helpers ───────────────────────────────────────────────────────
 
 // Return a 1-hop list of gateway candidates: nodes whose neighbors include
@@ -173,24 +171,57 @@ function buildPeerRows(topology, neighbors, historyRef, nowMs) {
     }
   }
 
-  return neighbors.map((n) => {
+  // batctl neighbor names carry a "_<iface>" suffix so the same physical
+  // host publishing on two radios shows up as two neighbor rows. Strip
+  // the suffix so the dashboard counts nodes, not radio interfaces, and
+  // collapses per-interface rows into one per host.
+  const stripSuffix = (s) => (s || '').split('_')[0];
+
+  const groups = new Map();
+  for (const n of neighbors) {
     const mac = (n.mac || '').toLowerCase();
     const hist = historyRef.current[n.name || n.mac];
     const lastSeenMs = hist?.lastSeenMs ?? nowMs;
+    const rawHostname = neighborHostByMac.get(mac) || n.name || mac.slice(-5);
+    const hostname = stripSuffix(rawHostname);
+    const signal = n.signal ?? 0;
+    const throughput = n.throughput ?? 0;
     const tq = tqByMac.get(mac) ?? 0;
     const hopCount = hops.get(mac) ?? 1;
-    const hostname = neighborHostByMac.get(mac) || n.name || mac.slice(-5);
-    return {
-      key: n.mac || n.name,
-      name: hostname,
-      mac: n.mac || '',
-      hops: hopCount || 1,
-      tq,
-      rssi: n.signal ?? 0,
-      sig: sigBars(n.signal),
-      lastMs: lastSeenMs,
-    };
-  }).sort((a, b) => a.hops - b.hops || (b.tq - a.tq));
+
+    const existing = groups.get(hostname);
+    if (!existing) {
+      groups.set(hostname, {
+        key: hostname || mac,
+        name: hostname,
+        mac: n.mac || '',
+        hops: hopCount || 1,
+        tq,
+        throughput,
+        rssi: signal,
+        sig: sigBars(signal),
+        lastMs: lastSeenMs,
+      });
+      continue;
+    }
+
+    // Within a host group keep the best-observed channel across its
+    // interfaces: strongest RSSI, max throughput, min hops, max TQ.
+    // Last-seen is the freshest of the contributing radios.
+    if (signal < 0 && signal > (existing.rssi || -200)) {
+      existing.rssi = signal;
+      existing.sig = sigBars(signal);
+      existing.mac = n.mac || existing.mac;
+    }
+    if (throughput > existing.throughput) existing.throughput = throughput;
+    if (tq > existing.tq) existing.tq = tq;
+    if (hopCount && hopCount < existing.hops) existing.hops = hopCount;
+    if (lastSeenMs > existing.lastMs) existing.lastMs = lastSeenMs;
+  }
+
+  return [...groups.values()].sort(
+    (a, b) => a.hops - b.hops || (b.throughput - a.throughput),
+  );
 }
 
 // ── Alerts ─────────────────────────────────────────────────────────────────
@@ -250,11 +281,14 @@ export default function DashboardPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [blosPeers, setBlosPeers] = useState(0);
-  const [lqHistory, setLqHistory] = useState([]);
   const [now, setNow] = useState(() => Date.now());
 
+  // Link-quality series lives in the module-scoped store so the
+  // sparkline survives navigation away and back — per-component refs
+  // would reset every mount.
+  const lqHistory = useSparklineSamples(LQ_SERIES_KEY);
+
   const neighborHistoryRef = useRef({});
-  const lqHistoryRef = useRef([]);
 
   // Shared across Dashboard / Comms / Topology — dedupes the underlying RPCs.
   const meshData = useMeshStatus(MESH_POLL_MS);
@@ -314,12 +348,7 @@ export default function DashboardPage() {
       }
     }
     if (count > 0) {
-      const sample = Math.round(sumPct / count);
-      lqHistoryRef.current.push(sample);
-      if (lqHistoryRef.current.length > LQ_HISTORY_LEN) {
-        lqHistoryRef.current.shift();
-      }
-      setLqHistory([...lqHistoryRef.current]);
+      pushSparklineSample(LQ_SERIES_KEY, Math.round(sumPct / count), LQ_HISTORY_LEN);
     }
   }, [meshData]);
 
@@ -429,8 +458,7 @@ export default function DashboardPage() {
           <div className="crumb">Overview · Live telemetry · {(DASH_POLL_MS / 1000).toFixed(0)}s refresh</div>
         </div>
         <div className="lat-view-toolbar">
-          {/* TODO: wire export / customize actions */}
-          <button className="lat-btn ghost" type="button">EXPORT</button>
+          {/* TODO: wire customize action */}
           <button className="lat-btn" type="button">CUSTOMIZE</button>
         </div>
       </div>
@@ -473,17 +501,16 @@ export default function DashboardPage() {
           <div className="panel-head">
             <h3>Mesh Peers · Live</h3>
             <div className="actions">
-              {/* TODO: wire table filter/sort/export */}
+              {/* TODO: wire table filter/sort */}
               <button type="button">FILTER</button>
               <button type="button">SORT</button>
-              <button type="button">EXPORT</button>
             </div>
           </div>
           <div className="table-scroll">
             <table className="lat-table">
               <thead>
                 <tr>
-                  <th>Node</th><th>MAC</th><th>Hops</th><th>TQ</th>
+                  <th>Node</th><th>MAC</th><th>Hops</th><th>Throughput</th>
                   <th>RSSI</th><th>Sig</th><th>Last</th>
                 </tr>
               </thead>
@@ -496,7 +523,7 @@ export default function DashboardPage() {
                     <td>{p.name}</td>
                     <td className="mono">{p.mac || '—'}</td>
                     <td>{p.hops}</td>
-                    <td className={tqBadge(p.tq)}>{p.tq > 0 ? p.tq : '—'}</td>
+                    <td>{formatMbps(p.throughput)}</td>
                     <td>{p.rssi ? `${p.rssi}` : '—'}</td>
                     <td>
                       <div className="sig-bars">
@@ -531,7 +558,11 @@ export default function DashboardPage() {
           <div className="panel-head"><h3>System Resources</h3></div>
           <div className="dashboard-resources">
             <div className="dashboard-resources-bars">
-              <PbarRow label="CPU" pct={data?.systemResources?.cpuLoadPercent ?? 0} />
+              <PbarRow
+                label="CPU"
+                pct={data?.systemResources?.cpuLoadPercent ?? 0}
+                detail={`${(data?.systemResources?.cpuLoadPercent ?? 0).toFixed(2)}%`}
+              />
               <PbarRow
                 label="MEM"
                 pct={memPct(data?.systemResources?.memoryUsedBytes, data?.systemResources?.memoryTotalBytes)}
