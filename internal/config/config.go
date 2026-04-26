@@ -141,6 +141,8 @@ const (
 	// DefaultInstrumentationSnapshotDir is the filesystem directory new
 	// snapshot files are written into.
 	DefaultInstrumentationSnapshotDir string = "/tmp"
+	DefaultTerminalEnable             bool   = true
+	DefaultTerminalShell              string = "/bin/login"
 )
 
 // Config holds the application configuration values with automatic reloading support.
@@ -170,6 +172,7 @@ type Config struct {
 	GNSSCoTUID                                string
 	InstrumentationSnapshotDir                string
 	BLOSAdvertisedMeshSubnet                  string
+	TerminalShell                             string
 	onChangeCallbacks                         []func(*Config)
 	BLOSStatusWorkerInterval                  int
 	MeshTopologyDeltaSampleInterval           int
@@ -209,6 +212,7 @@ type Config struct {
 	BLOSEnable                                bool
 	AuthEnable                                bool
 	InstrumentationEnable                     bool
+	TerminalEnable                            bool
 }
 
 // New creates a new Config instance with the given viper instance.
@@ -671,6 +675,19 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.InstrumentationSnapshotDir = val
 	} else {
 		c.InstrumentationSnapshotDir = DefaultInstrumentationSnapshotDir
+	}
+
+	// Load terminal configuration
+	if val := c.v.GetString("terminal.shell"); val != "" {
+		c.TerminalShell = val
+	} else {
+		c.TerminalShell = DefaultTerminalShell
+	}
+
+	if c.v.IsSet("terminal.enable") {
+		c.TerminalEnable = c.v.GetBool("terminal.enable")
+	} else {
+		c.TerminalEnable = DefaultTerminalEnable
 	}
 }
 
@@ -1247,4 +1264,21 @@ func (c *Config) GetInstrumentationSnapshotDir() string {
 	defer c.mu.RUnlock()
 
 	return c.InstrumentationSnapshotDir
+}
+
+// GetTerminalEnable returns whether the web terminal feature is exposed.
+func (c *Config) GetTerminalEnable() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.TerminalEnable
+}
+
+// GetTerminalShell returns the absolute path of the shell to spawn for
+// terminal sessions.
+func (c *Config) GetTerminalShell() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.TerminalShell
 }

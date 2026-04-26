@@ -318,9 +318,13 @@ describe('TestSettingsControlSource', () => {
     render(<SettingsPage />);
     await waitFor(() => screen.getByText('OpenMANETd Configuration'));
 
-    const select = screen.getByDisplayValue('Web UI');
-    fireEvent.change(select, { target: { value: 'openvlm' } });
-    expect(screen.getByDisplayValue('OpenVLM (default)')).toBeTruthy();
+    const trigger = screen.getByRole('button', { name: 'Control Source' });
+    expect(trigger.textContent).toContain('Web UI');
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('option', { name: 'OpenVLM (default)' }));
+
+    expect(trigger.textContent).toContain('OpenVLM (default)');
     expect(screen.getByText('Unsaved changes')).toBeTruthy();
   });
 });

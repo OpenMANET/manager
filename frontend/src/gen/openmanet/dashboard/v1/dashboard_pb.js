@@ -95,6 +95,8 @@ export const NetworkSummaryEntry = /*@__PURE__*/ proto3.makeMessageType(
     { no: 2, name: "display_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "state", kind: "enum", T: proto3.getEnumType(NetworkInterfaceState) },
     { no: 4, name: "detail", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "rx_bytes", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 6, name: "tx_bytes", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
   ],
 );
 

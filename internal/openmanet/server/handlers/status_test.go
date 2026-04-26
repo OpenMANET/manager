@@ -165,8 +165,8 @@ func TestGetServiceStatus_Position(t *testing.T) {
 }
 
 func TestGetServiceStatus_MultipleInterfaces(t *testing.T) {
-	// The current implementation breaks after the first interface with stations,
-	// so ConnectedNeighbors only counts stations from the first connected interface.
+	// All mesh interfaces report the same single station — total should be the
+	// sum across interfaces, not just the first.
 	mesh0 := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
 	mesh1 := makeInterface("mesh1", wifi.InterfaceTypeMeshPoint)
 	mesh2 := makeInterface("mesh2", wifi.InterfaceTypeMeshPoint)
@@ -184,8 +184,39 @@ func TestGetServiceStatus_MultipleInterfaces(t *testing.T) {
 
 	status := resp.GetStatus()
 	assert.True(t, status.GetIsConnected())
-	assert.Equal(t, int32(1), status.GetConnectedNeighbors(), "only counts first interface due to break")
+	assert.Equal(t, int32(3), status.GetConnectedNeighbors(), "stations summed across all interfaces")
 	assert.Equal(t, int32(3), status.GetActiveMeshInterfaces(), "counts all interfaces")
+}
+
+// TestGetServiceStatus_MultipleInterfaces_PerIfaceCounts exercises the
+// per-interface station map so each radio reports a different station list.
+// A field deployment with 2.4 GHz + 5 GHz mesh radios would otherwise have
+// its neighbor count silently truncated to whichever interface the kernel
+// happened to enumerate first.
+func TestGetServiceStatus_MultipleInterfaces_PerIfaceCounts(t *testing.T) {
+	mesh0 := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
+	mesh1 := makeInterface("mesh1", wifi.InterfaceTypeMeshPoint)
+
+	fw := &fakeWireless{
+		meshInterfaces: []*wifi.Interface{mesh0, mesh1},
+		stationInfoByIface: map[string][]*wifi.StationInfo{
+			"mesh0": {makeStation("aa:bb:cc:dd:ee:01", -65)},
+			"mesh1": {
+				makeStation("aa:bb:cc:dd:ee:02", -70),
+				makeStation("aa:bb:cc:dd:ee:03", -72),
+				makeStation("aa:bb:cc:dd:ee:04", -75),
+			},
+		},
+	}
+	svc := newStatusService(fw, stubMeshCfg(false))
+
+	resp, err := svc.GetServiceStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	status := resp.GetStatus()
+	assert.True(t, status.GetIsConnected())
+	assert.Equal(t, int32(4), status.GetConnectedNeighbors(), "1 from mesh0 + 3 from mesh1")
+	assert.Equal(t, int32(2), status.GetActiveMeshInterfaces())
 }
 
 func TestGetServiceStatus_StationInfoError(t *testing.T) {

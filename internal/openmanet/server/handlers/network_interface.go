@@ -49,6 +49,10 @@ func (s *NetworkInterfaceService) ListNetworkInterfaces(_ context.Context, _ *em
 	protos := make([]*niv1.NetworkInterface, 0, len(infos))
 
 	for _, info := range infos {
+		if isHiddenInterface(info.Name) {
+			continue
+		}
+
 		protos = append(protos, &niv1.NetworkInterface{
 			Name:       info.Name,
 			Type:       linkTypeToProto(info.LinkType),
@@ -165,6 +169,14 @@ func (s *NetworkInterfaceService) ListStaticDHCPLeases(_ context.Context, _ *emp
 	}
 
 	return &niv1.ListStaticDHCPLeasesResponse{Leases: protos}, nil
+}
+
+// isHiddenInterface reports whether an interface name should be omitted from
+// operator-facing listings. The Morse Micro HaLow control device (morse0) is
+// always reported as down by the kernel even when the radio is operating
+// normally via its mesh interface, so surfacing it would confuse end-users.
+func isHiddenInterface(name string) bool {
+	return name == "morse0"
 }
 
 // ── Enum Mapping ─────────────────────────────────────────────────────────────

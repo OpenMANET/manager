@@ -71,8 +71,6 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 		if len(connectedStations) > 0 {
 			connectedNeighbors += int32(len(connectedStations))
 			meshConnected = true
-
-			break
 		}
 	}
 

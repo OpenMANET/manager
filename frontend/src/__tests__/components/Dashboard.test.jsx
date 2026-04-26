@@ -102,6 +102,8 @@ function makeNetworkEntry(overrides = {}) {
     displayName: 'WAN (eth0)',
     state: 2,
     detail: 'Disconnected',
+    rxBytes: BigInt(0),
+    txBytes: BigInt(0),
     ...overrides,
   };
 }
@@ -112,11 +114,11 @@ function makeDashboardResponse(overrides = {}) {
     systemResources: makeSystemResources(),
     networkSummary: {
       entries: [
-        makeNetworkEntry({ interfaceName: 'eth0', displayName: 'WAN (eth0)', state: 2, detail: 'Disconnected' }),
-        makeNetworkEntry({ interfaceName: 'br-ahwlan', displayName: 'LAN (br-ahwlan)', state: 1, detail: '10.41.25.72/16' }),
-        makeNetworkEntry({ interfaceName: 'phy1-ap0', displayName: 'HaLow Mesh (phy1-ap0)', state: 1, detail: 'Connected — 3 neighbors' }),
-        makeNetworkEntry({ interfaceName: 'bat0', displayName: 'BATMAN (bat0)', state: 1, detail: '4 originators' }),
-        makeNetworkEntry({ interfaceName: 'tailscale0', displayName: 'Tailscale (tailscale0)', state: 3, detail: 'Not connected' }),
+        makeNetworkEntry({ interfaceName: 'eth0', displayName: 'WAN (eth0)', state: 2, detail: 'Disconnected', rxBytes: BigInt(1024), txBytes: BigInt(2048) }),
+        makeNetworkEntry({ interfaceName: 'br-ahwlan', displayName: 'LAN (br-ahwlan)', state: 1, detail: '10.41.25.72/16', rxBytes: BigInt(142300000), txBytes: BigInt(87600000) }),
+        makeNetworkEntry({ interfaceName: 'phy1-ap0', displayName: 'HaLow Mesh (phy1-ap0)', state: 1, detail: 'Connected — 3 neighbors', rxBytes: BigInt(12345678), txBytes: BigInt(9876543) }),
+        makeNetworkEntry({ interfaceName: 'bat0', displayName: 'BATMAN (bat0)', state: 1, detail: '4 originators', rxBytes: BigInt(5_000_000_000), txBytes: BigInt(3_000_000_000) }),
+        makeNetworkEntry({ interfaceName: 'tailscale0', displayName: 'Tailscale (tailscale0)', state: 3, detail: 'Not connected', rxBytes: BigInt(0), txBytes: BigInt(0) }),
       ],
     },
     activeServices: [],
@@ -270,6 +272,34 @@ describe('TestDashboardPanels', () => {
     expect(table.textContent).toContain('eth0');
     expect(table.textContent).toContain('bat0');
     expect(table.textContent).toContain('tailscale0');
+  });
+
+  it('renders RX/TX byte counters in the network interfaces table', async () => {
+    mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse());
+    const { container } = render(<DashboardPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Network Interfaces')).toBeTruthy();
+    });
+    const table = [...container.querySelectorAll('table.lat-table')]
+      .find((t) => t.textContent.includes('Iface'));
+    const rowsByIface = new Map(
+      [...table.querySelectorAll('tbody tr')].map((tr) => {
+        const cells = [...tr.querySelectorAll('td')].map((td) => td.textContent.trim());
+        return [cells[0].trim(), cells];
+      }),
+    );
+    // eth0: 1024 RX, 2048 TX — boundary KB rendering
+    expect(rowsByIface.get('eth0')[4]).toBe('1.0 KB');
+    expect(rowsByIface.get('eth0')[5]).toBe('2.0 KB');
+    // br-ahwlan: 142.3 MB / 87.6 MB
+    expect(rowsByIface.get('br-ahwlan')[4]).toBe('135.7 MB');
+    expect(rowsByIface.get('br-ahwlan')[5]).toBe('83.5 MB');
+    // bat0: 5 GB / 3 GB
+    expect(rowsByIface.get('bat0')[4]).toBe('4.66 GB');
+    expect(rowsByIface.get('bat0')[5]).toBe('2.79 GB');
+    // tailscale0: zeroed counters render as 0 B, not as a dash.
+    expect(rowsByIface.get('tailscale0')[4]).toBe('0 B');
+    expect(rowsByIface.get('tailscale0')[5]).toBe('0 B');
   });
 
   it('peers-live table shows an empty-state row when no neighbors', async () => {

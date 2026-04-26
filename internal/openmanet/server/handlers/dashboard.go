@@ -272,18 +272,27 @@ func (d *DashboardService) buildNetworkSummary() (*v1.NetworkSummary, error) {
 		summary.Entries = append(summary.Entries, entry)
 	}
 
-	// HaLow Mesh
-	if entry, meshErr := d.buildMeshEntry(ifaces); meshErr != nil {
-		errs = append(errs, meshErr)
-	} else if entry != nil {
-		summary.Entries = append(summary.Entries, entry)
+	// HaLow Mesh — buildMeshEntry returns a populated fallback entry alongside
+	// any error so the row stays visible. Append the entry regardless of err.
+	if entry, meshErr := d.buildMeshEntry(ifaces); entry != nil || meshErr != nil {
+		if meshErr != nil {
+			errs = append(errs, meshErr)
+		}
+
+		if entry != nil {
+			summary.Entries = append(summary.Entries, entry)
+		}
 	}
 
-	// BATMAN (bat0)
-	if entry, batErr := d.buildBatmanEntry(ifaces); batErr != nil {
-		errs = append(errs, batErr)
-	} else if entry != nil {
-		summary.Entries = append(summary.Entries, entry)
+	// BATMAN (bat0) — same fallback-on-error contract.
+	if entry, batErr := d.buildBatmanEntry(ifaces); entry != nil || batErr != nil {
+		if batErr != nil {
+			errs = append(errs, batErr)
+		}
+
+		if entry != nil {
+			summary.Entries = append(summary.Entries, entry)
+		}
 	}
 
 	// Tailscale
@@ -300,6 +309,8 @@ func (d *DashboardService) buildWANEntry(ifaces []network.NetworkInterfaceInfo) 
 			entry := &v1.NetworkSummaryEntry{
 				InterfaceName: iface.Name,
 				DisplayName:   "WAN (eth0)",
+				RxBytes:       iface.RxBytes,
+				TxBytes:       iface.TxBytes,
 			}
 			if iface.State == network.OperStateUp && iface.IP != "" {
 				entry.State = v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_CONNECTED
@@ -322,6 +333,8 @@ func (d *DashboardService) buildLANEntry(ifaces []network.NetworkInterfaceInfo) 
 			entry := &v1.NetworkSummaryEntry{
 				InterfaceName: iface.Name,
 				DisplayName:   fmt.Sprintf("LAN (%s)", iface.Name),
+				RxBytes:       iface.RxBytes,
+				TxBytes:       iface.TxBytes,
 			}
 			if iface.State == network.OperStateUp && iface.IP != "" {
 				entry.State = v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_CONNECTED
@@ -345,6 +358,8 @@ func (d *DashboardService) buildMeshEntry(ifaces []network.NetworkInterfaceInfo)
 			entry := &v1.NetworkSummaryEntry{
 				InterfaceName: iface.Name,
 				DisplayName:   fmt.Sprintf("HaLow Mesh (%s)", iface.Name),
+				RxBytes:       iface.RxBytes,
+				TxBytes:       iface.TxBytes,
 			}
 
 			count, err := d.Wifi.GetMeshNeighborCount()
@@ -376,6 +391,8 @@ func (d *DashboardService) buildBatmanEntry(ifaces []network.NetworkInterfaceInf
 			entry := &v1.NetworkSummaryEntry{
 				InterfaceName: iface.Name,
 				DisplayName:   fmt.Sprintf("BATMAN (%s)", iface.Name),
+				RxBytes:       iface.RxBytes,
+				TxBytes:       iface.TxBytes,
 			}
 
 			originators, err := d.Originators.GetOriginators()
@@ -409,6 +426,8 @@ func (d *DashboardService) buildTailscaleEntry(ifaces []network.NetworkInterface
 			entry := &v1.NetworkSummaryEntry{
 				InterfaceName: iface.Name,
 				DisplayName:   "Tailscale (tailscale0)",
+				RxBytes:       iface.RxBytes,
+				TxBytes:       iface.TxBytes,
 			}
 
 			if d.Tailscale != nil && d.Tailscale.IsRunning() {

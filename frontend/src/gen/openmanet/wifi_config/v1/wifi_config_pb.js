@@ -141,6 +141,7 @@ export const RadioSettings = /*@__PURE__*/ proto3.makeMessageType(
     { no: 7, name: "country", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 8, name: "encryption", kind: "enum", T: proto3.getEnumType(WifiEncryption) },
     { no: 9, name: "disabled", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 10, name: "mode", kind: "enum", T: proto3.getEnumType(WifiMode) },
   ],
 );
 

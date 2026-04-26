@@ -255,7 +255,7 @@ func HandleCheckDisabled(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(checkResponse{
 		Authenticated: true,
-		Username:      "admin",
+		Username:      "root",
 		AuthEnabled:   false,
 	})
 }

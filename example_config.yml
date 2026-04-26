@@ -1,31 +1,12 @@
 logLevel: info
 gnss:
   enable: true
-  sendAsExternalGNSSSource:
-    sendAsNMEA: true
-    sendAsCoT: true
-alfred:
-  dataTypes:
-    gateway: true
-    node: true
-    addressReservation: true
 blos:
   enable: false
 comms:
   enable: false
-  protocol: rtp
   debug: false
-  trace: false
   controlSource: openvlm
-  nanoPTT:
-    enable: false
-    devicePath: /dev/hidraw0/*
-    deviceName: Generic AB13X USB Audio
-  bluetoothPtt:
-    enable: false
-    BluetoothAudioDeviceHint: ""
-    BluetoothInputDevice: ""
-    BluetoothOutputDevice: ""
 # Periodic instrumentation snapshot. When enable is true the daemon writes a
 # JSON snapshot of every runtime counter/metric to snapshotDir every
 # intervalSecs. See docs/instrumentation-snapshot.md for the field reference.

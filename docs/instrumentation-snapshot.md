@@ -43,21 +43,22 @@ Every snapshot is a single JSON object with this shape:
 
 ```json
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "captured_at_start": "2026-04-09T12:34:56.789012345Z",
   "captured_at_end":   "2026-04-09T12:34:56.789013101Z",
   "daemon": { ... },
   "runtime": { ... },
   "sections": [
-    { "name": "comms", "data": { ... } },
-    { "name": "blos",  "data": { ... } }
+    { "name": "comms",      "data": { ... } },
+    { "name": "blos",       "data": { ... } },
+    { "name": "sysupgrade", "data": { ... } }
   ]
 }
 ```
 
 | Field | Type | Meaning |
 |---|---|---|
-| `schema_version` | string | Semver of the envelope schema. Bump minor for additive fields, major for breaking changes. The current value is `1.1.0`. |
+| `schema_version` | string | Semver of the envelope schema. Bump minor for additive fields, major for breaking changes. The current value is `1.2.0`. |
 | `captured_at_start` | RFC3339 timestamp | Wall-clock time when the capture loop began reading counters. |
 | `captured_at_end` | RFC3339 timestamp | Wall-clock time when the capture loop finished. The difference `captured_at_end - captured_at_start` bounds the counter-read skew window; in practice this is microseconds. |
 | `daemon.version` | string | openmanetd build version. Empty until the build system populates it. |
@@ -232,6 +233,38 @@ One entry per configured multicast talk group. The slice order mirrors
 | `tx_bps_60s` | float64 | bytes/sec | TX rate averaged over the same 60-second window. |
 | `events_dropped` | uint64 | count | Cumulative count of BLOS stream events the daemon dropped because a registered listener's bounded channel was full. A non-zero-and-growing value across successive snapshots indicates a slow consumer of the `StreamBLOSEvents` RPC. |
 
+### `sysupgrade` — firmware upgrade manager
+
+```json
+{
+  "phase": "idle",
+  "last_error": "",
+  "current_release_tag": "",
+  "current_asset_name": "",
+  "capable_reason": "ok",
+  "last_check_unix": 1745596800,
+  "downloaded_bytes": 0,
+  "total_bytes": 0,
+  "child_pid": 0,
+  "in_progress": false,
+  "capable": true
+}
+```
+
+| Field | Type | Unit | Meaning |
+|---|---|---|---|
+| `phase` | string | — | Current high-level state: `idle`, `checking`, `downloading`, `verifying`, `ready`, `upgrading`, `failed`, or `unspecified` (only on the zero value). |
+| `last_error` | string | — | Most recent error message; empty on the happy path. Populated when `phase` is `failed` or after a transient `checking` failure. |
+| `current_release_tag` | string | — | Release tag currently being downloaded/installed, e.g. `v1.8.0`. Empty when no upgrade is in flight. |
+| `current_asset_name` | string | — | Asset filename of the in-flight upgrade, e.g. the matching sysupgrade image. Empty when no upgrade is in flight. |
+| `capable_reason` | string | — | Short human-readable reason corresponding to `capable`: `ok`, `no /sbin/sysupgrade`, `rootfs is ext4, not squashfs`, `no /overlay mount`, etc. |
+| `last_check_unix` | int64 | unix-seconds | Wall-clock time of the most recent successful github fetch, or 0 if the daemon has not contacted github in the current run and the on-disk cache is empty. |
+| `downloaded_bytes` | int64 | bytes | Bytes written to the destination file so far during a download. Resets to 0 when the manager returns to `idle`. |
+| `total_bytes` | int64 | bytes | Expected size of the asset being downloaded. -1/0 when not yet known. |
+| `child_pid` | int32 | pid | PID of the detached sysupgrade child once it has been launched via setsid+nohup. 0 before the runner returns; once non-zero the daemon has handed off control. |
+| `in_progress` | bool | — | True while a per-upgrade goroutine or detached sysupgrade child is alive. Useful as a one-field check before deciding whether `phase` is meaningful. |
+| `capable` | bool | — | True when all sysupgrade preconditions are satisfied (binary present, squashfs root, /overlay mounted). |
+
 ## Interpretation heuristics for LLM triage
 
 When a snapshot is provided for analysis, apply the following rules of
@@ -306,6 +339,19 @@ thumb in order and flag anything that fits.
    workflow but `comms.enabled == false`, the subsystem was either
    disabled in config or failed to start. Check daemon logs for the
    corresponding startup error.
+13. **Sysupgrade hung.** `sysupgrade.phase == "upgrading"` and
+   `sysupgrade.child_pid > 0` mean the runner has detached the
+   sysupgrade child and the daemon is waiting on a reboot. If the
+   snapshot worker is still emitting captures with the same PID
+   minutes later, the device did not reboot — check the per-asset
+   log file under `/tmp/openmanetd/sysupgrade/<asset>.log` on the
+   device. `phase == "failed"` with `last_error` mentioning
+   `checksum` means the GitHub asset is corrupted or the wrong file
+   was matched; `last_error` mentioning `insufficient` indicates
+   `/tmp` ran out of space (a 50 MiB image on a 256 MiB tmpfs is
+   tight). Cross-reference `sysupgrade.capable` and
+   `sysupgrade.capable_reason` to confirm the device should ever
+   have been able to flash in the first place.
 
 ## Skew note
 

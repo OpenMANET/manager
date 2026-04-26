@@ -21,6 +21,14 @@ const whisperModelFile = "ggml-tiny.en.bin"
 // whisperModelURL is the default CDN URL for the whisper tiny.en model.
 const whisperModelURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
 
+// Whisper download state machine values reported in the status JSON.
+const (
+	whisperStateIdle        = "idle"
+	whisperStateReady       = "ready"
+	whisperStateDownloading = "downloading"
+	whisperStateError       = "error"
+)
+
 // whisperStatusResponse is the JSON response for GET /api/whisper/status.
 type whisperStatusResponse struct {
 	State     string `json:"state"`
@@ -35,7 +43,7 @@ var whisperState = struct { //nolint:gochecknoglobals
 	err      string
 	progress int
 	mu       sync.Mutex
-}{state: "idle"}
+}{state: whisperStateIdle}
 
 // whisperModelExists checks whether the whisper model file exists in whisperDir.
 func whisperModelExists() bool {
@@ -57,8 +65,8 @@ func (s *Server) handleWhisperStatus(w http.ResponseWriter, _ *http.Request) {
 
 	// If files exist but state is idle (e.g. server restarted with files
 	// still in /tmp from a previous session), report ready.
-	if resp.Available && resp.State == "idle" {
-		resp.State = "ready"
+	if resp.Available && resp.State == whisperStateIdle {
+		resp.State = whisperStateReady
 	}
 
 	s.writeJSON(w, resp)
@@ -73,14 +81,14 @@ func (s *Server) handleWhisperDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	whisperState.mu.Lock()
-	if whisperState.state == "downloading" {
+	if whisperState.state == whisperStateDownloading {
 		whisperState.mu.Unlock()
 		s.writeErrorStatus(w, http.StatusConflict, "download already in progress")
 
 		return
 	}
 
-	whisperState.state = "downloading"
+	whisperState.state = whisperStateDownloading
 	whisperState.progress = 0
 	whisperState.err = ""
 	whisperState.mu.Unlock()
@@ -91,7 +99,7 @@ func (s *Server) handleWhisperDownload(w http.ResponseWriter, r *http.Request) {
 
 	go s.downloadWhisperModel(dir)
 
-	s.writeJSON(w, map[string]string{"status": "downloading"})
+	s.writeJSON(w, map[string]string{"status": whisperStateDownloading})
 }
 
 // handleWhisperDownloadStatus returns the current download progress.
@@ -123,7 +131,7 @@ func (s *Server) handleWhisperRemove(w http.ResponseWriter, r *http.Request) {
 	}
 
 	whisperState.mu.Lock()
-	whisperState.state = "idle"
+	whisperState.state = whisperStateIdle
 	whisperState.progress = 0
 	whisperState.err = ""
 	whisperState.mu.Unlock()
@@ -139,7 +147,7 @@ func (s *Server) downloadWhisperModel(dir string) {
 		_ = os.RemoveAll(dir)
 
 		whisperState.mu.Lock()
-		whisperState.state = "error"
+		whisperState.state = whisperStateError
 		whisperState.err = msg
 		whisperState.mu.Unlock()
 	}
@@ -224,7 +232,7 @@ func (s *Server) downloadWhisperModel(dir string) {
 	s.log.Info().Str("path", outPath).Int64("bytes", downloaded).Msg("whisper model downloaded")
 
 	whisperState.mu.Lock()
-	whisperState.state = "ready"
+	whisperState.state = whisperStateReady
 	whisperState.progress = 100
 	whisperState.mu.Unlock()
 }

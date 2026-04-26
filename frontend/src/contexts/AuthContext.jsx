@@ -3,12 +3,11 @@
 // =============================================================================
 //
 // Provides login/logout helpers and current user state. On mount, checks the
-// existing session by calling GET /auth/check on the API server (port 8087).
-// Auth endpoints are on the API server, accessed via the /rpc Vite proxy in
-// dev and directly on port 8087 in production.
+// existing session by calling GET /auth/check. /auth/* is proxied through the
+// frontend server to the upstream ConnectRPC API, so requests are same-origin
+// and the session cookie is delivered automatically.
 
 import { useCallback, useEffect, useState } from 'react';
-import { baseUrl } from '../services/connectClient.js';
 import { AuthContext } from './useAuth.js';
 
 export function AuthProvider({ children }) {
@@ -21,7 +20,7 @@ export function AuthProvider({ children }) {
 
   // Check existing session on mount.
   useEffect(() => {
-    fetch(`${baseUrl}/auth/check`, { credentials: 'include' })
+    fetch('/auth/check')
       .then(r => r.json())
       .then(data => {
         if (data.authenticated) setUser(data.username);
@@ -39,10 +38,9 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = useCallback(async (username, password) => {
-    const resp = await fetch(`${baseUrl}/auth/login`, {
+    const resp = await fetch('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({ username, password }),
     });
     const data = await resp.json();
@@ -51,15 +49,14 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(async () => {
-    await fetch(`${baseUrl}/auth/logout`, { method: 'POST', credentials: 'include' });
+    await fetch('/auth/logout', { method: 'POST' });
     setUser(null);
   }, []);
 
   const changePassword = useCallback(async (currentPassword, newPassword) => {
-    const resp = await fetch(`${baseUrl}/auth/change-password`, {
+    const resp = await fetch('/auth/change-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({ currentPassword, newPassword }),
     });
     if (resp.status === 204) return;

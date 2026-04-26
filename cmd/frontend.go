@@ -75,7 +75,7 @@ func runFrontend(cmd *cobra.Command, _ []string) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
-	srv := frontend.NewFrontendServer(ctx, cfg, staticFS, nil, false)
+	srv := frontend.NewFrontendServer(ctx, cfg, staticFS, nil, false, nil)
 
 	errCh := make(chan error, 1)
 

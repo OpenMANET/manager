@@ -113,7 +113,9 @@ describe('TestAudioControlsDevices', () => {
       },
     });
     expect(screen.getByText('Output')).toBeTruthy();
-    expect(screen.getByText('Speakers')).toBeTruthy();
+    // Open the dropdown to verify the device label is in the listbox.
+    fireEvent.click(screen.getByRole('button', { name: 'Output' }));
+    expect(screen.getByRole('option', { name: 'Speakers' })).toBeTruthy();
   });
 
   it('renders input device select when inputs are provided', () => {
@@ -124,7 +126,8 @@ describe('TestAudioControlsDevices', () => {
       },
     });
     expect(screen.getByText('Input')).toBeTruthy();
-    expect(screen.getByText('Built-in Mic')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Input' }));
+    expect(screen.getByRole('option', { name: 'Built-in Mic' })).toBeTruthy();
   });
 
   it('omits device selectors when no devices are available', () => {

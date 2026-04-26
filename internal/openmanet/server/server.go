@@ -12,9 +12,11 @@ import (
 	commsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
 	dashboardconnect "github.com/openmanet/openmanetd/internal/api/openmanet/dashboard/v1/dashboardv1connect"
 	gnssconnect "github.com/openmanet/openmanetd/internal/api/openmanet/gnss/v1/gnssv1connect"
+	logsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/logs/v1/logsv1connect"
 	meshtopoconnect "github.com/openmanet/openmanetd/internal/api/openmanet/mesh_topology/v1/mesh_topologyv1connect"
 	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
+	supconnect "github.com/openmanet/openmanetd/internal/api/openmanet/sysupgrade/v1/sysupgradev1connect"
 	wificonfigconnect "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1/wifi_configv1connect"
 	"github.com/openmanet/openmanetd/internal/auth"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
@@ -24,10 +26,12 @@ import (
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/iwinfo"
+	"github.com/openmanet/openmanetd/internal/logs"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/openmanet/openmanetd/internal/system"
+	"github.com/openmanet/openmanetd/internal/sysupgrade"
 	"github.com/openmanet/openmanetd/internal/util/logger"
 	"github.com/rs/cors"
 	"github.com/rs/zerolog"
@@ -52,8 +56,11 @@ type APIServer struct {
 	MeshNeighborsProvider batmanadv.MeshNeighborsProvider
 	BatctlSnapshotter     *handlers.BatctlSnapshotter
 	SystemSnapshotter     *handlers.SystemSnapshotter
+	Logread               logs.LogProvider
+	Dmesg                 logs.LogProvider
 	SessionStore          *auth.SessionStore
 	Authenticator         auth.Authenticator
+	Sysupgrade            *sysupgrade.Manager
 	AuthEnabled           bool
 }
 
@@ -201,6 +208,27 @@ func NewAPIServer(cfg APIServer) *APIServer {
 	}
 
 	api.Handle(wificonfigconnect.NewWifiConfigServiceHandler(wifiSvc, connect.WithInterceptors(validateInterceptor)))
+
+	api.Handle(logsconnect.NewLogsServiceHandler(&handlers.LogsService{
+		Log:     cfg.Log,
+		Logread: cfg.Logread,
+		Dmesg:   cfg.Dmesg,
+	}, connect.WithInterceptors(validateInterceptor)))
+
+	if cfg.Sysupgrade != nil {
+		api.Handle(supconnect.NewSysupgradeServiceHandler(&handlers.SysupgradeService{
+			Log:     cfg.Log.With().Str("service", "sysupgrade").Logger(),
+			Manager: cfg.Sysupgrade,
+		}, connect.WithInterceptors(validateInterceptor)))
+
+		// Out-of-band binary upload for staged firmware images. Streams
+		// the multipart body straight into the manager — does not ride
+		// through ConnectRPC.
+		api.Handle("/api/sysupgrade/upload", &handlers.SysupgradeUploadHandler{
+			Log:     cfg.Log.With().Str("service", "sysupgrade-upload").Logger(),
+			Manager: cfg.Sysupgrade,
+		})
+	}
 
 	// Register auth endpoints. Login and logout are only available when
 	// authentication is enabled. The check endpoint is always registered so

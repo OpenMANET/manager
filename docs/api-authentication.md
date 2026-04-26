@@ -5,6 +5,17 @@ ConnectRPC API server (port **8087**). The same authentication model works for
 the built-in Web UI and for direct API callers — curl, scripts, and ConnectRPC
 clients in any language.
 
+The Web UI reaches the auth and RPC surfaces through the frontend server at
+`http(s)://<node>:8080/8081`, which reverse-proxies `/auth/*` and `/rpc/*` to
+the API server. Routing browser traffic through the frontend keeps it on a
+single origin, which is required for HTTPS pages (mic/speaker access) to call
+the plain-HTTP API server without mixed-content blocking.
+
+External API callers — curl, scripts, ConnectRPC clients in other languages —
+continue to talk directly to `http://<node>:8087` with the same endpoints.
+Both paths converge on the same `SessionStore`, so a token minted by either
+origin works for both.
+
 ## Auth model
 
 1. `POST /auth/login` with a username and password.

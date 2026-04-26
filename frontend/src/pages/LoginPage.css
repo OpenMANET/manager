@@ -60,6 +60,13 @@
   padding: 40px 36px;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
 }
+.login-logo {
+  display: block;
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 14px;
+  image-rendering: pixelated;
+}
 .login-mark {
   text-align: center;
   font-family: var(--font-mono);
@@ -99,5 +106,6 @@
   .login-corner.tr { top: 12px; right: 16px; }
   .login-corner.bl, .login-corner.br { display: none; }
   .login-card { padding: 28px 24px; width: 100%; }
+  .login-logo { width: 72px; height: 72px; margin-bottom: 10px; }
   .login-mark { font-size: 18px; }
 }

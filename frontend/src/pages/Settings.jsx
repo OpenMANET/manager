@@ -14,6 +14,7 @@ import { QuickAction } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
 import { CommsService } from "../gen/openmanet/comms/v1/comms_service_connect.js";
 import { ControlSource } from "../gen/openmanet/comms/v1/config_pb.js";
 import WhisperManager from "../components/WhisperManager.jsx";
+import LatSelect from "../components/LatSelect.jsx";
 import { useAuth } from '../contexts/useAuth.js';
 import './Settings.css';
 
@@ -403,15 +404,16 @@ export default function SettingsPage() {
 
             <div className="lat-field">
               <label>Control Source</label>
-              <select
-                className="lat-select"
+              <LatSelect
+                ariaLabel="Control Source"
                 value={config.control_source}
-                onChange={(e) => setConfig(c => ({ ...c, control_source: e.target.value }))}
-              >
-                <option value="openvlm">OpenVLM (default)</option>
-                <option value="web">Web UI</option>
-                <option value="nanoptt">nanoPTT</option>
-              </select>
+                onChange={(v) => setConfig(c => ({ ...c, control_source: v }))}
+                options={[
+                  { value: 'openvlm', label: 'OpenVLM (default)' },
+                  { value: 'web',     label: 'Web UI' },
+                  { value: 'nanoptt', label: 'nanoPTT' },
+                ]}
+              />
             </div>
 
             <div className="lat-field">

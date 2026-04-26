@@ -78,8 +78,8 @@ describe('TestTranscriptFilter', () => {
 
   it('calls onFilterChange when select changes', () => {
     const { props } = renderTranscript();
-    const select = screen.getByRole('combobox');
-    fireEvent.change(select, { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Channel filter' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Ch 3' }));
     expect(props.onFilterChange).toHaveBeenCalledWith(3);
   });
 });
@@ -87,10 +87,12 @@ describe('TestTranscriptFilter', () => {
 describe('TestTranscriptFilterAliases', () => {
   it('shows channel aliases in filter dropdown', () => {
     renderTranscript({ channelAliases: { 1: 'Command', 4: 'Logistics' } });
-    const select = screen.getByRole('combobox');
-    const options = select.querySelectorAll('option');
-    // "All Channels" + 5 channels = 6 options
+    fireEvent.click(screen.getByRole('button', { name: 'Channel filter' }));
+
+    const options = screen.getAllByRole('option');
+    // "All Channels" + 5 channels = 6 options.
     expect(options.length).toBe(6);
+    expect(options[0].textContent).toBe('All Channels');
     expect(options[1].textContent).toBe('Command');
     expect(options[2].textContent).toBe('Ch 2');
     expect(options[4].textContent).toBe('Logistics');

@@ -112,6 +112,28 @@ func TestListNetworkInterfaces_Success(t *testing.T) {
 	assert.Equal(t, niv1.InterfaceStatus_INTERFACE_STATUS_DOWN, eth.GetStatus())
 }
 
+func TestListNetworkInterfaces_HidesMorse0(t *testing.T) {
+	svc := &handlers.NetworkInterfaceService{
+		Log: zerolog.Nop(),
+		Interfaces: &fakeInterfaceProvider{
+			infos: []network.NetworkInterfaceInfo{
+				{Name: "br-ahwlan", LinkType: network.LinkTypeBridge, State: network.OperStateUp},
+				{Name: "morse0", LinkType: network.LinkTypeHaLowMesh, State: network.OperStateDown},
+				{Name: "eth0", LinkType: network.LinkTypeEthernet, State: network.OperStateUp},
+			},
+		},
+	}
+
+	resp, err := svc.ListNetworkInterfaces(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetInterfaces(), 2)
+
+	names := []string{resp.GetInterfaces()[0].GetName(), resp.GetInterfaces()[1].GetName()}
+	assert.NotContains(t, names, "morse0")
+	assert.Contains(t, names, "br-ahwlan")
+	assert.Contains(t, names, "eth0")
+}
+
 func TestListNetworkInterfaces_Empty(t *testing.T) {
 	svc := &handlers.NetworkInterfaceService{
 		Log:        zerolog.Nop(),

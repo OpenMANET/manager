@@ -2487,3 +2487,79 @@ func TestInstrumentationConfig_Defaults(t *testing.T) {
 		t.Errorf("GetInstrumentationSnapshotDir() = %v, want %v", got, DefaultInstrumentationSnapshotDir)
 	}
 }
+
+func TestGetTerminalEnable(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *bool
+		want     bool
+	}{
+		{
+			name:     "returns configured true",
+			setValue: boolPtr(true),
+			want:     true,
+		},
+		{
+			name:     "returns configured false",
+			setValue: boolPtr(false),
+			want:     false,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultTerminalEnable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("terminal.enable", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+			if got := cfg.GetTerminalEnable(); got != tt.want {
+				t.Errorf("GetTerminalEnable() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetTerminalShell(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     string
+	}{
+		{
+			name:     "returns configured value",
+			setValue: strPtr("/usr/bin/bash"),
+			want:     "/usr/bin/bash",
+		},
+		{
+			name:     "returns default when empty",
+			setValue: strPtr(""),
+			want:     DefaultTerminalShell,
+		},
+		{
+			name:     "returns default when not set",
+			setValue: nil,
+			want:     DefaultTerminalShell,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("terminal.shell", *tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+			if got := cfg.GetTerminalShell(); got != tt.want {
+				t.Errorf("GetTerminalShell() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

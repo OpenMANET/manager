@@ -7,12 +7,18 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/util/logger"
 	ws "github.com/openmanet/openmanetd/internal/websocket"
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ---------------------------------------------------------------------------
@@ -236,6 +242,9 @@ func TestHandler_RegistersExpectedRoutes(t *testing.T) {
 		{"/api/system/processes"},
 		{"/api/network/interfaces"},
 		{"/api/settings/config"},
+		// /api/terminal/ws is intentionally omitted: it is registered, but with
+		// term==nil (the test server does not construct a terminal.Manager) it
+		// returns 404. The terminal route is exercised in terminal_test.go.
 	}
 
 	for _, tc := range routes {
@@ -266,4 +275,253 @@ func containsSubstr(s, substr string) bool {
 	}
 
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// API reverse-proxy tests
+// ---------------------------------------------------------------------------
+
+// upstreamCapture records what the upstream API server saw, so the test can
+// verify prefix stripping and pass-through behavior.
+type upstreamCapture struct {
+	path   atomic.Value // string
+	method atomic.Value // string
+}
+
+func newProxyUpstream(t *testing.T, body string, header http.Header) (*httptest.Server, *upstreamCapture) {
+	t.Helper()
+
+	cap := &upstreamCapture{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cap.path.Store(r.URL.Path)
+		cap.method.Store(r.Method)
+
+		for k, vs := range header {
+			for _, v := range vs {
+				w.Header().Add(k, v)
+			}
+		}
+
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+
+	return srv, cap
+}
+
+func TestBuildAPIProxies_StripsRPCPrefix(t *testing.T) {
+	upstream, capture := newProxyUpstream(t, `{"ok":true}`, nil)
+
+	rpcProxy, _ := buildAPIProxies(upstream.URL, zerolog.Nop())
+	require.NotNil(t, rpcProxy)
+
+	mux := http.NewServeMux()
+	mux.Handle("/rpc/", rpcProxy)
+
+	front := httptest.NewServer(mux)
+	t.Cleanup(front.Close)
+
+	resp, err := http.Post(front.URL+"/rpc/openmanet.dashboard.v1.DashboardService/GetDashboardStatus",
+		"application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, `{"ok":true}`, string(body))
+	assert.Equal(t, "/openmanet.dashboard.v1.DashboardService/GetDashboardStatus", capture.path.Load())
+	assert.Equal(t, http.MethodPost, capture.method.Load())
+}
+
+func TestBuildAPIProxies_AuthPassthroughWithSetCookie(t *testing.T) {
+	upstream, capture := newProxyUpstream(t, `{"username":"root","token":"abc"}`,
+		http.Header{"Set-Cookie": []string{"session=abc; Path=/; HttpOnly; SameSite=Lax"}})
+
+	_, authProxy := buildAPIProxies(upstream.URL, zerolog.Nop())
+	require.NotNil(t, authProxy)
+
+	mux := http.NewServeMux()
+	mux.Handle("/auth/", authProxy)
+
+	front := httptest.NewServer(mux)
+	t.Cleanup(front.Close)
+
+	resp, err := http.Post(front.URL+"/auth/login", "application/json",
+		strings.NewReader(`{"username":"root","password":""}`))
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "/auth/login", capture.path.Load())
+
+	// Set-Cookie from the upstream response must reach the browser
+	// unchanged; otherwise the WebUI never establishes a session.
+	cookies := resp.Cookies()
+	require.Len(t, cookies, 1)
+	assert.Equal(t, "session", cookies[0].Name)
+	assert.Equal(t, "abc", cookies[0].Value)
+	assert.True(t, cookies[0].HttpOnly)
+}
+
+func TestBuildAPIProxies_ForwardsAuthorizationHeader(t *testing.T) {
+	var gotAuth atomic.Value
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth.Store(r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(upstream.Close)
+
+	rpcProxy, _ := buildAPIProxies(upstream.URL, zerolog.Nop())
+
+	mux := http.NewServeMux()
+	mux.Handle("/rpc/", rpcProxy)
+
+	front := httptest.NewServer(mux)
+	t.Cleanup(front.Close)
+
+	req, err := http.NewRequest(http.MethodPost, front.URL+"/rpc/foo.v1.Service/Method", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer test-token")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "Bearer test-token", gotAuth.Load())
+}
+
+func TestBuildAPIProxies_StreamingFlushesIncrementally(t *testing.T) {
+	// Server streams two chunks with a wait between them. With FlushInterval=-1
+	// the proxy must forward each chunk as it arrives — without flushing,
+	// httputil.ReverseProxy buffers and the client never sees the first chunk
+	// before the second is written, deadlocking long-lived ConnectRPC streams.
+	chunkSent := make(chan struct{})
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		require.True(t, ok)
+
+		w.Header().Set("Content-Type", "application/connect+json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("first\n"))
+
+		flusher.Flush()
+
+		<-chunkSent
+
+		_, _ = w.Write([]byte("second\n"))
+
+		flusher.Flush()
+	}))
+	t.Cleanup(upstream.Close)
+
+	rpcProxy, _ := buildAPIProxies(upstream.URL, zerolog.Nop())
+
+	mux := http.NewServeMux()
+	mux.Handle("/rpc/", rpcProxy)
+
+	front := httptest.NewServer(mux)
+	t.Cleanup(front.Close)
+
+	resp, err := http.Get(front.URL + "/rpc/foo.v1.Service/Stream")
+	require.NoError(t, err)
+
+	defer resp.Body.Close()
+
+	buf := make([]byte, 6)
+	_, err = io.ReadFull(resp.Body, buf)
+	require.NoError(t, err)
+	assert.Equal(t, "first\n", string(buf))
+
+	close(chunkSent)
+
+	rest, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "second\n", string(rest))
+}
+
+func TestBuildAPIProxies_InvalidAddressDisablesProxies(t *testing.T) {
+	rpcProxy, authProxy := buildAPIProxies("not-a-url", zerolog.Nop())
+	assert.Nil(t, rpcProxy, "rpc proxy must be nil when API address is unparseable")
+	assert.Nil(t, authProxy, "auth proxy must be nil when API address is unparseable")
+}
+
+func TestBuildAPIProxies_EmptyAddressDisablesProxies(t *testing.T) {
+	rpcProxy, authProxy := buildAPIProxies("", zerolog.Nop())
+	assert.Nil(t, rpcProxy)
+	assert.Nil(t, authProxy)
+}
+
+// TestBuildAPIProxies_PreservesContextOnDisconnect verifies the proxy
+// propagates client cancellation to the upstream — ensuring streaming
+// goroutines on the API server exit when the browser closes the tab.
+func TestBuildAPIProxies_PreservesContextOnDisconnect(t *testing.T) {
+	upstreamSawDone := make(chan struct{})
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+		close(upstreamSawDone)
+	}))
+	t.Cleanup(upstream.Close)
+
+	rpcProxy, _ := buildAPIProxies(upstream.URL, zerolog.Nop())
+
+	mux := http.NewServeMux()
+	mux.Handle("/rpc/", rpcProxy)
+
+	front := httptest.NewServer(mux)
+	t.Cleanup(front.Close)
+
+	client := &http.Client{Timeout: 100 * time.Millisecond}
+
+	_, err := client.Get(front.URL + "/rpc/foo.v1.Service/Stream")
+	require.Error(t, err) // client times out
+
+	select {
+	case <-upstreamSawDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream did not observe context cancellation after client disconnect")
+	}
+}
+
+// TestHandler_ProxyRoutesRegistered verifies the /rpc and /auth proxies
+// are wired through the full handler chain (mux + auth middleware + COI
+// middleware) and route to the upstream API rather than returning 404.
+func TestHandler_ProxyRoutesRegistered(t *testing.T) {
+	upstream, capture := newProxyUpstream(t, `{}`, nil)
+
+	rpcProxy, authProxy := buildAPIProxies(upstream.URL, zerolog.Nop())
+
+	srv := newTestServer(func(s *Server) {
+		s.rpcProxy = rpcProxy
+		s.authProxy = authProxy
+	})
+
+	ts := httptest.NewServer(srv.handler())
+	t.Cleanup(ts.Close)
+
+	// /auth/check must reach the upstream verbatim — it is the unauth probe
+	// the WebUI fires on first paint, and it must not be gated by the
+	// frontend auth middleware.
+	resp, err := http.Get(ts.URL + "/auth/check")
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "/auth/check", capture.path.Load())
+
+	// /rpc/* hits the upstream with the prefix stripped.
+	resp, err = http.Post(ts.URL+"/rpc/foo.v1.Service/Method", "application/json", strings.NewReader("{}"))
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "/foo.v1.Service/Method", capture.path.Load())
 }

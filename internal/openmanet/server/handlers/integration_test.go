@@ -20,6 +20,8 @@ import (
 	blosconnect "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1/blosv1connect"
 	commsv1 "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1"
 	commsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
+	logsv1 "github.com/openmanet/openmanetd/internal/api/openmanet/logs/v1"
+	logsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/logs/v1/logsv1connect"
 	meshtopoconnect "github.com/openmanet/openmanetd/internal/api/openmanet/mesh_topology/v1/mesh_topologyv1connect"
 	niv1 "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1"
 	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
@@ -29,6 +31,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/blos"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/gpsd"
+	"github.com/openmanet/openmanetd/internal/logs"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/rs/zerolog"
@@ -102,6 +105,19 @@ func newTestServer(t *testing.T) *httptest.Server {
 		Cfg:         &config.Config{BLOSEnable: false},
 		Log:         zerolog.Nop(),
 		BLOSManager: &fakeBLOSManager{},
+	}, handlerOpt))
+
+	mux.Handle(logsconnect.NewLogsServiceHandler(&handlers.LogsService{
+		Log: zerolog.Nop(),
+		Logread: &fakeLogProvider{snap: &logs.Snapshot{
+			CollectedAt: time.Date(2026, 4, 25, 14, 30, 0, 0, time.UTC),
+			Lines:       []string{"syslog-1", "syslog-2"},
+		}},
+		Dmesg: &fakeLogProvider{snap: &logs.Snapshot{
+			CollectedAt: time.Date(2026, 4, 25, 14, 30, 0, 0, time.UTC),
+			Lines:       []string{"kern-1", "kern-2", "kern-3"},
+			Truncated:   true,
+		}},
 	}, handlerOpt))
 
 	mux.Handle(niconnect.NewNetworkInterfaceServiceHandler(&handlers.NetworkInterfaceService{
@@ -1008,4 +1024,72 @@ func TestIntegration_ListStaticDHCPLeases(t *testing.T) {
 	require.Len(t, resp.GetLeases(), 1)
 	assert.Equal(t, "printer", resp.GetLeases()[0].GetHostname())
 	assert.Equal(t, "AA:BB:CC:11:22:33", resp.GetLeases()[0].GetMacAddress())
+}
+
+// ── LogsService ───────────────────────────────────────────────────────────────
+
+func TestIntegration_GetLogs_Logread(t *testing.T) {
+	srv := newTestServer(t)
+	client := logsconnect.NewLogsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	resp, err := client.GetLogs(context.Background(), &logsv1.GetLogsRequest{
+		Source:   logsv1.LogSource_LOG_SOURCE_LOGREAD,
+		MaxLines: 100,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, resp.GetLines(), 2)
+	assert.Equal(t, "syslog-1", resp.GetLines()[0].GetRaw())
+	assert.Equal(t, "syslog-2", resp.GetLines()[1].GetRaw())
+	assert.False(t, resp.GetTruncated())
+	assert.NotNil(t, resp.GetCollectedAt())
+}
+
+func TestIntegration_GetLogs_Dmesg_Truncated(t *testing.T) {
+	srv := newTestServer(t)
+	client := logsconnect.NewLogsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	resp, err := client.GetLogs(context.Background(), &logsv1.GetLogsRequest{
+		Source:   logsv1.LogSource_LOG_SOURCE_DMESG,
+		MaxLines: 100,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, resp.GetLines(), 3)
+	assert.Equal(t, "kern-1", resp.GetLines()[0].GetRaw())
+	assert.True(t, resp.GetTruncated())
+}
+
+func TestIntegration_Validation_GetLogs_UnspecifiedSource(t *testing.T) {
+	srv := newTestServer(t)
+	client := logsconnect.NewLogsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	_, err := client.GetLogs(context.Background(), &logsv1.GetLogsRequest{
+		Source:   logsv1.LogSource_LOG_SOURCE_UNSPECIFIED,
+		MaxLines: 100,
+	})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+}
+
+func TestIntegration_Validation_GetLogs_MaxLinesOutOfRange(t *testing.T) {
+	srv := newTestServer(t)
+	client := logsconnect.NewLogsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	for _, m := range []uint32{0, 5001, 10000} {
+		t.Run(fmt.Sprintf("max_lines_%d", m), func(t *testing.T) {
+			_, err := client.GetLogs(context.Background(), &logsv1.GetLogsRequest{
+				Source:   logsv1.LogSource_LOG_SOURCE_LOGREAD,
+				MaxLines: m,
+			})
+			require.Error(t, err)
+
+			var connectErr *connect.Error
+			require.ErrorAs(t, err, &connectErr)
+			assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+		})
+	}
 }

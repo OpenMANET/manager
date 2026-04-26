@@ -15,6 +15,7 @@
 //   onFilterChange  — function(filterValue)
 
 import React, { useRef, useEffect } from 'react';
+import LatSelect from './LatSelect.jsx';
 
 // TODO(api): Severity classification is a client-side keyword heuristic today.
 // A future WS transcript message should carry a real `severity` field populated
@@ -57,15 +58,18 @@ export default function Transcript({
           <div className="chat-header">
             <div className="card-title" style={{ marginBottom: 0 }}>Transcript</div>
             <div className="chat-filter">
-              <select
+              <LatSelect
+                ariaLabel="Channel filter"
                 value={activeFilter}
-                onChange={(e) => onFilterChange(parseInt(e.target.value, 10))}
-              >
-                <option value="0">All Channels</option>
-                {[1,2,3,4,5].map((ch) => (
-                  <option key={ch} value={ch}>{(channelAliases && channelAliases[ch]) || `Ch ${ch}`}</option>
-                ))}
-              </select>
+                onChange={(v) => onFilterChange(v)}
+                options={[
+                  { value: 0, label: 'All Channels' },
+                  ...[1, 2, 3, 4, 5].map((ch) => ({
+                    value: ch,
+                    label: (channelAliases && channelAliases[ch]) || `Ch ${ch}`,
+                  })),
+                ]}
+              />
             </div>
           </div>
 

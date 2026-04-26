@@ -21,11 +21,14 @@ import (
 	"github.com/openmanet/openmanetd/internal/frontend"
 	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/instrumentation"
+	"github.com/openmanet/openmanetd/internal/logs"
 	"github.com/openmanet/openmanetd/internal/mgmt"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/openmanet/openmanetd/internal/system"
+	"github.com/openmanet/openmanetd/internal/sysupgrade"
+	"github.com/openmanet/openmanetd/internal/terminal"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/openmanet/openmanetd/internal/util/logger"
 	"github.com/rs/zerolog"
@@ -115,11 +118,29 @@ func Start(staticFS fs.FS) {
 	// Create BLOS manager (always, so the API handler can use it even if BLOS is currently disabled)
 	blosManager := blos.NewBLOSManager(cfg, logger.GetLogger("blos"))
 
+	// Construct the sysupgrade manager early so the instrumentation
+	// worker can register its snapshotter alongside comms/blos. The
+	// manager spawns no background goroutines on construction; the
+	// only goroutine it owns is the per-upgrade one created on
+	// StartUpgrade.
+	sysupgradeMgr := sysupgrade.NewManager(sysupgrade.Options{
+		Log:         logger.GetLogger("sysupgrade"),
+		Repo:        "OpenMANET/firmware",
+		Board:       handlers.NewCachedBoardProvider(&handlers.DefaultBoardProvider{}),
+		Firmware:    handlers.NewCachedFirmwareProvider(&system.OpenWrtFirmwareProvider{}),
+		SysInfo:     &system.LinuxSysInfo{},
+		Capable:     &system.LinuxSysupgradeCapabilityProvider{},
+		Cache:       sysupgrade.NewDiskCache("/var/lib/openmanetd/sysupgrade-releases.json"),
+		Releases:    &sysupgrade.GitHubReleasesClient{Repo: "OpenMANET/firmware", Log: logger.GetLogger("sysupgrade-github")},
+		Runner:      &sysupgrade.ExecSysupgradeRunner{},
+		DownloadDir: "/tmp/openmanetd/sysupgrade",
+	})
+
 	// Wire the instrumentation snapshot registry and conditionally spawn
 	// the periodic worker. The registry is always constructed (cheap) but
 	// the worker goroutine is only started when the config flag is true,
 	// so a disabled deployment pays nothing beyond the adapter structs.
-	startInstrumentationWorker(ctx, cfg, blosManager, log)
+	startInstrumentationWorker(ctx, cfg, blosManager, sysupgradeMgr, log)
 
 	// BatctlSnapshotter owns one background goroutine that refreshes the
 	// outputs of batctl oj / nj / mj / gwj plus /tmp/bat-hosts every 5s.
@@ -208,6 +229,8 @@ func Start(staticFS fs.FS) {
 		MeshNeighborsProvider: meshNeighborsSnap,
 		BatctlSnapshotter:     batctlSnapshotter,
 		SystemSnapshotter:     sysSnapshotter,
+		Logread:               &logs.LogreadProvider{},
+		Dmesg:                 &logs.DmesgProvider{},
 		Interfaces:            interfaceProvider,
 		DHCP: &network.UCIDHCPConfigProvider{
 			DHCPReader:    network.NewUCIDHCPConfigReader(),
@@ -218,6 +241,7 @@ func Start(staticFS fs.FS) {
 		},
 		SessionStore:  sessionStore,
 		Authenticator: authenticator,
+		Sysupgrade:    sysupgradeMgr,
 		AuthEnabled:   cfg.GetAuthEnable(),
 	}
 
@@ -246,7 +270,9 @@ func Start(staticFS fs.FS) {
 		}
 	}()
 
-	frontendServer := frontend.NewFrontendServer(ctx, cfg, staticFS, sessionStore, cfg.GetAuthEnable())
+	termMgr := buildTerminalManager(cfg, log)
+
+	frontendServer := frontend.NewFrontendServer(ctx, cfg, staticFS, sessionStore, cfg.GetAuthEnable(), termMgr)
 
 	go func() {
 		if err := frontendServer.Run(ctx); err != nil {
@@ -285,7 +311,7 @@ func Start(staticFS fs.FS) {
 // registry itself is cheap; only the worker has runtime cost. Errors
 // during setup are logged but never fatal — a misconfigured snapshot
 // subsystem must not prevent the daemon from serving traffic.
-func startInstrumentationWorker(ctx context.Context, cfg *config.Config, blosManager *blos.BLOSManager, log zerolog.Logger) {
+func startInstrumentationWorker(ctx context.Context, cfg *config.Config, blosManager *blos.BLOSManager, sysupgradeMgr *sysupgrade.Manager, log zerolog.Logger) {
 	if !cfg.GetInstrumentationEnable() {
 		return
 	}
@@ -317,6 +343,14 @@ func startInstrumentationWorker(ctx context.Context, cfg *config.Config, blosMan
 		return
 	}
 
+	if sysupgradeMgr != nil {
+		if err = reg.Register("sysupgrade", &sysupgrade.Snapshotter{Manager: sysupgradeMgr}); err != nil {
+			log.Error().Err(err).Msg("instrumentation: failed to register sysupgrade snapshotter")
+
+			return
+		}
+	}
+
 	worker, err := instrumentation.NewWorker(instrumentation.WorkerOptions{
 		Registry:       reg,
 		Interval:       time.Duration(cfg.GetInstrumentationIntervalSecs()) * time.Second,
@@ -331,6 +365,24 @@ func startInstrumentationWorker(ctx context.Context, cfg *config.Config, blosMan
 	}
 
 	go worker.Run(ctx)
+}
+
+// buildTerminalManager constructs the web-terminal manager when the feature
+// is enabled in config, or returns nil when disabled. Returning nil signals
+// to the frontend handler that the route should answer 404.
+func buildTerminalManager(cfg *config.Config, log zerolog.Logger) *terminal.Manager {
+	if !cfg.GetTerminalEnable() {
+		return nil
+	}
+
+	if !cfg.GetAuthEnable() {
+		log.Warn().Msg("terminal: web terminal root shell is enabled while UI auth is disabled; anyone who can reach the UI has root")
+	}
+
+	tcfg := terminal.DefaultConfig()
+	tcfg.Shell = cfg.GetTerminalShell()
+
+	return terminal.New(log.With().Str("subsystem", "terminal").Logger(), tcfg)
 }
 
 // applyRuntimeTuning configures Go runtime parameters and optionally starts

@@ -51,7 +51,9 @@
       "Bash(make -C /workspaces/openmanetd frontend)",
       "Bash(make -C /workspaces/openmanetd test-frontend)",
       "Bash(make -C /workspaces/openmanetd buf)",
-      "Bash(grep -E \"\\\\.jsx?$\")"
+      "Bash(grep -E \"\\\\.jsx?$\")",
+      "Bash(grep \"\\\\.go$\")",
+      "Bash(grep -E \"\\\\.\\(go\\)$\")"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"

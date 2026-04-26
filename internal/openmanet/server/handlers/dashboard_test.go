@@ -187,11 +187,11 @@ func newTestDashboardService() *DashboardService {
 		},
 		Interfaces: &mockInterfaceProvider{
 			ifaces: []network.NetworkInterfaceInfo{
-				{Name: "eth0", LinkType: network.LinkTypeEthernet, State: network.OperStateDown},
-				{Name: "br-ahwlan", LinkType: network.LinkTypeBridge, State: network.OperStateUp, IP: "10.41.25.72/16"},
-				{Name: "phy1-ap0", LinkType: network.LinkTypeHaLowMesh, State: network.OperStateUp},
-				{Name: "bat0", LinkType: network.LinkTypeBatman, State: network.OperStateUp},
-				{Name: "tailscale0", LinkType: network.LinkTypeUnknown, State: network.OperStateDown},
+				{Name: "eth0", LinkType: network.LinkTypeEthernet, State: network.OperStateDown, RxBytes: 1024, TxBytes: 2048},
+				{Name: "br-ahwlan", LinkType: network.LinkTypeBridge, State: network.OperStateUp, IP: "10.41.25.72/16", RxBytes: 142300000, TxBytes: 87600000},
+				{Name: "phy1-ap0", LinkType: network.LinkTypeHaLowMesh, State: network.OperStateUp, RxBytes: 12345678, TxBytes: 9876543},
+				{Name: "bat0", LinkType: network.LinkTypeBatman, State: network.OperStateUp, RxBytes: 5_000_000_000, TxBytes: 3_000_000_000},
+				{Name: "tailscale0", LinkType: network.LinkTypeUnknown, State: network.OperStateDown, RxBytes: 555, TxBytes: 666},
 			},
 		},
 		Wifi: &mockWifiProvider{count: 3},
@@ -261,29 +261,39 @@ func TestDashboardService_GetDashboardStatus_NetworkSummary(t *testing.T) {
 	assert.Equal(t, "eth0", wan.InterfaceName)
 	assert.Equal(t, v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_DISCONNECTED, wan.State)
 	assert.Equal(t, "Disconnected", wan.Detail)
+	assert.Equal(t, uint64(1024), wan.RxBytes)
+	assert.Equal(t, uint64(2048), wan.TxBytes)
 
 	// LAN — connected with IP
 	lan := ns.Entries[1]
 	assert.Equal(t, "br-ahwlan", lan.InterfaceName)
 	assert.Equal(t, v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_CONNECTED, lan.State)
 	assert.Equal(t, "10.41.25.72/16", lan.Detail)
+	assert.Equal(t, uint64(142300000), lan.RxBytes)
+	assert.Equal(t, uint64(87600000), lan.TxBytes)
 
 	// HaLow Mesh — 3 neighbors
 	mesh := ns.Entries[2]
 	assert.Contains(t, mesh.DisplayName, "HaLow Mesh")
 	assert.Equal(t, v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_CONNECTED, mesh.State)
 	assert.Contains(t, mesh.Detail, "3 neighbors")
+	assert.Equal(t, uint64(12345678), mesh.RxBytes)
+	assert.Equal(t, uint64(9876543), mesh.TxBytes)
 
 	// BATMAN — 4 originators
 	batman := ns.Entries[3]
 	assert.Contains(t, batman.DisplayName, "BATMAN")
 	assert.Equal(t, v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_CONNECTED, batman.State)
 	assert.Contains(t, batman.Detail, "4 originators")
+	assert.Equal(t, uint64(5_000_000_000), batman.RxBytes)
+	assert.Equal(t, uint64(3_000_000_000), batman.TxBytes)
 
 	// Tailscale — not connected
 	ts := ns.Entries[4]
 	assert.Contains(t, ts.DisplayName, "Tailscale")
 	assert.Equal(t, v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_NOT_CONNECTED, ts.State)
+	assert.Equal(t, uint64(555), ts.RxBytes)
+	assert.Equal(t, uint64(666), ts.TxBytes)
 }
 
 func TestDashboardService_GetDashboardStatus_ActiveServices(t *testing.T) {
@@ -551,6 +561,86 @@ func TestDashboardService_GetDashboardStatus_TailscaleNotRunning(t *testing.T) {
 	require.NotNil(t, entry, "tailscale entry should be present")
 	assert.Equal(t, v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_NOT_CONNECTED, entry.State)
 	assert.Equal(t, "Not connected", entry.Detail)
+}
+
+// TestDashboardService_GetDashboardStatus_PartialDeviceInfoFailure verifies
+// that an error from one of the SysInfo getters does not abort the RPC —
+// the partial response still surfaces fields populated by other providers.
+// Without this, a single broken sysinfo path on a target device would blank
+// the entire dashboard instead of just one row.
+func TestDashboardService_GetDashboardStatus_PartialDeviceInfoFailure(t *testing.T) {
+	svc := newTestDashboardService()
+	svc.SysInfo = &mockSysInfoProvider{err: errors.New("proc fs unreadable")}
+
+	resp, err := svc.GetDashboardStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err, "RPC must succeed even when SysInfo fails")
+	require.NotNil(t, resp.DeviceInfo)
+	require.NotNil(t, resp.SystemResources)
+
+	// SysInfo-sourced fields are zero-valued.
+	assert.Empty(t, resp.DeviceInfo.Hostname)
+	assert.Empty(t, resp.DeviceInfo.Kernel)
+	assert.Empty(t, resp.DeviceInfo.Architecture)
+
+	// Fields sourced from other providers are still populated.
+	assert.Equal(t, "MorseMicro HaLowLink 2", resp.DeviceInfo.Model)
+	assert.Equal(t, "OpenWrt 23.05.3 / OpenMANET 1.7.0", resp.DeviceInfo.Firmware)
+
+	// SystemResources LocalTime is always set; CPU/memory are zero.
+	require.NotNil(t, resp.SystemResources.LocalTime)
+	assert.InDelta(t, 0.0, float64(resp.SystemResources.CpuLoadPercent), 0.001)
+	assert.Equal(t, int64(0), resp.SystemResources.MemoryTotalBytes)
+}
+
+// TestDashboardService_GetDashboardStatus_PartialNetworkFailure verifies that
+// a failure in one network builder (mesh count) does not blank the rest of
+// the network summary. The mesh entry should be present with a fallback
+// detail; WAN/LAN/BATMAN entries should still be populated.
+func TestDashboardService_GetDashboardStatus_PartialNetworkFailure(t *testing.T) {
+	svc := newTestDashboardService()
+	svc.Wifi = &mockWifiProvider{err: errors.New("netlink gone")}
+
+	resp, err := svc.GetDashboardStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err, "RPC must succeed even when mesh count fails")
+
+	ns := resp.NetworkSummary
+	require.NotNil(t, ns)
+	require.GreaterOrEqual(t, len(ns.Entries), 4, "WAN, LAN, mesh (fallback), BATMAN must all appear")
+
+	// Find the HaLow Mesh entry — it should have the fallback detail rather
+	// than being omitted entirely.
+	var meshEntry *v1.NetworkSummaryEntry
+
+	for _, entry := range ns.Entries {
+		if entry.InterfaceName == "phy1-ap0" {
+			meshEntry = entry
+
+			break
+		}
+	}
+
+	require.NotNil(t, meshEntry, "mesh entry must remain in summary even when neighbor count fails")
+	assert.Equal(t, v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_DISCONNECTED, meshEntry.State)
+	assert.Equal(t, "Unknown", meshEntry.Detail)
+}
+
+// TestDashboardService_GetDashboardStatus_InterfaceListFailureSurvives verifies
+// that the network summary failing entirely (interface list error) does not
+// abort the dashboard — the rest of the response (DeviceInfo, SystemResources,
+// ActiveServices) is still delivered.
+func TestDashboardService_GetDashboardStatus_InterfaceListFailureSurvives(t *testing.T) {
+	svc := newTestDashboardService()
+	svc.Interfaces = &mockInterfaceProvider{err: errors.New("rtnetlink unavailable")}
+
+	resp, err := svc.GetDashboardStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	// Network summary is empty (no entries) but the rest survives.
+	require.NotNil(t, resp.NetworkSummary)
+	assert.Empty(t, resp.NetworkSummary.Entries)
+	assert.Equal(t, "HaLowLink2-6cff", resp.DeviceInfo.Hostname)
+	assert.Len(t, resp.ActiveServices, 6)
 }
 
 func TestDashboardService_MonitoredServices_Default(t *testing.T) {

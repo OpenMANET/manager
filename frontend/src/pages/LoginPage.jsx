@@ -8,6 +8,7 @@ import { createClient } from '@connectrpc/connect';
 import { DashboardService } from '../gen/openmanet/dashboard/v1/dashboard_service_connect.js';
 import { transport } from '../services/connectClient.js';
 import { useAuth } from '../contexts/useAuth.js';
+import openmanetMark from '../assets/openmanet-mark.svg';
 import './LoginPage.css';
 
 const dashboardClient = createClient(DashboardService, transport);
@@ -94,7 +95,8 @@ export default function LoginPage() {
       </div>
 
       <div className="login-card">
-        <div className="login-mark">◇ OPENMANET</div>
+        <img src={openmanetMark} alt="" className="login-logo" />
+        <div className="login-mark">OPENMANET</div>
         <div className="login-sub">Mesh Operator Terminal</div>
 
         <form className="login-form" onSubmit={handleSubmit} noValidate>

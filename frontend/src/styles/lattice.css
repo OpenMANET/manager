@@ -270,9 +270,120 @@ html, body {
 }
 .lat-input:focus,
 .lat-textarea:focus,
-.lat-select:focus {
+.lat-select:focus,
+.lat-select:focus-visible {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* When .lat-select is the trigger button of LatSelect, lay it out as a row
+   with a caret on the right. The styling above already handles the box. */
+button.lat-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  appearance: none;
+}
+button.lat-select:hover:not(:disabled) { border-color: var(--border-hi); }
+button.lat-select:disabled { color: var(--dim); cursor: not-allowed; }
+
+.lat-select-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+.lat-select-wrap.open > button.lat-select {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.lat-select-value {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lat-select-caret {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0;
+  transition: transform 120ms ease;
+}
+.lat-select-wrap.open .lat-select-caret {
+  color: var(--accent);
+  transform: translateY(1px) scaleY(-1);
+}
+
+/* Popup. Sized to its content (max-content), capped so freakishly long
+   labels don't blow out the layout. min-width matches the trigger so the
+   popup never appears narrower than the closed control. */
+.lat-select-popup {
+  position: absolute;
+  top: calc(100% - 1px);
+  left: 0;
+  z-index: 100;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(480px, 100vw);
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono);
+}
+.lat-select-option {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  padding: 8px 12px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lat-select-option:last-child { border-bottom: 0; }
+.lat-select-option.highlight {
+  background: var(--surface-hi);
+  color: var(--accent);
+}
+.lat-select-option.selected {
+  color: var(--accent);
+}
+.lat-select-option.selected::before {
+  content: '✓';
+  display: inline-block;
+  width: 12px;
+  margin-right: 6px;
+  color: var(--accent);
+}
+.lat-select-option:not(.selected)::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  margin-right: 6px;
+}
+.lat-select-empty {
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lat-select-caret { transition: none !important; }
 }
 .lat-textarea {
   font-family: var(--font-mono);
@@ -462,6 +573,11 @@ input[type="range"].lat-slider:disabled {
   height: 14px;
 }
 .sig-bars > span { width: 3px; background: var(--dim); }
+.sig-bars > span:nth-child(1) { height: 4px; }
+.sig-bars > span:nth-child(2) { height: 6px; }
+.sig-bars > span:nth-child(3) { height: 8px; }
+.sig-bars > span:nth-child(4) { height: 11px; }
+.sig-bars > span:nth-child(5) { height: 14px; }
 .sig-bars > span.on { background: var(--ok); box-shadow: 0 0 4px var(--ok); }
 .sig-bars > span.warn { background: var(--warn); box-shadow: 0 0 4px var(--warn); }
 

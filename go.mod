@@ -8,6 +8,7 @@ require (
 	connectrpc.com/cors v0.1.0
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
 	github.com/coreywagehoft/go-tak v1.2.0
+	github.com/creack/pty v1.1.24
 	github.com/digineo/go-uci/v2 v2.0.0-20231120164223-60c14814b8fe
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gen2brain/malgo v0.11.24
@@ -82,7 +83,7 @@ require (
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4
-	go4.org/mem v0.0.0-20240501181205-ae6ca9944745 // indirect
+	go4.org/mem v0.0.0-20240501181205-ae6ca9944745
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/sync v0.20.0 // indirect

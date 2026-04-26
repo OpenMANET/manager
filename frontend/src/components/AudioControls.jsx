@@ -3,6 +3,7 @@
 // =============================================================================
 
 import React from 'react';
+import LatSelect from './LatSelect.jsx';
 
 export default React.memo(function AudioControls({
   speakerVol,
@@ -56,34 +57,30 @@ export default React.memo(function AudioControls({
       {hasOutputs && (
         <div className="lat-field">
           <label>Output</label>
-          <select
-            className="lat-select"
+          <LatSelect
+            ariaLabel="Output"
             value={selectedOutput || ''}
-            onChange={(e) => onOutputChange && onOutputChange(e.target.value)}
-          >
-            {audioDevices.outputs.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label || `Speaker ${d.deviceId.slice(0, 8)}`}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => onOutputChange && onOutputChange(v)}
+            options={audioDevices.outputs.map((d) => ({
+              value: d.deviceId,
+              label: d.label || `Speaker ${d.deviceId.slice(0, 8)}`,
+            }))}
+          />
         </div>
       )}
 
       {hasInputs && (
         <div className="lat-field">
           <label>Input</label>
-          <select
-            className="lat-select"
+          <LatSelect
+            ariaLabel="Input"
             value={selectedMic || ''}
-            onChange={(e) => onMicDeviceChange && onMicDeviceChange(e.target.value)}
-          >
-            {audioDevices.inputs.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label || `Mic ${d.deviceId.slice(0, 8)}`}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => onMicDeviceChange && onMicDeviceChange(v)}
+            options={audioDevices.inputs.map((d) => ({
+              value: d.deviceId,
+              label: d.label || `Mic ${d.deviceId.slice(0, 8)}`,
+            }))}
+          />
         </div>
       )}
 

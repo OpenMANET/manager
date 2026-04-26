@@ -35,15 +35,16 @@ export default defineConfig({
     },
   },
   server: {
-    // Proxy API and WebSocket to the Go backend during development
+    // Proxy every API surface to the Go frontend daemon during development.
+    // /rpc and /auth are themselves reverse-proxied by the frontend daemon
+    // through to the ConnectRPC API server, so dev mirrors prod's single-
+    // origin model and there is no special-cased rewrite here.
     proxy: {
       '/ws': { target: apiTarget, ws: true },
-      '/api': { target: apiTarget },
+      '/api': { target: apiTarget, ws: true },
+      '/auth': { target: apiTarget },
+      '/rpc': { target: apiTarget },
       '/whisper': { target: apiTarget },
-      '/rpc': {
-        target: process.env.VITE_RPC_TARGET || 'http://localhost:8087',
-        rewrite: (path) => path.replace(/^\/rpc/, ''),
-      },
     },
   },
 });

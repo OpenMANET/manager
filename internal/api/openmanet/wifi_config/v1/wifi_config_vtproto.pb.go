@@ -82,6 +82,7 @@ func (m *RadioSettings) CloneVT() *RadioSettings {
 	r.Bandwidth = m.Bandwidth
 	r.TxPower = m.TxPower
 	r.Encryption = m.Encryption
+	r.Mode = m.Mode
 	if rhs := m.MeshId; rhs != nil {
 		tmpVal := *rhs
 		r.MeshId = &tmpVal
@@ -263,6 +264,9 @@ func (this *RadioSettings) EqualVT(that *RadioSettings) bool {
 		return false
 	}
 	if p, q := this.Disabled, that.Disabled; (p == nil && q != nil) || (p != nil && (q == nil || *p != *q)) {
+		return false
+	}
+	if this.Mode != that.Mode {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -536,6 +540,11 @@ func (m *RadioSettings) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.Mode != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Mode))
+		i--
+		dAtA[i] = 0x50
 	}
 	if m.Disabled != nil {
 		i--
@@ -937,6 +946,11 @@ func (m *RadioSettings) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.Mode != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Mode))
+		i--
+		dAtA[i] = 0x50
+	}
 	if m.Disabled != nil {
 		i--
 		if *m.Disabled {
@@ -1253,6 +1267,9 @@ func (m *RadioSettings) SizeVT() (n int) {
 	}
 	if m.Disabled != nil {
 		n += 2
+	}
+	if m.Mode != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.Mode))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -2098,6 +2115,25 @@ func (m *RadioSettings) UnmarshalVT(dAtA []byte) error {
 			}
 			b := bool(v != 0)
 			m.Disabled = &b
+		case 10:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Mode", wireType)
+			}
+			m.Mode = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Mode |= WifiMode(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -3342,6 +3378,25 @@ func (m *RadioSettings) UnmarshalVTUnsafe(dAtA []byte) error {
 			}
 			b := bool(v != 0)
 			m.Disabled = &b
+		case 10:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Mode", wireType)
+			}
+			m.Mode = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Mode |= WifiMode(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

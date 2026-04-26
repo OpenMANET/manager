@@ -79,6 +79,8 @@ func (m *NetworkSummaryEntry) CloneVT() *NetworkSummaryEntry {
 	r.DisplayName = m.DisplayName
 	r.State = m.State
 	r.Detail = m.Detail
+	r.RxBytes = m.RxBytes
+	r.TxBytes = m.TxBytes
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -280,6 +282,12 @@ func (this *NetworkSummaryEntry) EqualVT(that *NetworkSummaryEntry) bool {
 		return false
 	}
 	if this.Detail != that.Detail {
+		return false
+	}
+	if this.RxBytes != that.RxBytes {
+		return false
+	}
+	if this.TxBytes != that.TxBytes {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -609,6 +617,16 @@ func (m *NetworkSummaryEntry) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.TxBytes != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.TxBytes))
+		i--
+		dAtA[i] = 0x30
+	}
+	if m.RxBytes != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.RxBytes))
+		i--
+		dAtA[i] = 0x28
 	}
 	if len(m.Detail) > 0 {
 		i -= len(m.Detail)
@@ -1074,6 +1092,16 @@ func (m *NetworkSummaryEntry) MarshalToSizedBufferVTStrict(dAtA []byte) (int, er
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.TxBytes != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.TxBytes))
+		i--
+		dAtA[i] = 0x30
+	}
+	if m.RxBytes != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.RxBytes))
+		i--
+		dAtA[i] = 0x28
+	}
 	if len(m.Detail) > 0 {
 		i -= len(m.Detail)
 		copy(dAtA[i:], m.Detail)
@@ -1444,6 +1472,12 @@ func (m *NetworkSummaryEntry) SizeVT() (n int) {
 	l = len(m.Detail)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.RxBytes != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.RxBytes))
+	}
+	if m.TxBytes != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.TxBytes))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -2108,6 +2142,44 @@ func (m *NetworkSummaryEntry) UnmarshalVT(dAtA []byte) error {
 			}
 			m.Detail = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RxBytes", wireType)
+			}
+			m.RxBytes = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.RxBytes |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TxBytes", wireType)
+			}
+			m.TxBytes = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TxBytes |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -3300,6 +3372,44 @@ func (m *NetworkSummaryEntry) UnmarshalVTUnsafe(dAtA []byte) error {
 			}
 			m.Detail = stringValue
 			iNdEx = postIndex
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RxBytes", wireType)
+			}
+			m.RxBytes = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.RxBytes |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TxBytes", wireType)
+			}
+			m.TxBytes = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TxBytes |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

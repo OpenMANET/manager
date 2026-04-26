@@ -192,6 +192,7 @@ func (s *WifiConfigService) GetRadioSettings(_ context.Context, req *wificonfigv
 		Bandwidth:  WifiHTModeToProto(dev.HTMode),
 		TxPower:    int32(txPower), //nolint:gosec // value originates from UCI config
 		Encryption: WifiEncryptionToProto(iface.Encryption),
+		Mode:       WifiModeToProto(iface.Mode),
 	}
 
 	if iface.MeshID != "" {
@@ -280,6 +281,10 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 
 	if enc := ProtoToWifiEncryption(settings.GetEncryption()); enc != "" {
 		ifaceCfg.Encryption = enc
+	}
+
+	if mode := ProtoToWifiMode(settings.GetMode()); mode != "" {
+		ifaceCfg.Mode = mode
 	}
 
 	if settings.Disabled != nil {
@@ -383,6 +388,16 @@ func (s *WifiConfigService) ListMeshPeers(ctx context.Context, req *wificonfigv1
 // ── internal helpers ─────────────────────────────────────────────────────────
 
 const wirelessConfig = "wireless"
+
+// UCI mode option values, used both as switch cases and as return values
+// when converting between proto and UCI representations.
+const (
+	uciModeAP      = "ap"
+	uciModeMesh    = "mesh"
+	uciModeSTA     = "sta"
+	uciModeAdHoc   = "adhoc"
+	uciModeMonitor = "monitor"
+)
 
 // findLinkedIface returns the first wifi-iface section whose "device" option
 // matches the given radio device name.
@@ -752,18 +767,37 @@ func WifiBandToProto(s string) wificonfigv1.WifiBand {
 // WifiModeToProto converts an iwinfo/UCI mode string to the WifiMode enum.
 func WifiModeToProto(s string) wificonfigv1.WifiMode {
 	switch strings.ToLower(s) {
-	case "ap", "master":
+	case uciModeAP, "master":
 		return wificonfigv1.WifiMode_WIFI_MODE_AP
-	case "mesh", "mesh point":
+	case uciModeMesh, "mesh point":
 		return wificonfigv1.WifiMode_WIFI_MODE_MESH
-	case "sta", "client", "managed":
+	case uciModeSTA, "client", "managed":
 		return wificonfigv1.WifiMode_WIFI_MODE_STA
-	case "adhoc", "ad-hoc", "ibss":
+	case uciModeAdHoc, "ad-hoc", "ibss":
 		return wificonfigv1.WifiMode_WIFI_MODE_ADHOC
-	case "monitor":
+	case uciModeMonitor:
 		return wificonfigv1.WifiMode_WIFI_MODE_MONITOR
 	default:
 		return wificonfigv1.WifiMode_WIFI_MODE_UNSPECIFIED
+	}
+}
+
+// ProtoToWifiMode converts a WifiMode enum to the canonical UCI mode string.
+// Returns "" for UNSPECIFIED so callers can leave the existing value untouched.
+func ProtoToWifiMode(m wificonfigv1.WifiMode) string {
+	switch m {
+	case wificonfigv1.WifiMode_WIFI_MODE_AP:
+		return uciModeAP
+	case wificonfigv1.WifiMode_WIFI_MODE_MESH:
+		return uciModeMesh
+	case wificonfigv1.WifiMode_WIFI_MODE_STA:
+		return uciModeSTA
+	case wificonfigv1.WifiMode_WIFI_MODE_ADHOC:
+		return uciModeAdHoc
+	case wificonfigv1.WifiMode_WIFI_MODE_MONITOR:
+		return uciModeMonitor
+	default:
+		return ""
 	}
 }
 

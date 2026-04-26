@@ -537,7 +537,9 @@ type RadioSettings struct {
 	// Encryption method. UNSPECIFIED means "do not change" on updates.
 	Encryption WifiEncryption `protobuf:"varint,8,opt,name=encryption,proto3,enum=openmanet.wifi_config.v1.WifiEncryption" json:"encryption,omitempty"`
 	// Whether the radio is disabled.
-	Disabled      *bool `protobuf:"varint,9,opt,name=disabled,proto3,oneof" json:"disabled,omitempty"`
+	Disabled *bool `protobuf:"varint,9,opt,name=disabled,proto3,oneof" json:"disabled,omitempty"`
+	// Operating mode. UNSPECIFIED means "do not change" on updates.
+	Mode          WifiMode `protobuf:"varint,10,opt,name=mode,proto3,enum=openmanet.wifi_config.v1.WifiMode" json:"mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -633,6 +635,13 @@ func (x *RadioSettings) GetDisabled() bool {
 		return *x.Disabled
 	}
 	return false
+}
+
+func (x *RadioSettings) GetMode() WifiMode {
+	if x != nil {
+		return x.Mode
+	}
+	return WifiMode_WIFI_MODE_UNSPECIFIED
 }
 
 // ConnectedClient represents an AP-connected wireless client.
@@ -834,7 +843,7 @@ const file_openmanet_wifi_config_v1_wifi_config_proto_rawDesc = "" +
 	"\n" +
 	"mesh_peers\x18\n" +
 	" \x01(\x05R\tmeshPeers\x12?\n" +
-	"\twifi_mode\x18\v \x01(\x0e2\".openmanet.wifi_config.v1.WifiModeR\bwifiMode\"\xa1\x04\n" +
+	"\twifi_mode\x18\v \x01(\x0e2\".openmanet.wifi_config.v1.WifiModeR\bwifiMode\"\xd9\x04\n" +
 	"\rRadioSettings\x12;\n" +
 	"\x04ssid\x18\x01 \x01(\tB'\xbaH$r\"\x10\x01\x18 \x92\x02\topenmanet\x92\x02\x0fmy-wifi-networkR\x04ssid\x126\n" +
 	"\amesh_id\x18\x02 \x01(\tB\x18\xbaH\x15r\x13\x18 \x92\x02\x0eopenmanet-meshH\x00R\x06meshId\x88\x01\x01\x12(\n" +
@@ -848,7 +857,9 @@ const file_openmanet_wifi_config_v1_wifi_config_proto_rawDesc = "" +
 	"\n" +
 	"encryption\x18\b \x01(\x0e2(.openmanet.wifi_config.v1.WifiEncryptionR\n" +
 	"encryption\x12\x1f\n" +
-	"\bdisabled\x18\t \x01(\bH\x03R\bdisabled\x88\x01\x01B\n" +
+	"\bdisabled\x18\t \x01(\bH\x03R\bdisabled\x88\x01\x01\x126\n" +
+	"\x04mode\x18\n" +
+	" \x01(\x0e2\".openmanet.wifi_config.v1.WifiModeR\x04modeB\n" +
 	"\n" +
 	"\b_mesh_idB\v\n" +
 	"\t_passwordB\n" +
@@ -957,13 +968,14 @@ var file_openmanet_wifi_config_v1_wifi_config_proto_depIdxs = []int32{
 	1, // 1: openmanet.wifi_config.v1.RadioStatus.wifi_mode:type_name -> openmanet.wifi_config.v1.WifiMode
 	3, // 2: openmanet.wifi_config.v1.RadioSettings.bandwidth:type_name -> openmanet.wifi_config.v1.WifiHTMode
 	2, // 3: openmanet.wifi_config.v1.RadioSettings.encryption:type_name -> openmanet.wifi_config.v1.WifiEncryption
-	9, // 4: openmanet.wifi_config.v1.ConnectedClient.connected:type_name -> google.protobuf.Duration
-	9, // 5: openmanet.wifi_config.v1.MeshPeer.last_seen:type_name -> google.protobuf.Duration
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	1, // 4: openmanet.wifi_config.v1.RadioSettings.mode:type_name -> openmanet.wifi_config.v1.WifiMode
+	9, // 5: openmanet.wifi_config.v1.ConnectedClient.connected:type_name -> google.protobuf.Duration
+	9, // 6: openmanet.wifi_config.v1.MeshPeer.last_seen:type_name -> google.protobuf.Duration
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_openmanet_wifi_config_v1_wifi_config_proto_init() }

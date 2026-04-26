@@ -26,7 +26,6 @@ comms:
   debug: true
   loopback: false
   trace: true
-  micGain: "1.0"
   nanoPTT:
     enable: false
     devicePath: /dev/hidraw0/*

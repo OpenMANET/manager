@@ -372,7 +372,15 @@ type NetworkSummaryEntry struct {
 	State NetworkInterfaceState `protobuf:"varint,3,opt,name=state,proto3,enum=openmanet.dashboard.v1.NetworkInterfaceState" json:"state,omitempty"`
 	// Free-form detail string shown next to the entry, such as an IP/CIDR,
 	// "Connected — 3 neighbors", "4 originators", or "Not connected".
-	Detail        string `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
+	Detail string `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
+	// Cumulative received bytes counter from the kernel since interface
+	// creation (netlink RX_BYTES). Zero when the interface does not exist
+	// or carries no traffic.
+	RxBytes uint64 `protobuf:"varint,5,opt,name=rx_bytes,json=rxBytes,proto3" json:"rx_bytes,omitempty"`
+	// Cumulative transmitted bytes counter from the kernel since interface
+	// creation (netlink TX_BYTES). Zero when the interface does not exist
+	// or carries no traffic.
+	TxBytes       uint64 `protobuf:"varint,6,opt,name=tx_bytes,json=txBytes,proto3" json:"tx_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -433,6 +441,20 @@ func (x *NetworkSummaryEntry) GetDetail() string {
 		return x.Detail
 	}
 	return ""
+}
+
+func (x *NetworkSummaryEntry) GetRxBytes() uint64 {
+	if x != nil {
+		return x.RxBytes
+	}
+	return 0
+}
+
+func (x *NetworkSummaryEntry) GetTxBytes() uint64 {
+	if x != nil {
+		return x.TxBytes
+	}
+	return 0
 }
 
 // NetworkSummary is the collection of network summary entries.
@@ -739,12 +761,14 @@ const file_openmanet_dashboard_v1_dashboard_proto_rawDesc = "" +
 	"\x12memory_total_bytes\x18\x04 \x01(\x03R\x10memoryTotalBytes\x12*\n" +
 	"\x11memory_used_bytes\x18\x05 \x01(\x03R\x0fmemoryUsedBytes\x12.\n" +
 	"\x13overlay_total_bytes\x18\x06 \x01(\x03R\x11overlayTotalBytes\x12,\n" +
-	"\x12overlay_used_bytes\x18\a \x01(\x03R\x10overlayUsedBytes\"\xbc\x01\n" +
+	"\x12overlay_used_bytes\x18\a \x01(\x03R\x10overlayUsedBytes\"\xf2\x01\n" +
 	"\x13NetworkSummaryEntry\x12%\n" +
 	"\x0einterface_name\x18\x01 \x01(\tR\rinterfaceName\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12C\n" +
 	"\x05state\x18\x03 \x01(\x0e2-.openmanet.dashboard.v1.NetworkInterfaceStateR\x05state\x12\x16\n" +
-	"\x06detail\x18\x04 \x01(\tR\x06detail\"W\n" +
+	"\x06detail\x18\x04 \x01(\tR\x06detail\x12\x19\n" +
+	"\brx_bytes\x18\x05 \x01(\x04R\arxBytes\x12\x19\n" +
+	"\btx_bytes\x18\x06 \x01(\x04R\atxBytes\"W\n" +
 	"\x0eNetworkSummary\x12E\n" +
 	"\aentries\x18\x01 \x03(\v2+.openmanet.dashboard.v1.NetworkSummaryEntryR\aentries\"r\n" +
 	"\vServiceInfo\x12\x12\n" +

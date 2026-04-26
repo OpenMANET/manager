@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +20,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/auth"
 	"github.com/openmanet/openmanetd/internal/bridge"
 	"github.com/openmanet/openmanetd/internal/config"
+	"github.com/openmanet/openmanetd/internal/terminal"
 	"github.com/openmanet/openmanetd/internal/util/logger"
 	ws "github.com/openmanet/openmanetd/internal/websocket"
 	"github.com/rs/zerolog"
@@ -43,6 +46,9 @@ type Server struct {
 	cfg          *config.Config
 	sessionStore *auth.SessionStore
 	cpu          *cpuSampler
+	term         *terminal.Manager
+	rpcProxy     http.Handler
+	authProxy    http.Handler
 	indexHTML    []byte
 	authEnabled  bool
 }
@@ -50,18 +56,28 @@ type Server struct {
 // NewFrontendServer creates a new frontend Server that serves static assets and
 // proxies mesh-status API calls to the openmanetd ConnectRPC backend.
 // sessionStore may be nil when auth is disabled.
-func NewFrontendServer(ctx context.Context, cfg *config.Config, staticFS fs.FS, sessionStore *auth.SessionStore, authEnabled bool) *Server {
+func NewFrontendServer(ctx context.Context, cfg *config.Config, staticFS fs.FS, sessionStore *auth.SessionStore, authEnabled bool, term *terminal.Manager) *Server {
 	apiAddr := cfg.GetOpenMANETCommsAPIAddress()
 
 	// Create openmanetd RPC client with a dial timeout so streaming
 	// RPCs don't hang indefinitely when openmanetd is unreachable.
-	rpcHTTPClient := &http.Client{
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout: 10 * time.Second,
-			}).DialContext,
-		},
+	var rpcTransport http.RoundTripper = &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout: 10 * time.Second,
+		}).DialContext,
 	}
+
+	// When auth is enabled, the API server's middleware rejects
+	// unauthenticated requests. The audio bridge runs in this daemon and
+	// makes ConnectRPC calls to the API daemon, so it needs a session.
+	// Refresh at half the configured session lifetime so a streaming RPC
+	// can never outlive its token.
+	if authEnabled && sessionStore != nil {
+		refresh := max(time.Duration(cfg.GetAuthSessionMaxAgeSecs())*time.Second/2-time.Minute, time.Minute)
+		rpcTransport = newBridgeAuthTransport(ctx, rpcTransport, sessionStore, refresh)
+	}
+
+	rpcHTTPClient := &http.Client{Transport: rpcTransport}
 
 	commsClient := commsv1connect.NewCommsServiceClient(rpcHTTPClient, apiAddr)
 
@@ -88,6 +104,8 @@ func NewFrontendServer(ctx context.Context, cfg *config.Config, staticFS fs.FS, 
 	cpu := newCPUSampler()
 	cpu.Start(ctx)
 
+	rpcProxy, authProxy := buildAPIProxies(apiAddr, log)
+
 	return &Server{
 		log:          log,
 		staticFS:     staticFS,
@@ -97,7 +115,65 @@ func NewFrontendServer(ctx context.Context, cfg *config.Config, staticFS fs.FS, 
 		indexHTML:    indexHTML,
 		sessionStore: sessionStore,
 		authEnabled:  authEnabled,
+		term:         term,
+		rpcProxy:     rpcProxy,
+		authProxy:    authProxy,
 	}
+}
+
+// buildAPIProxies constructs reverse-proxy handlers that forward /rpc/* and
+// /auth/* requests from the WebUI origin to the upstream ConnectRPC API
+// server. Routing browser traffic through the frontend server collapses the
+// API surface onto a single origin so the WebUI can run over HTTPS without
+// hitting mixed-content blocks when calling the plain-HTTP API server.
+//
+// The /rpc proxy strips the "/rpc" prefix so an upstream call hits
+// "/openmanet.foo.v1.FooService/Method", matching what the API server
+// registered. The /auth proxy passes the path through verbatim.
+//
+// FlushInterval is set to -1 so streaming Connect responses are forwarded
+// immediately rather than being buffered. Without this, long-lived
+// streaming RPCs deadlock because the proxy holds onto frames.
+//
+// If apiAddr is unparseable, both handlers are nil and the routes are not
+// registered — the daemon still serves the SPA shell, but every API call
+// returns 404 until the operator fixes the config.
+func buildAPIProxies(apiAddr string, log zerolog.Logger) (rpcProxy, authProxy http.Handler) {
+	apiURL, err := url.Parse(apiAddr)
+	if err != nil || apiURL.Scheme == "" || apiURL.Host == "" {
+		log.Error().Err(err).Str("apiAddr", apiAddr).Msg("frontend: invalid API address; /rpc and /auth proxy disabled")
+
+		return nil, nil
+	}
+
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout: 10 * time.Second,
+		}).DialContext,
+		IdleConnTimeout: 90 * time.Second,
+	}
+
+	rpcProxy = &httputil.ReverseProxy{
+		Director: func(r *http.Request) {
+			r.URL.Scheme = apiURL.Scheme
+			r.URL.Host = apiURL.Host
+			r.URL.Path = strings.TrimPrefix(r.URL.Path, "/rpc")
+			r.Host = apiURL.Host
+		},
+		Transport:     transport,
+		FlushInterval: -1,
+	}
+
+	authProxy = &httputil.ReverseProxy{
+		Director: func(r *http.Request) {
+			r.URL.Scheme = apiURL.Scheme
+			r.URL.Host = apiURL.Host
+			r.Host = apiURL.Host
+		},
+		Transport: transport,
+	}
+
+	return rpcProxy, authProxy
 }
 
 // Run starts the HTTP and TLS servers and blocks until ctx is canceled.
@@ -195,6 +271,7 @@ func (s *Server) handler() http.Handler {
 
 	// WebSocket endpoint.
 	mux.HandleFunc("/ws", s.handleWebSocket)
+	mux.HandleFunc("/api/terminal/ws", s.handleTerminalWS)
 
 	// System management API endpoints.
 	mux.HandleFunc("/api/system/info", s.handleSystemInfo)
@@ -276,7 +353,29 @@ func (s *Server) handler() http.Handler {
 
 	authMW := auth.NewFrontendAuthMiddleware(s.sessionStore, s.authEnabled)
 
-	return coiMiddleware(authMW(mux))
+	// /rpc/* (ConnectRPC) and /auth/* (login, logout, check, change-password)
+	// proxy to the upstream API server. The upstream enforces auth, so we
+	// register them on a parent mux that bypasses the frontend auth
+	// middleware. This keeps the WebUI on a single origin so it can run over
+	// HTTPS without mixed-content blocking calls to the plain-HTTP API.
+	root := http.NewServeMux()
+	if s.rpcProxy != nil {
+		root.Handle("/rpc/", s.rpcProxy)
+	}
+
+	if s.authProxy != nil {
+		root.Handle("/auth/", s.authProxy)
+		// Sysupgrade firmware uploads are served directly by the API
+		// server (see internal/openmanet/server). Proxy this prefix
+		// straight through so the multipart body streams to the daemon
+		// that holds the manager. The upstream's auth middleware
+		// authenticates; the prefix stays unchanged on the wire.
+		root.Handle("/api/sysupgrade/", s.authProxy)
+	}
+
+	root.Handle("/", authMW(mux))
+
+	return coiMiddleware(root)
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {

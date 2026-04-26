@@ -592,6 +592,10 @@ func TestGetRadioSettings_APMode(t *testing.T) {
 	if settings.MeshId != nil {
 		t.Error("mesh_id should not be set for AP mode radio")
 	}
+
+	if settings.GetMode() != wificonfigv1.WifiMode_WIFI_MODE_AP {
+		t.Errorf("mode: got %v, want %v", settings.GetMode(), wificonfigv1.WifiMode_WIFI_MODE_AP)
+	}
 }
 
 func TestGetRadioSettings_MeshMode(t *testing.T) {
@@ -613,6 +617,10 @@ func TestGetRadioSettings_MeshMode(t *testing.T) {
 
 	if settings.GetCountry() != "US" {
 		t.Errorf("country: got %q, want %q", settings.GetCountry(), "US")
+	}
+
+	if settings.GetMode() != wificonfigv1.WifiMode_WIFI_MODE_MESH {
+		t.Errorf("mode: got %v, want %v", settings.GetMode(), wificonfigv1.WifiMode_WIFI_MODE_MESH)
 	}
 }
 
@@ -1442,5 +1450,101 @@ func TestUpdateRadioSettings_UnspecifiedEncryptionSkipped(t *testing.T) {
 
 	if vals[0] != "psk2" {
 		t.Errorf("expected encryption unchanged at %q, got %q", "psk2", vals[0])
+	}
+}
+
+func TestUpdateRadioSettings_WithMode(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "test-ssid",
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	vals, ok := reader.Get("wireless", "default_radio2", "mode")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected mode to be set in UCI")
+	}
+
+	if vals[0] != "mesh" {
+		t.Errorf("UCI mode: got %q, want %q", vals[0], "mesh")
+	}
+}
+
+func TestUpdateRadioSettings_UnspecifiedModeSkipped(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// Set initial mode explicitly.
+	_ = reader.SetType("wireless", "default_radio2", "mode", 0, "ap")
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "test",
+			Channel: "1",
+			// Mode left as UNSPECIFIED (zero value) = don't change.
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	vals, ok := reader.Get("wireless", "default_radio2", "mode")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected mode to still be set")
+	}
+
+	if vals[0] != "ap" {
+		t.Errorf("expected mode unchanged at %q, got %q", "ap", vals[0])
+	}
+}
+
+func TestWifiModeRoundTrip(t *testing.T) {
+	tests := []struct {
+		uci  string
+		enum wificonfigv1.WifiMode
+	}{
+		{"ap", wificonfigv1.WifiMode_WIFI_MODE_AP},
+		{"mesh", wificonfigv1.WifiMode_WIFI_MODE_MESH},
+		{"sta", wificonfigv1.WifiMode_WIFI_MODE_STA},
+		{"adhoc", wificonfigv1.WifiMode_WIFI_MODE_ADHOC},
+		{"monitor", wificonfigv1.WifiMode_WIFI_MODE_MONITOR},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.uci, func(t *testing.T) {
+			proto := handlers.WifiModeToProto(tt.uci)
+			if proto != tt.enum {
+				t.Errorf("WifiModeToProto(%q) = %v, want %v", tt.uci, proto, tt.enum)
+			}
+
+			back := handlers.ProtoToWifiMode(proto)
+			if back != tt.uci {
+				t.Errorf("ProtoToWifiMode(%v) = %q, want %q", proto, back, tt.uci)
+			}
+		})
+	}
+
+	if got := handlers.ProtoToWifiMode(wificonfigv1.WifiMode_WIFI_MODE_UNSPECIFIED); got != "" {
+		t.Errorf("ProtoToWifiMode(UNSPECIFIED) = %q, want empty string", got)
 	}
 }

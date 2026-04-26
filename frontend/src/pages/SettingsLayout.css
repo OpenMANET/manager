@@ -1,0 +1,53 @@
+.settings-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.settings-tabs {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 8px 16px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.settings-tab {
+  padding: 8px 16px;
+  font-family: inherit;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.settings-tab:hover {
+  color: var(--text);
+}
+
+.settings-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.settings-tab-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 480px) {
+  .settings-tabs {
+    padding: 4px 8px 0;
+  }
+  .settings-tab {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+}

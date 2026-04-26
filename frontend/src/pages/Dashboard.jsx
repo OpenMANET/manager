@@ -609,9 +609,8 @@ export default function DashboardPage() {
                       <td className="mono">{extractAddr(iface.detail)}</td>
                       <td className={badge.cls}>{badge.label}</td>
                       <td>{inferRole(iface)}</td>
-                      {/* TODO(api-plan): expose per-interface RX/TX byte counters */}
-                      <td>—</td>
-                      <td>—</td>
+                      <td className="mono">{formatBytes(iface.rxBytes)}</td>
+                      <td className="mono">{formatBytes(iface.txBytes)}</td>
                     </tr>
                   );
                 })}
