@@ -877,4 +877,3 @@ func TestWhitelistDeviceFields_PropagatesDelError(t *testing.T) {
 		t.Errorf("expected propagated error")
 	}
 }
-

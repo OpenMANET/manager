@@ -125,8 +125,8 @@ const (
 	// 960-sample (20 ms) Opus frames, so the encoder pipeline never sees
 	// the discrepancy. Operators can override with a positive value to
 	// pin the period explicitly, or with -1 to let miniaudio pick.
-	DefaultCommsCaptureFramesPerBuffer int    = 0
-	DefaultAuthEnable                  bool   = false
+	DefaultCommsCaptureFramesPerBuffer int  = 0
+	DefaultAuthEnable                  bool = false
 	// DefaultSetupEnabled is the default value for setup.enabled — the
 	// operator-controlled kill switch for the first-boot setup wizard.
 	// Defaults to false so factory images ship with the wizard disabled
@@ -141,8 +141,8 @@ const (
 	// CodeFailedPrecondition.
 	DefaultSetupComplete         bool   = false
 	DefaultAuthSessionMaxAgeSecs int    = 86400 // 24 hours
-	DefaultAuthSessionMaxSize          int    = 16
-	DefaultAuthPAMService              string = "login"
+	DefaultAuthSessionMaxSize    int    = 16
+	DefaultAuthPAMService        string = "login"
 	// DefaultInstrumentationEnable controls whether the periodic
 	// instrumentation snapshot worker is started at daemon boot.
 	DefaultInstrumentationEnable bool = false
