@@ -127,7 +127,20 @@ const (
 	// pin the period explicitly, or with -1 to let miniaudio pick.
 	DefaultCommsCaptureFramesPerBuffer int    = 0
 	DefaultAuthEnable                  bool   = false
-	DefaultAuthSessionMaxAgeSecs       int    = 86400 // 24 hours
+	// DefaultSetupEnabled is the default value for setup.enabled — the
+	// operator-controlled kill switch for the first-boot setup wizard.
+	// Defaults to false so factory images ship with the wizard disabled
+	// until the feature has been validated in the field. Operators opt in
+	// by editing /etc/openmanetd/config.yml.
+	DefaultSetupEnabled bool = false
+	// DefaultSetupComplete is the default value for setup.complete — the
+	// first-boot completion flag flipped to true by the wizard handler at
+	// the end of a successful ApplySetup. While false (and setup.enabled
+	// is true) the wizard is reachable without authentication; once true
+	// the wizard is locked and the daemon refuses ApplySetup with
+	// CodeFailedPrecondition.
+	DefaultSetupComplete         bool   = false
+	DefaultAuthSessionMaxAgeSecs int    = 86400 // 24 hours
 	DefaultAuthSessionMaxSize          int    = 16
 	DefaultAuthPAMService              string = "login"
 	// DefaultInstrumentationEnable controls whether the periodic
@@ -211,6 +224,8 @@ type Config struct {
 	CommsLoopback                             bool
 	BLOSEnable                                bool
 	AuthEnable                                bool
+	SetupEnabled                              bool
+	SetupComplete                             bool
 	InstrumentationEnable                     bool
 	TerminalEnable                            bool
 }
@@ -656,6 +671,21 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.AuthPAMService = val
 	} else {
 		c.AuthPAMService = DefaultAuthPAMService
+	}
+
+	// Load setup wizard configuration. setup.enabled is the
+	// operator-controlled kill switch and setup.complete is the
+	// first-boot completion flag managed by the wizard handler.
+	if c.v.IsSet("setup.enabled") {
+		c.SetupEnabled = c.v.GetBool("setup.enabled")
+	} else {
+		c.SetupEnabled = DefaultSetupEnabled
+	}
+
+	if c.v.IsSet("setup.complete") {
+		c.SetupComplete = c.v.GetBool("setup.complete")
+	} else {
+		c.SetupComplete = DefaultSetupComplete
 	}
 
 	// Load instrumentation snapshot configuration.
@@ -1237,6 +1267,27 @@ func (c *Config) GetAuthPAMService() string {
 	defer c.mu.RUnlock()
 
 	return c.AuthPAMService
+}
+
+// GetSetupEnabled reports the setup.enabled kill switch. When false, the
+// first-boot setup wizard is unreachable regardless of completion state and
+// the daemon refuses ApplySetup with CodeUnavailable. Operator-managed.
+func (c *Config) GetSetupEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.SetupEnabled
+}
+
+// GetSetupComplete reports the setup.complete first-boot flag. When true,
+// the wizard is locked and the daemon refuses ApplySetup with
+// CodeFailedPrecondition. Wizard-managed; flipped by the handler at the
+// end of a successful ApplySetup.
+func (c *Config) GetSetupComplete() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.SetupComplete
 }
 
 // GetInstrumentationEnable returns whether the periodic instrumentation

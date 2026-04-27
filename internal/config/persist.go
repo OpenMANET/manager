@@ -253,6 +253,77 @@ func (c *Config) PersistGNSSConfig(enable, sendAsNMEA, sendAsCoT bool, cotUID st
 	return nil
 }
 
+// PersistSetupAndAuth atomically flips setup.complete and auth.enable in a
+// single yaml read-modify-write. The setup wizard handler calls this exactly
+// once at the end of a successful ApplySetup so the device transitions from
+// "wizard reachable, auth off" to "wizard locked, auth on" in one durable
+// step. Splitting the writes opens a window where a crash between them leaves
+// auth on without the user ever finishing setup, locking them out — which is
+// why this is a single combined helper rather than two independent setters.
+func (c *Config) PersistSetupAndAuth(setupComplete, authEnable bool) error {
+	c.persistMu.Lock()
+	defer c.persistMu.Unlock()
+
+	filePath := c.v.ConfigFileUsed()
+	if filePath == "" {
+		return fmt.Errorf("no config file path configured")
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("reading config file: %w", err)
+	}
+
+	var doc yaml.Node
+
+	err = yaml.Unmarshal(data, &doc)
+	if err != nil {
+		return fmt.Errorf("parsing config file: %w", err)
+	}
+
+	if err = setSetupAndAuth(&doc, setupComplete, authEnable); err != nil {
+		return fmt.Errorf("updating setup/auth config: %w", err)
+	}
+
+	out, err := yaml.Marshal(&doc)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+
+	//nolint:gosec // config file permissions match the original file
+	err = os.WriteFile(filePath, out, 0644)
+	if err != nil {
+		return fmt.Errorf("writing config file: %w", err)
+	}
+
+	c.v.Set("setup.complete", setupComplete)
+	c.v.Set("auth.enable", authEnable)
+	c.reload()
+
+	return nil
+}
+
+// setSetupAndAuth finds or creates the setup and auth sections in the YAML
+// document and sets setup.complete and auth.enable in a single pass.
+func setSetupAndAuth(doc *yaml.Node, setupComplete, authEnable bool) error {
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return fmt.Errorf("unexpected YAML structure: expected document node")
+	}
+
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("unexpected YAML structure: expected mapping node at root")
+	}
+
+	setupMapping := findOrCreateMapping(root, "setup")
+	setScalarValue(setupMapping, "complete", strconv.FormatBool(setupComplete))
+
+	authMapping := findOrCreateMapping(root, "auth")
+	setScalarValue(authMapping, "enable", strconv.FormatBool(authEnable))
+
+	return nil
+}
+
 // setGNSSConfig finds or creates the gnss section in the YAML document and
 // sets all GNSS configuration keys.
 func setGNSSConfig(doc *yaml.Node, enable, sendAsNMEA, sendAsCoT bool, cotUID string) error {
