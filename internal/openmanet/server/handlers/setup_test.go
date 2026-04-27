@@ -2,6 +2,8 @@ package handlers_test
 
 import (
 	"context"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -257,7 +259,11 @@ func TestGetSetupStatus_AlreadyConfigured_AuthEnabled(t *testing.T) {
 	assert.True(t, resp.GetAlreadyConfigured(), "auth.enable=true must flag already_configured")
 }
 
-func TestGetSetupStatus_AlreadyConfigured_MeshGateAnnouncementsSet(t *testing.T) {
+func TestGetSetupStatus_AlreadyConfigured_FactoryMeshGateAnnouncementsIgnored(t *testing.T) {
+	// Factory firmware ships with `mesh_gate_announcements '0'` already
+	// set in /etc/config/mesh11sd. That MUST NOT trip the
+	// already_configured heuristic — otherwise every fresh device sees
+	// the "looks already configured" warning on first boot.
 	cfg := setupBLOSTestConfig(t, "")
 
 	reader := newSetupReader()
@@ -266,8 +272,26 @@ func TestGetSetupStatus_AlreadyConfigured_MeshGateAnnouncementsSet(t *testing.T)
 	}
 
 	reader.data["mesh11sd"]["mesh_params"] = map[string][]string{
-		"mesh_gate_announcements": {"1"},
+		"mesh_gate_announcements": {"0"},
 	}
+
+	svc := newSetupService(t, cfg, reader, &fakeInterfaceProvider{})
+
+	resp, err := svc.GetSetupStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	assert.False(t, resp.GetAlreadyConfigured(),
+		"factory mesh_gate_announcements='0' must not flag already_configured")
+}
+
+func TestGetSetupStatus_AlreadyConfigured_WizardBookkeepingSection(t *testing.T) {
+	// The wizard writes a `config wizard 'wizard'` section into
+	// /etc/config/network on apply. If we see one, the wizard has
+	// already run.
+	cfg := setupBLOSTestConfig(t, "")
+
+	reader := newSetupReader()
+	require.NoError(t, reader.AddSection("network", "wizard", "wizard"))
 
 	svc := newSetupService(t, cfg, reader, &fakeInterfaceProvider{})
 
@@ -277,17 +301,11 @@ func TestGetSetupStatus_AlreadyConfigured_MeshGateAnnouncementsSet(t *testing.T)
 	assert.True(t, resp.GetAlreadyConfigured())
 }
 
-func TestGetSetupStatus_AlreadyConfigured_AhwlanProtoSet(t *testing.T) {
+func TestGetSetupStatus_AlreadyConfigured_AhwlanInterfacePresent(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "")
 
 	reader := newSetupReader()
-	if reader.data["network"] == nil {
-		reader.data["network"] = map[string]map[string][]string{}
-	}
-
-	reader.data["network"]["ahwlan"] = map[string][]string{
-		"proto": {"static"},
-	}
+	require.NoError(t, reader.AddSection("network", "ahwlan", "interface"))
 
 	svc := newSetupService(t, cfg, reader, &fakeInterfaceProvider{})
 
@@ -318,6 +336,91 @@ func TestGetSetupStatus_EthernetPortsFiltered(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"eth0", "eth1"}, resp.GetEthernetPorts())
+}
+
+// ── Regulatory database integration ───────────────────────────────────────
+
+// regdbFixturePath locates testfixtures/setup-wizard/channels.csv from
+// the handlers test package.
+func regdbFixturePath(t *testing.T) string {
+	t.Helper()
+
+	_, here, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+
+	root := here
+	for range 5 {
+		root = filepath.Dir(root)
+	}
+
+	return filepath.Join(root, "testfixtures", "setup-wizard", "channels.csv")
+}
+
+func TestGetSetupStatus_PopulatesCountriesFromRegDB(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "")
+
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+	svc.RegDBPath = regdbFixturePath(t)
+
+	resp, err := svc.GetSetupStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	require.NotEmpty(t, resp.GetCountries(), "regdb fixture must produce countries")
+
+	codes := make(map[string]bool, len(resp.GetCountries()))
+	for _, c := range resp.GetCountries() {
+		codes[c.GetCode()] = true
+	}
+
+	for _, expected := range []string{"US", "GB", "JP"} {
+		assert.True(t, codes[expected], "country %q must be present", expected)
+	}
+
+	// Spot-check that US has the expected 8 MHz allocation.
+	for _, c := range resp.GetCountries() {
+		if c.GetCode() != "US" {
+			continue
+		}
+
+		var got []uint32
+
+		for _, b := range c.GetBandwidths() {
+			if b.GetMhz() == 8 {
+				got = b.GetChannels()
+			}
+		}
+
+		assert.Equal(t, []uint32{12, 28, 44}, got)
+
+		break
+	}
+}
+
+func TestGetSetupStatus_CurrentCountryFromMorseRadio(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "")
+
+	reader := newSetupReader()
+	reader.data["wireless"]["radio1"]["country"] = []string{"US"}
+
+	svc := newSetupService(t, cfg, reader, &fakeInterfaceProvider{})
+	svc.RegDBPath = regdbFixturePath(t)
+
+	resp, err := svc.GetSetupStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "US", resp.GetCurrentCountry())
+}
+
+func TestGetSetupStatus_RegDBMissing_ReturnsEmptyCountriesNoError(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "")
+
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+	svc.RegDBPath = filepath.Join(t.TempDir(), "nope.csv")
+
+	resp, err := svc.GetSetupStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err, "missing regdb is a soft failure: GetSetupStatus must succeed")
+
+	assert.Empty(t, resp.GetCountries(), "no regdb means no countries to advertise")
 }
 
 // ── ApplySetup guards ──────────────────────────────────────────────────────
@@ -399,6 +502,55 @@ func TestApplySetup_RejectsNilProfile(t *testing.T) {
 }
 
 // ── ApplySetup validation phase ────────────────────────────────────────────
+
+func TestApplySetup_RegDBPresent_RejectsIllegalCountryChannelTuple(t *testing.T) {
+	// US allows channel 42 at 2 MHz but not at 8 MHz. Confirm the
+	// handler refuses the latter when the regdb is loaded.
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+	svc.RegDBPath = regdbFixturePath(t)
+
+	prof := minimalProfile()
+	prof.Mesh.CountryCode = "US"
+	prof.Mesh.BandwidthMhz = 8
+	prof.Mesh.Channel = 42 // legal at 2 MHz, NOT at 8 MHz
+
+	err := runApplySetup(t, svc, prof)
+	requireConnectCode(t, err, connect.CodeInvalidArgument)
+}
+
+func TestApplySetup_RegDBPresent_RejectsEmptyCountry(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+	svc.RegDBPath = regdbFixturePath(t)
+
+	prof := minimalProfile()
+	prof.Mesh.CountryCode = "" // unset by the user
+
+	err := runApplySetup(t, svc, prof)
+	requireConnectCode(t, err, connect.CodeInvalidArgument)
+}
+
+func TestApplySetup_RegDBPresent_AcceptsLegalTuple(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+	svc.RegDBPath = regdbFixturePath(t)
+
+	prof := minimalProfile()
+	prof.Mesh.CountryCode = "US"
+	prof.Mesh.BandwidthMhz = 2
+	prof.Mesh.Channel = 42
+
+	// validation should accept; the apply will fail later (missing
+	// password setter etc.), but NOT with InvalidArgument.
+	err := runApplySetup(t, svc, prof)
+	if err != nil {
+		var ce *connect.Error
+		require.ErrorAs(t, err, &ce)
+		assert.NotEqual(t, connect.CodeInvalidArgument, ce.Code(),
+			"a legal country/channel/bandwidth tuple must not be rejected at validation")
+	}
+}
 
 func TestApplySetup_RejectsInvalidHostname(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")

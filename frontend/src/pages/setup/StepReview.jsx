@@ -142,6 +142,8 @@ export default function StepReview() {
     return <AmbiguousPanel state={state} />;
   }
 
+  const blockers = applyBlockers(state);
+
   return (
     <div className="setup-step">
       <h3>Review &amp; Apply</h3>
@@ -154,11 +156,20 @@ export default function StepReview() {
 
       <ReviewSummary state={state} />
 
+      {blockers.length > 0 && !busy && (
+        <div className="lat-alert warn" role="alert">
+          <div>Apply is disabled. Fix the following before continuing:</div>
+          <ul style={{ margin: '6px 0 0 20px' }}>
+            {blockers.map((m, i) => <li key={i}>{m}</li>)}
+          </ul>
+        </div>
+      )}
+
       <div className="setup-nav">
         <button
           type="button"
           className="lat-btn primary"
-          disabled={busy || !canApply(state)}
+          disabled={busy || blockers.length > 0}
           onClick={apply}
         >
           {busy ? 'Applying…' : 'Apply'}
@@ -193,12 +204,28 @@ function statusKey(status) {
   }
 }
 
-function canApply(state) {
-  if (!state.hostname) return false;
-  if (!state.adminPassword || state.adminPassword.length < 8) return false;
-  if (state.adminPassword !== state.adminPasswordConfirm) return false;
-  if (!state.mesh.radioName || !state.mesh.meshId) return false;
-  return true;
+// applyBlockers returns the list of human-readable reasons the user
+// cannot click Apply yet. Empty array means good to go.
+function applyBlockers(state) {
+  const out = [];
+  if (!state.hostname) {
+    out.push('Hostname is empty (Step 1).');
+  }
+  if (!state.mesh.radioName) {
+    out.push('Mesh radio not selected (Step 2).');
+  }
+  if (!state.mesh.meshId) {
+    out.push('Mesh ID is empty (Step 2).');
+  }
+  if (!state.mesh.countryCode) {
+    out.push('Regulatory country not selected (Step 2).');
+  }
+  if (!state.adminPassword || state.adminPassword.length < 8) {
+    out.push('Admin password must be at least 8 characters (Password step).');
+  } else if (state.adminPassword !== state.adminPasswordConfirm) {
+    out.push('Admin password and confirmation do not match (Password step).');
+  }
+  return out;
 }
 
 // profileToProto converts the wizard's reducer state into a
@@ -216,6 +243,7 @@ function profileToProto(state) {
       encryption:   state.mesh.encryption,
       bandwidthMhz: state.mesh.bandwidthMhz,
       channel:      state.mesh.channel,
+      countryCode:  state.mesh.countryCode,
     }),
     aps: state.aps.filter(a => a.enabled).map(a => new RadioApProfile({
       radioName:  a.radioName,
@@ -287,6 +315,10 @@ function ReviewSummary({ state }) {
       )}
       <div className="kv"><span className="k">Mesh radio</span><span className="v">{state.mesh.radioName}</span></div>
       <div className="kv"><span className="k">Mesh ID</span><span className="v">{state.mesh.meshId}</span></div>
+      <div className="kv">
+        <span className="k">Country</span>
+        <span className="v">{state.mesh.countryCode || '(not set)'}</span>
+      </div>
       <div className="kv">
         <span className="k">Channel / bandwidth</span>
         <span className="v">{state.mesh.channel} @ {state.mesh.bandwidthMhz} MHz</span>

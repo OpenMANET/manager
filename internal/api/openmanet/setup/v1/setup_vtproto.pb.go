@@ -92,6 +92,7 @@ func (m *MeshRadioConfig) CloneVT() *MeshRadioConfig {
 	r.Encryption = m.Encryption
 	r.BandwidthMhz = m.BandwidthMhz
 	r.Channel = m.Channel
+	r.CountryCode = m.CountryCode
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -203,6 +204,31 @@ func (m *SetupRadioBandwidth) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
+func (m *SetupCountry) CloneVT() *SetupCountry {
+	if m == nil {
+		return (*SetupCountry)(nil)
+	}
+	r := new(SetupCountry)
+	r.Code = m.Code
+	r.Name = m.Name
+	if rhs := m.Bandwidths; rhs != nil {
+		tmpContainer := make([]*SetupRadioBandwidth, len(rhs))
+		for k, v := range rhs {
+			tmpContainer[k] = v.CloneVT()
+		}
+		r.Bandwidths = tmpContainer
+	}
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = make([]byte, len(m.unknownFields))
+		copy(r.unknownFields, m.unknownFields)
+	}
+	return r
+}
+
+func (m *SetupCountry) CloneMessageVT() proto.Message {
+	return m.CloneVT()
+}
+
 func (m *GetSetupStatusResponse) CloneVT() *GetSetupStatusResponse {
 	if m == nil {
 		return (*GetSetupStatusResponse)(nil)
@@ -213,6 +239,7 @@ func (m *GetSetupStatusResponse) CloneVT() *GetSetupStatusResponse {
 	r.HasHalowRadio = m.HasHalowRadio
 	r.AlreadyConfigured = m.AlreadyConfigured
 	r.CurrentHostname = m.CurrentHostname
+	r.CurrentCountry = m.CurrentCountry
 	if rhs := m.Radios; rhs != nil {
 		tmpContainer := make([]*SetupRadio, len(rhs))
 		for k, v := range rhs {
@@ -224,6 +251,13 @@ func (m *GetSetupStatusResponse) CloneVT() *GetSetupStatusResponse {
 		tmpContainer := make([]string, len(rhs))
 		copy(tmpContainer, rhs)
 		r.EthernetPorts = tmpContainer
+	}
+	if rhs := m.Countries; rhs != nil {
+		tmpContainer := make([]*SetupCountry, len(rhs))
+		for k, v := range rhs {
+			tmpContainer[k] = v.CloneVT()
+		}
+		r.Countries = tmpContainer
 	}
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
@@ -399,6 +433,9 @@ func (this *MeshRadioConfig) EqualVT(that *MeshRadioConfig) bool {
 		return false
 	}
 	if this.Channel != that.Channel {
+		return false
+	}
+	if this.CountryCode != that.CountryCode {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -578,6 +615,45 @@ func (this *SetupRadioBandwidth) EqualMessageVT(thatMsg proto.Message) bool {
 	}
 	return this.EqualVT(that)
 }
+func (this *SetupCountry) EqualVT(that *SetupCountry) bool {
+	if this == that {
+		return true
+	} else if this == nil || that == nil {
+		return false
+	}
+	if this.Code != that.Code {
+		return false
+	}
+	if this.Name != that.Name {
+		return false
+	}
+	if len(this.Bandwidths) != len(that.Bandwidths) {
+		return false
+	}
+	for i, vx := range this.Bandwidths {
+		vy := that.Bandwidths[i]
+		if p, q := vx, vy; p != q {
+			if p == nil {
+				p = &SetupRadioBandwidth{}
+			}
+			if q == nil {
+				q = &SetupRadioBandwidth{}
+			}
+			if !p.EqualVT(q) {
+				return false
+			}
+		}
+	}
+	return string(this.unknownFields) == string(that.unknownFields)
+}
+
+func (this *SetupCountry) EqualMessageVT(thatMsg proto.Message) bool {
+	that, ok := thatMsg.(*SetupCountry)
+	if !ok {
+		return false
+	}
+	return this.EqualVT(that)
+}
 func (this *GetSetupStatusResponse) EqualVT(that *GetSetupStatusResponse) bool {
 	if this == that {
 		return true
@@ -624,6 +700,26 @@ func (this *GetSetupStatusResponse) EqualVT(that *GetSetupStatusResponse) bool {
 		if vx != vy {
 			return false
 		}
+	}
+	if len(this.Countries) != len(that.Countries) {
+		return false
+	}
+	for i, vx := range this.Countries {
+		vy := that.Countries[i]
+		if p, q := vx, vy; p != q {
+			if p == nil {
+				p = &SetupCountry{}
+			}
+			if q == nil {
+				q = &SetupCountry{}
+			}
+			if !p.EqualVT(q) {
+				return false
+			}
+		}
+	}
+	if this.CurrentCountry != that.CurrentCountry {
+		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
 }
@@ -923,6 +1019,13 @@ func (m *MeshRadioConfig) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.CountryCode) > 0 {
+		i -= len(m.CountryCode)
+		copy(dAtA[i:], m.CountryCode)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CountryCode)))
+		i--
+		dAtA[i] = 0x3a
+	}
 	if m.Channel != 0 {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Channel))
 		i--
@@ -1213,6 +1316,65 @@ func (m *SetupRadioBandwidth) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *SetupCountry) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *SetupCountry) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *SetupCountry) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.Bandwidths) > 0 {
+		for iNdEx := len(m.Bandwidths) - 1; iNdEx >= 0; iNdEx-- {
+			size, err := m.Bandwidths[iNdEx].MarshalToSizedBufferVT(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	if len(m.Name) > 0 {
+		i -= len(m.Name)
+		copy(dAtA[i:], m.Name)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Name)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Code) > 0 {
+		i -= len(m.Code)
+		copy(dAtA[i:], m.Code)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Code)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func (m *GetSetupStatusResponse) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
@@ -1242,6 +1404,25 @@ func (m *GetSetupStatusResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.CurrentCountry) > 0 {
+		i -= len(m.CurrentCountry)
+		copy(dAtA[i:], m.CurrentCountry)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CurrentCountry)))
+		i--
+		dAtA[i] = 0x4a
+	}
+	if len(m.Countries) > 0 {
+		for iNdEx := len(m.Countries) - 1; iNdEx >= 0; iNdEx-- {
+			size, err := m.Countries[iNdEx].MarshalToSizedBufferVT(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+			i--
+			dAtA[i] = 0x42
+		}
 	}
 	if len(m.EthernetPorts) > 0 {
 		for iNdEx := len(m.EthernetPorts) - 1; iNdEx >= 0; iNdEx-- {
@@ -1692,6 +1873,13 @@ func (m *MeshRadioConfig) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error)
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.CountryCode) > 0 {
+		i -= len(m.CountryCode)
+		copy(dAtA[i:], m.CountryCode)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CountryCode)))
+		i--
+		dAtA[i] = 0x3a
+	}
 	if m.Channel != 0 {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Channel))
 		i--
@@ -1987,6 +2175,65 @@ func (m *SetupRadioBandwidth) MarshalToSizedBufferVTStrict(dAtA []byte) (int, er
 	return len(dAtA) - i, nil
 }
 
+func (m *SetupCountry) MarshalVTStrict() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVTStrict(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *SetupCountry) MarshalToVTStrict(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVTStrict(dAtA[:size])
+}
+
+func (m *SetupCountry) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.Bandwidths) > 0 {
+		for iNdEx := len(m.Bandwidths) - 1; iNdEx >= 0; iNdEx-- {
+			size, err := m.Bandwidths[iNdEx].MarshalToSizedBufferVTStrict(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	if len(m.Name) > 0 {
+		i -= len(m.Name)
+		copy(dAtA[i:], m.Name)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Name)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Code) > 0 {
+		i -= len(m.Code)
+		copy(dAtA[i:], m.Code)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Code)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func (m *GetSetupStatusResponse) MarshalVTStrict() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
@@ -2016,6 +2263,25 @@ func (m *GetSetupStatusResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int,
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.CurrentCountry) > 0 {
+		i -= len(m.CurrentCountry)
+		copy(dAtA[i:], m.CurrentCountry)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CurrentCountry)))
+		i--
+		dAtA[i] = 0x4a
+	}
+	if len(m.Countries) > 0 {
+		for iNdEx := len(m.Countries) - 1; iNdEx >= 0; iNdEx-- {
+			size, err := m.Countries[iNdEx].MarshalToSizedBufferVTStrict(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+			i--
+			dAtA[i] = 0x42
+		}
 	}
 	if len(m.EthernetPorts) > 0 {
 		for iNdEx := len(m.EthernetPorts) - 1; iNdEx >= 0; iNdEx-- {
@@ -2354,6 +2620,10 @@ func (m *MeshRadioConfig) SizeVT() (n int) {
 	if m.Channel != 0 {
 		n += 1 + protohelpers.SizeOfVarint(uint64(m.Channel))
 	}
+	l = len(m.CountryCode)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -2465,6 +2735,30 @@ func (m *SetupRadioBandwidth) SizeVT() (n int) {
 	return n
 }
 
+func (m *SetupCountry) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Code)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.Name)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if len(m.Bandwidths) > 0 {
+		for _, e := range m.Bandwidths {
+			l = e.SizeVT()
+			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+		}
+	}
+	n += len(m.unknownFields)
+	return n
+}
+
 func (m *GetSetupStatusResponse) SizeVT() (n int) {
 	if m == nil {
 		return 0
@@ -2498,6 +2792,16 @@ func (m *GetSetupStatusResponse) SizeVT() (n int) {
 			l = len(s)
 			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 		}
+	}
+	if len(m.Countries) > 0 {
+		for _, e := range m.Countries {
+			l = e.SizeVT()
+			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+		}
+	}
+	l = len(m.CurrentCountry)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -3237,6 +3541,38 @@ func (m *MeshRadioConfig) UnmarshalVT(dAtA []byte) error {
 					break
 				}
 			}
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CountryCode", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.CountryCode = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -3886,6 +4222,155 @@ func (m *SetupRadioBandwidth) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
+func (m *SetupCountry) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: SetupCountry: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: SetupCountry: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Code", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Code = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Name = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Bandwidths", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Bandwidths = append(m.Bandwidths, &SetupRadioBandwidth{})
+			if err := m.Bandwidths[len(m.Bandwidths)-1].UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
 func (m *GetSetupStatusResponse) UnmarshalVT(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -4092,6 +4577,72 @@ func (m *GetSetupStatusResponse) UnmarshalVT(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.EthernetPorts = append(m.EthernetPorts, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Countries", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Countries = append(m.Countries, &SetupCountry{})
+			if err := m.Countries[len(m.Countries)-1].UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CurrentCountry", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.CurrentCountry = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -5225,6 +5776,42 @@ func (m *MeshRadioConfig) UnmarshalVTUnsafe(dAtA []byte) error {
 					break
 				}
 			}
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CountryCode", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.CountryCode = stringValue
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -5894,6 +6481,163 @@ func (m *SetupRadioBandwidth) UnmarshalVTUnsafe(dAtA []byte) error {
 	}
 	return nil
 }
+func (m *SetupCountry) UnmarshalVTUnsafe(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: SetupCountry: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: SetupCountry: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Code", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.Code = stringValue
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.Name = stringValue
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Bandwidths", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Bandwidths = append(m.Bandwidths, &SetupRadioBandwidth{})
+			if err := m.Bandwidths[len(m.Bandwidths)-1].UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
 func (m *GetSetupStatusResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -6108,6 +6852,76 @@ func (m *GetSetupStatusResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
 			}
 			m.EthernetPorts = append(m.EthernetPorts, stringValue)
+			iNdEx = postIndex
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Countries", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Countries = append(m.Countries, &SetupCountry{})
+			if err := m.Countries[len(m.Countries)-1].UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CurrentCountry", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.CurrentCountry = stringValue
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

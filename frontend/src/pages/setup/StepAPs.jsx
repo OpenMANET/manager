@@ -23,7 +23,8 @@ const AP_ENCRYPTION_VALUES = [
 export default function StepAPs({ status }) {
   const { state, dispatch } = useSetup();
 
-  const apRadios = (status?.radios ?? []).filter(r => !r.isHalow);
+  const allRadios = status?.radios ?? [];
+  const apRadios = allRadios.filter(r => !r.isHalow);
 
   if (apRadios.length === 0) {
     return (
@@ -33,6 +34,19 @@ export default function StepAPs({ status }) {
           This device has no non-HaLow radios available for client APs.
           You can still continue without configuring any.
         </p>
+        {allRadios.length > 0 && (
+          <div className="setup-help">
+            Detected radios: {allRadios.map(r => `${r.name} (${r.band || 'band ?'}${r.isHalow ? ', HaLow — reserved for mesh' : ''})`).join('; ')}.
+          </div>
+        )}
+        {allRadios.length === 0 && (
+          <div className="lat-alert warn">
+            No radios were reported by the daemon. If this device has
+            built-in Wi-Fi, ensure the kernel modules and
+            <code> /etc/config/wireless</code> are populated, then reload
+            the wizard.
+          </div>
+        )}
       </div>
     );
   }
@@ -77,13 +91,14 @@ function APRow({ radio, state, dispatch }) {
         </div>
         <button
           type="button"
-          className={`lat-toggle ${ap.enabled ? 'on' : ''}`}
+          className={`lat-toggle${ap.enabled ? ' on' : ''}`}
           aria-checked={ap.enabled}
           role="switch"
           aria-label={`Enable AP on ${radio.name}`}
           onClick={() => setField('enabled', !ap.enabled)}
         >
-          <span className="thumb" />
+          <span className="track"><span className="thumb" /></span>
+          <span className="label">{ap.enabled ? 'Enabled' : 'Disabled'}</span>
         </button>
       </div>
 

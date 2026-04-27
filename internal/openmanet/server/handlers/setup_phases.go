@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/digineo/go-uci/v2"
 	setupv1 "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1"
@@ -253,6 +254,16 @@ func (s *SetupService) runWirelessMesh(_ context.Context, stream applySetupStrea
 
 			if htmode := bandwidthToHTMode(mesh.GetBandwidthMhz()); htmode != "" {
 				deviceWrites = append(deviceWrites, optionWrite{"htmode", htmode})
+			}
+
+			// Regulatory domain. The morse driver reads `country` to load
+			// the per-country PHY / power tables; without it the radio
+			// falls back to a conservative default that may exclude the
+			// channel we just wrote. Always set it when the user picked
+			// a country (the frontend defaults to the device's existing
+			// value, so this is rarely empty).
+			if cc := strings.ToUpper(mesh.GetCountryCode()); cc != "" {
+				deviceWrites = append(deviceWrites, optionWrite{"country", cc})
 			}
 
 			for _, w := range deviceWrites {

@@ -107,6 +107,23 @@ describe('SetupContext.reducer', () => {
     expect(next.mesh.radioName).toBe('radio1');
   });
 
+  it('HYDRATE_FROM_STATUS pre-fills hostname from currentHostname when empty', () => {
+    const next = reducer(initialState, {
+      type: SETUP_ACTIONS.HYDRATE_FROM_STATUS,
+      status: { radios: [], currentHostname: 'BCM2711-97d6' },
+    });
+    expect(next.hostname).toBe('BCM2711-97d6');
+  });
+
+  it('HYDRATE_FROM_STATUS does not overwrite a hostname the user has already typed', () => {
+    const dirty = reducer(initialState, { type: SETUP_ACTIONS.SET_HOSTNAME, value: 'mynode' });
+    const next = reducer(dirty, {
+      type: SETUP_ACTIONS.HYDRATE_FROM_STATUS,
+      status: { radios: [], currentHostname: 'BCM2711-97d6' },
+    });
+    expect(next.hostname).toBe('mynode');
+  });
+
   it('unknown action returns the same state reference', () => {
     const next = reducer(initialState, { type: 'NOT_A_REAL_ACTION' });
     expect(next).toBe(initialState);

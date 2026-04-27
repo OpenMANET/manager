@@ -38,6 +38,7 @@ export const initialState = {
     encryption:   WifiEncryption.SAE,
     bandwidthMhz: 2,
     channel:      42,
+    countryCode:  '',
   },
   uplink: {
     type:           UplinkType.UNSPECIFIED,
@@ -159,10 +160,38 @@ export function reducer(state, action) {
     case SETUP_ACTIONS.HYDRATE_FROM_STATUS: {
       // Pre-fill the mesh radio with the first HaLow radio reported by
       // the backend so the user doesn't have to pick when there's an
-      // obvious choice.
+      // obvious choice. Pre-fill the hostname with the device's current
+      // system hostname (the factory image ships e.g. `BCM2711-97d6`) —
+      // matches the LuCI Morse wizard which seeded its hostname field
+      // from `system.@system[0].hostname`. The user can still change it.
+      // Pre-fill the country with the current `wireless.<radio>.country`
+      // so the channel/bandwidth filter starts narrowed to a sensible
+      // default; if the device has no country set, fall back to "US"
+      // when the regdb has it (the OpenMANET reference firmware ships
+      // factory-defaulted to US), otherwise leave empty for the user
+      // to pick.
       const halow = (action.status?.radios ?? []).find(r => r.isHalow);
-      if (!halow) return state;
-      return { ...state, mesh: { ...state.mesh, radioName: halow.name } };
+      const countries = action.status?.countries ?? [];
+      const next = { ...state, mesh: { ...state.mesh } };
+      if (halow) next.mesh.radioName = halow.name;
+
+      const current = action.status?.currentHostname;
+      if (!state.hostname && typeof current === 'string' && current !== '') {
+        next.hostname = current;
+      }
+
+      if (!state.mesh.countryCode) {
+        const cur = action.status?.currentCountry;
+        if (cur && countries.some(c => c.code === cur)) {
+          next.mesh.countryCode = cur;
+        } else if (countries.some(c => c.code === 'US')) {
+          next.mesh.countryCode = 'US';
+        } else if (countries.length > 0) {
+          next.mesh.countryCode = countries[0].code;
+        }
+      }
+
+      return next;
     }
 
     default:

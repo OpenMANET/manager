@@ -32,27 +32,54 @@ const MESH_ENCRYPTION_VALUES = [
   WifiEncryption.NONE,
 ];
 
-const BANDWIDTH_OPTIONS = [
-  { value: 1, label: '1 MHz' },
-  { value: 2, label: '2 MHz' },
-  { value: 4, label: '4 MHz' },
-  { value: 8, label: '8 MHz' },
-];
-
-// Default channel list per bandwidth when SetupRadio.bandwidths data
-// isn't provided (e.g. in unit tests). Overridden by the radio's
-// per-bandwidth list when available.
-const FALLBACK_CHANNELS = {
-  1: [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69],
-  2: [3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47, 51, 55, 59, 63, 67],
-  4: [6, 14, 22, 30, 38, 46, 54, 62],
-  8: [10, 26, 42, 58],
+const BANDWIDTH_LABELS = {
+  1: '1 MHz',
+  2: '2 MHz',
+  4: '4 MHz',
+  8: '8 MHz',
 };
 
-function bandwidthsForRadio(radio, bandwidthMhz) {
-  const entry = (radio?.bandwidths ?? []).find(b => b.mhz === bandwidthMhz);
-  if (entry?.channels?.length) return Array.from(entry.channels);
-  return FALLBACK_CHANNELS[bandwidthMhz] ?? [];
+// Fallback US S1G channel allocations used only when the device's
+// regulatory database (/usr/share/morse-regdb/channels.csv) was not
+// loaded — e.g. on a developer machine without the Morse userspace
+// package, or in unit tests that don't pass a fixture. Real devices
+// always pull these per-country from GetSetupStatusResponse.countries.
+//
+// Reference: IEEE 802.11ah-2020 Annex E / Morse Micro firmware default
+// regdom for US.
+const FALLBACK_US_CHANNELS = {
+  1: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31,
+      33, 35, 37, 39, 41, 43, 45, 47, 49, 51],
+  2: [2, 6, 10, 14, 18, 22, 26, 30, 34, 38, 42, 46, 50],
+  4: [8, 16, 24, 32, 40, 48],
+  8: [12, 28, 44],
+};
+
+// findCountryEntry returns the SetupCountry message for the given code,
+// or undefined if not present.
+function findCountryEntry(countries, code) {
+  if (!countries || !code) return undefined;
+  return countries.find(c => c.code === code);
+}
+
+// channelsForCountryBandwidth returns the legal channel list for the
+// chosen (country, bandwidth) tuple, falling back to a baked-in US
+// allocation when the regdb is absent.
+function channelsForCountryBandwidth(countryEntry, bandwidthMhz) {
+  if (countryEntry?.bandwidths) {
+    const entry = countryEntry.bandwidths.find(b => b.mhz === bandwidthMhz);
+    if (entry?.channels?.length) return Array.from(entry.channels);
+  }
+  return FALLBACK_US_CHANNELS[bandwidthMhz] ?? [];
+}
+
+// bandwidthsForCountry returns the bandwidths legal in this regulatory
+// domain. Falls back to the four S1G widths when the regdb is empty.
+function bandwidthsForCountry(countryEntry) {
+  if (countryEntry?.bandwidths?.length) {
+    return countryEntry.bandwidths.map(b => b.mhz).sort((a, b) => a - b);
+  }
+  return [1, 2, 4, 8];
 }
 
 export default function StepMesh({ status }) {
@@ -62,6 +89,8 @@ export default function StepMesh({ status }) {
     [status],
   );
 
+  const countries = useMemo(() => status?.countries ?? [], [status]);
+
   // If the user hasn't picked a radio (HYDRATE_FROM_STATUS missed it
   // somehow), pick the first HaLow on render.
   useEffect(() => {
@@ -70,14 +99,31 @@ export default function StepMesh({ status }) {
     }
   }, [state.mesh.radioName, halowRadios, dispatch]);
 
-  const selectedRadio = halowRadios.find(r => r.name === state.mesh.radioName) ?? halowRadios[0];
-
-  const channels = useMemo(
-    () => bandwidthsForRadio(selectedRadio, state.mesh.bandwidthMhz),
-    [selectedRadio, state.mesh.bandwidthMhz],
+  const countryEntry = useMemo(
+    () => findCountryEntry(countries, state.mesh.countryCode),
+    [countries, state.mesh.countryCode],
   );
 
-  // Snap channel to the closest legal one when bandwidth changes.
+  const legalBandwidths = useMemo(
+    () => bandwidthsForCountry(countryEntry),
+    [countryEntry],
+  );
+
+  // Snap bandwidth to a legal value when the country changes (e.g.
+  // some EU countries only allow 1MHz / 2MHz HaLow).
+  useEffect(() => {
+    if (legalBandwidths.length === 0) return;
+    if (!legalBandwidths.includes(state.mesh.bandwidthMhz)) {
+      dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'bandwidthMhz', value: legalBandwidths[0] });
+    }
+  }, [legalBandwidths, state.mesh.bandwidthMhz, dispatch]);
+
+  const channels = useMemo(
+    () => channelsForCountryBandwidth(countryEntry, state.mesh.bandwidthMhz),
+    [countryEntry, state.mesh.bandwidthMhz],
+  );
+
+  // Snap channel to the first legal one when (country, bandwidth) change.
   useEffect(() => {
     if (channels.length === 0) return;
     if (!channels.includes(state.mesh.channel)) {
@@ -164,12 +210,37 @@ export default function StepMesh({ status }) {
         </div>
       )}
 
+      <div className="lat-field">
+        <label>Country</label>
+        {countries.length === 0 ? (
+          <div className="lat-input" style={{ pointerEvents: 'none' }}>
+            US (regulatory database not installed; falling back to baked-in defaults)
+          </div>
+        ) : (
+          <LatSelect
+            ariaLabel="Regulatory country"
+            value={state.mesh.countryCode}
+            options={countries.map(c => ({
+              value: c.code,
+              label: `${c.code} — ${c.name || c.code}`,
+            }))}
+            onChange={(v) => dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'countryCode', value: v })}
+          />
+        )}
+        <div className="setup-help">
+          Sets the regulatory domain on the HaLow radio. Determines which
+          channels and bandwidths are legal here.
+        </div>
+      </div>
+
       <div className="setup-field">
         <label>Bandwidth</label>
         <LatSelect
           ariaLabel="Mesh bandwidth"
           value={state.mesh.bandwidthMhz}
-          options={BANDWIDTH_OPTIONS}
+          options={legalBandwidths.map(mhz => ({
+            value: mhz, label: BANDWIDTH_LABELS[mhz] ?? `${mhz} MHz`,
+          }))}
           onChange={(v) => dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'bandwidthMhz', value: v })}
         />
         <div className="setup-help">

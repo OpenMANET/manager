@@ -137,6 +137,7 @@ export const MeshRadioConfig = /*@__PURE__*/ proto3.makeMessageType(
     { no: 4, name: "encryption", kind: "enum", T: proto3.getEnumType(WifiEncryption) },
     { no: 5, name: "bandwidth_mhz", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
     { no: 6, name: "channel", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
+    { no: 7, name: "country_code", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ],
 );
 
@@ -205,6 +206,22 @@ export const SetupRadioBandwidth = /*@__PURE__*/ proto3.makeMessageType(
 );
 
 /**
+ * SetupCountry advertises one regulatory domain available on this device,
+ * with the legal HaLow channels per bandwidth. Sourced at runtime from
+ * /usr/share/morse-regdb/channels.csv (Morse Micro userspace package).
+ *
+ * @generated from message openmanet.setup.v1.SetupCountry
+ */
+export const SetupCountry = /*@__PURE__*/ proto3.makeMessageType(
+  "openmanet.setup.v1.SetupCountry",
+  () => [
+    { no: 1, name: "code", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "bandwidths", kind: "message", T: SetupRadioBandwidth, repeated: true },
+  ],
+);
+
+/**
  * GetSetupStatusResponse populates the wizard's pre-flight gate.
  *
  * @generated from message openmanet.setup.v1.GetSetupStatusResponse
@@ -219,6 +236,8 @@ export const GetSetupStatusResponse = /*@__PURE__*/ proto3.makeMessageType(
     { no: 5, name: "current_hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 6, name: "radios", kind: "message", T: SetupRadio, repeated: true },
     { no: 7, name: "ethernet_ports", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 8, name: "countries", kind: "message", T: SetupCountry, repeated: true },
+    { no: 9, name: "current_country", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ],
 );
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/iwinfo"
 	"github.com/openmanet/openmanetd/internal/network"
+	"github.com/openmanet/openmanetd/internal/network/morseregdb"
 	"github.com/openmanet/openmanetd/internal/system"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -89,25 +91,20 @@ var wizardConfigs = []string{ //nolint:gochecknoglobals // package-level constan
 // gates on `setup.enabled=true` and `setup.complete=false`. Phase 0
 // of ApplySetup re-applies these checks as defense-in-depth.
 type SetupService struct {
-	Cfg            *config.Config
 	Log            zerolog.Logger
+	Reloader       system.ServiceReloader
 	UCI            network.ConfigReader
 	Snapshotter    UCISnapshotter
 	PasswordSetter auth.PasswordSetter
 	HostnameSetter HostnameSetter
-	Reloader       system.ServiceReloader
 	Iwinfo         iwinfo.IwinfoProvider
 	Interfaces     InterfaceProvider
-	// RNG seeds RandomMAC, RandomDhcpStart, RandomMeshIP, RandomWifiKey.
-	// Production passes a freshly-seeded *rand.Rand; tests pass a
-	// deterministically-seeded one.
-	RNG *rand.Rand
-	// Now returns the current time. Override for deterministic tests.
-	Now func() time.Time
-
-	// mu serializes ApplySetup so two browser tabs racing the wizard
-	// see exactly one "win" and one CodeFailedPrecondition.
-	mu sync.Mutex
+	Cfg            *config.Config
+	RNG            *rand.Rand
+	Now            func() time.Time
+	LoadRegDB      func(path string) (*morseregdb.DB, error)
+	RegDBPath      string
+	mu             sync.Mutex
 }
 
 // ─── Enum translators ─────────────────────────────────────────────────────────
@@ -237,7 +234,8 @@ func UplinkTypeToProto(s string) setupv1.UplinkType {
 
 // GetSetupStatus reports whether the wizard is reachable on this
 // device and provides the hardware context (radios, ethernet ports,
-// hostname) the wizard needs to render its first screen.
+// hostname, regulatory countries) the wizard needs to render its
+// first screens.
 func (s *SetupService) GetSetupStatus(ctx context.Context, _ *emptypb.Empty) (*setupv1.GetSetupStatusResponse, error) {
 	s.Log.Debug().Msg("GetSetupStatus request received")
 
@@ -251,8 +249,85 @@ func (s *SetupService) GetSetupStatus(ctx context.Context, _ *emptypb.Empty) (*s
 
 	resp.HasHalowRadio = anyHalow(resp.Radios)
 	resp.AlreadyConfigured = s.detectAlreadyConfigured(resp.CurrentHostname)
+	resp.Countries, resp.CurrentCountry = s.collectRegulatoryCountries()
 
 	return resp, nil
+}
+
+// collectRegulatoryCountries loads the Morse Micro regdb and returns
+// (countries, current_country). The current country is read from the
+// first morse wifi-device's `country` UCI field; empty if none.
+//
+// Failures here are NOT fatal: the regdb is provided by a userspace
+// package and may be missing on developer hardware or older firmware.
+// In that case we return an empty list and the frontend falls back to
+// a baked-in US default so the wizard still completes.
+func (s *SetupService) collectRegulatoryCountries() ([]*setupv1.SetupCountry, string) {
+	loader := s.LoadRegDB
+	if loader == nil {
+		loader = morseregdb.Load
+	}
+
+	path := s.RegDBPath
+	if path == "" {
+		path = morseregdb.DefaultPath
+	}
+
+	db, err := loader(path)
+	if err != nil {
+		if !errors.Is(err, morseregdb.ErrNotInstalled) {
+			s.Log.Warn().Err(err).Str("path", path).Msg("morse regdb load failed")
+		}
+
+		return nil, s.currentMorseCountry()
+	}
+
+	src := db.Countries()
+	out := make([]*setupv1.SetupCountry, 0, len(src))
+
+	for _, c := range src {
+		bws := make([]*setupv1.SetupRadioBandwidth, 0, len(c.Bandwidths))
+		for _, bw := range c.Bandwidths {
+			bws = append(bws, &setupv1.SetupRadioBandwidth{
+				Mhz:      bw.Mhz,
+				Channels: bw.Channels,
+			})
+		}
+
+		out = append(out, &setupv1.SetupCountry{
+			Code:       c.Code,
+			Name:       c.Name,
+			Bandwidths: bws,
+		})
+	}
+
+	return out, s.currentMorseCountry()
+}
+
+// currentMorseCountry reads `wireless.<radio>.country` from the first
+// wifi-device whose type is `morse`. Empty if no morse radio exists or
+// the country is unset on the radio.
+func (s *SetupService) currentMorseCountry() string {
+	deviceSections, err := s.UCI.GetSections("wireless", "wifi-device")
+	if err != nil {
+		return ""
+	}
+
+	for _, name := range deviceSections {
+		typ, ok := s.UCI.Get("wireless", name, "type")
+		if !ok || len(typ) == 0 || !strings.EqualFold(typ[0], "morse") {
+			continue
+		}
+
+		c, ok := s.UCI.Get("wireless", name, "country")
+		if !ok || len(c) == 0 {
+			return ""
+		}
+
+		return strings.ToUpper(c[0])
+	}
+
+	return ""
 }
 
 // currentHostname reads `system.@system[0].hostname` via the UCI
@@ -366,23 +441,29 @@ func anyHalow(radios []*setupv1.SetupRadio) bool {
 	return false
 }
 
-// detectAlreadyConfigured implements the heuristic described in the
-// plan: a device looks already-configured if any of the following are
-// true:
-//   - mesh11sd.mesh_params.mesh_gate_announcements is set
-//   - network.ahwlan.proto is set
-//   - auth.enable is true
+// detectAlreadyConfigured returns true when the device's UCI state
+// looks like the wizard (or an operator) has already configured it.
+// Heuristics, in order of confidence:
+//   - the wizard's own bookkeeping section `network.wizard` exists
+//     (only the wizard ever writes that)
+//   - auth.enable is true (auth is wizard-owned, factory image has it off)
+//   - `network.ahwlan` interface exists (wizard's mesh network)
 //   - the system hostname does NOT match the factory pattern
+//
+// Notably we do NOT inspect `mesh11sd.mesh_params.mesh_gate_announcements`
+// because the factory image ships that section with `option
+// mesh_gate_announcements '0'` already set, which would otherwise flag
+// every fresh device as configured.
 func (s *SetupService) detectAlreadyConfigured(currentHostname string) bool {
 	if s.Cfg.GetAuthEnable() {
 		return true
 	}
 
-	if v, ok := s.UCI.Get("mesh11sd", "mesh_params", "mesh_gate_announcements"); ok && len(v) > 0 && v[0] != "" {
+	if sections, err := s.UCI.GetSections("network", "wizard"); err == nil && len(sections) > 0 {
 		return true
 	}
 
-	if v, ok := s.UCI.Get("network", "ahwlan", "proto"); ok && len(v) > 0 && v[0] != "" {
+	if sections, err := s.UCI.GetSections("network", "interface"); err == nil && slices.Contains(sections, "ahwlan") {
 		return true
 	}
 
@@ -692,6 +773,10 @@ func (s *SetupService) validateProfile(profile *setupv1.MeshNodeProfile) error {
 		return err
 	}
 
+	if err := s.validateMeshCountry(mesh); err != nil {
+		return err
+	}
+
 	if err := validateAPs(profile.GetAps(), mesh.GetRadioName()); err != nil {
 		return err
 	}
@@ -706,6 +791,55 @@ func (s *SetupService) validateProfile(profile *setupv1.MeshNodeProfile) error {
 
 	if len(profile.GetAdminPassword()) < 8 {
 		return errors.New("admin_password must be at least 8 characters")
+	}
+
+	return nil
+}
+
+// validateMeshCountry enforces that the (country_code, bandwidth_mhz,
+// channel) triple in the mesh profile appears in the Morse Micro regdb.
+// Behavior when the regdb is missing:
+//
+//   - Empty regdb (loader returns ErrNotInstalled) → accept any
+//     country/bandwidth/channel that already passed the
+//     validateMeshChannelBandwidth bandwidth-set check. The wizard's
+//     baked-in fallback already constrains the user to legal US S1G
+//     allocations on the frontend; the handler doesn't re-derive
+//     regulatory data when the regdb is absent.
+//   - Loader returns any other error → fail validation. A corrupt
+//     regdb is a configuration bug worth surfacing.
+//
+// When the regdb is present, an empty country_code is rejected (the
+// frontend defaults to the device's current country, so empty here
+// means the user shipped a malformed profile).
+func (s *SetupService) validateMeshCountry(mesh *setupv1.MeshRadioConfig) error {
+	loader := s.LoadRegDB
+	if loader == nil {
+		loader = morseregdb.Load
+	}
+
+	path := s.RegDBPath
+	if path == "" {
+		path = morseregdb.DefaultPath
+	}
+
+	db, err := loader(path)
+	if err != nil {
+		if errors.Is(err, morseregdb.ErrNotInstalled) {
+			return nil
+		}
+
+		return fmt.Errorf("load morse regdb: %w", err)
+	}
+
+	country := mesh.GetCountryCode()
+	if country == "" {
+		return errors.New("mesh.country_code is required when the regulatory database is installed")
+	}
+
+	if !db.IsLegalChannel(country, mesh.GetBandwidthMhz(), mesh.GetChannel()) {
+		return fmt.Errorf("country %q does not allow channel %d at %d MHz",
+			country, mesh.GetChannel(), mesh.GetBandwidthMhz())
 	}
 
 	return nil
