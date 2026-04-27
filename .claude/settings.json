@@ -53,7 +53,10 @@
       "Bash(make -C /workspaces/openmanetd buf)",
       "Bash(grep -E \"\\\\.jsx?$\")",
       "Bash(grep \"\\\\.go$\")",
-      "Bash(grep -E \"\\\\.\\(go\\)$\")"
+      "Bash(grep -E \"\\\\.\\(go\\)$\")",
+      "Read(//home/vscode/.claude/plans/**)",
+      "Bash(git -C /workspaces/openmanetd submodule status)",
+      "Bash(git -C /workspaces/openmanetd/proto status --short)"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"
