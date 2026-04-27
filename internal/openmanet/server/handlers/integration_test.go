@@ -27,6 +27,9 @@ import (
 	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
+	setupv1 "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1"
+	setupconnect "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1/setupv1connect"
+	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/blos"
 	"github.com/openmanet/openmanetd/internal/config"
@@ -1091,5 +1094,135 @@ func TestIntegration_Validation_GetLogs_MaxLinesOutOfRange(t *testing.T) {
 			require.ErrorAs(t, err, &connectErr)
 			assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
 		})
+	}
+}
+
+// ── SetupService ─────────────────────────────────────────────────────────────
+
+// newSetupTestServer wires the SetupService over an httptest server,
+// using a populated UCI reader (one mac80211 + one morse radio) so
+// GetSetupStatus has interesting data to return. The supplied yaml
+// content seeds the *config.Config so each test can dial in
+// setup.enabled / setup.complete.
+func newSetupTestServer(t *testing.T, yamlContent string) *httptest.Server {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(yamlContent), 0o644))
+
+	v := viper.New()
+	v.SetConfigFile(cfgPath)
+	require.NoError(t, v.ReadInConfig())
+
+	cfg := config.NewWithoutWatch(v)
+
+	reader := &fakeConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"wireless": {
+				"radio0": {"type": {"mac80211"}, "band": {"2g"}, "channel": {"1"}},
+				"radio1": {"type": {"morse"}, "band": {"s1g"}, "channel": {"42"}},
+			},
+			"system": {
+				"@system[0]": {"hostname": {"BCM2711-97d6"}},
+			},
+		},
+		sectionTypes: map[string]map[string]string{
+			"wireless": {"radio0": "wifi-device", "radio1": "wifi-device"},
+			"system":   {"@system[0]": "system"},
+		},
+	}
+
+	mux := http.NewServeMux()
+
+	mux.Handle(setupconnect.NewSetupServiceHandler(&handlers.SetupService{
+		Cfg:        cfg,
+		Log:        zerolog.Nop(),
+		UCI:        reader,
+		Interfaces: &fakeInterfaceProvider{},
+	}, connect.WithInterceptors(validate.NewInterceptor())))
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	return srv
+}
+
+func TestIntegration_GetSetupStatus_DefaultsDisabled(t *testing.T) {
+	srv := newSetupTestServer(t, "")
+	client := setupconnect.NewSetupServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	resp, err := client.GetSetupStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	assert.False(t, resp.GetIsEnabled())
+	assert.False(t, resp.GetIsSetupComplete())
+	assert.True(t, resp.GetHasHalowRadio())
+}
+
+func TestIntegration_GetSetupStatus_EnabledIncomplete(t *testing.T) {
+	srv := newSetupTestServer(t, "setup:\n  enabled: true\n")
+	client := setupconnect.NewSetupServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	resp, err := client.GetSetupStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	assert.True(t, resp.GetIsEnabled())
+	assert.False(t, resp.GetIsSetupComplete())
+}
+
+func TestIntegration_ApplySetup_RejectsWhenSetupDisabled(t *testing.T) {
+	srv := newSetupTestServer(t, "setup:\n  enabled: false\n")
+	client := setupconnect.NewSetupServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	stream, err := client.ApplySetup(context.Background(),
+		&setupv1.ApplySetupRequest{Profile: integrationMinimalProfile()})
+	require.NoError(t, err, "ApplySetup call should not error at dial time")
+
+	// The first Receive() call surfaces the handler-side rejection.
+	stream.Receive()
+	err = stream.Err()
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeUnavailable, connectErr.Code())
+}
+
+func TestIntegration_ApplySetup_RejectsWhenAlreadyComplete(t *testing.T) {
+	srv := newSetupTestServer(t, "setup:\n  enabled: true\n  complete: true\n")
+	client := setupconnect.NewSetupServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	stream, err := client.ApplySetup(context.Background(),
+		&setupv1.ApplySetupRequest{Profile: integrationMinimalProfile()})
+	require.NoError(t, err)
+
+	stream.Receive()
+	err = stream.Err()
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
+}
+
+// integrationMinimalProfile returns a fully-valid MeshNodeProfile for
+// integration tests of the SetupService.
+func integrationMinimalProfile() *setupv1.MeshNodeProfile {
+	return &setupv1.MeshNodeProfile{
+		Hostname:      "openmanet-1",
+		AdminPassword: "supersecret",
+		Role:          setupv1.MeshRole_MESH_ROLE_MESH_POINT,
+		DeviceMode: &setupv1.MeshNodeProfile_MeshpointMode{
+			MeshpointMode: setupv1.MeshPointMode_MESH_POINT_MODE_EXTENDER,
+		},
+		Mesh: &setupv1.MeshRadioConfig{
+			RadioName:    "radio1",
+			MeshId:       "openmanet-mesh",
+			Passphrase:   "longpasscode",
+			Encryption:   wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE,
+			BandwidthMhz: 2,
+			Channel:      42,
+		},
 	}
 }

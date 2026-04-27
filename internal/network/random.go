@@ -30,7 +30,7 @@ const (
 // prefix used by the LuCI Morse wizard. Mirrors getRandomMAC() in
 // morseconfig/uci.js so the setup wizard handler emits the same bridge
 // MAC distribution. The F2 prefix is a Morse-only marker that lets the
-// daemon recognise its own auto-generated bridges later.
+// daemon recognize its own auto-generated bridges later.
 func RandomMAC(r *rand.Rand) string {
 	octets := make([]string, 5)
 	for i := range octets {

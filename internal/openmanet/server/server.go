@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"math/rand"
 	"net/http"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	meshtopoconnect "github.com/openmanet/openmanetd/internal/api/openmanet/mesh_topology/v1/mesh_topologyv1connect"
 	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
+	setupconnect "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1/setupv1connect"
 	supconnect "github.com/openmanet/openmanetd/internal/api/openmanet/sysupgrade/v1/sysupgradev1connect"
 	wificonfigconnect "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1/wifi_configv1connect"
 	"github.com/openmanet/openmanetd/internal/auth"
@@ -61,7 +63,16 @@ type APIServer struct {
 	SessionStore          *auth.SessionStore
 	Authenticator         auth.Authenticator
 	Sysupgrade            *sysupgrade.Manager
-	AuthEnabled           bool
+	// Setup wizard dependencies. Each is constructed in
+	// internal/openmanet/openmanet.go and passed through here so the
+	// server registration block can stay declarative.
+	SetupUCIReader      network.ConfigReader
+	SetupSnapshotter    handlers.UCISnapshotter
+	SetupPasswordSetter auth.PasswordSetter
+	SetupHostnameSetter handlers.HostnameSetter
+	SetupReloader       system.ServiceReloader
+	SetupRNG            *rand.Rand
+	AuthEnabled         bool
 }
 
 func NewAPIServer(cfg APIServer) *APIServer {
@@ -179,6 +190,23 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Cfg: cfg.Cfg,
 		Log: cfg.Log,
 		GPS: cfg.GPS,
+	}, connect.WithInterceptors(validateInterceptor)))
+
+	// SetupService runs the first-boot wizard. The middleware exempts
+	// both RPCs from auth (see auth/middleware.go isAPISkipPath); the
+	// handler enforces its own enabled/complete gate as
+	// defense-in-depth.
+	api.Handle(setupconnect.NewSetupServiceHandler(&handlers.SetupService{
+		Cfg:            cfg.Cfg,
+		Log:            cfg.Log.With().Str("service", "setup").Logger(),
+		UCI:            cfg.SetupUCIReader,
+		Snapshotter:    cfg.SetupSnapshotter,
+		PasswordSetter: cfg.SetupPasswordSetter,
+		HostnameSetter: cfg.SetupHostnameSetter,
+		Reloader:       cfg.SetupReloader,
+		Iwinfo:         iwinfo.NewClient(),
+		Interfaces:     interfaces,
+		RNG:            cfg.SetupRNG,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	meshTopoSvc := &handlers.MeshTopologyService{

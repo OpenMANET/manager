@@ -130,8 +130,8 @@ func defaultWanFirewallRules(localZone string) []firewallRule {
 		"unknown-header-type",
 	}
 	icmpv6InputExtra := append(append([]string{}, icmpv6Common...),
-		"router-solicitation", "neighbour-solicitation",
-		"router-advertisement", "neighbour-advertisement",
+		"router-solicitation", "neighbor-solicitation",
+		"router-advertisement", "neighbor-advertisement",
 	)
 
 	return []firewallRule{

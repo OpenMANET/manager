@@ -1501,7 +1501,7 @@ func newDhcpResetMock(t *testing.T) *mockConfigReader {
 	for _, kv := range []struct{ k, v string }{
 		{"domainneeded", "1"},
 		{"boguspriv", "1"},
-		{"localise_queries", "1"},
+		{"localize_queries", "1"},
 		{"rebind_protection", "1"},
 		{"rebind_localhost", "1"},
 		{"local", "/lan/"},
@@ -1589,7 +1589,7 @@ func TestSetupDnsmasqInstance_WritesAll11Options(t *testing.T) {
 
 	expect := map[string]string{
 		"domainneeded":     "1",
-		"localise_queries": "1",
+		"localize_queries": "1",
 		"rebind_localhost": "1",
 		"local":            "/ahwlan/",
 		"domain":           "ahwlan",

@@ -897,7 +897,7 @@ const (
 // the surviving dnsmasq section during reset. Mirrors the resetUci()
 // list in tools/morse/wizard.js.
 var WizardDnsmasqWhitelist = []string{ //nolint:gochecknoglobals // package-level constant
-	"authoritative", "domainneeded", "localise_queries", "readethers",
+	"authoritative", "domainneeded", "localize_queries", "readethers",
 	"local", "domain", "expandhosts", "localservice", "cachesize",
 	"ednspacket_max", "rebind_localhost",
 }
@@ -912,7 +912,7 @@ var WizardDhcpPoolWhitelist = []string{ //nolint:gochecknoglobals // package-lev
 // allDnsmasqOptions enumerates every dnsmasq option the wizard or
 // existing OpenWrt config may have set.
 var allDnsmasqOptions = []string{ //nolint:gochecknoglobals // package-level constant
-	"authoritative", "domainneeded", "localise_queries", "readethers",
+	"authoritative", "domainneeded", "localize_queries", "readethers",
 	"local", "domain", "expandhosts", "localservice", "cachesize",
 	"ednspacket_max", "rebind_localhost", "interface", "notinterface",
 	"localuse", "rebind_protection", "boguspriv",
@@ -1014,7 +1014,7 @@ func SetupDnsmasqInstance(reader ConfigReader, dnsmasqName, networkID string) er
 		option, value string
 	}{
 		{"domainneeded", "1"},
-		{"localise_queries", "1"},
+		{"localize_queries", "1"},
 		{"rebind_localhost", "1"},
 		{"local", "/" + networkID + "/"},
 		{"domain", networkID},

@@ -2,7 +2,9 @@ package handlers_test
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	setupv1 "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1"
@@ -11,6 +13,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -261,6 +264,7 @@ func TestGetSetupStatus_AlreadyConfigured_MeshGateAnnouncementsSet(t *testing.T)
 	if reader.data["mesh11sd"] == nil {
 		reader.data["mesh11sd"] = map[string]map[string][]string{}
 	}
+
 	reader.data["mesh11sd"]["mesh_params"] = map[string][]string{
 		"mesh_gate_announcements": {"1"},
 	}
@@ -280,6 +284,7 @@ func TestGetSetupStatus_AlreadyConfigured_AhwlanProtoSet(t *testing.T) {
 	if reader.data["network"] == nil {
 		reader.data["network"] = map[string]map[string][]string{}
 	}
+
 	reader.data["network"]["ahwlan"] = map[string][]string{
 		"proto": {"static"},
 	}
@@ -299,11 +304,11 @@ func TestGetSetupStatus_EthernetPortsFiltered(t *testing.T) {
 		infos: []network.NetworkInterfaceInfo{
 			{Name: "eth0"},
 			{Name: "eth1"},
-			{Name: "wlan0"}, // filtered
-			{Name: "br-lan"}, // filtered
-			{Name: "lo"},     // filtered
+			{Name: "wlan0"},      // filtered
+			{Name: "br-lan"},     // filtered
+			{Name: "lo"},         // filtered
 			{Name: "tailscale0"}, // filtered
-			{Name: "bat0"},   // filtered
+			{Name: "bat0"},       // filtered
 		},
 	}
 
@@ -533,10 +538,10 @@ func TestApplySetup_RejectsIllegalChannel(t *testing.T) {
 }
 
 func TestApplySetup_ValidProfileEmitsValidateStartedAndDone(t *testing.T) {
-	// Until the rest of the phases land, a valid profile reaches the
-	// post-validation phase placeholder, which returns Unimplemented.
-	// The test asserts the validate phase emitted STARTED + DONE
-	// events on the stream.
+	// A valid profile + minimal SetupService (no Snapshotter, no
+	// PasswordSetter) drives phases 1-12 to DONE then fails phase
+	// 13 (PasswordSetter not configured). Asserts the validate
+	// phase emitted STARTED + DONE events.
 	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
 	collector := &streamCollector{}
 	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
@@ -546,16 +551,40 @@ func TestApplySetup_ValidProfileEmitsValidateStartedAndDone(t *testing.T) {
 
 	var connectErr *connect.Error
 	require.ErrorAs(t, err, &connectErr)
-	assert.Equal(t, connect.CodeUnimplemented, connectErr.Code(),
-		"valid profiles fall through to the unimplemented-phase guard")
+	assert.Equal(t, connect.CodeInternal, connectErr.Code(),
+		"missing PasswordSetter surfaces as CodeInternal at phase 13")
 
-	require.Len(t, collector.sent, 2, "expected STARTED and DONE events")
+	require.NotEmpty(t, collector.sent)
 
+	// First event must be VALIDATE STARTED.
 	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_VALIDATE, collector.sent[0].GetPhase())
 	assert.Equal(t, setupv1.ApplySetupResponse_STATUS_STARTED, collector.sent[0].GetStatus())
 
+	// VALIDATE DONE must be the second event.
 	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_VALIDATE, collector.sent[1].GetPhase())
 	assert.Equal(t, setupv1.ApplySetupResponse_STATUS_DONE, collector.sent[1].GetStatus())
+
+	// Each STARTED event for a non-terminal phase must be paired
+	// with a subsequent DONE or FAILED for the same phase.
+	pairsSeen := map[setupv1.ApplySetupResponse_Phase]int{}
+
+	for _, ev := range collector.sent {
+		if ev.GetPhase() == setupv1.ApplySetupResponse_PHASE_TERMINAL {
+			continue
+		}
+
+		switch ev.GetStatus() {
+		case setupv1.ApplySetupResponse_STATUS_STARTED:
+			pairsSeen[ev.GetPhase()]++
+		case setupv1.ApplySetupResponse_STATUS_DONE,
+			setupv1.ApplySetupResponse_STATUS_FAILED:
+			pairsSeen[ev.GetPhase()]--
+		}
+	}
+
+	for p, n := range pairsSeen {
+		assert.Equalf(t, 0, n, "phase %v had unbalanced STARTED/DONE|FAILED events (%d)", p, n)
+	}
 }
 
 func TestApplySetup_InvalidProfileEmitsValidateFailedAndTerminal(t *testing.T) {
@@ -628,4 +657,689 @@ func requireConnectCode(t *testing.T, err error, want connect.Code) {
 	var connectErr *connect.Error
 	require.ErrorAs(t, err, &connectErr)
 	assert.Equal(t, want, connectErr.Code())
+}
+
+// ── Phase 2-12 scenario tests ───────────────────────────────────────────────
+
+// fakeUCISnapshot is a simple test double for UCISnapshot. It just
+// remembers which configs it was created from so tests can assert
+// the snapshotter saw the expected scopes.
+type fakeUCISnapshot struct {
+	configs []string
+}
+
+func (f *fakeUCISnapshot) Configs() []string { return f.configs }
+
+// fakeSnapshotter implements UCISnapshotter and records the calls
+// made to it. Restore is a no-op.
+type fakeSnapshotter struct {
+	snapshotCalls int
+	restoreCalls  int
+	snapshotErr   error
+	restoreErr    error
+	lastSnapshot  *fakeUCISnapshot
+}
+
+func (f *fakeSnapshotter) Snapshot(_ context.Context, configs []string) (handlers.UCISnapshot, error) {
+	f.snapshotCalls++
+
+	if f.snapshotErr != nil {
+		return nil, f.snapshotErr
+	}
+
+	f.lastSnapshot = &fakeUCISnapshot{configs: append([]string(nil), configs...)}
+
+	return f.lastSnapshot, nil
+}
+
+func (f *fakeSnapshotter) Restore(_ context.Context, _ handlers.UCISnapshot) error {
+	f.restoreCalls++
+
+	return f.restoreErr
+}
+
+// fakeHostnameSetter records the hostnames it was asked to set.
+type fakeHostnameSetter struct {
+	calls []string
+	err   error
+}
+
+func (f *fakeHostnameSetter) SetHostname(_ context.Context, hostname string) error {
+	f.calls = append(f.calls, hostname)
+
+	return f.err
+}
+
+// fakePasswordSetter records SetPassword calls so tests can assert
+// the wizard wrote the admin password exactly once with the right
+// arguments.
+type fakePasswordSetter struct {
+	mu    sync.Mutex
+	calls []passwordCall
+	err   error
+}
+
+type passwordCall struct {
+	username string
+	password string
+}
+
+func (f *fakePasswordSetter) SetPassword(_ context.Context, username, password string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.calls = append(f.calls, passwordCall{username: username, password: password})
+
+	return f.err
+}
+
+func (f *fakePasswordSetter) callsCopy() []passwordCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]passwordCall(nil), f.calls...)
+}
+
+// fakeServiceReloader records Reload/Restart calls so tests can
+// verify the post-terminal goroutine fired against the expected
+// init.d service list.
+type fakeServiceReloader struct {
+	mu           sync.Mutex
+	reloadCalls  []string
+	restartCalls []string
+	reloadErr    error
+	restartErr   error
+	done         chan struct{}
+}
+
+func newFakeReloader(expectedReloads int) *fakeServiceReloader {
+	return &fakeServiceReloader{done: make(chan struct{}, expectedReloads)}
+}
+
+func (f *fakeServiceReloader) Reload(_ context.Context, service string) error {
+	f.mu.Lock()
+	f.reloadCalls = append(f.reloadCalls, service)
+	err := f.reloadErr
+	f.mu.Unlock()
+
+	if err == nil {
+		select {
+		case f.done <- struct{}{}:
+		default:
+		}
+	}
+
+	return err
+}
+
+func (f *fakeServiceReloader) Restart(_ context.Context, service string) error {
+	f.mu.Lock()
+	f.restartCalls = append(f.restartCalls, service)
+	err := f.restartErr
+	f.mu.Unlock()
+
+	if err == nil {
+		select {
+		case f.done <- struct{}{}:
+		default:
+		}
+	}
+
+	return err
+}
+
+func (f *fakeServiceReloader) reloadCallsCopy() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.reloadCalls...)
+}
+
+func (f *fakeServiceReloader) restartCallsCopy() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.restartCalls...)
+}
+
+// newFullSetupReader returns a fakeConfigReader populated with a
+// reset-baseline mirror of the captured before/* fixtures (a single
+// anonymous dnsmasq, lan/wan zones, lan/wan dhcp pools, mesh11sd
+// sections, system section). The mock is rich enough to drive
+// phases 2-12 to completion on a happy-path mesh-point profile.
+func newFullSetupReader() *fakeConfigReader {
+	r := newSetupReader()
+
+	// dnsmasq + dhcp pools
+	if r.data["dhcp"] == nil {
+		r.data["dhcp"] = map[string]map[string][]string{}
+	}
+
+	r.data["dhcp"]["@dnsmasq[0]"] = map[string][]string{
+		"domainneeded": {"1"},
+		"local":        {"/lan/"},
+		"domain":       {"lan"},
+	}
+	r.data["dhcp"]["lan"] = map[string][]string{
+		"interface": {"lan"},
+		"start":     {"100"},
+		"limit":     {"150"},
+		"leasetime": {"12h"},
+	}
+	r.data["dhcp"]["wan"] = map[string][]string{
+		"interface": {"wan"},
+		"ignore":    {"1"},
+	}
+
+	if r.sectionTypes["dhcp"] == nil {
+		r.sectionTypes["dhcp"] = map[string]string{}
+	}
+
+	r.sectionTypes["dhcp"]["@dnsmasq[0]"] = "dnsmasq"
+	r.sectionTypes["dhcp"]["lan"] = "dhcp"
+	r.sectionTypes["dhcp"]["wan"] = "dhcp"
+
+	// firewall: lan + wan zones, default forwarding, no rules.
+	if r.data["firewall"] == nil {
+		r.data["firewall"] = map[string]map[string][]string{}
+	}
+
+	r.data["firewall"]["@zone[0]"] = map[string][]string{
+		"name":    {"lan"},
+		"network": {"lan"},
+		"input":   {"ACCEPT"},
+		"output":  {"ACCEPT"},
+		"forward": {"ACCEPT"},
+	}
+	r.data["firewall"]["@zone[1]"] = map[string][]string{
+		"name":    {"wan"},
+		"network": {"wan"},
+		"input":   {"ACCEPT"},
+		"output":  {"ACCEPT"},
+		"forward": {"ACCEPT"},
+	}
+
+	if r.sectionTypes["firewall"] == nil {
+		r.sectionTypes["firewall"] = map[string]string{}
+	}
+
+	r.sectionTypes["firewall"]["@zone[0]"] = "zone"
+	r.sectionTypes["firewall"]["@zone[1]"] = "zone"
+
+	// mesh11sd: setup + mesh_params + a few decorative sections.
+	if r.data["mesh11sd"] == nil {
+		r.data["mesh11sd"] = map[string]map[string][]string{}
+	}
+
+	r.data["mesh11sd"]["setup"] = map[string][]string{"enabled": {"0"}}
+	r.data["mesh11sd"]["mesh_params"] = map[string][]string{
+		"mesh_fwding":             {"1"},
+		"mesh_gate_announcements": {"0"},
+	}
+
+	if r.sectionTypes["mesh11sd"] == nil {
+		r.sectionTypes["mesh11sd"] = map[string]string{}
+	}
+
+	r.sectionTypes["mesh11sd"]["setup"] = "mesh11sd"
+	r.sectionTypes["mesh11sd"]["mesh_params"] = "mesh11sd"
+
+	// network: loopback + lan + wan + ahwlan empty interface.
+	if r.data["network"] == nil {
+		r.data["network"] = map[string]map[string][]string{}
+	}
+
+	r.data["network"]["loopback"] = map[string][]string{"device": {"lo"}, "proto": {"static"}}
+	r.data["network"]["lan"] = map[string][]string{"proto": {"static"}, "ipaddr": {"10.41.254.1"}}
+	r.data["network"]["wan"] = map[string][]string{"proto": {"dhcp"}}
+
+	if r.sectionTypes["network"] == nil {
+		r.sectionTypes["network"] = map[string]string{}
+	}
+
+	r.sectionTypes["network"]["loopback"] = "interface"
+	r.sectionTypes["network"]["lan"] = "interface"
+	r.sectionTypes["network"]["wan"] = "interface"
+
+	return r
+}
+
+// fullDeps bundles the fake dependencies returned by
+// newFullSetupService so tests can inspect each one without long
+// argument lists.
+type fullDeps struct {
+	Snap     *fakeSnapshotter
+	Host     *fakeHostnameSetter
+	Pass     *fakePasswordSetter
+	Reloader *fakeServiceReloader
+}
+
+// newFullSetupService builds a SetupService over a full reader plus
+// fake snapshotter, hostname setter, password setter, and reloader,
+// so phase tests don't have to repeat the wiring.
+func newFullSetupService(t *testing.T, cfg *config.Config) (*handlers.SetupService, *fullDeps) {
+	t.Helper()
+
+	deps := &fullDeps{
+		Snap:     &fakeSnapshotter{},
+		Host:     &fakeHostnameSetter{},
+		Pass:     &fakePasswordSetter{},
+		Reloader: newFakeReloader(len(handlersReloadServices)),
+	}
+
+	svc := &handlers.SetupService{
+		Cfg:            cfg,
+		Log:            zerolog.Nop(),
+		UCI:            newFullSetupReader(),
+		Snapshotter:    deps.Snap,
+		HostnameSetter: deps.Host,
+		PasswordSetter: deps.Pass,
+		Reloader:       deps.Reloader,
+		Interfaces:     &fakeInterfaceProvider{},
+	}
+
+	return svc, deps
+}
+
+// handlersReloadServices mirrors the package-private reloadServices
+// constant in setup.go so tests can size the fake reloader's done
+// channel correctly.
+var handlersReloadServices = []string{ //nolint:gochecknoglobals // test-scoped slice mirroring an unexported package constant
+	"wireless", "network", "dhcp", "firewall", "system", "mesh11sd",
+}
+
+// waitForReloadGoroutine blocks until either every reloadService has
+// been invoked or the timeout elapses. Tests use this to synchronize
+// with the fire-and-forget reload goroutine.
+func waitForReloadGoroutine(t *testing.T, r *fakeServiceReloader, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	for i := 0; i < len(handlersReloadServices); i++ {
+		select {
+		case <-r.done:
+			// Got one.
+		case <-deadline.C:
+			t.Fatalf("reload goroutine did not finish within %s (got %d/%d)",
+				timeout, i, len(handlersReloadServices))
+		}
+	}
+}
+
+func TestApplySetup_MeshPointExtender_HappyPath(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, deps := newFullSetupService(t, cfg)
+
+	collector := &streamCollector{}
+
+	err := svc.ApplySetupForTest(context.Background(), minimalProfile(), collector)
+	require.NoError(t, err, "happy path should return nil")
+
+	// Snapshotter was invoked exactly once.
+	assert.Equal(t, 1, deps.Snap.snapshotCalls)
+	assert.Equal(t, 0, deps.Snap.restoreCalls, "happy path must not roll back")
+
+	// Snapshot scope covered all six wizard configs.
+	require.NotNil(t, deps.Snap.lastSnapshot)
+	assert.ElementsMatch(t, []string{
+		"wireless", "network", "dhcp", "firewall", "system", "mesh11sd",
+	}, deps.Snap.lastSnapshot.configs)
+
+	// Hostname setter saw the user's hostname.
+	assert.Equal(t, []string{"openmanet-1"}, deps.Host.calls)
+
+	// Password setter saw root + the admin password.
+	calls := deps.Pass.callsCopy()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "root", calls[0].username)
+	assert.Equal(t, "supersecret", calls[0].password)
+
+	// All 14 phases fired (PHASE_VALIDATE through PHASE_PERSIST_FLAGS)
+	// plus PHASE_TERMINAL with success.
+	wantPhases := []setupv1.ApplySetupResponse_Phase{
+		setupv1.ApplySetupResponse_PHASE_VALIDATE,
+		setupv1.ApplySetupResponse_PHASE_SNAPSHOT,
+		setupv1.ApplySetupResponse_PHASE_RESET_WIRELESS,
+		setupv1.ApplySetupResponse_PHASE_RESET_NETWORK,
+		setupv1.ApplySetupResponse_PHASE_HOSTNAME,
+		setupv1.ApplySetupResponse_PHASE_BASE_NETWORK,
+		setupv1.ApplySetupResponse_PHASE_WIRELESS_MESH,
+		setupv1.ApplySetupResponse_PHASE_PER_RADIO_AP_STA,
+		setupv1.ApplySetupResponse_PHASE_SCENARIO_TOPOLOGY,
+		setupv1.ApplySetupResponse_PHASE_BATMAN_ADV,
+		setupv1.ApplySetupResponse_PHASE_MESH11SD,
+		setupv1.ApplySetupResponse_PHASE_COMMIT,
+		setupv1.ApplySetupResponse_PHASE_PASSWORD,
+		setupv1.ApplySetupResponse_PHASE_PERSIST_FLAGS,
+	}
+
+	for _, want := range wantPhases {
+		found := false
+
+		for _, ev := range collector.sent {
+			if ev.GetPhase() == want && ev.GetStatus() == setupv1.ApplySetupResponse_STATUS_DONE {
+				found = true
+
+				break
+			}
+		}
+
+		assert.Truef(t, found, "missing DONE event for phase %v", want)
+	}
+
+	// Last event is PHASE_TERMINAL DONE with success=true.
+	last := collector.sent[len(collector.sent)-1]
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_TERMINAL, last.GetPhase())
+	assert.Equal(t, setupv1.ApplySetupResponse_STATUS_DONE, last.GetStatus())
+
+	require.NotNil(t, last.GetResult())
+	assert.True(t, last.GetResult().GetSuccess())
+	assert.Equal(t, "https://openmanet-1.local:8081/login", last.GetResult().GetExpectedUrl())
+
+	// Reload goroutine should have run reload on every wizard service.
+	waitForReloadGoroutine(t, deps.Reloader, 2*time.Second)
+	assert.ElementsMatch(t, handlersReloadServices, deps.Reloader.reloadCallsCopy())
+	assert.Empty(t, deps.Reloader.restartCallsCopy(), "all reloads succeeded; no restart fallback")
+
+	// Setup-complete and auth-enable flags now true.
+	assert.True(t, cfg.GetSetupComplete())
+	assert.True(t, cfg.GetAuthEnable())
+}
+
+func TestApplySetup_MeshGateRouterEth_HappyPath(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, deps := newFullSetupService(t, cfg)
+
+	prof := minimalProfile()
+	prof.Role = setupv1.MeshRole_MESH_ROLE_MESH_GATE
+	prof.DeviceMode = &setupv1.MeshNodeProfile_MeshgateMode{
+		MeshgateMode: setupv1.MeshGateMode_MESH_GATE_MODE_ROUTER,
+	}
+	prof.Uplink = &setupv1.Uplink{
+		Type:         setupv1.UplinkType_UPLINK_TYPE_ETHERNET,
+		EthernetPort: "eth0",
+	}
+
+	collector := &streamCollector{}
+	err := svc.ApplySetupForTest(context.Background(), prof, collector)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, deps.Snap.snapshotCalls)
+	assert.Equal(t, 0, deps.Snap.restoreCalls)
+
+	last := collector.sent[len(collector.sent)-1]
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_TERMINAL, last.GetPhase())
+	require.NotNil(t, last.GetResult())
+	assert.True(t, last.GetResult().GetSuccess())
+}
+
+func TestApplySetup_SnapshotFailureRollsBack(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, deps := newFullSetupService(t, cfg)
+	deps.Snap.snapshotErr = assert.AnError
+
+	collector := &streamCollector{}
+	err := svc.ApplySetupForTest(context.Background(), minimalProfile(), collector)
+
+	requireConnectCode(t, err, connect.CodeInternal)
+
+	// Snapshot fails BEFORE any mutation, so no rollback is needed.
+	assert.Equal(t, 0, deps.Snap.restoreCalls)
+
+	// Final event is the terminal failure with PHASE_SNAPSHOT.
+	last := collector.sent[len(collector.sent)-1]
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_TERMINAL, last.GetPhase())
+
+	require.NotNil(t, last.GetResult())
+	assert.False(t, last.GetResult().GetSuccess())
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_SNAPSHOT,
+		last.GetResult().GetFailedPhase())
+}
+
+func TestApplySetup_HostnameSetterFailureRollsBack(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, deps := newFullSetupService(t, cfg)
+	deps.Host.err = assert.AnError
+
+	collector := &streamCollector{}
+	err := svc.ApplySetupForTest(context.Background(), minimalProfile(), collector)
+
+	requireConnectCode(t, err, connect.CodeInternal)
+
+	// Snapshot was taken; rollback was invoked exactly once.
+	assert.Equal(t, 1, deps.Snap.snapshotCalls)
+	assert.Equal(t, 1, deps.Snap.restoreCalls)
+
+	// Last event reports PHASE_HOSTNAME as the failed phase.
+	last := collector.sent[len(collector.sent)-1]
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_TERMINAL, last.GetPhase())
+	require.NotNil(t, last.GetResult())
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_HOSTNAME,
+		last.GetResult().GetFailedPhase())
+
+	// Flags must NOT have flipped on a failed apply.
+	assert.False(t, cfg.GetSetupComplete())
+	assert.False(t, cfg.GetAuthEnable())
+}
+
+func TestApplySetup_CommitFailureRollsBack(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, deps := newFullSetupService(t, cfg)
+
+	reader, ok := svc.UCI.(*fakeConfigReader)
+	require.True(t, ok)
+
+	reader.commitError = assert.AnError
+
+	collector := &streamCollector{}
+	err := svc.ApplySetupForTest(context.Background(), minimalProfile(), collector)
+
+	requireConnectCode(t, err, connect.CodeInternal)
+
+	assert.Equal(t, 1, deps.Snap.snapshotCalls)
+	assert.Equal(t, 1, deps.Snap.restoreCalls)
+
+	last := collector.sent[len(collector.sent)-1]
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_TERMINAL, last.GetPhase())
+	require.NotNil(t, last.GetResult())
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_COMMIT,
+		last.GetResult().GetFailedPhase())
+}
+
+func TestApplySetup_PasswordFailureRollsBackUCIButNotPassword(t *testing.T) {
+	// Password failure rolls UCI back from the snapshot but leaves
+	// the password as-is (the user knows what they typed; re-running
+	// chpasswd from the rollback could clobber a half-set password).
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, deps := newFullSetupService(t, cfg)
+	deps.Pass.err = assert.AnError
+
+	collector := &streamCollector{}
+	err := svc.ApplySetupForTest(context.Background(), minimalProfile(), collector)
+	requireConnectCode(t, err, connect.CodeInternal)
+
+	// Snapshot taken, rollback invoked.
+	assert.Equal(t, 1, deps.Snap.snapshotCalls)
+	assert.Equal(t, 1, deps.Snap.restoreCalls)
+
+	// Password setter was called but failed.
+	require.Len(t, deps.Pass.callsCopy(), 1)
+
+	last := collector.sent[len(collector.sent)-1]
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_TERMINAL, last.GetPhase())
+	require.NotNil(t, last.GetResult())
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_PASSWORD,
+		last.GetResult().GetFailedPhase())
+
+	// Flags stay false on password failure.
+	assert.False(t, cfg.GetSetupComplete())
+	assert.False(t, cfg.GetAuthEnable())
+}
+
+func TestApplySetup_PersistFlagsFailureDoesNotRollback(t *testing.T) {
+	// PersistFlags failure leaves UCI in the new state but flags
+	// stay false. The user re-runs the wizard; the reset phases
+	// handle leftover state. UCI rollback would actively make this
+	// worse — the device is already in its target UCI state, just
+	// missing the durable flag flip.
+	//
+	// We trigger the failure by handing the service a *config.Config
+	// with setup.enabled=true but no config file path, so
+	// PersistSetupAndAuth's "no config file path configured" check
+	// fails.
+	v := viper.New()
+	v.Set("setup.enabled", true)
+
+	cfg := config.NewWithoutWatch(v)
+	deps := &fullDeps{
+		Snap:     &fakeSnapshotter{},
+		Host:     &fakeHostnameSetter{},
+		Pass:     &fakePasswordSetter{},
+		Reloader: newFakeReloader(len(handlersReloadServices)),
+	}
+
+	svc := &handlers.SetupService{
+		Cfg:            cfg,
+		Log:            zerolog.Nop(),
+		UCI:            newFullSetupReader(),
+		Snapshotter:    deps.Snap,
+		HostnameSetter: deps.Host,
+		PasswordSetter: deps.Pass,
+		Reloader:       deps.Reloader,
+		Interfaces:     &fakeInterfaceProvider{},
+	}
+
+	collector := &streamCollector{}
+	err := svc.ApplySetupForTest(context.Background(), minimalProfile(), collector)
+	requireConnectCode(t, err, connect.CodeInternal)
+
+	// Phase 14 fail: do NOT roll back.
+	assert.Equal(t, 1, deps.Snap.snapshotCalls)
+	assert.Equal(t, 0, deps.Snap.restoreCalls,
+		"phase 14 failure must NOT roll back UCI")
+
+	last := collector.sent[len(collector.sent)-1]
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_TERMINAL, last.GetPhase())
+	require.NotNil(t, last.GetResult())
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_PERSIST_FLAGS,
+		last.GetResult().GetFailedPhase())
+}
+
+func TestApplySetup_ReloadFailuresFallBackToRestart(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, deps := newFullSetupService(t, cfg)
+
+	// Configure the reloader to fail every Reload but succeed on
+	// Restart so the fallback path is exercised.
+	deps.Reloader.reloadErr = assert.AnError
+
+	collector := &streamCollector{}
+	err := svc.ApplySetupForTest(context.Background(), minimalProfile(), collector)
+	require.NoError(t, err, "happy-path apply still succeeds when reload falls back")
+
+	waitForReloadGoroutine(t, deps.Reloader, 2*time.Second)
+
+	assert.ElementsMatch(t, handlersReloadServices, deps.Reloader.reloadCallsCopy())
+	assert.ElementsMatch(t, handlersReloadServices, deps.Reloader.restartCallsCopy())
+}
+
+func TestApplySetup_ReloadCompleteFailureStillReturnsSuccess(t *testing.T) {
+	// Both reload AND restart fail for every service. The wizard
+	// still returns success because UCI + flags are durably written;
+	// the user just needs to reboot to pick up the new config.
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, deps := newFullSetupService(t, cfg)
+	deps.Reloader.reloadErr = assert.AnError
+	deps.Reloader.restartErr = assert.AnError
+
+	collector := &streamCollector{}
+	err := svc.ApplySetupForTest(context.Background(), minimalProfile(), collector)
+	require.NoError(t, err)
+
+	last := collector.sent[len(collector.sent)-1]
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_TERMINAL, last.GetPhase())
+	require.NotNil(t, last.GetResult())
+	assert.True(t, last.GetResult().GetSuccess())
+}
+
+func TestApplySetup_NoSnapshotterIsAllowed(t *testing.T) {
+	// Without a snapshotter configured the wizard still runs but
+	// rollback becomes a no-op. Useful for environments that handle
+	// snapshotting at a different layer. Without a PasswordSetter,
+	// phase 13 fails with CodeInternal — that's expected here; the
+	// test just verifies the snapshot phase emits its events.
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+
+	svc := &handlers.SetupService{
+		Cfg:        cfg,
+		Log:        zerolog.Nop(),
+		UCI:        newFullSetupReader(),
+		Interfaces: &fakeInterfaceProvider{},
+	}
+
+	collector := &streamCollector{}
+	err := svc.ApplySetupForTest(context.Background(), minimalProfile(), collector)
+
+	// Without a PasswordSetter, phase 13 fails with Internal.
+	requireConnectCode(t, err, connect.CodeInternal)
+
+	// Snapshot phase emitted both events even without a snapshotter.
+	startedFound := false
+	doneFound := false
+
+	for _, ev := range collector.sent {
+		if ev.GetPhase() != setupv1.ApplySetupResponse_PHASE_SNAPSHOT {
+			continue
+		}
+
+		switch ev.GetStatus() {
+		case setupv1.ApplySetupResponse_STATUS_STARTED:
+			startedFound = true
+		case setupv1.ApplySetupResponse_STATUS_DONE:
+			doneFound = true
+		}
+	}
+
+	assert.True(t, startedFound)
+	assert.True(t, doneFound)
+}
+
+func TestApplySetup_PhasesEmitInCorrectOrder(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, deps := newFullSetupService(t, cfg)
+
+	collector := &streamCollector{}
+	_ = svc.ApplySetupForTest(context.Background(), minimalProfile(), collector)
+
+	// Filter to STARTED events and assert the order matches the
+	// canonical phase sequence (14 mutation phases plus the
+	// terminal event).
+	startedSequence := []setupv1.ApplySetupResponse_Phase{}
+
+	for _, ev := range collector.sent {
+		if ev.GetStatus() == setupv1.ApplySetupResponse_STATUS_STARTED {
+			startedSequence = append(startedSequence, ev.GetPhase())
+		}
+	}
+
+	assert.Equal(t, []setupv1.ApplySetupResponse_Phase{
+		setupv1.ApplySetupResponse_PHASE_VALIDATE,
+		setupv1.ApplySetupResponse_PHASE_SNAPSHOT,
+		setupv1.ApplySetupResponse_PHASE_RESET_WIRELESS,
+		setupv1.ApplySetupResponse_PHASE_RESET_NETWORK,
+		setupv1.ApplySetupResponse_PHASE_HOSTNAME,
+		setupv1.ApplySetupResponse_PHASE_BASE_NETWORK,
+		setupv1.ApplySetupResponse_PHASE_WIRELESS_MESH,
+		setupv1.ApplySetupResponse_PHASE_PER_RADIO_AP_STA,
+		setupv1.ApplySetupResponse_PHASE_SCENARIO_TOPOLOGY,
+		setupv1.ApplySetupResponse_PHASE_BATMAN_ADV,
+		setupv1.ApplySetupResponse_PHASE_MESH11SD,
+		setupv1.ApplySetupResponse_PHASE_COMMIT,
+		setupv1.ApplySetupResponse_PHASE_PASSWORD,
+		setupv1.ApplySetupResponse_PHASE_PERSIST_FLAGS,
+	}, startedSequence)
+
+	waitForReloadGoroutine(t, deps.Reloader, 2*time.Second)
 }

@@ -151,13 +151,16 @@ func TestAddDefaultWanFirewallRules_AllowPingUsesSingleIcmpTypeOption(t *testing
 	// Single-value icmp_type written as option (not list).
 	calls := m.setTypeCalls
 	found := false
+
 	for _, c := range calls {
 		if c.section == pingSection && c.option == "icmp_type" {
 			assert.Equal(t, uci.TypeOption, c.typ, "single icmp_type should be option")
 			assert.Equal(t, []string{"echo-request"}, c.values)
+
 			found = true
 		}
 	}
+
 	assert.True(t, found, "Allow-Ping must set icmp_type")
 }
 

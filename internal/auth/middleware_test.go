@@ -97,6 +97,8 @@ func TestAPIAuthMiddleware_SkipPaths(t *testing.T) {
 		"/auth/login",
 		"/auth/check",
 		"/openmanet.dashboard.v1.DashboardService/GetDashboardStatus",
+		"/openmanet.setup.v1.SetupService/GetSetupStatus",
+		"/openmanet.setup.v1.SetupService/ApplySetup",
 	}
 
 	for _, path := range skipPaths {

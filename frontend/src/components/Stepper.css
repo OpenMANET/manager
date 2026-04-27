@@ -1,0 +1,81 @@
+/* =============================================================================
+   Stepper.css — multi-step progress indicator
+   ============================================================================= */
+
+.stepper {
+  list-style: none;
+  margin: 0 0 16px 0;
+  padding: 0;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  overflow-x: auto;
+}
+
+.stepper-item {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 64px;
+  color: var(--dim);
+}
+
+.stepper-dot {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+  font-weight: 600;
+  letter-spacing: 0;
+  font-size: 12px;
+}
+
+.stepper-label {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.stepper-active {
+  color: var(--accent);
+}
+
+.stepper-active .stepper-dot {
+  border-color: var(--accent);
+  background: var(--surface-hi);
+  color: var(--accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.stepper-done {
+  color: var(--muted);
+}
+
+.stepper-done .stepper-dot {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+@media (max-width: 640px) {
+  .stepper-label {
+    display: none;
+  }
+
+  .stepper {
+    justify-content: space-between;
+  }
+
+  .stepper-item {
+    min-width: 0;
+    flex: 0 0 auto;
+  }
+}

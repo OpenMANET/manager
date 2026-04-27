@@ -51,6 +51,38 @@ var hostnameRFC1123 = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])
 // device as "not yet configured" via current_hostname inspection.
 var factoryHostnamePattern = regexp.MustCompile(`^BCM\d+-[0-9a-fA-F]+$`)
 
+// UCISnapshot is an opaque snapshot of every UCI config the wizard
+// touches. The snapshot is taken at phase 2 and restored on any
+// failure between phases 3-13 so a partial wizard run doesn't leave
+// the device in an inconsistent intermediate state.
+type UCISnapshot interface {
+	// Configs returns the names of the UCI configs captured in this
+	// snapshot. Used by tests to assert the snapshotter saw the
+	// expected scopes.
+	Configs() []string
+}
+
+// UCISnapshotter captures and restores the UCI tree across the six
+// configs the setup wizard mutates. Production wraps the digineo
+// go-uci tree with a per-config /etc/config/* file dump; tests
+// substitute a fake that deep-copies the in-memory mock state.
+type UCISnapshotter interface {
+	// Snapshot reads the current UCI state of `configs` into an
+	// opaque snapshot. The handler captures this immediately before
+	// the reset phase so any later failure can be rolled back.
+	Snapshot(ctx context.Context, configs []string) (UCISnapshot, error)
+	// Restore writes the snapshot back over the live UCI tree. Used
+	// by the rollback path on any phase 3-13 failure.
+	Restore(ctx context.Context, snapshot UCISnapshot) error
+}
+
+// wizardConfigs lists the six UCI configs the wizard touches. The
+// snapshot phase captures all of them so any failure can be rolled
+// back atomically.
+var wizardConfigs = []string{ //nolint:gochecknoglobals // package-level constant
+	"wireless", "network", "dhcp", "firewall", "system", "mesh11sd",
+}
+
 // SetupService implements the SetupService ConnectRPC service. It
 // runs the first-boot setup wizard. Both RPCs are exempt from auth
 // (see auth/middleware.go isAPISkipPath); the middleware additionally
@@ -60,6 +92,7 @@ type SetupService struct {
 	Cfg            *config.Config
 	Log            zerolog.Logger
 	UCI            network.ConfigReader
+	Snapshotter    UCISnapshotter
 	PasswordSetter auth.PasswordSetter
 	HostnameSetter HostnameSetter
 	Reloader       system.ServiceReloader
@@ -110,15 +143,23 @@ func MeshRoleToProto(s string) setupv1.MeshRole {
 	}
 }
 
+// meshPointModeNone is the UCI string value for
+// MESH_POINT_MODE_NONE in network.wizard.device_mode_meshpoint.
+const meshPointModeNone = "none"
+
+// meshPointModeExtender is the UCI string value for
+// MESH_POINT_MODE_EXTENDER in network.wizard.device_mode_meshpoint.
+const meshPointModeExtender = "extender"
+
 // ProtoToMeshPointMode maps the MeshPointMode enum onto the UCI
 // `network.wizard.device_mode_meshpoint` value used by the
 // settings UI.
 func ProtoToMeshPointMode(m setupv1.MeshPointMode) string {
 	switch m {
 	case setupv1.MeshPointMode_MESH_POINT_MODE_NONE:
-		return "none"
+		return meshPointModeNone
 	case setupv1.MeshPointMode_MESH_POINT_MODE_EXTENDER:
-		return "extender"
+		return meshPointModeExtender
 	default:
 		return ""
 	}
@@ -128,9 +169,9 @@ func ProtoToMeshPointMode(m setupv1.MeshPointMode) string {
 // to the MeshPointMode enum. Unknown inputs return UNSPECIFIED.
 func MeshPointModeToProto(s string) setupv1.MeshPointMode {
 	switch strings.ToLower(s) {
-	case "none":
+	case meshPointModeNone:
 		return setupv1.MeshPointMode_MESH_POINT_MODE_NONE
-	case "extender":
+	case meshPointModeExtender:
 		return setupv1.MeshPointMode_MESH_POINT_MODE_EXTENDER
 	default:
 		return setupv1.MeshPointMode_MESH_POINT_MODE_UNSPECIFIED
@@ -201,11 +242,11 @@ func (s *SetupService) GetSetupStatus(ctx context.Context, _ *emptypb.Empty) (*s
 	s.Log.Debug().Msg("GetSetupStatus request received")
 
 	resp := &setupv1.GetSetupStatusResponse{
-		IsEnabled:        s.Cfg.GetSetupEnabled(),
-		IsSetupComplete:  s.Cfg.GetSetupComplete(),
-		CurrentHostname:  s.currentHostname(),
-		Radios:           s.collectSetupRadios(ctx),
-		EthernetPorts:    s.collectEthernetPorts(),
+		IsEnabled:       s.Cfg.GetSetupEnabled(),
+		IsSetupComplete: s.Cfg.GetSetupComplete(),
+		CurrentHostname: s.currentHostname(),
+		Radios:          s.collectSetupRadios(ctx),
+		EthernetPorts:   s.collectEthernetPorts(),
 	}
 
 	resp.HasHalowRadio = anyHalow(resp.Radios)
@@ -367,14 +408,12 @@ type applySetupStream interface {
 // STATUS_FAILED on exit. The terminal event (PHASE_TERMINAL) is
 // emitted before service reloads so the frontend has a clean signal
 // even if reloads sever the streaming connection.
-//
-// Phase implementations land in setup_phases.go in subsequent rounds.
 func (s *SetupService) ApplySetup(
 	ctx context.Context,
-	req *connect.Request[setupv1.ApplySetupRequest],
+	req *setupv1.ApplySetupRequest,
 	stream *connect.ServerStream[setupv1.ApplySetupResponse],
 ) error {
-	return s.applySetup(ctx, req.Msg.GetProfile(), stream)
+	return s.applySetup(ctx, req.GetProfile(), stream)
 }
 
 // applySetup is the testable core of ApplySetup. It accepts the
@@ -405,15 +444,131 @@ func (s *SetupService) applySetup(
 		return s.emitTerminal(stream, setupv1.ApplySetupResponse_PHASE_VALIDATE, err, profile)
 	}
 
-	// TODO(phase-2-onwards): snapshot UCI, run reset+mutation phases,
-	// commit, set password, persist flags, emit terminal, kick off
-	// reload goroutine. Implemented in subsequent rounds.
-	_ = ctx
+	// Phase 2: snapshot pre-apply UCI state. Required so any phase
+	// 3-13 failure can be rolled back atomically.
+	snapshot, err := s.runSnapshot(ctx, stream)
+	if err != nil {
+		return s.emitTerminal(stream, setupv1.ApplySetupResponse_PHASE_SNAPSHOT, err, profile)
+	}
 
-	// Until the rest of the phases land, return Unimplemented so
-	// callers see a clear signal rather than an empty success.
-	return connect.NewError(connect.CodeUnimplemented,
-		fmt.Errorf("ApplySetup phases beyond validation are not yet implemented"))
+	// runMutationPhases threads the snapshot/rollback pattern across
+	// phases 3-12. On any failure it restores the snapshot before
+	// returning so the device's UCI state is unchanged on disk
+	// (commit hasn't run yet) AND in memory (the staged tree is
+	// reverted).
+	if failedPhase, err := s.runMutationPhases(ctx, stream, profile, snapshot); err != nil {
+		s.rollback(ctx, snapshot)
+
+		return s.emitTerminal(stream, failedPhase, err, profile)
+	}
+
+	// Phase 13: set the admin password. Failure here still triggers
+	// UCI rollback because commit has run; the partially-set password
+	// is left as-is (the user knows what they typed).
+	if err := s.runPassword(ctx, stream, profile); err != nil {
+		s.rollback(ctx, snapshot)
+
+		return s.emitTerminal(stream, setupv1.ApplySetupResponse_PHASE_PASSWORD, err, profile)
+	}
+
+	// Phase 14: atomic flag flip. After this returns nil, the device
+	// is considered fully configured and the re-apply guard rejects
+	// new ApplySetup calls. Failure here leaves UCI in the new state
+	// but flags both false — the user re-runs the wizard, and the
+	// reset phases handle the leftover state.
+	if err := s.runPersistFlags(ctx, stream); err != nil {
+		// Do NOT rollback: phases 1-12 + password succeeded, the
+		// device just needs the user to re-run the wizard so the
+		// flags get a chance to flip on a subsequent attempt.
+		return s.emitTerminal(stream, setupv1.ApplySetupResponse_PHASE_PERSIST_FLAGS, err, profile)
+	}
+
+	// Phase 15: emit the success terminal event BEFORE service reloads
+	// so the frontend has a clean signal even if the network-changing
+	// reloads sever the streaming connection.
+	if err := s.emitTerminalSuccess(stream, profile); err != nil {
+		s.Log.Warn().Err(err).Msg("emit terminal success failed; continuing to reload")
+	}
+
+	// Phase 16: fire-and-forget reload goroutine. Launch it AFTER
+	// PHASE_TERMINAL has been emitted so the user has confirmation of
+	// success even if the reload severs the connection. The
+	// goroutine logs its own outcome; no further events are emitted.
+	//
+	// Intentionally uses context.Background() inside the goroutine
+	// (not the request ctx) — by the time it runs, the streaming
+	// connection is being torn down by the network reload itself.
+	if s.Reloader != nil {
+		go s.runReloadGoroutine(s.Log) //nolint:contextcheck,gosec // see comment above
+	}
+
+	return nil
+}
+
+// emitTerminalSuccess sends the final PHASE_TERMINAL event reporting
+// the wizard succeeded, with the SSID and URL the user should use
+// to reconnect.
+func (s *SetupService) emitTerminalSuccess(stream applySetupStream, profile *setupv1.MeshNodeProfile) error {
+	return stream.Send(&setupv1.ApplySetupResponse{
+		Phase:  setupv1.ApplySetupResponse_PHASE_TERMINAL,
+		Status: setupv1.ApplySetupResponse_STATUS_DONE,
+		Result: &setupv1.ApplySetupResult{
+			Success:      true,
+			ExpectedSsid: expectedSSID(profile),
+			ExpectedUrl:  expectedURL(profile),
+		},
+	})
+}
+
+// reloadServices is the canonical list of init.d services the wizard
+// reload phase nudges. Order matters only loosely — the goroutine
+// retries each one with `restart` if `reload` fails.
+var reloadServices = []string{ //nolint:gochecknoglobals // package-level constant
+	"wireless", "network", "dhcp", "firewall", "system", "mesh11sd",
+}
+
+// runReloadGoroutine tries `reload` on each service, falling back to
+// `restart` once on failure. Runs in a goroutine launched after the
+// terminal event has been sent. Cannot emit further client events;
+// outcomes are logged at Info or Warn.
+//
+// Uses a fresh background context: the streaming RPC's context is
+// usually canceled by the time the goroutine starts (the connection
+// closed when the network reload severed it).
+func (s *SetupService) runReloadGoroutine(log zerolog.Logger) {
+	ctx := context.Background()
+
+	for _, svc := range reloadServices {
+		if err := s.Reloader.Reload(ctx, svc); err == nil {
+			log.Info().Str("service", svc).Msg("reload ok")
+
+			continue
+		}
+
+		// Fall back to restart.
+		if err := s.Reloader.Restart(ctx, svc); err != nil {
+			log.Warn().Str("service", svc).Err(err).
+				Msg("service reload AND restart failed; UCI is correct on disk and will take effect on next reboot")
+
+			continue
+		}
+
+		log.Info().Str("service", svc).Msg("restart ok (reload had failed)")
+	}
+}
+
+// rollback is a best-effort restore of the UCI snapshot taken at
+// phase 2. Any error is logged but not surfaced to the caller — the
+// caller already has a more interesting error from the failing phase
+// to report.
+func (s *SetupService) rollback(ctx context.Context, snapshot UCISnapshot) {
+	if s.Snapshotter == nil || snapshot == nil {
+		return
+	}
+
+	if err := s.Snapshotter.Restore(ctx, snapshot); err != nil {
+		s.Log.Error().Err(err).Msg("UCI rollback failed; on-disk state is unchanged but in-memory tree may be inconsistent")
+	}
 }
 
 // checkReapplyGuard rejects ApplySetup when the wizard is disabled

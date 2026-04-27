@@ -131,7 +131,7 @@ func TestInitDReloader_ContextCancellation(t *testing.T) {
 	cancel() // cancel immediately
 
 	err := r.Reload(ctx, "slow")
-	assert.Error(t, err, "cancelled context should produce an error")
+	assert.Error(t, err, "canceled context should produce an error")
 }
 
 func TestInitDReloader_DefaultInitDirWhenEmpty(t *testing.T) {

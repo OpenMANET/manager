@@ -3,6 +3,7 @@ package openmanet
 import (
 	"context"
 	"io/fs"
+	"math/rand"
 	"net/http"
 	_ "net/http/pprof" //nolint:gosec
 	"os"
@@ -215,6 +216,19 @@ func Start(staticFS fs.FS) {
 	// Start API Server
 	interfaceProvider := &network.NetlinkInterfaceProvider{}
 
+	// Setup wizard wiring: shared UCI reader (production wraps the
+	// default go-uci tree, so all six wizard configs are addressed
+	// through one reader). Snapshotter is left nil — production
+	// rollback is provided by the operator's deployment automation
+	// (e.g. SquashFS overlay snapshots) rather than a per-config dump
+	// inside the daemon. Without a snapshotter the wizard logs
+	// "rollback disabled" and continues; commit failures are
+	// reported to the user but UCI on disk may be partially updated
+	// (acceptable since the user re-runs the wizard, which resets
+	// everything before applying again).
+	setupReader := network.NewUCIWirelessConfigReader()
+	setupRNG := rand.New(rand.NewSource(time.Now().UnixNano()))
+
 	apiServer := server.APIServer{
 		Cfg:                   cfg,
 		Log:                   logger.GetLogger("api"),
@@ -239,10 +253,16 @@ func Start(staticFS fs.FS) {
 		Leases: &network.UbusLeaseProvider{
 			Executor: &network.DefaultUbusExecutor{},
 		},
-		SessionStore:  sessionStore,
-		Authenticator: authenticator,
-		Sysupgrade:    sysupgradeMgr,
-		AuthEnabled:   cfg.GetAuthEnable(),
+		SessionStore:        sessionStore,
+		Authenticator:       authenticator,
+		Sysupgrade:          sysupgradeMgr,
+		AuthEnabled:         cfg.GetAuthEnable(),
+		SetupUCIReader:      setupReader,
+		SetupSnapshotter:    nil, // see comment above
+		SetupPasswordSetter: &auth.ChpasswdSetter{},
+		SetupHostnameSetter: &handlers.DefaultHostnameSetter{Reader: setupReader},
+		SetupReloader:       &system.InitDReloader{},
+		SetupRNG:            setupRNG,
 	}
 
 	if manager != nil {
