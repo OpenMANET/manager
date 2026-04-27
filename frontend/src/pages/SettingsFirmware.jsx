@@ -331,6 +331,17 @@ function UploadFirmwarePanel({
   inFlight,
   error,
   fileInputRef,
+  options,
+  onChangeOption,
+  forceUnknown,
+  onChangeForceUnknown,
+  unknownVersion,
+  skipPreflight,
+  onChangeSkipPreflight,
+  onCancelSelection,
+  onConfirm,
+  startBusy,
+  startError,
 }) {
   const uploading = uploadState.status === 'uploading';
   const showStaged = !!staged;
@@ -472,18 +483,16 @@ function UploadFirmwarePanel({
             </div>
           )}
 
-          <div className="confirm-actions">
-            <button
-              type="button"
-              className="lat-btn ghost"
-              onClick={onDiscard}
-              disabled={disabled || inFlight}
-            >
-              Discard
-            </button>
-            {installSelected ? (
-              <span className="lat-chip"><span className="dot" />Selected</span>
-            ) : (
+          {!installSelected && (
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="lat-btn ghost"
+                onClick={onDiscard}
+                disabled={disabled || inFlight}
+              >
+                Discard
+              </button>
               <button
                 type="button"
                 className="lat-btn primary"
@@ -492,8 +501,25 @@ function UploadFirmwarePanel({
               >
                 Install Staged Image
               </button>
-            )}
-          </div>
+            </div>
+          )}
+
+          {installSelected && (
+            <StagedImageInstallForm
+              staged={staged}
+              options={options}
+              onChangeOption={onChangeOption}
+              forceUnknown={forceUnknown}
+              onChangeForceUnknown={onChangeForceUnknown}
+              unknownVersion={unknownVersion}
+              skipPreflight={skipPreflight}
+              onChangeSkipPreflight={onChangeSkipPreflight}
+              onCancel={onCancelSelection}
+              onConfirm={onConfirm}
+              busy={startBusy}
+              startError={startError}
+            />
+          )}
         </>
       )}
     </section>
@@ -501,79 +527,39 @@ function UploadFirmwarePanel({
 }
 
 // ---------------------------------------------------------------------------
-// ConfirmUpgradeCard — inline expansion below the selected row
+// StagedImageInstallForm — inline confirm form rendered inside
+// UploadFirmwarePanel once the operator has chosen to install. Keeping
+// the form inside the panel (rather than a sibling card) means the
+// entire upload-→-install flow is anchored to one visual element, so
+// clicking "Install Staged Image" never leaves the operator wondering
+// whether anything happened.
 // ---------------------------------------------------------------------------
 
-function ConfirmUpgradeCard({
-  source = 'release',
-  update,
+function StagedImageInstallForm({
   staged,
-  release,
-  releaseLoading,
-  releaseError,
   options,
   onChangeOption,
-  onCancel,
-  onConfirm,
-  busy,
-  startError,
   forceUnknown,
   onChangeForceUnknown,
   unknownVersion,
   skipPreflight,
   onChangeSkipPreflight,
+  onCancel,
+  onConfirm,
+  busy,
+  startError,
 }) {
-  const isLocal = source === 'local';
-  const tag = update?.release?.tag ?? '';
-  const assetName = isLocal
-    ? (staged?.filename ?? '')
-    : (update?.matchedAsset?.name ?? '');
-  const sizeBytes = isLocal
-    ? (staged?.sizeBytes ?? 0)
-    : (update?.matchedAsset?.sizeBytes ?? 0);
-
-  const notes = useMemo(() => {
-    if (isLocal) return [];
-    const body = release?.body ?? update?.release?.body ?? '';
-    return renderReleaseNotes(body);
-  }, [isLocal, release, update]);
-
   const optionConflict = options.testOnly && options.force;
-  const preflightBlock = isLocal && staged && !staged.preflightOk && !skipPreflight;
+  const preflightBlock = staged && !staged.preflightOk && !skipPreflight;
 
   return (
-    <div className="firmware-confirm">
+    <div className="firmware-confirm staged-install-form">
       <div className="confirm-summary">
-        {isLocal ? (
-          <>
-            Install <strong>uploaded image</strong><br />
-            File: <code>{assetName}</code>
-            {sizeBytes > 0 && <> · {formatBytes(sizeBytes)}</>}
-            {staged?.sha256 && <><br />SHA-256: <code>{staged.sha256}</code></>}
-          </>
-        ) : (
-          <>
-            Install <strong>{tag}</strong><br />
-            Asset: <code>{assetName}</code>
-            {sizeBytes > 0 && <> · {formatBytes(sizeBytes)}</>}
-          </>
-        )}
+        Install <strong>uploaded image</strong><br />
+        File: <code>{staged?.filename ?? ''}</code>
+        {staged?.sizeBytes > 0 && <> · {formatBytes(staged.sizeBytes)}</>}
+        {staged?.sha256 && <><br />SHA-256: <code>{staged.sha256}</code></>}
       </div>
-
-      {!isLocal && (
-        <div className="release-notes">
-          {releaseLoading && (
-            <p className="release-empty"><em>Loading release notes…</em></p>
-          )}
-          {!releaseLoading && releaseError && (
-            <p className="release-empty"><em>{errorMessage(releaseError)}</em></p>
-          )}
-          {!releaseLoading && !releaseError && notes.length > 0 && notes}
-          {!releaseLoading && !releaseError && notes.length === 0 && (
-            <p className="release-empty"><em>No release notes provided.</em></p>
-          )}
-        </div>
-      )}
 
       <div className="options-row">
         <label className="lat-check">
@@ -632,7 +618,7 @@ function ConfirmUpgradeCard({
             Allow install with unknown current version
           </label>
         )}
-        {isLocal && staged && !staged.preflightOk && (
+        {staged && !staged.preflightOk && (
           <label className="lat-check crit-text">
             <input
               type="checkbox"
@@ -676,7 +662,12 @@ function ConfirmUpgradeCard({
       )}
 
       <div className="confirm-actions">
-        <button type="button" className="lat-btn ghost" onClick={onCancel} disabled={busy}>
+        <button
+          type="button"
+          className="lat-btn ghost"
+          onClick={onCancel}
+          disabled={busy}
+        >
           Cancel
         </button>
         <button
@@ -684,6 +675,157 @@ function ConfirmUpgradeCard({
           className="lat-btn danger"
           onClick={onConfirm}
           disabled={busy || optionConflict || preflightBlock}
+        >
+          Install — Device Will Reboot
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ConfirmUpgradeCard — inline expansion below the selected release row
+// (the staged-image flow uses StagedImageInstallForm inside the upload
+// panel instead).
+// ---------------------------------------------------------------------------
+
+function ConfirmUpgradeCard({
+  update,
+  release,
+  releaseLoading,
+  releaseError,
+  options,
+  onChangeOption,
+  onCancel,
+  onConfirm,
+  busy,
+  startError,
+  forceUnknown,
+  onChangeForceUnknown,
+  unknownVersion,
+}) {
+  const tag = update?.release?.tag ?? '';
+  const assetName = update?.matchedAsset?.name ?? '';
+  const sizeBytes = update?.matchedAsset?.sizeBytes ?? 0;
+
+  const notes = useMemo(() => {
+    const body = release?.body ?? update?.release?.body ?? '';
+    return renderReleaseNotes(body);
+  }, [release, update]);
+
+  const optionConflict = options.testOnly && options.force;
+
+  return (
+    <div className="firmware-confirm">
+      <div className="confirm-summary">
+        Install <strong>{tag}</strong><br />
+        Asset: <code>{assetName}</code>
+        {sizeBytes > 0 && <> · {formatBytes(sizeBytes)}</>}
+      </div>
+
+      <div className="release-notes">
+        {releaseLoading && (
+          <p className="release-empty"><em>Loading release notes…</em></p>
+        )}
+        {!releaseLoading && releaseError && (
+          <p className="release-empty"><em>{errorMessage(releaseError)}</em></p>
+        )}
+        {!releaseLoading && !releaseError && notes.length > 0 && notes}
+        {!releaseLoading && !releaseError && notes.length === 0 && (
+          <p className="release-empty"><em>No release notes provided.</em></p>
+        )}
+      </div>
+
+      <div className="options-row">
+        <label className="lat-check">
+          <input
+            type="checkbox"
+            checked={!options.noPreserveConfig}
+            onChange={(e) => onChangeOption('noPreserveConfig', !e.target.checked)}
+            disabled={busy}
+          />
+          Preserve configuration
+        </label>
+        <label className="lat-check">
+          <input
+            type="checkbox"
+            checked={options.testOnly}
+            onChange={(e) => onChangeOption('testOnly', e.target.checked)}
+            disabled={busy}
+          />
+          Test only (-T)
+        </label>
+        <label className="lat-check">
+          <input
+            type="checkbox"
+            checked={options.verbose}
+            onChange={(e) => onChangeOption('verbose', e.target.checked)}
+            disabled={busy}
+          />
+          Verbose (-v)
+        </label>
+        <label className="lat-check warn-text">
+          <input
+            type="checkbox"
+            checked={options.quiet}
+            onChange={(e) => onChangeOption('quiet', e.target.checked)}
+            disabled={busy}
+          />
+          Quiet (-q)
+        </label>
+        <label className="lat-check crit-text">
+          <input
+            type="checkbox"
+            checked={options.force}
+            onChange={(e) => onChangeOption('force', e.target.checked)}
+            disabled={busy}
+          />
+          Force (-F)
+        </label>
+        {unknownVersion && (
+          <label className="lat-check warn-text">
+            <input
+              type="checkbox"
+              checked={forceUnknown}
+              onChange={(e) => onChangeForceUnknown(e.target.checked)}
+              disabled={busy}
+            />
+            Allow install with unknown current version
+          </label>
+        )}
+      </div>
+
+      {optionConflict && (
+        <div className="lat-alert crit">
+          <strong>Conflict.</strong> Test-only and Force are mutually exclusive.
+        </div>
+      )}
+
+      {options.noPreserveConfig ? (
+        <div className="lat-alert crit">
+          <strong>Wipe configuration.</strong> The device will reboot with default
+          settings. Network access may require a reset to defaults.
+        </div>
+      ) : (
+        <div className="lat-alert warn">
+          <strong>Heads up.</strong> This will reboot the device. Configuration
+          is preserved; toggle off above to wipe.
+        </div>
+      )}
+
+      {startError && (
+        <div className="lat-alert crit">{errorMessage(startError)}</div>
+      )}
+
+      <div className="confirm-actions">
+        <button type="button" className="lat-btn ghost" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="lat-btn danger"
+          onClick={onConfirm}
+          disabled={busy || optionConflict}
         >
           Install — Device Will Reboot
         </button>
@@ -1175,12 +1317,22 @@ export default function SettingsFirmware() {
             inFlight={inFlight}
             error={stagedError}
             fileInputRef={fileInputRef}
+            options={options}
+            onChangeOption={handleChangeOption}
+            forceUnknown={forceUnknown}
+            onChangeForceUnknown={setForceUnknown}
+            unknownVersion={unknownVersion}
+            skipPreflight={skipPreflight}
+            onChangeSkipPreflight={setSkipPreflight}
+            onCancelSelection={handleCancelSelection}
+            onConfirm={handleConfirm}
+            startBusy={startBusy}
+            startError={startError}
           />
         )}
 
         {selectionSource === 'release' && selected && info?.sysupgradeCapable && !inFlight && (
           <ConfirmUpgradeCard
-            source="release"
             update={selected}
             release={release}
             releaseLoading={releaseLoading}
@@ -1194,26 +1346,6 @@ export default function SettingsFirmware() {
             forceUnknown={forceUnknown}
             onChangeForceUnknown={setForceUnknown}
             unknownVersion={unknownVersion}
-            skipPreflight={skipPreflight}
-            onChangeSkipPreflight={setSkipPreflight}
-          />
-        )}
-
-        {selectionSource === 'local' && staged && info?.sysupgradeCapable && !inFlight && (
-          <ConfirmUpgradeCard
-            source="local"
-            staged={staged}
-            options={options}
-            onChangeOption={handleChangeOption}
-            onCancel={handleCancelSelection}
-            onConfirm={handleConfirm}
-            busy={startBusy}
-            startError={startError}
-            forceUnknown={forceUnknown}
-            onChangeForceUnknown={setForceUnknown}
-            unknownVersion={unknownVersion}
-            skipPreflight={skipPreflight}
-            onChangeSkipPreflight={setSkipPreflight}
           />
         )}
 
