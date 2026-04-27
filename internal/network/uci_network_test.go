@@ -9,6 +9,8 @@ import (
 
 	"github.com/digineo/go-uci/v2"
 	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -2441,4 +2443,202 @@ func TestRemovePort(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ── Setup wizard helpers ─────────────────────────────────────────────────────
+
+// freshNetworkMock returns an empty mockConfigReader. Tests populate
+// it to mimic the captured before/network fixture as needed.
+func freshNetworkMock(t *testing.T) *mockConfigReader {
+	t.Helper()
+
+	return &mockConfigReader{
+		data:         map[string]map[string]map[string][]string{},
+		sectionTypes: map[string]map[string]string{},
+		anonSections: map[string][]string{},
+	}
+}
+
+func TestSetupBatmanDeviceOnNetwork_CreatesAndPopulatesBat0(t *testing.T) {
+	m := freshNetworkMock(t)
+
+	require.NoError(t, SetupBatmanDeviceOnNetwork(m, "server", BatmanDeviceName))
+
+	v, ok := m.Get("network", "bat0", "proto")
+	require.True(t, ok)
+	assert.Equal(t, "batadv", v[0])
+
+	v, ok = m.Get("network", "bat0", "routing_algo")
+	require.True(t, ok)
+	assert.Equal(t, "BATMAN_V", v[0])
+
+	v, ok = m.Get("network", "bat0", "gw_mode")
+	require.True(t, ok)
+	assert.Equal(t, "server", v[0])
+
+	v, ok = m.Get("network", "bat0", "isolation_mark")
+	require.True(t, ok)
+	assert.Equal(t, "0x00000000/0x00000000", v[0])
+}
+
+func TestSetupBatmanDeviceOnNetwork_DefaultsAppliedOnEmptyArgs(t *testing.T) {
+	m := freshNetworkMock(t)
+
+	require.NoError(t, SetupBatmanDeviceOnNetwork(m, "", ""))
+
+	// Default gw_mode is "client".
+	v, ok := m.Get("network", "bat0", "gw_mode")
+	require.True(t, ok)
+	assert.Equal(t, "client", v[0])
+}
+
+func TestSetupBatmanDeviceOnNetwork_IdempotentOnExistingSection(t *testing.T) {
+	m := freshNetworkMock(t)
+	require.NoError(t, m.AddSection("network", "bat0", "interface"))
+
+	require.NoError(t, SetupBatmanDeviceOnNetwork(m, "server", "bat0"))
+
+	// Section still exists and options were written.
+	v, ok := m.Get("network", "bat0", "proto")
+	require.True(t, ok)
+	assert.Equal(t, "batadv", v[0])
+}
+
+func TestSetupBatmanInterfaceOnDevice_CreatesPrimaryAndSecondary(t *testing.T) {
+	m := freshNetworkMock(t)
+
+	require.NoError(t, SetupBatmanInterfaceOnDevice(m, "bat0"))
+
+	for _, name := range []string{BatmanPrimaryIface, BatmanSecondaryIface} {
+		v, ok := m.Get("network", name, "proto")
+		require.Truef(t, ok, "%s missing proto", name)
+		assert.Equalf(t, "batadv_hardif", v[0], "%s proto", name)
+
+		v, ok = m.Get("network", name, "master")
+		require.True(t, ok)
+		assert.Equal(t, "bat0", v[0])
+	}
+}
+
+func TestRemoveAllBatadvInterfaces_DeletesBatadvAndHardif(t *testing.T) {
+	m := freshNetworkMock(t)
+
+	// Set up a batadv device, a hardif, and a non-batman iface.
+	require.NoError(t, m.AddSection("network", "bat0", "interface"))
+	require.NoError(t, m.SetType("network", "bat0", "proto", uci.TypeOption, "batadv"))
+
+	require.NoError(t, m.AddSection("network", "batmesh0", "interface"))
+	require.NoError(t, m.SetType("network", "batmesh0", "proto", uci.TypeOption, "batadv_hardif"))
+
+	require.NoError(t, m.AddSection("network", "lan", "interface"))
+	require.NoError(t, m.SetType("network", "lan", "proto", uci.TypeOption, "static"))
+
+	require.NoError(t, RemoveAllBatadvInterfaces(m))
+
+	sections, err := m.GetSections("network", "interface")
+	require.NoError(t, err)
+
+	for _, s := range sections {
+		assert.NotEqualf(t, "bat0", s, "bat0 should be deleted")
+		assert.NotEqualf(t, "batmesh0", s, "batmesh0 should be deleted")
+	}
+
+	// `lan` (proto=static) is preserved.
+	_, ok := m.Get("network", "lan", "proto")
+	assert.True(t, ok)
+}
+
+func TestRemoveAllBridgeDevices_DeletesBridgesOnly(t *testing.T) {
+	m := freshNetworkMock(t)
+
+	// Bridge device.
+	require.NoError(t, m.AddSection("network", "bridge_lan", "device"))
+	require.NoError(t, m.SetType("network", "bridge_lan", "type", uci.TypeOption, "bridge"))
+	require.NoError(t, m.SetType("network", "bridge_lan", "name", uci.TypeOption, "br-lan"))
+
+	// Non-bridge device.
+	require.NoError(t, m.AddSection("network", "veth0", "device"))
+	require.NoError(t, m.SetType("network", "veth0", "type", uci.TypeOption, "veth"))
+
+	require.NoError(t, RemoveAllBridgeDevices(m))
+
+	_, ok := m.Get("network", "bridge_lan", "type")
+	assert.False(t, ok, "bridge device should be deleted")
+
+	_, ok = m.Get("network", "veth0", "type")
+	assert.True(t, ok, "non-bridge device should be preserved")
+}
+
+func TestUnsetGatewayAndDeviceOnInterfaces_SkipsLoopback(t *testing.T) {
+	m := freshNetworkMock(t)
+
+	require.NoError(t, m.AddSection("network", "loopback", "interface"))
+	require.NoError(t, m.SetType("network", "loopback", "device", uci.TypeOption, "lo"))
+	require.NoError(t, m.SetType("network", "loopback", "gateway", uci.TypeOption, "127.0.0.1"))
+
+	require.NoError(t, m.AddSection("network", "lan", "interface"))
+	require.NoError(t, m.SetType("network", "lan", "device", uci.TypeOption, "br-lan"))
+	require.NoError(t, m.SetType("network", "lan", "gateway", uci.TypeOption, "10.0.0.1"))
+
+	require.NoError(t, UnsetGatewayAndDeviceOnInterfaces(m))
+
+	// loopback preserved.
+	v, ok := m.Get("network", "loopback", "device")
+	require.True(t, ok)
+	assert.Equal(t, "lo", v[0])
+
+	v, ok = m.Get("network", "loopback", "gateway")
+	require.True(t, ok)
+	assert.Equal(t, "127.0.0.1", v[0])
+
+	// lan cleared.
+	_, ok = m.Get("network", "lan", "device")
+	assert.False(t, ok)
+
+	_, ok = m.Get("network", "lan", "gateway")
+	assert.False(t, ok)
+}
+
+func TestSetNetworkDevices_SingleDeviceSetsDeviceField(t *testing.T) {
+	m := freshNetworkMock(t)
+	require.NoError(t, m.AddSection("network", "lan", "interface"))
+
+	require.NoError(t, SetNetworkDevices(m, "lan", []string{"eth0"}))
+
+	v, ok := m.Get("network", "lan", "device")
+	require.True(t, ok)
+	assert.Equal(t, "eth0", v[0])
+}
+
+func TestSetNetworkDevices_MultipleWithExistingBridgeSetsPorts(t *testing.T) {
+	m := freshNetworkMock(t)
+	require.NoError(t, m.AddSection("network", "lan", "interface"))
+	require.NoError(t, m.SetType("network", "lan", "device", uci.TypeOption, "br-lan"))
+
+	// Bridge device exists.
+	require.NoError(t, m.AddSection("network", "bridge_lan", "device"))
+	require.NoError(t, m.SetType("network", "bridge_lan", "type", uci.TypeOption, "bridge"))
+	require.NoError(t, m.SetType("network", "bridge_lan", "name", uci.TypeOption, "br-lan"))
+
+	require.NoError(t, SetNetworkDevices(m, "lan", []string{"eth0", "eth1"}))
+
+	v, ok := m.Get("network", "bridge_lan", "ports")
+	require.True(t, ok)
+	assert.Equal(t, []string{"eth0", "eth1"}, v)
+}
+
+func TestSetNetworkDevices_NoDevicesIsNoOp(t *testing.T) {
+	m := freshNetworkMock(t)
+	require.NoError(t, m.AddSection("network", "lan", "interface"))
+
+	require.NoError(t, SetNetworkDevices(m, "lan", nil))
+
+	_, ok := m.Get("network", "lan", "device")
+	assert.False(t, ok)
+}
+
+func TestSetNetworkDevices_RejectsEmptyName(t *testing.T) {
+	m := freshNetworkMock(t)
+	err := SetNetworkDevices(m, "", []string{"eth0"})
+	assert.Error(t, err)
 }

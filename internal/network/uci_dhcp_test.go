@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math/rand"
 	"testing"
 
 	"github.com/digineo/go-uci/v2"
@@ -11,6 +12,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// newSeededRand returns a *rand.Rand seeded deterministically so
+// tests over the wizard's random helpers are reproducible.
+func newSeededRand(t *testing.T, seed int64) *rand.Rand {
+	t.Helper()
+
+	return rand.New(rand.NewSource(seed))
+}
 
 const testMACAddress = "AA:BB:CC:DD:EE:FF"
 
@@ -1470,4 +1479,262 @@ func TestComputeDHCPRangeEnd_InvalidIP(t *testing.T) {
 	_, err := ComputeDHCPRangeEnd("invalid", 100, 155)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid base IP")
+}
+
+// ── Setup wizard helpers ─────────────────────────────────────────────────────
+
+// newDhcpResetMock builds a mockConfigReader pre-populated with a
+// dnsmasq + lan + wan layout matching the captured `before/dhcp`
+// fixture (minus comments and stray formatting).
+func newDhcpResetMock(t *testing.T) *mockConfigReader {
+	t.Helper()
+
+	m := &mockConfigReader{
+		data:         map[string]map[string]map[string][]string{},
+		sectionTypes: map[string]map[string]string{},
+		anonSections: map[string][]string{},
+	}
+
+	// Anonymous dnsmasq with all the OpenWrt default options.
+	require.NoError(t, m.AddSection("dhcp", "", "dnsmasq"))
+
+	for _, kv := range []struct{ k, v string }{
+		{"domainneeded", "1"},
+		{"boguspriv", "1"},
+		{"localise_queries", "1"},
+		{"rebind_protection", "1"},
+		{"rebind_localhost", "1"},
+		{"local", "/lan/"},
+		{"domain", "lan"},
+		{"expandhosts", "1"},
+		{"cachesize", "1000"},
+		{"authoritative", "1"},
+		{"readethers", "1"},
+		{"localservice", "1"},
+		{"ednspacket_max", "1232"},
+	} {
+		require.NoError(t, m.SetType("dhcp", "@dnsmasq[0]", kv.k, uci.TypeOption, kv.v))
+	}
+
+	// LAN dhcp pool.
+	require.NoError(t, m.AddSection("dhcp", "lan", "dhcp"))
+	require.NoError(t, m.SetType("dhcp", "lan", "interface", uci.TypeOption, "lan"))
+	require.NoError(t, m.SetType("dhcp", "lan", "start", uci.TypeOption, "100"))
+	require.NoError(t, m.SetType("dhcp", "lan", "limit", uci.TypeOption, "150"))
+	require.NoError(t, m.SetType("dhcp", "lan", "leasetime", uci.TypeOption, "12h"))
+
+	// WAN dhcp pool.
+	require.NoError(t, m.AddSection("dhcp", "wan", "dhcp"))
+	require.NoError(t, m.SetType("dhcp", "wan", "interface", uci.TypeOption, "wan"))
+	require.NoError(t, m.SetType("dhcp", "wan", "ignore", uci.TypeOption, "1"))
+
+	m.commitCount = 0
+	m.commitCalled = false
+
+	return m
+}
+
+func TestWhitelistDnsmasqSurvivor_StripsExtraOptions(t *testing.T) {
+	m := newDhcpResetMock(t)
+
+	require.NoError(t, WhitelistDnsmasqSurvivor(m, "@dnsmasq[0]", WizardDnsmasqWhitelist))
+
+	// Whitelisted survives.
+	for _, opt := range WizardDnsmasqWhitelist {
+		_, ok := m.Get("dhcp", "@dnsmasq[0]", opt)
+		assert.Truef(t, ok, "whitelisted option %q removed", opt)
+	}
+
+	// Non-whitelisted removed (boguspriv, rebind_protection are in the
+	// allDnsmasqOptions but not in the wizard whitelist).
+	for _, opt := range []string{"boguspriv", "rebind_protection"} {
+		_, ok := m.Get("dhcp", "@dnsmasq[0]", opt)
+		assert.Falsef(t, ok, "non-whitelisted option %q not removed", opt)
+	}
+}
+
+func TestWhitelistDnsmasqSurvivor_RejectsEmptyName(t *testing.T) {
+	m := newDhcpResetMock(t)
+	err := WhitelistDnsmasqSurvivor(m, "", WizardDnsmasqWhitelist)
+	require.Error(t, err)
+}
+
+func TestWhitelistAndIgnoreAllPools_DisablesAndStrips(t *testing.T) {
+	m := newDhcpResetMock(t)
+
+	require.NoError(t, WhitelistAndIgnoreAllPools(m))
+
+	// Both pools now have ignore=1.
+	for _, name := range []string{"lan", "wan"} {
+		v, ok := m.Get("dhcp", name, "ignore")
+		require.Truef(t, ok, "%s missing ignore", name)
+		assert.Equalf(t, "1", v[0], "%s ignore", name)
+	}
+
+	// Whitelisted pool fields preserved on lan.
+	for _, opt := range []string{"start", "leasetime", "limit", "interface"} {
+		_, ok := m.Get("dhcp", "lan", opt)
+		assert.Truef(t, ok, "whitelisted lan option %q removed", opt)
+	}
+
+	// Non-whitelisted options removed if they exist (none do in this
+	// mock — the before fixture has no `dns_service`/`force` etc. on
+	// lan/wan, so this test is mostly verifying no false positives).
+}
+
+func TestSetupDnsmasqInstance_WritesAll11Options(t *testing.T) {
+	m := newDhcpResetMock(t)
+
+	require.NoError(t, SetupDnsmasqInstance(m, "@dnsmasq[0]", "ahwlan"))
+
+	expect := map[string]string{
+		"domainneeded":     "1",
+		"localise_queries": "1",
+		"rebind_localhost": "1",
+		"local":            "/ahwlan/",
+		"domain":           "ahwlan",
+		"expandhosts":      "1",
+		"cachesize":        "1000",
+		"authoritative":    "1",
+		"readethers":       "1",
+		"localservice":     "1",
+		"ednspacket_max":   "1232",
+	}
+
+	for k, want := range expect {
+		v, ok := m.Get("dhcp", "@dnsmasq[0]", k)
+		require.Truef(t, ok, "missing %s", k)
+		assert.Equalf(t, want, v[0], "key %s", k)
+	}
+}
+
+func TestSetupDnsmasqInstance_RejectsEmptyArgs(t *testing.T) {
+	m := newDhcpResetMock(t)
+	require.Error(t, SetupDnsmasqInstance(m, "", "ahwlan"))
+	require.Error(t, SetupDnsmasqInstance(m, "@dnsmasq[0]", ""))
+}
+
+func TestCreateDhcpPool_WritesStandardFields(t *testing.T) {
+	m := newDhcpResetMock(t)
+
+	rng := newSeededRand(t, 42)
+	name, err := CreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", rng)
+	require.NoError(t, err)
+	assert.Equal(t, "ahwlan", name)
+
+	expect := map[string]string{
+		"limit":       DefaultDhcpPoolLimit,
+		"leasetime":   DefaultDhcpPoolLeasetime,
+		"ra":          "server",
+		"ra_slaac":    "1",
+		"dns_service": "0",
+		"ignore":      "0",
+		"force":       "1",
+		"dns":         CloudflareIPv6DNS,
+		"ra_flags":    "none",
+		"interface":   "ahwlan",
+	}
+
+	for k, want := range expect {
+		v, ok := m.Get("dhcp", "ahwlan", k)
+		require.Truef(t, ok, "missing %s", k)
+		assert.Equalf(t, want, v[0], "key %s", k)
+	}
+
+	// `start` is a randomized offset.
+	v, ok := m.Get("dhcp", "ahwlan", "start")
+	require.True(t, ok)
+
+	startVal := v[0]
+	assert.NotEmpty(t, startVal)
+}
+
+func TestCreateDhcpPool_DoesNotSetInstanceForAnonymousDnsmasq(t *testing.T) {
+	m := newDhcpResetMock(t)
+	rng := newSeededRand(t, 7)
+
+	_, err := CreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", rng)
+	require.NoError(t, err)
+
+	_, ok := m.Get("dhcp", "ahwlan", "instance")
+	assert.False(t, ok, "anonymous dnsmasq should not set `instance`")
+}
+
+func TestCreateDhcpPool_SetsInstanceForNamedDnsmasq(t *testing.T) {
+	m := newDhcpResetMock(t)
+	require.NoError(t, m.AddSection("dhcp", "ahwlan_dns", "dnsmasq"))
+
+	rng := newSeededRand(t, 7)
+	_, err := CreateDhcpPool(m, "ahwlan_dns", "ahwlan", rng)
+	require.NoError(t, err)
+
+	v, ok := m.Get("dhcp", "ahwlan", "instance")
+	require.True(t, ok)
+	assert.Equal(t, "ahwlan_dns", v[0])
+}
+
+func TestCreateDhcpPool_ResolvesNameClashByAppendingSuffix(t *testing.T) {
+	m := newDhcpResetMock(t)
+	// `ahwlan` already exists as a dhcp section name.
+	require.NoError(t, m.AddSection("dhcp", "ahwlan", "dhcp"))
+
+	rng := newSeededRand(t, 0)
+	name, err := CreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", rng)
+	require.NoError(t, err)
+	assert.NotEqual(t, "ahwlan", name)
+}
+
+func TestCreateDhcpPool_RejectsEmptyArgs(t *testing.T) {
+	m := newDhcpResetMock(t)
+	rng := newSeededRand(t, 0)
+	_, err := CreateDhcpPool(m, "", "ahwlan", rng)
+	require.Error(t, err)
+
+	_, err = CreateDhcpPool(m, "@dnsmasq[0]", "", rng)
+	require.Error(t, err)
+
+	_, err = CreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", nil)
+	require.Error(t, err)
+}
+
+func TestGetOrCreateDhcpPool_ReturnsEnabledMatch(t *testing.T) {
+	m := newDhcpResetMock(t)
+	// Pre-existing enabled pool for ahwlan.
+	require.NoError(t, m.AddSection("dhcp", "ahwlan", "dhcp"))
+	require.NoError(t, m.SetType("dhcp", "ahwlan", "interface", uci.TypeOption, "ahwlan"))
+
+	rng := newSeededRand(t, 0)
+	got, err := GetOrCreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", rng)
+	require.NoError(t, err)
+	assert.Equal(t, "ahwlan", got)
+}
+
+func TestGetOrCreateDhcpPool_ReenablesDisabledMatch(t *testing.T) {
+	m := newDhcpResetMock(t)
+
+	require.NoError(t, m.AddSection("dhcp", "ahwlan", "dhcp"))
+	require.NoError(t, m.SetType("dhcp", "ahwlan", "interface", uci.TypeOption, "ahwlan"))
+	require.NoError(t, m.SetType("dhcp", "ahwlan", "ignore", uci.TypeOption, "1"))
+
+	rng := newSeededRand(t, 0)
+	got, err := GetOrCreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", rng)
+	require.NoError(t, err)
+	assert.Equal(t, "ahwlan", got)
+
+	_, ok := m.Get("dhcp", "ahwlan", "ignore")
+	assert.False(t, ok, "ignore should have been cleared on re-enable")
+}
+
+func TestGetOrCreateDhcpPool_CreatesNewWhenAbsent(t *testing.T) {
+	m := newDhcpResetMock(t)
+	rng := newSeededRand(t, 0)
+
+	got, err := GetOrCreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", rng)
+	require.NoError(t, err)
+	assert.Equal(t, "ahwlan", got)
+
+	// Standard fields populated.
+	v, ok := m.Get("dhcp", "ahwlan", "interface")
+	require.True(t, ok)
+	assert.Equal(t, "ahwlan", v[0])
 }

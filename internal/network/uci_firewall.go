@@ -1,0 +1,578 @@
+package network
+
+import (
+	"fmt"
+
+	"github.com/digineo/go-uci/v2"
+)
+
+const (
+	firewallConfigName     string = "firewall"
+	firewallZoneType       string = "zone"
+	firewallForwardingType string = "forwarding"
+	firewallRuleType       string = "rule"
+
+	// FirewallZoneWAN is the conventional OpenWrt name for the upstream
+	// (untrusted) firewall zone. The 13 default WAN rules use it as
+	// their source zone regardless of which interface is actually the
+	// uplink, mirroring the LuCI Morse wizard's behavior — the zone
+	// stays around even when its forwarding is disabled.
+	FirewallZoneWAN string = "wan"
+
+	// CommsMulticastGroup is the IPv4 multicast group used by the
+	// OpenMANET comms RTP traffic. Matches the captured LuCI fixture.
+	CommsMulticastGroup string = "239.192.41.1"
+
+	// CommsRTPPortRange is the UDP destination port range used by the
+	// OpenMANET comms RTP traffic. Matches the captured LuCI fixture.
+	CommsRTPPortRange string = "33801-38864"
+
+	// BatmanMeshTCPPort is the TCP port used by batman-adv mesh
+	// management traffic. Matches the LuCI captured fixture.
+	BatmanMeshTCPPort string = "4242"
+
+	// IPv6LinkLocalCIDR is the link-local IPv6 prefix used as the
+	// source filter for the Allow-MLD rule.
+	IPv6LinkLocalCIDR string = "fe80::/10"
+)
+
+// UCIFirewallZone represents the editable subset of a firewall zone
+// section (named or anonymous).
+type UCIFirewallZone struct {
+	Name    string   `uci:"option name"`
+	Input   string   `uci:"option input"`
+	Output  string   `uci:"option output"`
+	Forward string   `uci:"option forward"`
+	MtuFix  string   `uci:"option mtu_fix"`
+	Masq    string   `uci:"option masq"`
+	Network []string `uci:"list network"`
+}
+
+// UCIFirewallForwarding represents the editable subset of a firewall
+// forwarding section.
+type UCIFirewallForwarding struct {
+	Src     string `uci:"option src"`
+	Dest    string `uci:"option dest"`
+	Enabled string `uci:"option enabled"`
+}
+
+// UCIFirewallConfigReader wraps go-uci with the same shape as the
+// other UCI readers in this package.
+type UCIFirewallConfigReader struct {
+	tree uci.Tree
+}
+
+// NewUCIFirewallConfigReader creates a reader rooted at the default
+// UCI tree path.
+func NewUCIFirewallConfigReader() *UCIFirewallConfigReader {
+	return &UCIFirewallConfigReader{tree: uci.NewTree(uci.DefaultTreePath)}
+}
+
+func (r *UCIFirewallConfigReader) Get(config, section, option string) ([]string, bool) {
+	return r.tree.Get(config, section, option)
+}
+
+func (r *UCIFirewallConfigReader) GetSections(config, secType string) ([]string, error) {
+	return r.tree.GetSections(config, secType)
+}
+
+func (r *UCIFirewallConfigReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
+	return r.tree.SetType(config, section, option, typ, values...)
+}
+
+func (r *UCIFirewallConfigReader) Del(config, section, option string) error {
+	return r.tree.Del(config, section, option)
+}
+
+func (r *UCIFirewallConfigReader) AddSection(config, section, typ string) error {
+	return r.tree.AddSection(config, section, typ)
+}
+
+func (r *UCIFirewallConfigReader) DelSection(config, section string) error {
+	return r.tree.DelSection(config, section)
+}
+
+func (r *UCIFirewallConfigReader) Commit() error {
+	return r.tree.Commit()
+}
+
+func (r *UCIFirewallConfigReader) ReloadConfig() error {
+	return r.tree.LoadConfig(firewallConfigName, true)
+}
+
+// firewallRule captures the editable subset of a `config rule`
+// section. Used internally by AddDefaultWanFirewallRules — the 13
+// rules emitted have varying field combinations, so non-empty fields
+// are written and empty fields are skipped.
+type firewallRule struct {
+	Name     string
+	Src      string
+	Dest     string
+	SrcIP    string
+	DestIP   string
+	Proto    string
+	DestPort string
+	Target   string
+	Family   string
+	Limit    string
+	IcmpType []string // emitted as a list when len > 0; option when len == 1
+}
+
+// defaultWanFirewallRules returns the 13 rules emitted by the LuCI
+// Morse wizard for any successful setup, with the local zone name
+// substituted into the two block-DHCP rule names. The order matches
+// the captured fixture exactly so insertion-order-sensitive
+// canonicalization (list options) keeps byte-equivalence.
+func defaultWanFirewallRules(localZone string) []firewallRule {
+	icmpv6Common := []string{
+		"echo-request", "echo-reply", "destination-unreachable",
+		"packet-too-big", "time-exceeded", "bad-header",
+		"unknown-header-type",
+	}
+	icmpv6InputExtra := append(append([]string{}, icmpv6Common...),
+		"router-solicitation", "neighbour-solicitation",
+		"router-advertisement", "neighbour-advertisement",
+	)
+
+	return []firewallRule{
+		{Name: "Allow-DHCP-Renew", Src: FirewallZoneWAN, Proto: "udp", DestPort: "68", Target: "ACCEPT", Family: "ipv4"},
+		{Name: "Allow-Ping", Src: FirewallZoneWAN, Proto: "icmp", IcmpType: []string{"echo-request"}, Family: "ipv4", Target: "ACCEPT"},
+		{Name: "Allow-IGMP", Src: FirewallZoneWAN, Proto: "igmp", Family: "ipv4", Target: "ACCEPT"},
+		{Name: "Allow-DHCPv6", Src: FirewallZoneWAN, Proto: "udp", DestPort: "546", Family: "ipv6", Target: "ACCEPT"},
+		{Name: "Allow-MLD", Src: FirewallZoneWAN, Proto: "icmp", SrcIP: IPv6LinkLocalCIDR,
+			IcmpType: []string{"130/0", "131/0", "132/0", "143/0"},
+			Family:   "ipv6", Target: "ACCEPT"},
+		{Name: "Allow-ICMPv6-Input", Src: FirewallZoneWAN, Proto: "icmp", IcmpType: icmpv6InputExtra,
+			Limit: "1000/sec", Family: "ipv6", Target: "ACCEPT"},
+		{Name: "Allow-ICMPv6-Forward", Src: FirewallZoneWAN, Dest: "*", Proto: "icmp", IcmpType: icmpv6Common,
+			Limit: "1000/sec", Family: "ipv6", Target: "ACCEPT"},
+		{Name: "Allow-IPSec-ESP", Src: FirewallZoneWAN, Dest: "*", Proto: "esp", Target: "ACCEPT"},
+		{Name: "Allow-ISAKMP", Src: FirewallZoneWAN, Dest: "*", DestPort: "500", Proto: "udp", Target: "ACCEPT"},
+		{Name: "Allow Batman Mesh TCP 4242", Src: "*", Dest: "*", DestPort: BatmanMeshTCPPort, Proto: "tcp", Target: "ACCEPT"},
+		{Name: "Allow Incoming Comms", Src: "*", DestIP: CommsMulticastGroup, Dest: "*", DestPort: CommsRTPPortRange, Proto: "udp", Target: "ACCEPT"},
+		{Name: "Block-DHCP-Request-Out-" + localZone, Src: localZone, Dest: "*", Proto: "udp", DestPort: "67", Target: "DROP", Family: "ipv4"},
+		{Name: "Block-DHCP-Response-In-" + localZone, Src: "*", Dest: localZone, Proto: "udp", DestPort: "68", Target: "DROP", Family: "ipv4"},
+	}
+}
+
+// AddDefaultWanFirewallRules emits the 13 default firewall rules into
+// the firewall config as anonymous `rule` sections. The first 9 rules
+// reference the WAN zone (preserved across all scenarios because the
+// `wan` zone always exists in OpenWrt's default firewall config). Two
+// wildcard rules accept Batman mesh TCP and Comms multicast UDP. The
+// last two block DHCP traffic from leaking onto the local zone.
+//
+// Caller is responsible for committing.
+func AddDefaultWanFirewallRules(reader ConfigReader, localZone string) error {
+	if localZone == "" {
+		return fmt.Errorf("localZone cannot be empty")
+	}
+
+	for _, r := range defaultWanFirewallRules(localZone) {
+		if err := addAnonymousRule(reader, r); err != nil {
+			return fmt.Errorf("adding rule %q: %w", r.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// addAnonymousRule appends a single anonymous `rule` section and
+// writes its non-empty fields. The just-added section is referenced
+// via the @rule[N] notation, where N is the prior count of `rule`
+// sections.
+func addAnonymousRule(reader ConfigReader, r firewallRule) error {
+	priorCount, err := countSections(reader, firewallConfigName, firewallRuleType)
+	if err != nil {
+		return err
+	}
+
+	if err := reader.AddSection(firewallConfigName, "", firewallRuleType); err != nil {
+		return fmt.Errorf("adding rule section: %w", err)
+	}
+
+	section := fmt.Sprintf("@%s[%d]", firewallRuleType, priorCount)
+
+	setOpt := func(option, value string) error {
+		if value == "" {
+			return nil
+		}
+
+		if err := reader.SetType(firewallConfigName, section, option, uci.TypeOption, value); err != nil {
+			return fmt.Errorf("set %s.%s.%s: %w", firewallConfigName, section, option, err)
+		}
+
+		return nil
+	}
+
+	if err := setOpt("name", r.Name); err != nil {
+		return err
+	}
+
+	if err := setOpt("src", r.Src); err != nil {
+		return err
+	}
+
+	if err := setOpt("dest", r.Dest); err != nil {
+		return err
+	}
+
+	if err := setOpt("src_ip", r.SrcIP); err != nil {
+		return err
+	}
+
+	if err := setOpt("dest_ip", r.DestIP); err != nil {
+		return err
+	}
+
+	if err := setOpt("proto", r.Proto); err != nil {
+		return err
+	}
+
+	if err := setOpt("dest_port", r.DestPort); err != nil {
+		return err
+	}
+
+	switch len(r.IcmpType) {
+	case 0:
+		// nothing
+	case 1:
+		if err := setOpt("icmp_type", r.IcmpType[0]); err != nil {
+			return err
+		}
+	default:
+		if err := reader.SetType(firewallConfigName, section, "icmp_type", uci.TypeList, r.IcmpType...); err != nil {
+			return fmt.Errorf("set %s.%s.icmp_type list: %w", firewallConfigName, section, err)
+		}
+	}
+
+	if err := setOpt("limit", r.Limit); err != nil {
+		return err
+	}
+
+	if err := setOpt("target", r.Target); err != nil {
+		return err
+	}
+
+	if err := setOpt("family", r.Family); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// countSections returns the number of sections of the given type in
+// the named config. Used to derive the @type[N] index of a section
+// just added via AddSection with an empty name.
+func countSections(reader ConfigReader, config, secType string) (int, error) {
+	sections, err := reader.GetSections(config, secType)
+	if err != nil {
+		return 0, fmt.Errorf("listing %s.%s sections: %w", config, secType, err)
+	}
+
+	return len(sections), nil
+}
+
+// RemoveAllRules deletes every `rule` section in the firewall config.
+// Called by the wizard's reset phase before re-adding the 13 default
+// rules so we never accumulate duplicates across re-runs.
+func RemoveAllRules(reader ConfigReader) error {
+	sections, err := reader.GetSections(firewallConfigName, firewallRuleType)
+	if err != nil {
+		return fmt.Errorf("listing rule sections: %w", err)
+	}
+
+	// Iterate in reverse so deleting earlier sections doesn't shift
+	// the @rule[N] indices of later ones we still need to address.
+	for i := len(sections) - 1; i >= 0; i-- {
+		if err := reader.DelSection(firewallConfigName, sections[i]); err != nil {
+			return fmt.Errorf("deleting %s: %w", sections[i], err)
+		}
+	}
+
+	return nil
+}
+
+// WhitelistAndDisableForwardings sets `enabled='0'` on every existing
+// forwarding section without deleting them. Mirrors the LuCI wizard's
+// strategy: a hard delete would lose any user-named forwardings that
+// could be re-enabled by GetOrCreateForwarding, so we just disable.
+func WhitelistAndDisableForwardings(reader ConfigReader) error {
+	sections, err := reader.GetSections(firewallConfigName, firewallForwardingType)
+	if err != nil {
+		return fmt.Errorf("listing forwarding sections: %w", err)
+	}
+
+	for _, s := range sections {
+		if err := reader.SetType(firewallConfigName, s, "enabled", uci.TypeOption, "0"); err != nil {
+			return fmt.Errorf("disabling %s: %w", s, err)
+		}
+	}
+
+	return nil
+}
+
+// UnsetMtuFixAndMasq removes the `mtu_fix` and `masq` flags from every
+// zone. The wizard re-applies them on the destination zone of any
+// new forwarding it creates.
+func UnsetMtuFixAndMasq(reader ConfigReader) error {
+	sections, err := reader.GetSections(firewallConfigName, firewallZoneType)
+	if err != nil {
+		return fmt.Errorf("listing zone sections: %w", err)
+	}
+
+	for _, s := range sections {
+		if err := reader.Del(firewallConfigName, s, "mtu_fix"); err != nil {
+			return fmt.Errorf("unsetting mtu_fix on %s: %w", s, err)
+		}
+
+		if err := reader.Del(firewallConfigName, s, "masq"); err != nil {
+			return fmt.Errorf("unsetting masq on %s: %w", s, err)
+		}
+	}
+
+	return nil
+}
+
+// zoneNameFor returns the human-readable `name` of the zone that
+// contains networkID in its `network` list, or empty if no such zone
+// exists. Mirrors getZoneForNetwork() in the LuCI uci.js helpers.
+func zoneNameFor(reader ConfigReader, networkID string) (string, error) {
+	sections, err := reader.GetSections(firewallConfigName, firewallZoneType)
+	if err != nil {
+		return "", fmt.Errorf("listing zone sections: %w", err)
+	}
+
+	for _, s := range sections {
+		networks, _ := reader.Get(firewallConfigName, s, "network")
+		for _, n := range networks {
+			if n == networkID {
+				name, _ := reader.Get(firewallConfigName, s, "name")
+				if len(name) > 0 {
+					return name[0], nil
+				}
+
+				return "", nil
+			}
+		}
+	}
+
+	return "", nil
+}
+
+// zoneSectionByName returns the section reference of the zone whose
+// `name` option equals the supplied name. Returns "" if no such zone
+// is found.
+func zoneSectionByName(reader ConfigReader, name string) (string, error) {
+	sections, err := reader.GetSections(firewallConfigName, firewallZoneType)
+	if err != nil {
+		return "", fmt.Errorf("listing zone sections: %w", err)
+	}
+
+	for _, s := range sections {
+		v, _ := reader.Get(firewallConfigName, s, "name")
+		if len(v) > 0 && v[0] == name {
+			return s, nil
+		}
+	}
+
+	return "", nil
+}
+
+// GetOrCreateZone returns the firewall zone name for the supplied
+// network section, creating a new ACCEPT-everything zone if none
+// exists. Mirrors getOrCreateZone() in the LuCI Morse wizard's uci.js.
+//
+// The returned string is the zone's `name` field (used by forwarding
+// `src`/`dest`), not the zone's UCI section name. New zones are
+// created as named sections with the network ID as the name.
+func GetOrCreateZone(reader ConfigReader, networkID string) (string, error) {
+	if networkID == "" {
+		return "", fmt.Errorf("networkID cannot be empty")
+	}
+
+	zoneName, err := zoneNameFor(reader, networkID)
+	if err != nil {
+		return "", err
+	}
+
+	if zoneName != "" {
+		return zoneName, nil
+	}
+
+	// No existing zone for this network — create one. Resolve a unique
+	// section/zone name by appending a counter if `networkID` clashes.
+	proposedName := networkID
+	for i := 0; ; i++ {
+		conflict, err := zoneNameOrSectionExists(reader, proposedName)
+		if err != nil {
+			return "", err
+		}
+
+		if !conflict {
+			break
+		}
+
+		proposedName = fmt.Sprintf("%s%d", networkID, i+1)
+	}
+
+	if err := reader.AddSection(firewallConfigName, proposedName, firewallZoneType); err != nil {
+		return "", fmt.Errorf("creating zone section: %w", err)
+	}
+
+	if err := reader.SetType(firewallConfigName, proposedName, "name", uci.TypeOption, proposedName); err != nil {
+		return "", err
+	}
+
+	if err := reader.SetType(firewallConfigName, proposedName, "network", uci.TypeList, networkID); err != nil {
+		return "", err
+	}
+
+	if err := reader.SetType(firewallConfigName, proposedName, "input", uci.TypeOption, "ACCEPT"); err != nil {
+		return "", err
+	}
+
+	if err := reader.SetType(firewallConfigName, proposedName, "output", uci.TypeOption, "ACCEPT"); err != nil {
+		return "", err
+	}
+
+	if err := reader.SetType(firewallConfigName, proposedName, "forward", uci.TypeOption, "ACCEPT"); err != nil {
+		return "", err
+	}
+
+	return proposedName, nil
+}
+
+// zoneNameOrSectionExists reports whether the supplied name is already
+// in use as either a UCI section name (any type) or a zone's name
+// option, so a new zone created with this name would collide.
+func zoneNameOrSectionExists(reader ConfigReader, name string) (bool, error) {
+	for _, secType := range []string{firewallZoneType, firewallForwardingType, firewallRuleType} {
+		sections, err := reader.GetSections(firewallConfigName, secType)
+		if err != nil {
+			return false, fmt.Errorf("listing %s sections: %w", secType, err)
+		}
+
+		for _, s := range sections {
+			if s == name {
+				return true, nil
+			}
+
+			if secType == firewallZoneType {
+				v, _ := reader.Get(firewallConfigName, s, "name")
+				if len(v) > 0 && v[0] == name {
+					return true, nil
+				}
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// GetOrCreateForwarding returns the section reference of an enabled
+// forwarding from src to dest, creating a new one (named or anonymous
+// based on `name`) if no enabled match exists. On creation, also sets
+// `mtu_fix=1` and `masq=1` on the destination zone, matching LuCI's
+// behavior.
+//
+// If a disabled matching forwarding already exists, it is re-enabled
+// rather than duplicated. Forwardings from `src` to other destinations
+// are disabled (`enabled='0'`) — the wizard only allows one forwarding
+// per source zone.
+func GetOrCreateForwarding(reader ConfigReader, src, dest, name string) (string, error) {
+	if src == "" || dest == "" {
+		return "", fmt.Errorf("src and dest are required")
+	}
+
+	sections, err := reader.GetSections(firewallConfigName, firewallForwardingType)
+	if err != nil {
+		return "", fmt.Errorf("listing forwarding sections: %w", err)
+	}
+
+	// Already-enabled forwarding for src+dest? Done.
+	for _, s := range sections {
+		if matchesForwarding(reader, s, src, dest) && forwardingEnabled(reader, s) {
+			return s, nil
+		}
+	}
+
+	// Set up NAT on the destination zone.
+	destSection, err := zoneSectionByName(reader, dest)
+	if err != nil {
+		return "", err
+	}
+
+	if destSection != "" {
+		if err := reader.SetType(firewallConfigName, destSection, "mtu_fix", uci.TypeOption, "1"); err != nil {
+			return "", err
+		}
+
+		if err := reader.SetType(firewallConfigName, destSection, "masq", uci.TypeOption, "1"); err != nil {
+			return "", err
+		}
+	}
+
+	// Disable other forwardings from this src.
+	for _, s := range sections {
+		v, _ := reader.Get(firewallConfigName, s, "src")
+		if len(v) > 0 && v[0] == src {
+			if err := reader.SetType(firewallConfigName, s, "enabled", uci.TypeOption, "0"); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	// Re-enable any disabled forwarding that already matches.
+	for _, s := range sections {
+		if matchesForwarding(reader, s, src, dest) {
+			if err := reader.SetType(firewallConfigName, s, "enabled", uci.TypeOption, "1"); err != nil {
+				return "", err
+			}
+
+			return s, nil
+		}
+	}
+
+	// Create a new forwarding.
+	if err := reader.AddSection(firewallConfigName, name, firewallForwardingType); err != nil {
+		return "", fmt.Errorf("creating forwarding section: %w", err)
+	}
+
+	section := name
+	if section == "" {
+		// Anonymous: derive @forwarding[N] from the prior count.
+		priorCount := len(sections) // sections we listed before the AddSection
+		section = fmt.Sprintf("@%s[%d]", firewallForwardingType, priorCount)
+	}
+
+	if err := reader.SetType(firewallConfigName, section, "src", uci.TypeOption, src); err != nil {
+		return "", err
+	}
+
+	if err := reader.SetType(firewallConfigName, section, "dest", uci.TypeOption, dest); err != nil {
+		return "", err
+	}
+
+	return section, nil
+}
+
+func matchesForwarding(reader ConfigReader, section, src, dest string) bool {
+	s, _ := reader.Get(firewallConfigName, section, "src")
+	d, _ := reader.Get(firewallConfigName, section, "dest")
+
+	return len(s) > 0 && s[0] == src && len(d) > 0 && d[0] == dest
+}
+
+func forwardingEnabled(reader ConfigReader, section string) bool {
+	v, ok := reader.Get(firewallConfigName, section, "enabled")
+	if !ok {
+		return true // default if unset is enabled
+	}
+
+	if len(v) == 0 {
+		return true
+	}
+
+	return v[0] != "0"
+}
