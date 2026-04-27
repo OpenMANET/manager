@@ -365,14 +365,19 @@ describe('SettingsFirmware', () => {
     sizeBytes: 12_345_678,
     sha256: 'd34db33fcafe',
     uploadedAt: new Date('2026-04-26T12:00:00Z'),
-    filenameMatchesTarget: true,
+    metadataPresent: true,
+    compatVersion: '1.0',
+    compatMessage: '',
+    supportedDevices: ['raspberrypi,4-model-b', 'brcm,bcm2711'],
+    deviceCompat: 'raspberrypi,4-model-b',
+    imageCompatible: true,
     preflightOk: true,
     preflightError: '',
   };
 
   const stagedFailed = {
     ...stagedOK,
-    filenameMatchesTarget: false,
+    imageCompatible: false,
     preflightOk: false,
     preflightError: 'image bad magic',
   };
@@ -410,7 +415,7 @@ describe('SettingsFirmware', () => {
     const matches = await screen.findAllByText(/Preflight failed/i);
     expect(matches.length).toBeGreaterThan(0);
     expect(screen.getByText(/image bad magic/)).toBeInTheDocument();
-    expect(screen.getByText(/Filename mismatch/i)).toBeInTheDocument();
+    expect(screen.getByText(/Incompatible image/i)).toBeInTheDocument();
   });
 
   it('discard staged image calls discardStagedImage', async () => {

@@ -59,6 +59,21 @@ function formatBytes(n) {
   return `${(v / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
+// compatVerdictLabel returns the short status string shown in the
+// staged-image strip. Tracks OpenWrt fwtool_check_image semantics:
+// metadata absent → "no metadata"; metadata present and the device
+// compat string appears in supported_devices → "compatible"; otherwise
+// → "incompatible".
+function compatVerdictLabel(staged) {
+  if (!staged?.metadataPresent) return 'no metadata';
+  return staged.imageCompatible ? 'compatible' : 'incompatible';
+}
+
+function compatVerdictVariant(staged) {
+  if (!staged?.metadataPresent) return 'warn';
+  return staged.imageCompatible ? 'ok' : 'crit';
+}
+
 function formatRelative(date) {
   if (!date) return '—';
   const ms = Date.now() - date.getTime();
@@ -451,9 +466,10 @@ function UploadFirmwarePanel({
               variant="accent"
             />
             <KV
-              k="Target Match"
-              v={staged.filenameMatchesTarget ? 'ok' : 'mismatch'}
-              variant={staged.filenameMatchesTarget ? 'ok' : 'warn'}
+              k="Compatibility"
+              v={compatVerdictLabel(staged)}
+              variant={compatVerdictVariant(staged)}
+              mono
             />
             <KV
               k="Preflight"
@@ -466,11 +482,51 @@ function UploadFirmwarePanel({
             />
           </div>
 
-          {!staged.filenameMatchesTarget && (
+          {staged.metadataPresent && (
+            <div className="firmware-compat-detail">
+              <KV
+                k="Device"
+                v={staged.deviceCompat || '—'}
+                mono
+              />
+              <KV
+                k="Image supports"
+                v={(staged.supportedDevices ?? []).join(', ') || '—'}
+                mono
+              />
+              {staged.compatVersion && staged.compatVersion !== '1.0' && (
+                <KV
+                  k="compat_version"
+                  v={staged.compatVersion}
+                  mono
+                  variant="warn"
+                />
+              )}
+            </div>
+          )}
+
+          {!staged.metadataPresent && (
             <div className="lat-alert warn">
-              <strong>Filename mismatch.</strong> The uploaded filename does
-              not appear to contain this device&apos;s target string. Verify
-              that the image is correct before installing.
+              <strong>No image metadata.</strong> The uploaded image carries
+              no FWx0 trailer, so hardware compatibility cannot be verified
+              from the image alone. This is normal for factory images and
+              third-party builds. Preflight (<code>sysupgrade -T</code>) is
+              still run as a second gate.
+            </div>
+          )}
+
+          {staged.metadataPresent && !staged.imageCompatible && (
+            <div className="lat-alert crit">
+              <strong>Incompatible image.</strong> Image declares support
+              for <code>{(staged.supportedDevices ?? []).join(', ') || 'no devices'}</code>;
+              this device reports <code>{staged.deviceCompat || 'unknown'}</code>.
+              {staged.compatMessage ? <> {staged.compatMessage}</> : null}
+            </div>
+          )}
+
+          {staged.compatMessage && staged.imageCompatible && (
+            <div className="lat-alert warn">
+              <strong>Compat note.</strong> {staged.compatMessage}
             </div>
           )}
 

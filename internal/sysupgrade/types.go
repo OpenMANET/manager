@@ -40,15 +40,24 @@ type Manifest struct {
 // out-of-band (POST /api/sysupgrade/upload) and is sitting on disk
 // waiting to be flashed. The Manager tracks at most one staged image
 // at a time.
+//
+// Compatibility is decided by parsing the OpenWrt FWx0 metadata trailer
+// (CompatVersion / SupportedDevices) and comparing against DeviceCompat
+// — see imagemeta.go. Filename pattern matching is no longer used.
 type StagedImage struct {
-	UploadedAt            time.Time
-	Path                  string // on-disk path of the staged file
-	Filename              string // operator-supplied original filename
-	Sha256                string // lowercase hex
-	PreflightError        string // first non-empty stderr line on preflight failure
-	SizeBytes             int64
-	FilenameMatchesTarget bool
-	PreflightOK           bool
+	UploadedAt       time.Time
+	CompatMessage    string
+	Filename         string
+	Sha256           string
+	CompatVersion    string
+	Path             string
+	DeviceCompat     string
+	PreflightError   string
+	SupportedDevices []string
+	SizeBytes        int64
+	MetadataPresent  bool
+	ImageCompatible  bool
+	PreflightOK      bool
 }
 
 // SystemInfo is the rich system metadata returned by Manager.GetSystemInfo.

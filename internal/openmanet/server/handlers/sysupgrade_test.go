@@ -251,12 +251,16 @@ func TestSysupgradeService_GetStagedImage_Empty(t *testing.T) {
 func TestSysupgradeService_GetStagedImage_Populated(t *testing.T) {
 	mgr := newFakeSysupgradeManager()
 	mgr.staged = &sysupgrade.StagedImage{
-		Filename:              "openmanet-bcm27xx.img.gz",
-		SizeBytes:             4096,
-		Sha256:                "abcdef",
-		FilenameMatchesTarget: true,
-		PreflightOK:           true,
-		UploadedAt:            time.Now(),
+		Filename:         "openmanet-bcm27xx.img.gz",
+		SizeBytes:        4096,
+		Sha256:           "abcdef",
+		MetadataPresent:  true,
+		CompatVersion:    "1.0",
+		SupportedDevices: []string{"raspberrypi,4-model-b", "brcm,bcm2711"},
+		DeviceCompat:     "raspberrypi,4-model-b",
+		ImageCompatible:  true,
+		PreflightOK:      true,
+		UploadedAt:       time.Now(),
 	}
 
 	svc := &handlers.SysupgradeService{Log: zerolog.Nop(), Manager: mgr}
@@ -269,7 +273,11 @@ func TestSysupgradeService_GetStagedImage_Populated(t *testing.T) {
 	assert.Equal(t, "openmanet-bcm27xx.img.gz", img.GetFilename())
 	assert.Equal(t, int64(4096), img.GetSizeBytes())
 	assert.Equal(t, "abcdef", img.GetSha256())
-	assert.True(t, img.GetFilenameMatchesTarget())
+	assert.True(t, img.GetMetadataPresent())
+	assert.Equal(t, "1.0", img.GetCompatVersion())
+	assert.Equal(t, []string{"raspberrypi,4-model-b", "brcm,bcm2711"}, img.GetSupportedDevices())
+	assert.Equal(t, "raspberrypi,4-model-b", img.GetDeviceCompat())
+	assert.True(t, img.GetImageCompatible())
 	assert.True(t, img.GetPreflightOk())
 	assert.NotNil(t, img.GetUploadedAt())
 }

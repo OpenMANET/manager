@@ -137,19 +137,29 @@ func (m *Manager) StoreStagedImage(ctx context.Context, src io.Reader, filename 
 
 	digest := hex.EncodeToString(hasher.Sum(nil))
 
-	matches := filenameMatchesTarget(filename, m.deviceTarget())
-
-	preflightErr := m.runner.Preflight(ctx, finalPath)
+	deviceCompat := m.readDeviceCompatString()
 
 	staged := &StagedImage{
-		Path:                  finalPath,
-		Filename:              cleanUploadedFilename(filename),
-		SizeBytes:             written,
-		Sha256:                digest,
-		UploadedAt:            time.Now().UTC(),
-		FilenameMatchesTarget: matches,
-		PreflightOK:           preflightErr == nil,
+		Path:         finalPath,
+		Filename:     cleanUploadedFilename(filename),
+		SizeBytes:    written,
+		Sha256:       digest,
+		UploadedAt:   time.Now().UTC(),
+		DeviceCompat: deviceCompat,
 	}
+
+	if meta, metaErr := ParseImageMetadata(finalPath); metaErr == nil {
+		staged.MetadataPresent = true
+		staged.CompatVersion = meta.CompatVersion
+		staged.CompatMessage = meta.CompatMessage
+		staged.SupportedDevices = meta.EffectiveSupportedDevices()
+		staged.ImageCompatible = meta.MatchesDevice(deviceCompat)
+	} else if !errors.Is(metaErr, ErrNoImageMetadata) {
+		m.log.Warn().Err(metaErr).Str("path", finalPath).Msg("sysupgrade: parse FWx0 metadata failed")
+	}
+
+	preflightErr := m.runner.Preflight(ctx, finalPath)
+	staged.PreflightOK = preflightErr == nil
 
 	if preflightErr != nil {
 		staged.PreflightError = preflightErr.Error()
@@ -164,7 +174,10 @@ func (m *Manager) StoreStagedImage(ctx context.Context, src io.Reader, filename 
 			Str("filename", staged.Filename).
 			Int64("size_bytes", written).
 			Str("sha256", digest).
-			Bool("filename_matches_target", matches).
+			Bool("metadata_present", staged.MetadataPresent).
+			Bool("image_compatible", staged.ImageCompatible).
+			Strs("supported_devices", staged.SupportedDevices).
+			Str("device_compat", staged.DeviceCompat).
 			Msg("sysupgrade: staged image accepted")
 	}
 
@@ -312,43 +325,6 @@ func (m *Manager) runLocalUpgrade(ctx context.Context, staged *StagedImage, opts
 		Message:   "sysupgrade running in detached child",
 		UpdatedAt: time.Now(),
 	})
-}
-
-// deviceTarget returns the local hardware target string (e.g.
-// "bcm27xx/bcm2711") read from the firmware provider, or "" when it
-// can't be determined.
-func (m *Manager) deviceTarget() string {
-	fw, err := m.firmware.GetFirmwareInfo()
-	if err != nil || fw == nil {
-		return ""
-	}
-
-	return fw.Target
-}
-
-// filenameMatchesTarget heuristically tests whether filename appears
-// to belong to a build for target. Both forms "bcm27xx/bcm2711" and
-// "bcm27xx-bcm2711" are checked because release artifacts use "-" in
-// place of "/" but the local target is "/"-separated. Returns false
-// when target is empty (we have nothing to match against).
-func filenameMatchesTarget(filename, target string) bool {
-	if target == "" || filename == "" {
-		return false
-	}
-
-	lowerFile := strings.ToLower(filename)
-	lowerTarget := strings.ToLower(target)
-
-	if strings.Contains(lowerFile, lowerTarget) {
-		return true
-	}
-
-	dashed := strings.ReplaceAll(lowerTarget, "/", "-")
-	if dashed != lowerTarget && strings.Contains(lowerFile, dashed) {
-		return true
-	}
-
-	return false
 }
 
 // cleanUploadedFilename strips any path component the uploader may have

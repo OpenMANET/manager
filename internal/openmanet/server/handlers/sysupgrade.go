@@ -182,12 +182,17 @@ func stagedImageToProto(s *sysupgrade.StagedImage) *supbv1.StagedImage {
 	}
 
 	out := &supbv1.StagedImage{
-		Filename:              s.Filename,
-		SizeBytes:             s.SizeBytes,
-		Sha256:                s.Sha256,
-		FilenameMatchesTarget: s.FilenameMatchesTarget,
-		PreflightOk:           s.PreflightOK,
-		PreflightError:        s.PreflightError,
+		Filename:         s.Filename,
+		SizeBytes:        s.SizeBytes,
+		Sha256:           s.Sha256,
+		PreflightOk:      s.PreflightOK,
+		PreflightError:   s.PreflightError,
+		MetadataPresent:  s.MetadataPresent,
+		CompatVersion:    s.CompatVersion,
+		CompatMessage:    s.CompatMessage,
+		SupportedDevices: s.SupportedDevices,
+		DeviceCompat:     s.DeviceCompat,
+		ImageCompatible:  s.ImageCompatible,
 	}
 
 	if !s.UploadedAt.IsZero() {

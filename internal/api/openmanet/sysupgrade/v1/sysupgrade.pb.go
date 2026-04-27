@@ -439,11 +439,18 @@ func (x *Release) GetAssets() []*Asset {
 // operator and is sitting on disk waiting to be flashed. Single-slot:
 // the manager tracks at most one staged image at a time, replacing the
 // previous file (if any) on a successful re-upload.
+//
+// Hardware compatibility is decided by parsing the OpenWrt FWx0
+// metadata trailer that `fwtool` appends to every sysupgrade image —
+// matching what LuCI's flash page does. The parsed device list is
+// compared against /etc/board.json's model.id (or the first compatible
+// string of /proc/device-tree/compatible). Filename pattern matching
+// is no longer used.
 type StagedImage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Filename is the original filename supplied by the uploader (e.g.
 	// "openmanet-1.9.0-bcm27xx-bcm2711-mm8108-usb-squashfs-sysupgrade.img.gz").
-	// Used both for display and for the filename heuristic match.
+	// Display only.
 	Filename string `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`
 	// SizeBytes is the size of the on-disk image.
 	SizeBytes int64 `protobuf:"varint,2,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
@@ -452,11 +459,6 @@ type StagedImage struct {
 	Sha256 string `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`
 	// UploadedAt is the wall-clock timestamp the upload finalized.
 	UploadedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=uploaded_at,json=uploadedAt,proto3" json:"uploaded_at,omitempty"`
-	// FilenameMatchesTarget is true when the uploaded filename appears to
-	// contain the local device's target string (e.g. "bcm27xx-bcm2711"),
-	// false when it does not. Heuristic only — operators may still
-	// install on a mismatch via skip_preflight.
-	FilenameMatchesTarget bool `protobuf:"varint,5,opt,name=filename_matches_target,json=filenameMatchesTarget,proto3" json:"filename_matches_target,omitempty"`
 	// PreflightOk is true when "sysupgrade -T" returned success against
 	// the staged image, false otherwise. When false, PreflightError
 	// carries the captured stderr line.
@@ -464,8 +466,33 @@ type StagedImage struct {
 	// PreflightError is the captured short error line from a failed
 	// preflight; empty when PreflightOk is true.
 	PreflightError string `protobuf:"bytes,7,opt,name=preflight_error,json=preflightError,proto3" json:"preflight_error,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// MetadataPresent is true when a FWx0 INFO trailer was found in the
+	// image and decoded successfully. False for factory images and for
+	// third-party builds whose Makefile did not declare SUPPORTED_DEVICES.
+	MetadataPresent bool `protobuf:"varint,8,opt,name=metadata_present,json=metadataPresent,proto3" json:"metadata_present,omitempty"`
+	// CompatVersion is the image's compat_version field (e.g. "1.0").
+	// Empty when MetadataPresent is false. Major-version mismatches are
+	// a hard incompatibility in OpenWrt sysupgrade.
+	CompatVersion string `protobuf:"bytes,9,opt,name=compat_version,json=compatVersion,proto3" json:"compat_version,omitempty"`
+	// CompatMessage is the optional human-readable compat_message from
+	// the image; surfaced to the operator when present.
+	CompatMessage string `protobuf:"bytes,10,opt,name=compat_message,json=compatMessage,proto3" json:"compat_message,omitempty"`
+	// SupportedDevices is the effective device list — i.e.
+	// new_supported_devices when CompatVersion != "1.0", otherwise
+	// supported_devices. Each entry is a device-tree compatible string
+	// such as "raspberrypi,4-model-b" or "vendor,mm6108-spi".
+	SupportedDevices []string `protobuf:"bytes,11,rep,name=supported_devices,json=supportedDevices,proto3" json:"supported_devices,omitempty"`
+	// DeviceCompat is the running device's first compatible string,
+	// sourced from /etc/board.json model.id (preferred) or the first
+	// null-separated token of /proc/device-tree/compatible.
+	DeviceCompat string `protobuf:"bytes,12,opt,name=device_compat,json=deviceCompat,proto3" json:"device_compat,omitempty"`
+	// ImageCompatible is true when DeviceCompat appears verbatim in
+	// SupportedDevices. Always false when MetadataPresent is false (no
+	// list to match against, so the image cannot be vouched for from
+	// metadata alone).
+	ImageCompatible bool `protobuf:"varint,13,opt,name=image_compatible,json=imageCompatible,proto3" json:"image_compatible,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *StagedImage) Reset() {
@@ -526,13 +553,6 @@ func (x *StagedImage) GetUploadedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *StagedImage) GetFilenameMatchesTarget() bool {
-	if x != nil {
-		return x.FilenameMatchesTarget
-	}
-	return false
-}
-
 func (x *StagedImage) GetPreflightOk() bool {
 	if x != nil {
 		return x.PreflightOk
@@ -545,6 +565,48 @@ func (x *StagedImage) GetPreflightError() string {
 		return x.PreflightError
 	}
 	return ""
+}
+
+func (x *StagedImage) GetMetadataPresent() bool {
+	if x != nil {
+		return x.MetadataPresent
+	}
+	return false
+}
+
+func (x *StagedImage) GetCompatVersion() string {
+	if x != nil {
+		return x.CompatVersion
+	}
+	return ""
+}
+
+func (x *StagedImage) GetCompatMessage() string {
+	if x != nil {
+		return x.CompatMessage
+	}
+	return ""
+}
+
+func (x *StagedImage) GetSupportedDevices() []string {
+	if x != nil {
+		return x.SupportedDevices
+	}
+	return nil
+}
+
+func (x *StagedImage) GetDeviceCompat() string {
+	if x != nil {
+		return x.DeviceCompat
+	}
+	return ""
+}
+
+func (x *StagedImage) GetImageCompatible() bool {
+	if x != nil {
+		return x.ImageCompatible
+	}
+	return false
 }
 
 // Update is a single available upgrade target — a release combined with
@@ -953,17 +1015,23 @@ const file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc = "" +
 	"prerelease\x18\x05 \x01(\bR\n" +
 	"prerelease\x12\x18\n" +
 	"\aversion\x18\x06 \x01(\tR\aversion\x126\n" +
-	"\x06assets\x18\a \x03(\v2\x1e.openmanet.sysupgrade.v1.AssetR\x06assets\"\xa1\x02\n" +
+	"\x06assets\x18\a \x03(\v2\x1e.openmanet.sysupgrade.v1.AssetR\x06assets\"\xfe\x03\n" +
 	"\vStagedImage\x12\x1a\n" +
 	"\bfilename\x18\x01 \x01(\tR\bfilename\x12\x1d\n" +
 	"\n" +
 	"size_bytes\x18\x02 \x01(\x03R\tsizeBytes\x12\x16\n" +
 	"\x06sha256\x18\x03 \x01(\tR\x06sha256\x12;\n" +
 	"\vuploaded_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"uploadedAt\x126\n" +
-	"\x17filename_matches_target\x18\x05 \x01(\bR\x15filenameMatchesTarget\x12!\n" +
+	"uploadedAt\x12!\n" +
 	"\fpreflight_ok\x18\x06 \x01(\bR\vpreflightOk\x12'\n" +
-	"\x0fpreflight_error\x18\a \x01(\tR\x0epreflightError\"\xb7\x01\n" +
+	"\x0fpreflight_error\x18\a \x01(\tR\x0epreflightError\x12)\n" +
+	"\x10metadata_present\x18\b \x01(\bR\x0fmetadataPresent\x12%\n" +
+	"\x0ecompat_version\x18\t \x01(\tR\rcompatVersion\x12%\n" +
+	"\x0ecompat_message\x18\n" +
+	" \x01(\tR\rcompatMessage\x12+\n" +
+	"\x11supported_devices\x18\v \x03(\tR\x10supportedDevices\x12#\n" +
+	"\rdevice_compat\x18\f \x01(\tR\fdeviceCompat\x12)\n" +
+	"\x10image_compatible\x18\r \x01(\bR\x0fimageCompatibleJ\x04\b\x05\x10\x06R\x17filename_matches_target\"\xb7\x01\n" +
 	"\x06Update\x12:\n" +
 	"\arelease\x18\x01 \x01(\v2 .openmanet.sysupgrade.v1.ReleaseR\arelease\x12C\n" +
 	"\rmatched_asset\x18\x02 \x01(\v2\x1e.openmanet.sysupgrade.v1.AssetR\fmatchedAsset\x12,\n" +

@@ -110,9 +110,18 @@ func (m *StagedImage) CloneVT() *StagedImage {
 	r.SizeBytes = m.SizeBytes
 	r.Sha256 = m.Sha256
 	r.UploadedAt = (*timestamppb.Timestamp)((*timestamppb1.Timestamp)(m.UploadedAt).CloneVT())
-	r.FilenameMatchesTarget = m.FilenameMatchesTarget
 	r.PreflightOk = m.PreflightOk
 	r.PreflightError = m.PreflightError
+	r.MetadataPresent = m.MetadataPresent
+	r.CompatVersion = m.CompatVersion
+	r.CompatMessage = m.CompatMessage
+	r.DeviceCompat = m.DeviceCompat
+	r.ImageCompatible = m.ImageCompatible
+	if rhs := m.SupportedDevices; rhs != nil {
+		tmpContainer := make([]string, len(rhs))
+		copy(tmpContainer, rhs)
+		r.SupportedDevices = tmpContainer
+	}
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -354,13 +363,34 @@ func (this *StagedImage) EqualVT(that *StagedImage) bool {
 	if !(*timestamppb1.Timestamp)(this.UploadedAt).EqualVT((*timestamppb1.Timestamp)(that.UploadedAt)) {
 		return false
 	}
-	if this.FilenameMatchesTarget != that.FilenameMatchesTarget {
-		return false
-	}
 	if this.PreflightOk != that.PreflightOk {
 		return false
 	}
 	if this.PreflightError != that.PreflightError {
+		return false
+	}
+	if this.MetadataPresent != that.MetadataPresent {
+		return false
+	}
+	if this.CompatVersion != that.CompatVersion {
+		return false
+	}
+	if this.CompatMessage != that.CompatMessage {
+		return false
+	}
+	if len(this.SupportedDevices) != len(that.SupportedDevices) {
+		return false
+	}
+	for i, vx := range this.SupportedDevices {
+		vy := that.SupportedDevices[i]
+		if vx != vy {
+			return false
+		}
+	}
+	if this.DeviceCompat != that.DeviceCompat {
+		return false
+	}
+	if this.ImageCompatible != that.ImageCompatible {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -818,6 +848,56 @@ func (m *StagedImage) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.ImageCompatible {
+		i--
+		if m.ImageCompatible {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x68
+	}
+	if len(m.DeviceCompat) > 0 {
+		i -= len(m.DeviceCompat)
+		copy(dAtA[i:], m.DeviceCompat)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DeviceCompat)))
+		i--
+		dAtA[i] = 0x62
+	}
+	if len(m.SupportedDevices) > 0 {
+		for iNdEx := len(m.SupportedDevices) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.SupportedDevices[iNdEx])
+			copy(dAtA[i:], m.SupportedDevices[iNdEx])
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.SupportedDevices[iNdEx])))
+			i--
+			dAtA[i] = 0x5a
+		}
+	}
+	if len(m.CompatMessage) > 0 {
+		i -= len(m.CompatMessage)
+		copy(dAtA[i:], m.CompatMessage)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CompatMessage)))
+		i--
+		dAtA[i] = 0x52
+	}
+	if len(m.CompatVersion) > 0 {
+		i -= len(m.CompatVersion)
+		copy(dAtA[i:], m.CompatVersion)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CompatVersion)))
+		i--
+		dAtA[i] = 0x4a
+	}
+	if m.MetadataPresent {
+		i--
+		if m.MetadataPresent {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x40
+	}
 	if len(m.PreflightError) > 0 {
 		i -= len(m.PreflightError)
 		copy(dAtA[i:], m.PreflightError)
@@ -834,16 +914,6 @@ func (m *StagedImage) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		}
 		i--
 		dAtA[i] = 0x30
-	}
-	if m.FilenameMatchesTarget {
-		i--
-		if m.FilenameMatchesTarget {
-			dAtA[i] = 1
-		} else {
-			dAtA[i] = 0
-		}
-		i--
-		dAtA[i] = 0x28
 	}
 	if m.UploadedAt != nil {
 		size, err := (*timestamppb1.Timestamp)(m.UploadedAt).MarshalToSizedBufferVT(dAtA[:i])
@@ -1516,6 +1586,56 @@ func (m *StagedImage) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.ImageCompatible {
+		i--
+		if m.ImageCompatible {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x68
+	}
+	if len(m.DeviceCompat) > 0 {
+		i -= len(m.DeviceCompat)
+		copy(dAtA[i:], m.DeviceCompat)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.DeviceCompat)))
+		i--
+		dAtA[i] = 0x62
+	}
+	if len(m.SupportedDevices) > 0 {
+		for iNdEx := len(m.SupportedDevices) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.SupportedDevices[iNdEx])
+			copy(dAtA[i:], m.SupportedDevices[iNdEx])
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.SupportedDevices[iNdEx])))
+			i--
+			dAtA[i] = 0x5a
+		}
+	}
+	if len(m.CompatMessage) > 0 {
+		i -= len(m.CompatMessage)
+		copy(dAtA[i:], m.CompatMessage)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CompatMessage)))
+		i--
+		dAtA[i] = 0x52
+	}
+	if len(m.CompatVersion) > 0 {
+		i -= len(m.CompatVersion)
+		copy(dAtA[i:], m.CompatVersion)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CompatVersion)))
+		i--
+		dAtA[i] = 0x4a
+	}
+	if m.MetadataPresent {
+		i--
+		if m.MetadataPresent {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x40
+	}
 	if len(m.PreflightError) > 0 {
 		i -= len(m.PreflightError)
 		copy(dAtA[i:], m.PreflightError)
@@ -1532,16 +1652,6 @@ func (m *StagedImage) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 		}
 		i--
 		dAtA[i] = 0x30
-	}
-	if m.FilenameMatchesTarget {
-		i--
-		if m.FilenameMatchesTarget {
-			dAtA[i] = 1
-		} else {
-			dAtA[i] = 0
-		}
-		i--
-		dAtA[i] = 0x28
 	}
 	if m.UploadedAt != nil {
 		size, err := (*timestamppb1.Timestamp)(m.UploadedAt).MarshalToSizedBufferVTStrict(dAtA[:i])
@@ -2048,15 +2158,36 @@ func (m *StagedImage) SizeVT() (n int) {
 		l = (*timestamppb1.Timestamp)(m.UploadedAt).SizeVT()
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
-	if m.FilenameMatchesTarget {
-		n += 2
-	}
 	if m.PreflightOk {
 		n += 2
 	}
 	l = len(m.PreflightError)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.MetadataPresent {
+		n += 2
+	}
+	l = len(m.CompatVersion)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.CompatMessage)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if len(m.SupportedDevices) > 0 {
+		for _, s := range m.SupportedDevices {
+			l = len(s)
+			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+		}
+	}
+	l = len(m.DeviceCompat)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.ImageCompatible {
+		n += 2
 	}
 	n += len(m.unknownFields)
 	return n
@@ -3253,26 +3384,6 @@ func (m *StagedImage) UnmarshalVT(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 5:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field FilenameMatchesTarget", wireType)
-			}
-			var v int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				v |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			m.FilenameMatchesTarget = bool(v != 0)
 		case 6:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PreflightOk", wireType)
@@ -3325,6 +3436,174 @@ func (m *StagedImage) UnmarshalVT(dAtA []byte) error {
 			}
 			m.PreflightError = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MetadataPresent", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.MetadataPresent = bool(v != 0)
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CompatVersion", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.CompatVersion = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CompatMessage", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.CompatMessage = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 11:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SupportedDevices", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.SupportedDevices = append(m.SupportedDevices, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		case 12:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DeviceCompat", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DeviceCompat = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 13:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ImageCompatible", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.ImageCompatible = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -5325,26 +5604,6 @@ func (m *StagedImage) UnmarshalVTUnsafe(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 5:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field FilenameMatchesTarget", wireType)
-			}
-			var v int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return protohelpers.ErrIntOverflow
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				v |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			m.FilenameMatchesTarget = bool(v != 0)
 		case 6:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PreflightOk", wireType)
@@ -5401,6 +5660,190 @@ func (m *StagedImage) UnmarshalVTUnsafe(dAtA []byte) error {
 			}
 			m.PreflightError = stringValue
 			iNdEx = postIndex
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MetadataPresent", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.MetadataPresent = bool(v != 0)
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CompatVersion", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.CompatVersion = stringValue
+			iNdEx = postIndex
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CompatMessage", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.CompatMessage = stringValue
+			iNdEx = postIndex
+		case 11:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SupportedDevices", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.SupportedDevices = append(m.SupportedDevices, stringValue)
+			iNdEx = postIndex
+		case 12:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DeviceCompat", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.DeviceCompat = stringValue
+			iNdEx = postIndex
+		case 13:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ImageCompatible", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.ImageCompatible = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
