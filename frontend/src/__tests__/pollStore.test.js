@@ -40,7 +40,7 @@ describe('TestPollStore', () => {
     await vi.waitFor(() => expect(onChange).toHaveBeenCalledWith({ n: 1 }));
   });
 
-  it('shares one fetch across multiple subscribers', async () => {
+  it('hands a late subscriber the cached snapshot and refreshes it', async () => {
     const fetcher = vi.fn().mockResolvedValue({ n: 2 });
     const store = createPollStore(fetcher);
 
@@ -50,10 +50,11 @@ describe('TestPollStore', () => {
     await vi.waitFor(() => expect(a).toHaveBeenCalledWith({ n: 2 }));
 
     store.subscribe(1000, b);
-    // Late subscriber gets the cached snapshot synchronously.
+    // Late subscriber sees the cached snapshot synchronously…
     expect(b).toHaveBeenCalledWith({ n: 2 });
-    // No additional fetch was triggered by subscribe.
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    // …and a fresh fetch is kicked off so the new mount does not sit on
+    // a stale value when the page becomes visible again.
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
   });
 
   it('ticks at the minimum of subscribers intervals', async () => {
@@ -85,7 +86,7 @@ describe('TestPollStore', () => {
     await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
   });
 
-  it('drops cached snapshot when the last subscriber unsubscribes', async () => {
+  it('retains the cached snapshot after the last subscriber unsubscribes', async () => {
     const fetcher = vi.fn().mockResolvedValue({ n: 5 });
     const store = createPollStore(fetcher);
     const onChange = vi.fn();
@@ -94,7 +95,9 @@ describe('TestPollStore', () => {
     await vi.waitFor(() => expect(store.getSnapshot()).toEqual({ n: 5 }));
 
     unsub();
-    expect(store.getSnapshot()).toBeNull();
+    // Snapshot survives the unsubscribe so the next mount renders cached
+    // data immediately while a fresh tick is queued by subscribe().
+    expect(store.getSnapshot()).toEqual({ n: 5 });
   });
 
   it('does not double-run when multiple subscribe calls fire during an in-flight fetch', async () => {

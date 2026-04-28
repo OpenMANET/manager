@@ -11,10 +11,12 @@ const {
   mockGetDashboardStatus,
   mockGetGNSSStatus,
   mockListBLOSPeers,
+  mockListNetworkInterfaces,
 } = vi.hoisted(() => ({
   mockGetDashboardStatus: vi.fn(),
   mockGetGNSSStatus: vi.fn(),
   mockListBLOSPeers: vi.fn(),
+  mockListNetworkInterfaces: vi.fn(),
 }));
 
 vi.mock('@connectrpc/connect', () => ({
@@ -24,6 +26,7 @@ vi.mock('@connectrpc/connect', () => ({
     getDashboardStatus: mockGetDashboardStatus,
     getGNSSStatus: mockGetGNSSStatus,
     listBLOSPeers: mockListBLOSPeers,
+    listNetworkInterfaces: mockListNetworkInterfaces,
   }),
 }));
 vi.mock('../../services/connectClient.js', () => ({ transport: {} }));
@@ -36,8 +39,18 @@ vi.mock('../../gen/openmanet/gnss/v1/gnss_service_connect.js', () => ({
 vi.mock('../../gen/openmanet/blos/v1/blos_service_connect.js', () => ({
   BLOSService: {},
 }));
+vi.mock('../../gen/openmanet/network_interface/v1/network_interface_service_connect.js', () => ({
+  NetworkInterfaceService: {},
+}));
 vi.mock('../../gen/openmanet/dashboard/v1/dashboard_pb.js', () => ({
   NetworkInterfaceState: { CONNECTED: 1, DISCONNECTED: 2, NOT_CONNECTED: 3 },
+}));
+vi.mock('../../gen/openmanet/network_interface/v1/interface_pb.js', () => ({
+  InterfaceType: {
+    UNSPECIFIED: 0, BRIDGE: 1, ETHERNET: 2, WIFI_AP: 3,
+    HALOW_MESH: 4, BATMAN: 5, LOOPBACK: 6, VXLAN: 7,
+  },
+  InterfaceStatus: { UNSPECIFIED: 0, UP: 1, DOWN: 2 },
 }));
 vi.mock('../../services/meshApi.js', () => ({
   fetchMeshStatus: vi.fn().mockResolvedValue({
@@ -59,6 +72,7 @@ beforeEach(() => {
     satelliteStatus: { satellitesUsed: 0, satellitesInView: 0, satellites: [] },
   });
   mockListBLOSPeers.mockResolvedValue({ peers: [] });
+  mockListNetworkInterfaces.mockResolvedValue({ interfaces: [] });
 });
 
 afterEach(() => {
@@ -68,6 +82,7 @@ afterEach(() => {
   mockGetDashboardStatus.mockReset();
   mockGetGNSSStatus.mockReset();
   mockListBLOSPeers.mockReset();
+  mockListNetworkInterfaces.mockReset();
 });
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
@@ -105,6 +120,38 @@ function makeNetworkEntry(overrides = {}) {
     rxBytes: BigInt(0),
     txBytes: BigInt(0),
     ...overrides,
+  };
+}
+
+// Kernel-classified network interfaces returned by
+// NetworkInterfaceService.listNetworkInterfaces. The dashboard's network
+// panel renders these directly, including non-curated wireless types like
+// WIFI_AP that the dashboard summary used to omit.
+function makeNetworkInterface(overrides = {}) {
+  return {
+    name: 'eth0',
+    type: 2, // ETHERNET
+    ipAddress: '',
+    macAddress: '',
+    status: 2, // DOWN
+    rxBytes: BigInt(0),
+    txBytes: BigInt(0),
+    mtu: 1500,
+    ...overrides,
+  };
+}
+
+function makeNetworkInterfaceList() {
+  return {
+    interfaces: [
+      makeNetworkInterface({ name: 'eth0', type: 2, status: 2, rxBytes: BigInt(1024), txBytes: BigInt(2048) }),
+      makeNetworkInterface({ name: 'br-ahwlan', type: 1, status: 1, ipAddress: '10.41.25.72/16', rxBytes: BigInt(142300000), txBytes: BigInt(87600000) }),
+      makeNetworkInterface({ name: 'wlan0', type: 3, status: 1, ipAddress: '', rxBytes: BigInt(2048), txBytes: BigInt(4096) }),
+      makeNetworkInterface({ name: 'phy1-ap0', type: 4, status: 1, rxBytes: BigInt(12345678), txBytes: BigInt(9876543) }),
+      makeNetworkInterface({ name: 'bat0', type: 5, status: 1, rxBytes: BigInt(5_000_000_000), txBytes: BigInt(3_000_000_000) }),
+      makeNetworkInterface({ name: 'tailscale0', type: 7, status: 2, rxBytes: BigInt(0), txBytes: BigInt(0) }),
+      makeNetworkInterface({ name: 'lo', type: 6, status: 1, rxBytes: BigInt(0), txBytes: BigInt(0) }),
+    ],
   };
 }
 
@@ -170,10 +217,11 @@ describe('TestDashboardChrome', () => {
     expect(chips.some((c) => /GPS/.test(c))).toBe(true);
     expect(chips.some((c) => /BLOS · 0 PEERS/.test(c))).toBe(true);
 
+    // The CUSTOMIZE and EXPORT toolbar actions were removed — the
+    // header should carry no toolbar buttons at all.
     const toolbarBtns = [...container.querySelectorAll('.lat-view-toolbar .lat-btn')]
       .map((b) => b.textContent.trim());
-    expect(toolbarBtns).toContain('CUSTOMIZE');
-    // EXPORT button was removed; the toolbar should no longer carry it.
+    expect(toolbarBtns).not.toContain('CUSTOMIZE');
     expect(toolbarBtns).not.toContain('EXPORT');
   });
 
@@ -260,6 +308,7 @@ describe('TestDashboardPanels', () => {
 
   it('renders a network interfaces table row per entry', async () => {
     mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse());
+    mockListNetworkInterfaces.mockResolvedValue(makeNetworkInterfaceList());
     const { container } = render(<DashboardPage />);
     await waitFor(() => {
       expect(screen.getByText('Network Interfaces')).toBeTruthy();
@@ -267,21 +316,35 @@ describe('TestDashboardPanels', () => {
     const table = [...container.querySelectorAll('table.lat-table')]
       .find((t) => t.textContent.includes('Iface'));
     expect(table).toBeTruthy();
-    // 5 interface rows from the fixture.
-    expect(table.querySelectorAll('tbody tr').length).toBe(5);
+    // 6 interface rows from the fixture (loopback is filtered out).
+    await waitFor(() => {
+      expect(table.querySelectorAll('tbody tr').length).toBe(6);
+    });
     expect(table.textContent).toContain('eth0');
+    expect(table.textContent).toContain('wlan0');
     expect(table.textContent).toContain('bat0');
     expect(table.textContent).toContain('tailscale0');
+    // Loopback is hidden from the operator-facing summary.
+    expect(table.textContent).not.toContain(/(^|\s)lo(\s|$)/);
+    // Each non-loopback row carries a role label derived from the
+    // kernel-classified interface type.
+    expect(table.textContent).toContain('AP');
+    expect(table.textContent).toContain('mesh radio');
+    expect(table.textContent).toContain('BLOS');
   });
 
   it('renders RX/TX byte counters in the network interfaces table', async () => {
     mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse());
+    mockListNetworkInterfaces.mockResolvedValue(makeNetworkInterfaceList());
     const { container } = render(<DashboardPage />);
     await waitFor(() => {
       expect(screen.getByText('Network Interfaces')).toBeTruthy();
     });
     const table = [...container.querySelectorAll('table.lat-table')]
       .find((t) => t.textContent.includes('Iface'));
+    await waitFor(() => {
+      expect(table.querySelectorAll('tbody tr').length).toBeGreaterThan(1);
+    });
     const rowsByIface = new Map(
       [...table.querySelectorAll('tbody tr')].map((tr) => {
         const cells = [...tr.querySelectorAll('td')].map((td) => td.textContent.trim());

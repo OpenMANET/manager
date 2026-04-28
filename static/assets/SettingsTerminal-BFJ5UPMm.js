@@ -1,4 +1,4 @@
-import{j as ye}from"./index-7I1wBWPj.js";import{r as Ge}from"./vendor-react-1538Mdwn.js";import"./vendor-connect-C2CZa3VE.js";/**
+import{j as ye}from"./index-DQr9DIHY.js";import{r as Ge}from"./vendor-react-1538Mdwn.js";import"./vendor-connect-C2CZa3VE.js";/**
  * Copyright (c) 2014-2024 The xterm.js authors. All rights reserved.
  * @license MIT
  *
