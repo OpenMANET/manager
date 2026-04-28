@@ -218,15 +218,15 @@ func Start(staticFS fs.FS) {
 
 	// Setup wizard wiring: shared UCI reader (production wraps the
 	// default go-uci tree, so all six wizard configs are addressed
-	// through one reader). Snapshotter is left nil — production
-	// rollback is provided by the operator's deployment automation
-	// (e.g. SquashFS overlay snapshots) rather than a per-config dump
-	// inside the daemon. Without a snapshotter the wizard logs
-	// "rollback disabled" and continues; commit failures are
-	// reported to the user but UCI on disk may be partially updated
-	// (acceptable since the user re-runs the wizard, which resets
-	// everything before applying again).
+	// through one reader). The snapshotter captures the raw file
+	// contents of /etc/config/{wireless,network,dhcp,firewall,system,
+	// mesh11sd} before phase 3 runs and restores them atomically on
+	// any failure between phases 3 and 12. The post-bricking
+	// restructure makes this load-bearing: without it, a phase-12
+	// commit failure leaves the device with a half-applied wizard
+	// state on disk that bricks the next boot.
 	setupReader := network.NewUCIWirelessConfigReader()
+	setupSnapshotter := newWizardSnapshotter(setupReader)
 	setupRNG := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	apiServer := server.APIServer{
@@ -258,7 +258,7 @@ func Start(staticFS fs.FS) {
 		Sysupgrade:          sysupgradeMgr,
 		AuthEnabled:         cfg.GetAuthEnable(),
 		SetupUCIReader:      setupReader,
-		SetupSnapshotter:    nil, // see comment above
+		SetupSnapshotter:    setupSnapshotter,
 		SetupPasswordSetter: &auth.ChpasswdSetter{},
 		SetupHostnameSetter: &handlers.DefaultHostnameSetter{Reader: setupReader},
 		SetupReloader:       &system.InitDReloader{},

@@ -101,6 +101,15 @@ func NewUCIWirelessConfigReader() *UCIWirelessConfigReader {
 	}
 }
 
+// Tree exposes the underlying digineo go-uci tree so other packages
+// (e.g. the setup wizard's UCI snapshotter) can call methods like
+// LoadConfig(name, true) on it. The setup wizard uses this to trigger
+// a re-read of the on-disk config files into the in-memory tree
+// after a snapshot restore overwrites those files.
+func (r *UCIWirelessConfigReader) Tree() uci.Tree {
+	return r.tree
+}
+
 func (r *UCIWirelessConfigReader) Get(config, section, option string) ([]string, bool) {
 	return r.tree.Get(config, section, option)
 }

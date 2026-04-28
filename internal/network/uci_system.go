@@ -122,8 +122,30 @@ func SetSystemHostname(hostname string) error {
 }
 
 // SetSystemHostnameWithReader is the testable variant of
-// SetSystemHostname.
+// SetSystemHostname. Writes the hostname AND commits the system tree.
+// Use StageSystemHostnameWithReader when you want a staged write that
+// commits along with the rest of the wizard's tree in phase 12.
 func SetSystemHostnameWithReader(hostname string, reader ConfigReader) error {
+	if err := StageSystemHostnameWithReader(hostname, reader); err != nil {
+		return err
+	}
+
+	if err := reader.Commit(); err != nil {
+		return fmt.Errorf("committing system config: %w", err)
+	}
+
+	return nil
+}
+
+// StageSystemHostnameWithReader writes the hostname to the first
+// system section WITHOUT committing. The setup wizard uses this so
+// the hostname change is staged in the same in-memory tree as every
+// other phase's writes; phase 12's single Commit() then writes them
+// all atomically. Splitting into a separate commit (as the original
+// SetSystemHostnameWithReader does) opens a window where a failure
+// in phases 6-11 would leave the hostname change durable but the
+// rest of the wizard's writes rolled back.
+func StageSystemHostnameWithReader(hostname string, reader ConfigReader) error {
 	if hostname == "" {
 		return fmt.Errorf("hostname cannot be empty")
 	}
@@ -135,10 +157,6 @@ func SetSystemHostnameWithReader(hostname string, reader ConfigReader) error {
 
 	if err := reader.SetType(systemConfigName, section, "hostname", uci.TypeOption, hostname); err != nil {
 		return fmt.Errorf("setting %s.%s.hostname: %w", systemConfigName, section, err)
-	}
-
-	if err := reader.Commit(); err != nil {
-		return fmt.Errorf("committing system config: %w", err)
 	}
 
 	return nil

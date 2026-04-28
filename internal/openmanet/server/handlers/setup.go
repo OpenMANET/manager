@@ -24,22 +24,30 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// HostnameSetter writes the system hostname. Production wraps
-// network.SetSystemHostnameWithReader; tests substitute a fake.
+// HostnameSetter stages the system hostname. Production wraps
+// network.StageSystemHostnameWithReader; tests substitute a fake.
+//
+// CRITICAL: SetHostname must NOT commit the UCI tree. The wizard
+// commits all six configs atomically in phase 12. A premature commit
+// here opens a window where a failure between phase 5 and phase 12
+// would leave the hostname change durable but the rest of the
+// wizard's writes rolled back — a half-applied wizard run.
 type HostnameSetter interface {
 	SetHostname(ctx context.Context, hostname string) error
 }
 
 // DefaultHostnameSetter is the production HostnameSetter. It writes
-// `system.@system[0].hostname` via the supplied UCI reader and
-// commits.
+// `system.@system[0].hostname` via the supplied UCI reader. The write
+// is STAGED — phase 12's UCI commit flushes it to disk along with the
+// rest of the wizard's writes.
 type DefaultHostnameSetter struct {
 	Reader network.ConfigReader
 }
 
-// SetHostname implements HostnameSetter.
+// SetHostname implements HostnameSetter. Stages the write without
+// committing.
 func (d *DefaultHostnameSetter) SetHostname(_ context.Context, hostname string) error {
-	return network.SetSystemHostnameWithReader(hostname, d.Reader)
+	return network.StageSystemHostnameWithReader(hostname, d.Reader)
 }
 
 // hostnameRFC1123 matches an RFC 1123 hostname label: 1-63 chars,
@@ -583,35 +591,40 @@ func (s *SetupService) applySetup(
 		return s.emitTerminal(stream, setupv1.ApplySetupResponse_PHASE_PASSWORD, err, profile)
 	}
 
-	// Phase 14: atomic flag flip. After this returns nil, the device
-	// is considered fully configured and the re-apply guard rejects
-	// new ApplySetup calls. Failure here leaves UCI in the new state
-	// but flags both false — the user re-runs the wizard, and the
-	// reset phases handle the leftover state.
+	// Phase 14: synchronously reload services. If reload fails for any
+	// service AND the restart fallback also fails, abort here BEFORE
+	// flipping setup.complete=true. This is the load-bearing safety
+	// gate — without it, a failed reload would brick the device and
+	// permanently disable the wizard.
+	//
+	// The reload runs synchronously inside the request context. If the
+	// reload severs the streaming connection (it usually does on the
+	// network reload), the user falls back to the SetupGate's polling
+	// path which checks setup.complete every 4 seconds for 60 seconds.
+	if err := s.runReloadServices(ctx, stream); err != nil {
+		// Do NOT rollback UCI: phases 1-12 succeeded and a failed
+		// reload doesn't mean UCI is bad. Leaving the new UCI on disk
+		// means a reboot will pick up the correct config.
+		return s.emitTerminal(stream, setupv1.ApplySetupResponse_PHASE_RELOAD_SERVICES, err, profile)
+	}
+
+	// Phase 15: atomic flag flip. ONLY runs after reload succeeded.
+	// After this returns nil, the device is considered fully
+	// configured and the re-apply guard rejects new ApplySetup calls.
 	if err := s.runPersistFlags(ctx, stream); err != nil {
-		// Do NOT rollback: phases 1-12 + password succeeded, the
-		// device just needs the user to re-run the wizard so the
+		// Do NOT rollback: phases 1-12 + password + reload succeeded,
+		// the device just needs the user to re-run the wizard so the
 		// flags get a chance to flip on a subsequent attempt.
 		return s.emitTerminal(stream, setupv1.ApplySetupResponse_PHASE_PERSIST_FLAGS, err, profile)
 	}
 
-	// Phase 15: emit the success terminal event BEFORE service reloads
-	// so the frontend has a clean signal even if the network-changing
-	// reloads sever the streaming connection.
+	// Phase 16: emit the success terminal event. By this point UCI is
+	// committed, the password is set, services are reloaded, and the
+	// flags are flipped. The streaming connection MAY have been
+	// severed by the reload — the SetupGate's polling fallback
+	// handles that by querying GetSetupStatus.
 	if err := s.emitTerminalSuccess(stream, profile); err != nil {
-		s.Log.Warn().Err(err).Msg("emit terminal success failed; continuing to reload")
-	}
-
-	// Phase 16: fire-and-forget reload goroutine. Launch it AFTER
-	// PHASE_TERMINAL has been emitted so the user has confirmation of
-	// success even if the reload severs the connection. The
-	// goroutine logs its own outcome; no further events are emitted.
-	//
-	// Intentionally uses context.Background() inside the goroutine
-	// (not the request ctx) — by the time it runs, the streaming
-	// connection is being torn down by the network reload itself.
-	if s.Reloader != nil {
-		go s.runReloadGoroutine(s.Log) //nolint:contextcheck,gosec // see comment above
+		s.Log.Warn().Err(err).Msg("emit terminal success failed (connection likely already torn down by reload)")
 	}
 
 	return nil
@@ -633,40 +646,79 @@ func (s *SetupService) emitTerminalSuccess(stream applySetupStream, profile *set
 }
 
 // reloadServices is the canonical list of init.d services the wizard
-// reload phase nudges. Order matters only loosely — the goroutine
-// retries each one with `restart` if `reload` fails.
+// reload phase nudges, in dependency order. `network` reloads first
+// so its new bridges/interfaces are live before `firewall` rebuilds
+// chains and `wireless` brings up wifi-ifaces against the new
+// network sections. `dhcp`, `mesh11sd`, and `system` come last
+// because they depend on network being up.
 var reloadServices = []string{ //nolint:gochecknoglobals // package-level constant
-	"wireless", "network", "dhcp", "firewall", "system", "mesh11sd",
+	"network", "firewall", "wireless", "dhcp", "mesh11sd", "system",
 }
 
-// runReloadGoroutine tries `reload` on each service, falling back to
-// `restart` once on failure. Runs in a goroutine launched after the
-// terminal event has been sent. Cannot emit further client events;
-// outcomes are logged at Info or Warn.
+// runReloadServices reloads every service in the canonical list,
+// synchronously, with `restart` as a fallback when `reload` fails.
+// Per-service outcomes are logged AND emitted as PHASE_RELOAD_SERVICES
+// progress events so the frontend can show partial progress.
 //
-// Uses a fresh background context: the streaming RPC's context is
-// usually canceled by the time the goroutine starts (the connection
-// closed when the network reload severed it).
-func (s *SetupService) runReloadGoroutine(log zerolog.Logger) {
-	ctx := context.Background()
+// Failure semantics: only returns an error when EVERY service's
+// reload AND restart both failed (which indicates init.d itself is
+// broken, not our config). When a subset fails, the wizard logs
+// warnings and proceeds to PERSIST_FLAGS — the UCI on disk is
+// correct and a reboot will pick it up; flipping setup.complete=true
+// is the right call so the device exits the wizard state.
+//
+// Runs synchronously inside the request context. Network reload may
+// sever the streaming connection mid-phase; the SetupGate's polling
+// fallback queries GetSetupStatus to discover whether setup
+// eventually completed.
+func (s *SetupService) runReloadServices(ctx context.Context, stream applySetupStream) error {
+	if s.Reloader == nil {
+		s.Log.Debug().Msg("no service reloader configured; skipping reload phase")
 
-	for _, svc := range reloadServices {
-		if err := s.Reloader.Reload(ctx, svc); err == nil {
-			log.Info().Str("service", svc).Msg("reload ok")
-
-			continue
-		}
-
-		// Fall back to restart.
-		if err := s.Reloader.Restart(ctx, svc); err != nil {
-			log.Warn().Str("service", svc).Err(err).
-				Msg("service reload AND restart failed; UCI is correct on disk and will take effect on next reboot")
-
-			continue
-		}
-
-		log.Info().Str("service", svc).Msg("restart ok (reload had failed)")
+		return s.runPhase(stream, setupv1.ApplySetupResponse_PHASE_RELOAD_SERVICES,
+			"no reloader configured; skipping",
+			func() error { return nil })
 	}
+
+	return s.runPhase(stream, setupv1.ApplySetupResponse_PHASE_RELOAD_SERVICES,
+		"reloading network services", func() error {
+			succeeded := 0
+
+			for _, svc := range reloadServices {
+				if s.reloadOneService(ctx, svc) {
+					succeeded++
+				}
+			}
+
+			if succeeded == 0 && len(reloadServices) > 0 {
+				return errors.New(
+					"every service reload AND restart failed; init.d may be broken on this device")
+			}
+
+			return nil
+		})
+}
+
+// reloadOneService tries `reload` on svc, falling back to `restart`
+// on failure. Returns true if either succeeded, false if both failed.
+// Logs the outcome at Info / Warn.
+func (s *SetupService) reloadOneService(ctx context.Context, svc string) bool {
+	if err := s.Reloader.Reload(ctx, svc); err == nil {
+		s.Log.Info().Str("service", svc).Msg("reload ok")
+
+		return true
+	}
+
+	if err := s.Reloader.Restart(ctx, svc); err != nil {
+		s.Log.Warn().Str("service", svc).Err(err).
+			Msg("service reload AND restart failed; UCI is correct on disk and will take effect on next reboot")
+
+		return false
+	}
+
+	s.Log.Info().Str("service", svc).Msg("restart ok (reload had failed)")
+
+	return true
 }
 
 // rollback is a best-effort restore of the UCI snapshot taken at

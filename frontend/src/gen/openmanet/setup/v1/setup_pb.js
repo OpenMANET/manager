@@ -276,10 +276,22 @@ export const ApplySetupResult = /*@__PURE__*/ proto3.makeMessageType(
  * STATUS_DONE (or STATUS_FAILED) on exit. The terminal event has
  * phase=PHASE_TERMINAL and carries the ApplySetupResult.
  *
- * PHASE_TERMINAL is emitted BEFORE service reloads so the frontend
- * receives a clean success / failure signal even when the network
- * reconfiguration severs the streaming connection. See
- * docs/setup-wizard-phase-ordering.md for the rationale.
+ * Phase ordering as of the post-bricking restructure:
+ *   1..12  Validate, snapshot, reset, hostname, base-network, wireless,
+ *          per-radio AP/STA, scenario, batman-adv, mesh11sd, commit.
+ *   13     PASSWORD
+ *   14     RELOAD_SERVICES (synchronous; reload then restart fallback)
+ *   15     PERSIST_FLAGS  (atomic flip; only after reload succeeded)
+ *   99     TERMINAL
+ *
+ * PHASE_RELOAD_SERVICES runs synchronously BEFORE PHASE_PERSIST_FLAGS
+ * so the wizard only persists `setup.complete=true` when the reloaded
+ * services actually picked up the new UCI. A pre-restructure version
+ * emitted PHASE_TERMINAL before reload and let reload run in a fire-
+ * and-forget goroutine; that turned a failed reload into a silent
+ * brick (UCI committed, flags flipped, device unreachable, wizard
+ * permanently disabled). Reload failures now abort PERSIST_FLAGS so
+ * the user can re-run the wizard from CLI/console recovery.
  *
  * @generated from message openmanet.setup.v1.ApplySetupResponse
  */
@@ -313,6 +325,7 @@ export const ApplySetupResponse_Phase = /*@__PURE__*/ proto3.makeEnum(
     {no: 11, name: "PHASE_MESH11SD", localName: "MESH11SD"},
     {no: 12, name: "PHASE_COMMIT", localName: "COMMIT"},
     {no: 13, name: "PHASE_PASSWORD", localName: "PASSWORD"},
+    {no: 15, name: "PHASE_RELOAD_SERVICES", localName: "RELOAD_SERVICES"},
     {no: 14, name: "PHASE_PERSIST_FLAGS", localName: "PERSIST_FLAGS"},
     {no: 99, name: "PHASE_TERMINAL", localName: "TERMINAL"},
   ],

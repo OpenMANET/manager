@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net"
 	"os/exec"
+	"slices"
 	"time"
 
 	"github.com/digineo/go-uci/v2"
@@ -1489,4 +1490,222 @@ func findBridgeBySectionName(reader ConfigReader, bridgeName string) (string, er
 	}
 
 	return "", nil
+}
+
+// FindBridgeBySectionName is the exported wrapper around the package-
+// internal bridge lookup. The setup wizard handler uses it to discover
+// the section name of the br-ahwlan bridge after it has been created
+// in the base-network phase, so the batman-adv phase can append bat0
+// to its ports list.
+func FindBridgeBySectionName(reader ConfigReader, bridgeName string) (string, error) {
+	return findBridgeBySectionName(reader, bridgeName)
+}
+
+// SetupAhwlanInterface writes the standard set of options the LuCI
+// Morse wizard's setupNetworkWithDnsmasq() helper sets on the ahwlan
+// network section: proto=static, netmask=255.255.0.0, ip6assign=64,
+// ip6ifaceid=eui64, list ip6class 'local', device=br-ahwlan. When
+// ipaddr is non-empty, the function also sets it (mesh-point scenarios
+// pass a randomized address; mesh-gate scenarios omit it because
+// openmanetd assigns the gateway address at runtime via ip route).
+//
+// The section is created if it doesn't already exist. Does not commit.
+func SetupAhwlanInterface(reader ConfigReader, ipaddr string) error {
+	const (
+		section    = "ahwlan"
+		bridgeName = "br-ahwlan"
+	)
+
+	if !batmanInterfaceExists(reader, section) {
+		if err := reader.AddSection(networkConfigName, section, networkInterfaceType); err != nil {
+			return fmt.Errorf("creating ahwlan interface: %w", err)
+		}
+	}
+
+	writes := []struct {
+		k, v string
+	}{
+		{"proto", DefaultNetworkProto},
+		{"netmask", DefaultNetworkMask},
+		{"ip6assign", DefaultIPv6Assign},
+		{"ip6ifaceid", DefaultIPv6IfaceID},
+		{"device", bridgeName},
+	}
+
+	for _, w := range writes {
+		if err := reader.SetType(networkConfigName, section, w.k, uci.TypeOption, w.v); err != nil {
+			return fmt.Errorf("setting %s.%s.%s: %w", networkConfigName, section, w.k, err)
+		}
+	}
+
+	// ip6class is a list option. Setting just `local` matches the LuCI
+	// fixture; preserving any pre-existing values would be unsafe given
+	// the reset phase already ran.
+	if err := reader.SetType(networkConfigName, section, "ip6class", uci.TypeList, DefaultIPv6Class); err != nil {
+		return fmt.Errorf("setting %s.%s.ip6class: %w", networkConfigName, section, err)
+	}
+
+	if ipaddr != "" {
+		if err := reader.SetType(networkConfigName, section, "ipaddr", uci.TypeOption, ipaddr); err != nil {
+			return fmt.Errorf("setting %s.%s.ipaddr: %w", networkConfigName, section, err)
+		}
+
+		// Mesh-point ahwlan also gets a DNS server. LuCI's
+		// setupNetworkWithDnsmasq writes `1.1.1.1` here in the
+		// isMeshPoint branch — without it the mesh point can't
+		// resolve hostnames over its mesh address since nothing else
+		// populates this option. Mesh-gate scenarios skip this
+		// because the gateway's upstream provides DNS.
+		if err := reader.SetType(networkConfigName, section, "dns", uci.TypeOption, "1.1.1.1"); err != nil {
+			return fmt.Errorf("setting %s.%s.dns: %w", networkConfigName, section, err)
+		}
+	}
+
+	return nil
+}
+
+// CreateBridgeDevice writes a `config device` section of type=bridge
+// with the supplied name, port list, and macaddr. Mirrors LuCI's
+// setBridgeWithPorts() in morseuci.js. Idempotent — if a bridge with
+// the same name already exists, its options are overwritten with the
+// supplied values. The section name returned is the UCI section
+// identifier the caller can pass to AppendBridgePort.
+//
+// `name` is the bridge's UCI `name` field (e.g. "br-ahwlan"); the
+// section name itself is anonymous (`@device[N]` in UCI export form)
+// because LuCI emits anonymous device sections in its captures.
+//
+// Does not commit.
+func CreateBridgeDevice(reader ConfigReader, name string, ports []string, macaddr string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("bridge name cannot be empty")
+	}
+
+	// Reuse an existing bridge section if one already has this name —
+	// this keeps the helper idempotent across re-runs of the wizard
+	// (or partial runs followed by reset).
+	existing, err := findBridgeBySectionName(reader, name)
+	if err != nil {
+		return "", err
+	}
+
+	section := existing
+	if section == "" {
+		// Stable section name derived from the bridge name. Using a
+		// named section (rather than anonymous) lets later phases
+		// reliably look the bridge up by section ID without scanning
+		// for type=bridge by `name` field.
+		section = "wizard_bridge_" + sanitizeUCIName(name)
+
+		if err := reader.AddSection(networkConfigName, section, networkDeviceType); err != nil {
+			return "", fmt.Errorf("creating bridge device section: %w", err)
+		}
+	}
+
+	if err := reader.SetType(networkConfigName, section, "name", uci.TypeOption, name); err != nil {
+		return "", fmt.Errorf("setting bridge name: %w", err)
+	}
+
+	if err := reader.SetType(networkConfigName, section, "type", uci.TypeOption, bridgeTypeBridge); err != nil {
+		return "", fmt.Errorf("setting bridge type: %w", err)
+	}
+
+	if macaddr != "" {
+		if err := reader.SetType(networkConfigName, section, "macaddr", uci.TypeOption, macaddr); err != nil {
+			return "", fmt.Errorf("setting bridge macaddr: %w", err)
+		}
+	}
+
+	if len(ports) > 0 {
+		if err := reader.SetType(networkConfigName, section, "ports", uci.TypeList, ports...); err != nil {
+			return "", fmt.Errorf("setting bridge ports: %w", err)
+		}
+	}
+
+	return section, nil
+}
+
+// AppendBridgePort adds `port` to the bridge section's `ports` list,
+// preserving any existing ports. Idempotent: if the port is already
+// present, no write happens. The setup wizard's batman-adv phase uses
+// this to attach bat0 to br-ahwlan's port list AFTER the base network
+// phase has constructed the bridge with its physical-port list, so
+// the resulting ports order is `[<eth-ports...>, bat0]` matching the
+// captured fixtures.
+//
+// Does not commit.
+func AppendBridgePort(reader ConfigReader, bridgeSection, port string) error {
+	if bridgeSection == "" {
+		return fmt.Errorf("bridge section cannot be empty")
+	}
+
+	if port == "" {
+		return fmt.Errorf("port cannot be empty")
+	}
+
+	existing, _ := reader.Get(networkConfigName, bridgeSection, "ports")
+	if slices.Contains(existing, port) {
+		return nil
+	}
+
+	updated := append(append([]string(nil), existing...), port)
+
+	return reader.SetType(networkConfigName, bridgeSection, "ports", uci.TypeList, updated...)
+}
+
+// sanitizeUCIName replaces every character in s that isn't legal in a
+// UCI section identifier with an underscore. Section names must match
+// `[A-Za-z0-9_]+`.
+func sanitizeUCIName(s string) string {
+	out := make([]byte, 0, len(s))
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+
+		switch {
+		case c >= 'a' && c <= 'z',
+			c >= 'A' && c <= 'Z',
+			c >= '0' && c <= '9',
+			c == '_':
+			out = append(out, c)
+		default:
+			out = append(out, '_')
+		}
+	}
+
+	return string(out)
+}
+
+// SetInterfaceProtoWithReader updates the `proto` option on a network
+// interface section. Used by the wizard's base-network phase to flip
+// `lan.proto=dhcp` on gate-with-ethernet-uplink scenarios where the
+// upstream provides DHCP. Convenience wrapper that does not validate
+// the proto string against a known set.
+func SetInterfaceProtoWithReader(reader ConfigReader, section, proto string) error {
+	return reader.SetType(networkConfigName, section, "proto", uci.TypeOption, proto)
+}
+
+// SetInterfaceDNSWithReader updates the `dns` option on a network
+// interface section. Used by the wizard to set `lan.dns=1.1.1.1`
+// unconditionally (mirroring LuCI's setupBatmanInterfaceOnDevice).
+func SetInterfaceDNSWithReader(reader ConfigReader, section, dns string) error {
+	return reader.SetType(networkConfigName, section, "dns", uci.TypeOption, dns)
+}
+
+// EnsureWan6Interface creates the `wan6` interface section with
+// `proto=dhcpv6` if it does not already exist. The LuCI captures show
+// this is added on gate-with-ethernet scenarios so the device picks
+// up an IPv6 address from upstream.
+//
+// Does not commit.
+func EnsureWan6Interface(reader ConfigReader) error {
+	const section = "wan6"
+
+	if !batmanInterfaceExists(reader, section) {
+		if err := reader.AddSection(networkConfigName, section, networkInterfaceType); err != nil {
+			return fmt.Errorf("creating wan6: %w", err)
+		}
+	}
+
+	return reader.SetType(networkConfigName, section, "proto", uci.TypeOption, "dhcpv6")
 }

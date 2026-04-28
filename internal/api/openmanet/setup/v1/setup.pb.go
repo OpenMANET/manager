@@ -254,6 +254,7 @@ const (
 	ApplySetupResponse_PHASE_MESH11SD          ApplySetupResponse_Phase = 11
 	ApplySetupResponse_PHASE_COMMIT            ApplySetupResponse_Phase = 12
 	ApplySetupResponse_PHASE_PASSWORD          ApplySetupResponse_Phase = 13
+	ApplySetupResponse_PHASE_RELOAD_SERVICES   ApplySetupResponse_Phase = 15
 	ApplySetupResponse_PHASE_PERSIST_FLAGS     ApplySetupResponse_Phase = 14
 	ApplySetupResponse_PHASE_TERMINAL          ApplySetupResponse_Phase = 99
 )
@@ -275,6 +276,7 @@ var (
 		11: "PHASE_MESH11SD",
 		12: "PHASE_COMMIT",
 		13: "PHASE_PASSWORD",
+		15: "PHASE_RELOAD_SERVICES",
 		14: "PHASE_PERSIST_FLAGS",
 		99: "PHASE_TERMINAL",
 	}
@@ -293,6 +295,7 @@ var (
 		"PHASE_MESH11SD":          11,
 		"PHASE_COMMIT":            12,
 		"PHASE_PASSWORD":          13,
+		"PHASE_RELOAD_SERVICES":   15,
 		"PHASE_PERSIST_FLAGS":     14,
 		"PHASE_TERMINAL":          99,
 	}
@@ -1342,10 +1345,23 @@ func (x *ApplySetupResult) GetExpectedUrl() string {
 // STATUS_DONE (or STATUS_FAILED) on exit. The terminal event has
 // phase=PHASE_TERMINAL and carries the ApplySetupResult.
 //
-// PHASE_TERMINAL is emitted BEFORE service reloads so the frontend
-// receives a clean success / failure signal even when the network
-// reconfiguration severs the streaming connection. See
-// docs/setup-wizard-phase-ordering.md for the rationale.
+// Phase ordering as of the post-bricking restructure:
+//
+//	1..12  Validate, snapshot, reset, hostname, base-network, wireless,
+//	       per-radio AP/STA, scenario, batman-adv, mesh11sd, commit.
+//	13     PASSWORD
+//	14     RELOAD_SERVICES (synchronous; reload then restart fallback)
+//	15     PERSIST_FLAGS  (atomic flip; only after reload succeeded)
+//	99     TERMINAL
+//
+// PHASE_RELOAD_SERVICES runs synchronously BEFORE PHASE_PERSIST_FLAGS
+// so the wizard only persists `setup.complete=true` when the reloaded
+// services actually picked up the new UCI. A pre-restructure version
+// emitted PHASE_TERMINAL before reload and let reload run in a fire-
+// and-forget goroutine; that turned a failed reload into a silent
+// brick (UCI committed, flags flipped, device unreachable, wizard
+// permanently disabled). Reload failures now abort PERSIST_FLAGS so
+// the user can re-run the wizard from CLI/console recovery.
 type ApplySetupResponse struct {
 	state  protoimpl.MessageState    `protogen:"open.v1"`
 	Phase  ApplySetupResponse_Phase  `protobuf:"varint,1,opt,name=phase,proto3,enum=openmanet.setup.v1.ApplySetupResponse_Phase" json:"phase,omitempty"`
@@ -1509,12 +1525,12 @@ const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12O\n" +
 	"\ffailed_phase\x18\x02 \x01(\x0e2,.openmanet.setup.v1.ApplySetupResponse.PhaseR\vfailedPhase\x12#\n" +
 	"\rexpected_ssid\x18\x03 \x01(\tR\fexpectedSsid\x12!\n" +
-	"\fexpected_url\x18\x04 \x01(\tR\vexpectedUrl\"\xc8\x05\n" +
+	"\fexpected_url\x18\x04 \x01(\tR\vexpectedUrl\"\xe3\x05\n" +
 	"\x12ApplySetupResponse\x12B\n" +
 	"\x05phase\x18\x01 \x01(\x0e2,.openmanet.setup.v1.ApplySetupResponse.PhaseR\x05phase\x12E\n" +
 	"\x06status\x18\x02 \x01(\x0e2-.openmanet.setup.v1.ApplySetupResponse.StatusR\x06status\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12<\n" +
-	"\x06result\x18\x04 \x01(\v2$.openmanet.setup.v1.ApplySetupResultR\x06result\"\xf4\x02\n" +
+	"\x06result\x18\x04 \x01(\v2$.openmanet.setup.v1.ApplySetupResultR\x06result\"\x8f\x03\n" +
 	"\x05Phase\x12\x15\n" +
 	"\x11PHASE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0ePHASE_VALIDATE\x10\x01\x12\x12\n" +
@@ -1530,7 +1546,8 @@ const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"\x12\x12\n" +
 	"\x0ePHASE_MESH11SD\x10\v\x12\x10\n" +
 	"\fPHASE_COMMIT\x10\f\x12\x12\n" +
-	"\x0ePHASE_PASSWORD\x10\r\x12\x17\n" +
+	"\x0ePHASE_PASSWORD\x10\r\x12\x19\n" +
+	"\x15PHASE_RELOAD_SERVICES\x10\x0f\x12\x17\n" +
 	"\x13PHASE_PERSIST_FLAGS\x10\x0e\x12\x12\n" +
 	"\x0ePHASE_TERMINAL\x10c\"X\n" +
 	"\x06Status\x12\x16\n" +

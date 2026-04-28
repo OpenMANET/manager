@@ -1472,10 +1472,13 @@ func TestApplySetup_ReloadFailuresFallBackToRestart(t *testing.T) {
 	assert.ElementsMatch(t, handlersReloadServices, deps.Reloader.restartCallsCopy())
 }
 
-func TestApplySetup_ReloadCompleteFailureStillReturnsSuccess(t *testing.T) {
-	// Both reload AND restart fail for every service. The wizard
-	// still returns success because UCI + flags are durably written;
-	// the user just needs to reboot to pick up the new config.
+func TestApplySetup_ReloadCompleteFailureAbortsBeforeFlagFlip(t *testing.T) {
+	// Both reload AND restart fail for every service. Post-bricking
+	// restructure: this signals init.d itself is broken, so the wizard
+	// aborts BEFORE flipping setup.complete=true. Leaving the flag
+	// false means the user can re-run the wizard rather than being
+	// permanently locked out — the load-bearing safety property the
+	// previous "still returns success" behavior didn't have.
 	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
 	svc, deps := newFullSetupService(t, cfg)
 	deps.Reloader.reloadErr = assert.AnError
@@ -1483,12 +1486,18 @@ func TestApplySetup_ReloadCompleteFailureStillReturnsSuccess(t *testing.T) {
 
 	collector := &streamCollector{}
 	err := svc.ApplySetupForTest(context.Background(), minimalProfile(), collector)
-	require.NoError(t, err)
+	requireConnectCode(t, err, connect.CodeInternal)
 
 	last := collector.sent[len(collector.sent)-1]
 	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_TERMINAL, last.GetPhase())
 	require.NotNil(t, last.GetResult())
-	assert.True(t, last.GetResult().GetSuccess())
+	assert.False(t, last.GetResult().GetSuccess())
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_RELOAD_SERVICES,
+		last.GetResult().GetFailedPhase())
+
+	// setup.complete must still be false so the wizard remains
+	// reachable for retry.
+	assert.False(t, cfg.GetSetupComplete())
 }
 
 func TestApplySetup_NoSnapshotterIsAllowed(t *testing.T) {
@@ -1565,8 +1574,9 @@ func TestApplySetup_PhasesEmitInCorrectOrder(t *testing.T) {
 		setupv1.ApplySetupResponse_PHASE_MESH11SD,
 		setupv1.ApplySetupResponse_PHASE_COMMIT,
 		setupv1.ApplySetupResponse_PHASE_PASSWORD,
+		setupv1.ApplySetupResponse_PHASE_RELOAD_SERVICES,
 		setupv1.ApplySetupResponse_PHASE_PERSIST_FLAGS,
 	}, startedSequence)
 
-	waitForReloadGoroutine(t, deps.Reloader, 2*time.Second)
+	_ = deps // reload now runs synchronously; no goroutine wait needed
 }

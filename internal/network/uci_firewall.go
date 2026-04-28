@@ -2,6 +2,7 @@ package network
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/digineo/go-uci/v2"
@@ -621,4 +622,66 @@ func forwardingEnabled(reader ConfigReader, section string) bool {
 	}
 
 	return v[0] != "0"
+}
+
+// SetZoneOption writes `option <key> <value>` on the firewall zone
+// whose UCI `name` field equals zoneName. Returns an error if the zone
+// doesn't exist (the wizard always calls GetOrCreateZone first, so
+// this should never trigger from the wizard's call sites). Used by
+// the scenario phase to set mtu_fix=1 and (for gate scenarios) masq=1
+// on the local zone, mirroring the LuCI fixture deltas.
+//
+// Does not commit.
+func SetZoneOption(reader ConfigReader, zoneName, key, value string) error {
+	if zoneName == "" {
+		return fmt.Errorf("zoneName cannot be empty")
+	}
+
+	section, err := zoneSectionByName(reader, zoneName)
+	if err != nil {
+		return err
+	}
+
+	if section == "" {
+		return fmt.Errorf("firewall zone %q not found", zoneName)
+	}
+
+	return reader.SetType(firewallConfigName, section, key, uci.TypeOption, value)
+}
+
+// AppendZoneNetwork adds `networkName` to the `network` list of the
+// firewall zone whose UCI `name` field equals zoneName. Idempotent:
+// if `networkName` is already in the list, no write happens.
+//
+// Used by the wizard's RouterFirewallEth scenario to ensure `wan6`
+// is bound to the `wan` zone; without that, the implicit-REJECT
+// default-zone policy drops every IPv6 packet on wan6.
+//
+// Does not commit.
+func AppendZoneNetwork(reader ConfigReader, zoneName, networkName string) error {
+	if zoneName == "" {
+		return fmt.Errorf("zoneName cannot be empty")
+	}
+
+	if networkName == "" {
+		return fmt.Errorf("networkName cannot be empty")
+	}
+
+	section, err := zoneSectionByName(reader, zoneName)
+	if err != nil {
+		return err
+	}
+
+	if section == "" {
+		return fmt.Errorf("firewall zone %q not found", zoneName)
+	}
+
+	existing, _ := reader.Get(firewallConfigName, section, "network")
+	if slices.Contains(existing, networkName) {
+		return nil
+	}
+
+	updated := append(append([]string(nil), existing...), networkName)
+
+	return reader.SetType(firewallConfigName, section, "network", uci.TypeList, updated...)
 }
