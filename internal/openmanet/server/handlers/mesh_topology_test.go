@@ -784,6 +784,26 @@ func (f *fakeNeighborsProvider) Lookup(primaryMac string) (*batmanadv.MeshNeighb
 		return rec, true
 	}
 
+	// Mirror the real snapshotter's dual-index behavior: a Lookup keyed
+	// on either payload.primary_mac or any payload.interface_macs entry
+	// must hit. Linear scan is fine for the small fake fleets used in
+	// these tests.
+	for _, rec := range f.records {
+		if rec.Payload == nil {
+			continue
+		}
+
+		if strings.EqualFold(rec.Payload.GetPrimaryMac(), primaryMac) {
+			return rec, true
+		}
+
+		for _, m := range rec.Payload.GetInterfaceMacs() {
+			if strings.EqualFold(m, primaryMac) {
+				return rec, true
+			}
+		}
+	}
+
 	return nil, false
 }
 
@@ -1007,6 +1027,91 @@ func TestGetMeshTopology_GossipHostnameFallback(t *testing.T) {
 	require.NotNil(t, cov)
 	assert.Equal(t, int32(1), cov.GetPublished(),
 		"coverage reflects the hostname-matched record")
+}
+
+// TestGetMeshTopology_GossipInterfaceMacBridgesBLOSMultiMesh is the
+// regression test for the production bug behind this changeset: a
+// remote BLOS gateway is observed by the local mesh's batadv-vis under
+// one MAC (the vis primary), publishes alfred from a second MAC (the
+// envelope), and self-reports a third MAC (payload.primary_mac). The
+// publisher names every MAC it owns in payload.interface_macs;
+// the snapshotter indexes by all of them, so the handler's Lookup
+// hits even when no single MAC is shared between the three identity
+// spaces. This test exercises the lookup path WITHOUT relying on
+// hostname-based fallback (the publisher's hostname differs from the
+// local bat-hosts label).
+func TestGetMeshTopology_GossipInterfaceMacBridgesBLOSMultiMesh(t *testing.T) {
+	const (
+		selfMAC        = "aa:aa:aa:aa:aa:00"
+		visPrimary     = "bc:2a:33:96:ae:6e" // batadv-vis's view of Gate_04_27
+		envelopeMAC    = "f2:83:94:ae:12:a2" // alfred sender (publisher's BLOS overlay MAC)
+		payloadPrimary = "ba:ec:19:56:28:c4" // publisher's self-reported bat0 MAC
+	)
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: selfMAC},
+			{Primary: visPrimary},
+		},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC: selfMAC,
+		Originators: []batmanadv.OriginatorEntry{
+			{
+				OrigMAC:      visPrimary,
+				OrigHostname: "Gate_04_27_bat0", // local bat-hosts label, stripped to "Gate_04_27"
+				NextHopMAC:   visPrimary,
+				HardIfname:   "vxlan0",
+				Hops:         1,
+			},
+		},
+	}}
+
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	collected := now.Add(-8 * time.Second)
+
+	// Publisher's hostname on the wire is the verbatim os.Hostname()
+	// — which is "Gate_04_27" on the real box and would NOT match the
+	// receiver's bat-hosts-derived "Gate_04_27" if the publisher had
+	// stripped to "Gate_04". The interface_macs bag is what bridges
+	// the two identity spaces.
+	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
+		envelopeMAC: {
+			Payload: &netv1.MeshNeighbors{
+				PrimaryMac:    payloadPrimary,
+				Hostname:      "Gate_04_27",
+				CollectedAt:   timestamppb.New(collected),
+				InterfaceMacs: []string{payloadPrimary, visPrimary, envelopeMAC},
+				Neighbors: []*netv1.MeshNeighbor{
+					{Mac: "11:11:11:11:11:11", HardIfname: "wlan0"},
+				},
+			},
+			SourceMac: envelopeMAC,
+		},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, func() time.Time { return now })
+	svc.NeighborsProvider = neighbors
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	byMac := make(map[string]*meshtopov1.MeshNode)
+	for _, n := range resp.GetTopology().GetNodes() {
+		byMac[n.GetMac()] = n
+	}
+
+	gw := byMac[visPrimary]
+	require.NotNil(t, gw, "remote gateway is rendered under its vis primary MAC")
+	assert.False(t, gw.GetGossipStale(),
+		"interface_macs bridges the three MAC identities — node must NOT be marked stale")
+	assert.Equal(t, int32(8), gw.GetGossipAgeSeconds(),
+		"age still computed from payload.collected_at after the interface-MAC hit")
+
+	cov := resp.GetTopology().GetGossipCoverage()
+	require.NotNil(t, cov)
+	assert.Equal(t, int32(1), cov.GetPublished(),
+		"coverage reflects the BLOS gateway's gossip record")
 }
 
 // TestGetMeshTopology_GossipStatePropagates confirms the wire shape of

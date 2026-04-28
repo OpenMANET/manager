@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -16,6 +17,12 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// ifaceSuffixRe matches a trailing "_<iface>" token that looks like a
+// Linux network interface name. Compiled once at package level. Kept
+// in lockstep with the duplicate in internal/mgmt/mesh_neighbors.go —
+// any change must update both.
+var ifaceSuffixRe = regexp.MustCompile(`_(bat|wlan|eth|vxlan|br|tun|tap|wg|usb)\d*$`)
 
 // blosIfname is the local hard_ifname that identifies a BLOS tunnel
 // route. Duplicated here (kept in lockstep with the frontend constant)
@@ -1165,14 +1172,16 @@ func lookupHostname(
 }
 
 // stripIfaceSuffix removes a trailing "_<iface>" token from a bat-hosts
-// name, e.g. "BCM2711-97d6_bat0" → "BCM2711-97d6". Names without an
-// underscore round-trip unchanged.
+// name, e.g. "BCM2711-97d6_bat0" → "BCM2711-97d6". Only strips when the
+// suffix matches a recognized network interface name so legitimate
+// underscored hostnames like "Gate_04_27" are preserved verbatim.
 func stripIfaceSuffix(full string) string {
-	if i := strings.LastIndex(full, "_"); i > 0 {
-		return full[:i]
+	loc := ifaceSuffixRe.FindStringIndex(full)
+	if loc == nil || loc[0] == 0 {
+		return full
 	}
 
-	return full
+	return full[:loc[0]]
 }
 
 // segmentOrDefault returns the segment label for a primary or "local"

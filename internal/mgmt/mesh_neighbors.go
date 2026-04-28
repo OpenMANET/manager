@@ -3,7 +3,10 @@ package mgmt
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +17,13 @@ import (
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// ifaceSuffixRe matches a trailing "_<iface>" token where the suffix
+// looks like a Linux network interface name. Compiled once per the
+// performance rules. Anything not matching this pattern is preserved —
+// so a legitimate hostname like "Gate_04_27" is left alone, while
+// "BCM2711-97d6_bat0" still strips down to "BCM2711-97d6".
+var ifaceSuffixRe = regexp.MustCompile(`_(bat|wlan|eth|vxlan|br|tun|tap|wg|usb)\d*$`)
 
 // blosIfname identifies the BLOS tunnel interface. Duplicated from the
 // mesh_topology handler so this package doesn't import it; the value is
@@ -92,6 +102,7 @@ func (w *MeshNeighborsWorker) sendOnce(client alfredClient) error {
 		},
 		network.GetInterfaceByName,
 		os.Hostname,
+		listLocalInterfaceMacs,
 	)
 }
 
@@ -109,6 +120,7 @@ func (w *MeshNeighborsWorker) sendOnceWithDeps(
 	getMeshCfg func() (*batmanadv.MeshConfig, error),
 	getIface func(string) network.NetworkInterface,
 	getHostname func() (string, error),
+	listMacs func() []string,
 ) error {
 	neighbors, err := getNeighbors()
 	if err != nil {
@@ -123,16 +135,18 @@ func (w *MeshNeighborsWorker) sendOnceWithDeps(
 	}
 
 	iface := getIface(w.Config.BatInterface)
+	primaryMac := strings.ToLower(iface.MAC)
 
 	algorithm := readAlgorithm(getMeshCfg, w.Config.Log)
 
 	payload := &netv1.MeshNeighbors{
-		PrimaryMac:  strings.ToLower(iface.MAC),
-		Hostname:    stripIfaceSuffix(hostname),
-		Algorithm:   algorithm,
-		Neighbors:   mapNeighbors(neighbors),
-		Originators: mapOriginatorsBestOnly(getOriginators, w.Config.Log),
-		CollectedAt: timestamppb.New(w.now()),
+		PrimaryMac:    primaryMac,
+		Hostname:      stripIfaceSuffix(hostname),
+		Algorithm:     algorithm,
+		Neighbors:     mapNeighbors(neighbors),
+		Originators:   mapOriginatorsBestOnly(getOriginators, w.Config.Log),
+		CollectedAt:   timestamppb.New(w.now()),
+		InterfaceMacs: collectInterfaceMacs(primaryMac, listMacs),
 	}
 
 	buf, err := payload.MarshalVT()
@@ -233,13 +247,83 @@ func mapOriginatorsBestOnly(getOrigs func() ([]batmanadv.Originator, error), log
 }
 
 // stripIfaceSuffix removes a trailing "_<iface>" token from a bat-hosts
-// hostname, e.g. "BCM2711-97d6_bat0" → "BCM2711-97d6". Names without
-// an underscore round-trip unchanged. Duplicated from the mesh_topology
-// handler so the publisher doesn't import that package.
+// hostname, e.g. "BCM2711-97d6_bat0" → "BCM2711-97d6". Only strips
+// suffixes that match a recognized network interface name (bat0,
+// vxlan0, wlan0, eth0, etc.) so legitimate underscored hostnames like
+// "Gate_04_27" are preserved verbatim. Duplicated from the
+// mesh_topology handler — keep the two in lockstep.
 func stripIfaceSuffix(name string) string {
-	if i := strings.LastIndex(name, "_"); i > 0 {
-		return name[:i]
+	loc := ifaceSuffixRe.FindStringIndex(name)
+	if loc == nil || loc[0] == 0 {
+		return name
 	}
 
-	return name
+	return name[:loc[0]]
+}
+
+// listLocalInterfaceMacs returns the lowercased MACs of every local
+// non-loopback interface that has a hardware address. Excludes
+// loopback (no MAC) and any interface without an addr. The list is
+// sorted for determinism in the published payload.
+func listLocalInterfaceMacs() []string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+
+	out := make([]string, 0, len(ifaces))
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		mac := strings.ToLower(iface.HardwareAddr.String())
+		if mac == "" {
+			continue
+		}
+
+		out = append(out, mac)
+	}
+
+	sort.Strings(out)
+
+	return out
+}
+
+// collectInterfaceMacs builds the InterfaceMacs slice published in the
+// gossip payload. Always includes primaryMac (when non-empty) so a
+// single index lookup is sufficient on the receiver. Deduplicates and
+// returns a sorted slice for stable on-wire output.
+func collectInterfaceMacs(primaryMac string, listMacs func() []string) []string {
+	seen := make(map[string]struct{}, 8)
+
+	add := func(mac string) {
+		mac = strings.ToLower(mac)
+		if mac == "" {
+			return
+		}
+
+		seen[mac] = struct{}{}
+	}
+
+	add(primaryMac)
+
+	if listMacs != nil {
+		for _, m := range listMacs() {
+			add(m)
+		}
+	}
+
+	if len(seen) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(seen))
+	for mac := range seen {
+		out = append(out, mac)
+	}
+
+	sort.Strings(out)
+
+	return out
 }

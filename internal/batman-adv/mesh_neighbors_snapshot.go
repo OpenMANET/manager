@@ -38,30 +38,39 @@ type MeshNeighborsRecord struct {
 // consume. A nil provider means "no gossip" — handlers must fall back
 // to heuristic classification per-primary.
 type MeshNeighborsProvider interface {
+	// Lookup resolves a record by any of three identities: the alfred
+	// envelope MAC (record.Source), the payload's self-reported
+	// primary_mac, or any MAC the publisher listed in
+	// payload.interface_macs. Returns the record on a hit. Required
+	// for BLOS multi-mesh deployments, where a single physical node is
+	// observed under different MACs by different consumers.
 	Lookup(primaryMac string) (*MeshNeighborsRecord, bool)
 	// LookupByHostname matches on the payload's stripped hostname.
-	// Needed in multi-mesh deployments where alfred gossip runs on a
-	// different batman-adv interface than the one batadv-vis reports
-	// from: envelope MAC and payload.primary_mac both reflect the
-	// gossip mesh, while the handler queries by the vis mesh's primary.
-	// Hostname is the one identifier both meshes share.
+	// Defense-in-depth fallback for older publishers that don't
+	// populate interface_macs and whose envelope/primary MACs disagree
+	// with the consumer's vis primary.
 	LookupByHostname(hostname string) (*MeshNeighborsRecord, bool)
 	All() map[string]*MeshNeighborsRecord
 }
 
 // MeshNeighborsSnapshotter polls alfred for DATA_TYPE_MESH_NEIGHBORS
-// records every Interval and caches them keyed by publisher primary MAC.
-// Lifecycle mirrors BatctlSnapshotter: synchronous warm-up on Start,
-// ticker-driven refresh until ctx cancellation.
+// records every Interval and caches them in two parallel indices:
+// byMac is keyed by alfred envelope MAC (one record per publisher);
+// byInterfaceMac is keyed by payload primary_mac and every entry of
+// payload.interface_macs and points back at the same records. The
+// dual index lets Lookup hit in O(1) regardless of which identity the
+// caller has on hand. Lifecycle mirrors BatctlSnapshotter: synchronous
+// warm-up on Start, ticker-driven refresh until ctx cancellation.
 type MeshNeighborsSnapshotter struct {
-	Log      zerolog.Logger
-	Client   alfred.ReadClient
-	Now      func() time.Time
-	byMac    map[string]*MeshNeighborsRecord
-	Interval time.Duration
-	mu       sync.RWMutex
-	DataType uint8
-	ready    bool
+	Log            zerolog.Logger
+	Client         alfred.ReadClient
+	Now            func() time.Time
+	byMac          map[string]*MeshNeighborsRecord
+	byInterfaceMac map[string]*MeshNeighborsRecord
+	Interval       time.Duration
+	mu             sync.RWMutex
+	DataType       uint8
+	ready          bool
 }
 
 // Start warms the cache synchronously (so the first Lookup after Start
@@ -98,6 +107,7 @@ func (s *MeshNeighborsSnapshotter) refresh() {
 	if s.Client == nil {
 		s.mu.Lock()
 		s.byMac = nil
+		s.byInterfaceMac = nil
 		s.ready = true
 		s.mu.Unlock()
 
@@ -115,6 +125,7 @@ func (s *MeshNeighborsSnapshotter) refresh() {
 
 	now := s.now()
 	next := make(map[string]*MeshNeighborsRecord, len(records))
+	nextByIface := make(map[string]*MeshNeighborsRecord, len(records)*2)
 
 	var dropped int
 
@@ -141,26 +152,37 @@ func (s *MeshNeighborsSnapshotter) refresh() {
 		// operators flip the daemon log level to diagnose why a peer's
 		// gossip isn't landing in the topology handler (envelope MAC vs
 		// payload.primary_mac vs vis primary — any of the three can
-		// disagree across mesh boundaries and must match for Lookup to
-		// hit).
+		// disagree across mesh boundaries; the interface_macs index
+		// stitches them together).
 		s.Log.Debug().
 			Int("record", i).
 			Str("source", src).
 			Str("primary_mac", strings.ToLower(payload.GetPrimaryMac())).
 			Str("hostname", payload.GetHostname()).
 			Int("neighbor_count", len(payload.GetNeighbors())).
+			Int("interface_mac_count", len(payload.GetInterfaceMacs())).
 			Int64("collected_unix", payload.GetCollectedAt().GetSeconds()).
 			Msg("mesh-neighbors: cached record")
 
-		next[src] = &MeshNeighborsRecord{
+		rec := &MeshNeighborsRecord{
 			Payload:   payload,
 			SourceMac: src,
 			Received:  now,
 		}
+		next[src] = rec
+
+		// Index every interface MAC the publisher advertised, plus the
+		// payload's primary_mac (in case the publisher ships it without
+		// also listing it in interface_macs). Last-write wins on
+		// collision — any conflict means two publishers are claiming
+		// the same MAC, which is itself a misconfiguration we surface
+		// at warn level.
+		s.indexRecordByInterfaceMacs(nextByIface, rec)
 	}
 
 	s.mu.Lock()
 	s.byMac = next
+	s.byInterfaceMac = nextByIface
 	s.ready = true
 	s.mu.Unlock()
 
@@ -183,9 +205,44 @@ func (s *MeshNeighborsSnapshotter) now() time.Time {
 	return time.Now()
 }
 
-// Lookup returns the cached record for a publisher MAC. Both SourceMac
-// and payload.primary_mac keys are accepted so callers can use
-// whichever they already have.
+// indexRecordByInterfaceMacs inserts rec into idx under every MAC the
+// publisher advertised — payload.primary_mac plus each entry of
+// payload.interface_macs. Empty values are skipped. Collisions log a
+// warn line and overwrite (last write wins) so a misconfigured fleet
+// surfaces in the daemon logs.
+func (s *MeshNeighborsSnapshotter) indexRecordByInterfaceMacs(idx map[string]*MeshNeighborsRecord, rec *MeshNeighborsRecord) {
+	if rec == nil || rec.Payload == nil {
+		return
+	}
+
+	add := func(raw string) {
+		mac := strings.ToLower(raw)
+		if mac == "" {
+			return
+		}
+
+		if existing, ok := idx[mac]; ok && existing != rec && existing.SourceMac != rec.SourceMac {
+			s.Log.Warn().
+				Str("mac", mac).
+				Str("existing_source", existing.SourceMac).
+				Str("new_source", rec.SourceMac).
+				Msg("mesh-neighbors: two publishers claim the same interface MAC; using newest")
+		}
+
+		idx[mac] = rec
+	}
+
+	add(rec.Payload.GetPrimaryMac())
+
+	for _, m := range rec.Payload.GetInterfaceMacs() {
+		add(m)
+	}
+}
+
+// Lookup returns the cached record for a publisher MAC. Accepts any of
+// three identities: the alfred envelope MAC (SourceMac), the payload's
+// primary_mac, or any entry from payload.interface_macs. All three
+// resolve in O(1) via the dual index.
 func (s *MeshNeighborsSnapshotter) Lookup(primaryMac string) (*MeshNeighborsRecord, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -199,13 +256,8 @@ func (s *MeshNeighborsSnapshotter) Lookup(primaryMac string) (*MeshNeighborsReco
 		return rec, true
 	}
 
-	// Fall back to payload.primary_mac if the caller didn't have the
-	// alfred envelope MAC. Rare, but lets the handler stitch gossip and
-	// vis data when their MAC normalization paths disagree.
-	for _, rec := range s.byMac {
-		if rec.Payload != nil && strings.EqualFold(rec.Payload.GetPrimaryMac(), primaryMac) {
-			return rec, true
-		}
+	if rec, ok := s.byInterfaceMac[lookup]; ok {
+		return rec, true
 	}
 
 	return nil, false
@@ -266,7 +318,9 @@ func (s *MeshNeighborsSnapshotter) All() map[string]*MeshNeighborsRecord {
 // record present in the cache. Used by the handler to populate
 // MeshTopology.gossip_coverage. Presence alone is sufficient: alfred
 // expires records whose publisher has gone quiet, so a cache hit
-// implies the publisher was heard recently enough to matter.
+// implies the publisher was heard recently enough to matter. Checks
+// both indices so a primary that only matches via interface_macs
+// still counts as covered.
 func (s *MeshNeighborsSnapshotter) Coverage(primaries []string) (published, total int) {
 	total = len(primaries)
 	if total == 0 {
@@ -281,7 +335,14 @@ func (s *MeshNeighborsSnapshotter) Coverage(primaries []string) (published, tota
 	}
 
 	for _, p := range primaries {
-		if _, ok := s.byMac[strings.ToLower(p)]; ok {
+		key := strings.ToLower(p)
+		if _, ok := s.byMac[key]; ok {
+			published++
+
+			continue
+		}
+
+		if _, ok := s.byInterfaceMac[key]; ok {
 			published++
 		}
 	}

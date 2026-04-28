@@ -24,6 +24,7 @@ export const MeshNeighbors = /*@__PURE__*/ proto3.makeMessageType(
     { no: 4, name: "neighbors", kind: "message", T: MeshNeighbor, repeated: true },
     { no: 5, name: "collected_at", kind: "message", T: Timestamp },
     { no: 6, name: "originators", kind: "message", T: Originator, repeated: true },
+    { no: 7, name: "interface_macs", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
   ],
 );
 

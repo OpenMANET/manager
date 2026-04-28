@@ -49,7 +49,16 @@ type MeshNeighbors struct {
 	// Enables remote-perspective my-paths rendering and multi-hop vxlan0
 	// chain resolution on the consumer side. Empty when the publisher is
 	// running in a reduced-bandwidth mode.
-	Originators   []*Originator `protobuf:"bytes,6,rep,name=originators,proto3" json:"originators,omitempty"`
+	Originators []*Originator `protobuf:"bytes,6,rep,name=originators,proto3" json:"originators,omitempty"`
+	// Lowercased MACs of every local layer-2 interface the publisher
+	// wants to be addressable by — bat0, bat-blos, vxlan0, wlan0, eth*,
+	// and so on. Always includes primary_mac. Receivers index records
+	// by every entry so a Lookup keyed on any one of them resolves the
+	// record in O(1), regardless of which interface MAC the caller has
+	// (alfred envelope, batadv-vis primary, originator next-hop, etc.).
+	// Critical in BLOS multi-mesh deployments where a single physical
+	// node is observed under different MACs by different consumers.
+	InterfaceMacs []string `protobuf:"bytes,7,rep,name=interface_macs,json=interfaceMacs,proto3" json:"interface_macs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -122,6 +131,13 @@ func (x *MeshNeighbors) GetCollectedAt() *timestamppb.Timestamp {
 func (x *MeshNeighbors) GetOriginators() []*Originator {
 	if x != nil {
 		return x.Originators
+	}
+	return nil
+}
+
+func (x *MeshNeighbors) GetInterfaceMacs() []string {
+	if x != nil {
+		return x.InterfaceMacs
 	}
 	return nil
 }
@@ -319,7 +335,7 @@ var File_openmanet_network_v1_mesh_neighbors_proto protoreflect.FileDescriptor
 
 const file_openmanet_network_v1_mesh_neighbors_proto_rawDesc = "" +
 	"\n" +
-	")openmanet/network/v1/mesh_neighbors.proto\x12\x14openmanet.network.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xaf\x02\n" +
+	")openmanet/network/v1/mesh_neighbors.proto\x12\x14openmanet.network.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd6\x02\n" +
 	"\rMeshNeighbors\x12\x1f\n" +
 	"\vprimary_mac\x18\x01 \x01(\tR\n" +
 	"primaryMac\x12\x1a\n" +
@@ -327,7 +343,8 @@ const file_openmanet_network_v1_mesh_neighbors_proto_rawDesc = "" +
 	"\talgorithm\x18\x03 \x01(\x05R\talgorithm\x12@\n" +
 	"\tneighbors\x18\x04 \x03(\v2\".openmanet.network.v1.MeshNeighborR\tneighbors\x12=\n" +
 	"\fcollected_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\vcollectedAt\x12B\n" +
-	"\voriginators\x18\x06 \x03(\v2 .openmanet.network.v1.OriginatorR\voriginators\"\xb6\x01\n" +
+	"\voriginators\x18\x06 \x03(\v2 .openmanet.network.v1.OriginatorR\voriginators\x12%\n" +
+	"\x0einterface_macs\x18\a \x03(\tR\rinterfaceMacs\"\xb6\x01\n" +
 	"\fMeshNeighbor\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12\x1f\n" +
 	"\vhard_ifname\x18\x02 \x01(\tR\n" +

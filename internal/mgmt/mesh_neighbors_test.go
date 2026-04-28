@@ -56,6 +56,9 @@ func TestMeshNeighborsWorker_SendOncePublishesExpectedPayload(t *testing.T) {
 			return network.NetworkInterface{MAC: "11:22:33:44:55:66"}
 		},
 		func() (string, error) { return "BCM2711-1003_bat0", nil },
+		func() []string {
+			return []string{"11:22:33:44:55:66", "ff:ee:dd:cc:bb:aa", "fe:fe:fe:fe:fe:01"}
+		},
 	)
 	require.NoError(t, err)
 	require.Equal(t, 1, fake.setCalls, "exactly one publish per tick")
@@ -101,6 +104,65 @@ func TestMeshNeighborsWorker_SendOncePublishesExpectedPayload(t *testing.T) {
 	require.Contains(t, origByMac, "aa:aa:aa:aa:aa:01")
 	assert.Equal(t, int32(220), origByMac["aa:aa:aa:aa:aa:01"].GetTq())
 	assert.Equal(t, "wlan0", origByMac["aa:aa:aa:aa:aa:01"].GetHardIfname())
+
+	// InterfaceMacs include the bat0 primary plus every MAC the
+	// listMacs hook returned, deduped and lowercased. Receivers index
+	// records by every entry so a Lookup keyed on any of them resolves.
+	assert.ElementsMatch(t,
+		[]string{"11:22:33:44:55:66", "ff:ee:dd:cc:bb:aa", "fe:fe:fe:fe:fe:01"},
+		got.GetInterfaceMacs())
+}
+
+// TestStripIfaceSuffix asserts the regex preserves hostnames whose
+// trailing token is not a recognized interface name (Gate_04_27, the
+// production bug) and still strips well-known iface suffixes.
+func TestStripIfaceSuffix(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"BCM2711-97d6_bat0", "BCM2711-97d6"},
+		{"node_wlan0", "node"},
+		{"node_eth0", "node"},
+		{"node_vxlan0", "node"},
+		{"Gate_04_27", "Gate_04_27"},
+		{"Gate_04", "Gate_04"},
+		{"plain", "plain"},
+		{"", ""},
+		{"_bat0", "_bat0"},
+		{"node_wg0", "node"},
+		{"node_unknown", "node_unknown"},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, stripIfaceSuffix(tc.in), "stripIfaceSuffix(%q)", tc.in)
+	}
+}
+
+// TestCollectInterfaceMacs covers the publisher's mac-bag composition:
+// always include primary, accept nil listMacs, dedupe, lowercase, sort.
+func TestCollectInterfaceMacs(t *testing.T) {
+	t.Run("primary only when listMacs is nil", func(t *testing.T) {
+		got := collectInterfaceMacs("AA:BB:CC:DD:EE:FF", nil)
+		assert.Equal(t, []string{"aa:bb:cc:dd:ee:ff"}, got)
+	})
+
+	t.Run("dedupes against primary", func(t *testing.T) {
+		got := collectInterfaceMacs("aa:bb:cc:dd:ee:ff", func() []string {
+			return []string{"AA:BB:CC:DD:EE:FF", "11:11:11:11:11:11"}
+		})
+		assert.Equal(t, []string{"11:11:11:11:11:11", "aa:bb:cc:dd:ee:ff"}, got)
+	})
+
+	t.Run("skips empty MACs", func(t *testing.T) {
+		got := collectInterfaceMacs("", func() []string {
+			return []string{"", "aa:aa:aa:aa:aa:aa", ""}
+		})
+		assert.Equal(t, []string{"aa:aa:aa:aa:aa:aa"}, got)
+	})
+
+	t.Run("returns nil when nothing to publish", func(t *testing.T) {
+		assert.Nil(t, collectInterfaceMacs("", nil))
+	})
 }
 
 // TestMeshNeighborsWorker_OriginatorFailureStillPublishesNeighbors asserts
@@ -125,6 +187,7 @@ func TestMeshNeighborsWorker_OriginatorFailureStillPublishesNeighbors(t *testing
 		func() (*batmanadv.MeshConfig, error) { return &batmanadv.MeshConfig{AlgoName: "BATMAN_IV"}, nil },
 		func(string) network.NetworkInterface { return network.NetworkInterface{MAC: "aa:bb:cc:dd:ee:ff"} },
 		func() (string, error) { return "node", nil },
+		nil,
 	)
 	require.NoError(t, err, "orig failure must not abort the publish")
 
@@ -151,6 +214,7 @@ func TestMeshNeighborsWorker_NeighborFailureAborts(t *testing.T) {
 		func() (*batmanadv.MeshConfig, error) { return &batmanadv.MeshConfig{}, nil },
 		func(string) network.NetworkInterface { return network.NetworkInterface{} },
 		func() (string, error) { return "", nil },
+		nil,
 	)
 	require.Error(t, err)
 	assert.Zero(t, fake.setCalls, "no publish happens when neighbor fetch fails")
@@ -176,6 +240,7 @@ func TestMeshNeighborsWorker_UnknownAlgorithmFallsBackToZero(t *testing.T) {
 		},
 		func(string) network.NetworkInterface { return network.NetworkInterface{MAC: "aa:bb:cc:dd:ee:ff"} },
 		func() (string, error) { return "host", nil },
+		nil,
 	)
 	require.NoError(t, err)
 

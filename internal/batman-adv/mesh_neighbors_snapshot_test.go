@@ -3,6 +3,7 @@ package batmanadv_test
 import (
 	"context"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -352,4 +353,211 @@ func contextCancel() (ctx context.Context, cancel context.CancelFunc) {
 	cancel() // cancel immediately: loop goroutine checks ctx.Done before first tick
 
 	return ctx, cancel
+}
+
+// makePayloadWithInterfaceMacs builds a payload that advertises the
+// given list of interface MACs. Used by tests that exercise the
+// dual-index BLOS multi-mesh path.
+func makePayloadWithInterfaceMacs(t *testing.T, primary, hostname string, ifaceMacs []string, collected time.Time) []byte {
+	t.Helper()
+
+	pb := &netv1.MeshNeighbors{
+		PrimaryMac:    primary,
+		Hostname:      hostname,
+		Algorithm:     15,
+		CollectedAt:   timestamppb.New(collected),
+		InterfaceMacs: ifaceMacs,
+	}
+
+	buf, err := pb.MarshalVT()
+	require.NoError(t, err)
+
+	return buf
+}
+
+// TestMeshNeighborsSnapshotter_LookupByInterfaceMac mirrors the user's
+// production bug: alfred envelope, payload primary_mac, and the MAC
+// the local mesh's batadv-vis sees are all different. interface_macs
+// names every MAC the publisher knows about; Lookup must hit on any of
+// them. This is the regression test for the BLOS multi-mesh fix.
+func TestMeshNeighborsSnapshotter_LookupByInterfaceMac(t *testing.T) {
+	fixedNow := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+
+	envelopeMAC := "f2:83:94:ae:12:a2"
+	payloadPrimary := "ba:ec:19:56:28:c4"
+	visPrimary := "bc:2a:33:96:ae:6e"
+
+	fake := &fakeAlfredRead{}
+	fake.setRecords([]alfred.Record{
+		{
+			Source: macBytes(envelopeMAC),
+			Data: makePayloadWithInterfaceMacs(t, payloadPrimary, "Gate_04_27",
+				[]string{payloadPrimary, visPrimary, envelopeMAC},
+				fixedNow.Add(-5*time.Second)),
+		},
+	})
+
+	s := &batmanadv.MeshNeighborsSnapshotter{
+		Log:      zerolog.Nop(),
+		Client:   fake,
+		Interval: time.Hour,
+		Now:      func() time.Time { return fixedNow },
+	}
+
+	ctx, cancel := contextCancel()
+	defer cancel()
+
+	s.Start(ctx)
+
+	t.Run("by alfred envelope MAC", func(t *testing.T) {
+		rec, ok := s.Lookup(envelopeMAC)
+		require.True(t, ok)
+		assert.Equal(t, payloadPrimary, rec.Payload.GetPrimaryMac())
+	})
+
+	t.Run("by payload primary_mac", func(t *testing.T) {
+		rec, ok := s.Lookup(payloadPrimary)
+		require.True(t, ok)
+		assert.Equal(t, payloadPrimary, rec.Payload.GetPrimaryMac())
+	})
+
+	t.Run("by vis primary listed in interface_macs", func(t *testing.T) {
+		rec, ok := s.Lookup(visPrimary)
+		require.True(t, ok, "vis primary MAC is shipped via interface_macs and resolves the gossip record")
+		assert.Equal(t, "Gate_04_27", rec.Payload.GetHostname())
+	})
+
+	t.Run("case-insensitive on interface MAC", func(t *testing.T) {
+		_, ok := s.Lookup(strings.ToUpper(visPrimary))
+		assert.True(t, ok, "interface_macs lookup is case-insensitive")
+	})
+
+	t.Run("unrelated MAC still misses", func(t *testing.T) {
+		_, ok := s.Lookup("00:00:00:00:00:00")
+		assert.False(t, ok)
+	})
+}
+
+// TestMeshNeighborsSnapshotter_LookupBackCompatPrimaryOnly asserts a
+// publisher that omits interface_macs (older fleet rolling forward)
+// is still resolvable by its payload.primary_mac. The snapshotter
+// indexes primary_mac into the interface-MAC index even when
+// interface_macs is empty.
+func TestMeshNeighborsSnapshotter_LookupBackCompatPrimaryOnly(t *testing.T) {
+	fixedNow := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+
+	envelopeMAC := "f2:83:94:ae:12:a2"
+	payloadPrimary := "ba:ec:19:56:28:c4"
+
+	fake := &fakeAlfredRead{}
+	fake.setRecords([]alfred.Record{
+		{
+			Source: macBytes(envelopeMAC),
+			// No interface_macs at all — older publisher.
+			Data: makePayloadWithHostname(t, payloadPrimary, "BCM2711-old", fixedNow.Add(-5*time.Second)),
+		},
+	})
+
+	s := &batmanadv.MeshNeighborsSnapshotter{
+		Log:      zerolog.Nop(),
+		Client:   fake,
+		Interval: time.Hour,
+		Now:      func() time.Time { return fixedNow },
+	}
+
+	ctx, cancel := contextCancel()
+	defer cancel()
+
+	s.Start(ctx)
+
+	_, ok := s.Lookup(envelopeMAC)
+	require.True(t, ok, "envelope MAC always resolves")
+
+	_, ok = s.Lookup(payloadPrimary)
+	require.True(t, ok, "payload primary_mac is indexed even without interface_macs")
+}
+
+// TestMeshNeighborsSnapshotter_CoverageViaInterfaceMacs asserts a
+// primary that only appears in the interface_macs index (vis primary
+// of a BLOS-attached gateway) still counts toward published coverage.
+func TestMeshNeighborsSnapshotter_CoverageViaInterfaceMacs(t *testing.T) {
+	fixedNow := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+
+	envelopeMAC := "f2:83:94:ae:12:a2"
+	payloadPrimary := "ba:ec:19:56:28:c4"
+	visPrimary := "bc:2a:33:96:ae:6e"
+
+	fake := &fakeAlfredRead{}
+	fake.setRecords([]alfred.Record{
+		{
+			Source: macBytes(envelopeMAC),
+			Data: makePayloadWithInterfaceMacs(t, payloadPrimary, "Gate_04_27",
+				[]string{payloadPrimary, visPrimary},
+				fixedNow.Add(-5*time.Second)),
+		},
+	})
+
+	s := &batmanadv.MeshNeighborsSnapshotter{
+		Log:      zerolog.Nop(),
+		Client:   fake,
+		Interval: time.Hour,
+		Now:      func() time.Time { return fixedNow },
+	}
+
+	ctx, cancel := contextCancel()
+	defer cancel()
+
+	s.Start(ctx)
+
+	published, total := s.Coverage([]string{visPrimary})
+	assert.Equal(t, 1, total)
+	assert.Equal(t, 1, published, "vis primary appearing only in interface_macs counts as published")
+}
+
+// TestMeshNeighborsSnapshotter_InterfaceMacCollisionLogsAndKeepsLatest
+// covers the misconfiguration case where two publishers claim the
+// same interface MAC. The snapshotter resolves last-write-wins (map
+// iteration order is unstable, so either record may win — the test
+// only asserts one record resolves and the warn line was emitted).
+func TestMeshNeighborsSnapshotter_InterfaceMacCollisionLogsAndKeepsLatest(t *testing.T) {
+	fixedNow := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+
+	collidingMAC := "11:22:33:44:55:66"
+
+	var captured strings.Builder
+
+	logger := zerolog.New(&captured)
+
+	fake := &fakeAlfredRead{}
+	fake.setRecords([]alfred.Record{
+		{
+			Source: macBytes("aa:aa:aa:aa:aa:01"),
+			Data: makePayloadWithInterfaceMacs(t, "aa:aa:aa:aa:aa:01", "node-A",
+				[]string{collidingMAC}, fixedNow),
+		},
+		{
+			Source: macBytes("bb:bb:bb:bb:bb:02"),
+			Data: makePayloadWithInterfaceMacs(t, "bb:bb:bb:bb:bb:02", "node-B",
+				[]string{collidingMAC}, fixedNow),
+		},
+	})
+
+	s := &batmanadv.MeshNeighborsSnapshotter{
+		Log:      logger,
+		Client:   fake,
+		Interval: time.Hour,
+		Now:      func() time.Time { return fixedNow },
+	}
+
+	ctx, cancel := contextCancel()
+	defer cancel()
+
+	s.Start(ctx)
+
+	rec, ok := s.Lookup(collidingMAC)
+	require.True(t, ok, "colliding interface MAC still resolves to a record")
+	assert.NotNil(t, rec.Payload)
+
+	assert.Contains(t, captured.String(), "two publishers claim the same interface MAC",
+		"collision must be logged at warn level")
 }

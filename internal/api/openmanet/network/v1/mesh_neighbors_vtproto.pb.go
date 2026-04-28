@@ -45,6 +45,11 @@ func (m *MeshNeighbors) CloneVT() *MeshNeighbors {
 		}
 		r.Originators = tmpContainer
 	}
+	if rhs := m.InterfaceMacs; rhs != nil {
+		tmpContainer := make([]string, len(rhs))
+		copy(tmpContainer, rhs)
+		r.InterfaceMacs = tmpContainer
+	}
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -150,6 +155,15 @@ func (this *MeshNeighbors) EqualVT(that *MeshNeighbors) bool {
 			if !p.EqualVT(q) {
 				return false
 			}
+		}
+	}
+	if len(this.InterfaceMacs) != len(that.InterfaceMacs) {
+		return false
+	}
+	for i, vx := range this.InterfaceMacs {
+		vy := that.InterfaceMacs[i]
+		if vx != vy {
+			return false
 		}
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -259,6 +273,15 @@ func (m *MeshNeighbors) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.InterfaceMacs) > 0 {
+		for iNdEx := len(m.InterfaceMacs) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.InterfaceMacs[iNdEx])
+			copy(dAtA[i:], m.InterfaceMacs[iNdEx])
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.InterfaceMacs[iNdEx])))
+			i--
+			dAtA[i] = 0x3a
+		}
 	}
 	if len(m.Originators) > 0 {
 		for iNdEx := len(m.Originators) - 1; iNdEx >= 0; iNdEx-- {
@@ -487,6 +510,15 @@ func (m *MeshNeighbors) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.InterfaceMacs) > 0 {
+		for iNdEx := len(m.InterfaceMacs) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.InterfaceMacs[iNdEx])
+			copy(dAtA[i:], m.InterfaceMacs[iNdEx])
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.InterfaceMacs[iNdEx])))
+			i--
+			dAtA[i] = 0x3a
+		}
+	}
 	if len(m.Originators) > 0 {
 		for iNdEx := len(m.Originators) - 1; iNdEx >= 0; iNdEx-- {
 			size, err := m.Originators[iNdEx].MarshalToSizedBufferVTStrict(dAtA[:i])
@@ -714,6 +746,12 @@ func (m *MeshNeighbors) SizeVT() (n int) {
 	if len(m.Originators) > 0 {
 		for _, e := range m.Originators {
 			l = e.SizeVT()
+			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+		}
+	}
+	if len(m.InterfaceMacs) > 0 {
+		for _, s := range m.InterfaceMacs {
+			l = len(s)
 			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 		}
 	}
@@ -997,6 +1035,38 @@ func (m *MeshNeighbors) UnmarshalVT(dAtA []byte) error {
 			if err := m.Originators[len(m.Originators)-1].UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
+			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field InterfaceMacs", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.InterfaceMacs = append(m.InterfaceMacs, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -1639,6 +1709,42 @@ func (m *MeshNeighbors) UnmarshalVTUnsafe(dAtA []byte) error {
 			if err := m.Originators[len(m.Originators)-1].UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
+			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field InterfaceMacs", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.InterfaceMacs = append(m.InterfaceMacs, stringValue)
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
