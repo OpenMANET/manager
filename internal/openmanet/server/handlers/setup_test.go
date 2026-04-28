@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/digineo/go-uci/v2"
 	setupv1 "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1"
 	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
 	"github.com/openmanet/openmanetd/internal/config"
@@ -151,7 +152,11 @@ func TestProtoToUplinkType_RoundTrip(t *testing.T) {
 // ── GetSetupStatus ──────────────────────────────────────────────────────────
 
 func TestGetSetupStatus_FreshDevice_DefaultsDisabled(t *testing.T) {
-	cfg := setupBLOSTestConfig(t, "")
+	// auth.enable is explicitly false to model a true factory image
+	// before the wizard has run. DefaultAuthEnable is true at the
+	// firmware level (set by /etc/openmanetd/config.yml), but a brand-
+	// new factory image flips it off until the wizard finishes.
+	cfg := setupBLOSTestConfig(t, "auth:\n  enable: false\n")
 	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
 
 	resp, err := svc.GetSetupStatus(context.Background(), &emptypb.Empty{})
@@ -264,7 +269,11 @@ func TestGetSetupStatus_AlreadyConfigured_FactoryMeshGateAnnouncementsIgnored(t 
 	// set in /etc/config/mesh11sd. That MUST NOT trip the
 	// already_configured heuristic — otherwise every fresh device sees
 	// the "looks already configured" warning on first boot.
-	cfg := setupBLOSTestConfig(t, "")
+	//
+	// auth.enable is explicitly disabled here so the test isolates the
+	// mesh11sd heuristic from the auth-enable heuristic (which would
+	// otherwise dominate given DefaultAuthEnable=true).
+	cfg := setupBLOSTestConfig(t, "auth:\n  enable: false\n")
 
 	reader := newSetupReader()
 	if reader.data["mesh11sd"] == nil {
@@ -462,6 +471,65 @@ func TestApplySetup_RejectsWhenAlreadyComplete(t *testing.T) {
 	require.ErrorAs(t, err, &connectErr)
 	assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
 	assert.Contains(t, connectErr.Message(), "already completed")
+}
+
+func TestApplySetup_RejectsWhenLegacyLuciWizardAlreadyRan(t *testing.T) {
+	// Devices that previously went through the legacy LuCI Morse
+	// wizard write `luci.wizard.used='1'`. Those devices already have
+	// the same end-state UCI the new wizard would produce; running
+	// the new wizard would just reset everything and confuse the
+	// operator. Reject ApplySetup with CodeFailedPrecondition.
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+
+	reader := newSetupReader()
+	require.NoError(t, reader.AddSection("luci", "wizard", "wizard"))
+	require.NoError(t, reader.SetType("luci", "wizard", "used", uci.TypeOption, "1"))
+
+	svc := newSetupService(t, cfg, reader, &fakeInterfaceProvider{})
+
+	err := svc.ApplySetupForTest(context.Background(), minimalProfile(), &streamCollector{})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
+	assert.Contains(t, connectErr.Message(), "legacy LuCI Morse wizard")
+}
+
+func TestGetSetupStatus_LegacyLuciWizardUsedFlagsSetupComplete(t *testing.T) {
+	// luci.wizard.used=1 is treated as is_setup_complete=true so the
+	// frontend redirects /setup → / (the wizard route is hidden).
+	cfg := setupBLOSTestConfig(t, "auth:\n  enable: false\n")
+
+	reader := newSetupReader()
+	require.NoError(t, reader.AddSection("luci", "wizard", "wizard"))
+	require.NoError(t, reader.SetType("luci", "wizard", "used", uci.TypeOption, "1"))
+
+	svc := newSetupService(t, cfg, reader, &fakeInterfaceProvider{})
+
+	resp, err := svc.GetSetupStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	assert.True(t, resp.GetIsSetupComplete(),
+		"luci.wizard.used=1 must surface as is_setup_complete=true")
+}
+
+func TestGetSetupStatus_LegacyLuciWizardZeroDoesNotFlag(t *testing.T) {
+	// luci.wizard.used=0 means "wizard not yet run" (just present in
+	// the config skeleton). It must not flag setup as complete.
+	cfg := setupBLOSTestConfig(t, "auth:\n  enable: false\n")
+
+	reader := newSetupReader()
+	require.NoError(t, reader.AddSection("luci", "wizard", "wizard"))
+	require.NoError(t, reader.SetType("luci", "wizard", "used", uci.TypeOption, "0"))
+
+	svc := newSetupService(t, cfg, reader, &fakeInterfaceProvider{})
+
+	resp, err := svc.GetSetupStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	assert.False(t, resp.GetIsSetupComplete(),
+		"luci.wizard.used=0 must NOT flag setup complete")
 }
 
 func TestApplySetup_RejectsWhenNoHalowRadio(t *testing.T) {
@@ -1271,9 +1339,12 @@ func TestApplySetup_HostnameSetterFailureRollsBack(t *testing.T) {
 	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_HOSTNAME,
 		last.GetResult().GetFailedPhase())
 
-	// Flags must NOT have flipped on a failed apply.
+	// SetupComplete must NOT flip on a failed apply — the load-bearing
+	// invariant that keeps the wizard reachable for retry. AuthEnable's
+	// default depends on the firmware build, so we don't assert on it
+	// here; the flag flip happens in PersistSetupAndAuth which never
+	// runs when the apply fails before phase 14.
 	assert.False(t, cfg.GetSetupComplete())
-	assert.False(t, cfg.GetAuthEnable())
 }
 
 func TestApplySetup_CommitFailureRollsBack(t *testing.T) {
@@ -1325,9 +1396,13 @@ func TestApplySetup_PasswordFailureRollsBackUCIButNotPassword(t *testing.T) {
 	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_PASSWORD,
 		last.GetResult().GetFailedPhase())
 
-	// Flags stay false on password failure.
+	// Flags are NOT flipped by the wizard on password failure. The
+	// wizard's PersistSetupAndAuth call is what flips both of these,
+	// and it never runs when phase 13 fails. SetupComplete defaults
+	// to false; AuthEnable defaults to true for the firmware build,
+	// so we just assert SetupComplete remains false (the load-bearing
+	// invariant — the wizard stays reachable for retry).
 	assert.False(t, cfg.GetSetupComplete())
-	assert.False(t, cfg.GetAuthEnable())
 }
 
 func TestApplySetup_PersistFlagsFailureDoesNotRollback(t *testing.T) {

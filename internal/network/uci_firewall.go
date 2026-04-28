@@ -2,6 +2,7 @@ package network
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/digineo/go-uci/v2"
 )
@@ -155,6 +156,46 @@ func defaultWanFirewallRules(localZone string) []firewallRule {
 	}
 }
 
+// wizardRuleSectionName converts a rule's display Name to a UCI-safe
+// section identifier. UCI section names accept letters, digits, and
+// underscore; everything else is collapsed to a single underscore. A
+// `wizard_rule_` prefix and the prior-section index disambiguate from
+// any user-named rules while keeping the set self-describing on disk.
+func wizardRuleSectionName(displayName string, priorIndex int) string {
+	var b strings.Builder
+
+	b.Grow(len(displayName) + 16)
+	b.WriteString("wizard_rule_")
+
+	prevUnderscore := false
+
+	for _, r := range displayName {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= '0' && r <= '9':
+			b.WriteRune(r)
+
+			prevUnderscore = false
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r + ('a' - 'A'))
+
+			prevUnderscore = false
+		default:
+			if !prevUnderscore {
+				b.WriteRune('_')
+
+				prevUnderscore = true
+			}
+		}
+	}
+
+	// Suffix the section count to guarantee uniqueness even when two
+	// rules share a (sanitized) display name.
+	fmt.Fprintf(&b, "_%d", priorIndex)
+
+	return b.String()
+}
+
 // AddDefaultWanFirewallRules emits the 13 default firewall rules into
 // the firewall config as anonymous `rule` sections. The first 9 rules
 // reference the WAN zone (preserved across all scenarios because the
@@ -177,21 +218,24 @@ func AddDefaultWanFirewallRules(reader ConfigReader, localZone string) error {
 	return nil
 }
 
-// addAnonymousRule appends a single anonymous `rule` section and
-// writes its non-empty fields. The just-added section is referenced
-// via the @rule[N] notation, where N is the prior count of `rule`
-// sections.
+// addAnonymousRule appends a single `rule` section and writes its
+// non-empty fields. The section is named (rather than truly anonymous)
+// because the underlying go-uci library's AddSection treats an empty
+// name as a lookup against existing anonymous sections, which collides
+// with /etc/config/firewall's leading `config defaults` block. A
+// derived name from the rule's Name field gives every rule a stable,
+// unique section that uci tooling on the device still treats as
+// indistinguishable from an anonymous rule for matching/iteration.
 func addAnonymousRule(reader ConfigReader, r firewallRule) error {
 	priorCount, err := countSections(reader, firewallConfigName, firewallRuleType)
 	if err != nil {
 		return err
 	}
 
-	if err := reader.AddSection(firewallConfigName, "", firewallRuleType); err != nil {
+	section := wizardRuleSectionName(r.Name, priorCount)
+	if err := reader.AddSection(firewallConfigName, section, firewallRuleType); err != nil {
 		return fmt.Errorf("adding rule section: %w", err)
 	}
-
-	section := fmt.Sprintf("@%s[%d]", firewallRuleType, priorCount)
 
 	setOpt := func(option, value string) error {
 		if value == "" {
@@ -534,16 +578,18 @@ func GetOrCreateForwarding(reader ConfigReader, src, dest, name string) (string,
 		}
 	}
 
-	// Create a new forwarding.
-	if err := reader.AddSection(firewallConfigName, name, firewallForwardingType); err != nil {
-		return "", fmt.Errorf("creating forwarding section: %w", err)
-	}
-
+	// Create a new forwarding. AddSection with an empty name in
+	// digineo/go-uci treats empty as a lookup key, which collides
+	// with the firewall config's leading anonymous `defaults` section.
+	// Always pass a unique section name; auto-generate one when the
+	// caller didn't supply one.
 	section := name
 	if section == "" {
-		// Anonymous: derive @forwarding[N] from the prior count.
-		priorCount := len(sections) // sections we listed before the AddSection
-		section = fmt.Sprintf("@%s[%d]", firewallForwardingType, priorCount)
+		section = fmt.Sprintf("wizard_fwd_%d", len(sections))
+	}
+
+	if err := reader.AddSection(firewallConfigName, section, firewallForwardingType); err != nil {
+		return "", fmt.Errorf("creating forwarding section: %w", err)
 	}
 
 	if err := reader.SetType(firewallConfigName, section, "src", uci.TypeOption, src); err != nil {

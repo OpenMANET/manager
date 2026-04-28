@@ -75,6 +75,19 @@ function formatTimestamp(ts) {
   return d.toLocaleString();
 }
 
+// stripAnsi removes ANSI/VT100 escape sequences (CSI + final byte) from
+// a string. zerolog's ConsoleWriter colourises output with sequences like
+// ESC[32m … ESC[0m; when those reach syslog they survive into logread
+// and would render as literal "[32m" in a plain <pre>. We strip them
+// rather than render them — adding a full ANSI-to-HTML pass is overkill
+// for an operator log viewer.
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
+function stripAnsi(s) {
+  if (!s) return s;
+  return s.replace(ANSI_RE, '');
+}
+
 function filenameTimestamp(date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   return (
@@ -114,7 +127,7 @@ export default function SettingsLogs() {
         source: source.proto,
         maxLines: MAX_LINES,
       });
-      const nextLines = (resp.lines || []).map((l) => l.raw);
+      const nextLines = (resp.lines || []).map((l) => stripAnsi(l.raw));
       setLines(nextLines);
       setCollectedAt(resp.collectedAt || null);
       setTruncated(!!resp.truncated);

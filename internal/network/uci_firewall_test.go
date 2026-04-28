@@ -2,6 +2,8 @@ package network
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -46,6 +48,72 @@ func addAnonZone(t *testing.T, m *mockConfigReader, name string, networks ...str
 }
 
 // ── AddDefaultWanFirewallRules ───────────────────────────────────────────────
+
+// TestAddDefaultWanFirewallRules_OnRealUCITree_DigineoAnonymousCollision
+// exercises the fix against the actual digineo/go-uci library backed
+// by a real on-disk firewall file. Without the wizardRuleSectionName
+// fix, the second AddSection (the defaults section was already there)
+// fails with "type mismatch ... got defaults, want rule".
+func TestAddDefaultWanFirewallRules_OnRealUCITree_DigineoAnonymousCollision(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a minimal /etc/config/firewall with an anonymous defaults
+	// block, mirroring every real OpenWrt firewall config.
+	const firewallContent = `config defaults
+	option syn_flood '1'
+	option input 'ACCEPT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+`
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "firewall"),
+		[]byte(firewallContent), 0o644))
+
+	reader := &UCIFirewallConfigReader{tree: uci.NewTree(dir)}
+
+	require.NoError(t, AddDefaultWanFirewallRules(reader, "ahwlan"),
+		"AddDefaultWanFirewallRules must succeed when an anonymous defaults block is present")
+
+	// Confirm all 13 rules made it onto the tree.
+	sections, err := reader.GetSections("firewall", "rule")
+	require.NoError(t, err)
+	assert.Len(t, sections, 13)
+}
+
+// TestAddDefaultWanFirewallRules_CoexistsWithAnonymousDefaults is a
+// regression for the production bug where the wizard's
+// SCENARIO_TOPOLOGY phase failed with
+//
+//	adding rule "Allow-DHCP-Renew": adding rule section: type
+//	mismatch for firewall., got defaults, want rule
+//
+// Root cause: digineo/go-uci's AddSection treats an empty section
+// name as a lookup against existing anonymous sections regardless of
+// type — and /etc/config/firewall ships with an anonymous `defaults`
+// block, so the very first AddSection("firewall", "", "rule") tried
+// to overwrite that and bailed on a type mismatch. Fix: every wizard-
+// added rule now uses a derived UCI-safe section name.
+func TestAddDefaultWanFirewallRules_CoexistsWithAnonymousDefaults(t *testing.T) {
+	m := newFirewallMock(t)
+
+	// Pre-populate the firewall config with an anonymous `defaults`
+	// section, exactly like every real OpenWrt firewall config.
+	require.NoError(t, m.AddSection("firewall", "", "defaults"))
+	require.NoError(t, m.SetType("firewall", "@defaults[0]", "syn_flood",
+		uci.TypeOption, "1"))
+
+	// This should succeed despite the anonymous defaults block.
+	require.NoError(t, AddDefaultWanFirewallRules(m, "ahwlan"))
+
+	sections, err := m.GetSections("firewall", "rule")
+	require.NoError(t, err)
+	assert.Len(t, sections, 13)
+
+	// The defaults section must still be intact.
+	v, ok := m.Get("firewall", "@defaults[0]", "syn_flood")
+	require.True(t, ok)
+	assert.Equal(t, "1", v[0])
+}
 
 func TestAddDefaultWanFirewallRules_Emits13Rules(t *testing.T) {
 	m := newFirewallMock(t)

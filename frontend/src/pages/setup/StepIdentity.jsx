@@ -8,7 +8,6 @@
 // validator. When status.alreadyConfigured is true the user is shown a
 // warning banner and the Next button is double-confirmed.
 
-import { useState } from 'react';
 import { useSetup, SETUP_ACTIONS } from '../../contexts/SetupContext.jsx';
 import { MeshRole } from '../../gen/openmanet/setup/v1/setup_pb.js';
 import { ROLE_LABELS } from './labels.js';
@@ -21,21 +20,12 @@ function isValidHostname(s) {
   return HOSTNAME_RE.test(s);
 }
 
-export default function StepIdentity({ status, onAdvance }) {
+// Note: Next/Back navigation and the AlreadyConfigured confirmation
+// dialog live in SetupWizard.jsx (the shell) so every step has a
+// consistent footer.
+export default function StepIdentity({ status }) {
   const { state, dispatch } = useSetup();
-  const [confirmOpen, setConfirmOpen] = useState(false);
-
   const hostnameValid = isValidHostname(state.hostname);
-  const roleValid = state.role !== MeshRole.UNSPECIFIED;
-  const canAdvance = hostnameValid && roleValid;
-
-  const handleNext = () => {
-    if (status?.alreadyConfigured) {
-      setConfirmOpen(true);
-      return;
-    }
-    onAdvance?.();
-  };
 
   return (
     <div className="setup-step">
@@ -92,23 +82,6 @@ export default function StepIdentity({ status, onAdvance }) {
         </div>
       </div>
 
-      <div className="setup-nav">
-        <button
-          type="button"
-          className="lat-btn primary"
-          disabled={!canAdvance}
-          onClick={handleNext}
-        >
-          Next
-        </button>
-      </div>
-
-      {confirmOpen && (
-        <ConfirmDialog
-          onCancel={() => setConfirmOpen(false)}
-          onConfirm={() => { setConfirmOpen(false); onAdvance?.(); }}
-        />
-      )}
     </div>
   );
 }
@@ -126,20 +99,5 @@ function RoleCard({ value, current, label, description, onSelect }) {
       <span className="name">{label}</span>
       <span className="desc">{description}</span>
     </button>
-  );
-}
-
-function ConfirmDialog({ onCancel, onConfirm }) {
-  return (
-    <div className="lat-alert crit" role="alertdialog">
-      <p>
-        This device looks like it&apos;s already configured. Continuing will
-        reset its wireless, network, firewall, DHCP, and batman state.
-      </p>
-      <div className="setup-nav">
-        <button type="button" className="lat-btn ghost" onClick={onCancel}>Cancel</button>
-        <button type="button" className="lat-btn danger solid" onClick={onConfirm}>Reset and continue</button>
-      </div>
-    </div>
   );
 }

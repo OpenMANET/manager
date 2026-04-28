@@ -54,6 +54,7 @@ function SetupWizardShell() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [status, setStatus] = useState(null);
   const [statusError, setStatusError] = useState(null);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   // Load the status payload on mount so step components have radio +
   // ethernet-port data available without re-fetching.
@@ -106,7 +107,20 @@ function SetupWizardShell() {
   const StepBody = step.component;
 
   const goPrev = () => setCurrentIndex(i => Math.max(0, i - 1));
-  const goNext = () => setCurrentIndex(i => Math.min(steps.length - 1, i + 1));
+  const advance = () => setCurrentIndex(i => Math.min(steps.length - 1, i + 1));
+
+  // Identity step (index 0) gates Next on a "looks already configured"
+  // confirmation when the device's UCI state suggests prior setup. We
+  // surface the confirmation from the shell rather than the step body
+  // so there's exactly one Next button on every step.
+  const goNext = () => {
+    const onIdentity = step.key === 'identity';
+    if (onIdentity && status?.alreadyConfigured) {
+      setConfirmReset(true);
+      return;
+    }
+    advance();
+  };
 
   const isFirst = currentIndex === 0;
   const isLast  = currentIndex === steps.length - 1;
@@ -130,16 +144,16 @@ function SetupWizardShell() {
         </div>
       </div>
 
-      {!isLast && (
-        <div className="setup-nav">
-          <button
-            type="button"
-            className="lat-btn ghost"
-            onClick={goPrev}
-            disabled={isFirst}
-          >
-            Back
-          </button>
+      <div className="setup-nav">
+        <button
+          type="button"
+          className="lat-btn ghost"
+          onClick={goPrev}
+          disabled={isFirst}
+        >
+          Back
+        </button>
+        {!isLast && (
           <button
             type="button"
             className="lat-btn primary"
@@ -147,6 +161,26 @@ function SetupWizardShell() {
           >
             Next
           </button>
+        )}
+      </div>
+
+      {confirmReset && (
+        <div className="lat-alert crit" role="alertdialog">
+          <p>
+            This device looks like it&apos;s already configured. Continuing
+            will reset its wireless, network, firewall, DHCP, and batman
+            state.
+          </p>
+          <div className="setup-nav">
+            <button type="button" className="lat-btn ghost"
+              onClick={() => setConfirmReset(false)}>
+              Cancel
+            </button>
+            <button type="button" className="lat-btn danger solid"
+              onClick={() => { setConfirmReset(false); advance(); }}>
+              Reset and continue
+            </button>
+          </div>
         </div>
       )}
     </div>

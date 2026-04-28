@@ -138,7 +138,7 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error { //nolint:gocogni
 	}
 
 	switch tunnelStatus.BackendState {
-	case "Running", "Starting":
+	case backendStateRunning, "Starting":
 		r.logger.Info().Msgf("Tunnel status: %s", tunnelStatus.BackendState)
 	case "Stopped":
 		r.logger.Info().Msg("Tunnel is stopped")

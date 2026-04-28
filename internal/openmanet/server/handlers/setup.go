@@ -239,9 +239,14 @@ func UplinkTypeToProto(s string) setupv1.UplinkType {
 func (s *SetupService) GetSetupStatus(ctx context.Context, _ *emptypb.Empty) (*setupv1.GetSetupStatusResponse, error) {
 	s.Log.Debug().Msg("GetSetupStatus request received")
 
+	// is_setup_complete OR'ed with the legacy LuCI Morse wizard flag:
+	// firmware that's already been through the LuCI wizard
+	// (`luci.wizard.used=1`) has all the same UCI state the new wizard
+	// would otherwise produce, so we treat it as fully configured and
+	// hide the new wizard route.
 	resp := &setupv1.GetSetupStatusResponse{
 		IsEnabled:       s.Cfg.GetSetupEnabled(),
-		IsSetupComplete: s.Cfg.GetSetupComplete(),
+		IsSetupComplete: s.Cfg.GetSetupComplete() || s.legacyLuciWizardUsed(),
 		CurrentHostname: s.currentHostname(),
 		Radios:          s.collectSetupRadios(ctx),
 		EthernetPorts:   s.collectEthernetPorts(),
@@ -252,6 +257,32 @@ func (s *SetupService) GetSetupStatus(ctx context.Context, _ *emptypb.Empty) (*s
 	resp.Countries, resp.CurrentCountry = s.collectRegulatoryCountries()
 
 	return resp, nil
+}
+
+// legacyLuciWizardUsed reports whether the device has already been
+// configured via the legacy LuCI Morse wizard. The LuCI wizard records
+// completion in /etc/config/luci as:
+//
+//	config wizard 'wizard'
+//	    option used '1'
+//
+// When this flag is set we treat the device as fully set up — running
+// the new wizard would reset everything the LuCI wizard already wrote.
+// Operators who genuinely want to re-run setup can clear the flag via
+// `uci set luci.wizard.used=0 && uci commit luci` or by hand-editing
+// /etc/config/luci.
+func (s *SetupService) legacyLuciWizardUsed() bool {
+	v, ok := s.UCI.Get("luci", "wizard", "used")
+	if !ok || len(v) == 0 {
+		return false
+	}
+
+	switch strings.ToLower(strings.TrimSpace(v[0])) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+
+	return false
 }
 
 // collectRegulatoryCountries loads the Morse Micro regdb and returns
@@ -664,6 +695,11 @@ func (s *SetupService) checkReapplyGuard(_ context.Context) error {
 	if s.Cfg.GetSetupComplete() {
 		return connect.NewError(connect.CodeFailedPrecondition,
 			errors.New("setup wizard already completed on this device"))
+	}
+
+	if s.legacyLuciWizardUsed() {
+		return connect.NewError(connect.CodeFailedPrecondition,
+			errors.New("legacy LuCI Morse wizard already configured this device (luci.wizard.used=1)"))
 	}
 
 	if !s.hasUsableHalowRadio() {

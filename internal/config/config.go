@@ -126,7 +126,7 @@ const (
 	// the discrepancy. Operators can override with a positive value to
 	// pin the period explicitly, or with -1 to let miniaudio pick.
 	DefaultCommsCaptureFramesPerBuffer int  = 0
-	DefaultAuthEnable                  bool = false
+	DefaultAuthEnable                  bool = true
 	// DefaultSetupEnabled is the default value for setup.enabled — the
 	// operator-controlled kill switch for the first-boot setup wizard.
 	// Defaults to false so factory images ship with the wizard disabled
