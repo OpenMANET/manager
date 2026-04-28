@@ -315,6 +315,7 @@ func progressToProto(p sysupgrade.Progress) *supbv1.ProgressEvent {
 		ReleaseTag: p.ReleaseTag,
 		AssetName:  p.AssetName,
 		ChildPid:   p.ChildPID,
+		LogTail:    p.LogTail,
 	}
 
 	if !p.UpdatedAt.IsZero() {

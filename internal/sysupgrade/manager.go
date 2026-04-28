@@ -492,8 +492,16 @@ func (m *Manager) runUpgrade(ctx context.Context, rel Release, asset Asset, opts
 
 	logPath := filepath.Join(m.downloadDir, asset.Name+".log")
 
+	m.log.Info().
+		Str("image", imagePath).
+		Str("log", logPath).
+		Str("release", rel.Tag).
+		Str("asset", asset.Name).
+		Msg("sysupgrade: launching detached child for release")
+
 	pid, err := m.runner.Run(ctx, imagePath, logPath, opts)
 	if err != nil {
+		m.log.Error().Err(err).Str("image", imagePath).Msg("sysupgrade: runner failed to launch")
 		m.setPhase(PhaseFailed, "sysupgrade runner failed", err.Error())
 
 		return
@@ -503,6 +511,8 @@ func (m *Manager) runUpgrade(ctx context.Context, rel Release, asset Asset, opts
 	m.upgradeStarted = true
 	m.mu.Unlock()
 
+	m.log.Info().Int("pid", pid).Str("log", logPath).Msg("sysupgrade: detached child launched")
+
 	m.setProgress(Progress{
 		Phase:      PhaseUpgrading,
 		ReleaseTag: rel.Tag,
@@ -511,6 +521,8 @@ func (m *Manager) runUpgrade(ctx context.Context, rel Release, asset Asset, opts
 		Message:    "sysupgrade running in detached child",
 		UpdatedAt:  time.Now(),
 	})
+
+	go m.watchSysupgradeChild(ctx, pid, logPath, asset.Name)
 }
 
 // downloadAndVerify performs the sums fetch + image stream + verify

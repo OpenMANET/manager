@@ -970,6 +970,12 @@ function UpgradeProgressPanel({ event, streamLost, onCancel, cancelBusy, cancelE
 
       {alert}
 
+      {failed && event.logTail && (
+        <pre className="firmware-log-tail" aria-label="sysupgrade log tail">
+          {event.logTail}
+        </pre>
+      )}
+
       {cancelError && (
         <div className="lat-alert crit">{errorMessage(cancelError)}</div>
       )}

@@ -180,6 +180,7 @@ export const ProgressEvent = /*@__PURE__*/ proto3.makeMessageType(
     { no: 8, name: "asset_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 9, name: "child_pid", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
     { no: 10, name: "updated_at", kind: "message", T: Timestamp },
+    { no: 11, name: "log_tail", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ],
 );
 

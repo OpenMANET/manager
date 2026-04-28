@@ -307,8 +307,15 @@ func (m *Manager) runLocalUpgrade(ctx context.Context, staged *StagedImage, opts
 
 	logPath := filepath.Join(m.downloadDir, stagedFilename+".log")
 
+	m.log.Info().
+		Str("image", staged.Path).
+		Str("log", logPath).
+		Str("filename", staged.Filename).
+		Msg("sysupgrade: launching detached child for staged image")
+
 	pid, err := m.runner.Run(ctx, staged.Path, logPath, opts)
 	if err != nil {
+		m.log.Error().Err(err).Str("image", staged.Path).Msg("sysupgrade: runner failed to launch")
 		m.setPhase(PhaseFailed, "sysupgrade runner failed", err.Error())
 
 		return
@@ -318,6 +325,8 @@ func (m *Manager) runLocalUpgrade(ctx context.Context, staged *StagedImage, opts
 	m.upgradeStarted = true
 	m.mu.Unlock()
 
+	m.log.Info().Int("pid", pid).Str("log", logPath).Msg("sysupgrade: detached child launched")
+
 	m.setProgress(Progress{
 		Phase:     PhaseUpgrading,
 		AssetName: staged.Filename,
@@ -325,6 +334,8 @@ func (m *Manager) runLocalUpgrade(ctx context.Context, staged *StagedImage, opts
 		Message:   "sysupgrade running in detached child",
 		UpdatedAt: time.Now(),
 	})
+
+	go m.watchSysupgradeChild(ctx, pid, logPath, staged.Filename)
 }
 
 // cleanUploadedFilename strips any path component the uploader may have

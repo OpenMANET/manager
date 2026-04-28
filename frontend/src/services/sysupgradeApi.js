@@ -105,6 +105,7 @@ export function mapProgressEvent(ev) {
     releaseTag: ev.releaseTag ?? '',
     assetName: ev.assetName ?? '',
     childPid: ev.childPid ?? 0,
+    logTail: ev.logTail ?? '',
     updatedAt: timestampToDate(ev.updatedAt),
   };
 }

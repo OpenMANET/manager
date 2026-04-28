@@ -80,6 +80,38 @@
   padding: 0 12px;
 }
 
+.firmware-compat-detail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 4px 18px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--border-subtle);
+  font-size: 11px;
+}
+
+.firmware-compat-detail .kv {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 8px;
+  border-bottom: none;
+  padding: 2px 0;
+}
+
+.firmware-compat-detail .kv .k {
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.firmware-compat-detail .kv .v {
+  color: var(--text);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.firmware-compat-detail .kv .v.warn { color: var(--warn); }
+
 /* ── Upload panel ───────────────────────────────────────────── */
 .firmware-upload-hidden {
   display: none;
@@ -289,6 +321,21 @@
 
 .firmware-progress-card.firmware-failed {
   border-color: rgba(255, 59, 77, 0.5);
+}
+
+.firmware-log-tail {
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px 12px;
+  margin: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .progress-headline {

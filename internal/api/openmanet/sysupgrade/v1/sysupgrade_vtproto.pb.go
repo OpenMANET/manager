@@ -197,6 +197,7 @@ func (m *ProgressEvent) CloneVT() *ProgressEvent {
 	r.AssetName = m.AssetName
 	r.ChildPid = m.ChildPid
 	r.UpdatedAt = (*timestamppb.Timestamp)((*timestamppb1.Timestamp)(m.UpdatedAt).CloneVT())
+	r.LogTail = m.LogTail
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -520,6 +521,9 @@ func (this *ProgressEvent) EqualVT(that *ProgressEvent) bool {
 		return false
 	}
 	if !(*timestamppb1.Timestamp)(this.UpdatedAt).EqualVT((*timestamppb1.Timestamp)(that.UpdatedAt)) {
+		return false
+	}
+	if this.LogTail != that.LogTail {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -1203,6 +1207,13 @@ func (m *ProgressEvent) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.LogTail) > 0 {
+		i -= len(m.LogTail)
+		copy(dAtA[i:], m.LogTail)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.LogTail)))
+		i--
+		dAtA[i] = 0x5a
 	}
 	if m.UpdatedAt != nil {
 		size, err := (*timestamppb1.Timestamp)(m.UpdatedAt).MarshalToSizedBufferVT(dAtA[:i])
@@ -1942,6 +1953,13 @@ func (m *ProgressEvent) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.LogTail) > 0 {
+		i -= len(m.LogTail)
+		copy(dAtA[i:], m.LogTail)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.LogTail)))
+		i--
+		dAtA[i] = 0x5a
+	}
 	if m.UpdatedAt != nil {
 		size, err := (*timestamppb1.Timestamp)(m.UpdatedAt).MarshalToSizedBufferVTStrict(dAtA[:i])
 		if err != nil {
@@ -2308,6 +2326,10 @@ func (m *ProgressEvent) SizeVT() (n int) {
 	}
 	if m.UpdatedAt != nil {
 		l = (*timestamppb1.Timestamp)(m.UpdatedAt).SizeVT()
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.LogTail)
+	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	n += len(m.unknownFields)
@@ -4423,6 +4445,38 @@ func (m *ProgressEvent) UnmarshalVT(dAtA []byte) error {
 			if err := (*timestamppb1.Timestamp)(m.UpdatedAt).UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
+			iNdEx = postIndex
+		case 11:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LogTail", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.LogTail = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -6691,6 +6745,42 @@ func (m *ProgressEvent) UnmarshalVTUnsafe(dAtA []byte) error {
 			if err := (*timestamppb1.Timestamp)(m.UpdatedAt).UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
+			iNdEx = postIndex
+		case 11:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field LogTail", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.LogTail = stringValue
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

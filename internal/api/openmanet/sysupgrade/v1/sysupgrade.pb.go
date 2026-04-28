@@ -870,7 +870,12 @@ type ProgressEvent struct {
 	// setsid+nohup; zero before that.
 	ChildPid int32 `protobuf:"varint,9,opt,name=child_pid,json=childPid,proto3" json:"child_pid,omitempty"`
 	// UpdatedAt is the timestamp this event was generated.
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// LogTail is the trailing portion of /sbin/sysupgrade's
+	// stdout+stderr log captured when the detached child exits without
+	// rebooting the device. Populated only on PhaseFailed transitions
+	// originating in the child watcher; empty for every other phase.
+	LogTail       string `protobuf:"bytes,11,opt,name=log_tail,json=logTail,proto3" json:"log_tail,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -975,6 +980,13 @@ func (x *ProgressEvent) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ProgressEvent) GetLogTail() string {
+	if x != nil {
+		return x.LogTail
+	}
+	return ""
+}
+
 var File_openmanet_sysupgrade_v1_sysupgrade_proto protoreflect.FileDescriptor
 
 const file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc = "" +
@@ -1052,7 +1064,7 @@ const file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc = "" +
 	"backupPath\x12+\n" +
 	"\frestore_path\x18\f \x01(\tB\b\xbaH\x05r\x03\x18\x80\x02R\vrestorePath\x12/\n" +
 	"\x13preserve_partitions\x18\r \x01(\bR\x12preservePartitions\x12)\n" +
-	"\x10erase_partitions\x18\x0e \x01(\bR\x0ferasePartitions\"\xe7\x02\n" +
+	"\x10erase_partitions\x18\x0e \x01(\bR\x0ferasePartitions\"\x82\x03\n" +
 	"\rProgressEvent\x124\n" +
 	"\x05phase\x18\x01 \x01(\x0e2\x1e.openmanet.sysupgrade.v1.PhaseR\x05phase\x12\x18\n" +
 	"\apercent\x18\x02 \x01(\x05R\apercent\x12\x1d\n" +
@@ -1069,7 +1081,8 @@ const file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc = "" +
 	"\tchild_pid\x18\t \x01(\x05R\bchildPid\x129\n" +
 	"\n" +
 	"updated_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt*\xa6\x01\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x19\n" +
+	"\blog_tail\x18\v \x01(\tR\alogTail*\xa6\x01\n" +
 	"\x05Phase\x12\x15\n" +
 	"\x11PHASE_UNSPECIFIED\x10\x00\x12\x0e\n" +
 	"\n" +
