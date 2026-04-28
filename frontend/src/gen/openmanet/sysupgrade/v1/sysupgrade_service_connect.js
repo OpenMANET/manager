@@ -4,7 +4,7 @@
 // @ts-nocheck
 
 import { Empty, MethodKind } from "@bufbuild/protobuf";
-import { CancelUpgradeResponse, DiscardStagedImageResponse, GetReleaseDetailRequest, GetReleaseDetailResponse, GetStagedImageResponse, GetSystemInfoResponse, GetUpgradeStatusResponse, ListAvailableUpdatesRequest, ListAvailableUpdatesResponse, StartLocalUpgradeRequest, StartLocalUpgradeResponse, StartUpgradeRequest, StartUpgradeResponse, StreamUpgradeProgressResponse } from "./sysupgrade_service_pb.js";
+import { CancelUpgradeResponse, DiscardStagedImageResponse, GetFactoryResetCapabilityResponse, GetReleaseDetailRequest, GetReleaseDetailResponse, GetStagedImageResponse, GetSystemInfoResponse, GetUpgradeStatusResponse, ListAvailableUpdatesRequest, ListAvailableUpdatesResponse, PerformFactoryResetRequest, PerformFactoryResetResponse, StartLocalUpgradeRequest, StartLocalUpgradeResponse, StartUpgradeRequest, StartUpgradeResponse, StreamUpgradeProgressResponse } from "./sysupgrade_service_pb.js";
 
 /**
  * SysupgradeService exposes firmware upgrade discovery and execution to
@@ -166,6 +166,38 @@ export const SysupgradeService = {
       name: "StartLocalUpgrade",
       I: StartLocalUpgradeRequest,
       O: StartLocalUpgradeResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * GetFactoryResetCapability reports whether the running OS supports
+     * factory reset (overlay wipe + reboot, equivalent to LuCI's
+     * "Perform Reset" button) and surfaces the device's current
+     * hostname so the UI can use it as the typed-confirmation target.
+     *
+     * @generated from rpc openmanet.sysupgrade.v1.SysupgradeService.GetFactoryResetCapability
+     */
+    getFactoryResetCapability: {
+      name: "GetFactoryResetCapability",
+      I: Empty,
+      O: GetFactoryResetCapabilityResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * PerformFactoryReset wipes the overlay and reboots the device. The
+     * operator must echo the device hostname in confirm_hostname; the
+     * server re-validates the match before triggering. Fire-and-forget:
+     * the RPC response may not flush before the kernel reboots, so
+     * clients must treat both 200 OK and a transport-closed error as
+     * "reset initiated." Returns FailedPrecondition when the device is
+     * not capable, when an upgrade is in progress, or when hostname is
+     * unknown; InvalidArgument when confirm_hostname does not match.
+     *
+     * @generated from rpc openmanet.sysupgrade.v1.SysupgradeService.PerformFactoryReset
+     */
+    performFactoryReset: {
+      name: "PerformFactoryReset",
+      I: PerformFactoryResetRequest,
+      O: PerformFactoryResetResponse,
       kind: MethodKind.Unary,
     },
   }

@@ -92,26 +92,22 @@ export function createPollStore(fetcher) {
 
   function subscribe(intervalMs, onChange) {
     const sub = { intervalMs, onChange };
-    const firstSubscriber = subscribers.size === 0;
     subscribers.add(sub);
     bindVisibility();
+    restartTimer();
 
-    if (firstSubscriber) {
-      // First subscriber primes the store with an immediate fetch.
-      restartTimer();
-      if (visible) tick();
-    } else {
-      // Late subscribers get the last known snapshot right away so the
-      // UI has something to render before the next tick.
-      restartTimer();
-      if (snapshot !== null) {
-        try {
-          onChange(snapshot);
-        } catch {
-          /* ignore */
-        }
+    // Hand the late subscriber the cached snapshot immediately so the UI
+    // shows the last known data while the next tick fetches a fresh one,
+    // and always kick off a tick so a freshly mounted page never has to
+    // wait a full interval (or sit on stale data) to see live values.
+    if (snapshot !== null) {
+      try {
+        onChange(snapshot);
+      } catch {
+        /* ignore */
       }
     }
+    if (visible) tick();
 
     return () => {
       subscribers.delete(sub);
@@ -121,10 +117,8 @@ export function createPollStore(fetcher) {
           timerId = null;
         }
         unbindVisibility();
-        // Drop the cached snapshot once the last subscriber leaves so
-        // the next mount sees a fresh fetch, matching the per-page
-        // semantics the pages had before they adopted this store.
-        snapshot = null;
+        // Keep the snapshot — the next mount renders cached data instantly
+        // while subscribe() kicks off a fresh tick.
         inFlight = false;
       } else {
         restartTimer();

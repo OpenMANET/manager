@@ -3,6 +3,7 @@ package openmanet
 import (
 	"context"
 	"io/fs"
+	"math/rand"
 	"net/http"
 	_ "net/http/pprof" //nolint:gosec
 	"os"
@@ -124,16 +125,19 @@ func Start(staticFS fs.FS) {
 	// only goroutine it owns is the per-upgrade one created on
 	// StartUpgrade.
 	sysupgradeMgr := sysupgrade.NewManager(sysupgrade.Options{
-		Log:         logger.GetLogger("sysupgrade"),
-		Repo:        "OpenMANET/firmware",
-		Board:       handlers.NewCachedBoardProvider(&handlers.DefaultBoardProvider{}),
-		Firmware:    handlers.NewCachedFirmwareProvider(&system.OpenWrtFirmwareProvider{}),
-		SysInfo:     &system.LinuxSysInfo{},
-		Capable:     &system.LinuxSysupgradeCapabilityProvider{},
-		Cache:       sysupgrade.NewDiskCache("/var/lib/openmanetd/sysupgrade-releases.json"),
-		Releases:    &sysupgrade.GitHubReleasesClient{Repo: "OpenMANET/firmware", Log: logger.GetLogger("sysupgrade-github")},
-		Runner:      &sysupgrade.ExecSysupgradeRunner{},
-		DownloadDir: "/tmp/openmanetd/sysupgrade",
+		Log:                 logger.GetLogger("sysupgrade"),
+		Repo:                "OpenMANET/firmware",
+		Board:               handlers.NewCachedBoardProvider(&handlers.DefaultBoardProvider{}),
+		Firmware:            handlers.NewCachedFirmwareProvider(&system.OpenWrtFirmwareProvider{}),
+		SysInfo:             &system.LinuxSysInfo{},
+		Capable:             &system.LinuxSysupgradeCapabilityProvider{},
+		Cache:               sysupgrade.NewDiskCache("/var/lib/openmanetd/sysupgrade-releases.json"),
+		Releases:            &sysupgrade.GitHubReleasesClient{Repo: "OpenMANET/firmware", Log: logger.GetLogger("sysupgrade-github")},
+		Runner:              &sysupgrade.ExecSysupgradeRunner{},
+		FactoryReset:        &sysupgrade.ExecFactoryResetRunner{},
+		FactoryResetCapable: &system.LinuxFactoryResetCapabilityProvider{},
+		DownloadDir:         "/tmp/openmanetd/sysupgrade",
+		PersistentLogDir:    "/etc/openmanetd/sysupgrade",
 	})
 
 	// Wire the instrumentation snapshot registry and conditionally spawn
@@ -215,6 +219,19 @@ func Start(staticFS fs.FS) {
 	// Start API Server
 	interfaceProvider := &network.NetlinkInterfaceProvider{}
 
+	// Setup wizard wiring: shared UCI reader (production wraps the
+	// default go-uci tree, so all six wizard configs are addressed
+	// through one reader). The snapshotter captures the raw file
+	// contents of /etc/config/{wireless,network,dhcp,firewall,system,
+	// mesh11sd} before phase 3 runs and restores them atomically on
+	// any failure between phases 3 and 12. The post-bricking
+	// restructure makes this load-bearing: without it, a phase-12
+	// commit failure leaves the device with a half-applied wizard
+	// state on disk that bricks the next boot.
+	setupReader := network.NewUCIWirelessConfigReader()
+	setupSnapshotter := newWizardSnapshotter(setupReader)
+	setupRNG := rand.New(rand.NewSource(time.Now().UnixNano()))
+
 	apiServer := server.APIServer{
 		Cfg:                   cfg,
 		Log:                   logger.GetLogger("api"),
@@ -239,10 +256,16 @@ func Start(staticFS fs.FS) {
 		Leases: &network.UbusLeaseProvider{
 			Executor: &network.DefaultUbusExecutor{},
 		},
-		SessionStore:  sessionStore,
-		Authenticator: authenticator,
-		Sysupgrade:    sysupgradeMgr,
-		AuthEnabled:   cfg.GetAuthEnable(),
+		SessionStore:        sessionStore,
+		Authenticator:       authenticator,
+		Sysupgrade:          sysupgradeMgr,
+		AuthEnabled:         cfg.GetAuthEnable(),
+		SetupUCIReader:      setupReader,
+		SetupSnapshotter:    setupSnapshotter,
+		SetupPasswordSetter: &auth.ChpasswdSetter{},
+		SetupHostnameSetter: &handlers.DefaultHostnameSetter{Reader: setupReader},
+		SetupReloader:       &system.InitDReloader{},
+		SetupRNG:            setupRNG,
 	}
 
 	if manager != nil {

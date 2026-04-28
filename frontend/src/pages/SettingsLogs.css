@@ -81,6 +81,10 @@
   line-height: 1.4;
   color: var(--text);
   background: transparent;
+  /* Body sets user-select: none globally; opt back in for log content. */
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 
 .settings-logs-jumpchip {

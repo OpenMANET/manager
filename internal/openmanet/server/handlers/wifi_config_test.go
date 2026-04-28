@@ -111,7 +111,19 @@ func (f *fakeConfigReader) SetType(config, section, option string, _ uci.OptionT
 	return nil
 }
 
-func (f *fakeConfigReader) Del(_, _, _ string) error { return nil }
+func (f *fakeConfigReader) Del(config, section, option string) error {
+	if f.data[config] == nil {
+		return nil
+	}
+
+	if f.data[config][section] == nil {
+		return nil
+	}
+
+	delete(f.data[config][section], option)
+
+	return nil
+}
 
 func (f *fakeConfigReader) AddSection(config, section, typ string) error {
 	if f.sectionTypes == nil {
@@ -135,7 +147,17 @@ func (f *fakeConfigReader) AddSection(config, section, typ string) error {
 	return nil
 }
 
-func (f *fakeConfigReader) DelSection(_, _ string) error { return nil }
+func (f *fakeConfigReader) DelSection(config, section string) error {
+	if f.sectionTypes[config] != nil {
+		delete(f.sectionTypes[config], section)
+	}
+
+	if f.data[config] != nil {
+		delete(f.data[config], section)
+	}
+
+	return nil
+}
 
 func (f *fakeConfigReader) Commit() error {
 	f.commitCalled = true

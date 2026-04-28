@@ -4,7 +4,7 @@
 // @ts-nocheck
 
 import { proto3, Timestamp } from "@bufbuild/protobuf";
-import { ProgressEvent, Release, StagedImage, SystemInfo, SysupgradeOptions, Update } from "./sysupgrade_pb.js";
+import { FactoryResetCapability, ProgressEvent, Release, StagedImage, SystemInfo, SysupgradeOptions, Update } from "./sysupgrade_pb.js";
 
 /**
  * GetSystemInfoResponse wraps a SystemInfo so future fields can be added
@@ -176,6 +176,47 @@ export const StartLocalUpgradeRequest = /*@__PURE__*/ proto3.makeMessageType(
  */
 export const StartLocalUpgradeResponse = /*@__PURE__*/ proto3.makeMessageType(
   "openmanet.sysupgrade.v1.StartLocalUpgradeResponse",
+  [],
+);
+
+/**
+ * GetFactoryResetCapabilityResponse wraps the FactoryResetCapability so
+ * future scalar fields can be added alongside it without breaking the
+ * RPC.
+ *
+ * @generated from message openmanet.sysupgrade.v1.GetFactoryResetCapabilityResponse
+ */
+export const GetFactoryResetCapabilityResponse = /*@__PURE__*/ proto3.makeMessageType(
+  "openmanet.sysupgrade.v1.GetFactoryResetCapabilityResponse",
+  () => [
+    { no: 1, name: "capability", kind: "message", T: FactoryResetCapability },
+  ],
+);
+
+/**
+ * PerformFactoryResetRequest carries the typed-confirmation hostname.
+ * The server re-validates the match against /etc/hostname before
+ * triggering the wipe — UI-side validation alone is not sufficient.
+ *
+ * @generated from message openmanet.sysupgrade.v1.PerformFactoryResetRequest
+ */
+export const PerformFactoryResetRequest = /*@__PURE__*/ proto3.makeMessageType(
+  "openmanet.sysupgrade.v1.PerformFactoryResetRequest",
+  () => [
+    { no: 1, name: "confirm_hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ],
+);
+
+/**
+ * PerformFactoryResetResponse is empty. The response may never flush
+ * to the client because firstboot reboots the device synchronously;
+ * callers should treat a transport-closed error after >2s as "reset
+ * initiated" rather than as a true failure.
+ *
+ * @generated from message openmanet.sysupgrade.v1.PerformFactoryResetResponse
+ */
+export const PerformFactoryResetResponse = /*@__PURE__*/ proto3.makeMessageType(
+  "openmanet.sysupgrade.v1.PerformFactoryResetResponse",
   [],
 );
 

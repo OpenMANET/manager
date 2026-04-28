@@ -14,33 +14,38 @@ import (
 
 	supbv1 "github.com/openmanet/openmanetd/internal/api/openmanet/sysupgrade/v1"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
+	"github.com/openmanet/openmanetd/internal/system"
 	"github.com/openmanet/openmanetd/internal/sysupgrade"
 )
 
 // fakeSysupgradeManager is a hand-written fake implementing the
 // SysupgradeManager interface. All mutable state is protected by mu.
 type fakeSysupgradeManager struct {
-	mu              sync.Mutex
-	systemInfo      *sysupgrade.SystemInfo
-	updates         []sysupgrade.Update
-	fetchedAt       time.Time
-	release         sysupgrade.Release
-	progress        sysupgrade.Progress
-	staged          *sysupgrade.StagedImage
-	startErr        error
-	cancelErr       error
-	infoErr         error
-	updatesErr      error
-	releaseErr      error
-	discardErr      error
-	startLocalErr   error
-	startCalls      int
-	discardCalls    int
-	startLocalCalls int
-	startLocalOpts  sysupgrade.SysupgradeOptions
-	startLocalSkip  bool
-	startLocalForce bool
-	startCh         chan sysupgrade.Progress
+	mu               sync.Mutex
+	systemInfo       *sysupgrade.SystemInfo
+	updates          []sysupgrade.Update
+	fetchedAt        time.Time
+	release          sysupgrade.Release
+	progress         sysupgrade.Progress
+	staged           *sysupgrade.StagedImage
+	resetCap         *system.FactoryResetCapability
+	startErr         error
+	cancelErr        error
+	infoErr          error
+	updatesErr       error
+	releaseErr       error
+	discardErr       error
+	startLocalErr    error
+	resetErr         error
+	resetConfirmHost string
+	startCalls       int
+	discardCalls     int
+	startLocalCalls  int
+	resetCalls       int
+	startLocalOpts   sysupgrade.SysupgradeOptions
+	startLocalSkip   bool
+	startLocalForce  bool
+	startCh          chan sysupgrade.Progress
 }
 
 func newFakeSysupgradeManager() *fakeSysupgradeManager {
@@ -137,6 +142,43 @@ func (f *fakeSysupgradeManager) StartLocalUpgrade(_ context.Context, opts sysupg
 	f.startLocalForce = forceUnknown
 
 	return f.startLocalErr
+}
+
+func (f *fakeSysupgradeManager) GetFactoryResetCapability() *system.FactoryResetCapability {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.resetCap == nil {
+		return &system.FactoryResetCapability{Capable: false, Reason: "not configured"}
+	}
+
+	out := *f.resetCap
+
+	return &out
+}
+
+func (f *fakeSysupgradeManager) PerformFactoryReset(_ context.Context, confirmHostname string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.resetCalls++
+	f.resetConfirmHost = confirmHostname
+
+	return f.resetErr
+}
+
+func (f *fakeSysupgradeManager) getResetCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.resetCalls
+}
+
+func (f *fakeSysupgradeManager) getResetConfirmHost() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.resetConfirmHost
 }
 
 func (f *fakeSysupgradeManager) getDiscardCalls() int {
@@ -251,12 +293,16 @@ func TestSysupgradeService_GetStagedImage_Empty(t *testing.T) {
 func TestSysupgradeService_GetStagedImage_Populated(t *testing.T) {
 	mgr := newFakeSysupgradeManager()
 	mgr.staged = &sysupgrade.StagedImage{
-		Filename:              "openmanet-bcm27xx.img.gz",
-		SizeBytes:             4096,
-		Sha256:                "abcdef",
-		FilenameMatchesTarget: true,
-		PreflightOK:           true,
-		UploadedAt:            time.Now(),
+		Filename:         "openmanet-bcm27xx.img.gz",
+		SizeBytes:        4096,
+		Sha256:           "abcdef",
+		MetadataPresent:  true,
+		CompatVersion:    "1.0",
+		SupportedDevices: []string{"raspberrypi,4-model-b", "brcm,bcm2711"},
+		DeviceCompat:     "raspberrypi,4-model-b",
+		ImageCompatible:  true,
+		PreflightOK:      true,
+		UploadedAt:       time.Now(),
 	}
 
 	svc := &handlers.SysupgradeService{Log: zerolog.Nop(), Manager: mgr}
@@ -269,7 +315,11 @@ func TestSysupgradeService_GetStagedImage_Populated(t *testing.T) {
 	assert.Equal(t, "openmanet-bcm27xx.img.gz", img.GetFilename())
 	assert.Equal(t, int64(4096), img.GetSizeBytes())
 	assert.Equal(t, "abcdef", img.GetSha256())
-	assert.True(t, img.GetFilenameMatchesTarget())
+	assert.True(t, img.GetMetadataPresent())
+	assert.Equal(t, "1.0", img.GetCompatVersion())
+	assert.Equal(t, []string{"raspberrypi,4-model-b", "brcm,bcm2711"}, img.GetSupportedDevices())
+	assert.Equal(t, "raspberrypi,4-model-b", img.GetDeviceCompat())
+	assert.True(t, img.GetImageCompatible())
 	assert.True(t, img.GetPreflightOk())
 	assert.NotNil(t, img.GetUploadedAt())
 }
@@ -361,4 +411,106 @@ func TestSysupgradeService_CancelUpgrade_Errors(t *testing.T) {
 			assert.Equal(t, tt.code, connectErr.Code())
 		})
 	}
+}
+
+// ─── factory reset handler tests ───────────────────────────────────────
+
+func TestSysupgradeService_GetFactoryResetCapability_Capable(t *testing.T) {
+	mgr := newFakeSysupgradeManager()
+	mgr.resetCap = &system.FactoryResetCapability{
+		Capable:           true,
+		Reason:            "ok",
+		OverlayMountpoint: "overlayfs:/overlay /",
+		BackingFS:         "overlay",
+		FirstbootPath:     "/sbin/firstboot",
+		Hostname:          "BCM2711-1003",
+	}
+
+	svc := &handlers.SysupgradeService{Log: zerolog.Nop(), Manager: mgr}
+
+	resp, err := svc.GetFactoryResetCapability(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	cap := resp.GetCapability()
+	require.NotNil(t, cap)
+	assert.True(t, cap.GetCapable())
+	assert.Equal(t, "ok", cap.GetReason())
+	assert.Equal(t, "overlayfs:/overlay /", cap.GetOverlayMountpoint())
+	assert.Equal(t, "overlay", cap.GetBackingFs())
+	assert.Equal(t, "/sbin/firstboot", cap.GetFirstbootPath())
+	assert.Equal(t, "BCM2711-1003", cap.GetHostname())
+}
+
+func TestSysupgradeService_GetFactoryResetCapability_NotCapable(t *testing.T) {
+	mgr := newFakeSysupgradeManager()
+	mgr.resetCap = &system.FactoryResetCapability{
+		Capable: false,
+		Reason:  "no rootfs_data partition or overlayfs mount",
+	}
+
+	svc := &handlers.SysupgradeService{Log: zerolog.Nop(), Manager: mgr}
+
+	resp, err := svc.GetFactoryResetCapability(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	cap := resp.GetCapability()
+	assert.False(t, cap.GetCapable())
+	assert.Contains(t, cap.GetReason(), "no rootfs_data")
+}
+
+func TestSysupgradeService_PerformFactoryReset_HappyPath(t *testing.T) {
+	mgr := newFakeSysupgradeManager()
+	svc := &handlers.SysupgradeService{Log: zerolog.Nop(), Manager: mgr}
+
+	_, err := svc.PerformFactoryReset(context.Background(), &supbv1.PerformFactoryResetRequest{
+		ConfirmHostname: "BCM2711-1003",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, mgr.getResetCalls())
+	assert.Equal(t, "BCM2711-1003", mgr.getResetConfirmHost())
+}
+
+func TestSysupgradeService_PerformFactoryReset_HostnameMismatch(t *testing.T) {
+	mgr := newFakeSysupgradeManager()
+	mgr.resetErr = sysupgrade.ErrFactoryResetHostnameMismatch
+	svc := &handlers.SysupgradeService{Log: zerolog.Nop(), Manager: mgr}
+
+	_, err := svc.PerformFactoryReset(context.Background(), &supbv1.PerformFactoryResetRequest{
+		ConfirmHostname: "wrong",
+	})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+}
+
+func TestSysupgradeService_PerformFactoryReset_NotCapable(t *testing.T) {
+	mgr := newFakeSysupgradeManager()
+	mgr.resetErr = sysupgrade.ErrFactoryResetNotCapable
+	svc := &handlers.SysupgradeService{Log: zerolog.Nop(), Manager: mgr}
+
+	_, err := svc.PerformFactoryReset(context.Background(), &supbv1.PerformFactoryResetRequest{
+		ConfirmHostname: "x",
+	})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
+}
+
+func TestSysupgradeService_PerformFactoryReset_Busy(t *testing.T) {
+	mgr := newFakeSysupgradeManager()
+	mgr.resetErr = sysupgrade.ErrBusy
+	svc := &handlers.SysupgradeService{Log: zerolog.Nop(), Manager: mgr}
+
+	_, err := svc.PerformFactoryReset(context.Background(), &supbv1.PerformFactoryResetRequest{
+		ConfirmHostname: "x",
+	})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
 }

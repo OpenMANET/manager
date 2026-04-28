@@ -34,7 +34,9 @@ func TestManager_StoreStagedImage_HappyPath(t *testing.T) {
 	assert.Equal(t, "openmanet-1.9.0-bcm27xx-bcm2711-mm8108-usb-squashfs-sysupgrade.img.gz", staged.Filename)
 	assert.Equal(t, int64(len(payload)), staged.SizeBytes)
 	assert.Equal(t, expectedHex, staged.Sha256)
-	assert.True(t, staged.FilenameMatchesTarget, "filename containing target should match")
+	// Plain ASCII payload has no FWx0 trailer; compat fields stay zeroed.
+	assert.False(t, staged.MetadataPresent, "plain payload has no FWx0 metadata")
+	assert.False(t, staged.ImageCompatible, "no metadata means no compat verdict")
 	assert.True(t, staged.PreflightOK)
 	assert.Empty(t, staged.PreflightError)
 	assert.False(t, staged.UploadedAt.IsZero())
@@ -55,7 +57,7 @@ func TestManager_StoreStagedImage_HappyPath(t *testing.T) {
 	assert.Equal(t, expectedHex, stillOK.Sha256)
 }
 
-func TestManager_StoreStagedImage_FilenameMismatchAndPreflightFailure(t *testing.T) {
+func TestManager_StoreStagedImage_PreflightFailure(t *testing.T) {
 	runner := &fakeRunner{preflightErr: errors.New("Image check failed: bad magic")}
 	mgr := makeManager(t, &fakeReleasesFetcher{}, runner, "1.7.0")
 
@@ -66,7 +68,6 @@ func TestManager_StoreStagedImage_FilenameMismatchAndPreflightFailure(t *testing
 	)
 	require.NoError(t, err)
 	require.NotNil(t, staged)
-	assert.False(t, staged.FilenameMatchesTarget, "no target in filename should be flagged")
 	assert.False(t, staged.PreflightOK)
 	assert.Contains(t, staged.PreflightError, "bad magic")
 	assert.Equal(t, 1, runner.preflightCallCount())
@@ -209,29 +210,6 @@ func TestManager_StartLocalUpgrade_UnknownVersion(t *testing.T) {
 
 	// forceUnknown=true overrides the gate.
 	require.NoError(t, mgr.StartLocalUpgrade(context.Background(), SysupgradeOptions{}, false, true))
-}
-
-func TestFilenameMatchesTarget(t *testing.T) {
-	cases := []struct {
-		name     string
-		filename string
-		target   string
-		want     bool
-	}{
-		{"empty target", "any.img", "", false},
-		{"empty filename", "", "bcm27xx/bcm2711", false},
-		{"slash form contained verbatim", "openmanet-bcm27xx/bcm2711-build.img.gz", "bcm27xx/bcm2711", true},
-		{"dashed form on artifact", "openmanet-bcm27xx-bcm2711-build.img.gz", "bcm27xx/bcm2711", true},
-		{"case insensitive", "OpenManet-BCM27XX-BCM2711.img", "bcm27xx/bcm2711", true},
-		{"unrelated target", "openmanet-mediatek-mt7621.img", "bcm27xx/bcm2711", false},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := filenameMatchesTarget(tc.filename, tc.target)
-			assert.Equal(t, tc.want, got)
-		})
-	}
 }
 
 func TestCleanUploadedFilename(t *testing.T) {

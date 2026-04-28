@@ -706,6 +706,144 @@ func (*StartLocalUpgradeResponse) Descriptor() ([]byte, []int) {
 	return file_openmanet_sysupgrade_v1_sysupgrade_service_proto_rawDescGZIP(), []int{13}
 }
 
+// GetFactoryResetCapabilityResponse wraps the FactoryResetCapability so
+// future scalar fields can be added alongside it without breaking the
+// RPC.
+type GetFactoryResetCapabilityResponse struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Capability    *FactoryResetCapability `protobuf:"bytes,1,opt,name=capability,proto3" json:"capability,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFactoryResetCapabilityResponse) Reset() {
+	*x = GetFactoryResetCapabilityResponse{}
+	mi := &file_openmanet_sysupgrade_v1_sysupgrade_service_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFactoryResetCapabilityResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFactoryResetCapabilityResponse) ProtoMessage() {}
+
+func (x *GetFactoryResetCapabilityResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_sysupgrade_v1_sysupgrade_service_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFactoryResetCapabilityResponse.ProtoReflect.Descriptor instead.
+func (*GetFactoryResetCapabilityResponse) Descriptor() ([]byte, []int) {
+	return file_openmanet_sysupgrade_v1_sysupgrade_service_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *GetFactoryResetCapabilityResponse) GetCapability() *FactoryResetCapability {
+	if x != nil {
+		return x.Capability
+	}
+	return nil
+}
+
+// PerformFactoryResetRequest carries the typed-confirmation hostname.
+// The server re-validates the match against /etc/hostname before
+// triggering the wipe — UI-side validation alone is not sufficient.
+type PerformFactoryResetRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// ConfirmHostname must equal the device's current hostname after
+	// trim + lowercase on both sides. Acts as a "type the device name
+	// to delete" guard, deliberately stronger than LuCI's single
+	// confirm() dialog.
+	ConfirmHostname string `protobuf:"bytes,1,opt,name=confirm_hostname,json=confirmHostname,proto3" json:"confirm_hostname,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PerformFactoryResetRequest) Reset() {
+	*x = PerformFactoryResetRequest{}
+	mi := &file_openmanet_sysupgrade_v1_sysupgrade_service_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PerformFactoryResetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PerformFactoryResetRequest) ProtoMessage() {}
+
+func (x *PerformFactoryResetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_sysupgrade_v1_sysupgrade_service_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PerformFactoryResetRequest.ProtoReflect.Descriptor instead.
+func (*PerformFactoryResetRequest) Descriptor() ([]byte, []int) {
+	return file_openmanet_sysupgrade_v1_sysupgrade_service_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *PerformFactoryResetRequest) GetConfirmHostname() string {
+	if x != nil {
+		return x.ConfirmHostname
+	}
+	return ""
+}
+
+// PerformFactoryResetResponse is empty. The response may never flush
+// to the client because firstboot reboots the device synchronously;
+// callers should treat a transport-closed error after >2s as "reset
+// initiated" rather than as a true failure.
+type PerformFactoryResetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PerformFactoryResetResponse) Reset() {
+	*x = PerformFactoryResetResponse{}
+	mi := &file_openmanet_sysupgrade_v1_sysupgrade_service_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PerformFactoryResetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PerformFactoryResetResponse) ProtoMessage() {}
+
+func (x *PerformFactoryResetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_sysupgrade_v1_sysupgrade_service_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PerformFactoryResetResponse.ProtoReflect.Descriptor instead.
+func (*PerformFactoryResetResponse) Descriptor() ([]byte, []int) {
+	return file_openmanet_sysupgrade_v1_sysupgrade_service_proto_rawDescGZIP(), []int{16}
+}
+
 var File_openmanet_sysupgrade_v1_sysupgrade_service_proto protoreflect.FileDescriptor
 
 const file_openmanet_sysupgrade_v1_sysupgrade_service_proto_rawDesc = "" +
@@ -744,7 +882,16 @@ const file_openmanet_sysupgrade_v1_sysupgrade_service_proto_rawDesc = "" +
 	"\aoptions\x18\x01 \x01(\v2*.openmanet.sysupgrade.v1.SysupgradeOptionsR\aoptions\x12A\n" +
 	"\x1dforce_install_unknown_current\x18\x02 \x01(\bR\x1aforceInstallUnknownCurrent\x12%\n" +
 	"\x0eskip_preflight\x18\x03 \x01(\bR\rskipPreflight\"\x1b\n" +
-	"\x19StartLocalUpgradeResponse2\xb5\b\n" +
+	"\x19StartLocalUpgradeResponse\"t\n" +
+	"!GetFactoryResetCapabilityResponse\x12O\n" +
+	"\n" +
+	"capability\x18\x01 \x01(\v2/.openmanet.sysupgrade.v1.FactoryResetCapabilityR\n" +
+	"capability\"S\n" +
+	"\x1aPerformFactoryResetRequest\x125\n" +
+	"\x10confirm_hostname\x18\x01 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\xfd\x01R\x0fconfirmHostname\"\x1d\n" +
+	"\x1bPerformFactoryResetResponse2\xa9\n" +
+	"\n" +
 	"\x11SysupgradeService\x12W\n" +
 	"\rGetSystemInfo\x12\x16.google.protobuf.Empty\x1a..openmanet.sysupgrade.v1.GetSystemInfoResponse\x12\x83\x01\n" +
 	"\x14ListAvailableUpdates\x124.openmanet.sysupgrade.v1.ListAvailableUpdatesRequest\x1a5.openmanet.sysupgrade.v1.ListAvailableUpdatesResponse\x12w\n" +
@@ -755,7 +902,9 @@ const file_openmanet_sysupgrade_v1_sysupgrade_service_proto_rawDesc = "" +
 	"\x15StreamUpgradeProgress\x12\x16.google.protobuf.Empty\x1a6.openmanet.sysupgrade.v1.StreamUpgradeProgressResponse0\x01\x12Y\n" +
 	"\x0eGetStagedImage\x12\x16.google.protobuf.Empty\x1a/.openmanet.sysupgrade.v1.GetStagedImageResponse\x12a\n" +
 	"\x12DiscardStagedImage\x12\x16.google.protobuf.Empty\x1a3.openmanet.sysupgrade.v1.DiscardStagedImageResponse\x12z\n" +
-	"\x11StartLocalUpgrade\x121.openmanet.sysupgrade.v1.StartLocalUpgradeRequest\x1a2.openmanet.sysupgrade.v1.StartLocalUpgradeResponseB\x86\x02\n" +
+	"\x11StartLocalUpgrade\x121.openmanet.sysupgrade.v1.StartLocalUpgradeRequest\x1a2.openmanet.sysupgrade.v1.StartLocalUpgradeResponse\x12o\n" +
+	"\x19GetFactoryResetCapability\x12\x16.google.protobuf.Empty\x1a:.openmanet.sysupgrade.v1.GetFactoryResetCapabilityResponse\x12\x80\x01\n" +
+	"\x13PerformFactoryReset\x123.openmanet.sysupgrade.v1.PerformFactoryResetRequest\x1a4.openmanet.sysupgrade.v1.PerformFactoryResetResponseB\x86\x02\n" +
 	"\x1bcom.openmanet.sysupgrade.v1B\x16SysupgradeServiceProtoP\x01ZQgithub.com/openmanet/openmanetd/internal/api/openmanet/sysupgrade/v1;sysupgradev1\xa2\x02\x03OSX\xaa\x02\x17Openmanet.Sysupgrade.V1\xca\x02\x17Openmanet\\Sysupgrade\\V1\xe2\x02#Openmanet\\Sysupgrade\\V1\\GPBMetadata\xea\x02\x19Openmanet::Sysupgrade::V1b\x06proto3"
 
 var (
@@ -770,66 +919,75 @@ func file_openmanet_sysupgrade_v1_sysupgrade_service_proto_rawDescGZIP() []byte 
 	return file_openmanet_sysupgrade_v1_sysupgrade_service_proto_rawDescData
 }
 
-var file_openmanet_sysupgrade_v1_sysupgrade_service_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_openmanet_sysupgrade_v1_sysupgrade_service_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_openmanet_sysupgrade_v1_sysupgrade_service_proto_goTypes = []any{
-	(*GetSystemInfoResponse)(nil),         // 0: openmanet.sysupgrade.v1.GetSystemInfoResponse
-	(*ListAvailableUpdatesRequest)(nil),   // 1: openmanet.sysupgrade.v1.ListAvailableUpdatesRequest
-	(*ListAvailableUpdatesResponse)(nil),  // 2: openmanet.sysupgrade.v1.ListAvailableUpdatesResponse
-	(*GetReleaseDetailRequest)(nil),       // 3: openmanet.sysupgrade.v1.GetReleaseDetailRequest
-	(*GetReleaseDetailResponse)(nil),      // 4: openmanet.sysupgrade.v1.GetReleaseDetailResponse
-	(*StartUpgradeRequest)(nil),           // 5: openmanet.sysupgrade.v1.StartUpgradeRequest
-	(*StartUpgradeResponse)(nil),          // 6: openmanet.sysupgrade.v1.StartUpgradeResponse
-	(*CancelUpgradeResponse)(nil),         // 7: openmanet.sysupgrade.v1.CancelUpgradeResponse
-	(*GetUpgradeStatusResponse)(nil),      // 8: openmanet.sysupgrade.v1.GetUpgradeStatusResponse
-	(*StreamUpgradeProgressResponse)(nil), // 9: openmanet.sysupgrade.v1.StreamUpgradeProgressResponse
-	(*GetStagedImageResponse)(nil),        // 10: openmanet.sysupgrade.v1.GetStagedImageResponse
-	(*DiscardStagedImageResponse)(nil),    // 11: openmanet.sysupgrade.v1.DiscardStagedImageResponse
-	(*StartLocalUpgradeRequest)(nil),      // 12: openmanet.sysupgrade.v1.StartLocalUpgradeRequest
-	(*StartLocalUpgradeResponse)(nil),     // 13: openmanet.sysupgrade.v1.StartLocalUpgradeResponse
-	(*SystemInfo)(nil),                    // 14: openmanet.sysupgrade.v1.SystemInfo
-	(*Update)(nil),                        // 15: openmanet.sysupgrade.v1.Update
-	(*timestamppb.Timestamp)(nil),         // 16: google.protobuf.Timestamp
-	(*Release)(nil),                       // 17: openmanet.sysupgrade.v1.Release
-	(*SysupgradeOptions)(nil),             // 18: openmanet.sysupgrade.v1.SysupgradeOptions
-	(*ProgressEvent)(nil),                 // 19: openmanet.sysupgrade.v1.ProgressEvent
-	(*StagedImage)(nil),                   // 20: openmanet.sysupgrade.v1.StagedImage
-	(*emptypb.Empty)(nil),                 // 21: google.protobuf.Empty
+	(*GetSystemInfoResponse)(nil),             // 0: openmanet.sysupgrade.v1.GetSystemInfoResponse
+	(*ListAvailableUpdatesRequest)(nil),       // 1: openmanet.sysupgrade.v1.ListAvailableUpdatesRequest
+	(*ListAvailableUpdatesResponse)(nil),      // 2: openmanet.sysupgrade.v1.ListAvailableUpdatesResponse
+	(*GetReleaseDetailRequest)(nil),           // 3: openmanet.sysupgrade.v1.GetReleaseDetailRequest
+	(*GetReleaseDetailResponse)(nil),          // 4: openmanet.sysupgrade.v1.GetReleaseDetailResponse
+	(*StartUpgradeRequest)(nil),               // 5: openmanet.sysupgrade.v1.StartUpgradeRequest
+	(*StartUpgradeResponse)(nil),              // 6: openmanet.sysupgrade.v1.StartUpgradeResponse
+	(*CancelUpgradeResponse)(nil),             // 7: openmanet.sysupgrade.v1.CancelUpgradeResponse
+	(*GetUpgradeStatusResponse)(nil),          // 8: openmanet.sysupgrade.v1.GetUpgradeStatusResponse
+	(*StreamUpgradeProgressResponse)(nil),     // 9: openmanet.sysupgrade.v1.StreamUpgradeProgressResponse
+	(*GetStagedImageResponse)(nil),            // 10: openmanet.sysupgrade.v1.GetStagedImageResponse
+	(*DiscardStagedImageResponse)(nil),        // 11: openmanet.sysupgrade.v1.DiscardStagedImageResponse
+	(*StartLocalUpgradeRequest)(nil),          // 12: openmanet.sysupgrade.v1.StartLocalUpgradeRequest
+	(*StartLocalUpgradeResponse)(nil),         // 13: openmanet.sysupgrade.v1.StartLocalUpgradeResponse
+	(*GetFactoryResetCapabilityResponse)(nil), // 14: openmanet.sysupgrade.v1.GetFactoryResetCapabilityResponse
+	(*PerformFactoryResetRequest)(nil),        // 15: openmanet.sysupgrade.v1.PerformFactoryResetRequest
+	(*PerformFactoryResetResponse)(nil),       // 16: openmanet.sysupgrade.v1.PerformFactoryResetResponse
+	(*SystemInfo)(nil),                        // 17: openmanet.sysupgrade.v1.SystemInfo
+	(*Update)(nil),                            // 18: openmanet.sysupgrade.v1.Update
+	(*timestamppb.Timestamp)(nil),             // 19: google.protobuf.Timestamp
+	(*Release)(nil),                           // 20: openmanet.sysupgrade.v1.Release
+	(*SysupgradeOptions)(nil),                 // 21: openmanet.sysupgrade.v1.SysupgradeOptions
+	(*ProgressEvent)(nil),                     // 22: openmanet.sysupgrade.v1.ProgressEvent
+	(*StagedImage)(nil),                       // 23: openmanet.sysupgrade.v1.StagedImage
+	(*FactoryResetCapability)(nil),            // 24: openmanet.sysupgrade.v1.FactoryResetCapability
+	(*emptypb.Empty)(nil),                     // 25: google.protobuf.Empty
 }
 var file_openmanet_sysupgrade_v1_sysupgrade_service_proto_depIdxs = []int32{
-	14, // 0: openmanet.sysupgrade.v1.GetSystemInfoResponse.info:type_name -> openmanet.sysupgrade.v1.SystemInfo
-	15, // 1: openmanet.sysupgrade.v1.ListAvailableUpdatesResponse.updates:type_name -> openmanet.sysupgrade.v1.Update
-	16, // 2: openmanet.sysupgrade.v1.ListAvailableUpdatesResponse.fetched_at:type_name -> google.protobuf.Timestamp
-	17, // 3: openmanet.sysupgrade.v1.GetReleaseDetailResponse.release:type_name -> openmanet.sysupgrade.v1.Release
-	18, // 4: openmanet.sysupgrade.v1.StartUpgradeRequest.options:type_name -> openmanet.sysupgrade.v1.SysupgradeOptions
-	19, // 5: openmanet.sysupgrade.v1.GetUpgradeStatusResponse.event:type_name -> openmanet.sysupgrade.v1.ProgressEvent
-	19, // 6: openmanet.sysupgrade.v1.StreamUpgradeProgressResponse.event:type_name -> openmanet.sysupgrade.v1.ProgressEvent
-	20, // 7: openmanet.sysupgrade.v1.GetStagedImageResponse.image:type_name -> openmanet.sysupgrade.v1.StagedImage
-	18, // 8: openmanet.sysupgrade.v1.StartLocalUpgradeRequest.options:type_name -> openmanet.sysupgrade.v1.SysupgradeOptions
-	21, // 9: openmanet.sysupgrade.v1.SysupgradeService.GetSystemInfo:input_type -> google.protobuf.Empty
-	1,  // 10: openmanet.sysupgrade.v1.SysupgradeService.ListAvailableUpdates:input_type -> openmanet.sysupgrade.v1.ListAvailableUpdatesRequest
-	3,  // 11: openmanet.sysupgrade.v1.SysupgradeService.GetReleaseDetail:input_type -> openmanet.sysupgrade.v1.GetReleaseDetailRequest
-	5,  // 12: openmanet.sysupgrade.v1.SysupgradeService.StartUpgrade:input_type -> openmanet.sysupgrade.v1.StartUpgradeRequest
-	21, // 13: openmanet.sysupgrade.v1.SysupgradeService.CancelUpgrade:input_type -> google.protobuf.Empty
-	21, // 14: openmanet.sysupgrade.v1.SysupgradeService.GetUpgradeStatus:input_type -> google.protobuf.Empty
-	21, // 15: openmanet.sysupgrade.v1.SysupgradeService.StreamUpgradeProgress:input_type -> google.protobuf.Empty
-	21, // 16: openmanet.sysupgrade.v1.SysupgradeService.GetStagedImage:input_type -> google.protobuf.Empty
-	21, // 17: openmanet.sysupgrade.v1.SysupgradeService.DiscardStagedImage:input_type -> google.protobuf.Empty
-	12, // 18: openmanet.sysupgrade.v1.SysupgradeService.StartLocalUpgrade:input_type -> openmanet.sysupgrade.v1.StartLocalUpgradeRequest
-	0,  // 19: openmanet.sysupgrade.v1.SysupgradeService.GetSystemInfo:output_type -> openmanet.sysupgrade.v1.GetSystemInfoResponse
-	2,  // 20: openmanet.sysupgrade.v1.SysupgradeService.ListAvailableUpdates:output_type -> openmanet.sysupgrade.v1.ListAvailableUpdatesResponse
-	4,  // 21: openmanet.sysupgrade.v1.SysupgradeService.GetReleaseDetail:output_type -> openmanet.sysupgrade.v1.GetReleaseDetailResponse
-	6,  // 22: openmanet.sysupgrade.v1.SysupgradeService.StartUpgrade:output_type -> openmanet.sysupgrade.v1.StartUpgradeResponse
-	7,  // 23: openmanet.sysupgrade.v1.SysupgradeService.CancelUpgrade:output_type -> openmanet.sysupgrade.v1.CancelUpgradeResponse
-	8,  // 24: openmanet.sysupgrade.v1.SysupgradeService.GetUpgradeStatus:output_type -> openmanet.sysupgrade.v1.GetUpgradeStatusResponse
-	9,  // 25: openmanet.sysupgrade.v1.SysupgradeService.StreamUpgradeProgress:output_type -> openmanet.sysupgrade.v1.StreamUpgradeProgressResponse
-	10, // 26: openmanet.sysupgrade.v1.SysupgradeService.GetStagedImage:output_type -> openmanet.sysupgrade.v1.GetStagedImageResponse
-	11, // 27: openmanet.sysupgrade.v1.SysupgradeService.DiscardStagedImage:output_type -> openmanet.sysupgrade.v1.DiscardStagedImageResponse
-	13, // 28: openmanet.sysupgrade.v1.SysupgradeService.StartLocalUpgrade:output_type -> openmanet.sysupgrade.v1.StartLocalUpgradeResponse
-	19, // [19:29] is the sub-list for method output_type
-	9,  // [9:19] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	17, // 0: openmanet.sysupgrade.v1.GetSystemInfoResponse.info:type_name -> openmanet.sysupgrade.v1.SystemInfo
+	18, // 1: openmanet.sysupgrade.v1.ListAvailableUpdatesResponse.updates:type_name -> openmanet.sysupgrade.v1.Update
+	19, // 2: openmanet.sysupgrade.v1.ListAvailableUpdatesResponse.fetched_at:type_name -> google.protobuf.Timestamp
+	20, // 3: openmanet.sysupgrade.v1.GetReleaseDetailResponse.release:type_name -> openmanet.sysupgrade.v1.Release
+	21, // 4: openmanet.sysupgrade.v1.StartUpgradeRequest.options:type_name -> openmanet.sysupgrade.v1.SysupgradeOptions
+	22, // 5: openmanet.sysupgrade.v1.GetUpgradeStatusResponse.event:type_name -> openmanet.sysupgrade.v1.ProgressEvent
+	22, // 6: openmanet.sysupgrade.v1.StreamUpgradeProgressResponse.event:type_name -> openmanet.sysupgrade.v1.ProgressEvent
+	23, // 7: openmanet.sysupgrade.v1.GetStagedImageResponse.image:type_name -> openmanet.sysupgrade.v1.StagedImage
+	21, // 8: openmanet.sysupgrade.v1.StartLocalUpgradeRequest.options:type_name -> openmanet.sysupgrade.v1.SysupgradeOptions
+	24, // 9: openmanet.sysupgrade.v1.GetFactoryResetCapabilityResponse.capability:type_name -> openmanet.sysupgrade.v1.FactoryResetCapability
+	25, // 10: openmanet.sysupgrade.v1.SysupgradeService.GetSystemInfo:input_type -> google.protobuf.Empty
+	1,  // 11: openmanet.sysupgrade.v1.SysupgradeService.ListAvailableUpdates:input_type -> openmanet.sysupgrade.v1.ListAvailableUpdatesRequest
+	3,  // 12: openmanet.sysupgrade.v1.SysupgradeService.GetReleaseDetail:input_type -> openmanet.sysupgrade.v1.GetReleaseDetailRequest
+	5,  // 13: openmanet.sysupgrade.v1.SysupgradeService.StartUpgrade:input_type -> openmanet.sysupgrade.v1.StartUpgradeRequest
+	25, // 14: openmanet.sysupgrade.v1.SysupgradeService.CancelUpgrade:input_type -> google.protobuf.Empty
+	25, // 15: openmanet.sysupgrade.v1.SysupgradeService.GetUpgradeStatus:input_type -> google.protobuf.Empty
+	25, // 16: openmanet.sysupgrade.v1.SysupgradeService.StreamUpgradeProgress:input_type -> google.protobuf.Empty
+	25, // 17: openmanet.sysupgrade.v1.SysupgradeService.GetStagedImage:input_type -> google.protobuf.Empty
+	25, // 18: openmanet.sysupgrade.v1.SysupgradeService.DiscardStagedImage:input_type -> google.protobuf.Empty
+	12, // 19: openmanet.sysupgrade.v1.SysupgradeService.StartLocalUpgrade:input_type -> openmanet.sysupgrade.v1.StartLocalUpgradeRequest
+	25, // 20: openmanet.sysupgrade.v1.SysupgradeService.GetFactoryResetCapability:input_type -> google.protobuf.Empty
+	15, // 21: openmanet.sysupgrade.v1.SysupgradeService.PerformFactoryReset:input_type -> openmanet.sysupgrade.v1.PerformFactoryResetRequest
+	0,  // 22: openmanet.sysupgrade.v1.SysupgradeService.GetSystemInfo:output_type -> openmanet.sysupgrade.v1.GetSystemInfoResponse
+	2,  // 23: openmanet.sysupgrade.v1.SysupgradeService.ListAvailableUpdates:output_type -> openmanet.sysupgrade.v1.ListAvailableUpdatesResponse
+	4,  // 24: openmanet.sysupgrade.v1.SysupgradeService.GetReleaseDetail:output_type -> openmanet.sysupgrade.v1.GetReleaseDetailResponse
+	6,  // 25: openmanet.sysupgrade.v1.SysupgradeService.StartUpgrade:output_type -> openmanet.sysupgrade.v1.StartUpgradeResponse
+	7,  // 26: openmanet.sysupgrade.v1.SysupgradeService.CancelUpgrade:output_type -> openmanet.sysupgrade.v1.CancelUpgradeResponse
+	8,  // 27: openmanet.sysupgrade.v1.SysupgradeService.GetUpgradeStatus:output_type -> openmanet.sysupgrade.v1.GetUpgradeStatusResponse
+	9,  // 28: openmanet.sysupgrade.v1.SysupgradeService.StreamUpgradeProgress:output_type -> openmanet.sysupgrade.v1.StreamUpgradeProgressResponse
+	10, // 29: openmanet.sysupgrade.v1.SysupgradeService.GetStagedImage:output_type -> openmanet.sysupgrade.v1.GetStagedImageResponse
+	11, // 30: openmanet.sysupgrade.v1.SysupgradeService.DiscardStagedImage:output_type -> openmanet.sysupgrade.v1.DiscardStagedImageResponse
+	13, // 31: openmanet.sysupgrade.v1.SysupgradeService.StartLocalUpgrade:output_type -> openmanet.sysupgrade.v1.StartLocalUpgradeResponse
+	14, // 32: openmanet.sysupgrade.v1.SysupgradeService.GetFactoryResetCapability:output_type -> openmanet.sysupgrade.v1.GetFactoryResetCapabilityResponse
+	16, // 33: openmanet.sysupgrade.v1.SysupgradeService.PerformFactoryReset:output_type -> openmanet.sysupgrade.v1.PerformFactoryResetResponse
+	22, // [22:34] is the sub-list for method output_type
+	10, // [10:22] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_openmanet_sysupgrade_v1_sysupgrade_service_proto_init() }
@@ -844,7 +1002,7 @@ func file_openmanet_sysupgrade_v1_sysupgrade_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_sysupgrade_v1_sysupgrade_service_proto_rawDesc), len(file_openmanet_sysupgrade_v1_sysupgrade_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

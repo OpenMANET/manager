@@ -86,43 +86,59 @@ type HTTPClient interface {
 
 // Options bundles the manager construction inputs.
 type Options struct {
-	Log         zerolog.Logger
-	Repo        string // "OpenMANET/firmware"
-	HTTP        *http.Client
-	Board       BoardProvider
-	Firmware    FirmwareProvider
-	SysInfo     SysInfoProvider
-	Capable     CapabilityProvider
-	Cache       ReleaseCache
-	Releases    ReleasesFetcher
-	Manifest    ManifestFetcher
-	Runner      SysupgradeRunner
+	Log                 zerolog.Logger
+	Repo                string // "OpenMANET/firmware"
+	HTTP                *http.Client
+	Board               BoardProvider
+	Firmware            FirmwareProvider
+	SysInfo             SysInfoProvider
+	Capable             CapabilityProvider
+	Cache               ReleaseCache
+	Releases            ReleasesFetcher
+	Manifest            ManifestFetcher
+	Runner              SysupgradeRunner
+	FactoryReset        FactoryResetRunner
+	FactoryResetCapable system.FactoryResetCapabilityProvider
+
+	// DownloadDir is where the staged image and the runtime sysupgrade
+	// log file live. tmpfs on OpenWrt — large enough to hold a 50 MB
+	// firmware image, but contents are wiped on every reboot.
 	DownloadDir string
+
+	// PersistentLogDir is where post-failure breadcrumbs go so the
+	// operator can still inspect them after the device reboots. /etc
+	// on OpenWrt is the overlay (jffs2 / squashfs+overlay) and survives
+	// reboots; the daemon writes a single small last-failure.log here
+	// when watchSysupgradeChild detects an early exit.
+	PersistentLogDir string
 }
 
 // Manager is the central orchestrator for sysupgrade workflows.
 type Manager struct {
-	log            zerolog.Logger
-	releases       ReleasesFetcher
-	runner         SysupgradeRunner
-	board          BoardProvider
-	firmware       FirmwareProvider
-	sysInfo        SysInfoProvider
-	capable        CapabilityProvider
-	cache          ReleaseCache
-	manifest       ManifestFetcher
-	upgradeCancel  context.CancelFunc
-	http           *http.Client
-	subs           map[uint64]chan Progress
-	staged         *StagedImage
-	downloadDir    string
-	repo           string
-	progress       Progress
-	nextSub        uint64
-	mu             sync.Mutex
-	subsMu         sync.Mutex
-	upgradeStarted bool
-	uploadInFlight bool
+	log                zerolog.Logger
+	releases           ReleasesFetcher
+	runner             SysupgradeRunner
+	board              BoardProvider
+	firmware           FirmwareProvider
+	sysInfo            SysInfoProvider
+	capable            CapabilityProvider
+	cache              ReleaseCache
+	manifest           ManifestFetcher
+	factoryResetRunner FactoryResetRunner
+	factoryResetCap    system.FactoryResetCapabilityProvider
+	upgradeCancel      context.CancelFunc
+	http               *http.Client
+	subs               map[uint64]chan Progress
+	staged             *StagedImage
+	downloadDir        string
+	persistentLogDir   string
+	repo               string
+	progress           Progress
+	nextSub            uint64
+	mu                 sync.Mutex
+	subsMu             sync.Mutex
+	upgradeStarted     bool
+	uploadInFlight     bool
 }
 
 // subscriberQueue is the capacity used for each Subscribe channel.
@@ -164,21 +180,29 @@ func NewManager(opts Options) *Manager {
 		dlDir = "/tmp/openmanetd/sysupgrade"
 	}
 
+	persistentDir := opts.PersistentLogDir
+	if persistentDir == "" {
+		persistentDir = "/etc/openmanetd/sysupgrade"
+	}
+
 	return &Manager{
-		log:         opts.Log,
-		repo:        opts.Repo,
-		http:        httpClient,
-		board:       opts.Board,
-		firmware:    opts.Firmware,
-		sysInfo:     opts.SysInfo,
-		capable:     opts.Capable,
-		cache:       cache,
-		releases:    opts.Releases,
-		manifest:    manifest,
-		runner:      opts.Runner,
-		downloadDir: dlDir,
-		progress:    Progress{Phase: PhaseIdle, UpdatedAt: time.Now()},
-		subs:        make(map[uint64]chan Progress, 4),
+		log:                opts.Log,
+		repo:               opts.Repo,
+		http:               httpClient,
+		board:              opts.Board,
+		firmware:           opts.Firmware,
+		sysInfo:            opts.SysInfo,
+		capable:            opts.Capable,
+		cache:              cache,
+		releases:           opts.Releases,
+		manifest:           manifest,
+		runner:             opts.Runner,
+		factoryResetRunner: opts.FactoryReset,
+		factoryResetCap:    opts.FactoryResetCapable,
+		downloadDir:        dlDir,
+		persistentLogDir:   persistentDir,
+		progress:           Progress{Phase: PhaseIdle, UpdatedAt: time.Now()},
+		subs:               make(map[uint64]chan Progress, 4),
 	}
 }
 
@@ -492,8 +516,16 @@ func (m *Manager) runUpgrade(ctx context.Context, rel Release, asset Asset, opts
 
 	logPath := filepath.Join(m.downloadDir, asset.Name+".log")
 
+	m.log.Info().
+		Str("image", imagePath).
+		Str("log", logPath).
+		Str("release", rel.Tag).
+		Str("asset", asset.Name).
+		Msg("sysupgrade: launching detached child for release")
+
 	pid, err := m.runner.Run(ctx, imagePath, logPath, opts)
 	if err != nil {
+		m.log.Error().Err(err).Str("image", imagePath).Msg("sysupgrade: runner failed to launch")
 		m.setPhase(PhaseFailed, "sysupgrade runner failed", err.Error())
 
 		return
@@ -503,6 +535,8 @@ func (m *Manager) runUpgrade(ctx context.Context, rel Release, asset Asset, opts
 	m.upgradeStarted = true
 	m.mu.Unlock()
 
+	m.log.Info().Int("pid", pid).Str("log", logPath).Msg("sysupgrade: detached child launched")
+
 	m.setProgress(Progress{
 		Phase:      PhaseUpgrading,
 		ReleaseTag: rel.Tag,
@@ -511,6 +545,8 @@ func (m *Manager) runUpgrade(ctx context.Context, rel Release, asset Asset, opts
 		Message:    "sysupgrade running in detached child",
 		UpdatedAt:  time.Now(),
 	})
+
+	go m.watchSysupgradeChild(ctx, pid, logPath, asset.Name)
 }
 
 // downloadAndVerify performs the sums fetch + image stream + verify

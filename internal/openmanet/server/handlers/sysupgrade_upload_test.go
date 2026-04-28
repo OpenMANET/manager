@@ -52,11 +52,12 @@ func (f *fakeUploadStorer) StoreStagedImage(_ context.Context, src io.Reader, fi
 	}
 
 	return &sysupgrade.StagedImage{
-		Filename:              filename,
-		SizeBytes:             int64(len(body)),
-		Sha256:                "deadbeef",
-		FilenameMatchesTarget: true,
-		PreflightOK:           true,
+		Filename:        filename,
+		SizeBytes:       int64(len(body)),
+		Sha256:          "deadbeef",
+		MetadataPresent: true,
+		ImageCompatible: true,
+		PreflightOK:     true,
 	}, nil
 }
 
@@ -75,17 +76,19 @@ func TestSysupgradeUploadHandler_MultipartHappyPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 
 	var resp struct {
-		Filename              string `json:"filename"`
-		SizeBytes             int64  `json:"size_bytes"`
-		Sha256                string `json:"sha256"`
-		FilenameMatchesTarget bool   `json:"filename_matches_target"`
-		PreflightOK           bool   `json:"preflight_ok"`
+		Filename        string `json:"filename"`
+		SizeBytes       int64  `json:"size_bytes"`
+		Sha256          string `json:"sha256"`
+		MetadataPresent bool   `json:"metadata_present"`
+		ImageCompatible bool   `json:"image_compatible"`
+		PreflightOK     bool   `json:"preflight_ok"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "openmanet-bcm27xx-bcm2711.img.gz", resp.Filename)
 	assert.Equal(t, int64(7), resp.SizeBytes)
 	assert.Equal(t, "deadbeef", resp.Sha256)
-	assert.True(t, resp.FilenameMatchesTarget)
+	assert.True(t, resp.MetadataPresent)
+	assert.True(t, resp.ImageCompatible)
 	assert.True(t, resp.PreflightOK)
 
 	assert.Equal(t, 1, storer.calls)

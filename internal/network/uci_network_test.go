@@ -9,6 +9,8 @@ import (
 
 	"github.com/digineo/go-uci/v2"
 	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -19,13 +21,19 @@ const (
 
 // mockConfigReader is a test double that returns predefined configuration values.
 type mockConfigReader struct {
-	reloadError    error
-	delError       error
-	addSectionErr  error
-	delSectionErr  error
-	commitError    error
-	setTypeError   error
-	anonSections   map[string][]string
+	reloadError   error
+	delError      error
+	addSectionErr error
+	delSectionErr error
+	commitError   error
+	setTypeError  error
+	anonSections  map[string][]string
+	// sectionOrder records AddSection insertion order per config,
+	// keyed by the internal section name (named or __anon__N). Tests
+	// that index GetSections positionally rely on this. Sections
+	// registered via direct sectionTypes mutation (legacy helpers)
+	// are appended after the ordered ones.
+	sectionOrder   map[string][]string
 	sectionTypes   map[string]map[string]string
 	data           map[string]map[string]map[string][]string
 	delSectionCall string
@@ -62,7 +70,10 @@ func (m *mockConfigReader) Get(config, section, option string) ([]string, bool) 
 }
 
 func (m *mockConfigReader) GetSections(config, secType string) ([]string, error) {
-	// Return sections filtered by type, using proper UCI section references
+	// Return sections filtered by type, using proper UCI section
+	// references. Iteration order follows AddSection insertion
+	// (sectionOrder); legacy tests that populate sectionTypes
+	// directly fall through to a map-iteration pass at the end.
 	var sections []string
 
 	if m.sectionTypes == nil {
@@ -73,23 +84,54 @@ func (m *mockConfigReader) GetSections(config, secType string) ([]string, error)
 		m.anonSections = make(map[string][]string)
 	}
 
-	if typeMap, ok := m.sectionTypes[config]; ok {
-		// First collect named sections (skip anonymous internal keys)
-		for section, stype := range typeMap {
-			if stype == secType && section != "" && !strings.Contains(section, "__anon__") {
-				sections = append(sections, section)
-			}
+	if m.sectionOrder == nil {
+		m.sectionOrder = make(map[string][]string)
+	}
+
+	typeMap, ok := m.sectionTypes[config]
+	if !ok {
+		return sections, nil
+	}
+
+	visited := make(map[string]bool, len(typeMap))
+	anonCount := 0
+
+	// Phase 1: ordered sections from AddSection. The @<type>[N] index
+	// is per-type, so anonCount only advances on anonymous sections
+	// matching secType.
+	for _, name := range m.sectionOrder[config] {
+		stype, ok := typeMap[name]
+		if !ok || stype != secType {
+			continue
 		}
 
-		// Then collect anonymous sections in order
-		anonCount := 0
+		visited[name] = true
 
-		for _, anonKey := range m.anonSections[config] {
-			if stype, ok := typeMap[anonKey]; ok && stype == secType {
-				sections = append(sections, fmt.Sprintf("@%s[%d]", secType, anonCount))
-				anonCount++
-			}
+		if strings.Contains(name, "__anon__") {
+			sections = append(sections, fmt.Sprintf("@%s[%d]", secType, anonCount))
+			anonCount++
+
+			continue
 		}
+
+		sections = append(sections, name)
+	}
+
+	// Phase 2: anything in sectionTypes that wasn't covered by
+	// sectionOrder (legacy direct-mutation tests).
+	for section, stype := range typeMap {
+		if stype != secType || visited[section] {
+			continue
+		}
+
+		if strings.Contains(section, "__anon__") {
+			sections = append(sections, fmt.Sprintf("@%s[%d]", secType, anonCount))
+			anonCount++
+
+			continue
+		}
+
+		sections = append(sections, section)
 	}
 
 	return sections, nil
@@ -198,6 +240,10 @@ func (m *mockConfigReader) AddSection(config, section, typ string) error {
 		m.anonSections = make(map[string][]string)
 	}
 
+	if m.sectionOrder == nil {
+		m.sectionOrder = make(map[string][]string)
+	}
+
 	// For anonymous sections (empty name), generate an internal key
 	actualSection := section
 
@@ -208,6 +254,7 @@ func (m *mockConfigReader) AddSection(config, section, typ string) error {
 	}
 
 	m.sectionTypes[config][actualSection] = typ
+	m.sectionOrder[config] = append(m.sectionOrder[config], actualSection)
 
 	// Initialize data structure for this section
 	if m.data[config] == nil {
@@ -249,6 +296,20 @@ func (m *mockConfigReader) DelSection(config, section string) error {
 			for i, anonKey := range anonList {
 				if anonKey == actualSection {
 					m.anonSections[config] = append(anonList[:i], anonList[i+1:]...)
+
+					break
+				}
+			}
+		}
+	}
+
+	// Drop from the ordered insertion list so GetSections doesn't keep
+	// returning a phantom reference after deletion.
+	if m.sectionOrder != nil {
+		if order, ok := m.sectionOrder[config]; ok {
+			for i, name := range order {
+				if name == actualSection {
+					m.sectionOrder[config] = append(order[:i], order[i+1:]...)
 
 					break
 				}
@@ -2441,4 +2502,202 @@ func TestRemovePort(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ── Setup wizard helpers ─────────────────────────────────────────────────────
+
+// freshNetworkMock returns an empty mockConfigReader. Tests populate
+// it to mimic the captured before/network fixture as needed.
+func freshNetworkMock(t *testing.T) *mockConfigReader {
+	t.Helper()
+
+	return &mockConfigReader{
+		data:         map[string]map[string]map[string][]string{},
+		sectionTypes: map[string]map[string]string{},
+		anonSections: map[string][]string{},
+	}
+}
+
+func TestSetupBatmanDeviceOnNetwork_CreatesAndPopulatesBat0(t *testing.T) {
+	m := freshNetworkMock(t)
+
+	require.NoError(t, SetupBatmanDeviceOnNetwork(m, "server", BatmanDeviceName))
+
+	v, ok := m.Get("network", "bat0", "proto")
+	require.True(t, ok)
+	assert.Equal(t, "batadv", v[0])
+
+	v, ok = m.Get("network", "bat0", "routing_algo")
+	require.True(t, ok)
+	assert.Equal(t, "BATMAN_V", v[0])
+
+	v, ok = m.Get("network", "bat0", "gw_mode")
+	require.True(t, ok)
+	assert.Equal(t, "server", v[0])
+
+	v, ok = m.Get("network", "bat0", "isolation_mark")
+	require.True(t, ok)
+	assert.Equal(t, "0x00000000/0x00000000", v[0])
+}
+
+func TestSetupBatmanDeviceOnNetwork_DefaultsAppliedOnEmptyArgs(t *testing.T) {
+	m := freshNetworkMock(t)
+
+	require.NoError(t, SetupBatmanDeviceOnNetwork(m, "", ""))
+
+	// Default gw_mode is "client".
+	v, ok := m.Get("network", "bat0", "gw_mode")
+	require.True(t, ok)
+	assert.Equal(t, "client", v[0])
+}
+
+func TestSetupBatmanDeviceOnNetwork_IdempotentOnExistingSection(t *testing.T) {
+	m := freshNetworkMock(t)
+	require.NoError(t, m.AddSection("network", "bat0", "interface"))
+
+	require.NoError(t, SetupBatmanDeviceOnNetwork(m, "server", "bat0"))
+
+	// Section still exists and options were written.
+	v, ok := m.Get("network", "bat0", "proto")
+	require.True(t, ok)
+	assert.Equal(t, "batadv", v[0])
+}
+
+func TestSetupBatmanInterfaceOnDevice_CreatesPrimaryAndSecondary(t *testing.T) {
+	m := freshNetworkMock(t)
+
+	require.NoError(t, SetupBatmanInterfaceOnDevice(m, "bat0"))
+
+	for _, name := range []string{BatmanPrimaryIface, BatmanSecondaryIface} {
+		v, ok := m.Get("network", name, "proto")
+		require.Truef(t, ok, "%s missing proto", name)
+		assert.Equalf(t, "batadv_hardif", v[0], "%s proto", name)
+
+		v, ok = m.Get("network", name, "master")
+		require.True(t, ok)
+		assert.Equal(t, "bat0", v[0])
+	}
+}
+
+func TestRemoveAllBatadvInterfaces_DeletesBatadvAndHardif(t *testing.T) {
+	m := freshNetworkMock(t)
+
+	// Set up a batadv device, a hardif, and a non-batman iface.
+	require.NoError(t, m.AddSection("network", "bat0", "interface"))
+	require.NoError(t, m.SetType("network", "bat0", "proto", uci.TypeOption, "batadv"))
+
+	require.NoError(t, m.AddSection("network", "batmesh0", "interface"))
+	require.NoError(t, m.SetType("network", "batmesh0", "proto", uci.TypeOption, "batadv_hardif"))
+
+	require.NoError(t, m.AddSection("network", "lan", "interface"))
+	require.NoError(t, m.SetType("network", "lan", "proto", uci.TypeOption, "static"))
+
+	require.NoError(t, RemoveAllBatadvInterfaces(m))
+
+	sections, err := m.GetSections("network", "interface")
+	require.NoError(t, err)
+
+	for _, s := range sections {
+		assert.NotEqualf(t, "bat0", s, "bat0 should be deleted")
+		assert.NotEqualf(t, "batmesh0", s, "batmesh0 should be deleted")
+	}
+
+	// `lan` (proto=static) is preserved.
+	_, ok := m.Get("network", "lan", "proto")
+	assert.True(t, ok)
+}
+
+func TestRemoveAllBridgeDevices_DeletesBridgesOnly(t *testing.T) {
+	m := freshNetworkMock(t)
+
+	// Bridge device.
+	require.NoError(t, m.AddSection("network", "bridge_lan", "device"))
+	require.NoError(t, m.SetType("network", "bridge_lan", "type", uci.TypeOption, "bridge"))
+	require.NoError(t, m.SetType("network", "bridge_lan", "name", uci.TypeOption, "br-lan"))
+
+	// Non-bridge device.
+	require.NoError(t, m.AddSection("network", "veth0", "device"))
+	require.NoError(t, m.SetType("network", "veth0", "type", uci.TypeOption, "veth"))
+
+	require.NoError(t, RemoveAllBridgeDevices(m))
+
+	_, ok := m.Get("network", "bridge_lan", "type")
+	assert.False(t, ok, "bridge device should be deleted")
+
+	_, ok = m.Get("network", "veth0", "type")
+	assert.True(t, ok, "non-bridge device should be preserved")
+}
+
+func TestUnsetGatewayAndDeviceOnInterfaces_SkipsLoopback(t *testing.T) {
+	m := freshNetworkMock(t)
+
+	require.NoError(t, m.AddSection("network", "loopback", "interface"))
+	require.NoError(t, m.SetType("network", "loopback", "device", uci.TypeOption, "lo"))
+	require.NoError(t, m.SetType("network", "loopback", "gateway", uci.TypeOption, "127.0.0.1"))
+
+	require.NoError(t, m.AddSection("network", "lan", "interface"))
+	require.NoError(t, m.SetType("network", "lan", "device", uci.TypeOption, "br-lan"))
+	require.NoError(t, m.SetType("network", "lan", "gateway", uci.TypeOption, "10.0.0.1"))
+
+	require.NoError(t, UnsetGatewayAndDeviceOnInterfaces(m))
+
+	// loopback preserved.
+	v, ok := m.Get("network", "loopback", "device")
+	require.True(t, ok)
+	assert.Equal(t, "lo", v[0])
+
+	v, ok = m.Get("network", "loopback", "gateway")
+	require.True(t, ok)
+	assert.Equal(t, "127.0.0.1", v[0])
+
+	// lan cleared.
+	_, ok = m.Get("network", "lan", "device")
+	assert.False(t, ok)
+
+	_, ok = m.Get("network", "lan", "gateway")
+	assert.False(t, ok)
+}
+
+func TestSetNetworkDevices_SingleDeviceSetsDeviceField(t *testing.T) {
+	m := freshNetworkMock(t)
+	require.NoError(t, m.AddSection("network", "lan", "interface"))
+
+	require.NoError(t, SetNetworkDevices(m, "lan", []string{"eth0"}))
+
+	v, ok := m.Get("network", "lan", "device")
+	require.True(t, ok)
+	assert.Equal(t, "eth0", v[0])
+}
+
+func TestSetNetworkDevices_MultipleWithExistingBridgeSetsPorts(t *testing.T) {
+	m := freshNetworkMock(t)
+	require.NoError(t, m.AddSection("network", "lan", "interface"))
+	require.NoError(t, m.SetType("network", "lan", "device", uci.TypeOption, "br-lan"))
+
+	// Bridge device exists.
+	require.NoError(t, m.AddSection("network", "bridge_lan", "device"))
+	require.NoError(t, m.SetType("network", "bridge_lan", "type", uci.TypeOption, "bridge"))
+	require.NoError(t, m.SetType("network", "bridge_lan", "name", uci.TypeOption, "br-lan"))
+
+	require.NoError(t, SetNetworkDevices(m, "lan", []string{"eth0", "eth1"}))
+
+	v, ok := m.Get("network", "bridge_lan", "ports")
+	require.True(t, ok)
+	assert.Equal(t, []string{"eth0", "eth1"}, v)
+}
+
+func TestSetNetworkDevices_NoDevicesIsNoOp(t *testing.T) {
+	m := freshNetworkMock(t)
+	require.NoError(t, m.AddSection("network", "lan", "interface"))
+
+	require.NoError(t, SetNetworkDevices(m, "lan", nil))
+
+	_, ok := m.Get("network", "lan", "device")
+	assert.False(t, ok)
+}
+
+func TestSetNetworkDevices_RejectsEmptyName(t *testing.T) {
+	m := freshNetworkMock(t)
+	err := SetNetworkDevices(m, "", []string{"eth0"})
+	assert.Error(t, err)
 }

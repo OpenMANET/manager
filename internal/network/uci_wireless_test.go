@@ -754,3 +754,126 @@ func TestSetWirelessDeviceConfigWithReader_DisabledSetTypeError(t *testing.T) {
 		t.Errorf("expected set disabled error, got %v", err)
 	}
 }
+
+// --- WhitelistDeviceFields / WhitelistInterfaceFields / DisableAllInterfaces ---
+
+func TestWhitelistDeviceFields_RemovesNonWhitelistedOptions(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	if err := WhitelistDeviceFields(reader, "radio4", WizardWifiDeviceWhitelist); err != nil {
+		t.Fatalf("WhitelistDeviceFields: %v", err)
+	}
+
+	for _, opt := range []string{"type", "path", "band", "hwmode", "channel", "country"} {
+		if _, ok := reader.Get("wireless", "radio4", opt); !ok {
+			t.Errorf("whitelisted option %q was removed", opt)
+		}
+	}
+
+	for _, opt := range []string{"enable_mcast_whitelist", "enable_mcast_rate_control", "disabled"} {
+		if _, ok := reader.Get("wireless", "radio4", opt); ok {
+			t.Errorf("non-whitelisted option %q was not removed", opt)
+		}
+	}
+}
+
+func TestWhitelistDeviceFields_NoOpIfAllWhitelisted(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	allOpts := []string{
+		"type", "path", "band", "hwmode", "htmode", "reconf", "bcf",
+		"country", "channel", "cell_density", "txpower",
+		"enable_ps", "enable_dynamic_ps_offload", "enable_twt",
+		"enable_mcast_whitelist", "enable_mcast_rate_control", "disabled",
+	}
+
+	if err := WhitelistDeviceFields(reader, "radio4", allOpts); err != nil {
+		t.Fatalf("WhitelistDeviceFields: %v", err)
+	}
+
+	for _, opt := range []string{
+		"type", "enable_mcast_whitelist", "enable_mcast_rate_control", "disabled",
+	} {
+		if _, ok := reader.Get("wireless", "radio4", opt); !ok {
+			t.Errorf("option %q removed despite being in allowList", opt)
+		}
+	}
+}
+
+func TestWhitelistDeviceFields_RejectsEmptyName(t *testing.T) {
+	reader := newWirelessMockReader()
+	if err := WhitelistDeviceFields(reader, "", WizardWifiDeviceWhitelist); err == nil {
+		t.Errorf("expected error for empty deviceName")
+	}
+}
+
+func TestWhitelistInterfaceFields_RemovesNonWhitelistedOptions(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	if err := WhitelistInterfaceFields(reader, "default_radio4", WizardWifiIfaceWhitelist); err != nil {
+		t.Fatalf("WhitelistInterfaceFields: %v", err)
+	}
+
+	for _, opt := range []string{"network", "device", "key", "encryption", "mode", "ssid", "mesh_id"} {
+		if _, ok := reader.Get("wireless", "default_radio4", opt); !ok {
+			t.Errorf("whitelisted option %q removed", opt)
+		}
+	}
+
+	for _, opt := range []string{"beacon_int"} {
+		if _, ok := reader.Get("wireless", "default_radio4", opt); ok {
+			t.Errorf("non-whitelisted option %q not removed", opt)
+		}
+	}
+}
+
+func TestWhitelistInterfaceFields_RejectsEmptyName(t *testing.T) {
+	reader := newWirelessMockReader()
+	if err := WhitelistInterfaceFields(reader, "", WizardWifiIfaceWhitelist); err == nil {
+		t.Errorf("expected error for empty ifaceName")
+	}
+}
+
+func TestDisableAllInterfaces_SetsDisabledOnEvery(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	if err := DisableAllInterfaces(reader); err != nil {
+		t.Fatalf("DisableAllInterfaces: %v", err)
+	}
+
+	for _, name := range []string{"default_radio1", "default_radio4"} {
+		v, ok := reader.Get("wireless", name, "disabled")
+		if !ok {
+			t.Errorf("%s missing disabled", name)
+
+			continue
+		}
+
+		if len(v) != 1 || v[0] != "1" {
+			t.Errorf("%s disabled = %v, want [\"1\"]", name, v)
+		}
+	}
+
+	// wifi-device sections are NOT touched.
+	if _, ok := reader.Get("wireless", "radio1", "disabled"); ok {
+		t.Error("radio1 (wifi-device) should not have disabled set")
+	}
+}
+
+func TestDisableAllInterfaces_PropagatesSetError(t *testing.T) {
+	reader := newWirelessMockReader()
+	reader.setTypeError = errors.New("set failed")
+
+	if err := DisableAllInterfaces(reader); err == nil {
+		t.Errorf("expected propagated error")
+	}
+}
+
+func TestWhitelistDeviceFields_PropagatesDelError(t *testing.T) {
+	reader := newWirelessMockReader()
+	reader.delError = errors.New("del failed")
+
+	if err := WhitelistDeviceFields(reader, "radio4", WizardWifiDeviceWhitelist); err == nil {
+		t.Errorf("expected propagated error")
+	}
+}

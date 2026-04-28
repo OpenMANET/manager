@@ -242,7 +242,11 @@ describe('TestStagedImageRPCs', () => {
               sizeBytes: 4096n,
               sha256: 'cafeb33f',
               uploadedAt: ts,
-              filenameMatchesTarget: true,
+              metadataPresent: true,
+              compatVersion: '1.0',
+              supportedDevices: ['raspberrypi,4-model-b', 'brcm,bcm2711'],
+              deviceCompat: 'raspberrypi,4-model-b',
+              imageCompatible: true,
               preflightOk: false,
               preflightError: 'wrong arch',
             },
@@ -257,7 +261,11 @@ describe('TestStagedImageRPCs', () => {
       filename: 'staged.img.gz',
       sizeBytes: 4096,
       sha256: 'cafeb33f',
-      filenameMatchesTarget: true,
+      metadataPresent: true,
+      compatVersion: '1.0',
+      supportedDevices: ['raspberrypi,4-model-b', 'brcm,bcm2711'],
+      deviceCompat: 'raspberrypi,4-model-b',
+      imageCompatible: true,
       preflightOk: false,
       preflightError: 'wrong arch',
     });
@@ -311,5 +319,73 @@ describe('TestStagedImageRPCs', () => {
     expect(captured.options.verbose).toBe(true);
     expect(captured.forceInstallUnknownCurrent).toBe(true);
     expect(captured.skipPreflight).toBe(true);
+  });
+});
+
+describe('TestFactoryResetRPCs', () => {
+  it('GetFactoryResetCapability maps a capable response', async () => {
+    const transport = createRouterTransport(({ service }) => {
+      service(SysupgradeService, {
+        getFactoryResetCapability() {
+          return {
+            capability: {
+              capable: true,
+              reason: 'ok',
+              overlayMountpoint: 'overlayfs:/overlay /',
+              backingFs: 'overlay',
+              firstbootPath: '/sbin/firstboot',
+              hostname: 'BCM2711-1003',
+            },
+          };
+        },
+      });
+    });
+
+    const { fetchFactoryResetCapability } = await loadApiWith(transport);
+    const cap = await fetchFactoryResetCapability();
+    expect(cap).toMatchObject({
+      capable: true,
+      reason: 'ok',
+      overlayMountpoint: 'overlayfs:/overlay /',
+      backingFs: 'overlay',
+      firstbootPath: '/sbin/firstboot',
+      hostname: 'BCM2711-1003',
+    });
+  });
+
+  it('GetFactoryResetCapability maps a not-capable response', async () => {
+    const transport = createRouterTransport(({ service }) => {
+      service(SysupgradeService, {
+        getFactoryResetCapability() {
+          return {
+            capability: {
+              capable: false,
+              reason: 'no rootfs_data partition or overlayfs mount',
+            },
+          };
+        },
+      });
+    });
+
+    const { fetchFactoryResetCapability } = await loadApiWith(transport);
+    const cap = await fetchFactoryResetCapability();
+    expect(cap.capable).toBe(false);
+    expect(cap.reason).toContain('no rootfs_data');
+  });
+
+  it('PerformFactoryReset forwards the confirm hostname', async () => {
+    let captured;
+    const transport = createRouterTransport(({ service }) => {
+      service(SysupgradeService, {
+        performFactoryReset(req) {
+          captured = req;
+          return {};
+        },
+      });
+    });
+
+    const { performFactoryReset } = await loadApiWith(transport);
+    await performFactoryReset({ confirmHostname: 'BCM2711-1003' });
+    expect(captured.confirmHostname).toBe('BCM2711-1003');
   });
 });

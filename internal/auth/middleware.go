@@ -130,12 +130,18 @@ func ContextWithUsername(ctx context.Context, username string) context.Context {
 }
 
 // isAPISkipPath returns true for paths that are always allowed on the API
-// server without authentication.
+// server without authentication. The setup wizard endpoints are listed
+// here so the frontend can poll status and apply a profile before any
+// admin password has been set; the SetupService handler enforces its own
+// enabled/complete gate as defense-in-depth.
 func isAPISkipPath(r *http.Request) bool {
 	switch r.URL.Path {
 	case "/auth/login", "/auth/check":
 		return true
 	case "/openmanet.dashboard.v1.DashboardService/GetDashboardStatus":
+		return true
+	case "/openmanet.setup.v1.SetupService/GetSetupStatus",
+		"/openmanet.setup.v1.SetupService/ApplySetup":
 		return true
 	}
 

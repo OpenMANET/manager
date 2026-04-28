@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	supbv1 "github.com/openmanet/openmanetd/internal/api/openmanet/sysupgrade/v1"
+	"github.com/openmanet/openmanetd/internal/system"
 	"github.com/openmanet/openmanetd/internal/sysupgrade"
 )
 
@@ -30,6 +31,8 @@ type SysupgradeManager interface {
 	GetStagedImage() *sysupgrade.StagedImage
 	DiscardStagedImage() error
 	StartLocalUpgrade(ctx context.Context, opts sysupgrade.SysupgradeOptions, skipPreflight, forceUnknown bool) error
+	GetFactoryResetCapability() *system.FactoryResetCapability
+	PerformFactoryReset(ctx context.Context, confirmHostname string) error
 }
 
 // SysupgradeService implements the sysupgrade ConnectRPC service. It is
@@ -173,6 +176,50 @@ func (s *SysupgradeService) StartLocalUpgrade(ctx context.Context, req *supbv1.S
 	return &supbv1.StartLocalUpgradeResponse{}, nil
 }
 
+// GetFactoryResetCapability reports whether the running OS supports
+// the LuCI-equivalent "Perform Reset" flow and surfaces the device's
+// hostname for the typed-confirmation UI.
+func (s *SysupgradeService) GetFactoryResetCapability(_ context.Context, _ *emptypb.Empty) (*supbv1.GetFactoryResetCapabilityResponse, error) {
+	cap := s.Manager.GetFactoryResetCapability()
+
+	return &supbv1.GetFactoryResetCapabilityResponse{
+		Capability: factoryResetCapabilityToProto(cap),
+	}, nil
+}
+
+// PerformFactoryReset triggers the overlay-wipe + reboot via the
+// FactoryResetRunner. The RPC may not return — firstboot reboots the
+// device synchronously. Clients should treat a transport-closed error
+// after >2s as "reset initiated."
+func (s *SysupgradeService) PerformFactoryReset(ctx context.Context, req *supbv1.PerformFactoryResetRequest) (*supbv1.PerformFactoryResetResponse, error) {
+	if err := s.Manager.PerformFactoryReset(ctx, req.GetConfirmHostname()); err != nil {
+		return nil, mapManagerError(s.Log, err, "perform factory reset")
+	}
+
+	return &supbv1.PerformFactoryResetResponse{}, nil
+}
+
+// factoryResetCapabilityToProto translates a system.FactoryResetCapability
+// into the proto representation. Always returns a non-nil pointer so
+// the wire response always carries a populated capability struct.
+func factoryResetCapabilityToProto(c *system.FactoryResetCapability) *supbv1.FactoryResetCapability {
+	if c == nil {
+		return &supbv1.FactoryResetCapability{
+			Capable: false,
+			Reason:  "capability not yet detected",
+		}
+	}
+
+	return &supbv1.FactoryResetCapability{
+		Capable:           c.Capable,
+		Reason:            c.Reason,
+		OverlayMountpoint: c.OverlayMountpoint,
+		BackingFs:         c.BackingFS,
+		FirstbootPath:     c.FirstbootPath,
+		Hostname:          c.Hostname,
+	}
+}
+
 // stagedImageToProto translates a sysupgrade.StagedImage into the
 // proto representation. Returns nil when the input is nil so the
 // response field is left unset.
@@ -182,12 +229,17 @@ func stagedImageToProto(s *sysupgrade.StagedImage) *supbv1.StagedImage {
 	}
 
 	out := &supbv1.StagedImage{
-		Filename:              s.Filename,
-		SizeBytes:             s.SizeBytes,
-		Sha256:                s.Sha256,
-		FilenameMatchesTarget: s.FilenameMatchesTarget,
-		PreflightOk:           s.PreflightOK,
-		PreflightError:        s.PreflightError,
+		Filename:         s.Filename,
+		SizeBytes:        s.SizeBytes,
+		Sha256:           s.Sha256,
+		PreflightOk:      s.PreflightOK,
+		PreflightError:   s.PreflightError,
+		MetadataPresent:  s.MetadataPresent,
+		CompatVersion:    s.CompatVersion,
+		CompatMessage:    s.CompatMessage,
+		SupportedDevices: s.SupportedDevices,
+		DeviceCompat:     s.DeviceCompat,
+		ImageCompatible:  s.ImageCompatible,
 	}
 
 	if !s.UploadedAt.IsZero() {
@@ -211,6 +263,8 @@ func mapManagerError(log zerolog.Logger, err error, op string) error {
 		errors.Is(err, sysupgrade.ErrUploadInFlight),
 		errors.Is(err, sysupgrade.ErrNoStagedImage),
 		errors.Is(err, sysupgrade.ErrStagedPreflightFailed),
+		errors.Is(err, sysupgrade.ErrFactoryResetNotCapable),
+		errors.Is(err, sysupgrade.ErrFactoryResetHostnameUnknown),
 		errors.Is(err, sysupgrade.ErrBusy):
 		log.Warn().Err(err).Str("op", op).Msg("sysupgrade: precondition failed")
 
@@ -220,8 +274,9 @@ func mapManagerError(log zerolog.Logger, err error, op string) error {
 		log.Error().Err(err).Str("op", op).Msg("sysupgrade: data integrity failure")
 
 		return connect.NewError(connect.CodeDataLoss, err)
-	case errors.Is(err, sysupgrade.ErrOptionConflict):
-		log.Warn().Err(err).Str("op", op).Msg("sysupgrade: invalid options")
+	case errors.Is(err, sysupgrade.ErrOptionConflict),
+		errors.Is(err, sysupgrade.ErrFactoryResetHostnameMismatch):
+		log.Warn().Err(err).Str("op", op).Msg("sysupgrade: invalid argument")
 
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, sysupgrade.ErrReleaseNotFound):
@@ -310,6 +365,7 @@ func progressToProto(p sysupgrade.Progress) *supbv1.ProgressEvent {
 		ReleaseTag: p.ReleaseTag,
 		AssetName:  p.AssetName,
 		ChildPid:   p.ChildPID,
+		LogTail:    p.LogTail,
 	}
 
 	if !p.UpdatedAt.IsZero() {

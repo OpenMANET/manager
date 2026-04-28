@@ -69,6 +69,12 @@ type Progress struct {
 	ErrMsg     string
 	ReleaseTag string
 	AssetName  string
+	// LogTail carries the last few KB of /sbin/sysupgrade's stdout+stderr
+	// when the child exits without rebooting. Populated only on
+	// PhaseFailed transitions originating in watchSysupgradeChild;
+	// empty for every other phase. Lets the UI surface the actual
+	// sysupgrade error when the install dies before pivoting to RAM.
+	LogTail    string
 	BytesDone  int64
 	BytesTotal int64
 	Phase      Phase

@@ -120,6 +120,29 @@ describe('SettingsLogs', () => {
     expect(screen.getByRole('tab', { name: /dmesg/i })).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('strips ANSI escape codes from incoming log lines', async () => {
+    const ESC = String.fromCharCode(27);
+    transportState.logreadResponse = {
+      lines: [
+        { raw: '[32mINF[0m mgmt [1mAlfred Client Started[0m' },
+        { raw: '[36maddr=[0m0.0.0.0:8080' },
+      ],
+      truncated: false,
+    };
+
+    await act(async () => {
+      render(<SettingsLogs />);
+      await flushPromises();
+    });
+
+    expect(screen.getByText(/INF mgmt Alfred Client Started/)).toBeInTheDocument();
+    expect(screen.getByText(/addr=0\.0\.0\.0:8080/)).toBeInTheDocument();
+    // No raw escape sequences should remain in the rendered <pre>.
+    const pre = document.querySelector(".settings-logs-pre");
+    expect(pre.textContent).not.toContain(ESC);
+    expect(pre.textContent).not.toMatch(/\[3[0-9]m/);
+  });
+
   it('renders a "last N truncated" notice when the response is truncated', async () => {
     transportState.logreadResponse = {
       lines: [{ raw: 'x' }],

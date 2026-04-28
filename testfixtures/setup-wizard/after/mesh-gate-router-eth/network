@@ -1,0 +1,63 @@
+
+config interface 'loopback'
+        option device 'lo'
+        option proto 'static'
+        option ipaddr '127.0.0.1'
+        option netmask '255.0.0.0'
+
+config globals 'globals'
+        option ula_prefix 'fd01:ed20:ecb4::/48'
+
+config interface 'lan'
+        option device 'eth0'
+        option proto 'dhcp'
+        option ipaddr '10.41.254.1'
+        option netmask '255.255.0.0'
+        option ip6assign '60'
+        option dns '1.1.1.1'
+
+config interface 'wan'
+        option proto 'dhcp'
+
+config interface 'wan6'
+        option proto 'dhcpv6'
+
+config interface 'bat0'
+        option multicast_mode '0'
+        option proto 'batadv'
+        option routing_algo 'BATMAN_V'
+        option bridge_loop_avoidance '1'
+        option hop_penalty '30'
+        option bonding '1'
+        option aggregated_ogms '1'
+        option ap_isolation '0'
+        option fragmentation '1'
+        option orig_interval '1000'
+        option distributed_arp_table '1'
+        option network_coding '1'
+        option isolation_mark '0x00000000/0x00000000'
+        option gw_mode 'server'
+
+config interface 'ahwlan'
+        option proto 'static'
+        option netmask '255.255.0.0'
+        option ip6assign '64'
+        option ip6ifaceid 'eui64'
+        list ip6class 'local'
+        option device 'br-ahwlan'
+        option ipaddr '10.41.0.2'
+
+config device
+        option name 'br-ahwlan'
+        option type 'bridge'
+        option macaddr 'F2:5e:31:f3:01:81'
+        list ports 'eth1'
+        list ports 'bat0'
+
+config interface 'batmesh0'
+        option proto 'batadv_hardif'
+        option master 'bat0'
+
+config interface 'batmesh1'
+        option proto 'batadv_hardif'
+        option master 'bat0'

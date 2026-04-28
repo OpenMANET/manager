@@ -18,6 +18,11 @@ import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { DashboardService } from "../gen/openmanet/dashboard/v1/dashboard_service_connect.js";
 import { NetworkInterfaceState } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
+import { NetworkInterfaceService } from "../gen/openmanet/network_interface/v1/network_interface_service_connect.js";
+import {
+  InterfaceType,
+  InterfaceStatus,
+} from "../gen/openmanet/network_interface/v1/interface_pb.js";
 import { BLOSService } from "../gen/openmanet/blos/v1/blos_service_connect.js";
 import { useVisibleInterval } from '../hooks/useVisibleInterval.js';
 import { useMeshStatus } from '../hooks/useMeshStatus.js';
@@ -31,6 +36,7 @@ import './Dashboard.css';
 const LQ_SERIES_KEY = 'dashboard.linkQualityPct';
 
 const dashClient = createClient(DashboardService, transport);
+const netClient = createClient(NetworkInterfaceService, transport);
 const blosClient = createClient(BLOSService, transport);
 
 const DASH_POLL_MS = 5000;
@@ -119,55 +125,57 @@ function sigBars(dbm) {
 
 // ── Topology helpers ───────────────────────────────────────────────────────
 
-// Return a 1-hop list of gateway candidates: nodes whose neighbors include
-// self, which for now we approximate as the first node in the topology (the
-// daemon emits self first).  A full BFS would be nicer but the current mesh
-// rarely exceeds 3 hops and the table only needs a rough hop indicator.
+// Build a hop-from-self map and a TQ-by-mac map from the mesh topology
+// snapshot. The snapshot shape is the one returned by fetchMeshTopology:
+// flat `nodes[]` keyed by primary `mac` (with secondaryMacs[] for radios
+// publishing on additional MACs) and a flat `edges[]` array of links.
 function buildPeerRows(topology, neighbors, historyRef, nowMs) {
   if (!neighbors || neighbors.length === 0) return [];
-  const neighborHostByMac = new Map();
+
   const topoNodes = topology?.nodes ?? [];
-  const self = topoNodes[0];
-  const selfMac = self?.primaryMac?.toLowerCase() ?? '';
+  const topoEdges = topology?.edges ?? [];
 
-  // Build an adjacency map for hop-depth BFS rooted at self.
-  const adj = new Map();
+  // Hostname-by-mac including secondary MACs, so neighbor MACs resolve to
+  // friendly names even when batctl reports a per-radio address.
+  const hostByMac = new Map();
   for (const node of topoNodes) {
-    const from = (node.primaryMac || '').toLowerCase();
-    if (!adj.has(from)) adj.set(from, new Set());
-    for (const e of node.neighbors || []) {
-      const to = (e.neighborMac || '').toLowerCase();
-      if (!to) continue;
-      adj.get(from).add(to);
-      if (!adj.has(to)) adj.set(to, new Set());
-      adj.get(to).add(from);
-      neighborHostByMac.set(to, e.neighborHostname || '');
-    }
-  }
-  const hops = new Map();
-  if (selfMac) {
-    hops.set(selfMac, 0);
-    const q = [selfMac];
-    while (q.length) {
-      const cur = q.shift();
-      const dist = hops.get(cur);
-      for (const nxt of adj.get(cur) || []) {
-        if (!hops.has(nxt)) {
-          hops.set(nxt, dist + 1);
-          q.push(nxt);
-        }
-      }
+    const name = node.hostname || '';
+    const primary = (node.mac || '').toLowerCase();
+    if (primary && name) hostByMac.set(primary, name);
+    for (const sec of node.secondaryMacs || []) {
+      const lc = (sec || '').toLowerCase();
+      if (lc && name) hostByMac.set(lc, name);
     }
   }
 
-  // Build TQ lookup keyed by neighbor MAC.
+  // Hops come straight from the daemon's per-node hopsFromSelf — no
+  // client-side BFS needed. Index by every known MAC for that node.
+  const hopsByMac = new Map();
+  for (const node of topoNodes) {
+    const h = Number.isFinite(node.hopsFromSelf) ? node.hopsFromSelf : null;
+    if (h == null) continue;
+    const primary = (node.mac || '').toLowerCase();
+    if (primary) hopsByMac.set(primary, h);
+    for (const sec of node.secondaryMacs || []) {
+      const lc = (sec || '').toLowerCase();
+      if (lc) hopsByMac.set(lc, h);
+    }
+  }
+
+  // Build TQ lookup keyed by neighbor MAC, taking the strongest edge
+  // metric incident on each MAC.
   const tqByMac = new Map();
-  for (const node of topoNodes) {
-    for (const e of node.neighbors || []) {
-      const mac = (e.neighborMac || '').toLowerCase();
-      if (!mac) continue;
-      const prev = tqByMac.get(mac) ?? 0;
-      if ((e.metric ?? 0) > prev) tqByMac.set(mac, e.metric);
+  for (const e of topoEdges) {
+    const a = (e.fromMac || '').toLowerCase();
+    const b = (e.toMac || '').toLowerCase();
+    const metric = e.metric ?? 0;
+    if (a) {
+      const prev = tqByMac.get(a) ?? 0;
+      if (metric > prev) tqByMac.set(a, metric);
+    }
+    if (b) {
+      const prev = tqByMac.get(b) ?? 0;
+      if (metric > prev) tqByMac.set(b, metric);
     }
   }
 
@@ -182,12 +190,12 @@ function buildPeerRows(topology, neighbors, historyRef, nowMs) {
     const mac = (n.mac || '').toLowerCase();
     const hist = historyRef.current[n.name || n.mac];
     const lastSeenMs = hist?.lastSeenMs ?? nowMs;
-    const rawHostname = neighborHostByMac.get(mac) || n.name || mac.slice(-5);
+    const rawHostname = hostByMac.get(mac) || n.name || mac.slice(-5);
     const hostname = stripSuffix(rawHostname);
     const signal = n.signal ?? 0;
     const throughput = n.throughput ?? 0;
     const tq = tqByMac.get(mac) ?? 0;
-    const hopCount = hops.get(mac) ?? 1;
+    const hopCount = hopsByMac.get(mac) ?? 1;
 
     const existing = groups.get(hostname);
     if (!existing) {
@@ -249,26 +257,32 @@ function classifyAlerts({ mesh, peerRows, delta }) {
 
 // ── Network interface helpers ──────────────────────────────────────────────
 
-function inferRole(iface) {
-  const name = (iface.interfaceName || '').toLowerCase();
-  if (name.startsWith('eth') || name.startsWith('wwan')) return 'uplink';
-  if (name === 'bat0' || name.startsWith('bat')) return 'mesh';
-  if (name.startsWith('phy')) return 'mesh radio';
-  if (name.startsWith('wlan')) return 'wlan';
-  if (name.startsWith('tailscale')) return 'BLOS';
-  if (name.startsWith('br-')) return 'bridge';
-  return '—';
+// Role label derived from the kernel-classified interface type. The mesh
+// radio type (HALOW_MESH) is the wireless mesh-point interface; WIFI_AP is
+// a hostapd-managed access point. VXLAN is the BLOS (Tailscale) tunnel.
+const ROLE_BY_TYPE = {
+  [InterfaceType.BRIDGE]: 'bridge',
+  [InterfaceType.ETHERNET]: 'uplink',
+  [InterfaceType.WIFI_AP]: 'AP',
+  [InterfaceType.HALOW_MESH]: 'mesh radio',
+  [InterfaceType.BATMAN]: 'mesh',
+  [InterfaceType.VXLAN]: 'BLOS',
+};
+
+function roleForInterface(iface) {
+  return ROLE_BY_TYPE[iface.type] || '—';
 }
 
-function stateBadge(state) {
-  if (state === NetworkInterfaceState.CONNECTED) return { cls: 'badge-ok', dot: 'ok', label: 'UP' };
-  if (state === NetworkInterfaceState.DISCONNECTED) return { cls: 'badge-crit', dot: 'crit', label: 'DOWN' };
+function statusBadge(status) {
+  if (status === InterfaceStatus.UP) return { cls: 'badge-ok', dot: 'ok', label: 'UP' };
+  if (status === InterfaceStatus.DOWN) return { cls: 'badge-crit', dot: 'crit', label: 'DOWN' };
   return { cls: 'badge-warn', dot: 'warn', label: 'IDLE' };
 }
 
-// Pull an address from the free-form `detail` field. The daemon formats
-// connected interfaces like "10.41.25.72/16", "Connected — 3 neighbors",
-// or "100.64.0.16/32" — the CIDR extractor finds the first two.
+// Pull an address from the curated dashboard `detail` field. The daemon
+// formats connected interfaces like "10.41.25.72/16", "Connected — 3
+// neighbors", or "100.64.0.16/32" — the CIDR extractor finds the first
+// two. Used by the topbar's primary-IP picker only.
 function extractAddr(detail) {
   if (!detail) return '—';
   const m = detail.match(/\d+\.\d+\.\d+\.\d+(\/\d+)?/);
@@ -279,6 +293,7 @@ function extractAddr(detail) {
 
 export default function DashboardPage() {
   const [data, setData] = useState(null);
+  const [interfaces, setInterfaces] = useState([]);
   const [loading, setLoading] = useState(true);
   const [blosPeers, setBlosPeers] = useState(0);
   const [now, setNow] = useState(() => Date.now());
@@ -318,7 +333,20 @@ export default function DashboardPage() {
     }
   }, []);
 
+  // Poll the kernel-classified interface list so the network panel shows
+  // every interface (incl. wlan AP + halow mesh) with its real role
+  // instead of only the curated WAN/LAN/MESH/BAT/Tailscale rollup.
+  const fetchInterfaces = useCallback(async () => {
+    try {
+      const resp = await netClient.listNetworkInterfaces({});
+      setInterfaces(resp.interfaces ?? []);
+    } catch {
+      // best-effort
+    }
+  }, []);
+
   useVisibleInterval(fetchStatus, DASH_POLL_MS);
+  useVisibleInterval(fetchInterfaces, DASH_POLL_MS);
   useVisibleInterval(pollBlosPeers, CHIP_POLL_MS);
 
   // Drive derived peer history + LQ rolling average off each new mesh snapshot.
@@ -367,25 +395,33 @@ export default function DashboardPage() {
   const peerCount = peerRows.length;
   // Gateway = the batman-adv-selected best gateway reported by
   // StatusService.selected_gateway_mac. We cross-reference the MAC against
-  // the mesh topology node list to surface a hostname; when the remote
-  // hostname isn't known we render the short MAC. Self takes precedence
-  // only when this node itself is the gateway in server mode.
+  // the mesh topology node list (primary + secondary MACs) to surface the
+  // node's hostname. Falls back to ListNodes (which carries hostnames
+  // keyed by IP, not MAC, so cross-reference via the mesh neighbor list)
+  // and finally to a short MAC suffix when no name is known. Self takes
+  // precedence when this node itself is the elected gateway.
   const gatewayName = useMemo(() => {
     if (meshData?.status?.is_gateway) return (data?.deviceInfo?.hostname || 'SELF').toUpperCase();
     const mac = (meshData?.status?.selected_gateway_mac || '').toLowerCase();
     if (!mac) return '—';
+
     for (const node of topology?.nodes ?? []) {
-      if ((node.primaryMac || '').toLowerCase() === mac) {
-        return (node.primaryHostname || node.primaryMac.slice(9)).toUpperCase();
-      }
-      for (const e of node.neighbors ?? []) {
-        if ((e.neighborMac || '').toLowerCase() === mac) {
-          return (e.neighborHostname || e.neighborMac.slice(9)).toUpperCase();
-        }
+      const macs = [node.mac, ...(node.secondaryMacs || [])];
+      if (macs.some((m) => (m || '').toLowerCase() === mac)) {
+        if (node.hostname) return node.hostname.toUpperCase();
+        break;
       }
     }
-    // Fall back to the short MAC if the gateway isn't represented in the
-    // topology snapshot yet (e.g. we saw batctl gwj before batctl vd).
+
+    // Some neighbors only show up in the batctl neighbor table — match
+    // against the live neighbor list and strip the per-radio "_<iface>"
+    // suffix that batctl adds.
+    for (const n of meshData?.neighbors ?? []) {
+      if ((n.mac || '').toLowerCase() !== mac) continue;
+      const name = (n.name || '').split('_')[0];
+      if (name) return name.toUpperCase();
+    }
+
     return mac.slice(9).toUpperCase();
   }, [meshData, data, topology]);
 
@@ -408,10 +444,26 @@ export default function DashboardPage() {
     [meshData, peerRows, delta],
   );
 
-  const interfaces = data?.networkSummary?.entries ?? [];
+  // Hide loopback from the network panel — it adds noise on every device
+  // and never carries operator-relevant state. Sort UP-first then by name
+  // so the panel's first rows are the live links.
+  const visibleInterfaces = useMemo(() => {
+    const filtered = interfaces.filter(
+      (iface) => iface.type !== InterfaceType.LOOPBACK,
+    );
+    return filtered.sort((a, b) => {
+      const aUp = a.status === InterfaceStatus.UP ? 0 : 1;
+      const bUp = b.status === InterfaceStatus.UP ? 0 : 1;
+      if (aUp !== bUp) return aUp - bUp;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  }, [interfaces]);
 
   // ─ Topbar state ─
   const hostname = data?.deviceInfo?.hostname || 'NODE';
+  // Prefer the curated dashboard summary (which carries the WAN/LAN
+  // detail strings) but fall back to the first UP interface with an IP
+  // from the kernel list when the curated summary hasn't populated yet.
   const primaryIp = useMemo(() => {
     const entries = data?.networkSummary?.entries ?? [];
     for (const e of entries) {
@@ -419,8 +471,13 @@ export default function DashboardPage() {
       const addr = extractAddr(e.detail);
       if (addr && addr !== '—') return addr;
     }
+    for (const iface of interfaces) {
+      if (iface.status !== InterfaceStatus.UP) continue;
+      if (iface.type === InterfaceType.LOOPBACK) continue;
+      if (iface.ipAddress) return iface.ipAddress;
+    }
     return '—';
-  }, [data]);
+  }, [data, interfaces]);
 
   const gpsFix = (gps?.position?.fixType ?? 0) >= 2; // 2D or 3D
   const gpsSats = gps?.satelliteStatus?.satellitesUsed ?? 0;
@@ -456,10 +513,6 @@ export default function DashboardPage() {
         <div>
           <h2>◇ Dashboard</h2>
           <div className="crumb">Overview · Live telemetry · {(DASH_POLL_MS / 1000).toFixed(0)}s refresh</div>
-        </div>
-        <div className="lat-view-toolbar">
-          {/* TODO: wire customize action */}
-          <button className="lat-btn" type="button">CUSTOMIZE</button>
         </div>
       </div>
 
@@ -500,18 +553,13 @@ export default function DashboardPage() {
         <div className="lat-panel col-span-3">
           <div className="panel-head">
             <h3>Mesh Peers · Live</h3>
-            <div className="actions">
-              {/* TODO: wire table filter/sort */}
-              <button type="button">FILTER</button>
-              <button type="button">SORT</button>
-            </div>
           </div>
           <div className="table-scroll">
             <table className="lat-table">
               <thead>
                 <tr>
                   <th>Node</th><th>MAC</th><th>Hops</th><th>Throughput</th>
-                  <th>RSSI</th><th>Sig</th><th>Last</th>
+                  <th>RSSI</th><th>Signal</th><th>Last</th>
                 </tr>
               </thead>
               <tbody>
@@ -595,20 +643,20 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {interfaces.length === 0 && (
+                {visibleInterfaces.length === 0 && (
                   <tr><td colSpan={6} className="mono">No network data</td></tr>
                 )}
-                {interfaces.map((iface) => {
-                  const badge = stateBadge(iface.state);
+                {visibleInterfaces.map((iface) => {
+                  const badge = statusBadge(iface.status);
                   return (
-                    <tr key={iface.interfaceName}>
+                    <tr key={iface.name}>
                       <td>
                         <span className={`dot-i ${badge.dot}`} />
-                        {iface.interfaceName}
+                        {iface.name}
                       </td>
-                      <td className="mono">{extractAddr(iface.detail)}</td>
+                      <td className="mono">{iface.ipAddress || '—'}</td>
                       <td className={badge.cls}>{badge.label}</td>
-                      <td>{inferRole(iface)}</td>
+                      <td>{roleForInterface(iface)}</td>
                       <td className="mono">{formatBytes(iface.rxBytes)}</td>
                       <td className="mono">{formatBytes(iface.txBytes)}</td>
                     </tr>

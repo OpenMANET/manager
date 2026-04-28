@@ -90,6 +90,13 @@ export const Release = /*@__PURE__*/ proto3.makeMessageType(
  * the manager tracks at most one staged image at a time, replacing the
  * previous file (if any) on a successful re-upload.
  *
+ * Hardware compatibility is decided by parsing the OpenWrt FWx0
+ * metadata trailer that `fwtool` appends to every sysupgrade image —
+ * matching what LuCI's flash page does. The parsed device list is
+ * compared against /etc/board.json's model.id (or the first compatible
+ * string of /proc/device-tree/compatible). Filename pattern matching
+ * is no longer used.
+ *
  * @generated from message openmanet.sysupgrade.v1.StagedImage
  */
 export const StagedImage = /*@__PURE__*/ proto3.makeMessageType(
@@ -99,9 +106,14 @@ export const StagedImage = /*@__PURE__*/ proto3.makeMessageType(
     { no: 2, name: "size_bytes", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
     { no: 3, name: "sha256", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "uploaded_at", kind: "message", T: Timestamp },
-    { no: 5, name: "filename_matches_target", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 6, name: "preflight_ok", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
     { no: 7, name: "preflight_error", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 8, name: "metadata_present", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 9, name: "compat_version", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 10, name: "compat_message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 11, name: "supported_devices", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 12, name: "device_compat", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 13, name: "image_compatible", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ],
 );
 
@@ -168,6 +180,29 @@ export const ProgressEvent = /*@__PURE__*/ proto3.makeMessageType(
     { no: 8, name: "asset_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 9, name: "child_pid", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
     { no: 10, name: "updated_at", kind: "message", T: Timestamp },
+    { no: 11, name: "log_tail", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ],
+);
+
+/**
+ * FactoryResetCapability summarizes whether the running OS supports
+ * factory reset (overlay wipe + reboot, equivalent to LuCI's "Perform
+ * Reset" button) and exposes the discovery details so the UI can
+ * surface "why not" when capability is false. Mirrors LuCI's flash.js
+ * render check: an overlayfs mount at / OR a rootfs_data partition in
+ * /proc/mtd, plus the firstboot helper.
+ *
+ * @generated from message openmanet.sysupgrade.v1.FactoryResetCapability
+ */
+export const FactoryResetCapability = /*@__PURE__*/ proto3.makeMessageType(
+  "openmanet.sysupgrade.v1.FactoryResetCapability",
+  () => [
+    { no: 1, name: "capable", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 2, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "overlay_mountpoint", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "backing_fs", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "firstboot_path", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 6, name: "hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ],
 );
 

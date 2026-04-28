@@ -489,3 +489,303 @@ func TestPersistBLOSConfig_FileWriteError(t *testing.T) {
 	// In-memory state should be unchanged
 	assert.False(t, cfg.GetEnableBLOS())
 }
+
+// ── PersistSetupAndAuth ──────────────────────────────────────────────────────
+
+func TestPersistSetupAndAuth_FlipsBothInExistingFile(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `
+setup:
+  enabled: true
+  complete: false
+auth:
+  enable: false
+`)
+
+	require.True(t, cfg.GetSetupEnabled())
+	require.False(t, cfg.GetSetupComplete())
+	require.False(t, cfg.GetAuthEnable())
+
+	err := cfg.PersistSetupAndAuth(true, true)
+	require.NoError(t, err)
+
+	// In-memory state for both keys updated together
+	assert.True(t, cfg.GetSetupComplete())
+	assert.True(t, cfg.GetAuthEnable())
+	// setup.enabled is operator-managed and must NOT be touched
+	assert.True(t, cfg.GetSetupEnabled())
+
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "complete: true")
+	assert.Contains(t, content, "enable: true")
+	// setup.enabled preserved
+	assert.Contains(t, content, "enabled: true")
+}
+
+func TestPersistSetupAndAuth_TogglesBothBackOff(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `
+setup:
+  enabled: true
+  complete: true
+auth:
+  enable: true
+`)
+
+	require.True(t, cfg.GetSetupComplete())
+	require.True(t, cfg.GetAuthEnable())
+
+	err := cfg.PersistSetupAndAuth(false, false)
+	require.NoError(t, err)
+
+	assert.False(t, cfg.GetSetupComplete())
+	assert.False(t, cfg.GetAuthEnable())
+
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "complete: false")
+	// Both setup.enabled (true) and auth.enable (false) should be present.
+	assert.Contains(t, content, "enabled: true")
+	assert.Contains(t, content, "enable: false")
+}
+
+func TestPersistSetupAndAuth_CreatesMissingSections(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `
+logLevel: info
+blos:
+  enable: false
+`)
+
+	err := cfg.PersistSetupAndAuth(true, true)
+	require.NoError(t, err)
+
+	assert.True(t, cfg.GetSetupComplete())
+	assert.True(t, cfg.GetAuthEnable())
+
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "setup:")
+	assert.Contains(t, content, "complete: true")
+	assert.Contains(t, content, "auth:")
+	assert.Contains(t, content, "enable: true")
+}
+
+func TestPersistSetupAndAuth_PreservesOtherKeys(t *testing.T) {
+	yamlContent := `# Top-level config
+logLevel: info
+gnss:
+  enable: true
+  sendAsExternalGNSSSource:
+    sendAsNMEA: true
+blos:
+  enable: true
+comms:
+  enable: true
+  protocol: rtp
+setup:
+  enabled: true
+  complete: false
+auth:
+  enable: false
+  pamService: login
+`
+	cfg := setupTestConfigFromYAML(t, yamlContent)
+
+	err := cfg.PersistSetupAndAuth(true, true)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+
+	assert.Contains(t, content, "# Top-level config")
+	assert.Contains(t, content, "logLevel: info")
+	assert.Contains(t, content, "protocol: rtp")
+	assert.Contains(t, content, "sendAsNMEA: true")
+	assert.Contains(t, content, "pamService: login")
+
+	// Other subsystems untouched in memory
+	assert.True(t, cfg.GetEnableBLOS())
+	assert.True(t, cfg.GetCommsEnable())
+	assert.True(t, cfg.GetEnableGNSS())
+	assert.Equal(t, "login", cfg.GetAuthPAMService())
+}
+
+func TestPersistSetupAndAuth_PreservesComments(t *testing.T) {
+	yamlContent := `# Main config
+setup:
+  # operator-controlled kill switch
+  enabled: true
+  complete: false
+auth:
+  # session-based authentication
+  enable: false
+`
+	cfg := setupTestConfigFromYAML(t, yamlContent)
+
+	err := cfg.PersistSetupAndAuth(true, true)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "# Main config")
+	assert.Contains(t, content, "# operator-controlled kill switch")
+	assert.Contains(t, content, "# session-based authentication")
+}
+
+func TestPersistSetupAndAuth_Idempotent(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `
+setup:
+  enabled: true
+  complete: false
+auth:
+  enable: false
+`)
+
+	err := cfg.PersistSetupAndAuth(true, true)
+	require.NoError(t, err)
+
+	err = cfg.PersistSetupAndAuth(true, true)
+	require.NoError(t, err)
+
+	assert.True(t, cfg.GetSetupComplete())
+	assert.True(t, cfg.GetAuthEnable())
+
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	// Exactly one complete: under setup, one enable: under auth, one enabled: under setup.
+	assert.Equal(t, 1, strings.Count(content, "complete:"),
+		"should have exactly one complete key under setup")
+	assert.Equal(t, 1, strings.Count(content, "enabled:"),
+		"should have exactly one enabled key under setup")
+	// `enable:` appears once for auth (and would also appear under blos/comms if those
+	// sections existed in this fixture — they don't, so exactly one).
+	assert.Equal(t, 1, strings.Count(content, "enable:"),
+		"should have exactly one enable key under auth")
+}
+
+func TestPersistSetupAndAuth_NonExistentFile(t *testing.T) {
+	v := viper.New()
+	cfg := &Config{
+		v:                 v,
+		onChangeCallbacks: make([]func(*Config), 0),
+	}
+
+	err := cfg.PersistSetupAndAuth(true, true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no config file path configured")
+}
+
+func TestPersistSetupAndAuth_FileWriteError_AtomicMemory(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `setup:
+  enabled: true
+  complete: false
+auth:
+  enable: false
+`)
+
+	err := os.Chmod(cfg.GetConfigFilePath(), 0444)
+	require.NoError(t, err)
+
+	err = cfg.PersistSetupAndAuth(true, true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "writing config file")
+
+	// Critical invariant: a failed write must not flip either flag in memory.
+	// If only one flipped, the device could end up with auth on but setup
+	// not marked complete (or vice versa) — exactly the half-state this
+	// helper exists to prevent.
+	assert.False(t, cfg.GetSetupComplete(), "setup.complete must not flip on write error")
+	assert.False(t, cfg.GetAuthEnable(), "auth.enable must not flip on write error")
+}
+
+func TestPersistSetupAndAuth_DoesNotTouchSetupEnabled(t *testing.T) {
+	// setup.enabled is operator-managed — the wizard handler must never
+	// change it, only setup.complete. This guards that contract.
+	cfg := setupTestConfigFromYAML(t, `setup:
+  enabled: true
+  complete: false
+auth:
+  enable: false
+`)
+
+	err := cfg.PersistSetupAndAuth(true, true)
+	require.NoError(t, err)
+
+	// In-memory: setup.enabled stays as the operator set it.
+	assert.True(t, cfg.GetSetupEnabled())
+
+	// On disk too.
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	assert.Contains(t, string(data), "enabled: true")
+}
+
+func TestPersistSetupAndAuth_ConcurrentWithOtherSubsystems(t *testing.T) {
+	cfg := setupTestConfigFromYAML(t, `blos:
+  enable: false
+comms:
+  enable: false
+  controlSource: openvlm
+setup:
+  enabled: true
+  complete: false
+auth:
+  enable: false
+`)
+
+	var wg sync.WaitGroup
+
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+
+		for i := 0; i < 10; i++ {
+			_ = cfg.PersistBLOSConfig(true)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for i := 0; i < 10; i++ {
+			_ = cfg.PersistCommsConfig(true, "web")
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for i := 0; i < 10; i++ {
+			_ = cfg.PersistSetupAndAuth(true, true)
+		}
+	}()
+
+	wg.Wait()
+
+	assert.True(t, cfg.GetEnableBLOS())
+	assert.True(t, cfg.GetCommsEnable())
+	assert.True(t, cfg.GetSetupComplete())
+	assert.True(t, cfg.GetAuthEnable())
+
+	data, err := os.ReadFile(cfg.GetConfigFilePath())
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "blos:")
+	assert.Contains(t, content, "comms:")
+	assert.Contains(t, content, "setup:")
+	assert.Contains(t, content, "auth:")
+}

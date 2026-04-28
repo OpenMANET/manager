@@ -32,15 +32,22 @@ type SysupgradeUploadHandler struct {
 	Manager SysupgradeUploadStorer
 }
 
-// uploadResponse is the success JSON returned to the browser.
+// uploadResponse is the success JSON returned to the browser. Mirrors
+// the StagedImage proto so the frontend can normalize XHR-upload and
+// GetStagedImage RPC results uniformly.
 type uploadResponse struct {
-	UploadedAt            time.Time `json:"uploaded_at"`
-	Filename              string    `json:"filename"`
-	Sha256                string    `json:"sha256"`
-	PreflightError        string    `json:"preflight_error,omitempty"`
-	SizeBytes             int64     `json:"size_bytes"`
-	FilenameMatchesTarget bool      `json:"filename_matches_target"`
-	PreflightOK           bool      `json:"preflight_ok"`
+	UploadedAt       time.Time `json:"uploaded_at"`
+	Filename         string    `json:"filename"`
+	Sha256           string    `json:"sha256"`
+	CompatVersion    string    `json:"compat_version,omitempty"`
+	CompatMessage    string    `json:"compat_message,omitempty"`
+	DeviceCompat     string    `json:"device_compat,omitempty"`
+	PreflightError   string    `json:"preflight_error,omitempty"`
+	SupportedDevices []string  `json:"supported_devices,omitempty"`
+	SizeBytes        int64     `json:"size_bytes"`
+	MetadataPresent  bool      `json:"metadata_present"`
+	ImageCompatible  bool      `json:"image_compatible"`
+	PreflightOK      bool      `json:"preflight_ok"`
 }
 
 // uploadErrorResponse is the error-shaped JSON returned for non-2xx
@@ -85,13 +92,18 @@ func (h *SysupgradeUploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	}
 
 	resp := uploadResponse{
-		Filename:              staged.Filename,
-		SizeBytes:             staged.SizeBytes,
-		Sha256:                staged.Sha256,
-		FilenameMatchesTarget: staged.FilenameMatchesTarget,
-		PreflightOK:           staged.PreflightOK,
-		PreflightError:        staged.PreflightError,
-		UploadedAt:            staged.UploadedAt,
+		Filename:         staged.Filename,
+		SizeBytes:        staged.SizeBytes,
+		Sha256:           staged.Sha256,
+		MetadataPresent:  staged.MetadataPresent,
+		CompatVersion:    staged.CompatVersion,
+		CompatMessage:    staged.CompatMessage,
+		SupportedDevices: staged.SupportedDevices,
+		DeviceCompat:     staged.DeviceCompat,
+		ImageCompatible:  staged.ImageCompatible,
+		PreflightOK:      staged.PreflightOK,
+		PreflightError:   staged.PreflightError,
+		UploadedAt:       staged.UploadedAt,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

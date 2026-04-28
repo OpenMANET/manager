@@ -11,8 +11,10 @@ import (
 
 // SysupgradeRunner executes the sysupgrade(1) binary with a set of
 // options against an image. Implementations are expected to detach the
-// child via setsid+nohup so the upgrade survives the daemon being
-// SIGTERM'd by sysupgrade's tree walk.
+// child via setsid + a SIGHUP-ignoring trap so the upgrade survives the
+// daemon being SIGTERM'd by sysupgrade's tree walk. (`nohup` is not
+// available on every OpenWrt build, so the inner shell's `trap ” HUP`
+// stands in for it via inherited signal dispositions.)
 type SysupgradeRunner interface {
 	// Run launches sysupgrade and returns the detached child PID. The
 	// call returns as soon as the wrapper shell exits — the upgrade
@@ -28,9 +30,12 @@ type SysupgradeRunner interface {
 }
 
 // ExecSysupgradeRunner is the production implementation. It invokes
-// sysupgrade through "/usr/bin/setsid /bin/sh -c 'nohup ... &'" so that
-// the child is in its own session, immune to SIGHUP, and outlives the
-// daemon when sysupgrade kills its parent process tree.
+// sysupgrade through "/usr/bin/setsid /bin/sh -c 'trap \"\" HUP; ... &'"
+// so the child is in its own session, immune to SIGHUP, and outlives
+// the daemon when sysupgrade kills its parent process tree. The trap
+// handler is set in the wrapper shell so sysupgrade — exec'd from
+// that shell — inherits SIGHUP=SIG_IGN, the same effect nohup(1) had
+// in shells where the applet is present.
 type ExecSysupgradeRunner struct {
 	// BinaryPath is the path to the sysupgrade binary; default
 	// "/sbin/sysupgrade".
@@ -75,12 +80,7 @@ func (r *ExecSysupgradeRunner) Run(ctx context.Context, imagePath, logPath strin
 
 	args = append(args, imagePath)
 
-	script := fmt.Sprintf(
-		"nohup %s %s >%s 2>&1 </dev/null &\necho $!",
-		shellQuote(r.binaryPath()),
-		shellQuoteArgs(args),
-		shellQuote(logPath),
-	)
+	script := buildSysupgradeWrapperScript(r.binaryPath(), args, logPath)
 
 	cmd := exec.CommandContext(ctx, r.setsidPath(), r.shellPath(), "-c", script)
 
@@ -102,6 +102,25 @@ func (r *ExecSysupgradeRunner) Run(ctx context.Context, imagePath, logPath strin
 	}
 
 	return pid, nil
+}
+
+// buildSysupgradeWrapperScript returns the shell script body executed
+// inside `setsid /bin/sh -c <script>`. Extracted from Run for unit
+// testability — verifies we don't accidentally reintroduce a `nohup`
+// dependency or break the shell-quoting of paths/args.
+//
+// `trap ” HUP` makes the wrapper shell ignore SIGHUP; that signal
+// disposition is inherited across exec into sysupgrade so the child
+// survives the wrapper exiting even on platforms whose orphaned-
+// process-group behavior delivers a SIGHUP. We can't rely on nohup(1)
+// here — it isn't installed on every OpenWrt build, including ours.
+func buildSysupgradeWrapperScript(binaryPath string, args []string, logPath string) string {
+	return fmt.Sprintf(
+		"trap '' HUP\n%s %s >%s 2>&1 </dev/null &\necho $!",
+		shellQuote(binaryPath),
+		shellQuoteArgs(args),
+		shellQuote(logPath),
+	)
 }
 
 // Preflight implements SysupgradeRunner. It invokes "sysupgrade -T

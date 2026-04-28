@@ -2563,3 +2563,87 @@ func TestGetTerminalShell(t *testing.T) {
 		})
 	}
 }
+
+func TestGetSetupEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		isSet    bool
+		setValue bool
+		want     bool
+	}{
+		{
+			name:     "returns true when explicitly enabled",
+			isSet:    true,
+			setValue: true,
+			want:     true,
+		},
+		{
+			name:     "returns false when explicitly disabled",
+			isSet:    true,
+			setValue: false,
+			want:     false,
+		},
+		{
+			name:  "returns default false when not set",
+			isSet: false,
+			want:  DefaultSetupEnabled,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.isSet {
+				v.Set("setup.enabled", tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			if got := cfg.GetSetupEnabled(); got != tt.want {
+				t.Errorf("GetSetupEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetSetupComplete(t *testing.T) {
+	tests := []struct {
+		name     string
+		isSet    bool
+		setValue bool
+		want     bool
+	}{
+		{
+			name:     "returns true when explicitly complete",
+			isSet:    true,
+			setValue: true,
+			want:     true,
+		},
+		{
+			name:     "returns false when explicitly incomplete",
+			isSet:    true,
+			setValue: false,
+			want:     false,
+		},
+		{
+			name:  "returns default false when not set",
+			isSet: false,
+			want:  DefaultSetupComplete,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.isSet {
+				v.Set("setup.complete", tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			if got := cfg.GetSetupComplete(); got != tt.want {
+				t.Errorf("GetSetupComplete() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

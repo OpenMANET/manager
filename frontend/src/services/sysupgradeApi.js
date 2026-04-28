@@ -82,7 +82,12 @@ export function mapStagedImage(image) {
     sizeBytes: Number(image.sizeBytes ?? 0),
     sha256: image.sha256 ?? '',
     uploadedAt: timestampToDate(image.uploadedAt),
-    filenameMatchesTarget: image.filenameMatchesTarget ?? false,
+    metadataPresent: image.metadataPresent ?? false,
+    compatVersion: image.compatVersion ?? '',
+    compatMessage: image.compatMessage ?? '',
+    supportedDevices: image.supportedDevices ?? [],
+    deviceCompat: image.deviceCompat ?? '',
+    imageCompatible: image.imageCompatible ?? false,
     preflightOk: image.preflightOk ?? false,
     preflightError: image.preflightError ?? '',
   };
@@ -100,6 +105,7 @@ export function mapProgressEvent(ev) {
     releaseTag: ev.releaseTag ?? '',
     assetName: ev.assetName ?? '',
     childPid: ev.childPid ?? 0,
+    logTail: ev.logTail ?? '',
     updatedAt: timestampToDate(ev.updatedAt),
   };
 }
@@ -158,6 +164,36 @@ export async function getStagedImage() {
 
 export async function discardStagedImage() {
   await client.discardStagedImage({});
+}
+
+export function mapFactoryResetCapability(cap) {
+  if (!cap) {
+    return {
+      capable: false,
+      reason: 'capability not yet detected',
+      overlayMountpoint: '',
+      backingFs: '',
+      firstbootPath: '',
+      hostname: '',
+    };
+  }
+  return {
+    capable: cap.capable ?? false,
+    reason: cap.reason ?? '',
+    overlayMountpoint: cap.overlayMountpoint ?? '',
+    backingFs: cap.backingFs ?? '',
+    firstbootPath: cap.firstbootPath ?? '',
+    hostname: cap.hostname ?? '',
+  };
+}
+
+export async function fetchFactoryResetCapability() {
+  const resp = await client.getFactoryResetCapability({});
+  return mapFactoryResetCapability(resp.capability);
+}
+
+export async function performFactoryReset({ confirmHostname }) {
+  await client.performFactoryReset({ confirmHostname });
 }
 
 export async function startLocalUpgrade({
@@ -247,7 +283,12 @@ function mapUploadResponse(body) {
     sizeBytes: Number(body.size_bytes ?? 0),
     sha256: body.sha256 ?? '',
     uploadedAt: body.uploaded_at ? new Date(body.uploaded_at) : null,
-    filenameMatchesTarget: body.filename_matches_target ?? false,
+    metadataPresent: body.metadata_present ?? false,
+    compatVersion: body.compat_version ?? '',
+    compatMessage: body.compat_message ?? '',
+    supportedDevices: body.supported_devices ?? [],
+    deviceCompat: body.device_compat ?? '',
+    imageCompatible: body.image_compatible ?? false,
     preflightOk: body.preflight_ok ?? false,
     preflightError: body.preflight_error ?? '',
   };

@@ -274,6 +274,56 @@ func (m *StartLocalUpgradeResponse) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
+func (m *GetFactoryResetCapabilityResponse) CloneVT() *GetFactoryResetCapabilityResponse {
+	if m == nil {
+		return (*GetFactoryResetCapabilityResponse)(nil)
+	}
+	r := new(GetFactoryResetCapabilityResponse)
+	r.Capability = m.Capability.CloneVT()
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = make([]byte, len(m.unknownFields))
+		copy(r.unknownFields, m.unknownFields)
+	}
+	return r
+}
+
+func (m *GetFactoryResetCapabilityResponse) CloneMessageVT() proto.Message {
+	return m.CloneVT()
+}
+
+func (m *PerformFactoryResetRequest) CloneVT() *PerformFactoryResetRequest {
+	if m == nil {
+		return (*PerformFactoryResetRequest)(nil)
+	}
+	r := new(PerformFactoryResetRequest)
+	r.ConfirmHostname = m.ConfirmHostname
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = make([]byte, len(m.unknownFields))
+		copy(r.unknownFields, m.unknownFields)
+	}
+	return r
+}
+
+func (m *PerformFactoryResetRequest) CloneMessageVT() proto.Message {
+	return m.CloneVT()
+}
+
+func (m *PerformFactoryResetResponse) CloneVT() *PerformFactoryResetResponse {
+	if m == nil {
+		return (*PerformFactoryResetResponse)(nil)
+	}
+	r := new(PerformFactoryResetResponse)
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = make([]byte, len(m.unknownFields))
+		copy(r.unknownFields, m.unknownFields)
+	}
+	return r
+}
+
+func (m *PerformFactoryResetResponse) CloneMessageVT() proto.Message {
+	return m.CloneVT()
+}
+
 func (this *GetSystemInfoResponse) EqualVT(that *GetSystemInfoResponse) bool {
 	if this == that {
 		return true
@@ -563,6 +613,60 @@ func (this *StartLocalUpgradeResponse) EqualMessageVT(thatMsg proto.Message) boo
 	}
 	return this.EqualVT(that)
 }
+func (this *GetFactoryResetCapabilityResponse) EqualVT(that *GetFactoryResetCapabilityResponse) bool {
+	if this == that {
+		return true
+	} else if this == nil || that == nil {
+		return false
+	}
+	if !this.Capability.EqualVT(that.Capability) {
+		return false
+	}
+	return string(this.unknownFields) == string(that.unknownFields)
+}
+
+func (this *GetFactoryResetCapabilityResponse) EqualMessageVT(thatMsg proto.Message) bool {
+	that, ok := thatMsg.(*GetFactoryResetCapabilityResponse)
+	if !ok {
+		return false
+	}
+	return this.EqualVT(that)
+}
+func (this *PerformFactoryResetRequest) EqualVT(that *PerformFactoryResetRequest) bool {
+	if this == that {
+		return true
+	} else if this == nil || that == nil {
+		return false
+	}
+	if this.ConfirmHostname != that.ConfirmHostname {
+		return false
+	}
+	return string(this.unknownFields) == string(that.unknownFields)
+}
+
+func (this *PerformFactoryResetRequest) EqualMessageVT(thatMsg proto.Message) bool {
+	that, ok := thatMsg.(*PerformFactoryResetRequest)
+	if !ok {
+		return false
+	}
+	return this.EqualVT(that)
+}
+func (this *PerformFactoryResetResponse) EqualVT(that *PerformFactoryResetResponse) bool {
+	if this == that {
+		return true
+	} else if this == nil || that == nil {
+		return false
+	}
+	return string(this.unknownFields) == string(that.unknownFields)
+}
+
+func (this *PerformFactoryResetResponse) EqualMessageVT(thatMsg proto.Message) bool {
+	that, ok := thatMsg.(*PerformFactoryResetResponse)
+	if !ok {
+		return false
+	}
+	return this.EqualVT(that)
+}
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
@@ -614,6 +718,20 @@ type SysupgradeServiceClient interface {
 	// is skipped. Returns FailedPrecondition when no image is staged or
 	// an upgrade is already running.
 	StartLocalUpgrade(ctx context.Context, in *StartLocalUpgradeRequest, opts ...grpc.CallOption) (*StartLocalUpgradeResponse, error)
+	// GetFactoryResetCapability reports whether the running OS supports
+	// factory reset (overlay wipe + reboot, equivalent to LuCI's
+	// "Perform Reset" button) and surfaces the device's current
+	// hostname so the UI can use it as the typed-confirmation target.
+	GetFactoryResetCapability(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetFactoryResetCapabilityResponse, error)
+	// PerformFactoryReset wipes the overlay and reboots the device. The
+	// operator must echo the device hostname in confirm_hostname; the
+	// server re-validates the match before triggering. Fire-and-forget:
+	// the RPC response may not flush before the kernel reboots, so
+	// clients must treat both 200 OK and a transport-closed error as
+	// "reset initiated." Returns FailedPrecondition when the device is
+	// not capable, when an upgrade is in progress, or when hostname is
+	// unknown; InvalidArgument when confirm_hostname does not match.
+	PerformFactoryReset(ctx context.Context, in *PerformFactoryResetRequest, opts ...grpc.CallOption) (*PerformFactoryResetResponse, error)
 }
 
 type sysupgradeServiceClient struct {
@@ -737,6 +855,24 @@ func (c *sysupgradeServiceClient) StartLocalUpgrade(ctx context.Context, in *Sta
 	return out, nil
 }
 
+func (c *sysupgradeServiceClient) GetFactoryResetCapability(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetFactoryResetCapabilityResponse, error) {
+	out := new(GetFactoryResetCapabilityResponse)
+	err := c.cc.Invoke(ctx, "/openmanet.sysupgrade.v1.SysupgradeService/GetFactoryResetCapability", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sysupgradeServiceClient) PerformFactoryReset(ctx context.Context, in *PerformFactoryResetRequest, opts ...grpc.CallOption) (*PerformFactoryResetResponse, error) {
+	out := new(PerformFactoryResetResponse)
+	err := c.cc.Invoke(ctx, "/openmanet.sysupgrade.v1.SysupgradeService/PerformFactoryReset", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SysupgradeServiceServer is the server API for SysupgradeService service.
 // All implementations must embed UnimplementedSysupgradeServiceServer
 // for forward compatibility
@@ -782,6 +918,20 @@ type SysupgradeServiceServer interface {
 	// is skipped. Returns FailedPrecondition when no image is staged or
 	// an upgrade is already running.
 	StartLocalUpgrade(context.Context, *StartLocalUpgradeRequest) (*StartLocalUpgradeResponse, error)
+	// GetFactoryResetCapability reports whether the running OS supports
+	// factory reset (overlay wipe + reboot, equivalent to LuCI's
+	// "Perform Reset" button) and surfaces the device's current
+	// hostname so the UI can use it as the typed-confirmation target.
+	GetFactoryResetCapability(context.Context, *emptypb.Empty) (*GetFactoryResetCapabilityResponse, error)
+	// PerformFactoryReset wipes the overlay and reboots the device. The
+	// operator must echo the device hostname in confirm_hostname; the
+	// server re-validates the match before triggering. Fire-and-forget:
+	// the RPC response may not flush before the kernel reboots, so
+	// clients must treat both 200 OK and a transport-closed error as
+	// "reset initiated." Returns FailedPrecondition when the device is
+	// not capable, when an upgrade is in progress, or when hostname is
+	// unknown; InvalidArgument when confirm_hostname does not match.
+	PerformFactoryReset(context.Context, *PerformFactoryResetRequest) (*PerformFactoryResetResponse, error)
 	mustEmbedUnimplementedSysupgradeServiceServer()
 }
 
@@ -818,6 +968,12 @@ func (UnimplementedSysupgradeServiceServer) DiscardStagedImage(context.Context, 
 }
 func (UnimplementedSysupgradeServiceServer) StartLocalUpgrade(context.Context, *StartLocalUpgradeRequest) (*StartLocalUpgradeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StartLocalUpgrade not implemented")
+}
+func (UnimplementedSysupgradeServiceServer) GetFactoryResetCapability(context.Context, *emptypb.Empty) (*GetFactoryResetCapabilityResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetFactoryResetCapability not implemented")
+}
+func (UnimplementedSysupgradeServiceServer) PerformFactoryReset(context.Context, *PerformFactoryResetRequest) (*PerformFactoryResetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PerformFactoryReset not implemented")
 }
 func (UnimplementedSysupgradeServiceServer) mustEmbedUnimplementedSysupgradeServiceServer() {}
 
@@ -1015,6 +1171,42 @@ func _SysupgradeService_StartLocalUpgrade_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SysupgradeService_GetFactoryResetCapability_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SysupgradeServiceServer).GetFactoryResetCapability(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/openmanet.sysupgrade.v1.SysupgradeService/GetFactoryResetCapability",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SysupgradeServiceServer).GetFactoryResetCapability(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SysupgradeService_PerformFactoryReset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PerformFactoryResetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SysupgradeServiceServer).PerformFactoryReset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/openmanet.sysupgrade.v1.SysupgradeService/PerformFactoryReset",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SysupgradeServiceServer).PerformFactoryReset(ctx, req.(*PerformFactoryResetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SysupgradeService_ServiceDesc is the grpc.ServiceDesc for SysupgradeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1057,6 +1249,14 @@ var SysupgradeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StartLocalUpgrade",
 			Handler:    _SysupgradeService_StartLocalUpgrade_Handler,
+		},
+		{
+			MethodName: "GetFactoryResetCapability",
+			Handler:    _SysupgradeService_GetFactoryResetCapability_Handler,
+		},
+		{
+			MethodName: "PerformFactoryReset",
+			Handler:    _SysupgradeService_PerformFactoryReset_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
@@ -1680,6 +1880,122 @@ func (m *StartLocalUpgradeResponse) MarshalToVT(dAtA []byte) (int, error) {
 }
 
 func (m *StartLocalUpgradeResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *GetFactoryResetCapabilityResponse) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GetFactoryResetCapabilityResponse) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *GetFactoryResetCapabilityResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.Capability != nil {
+		size, err := m.Capability.MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *PerformFactoryResetRequest) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PerformFactoryResetRequest) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *PerformFactoryResetRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.ConfirmHostname) > 0 {
+		i -= len(m.ConfirmHostname)
+		copy(dAtA[i:], m.ConfirmHostname)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.ConfirmHostname)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *PerformFactoryResetResponse) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PerformFactoryResetResponse) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *PerformFactoryResetResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -2319,6 +2635,122 @@ func (m *StartLocalUpgradeResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (i
 	return len(dAtA) - i, nil
 }
 
+func (m *GetFactoryResetCapabilityResponse) MarshalVTStrict() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVTStrict(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GetFactoryResetCapabilityResponse) MarshalToVTStrict(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVTStrict(dAtA[:size])
+}
+
+func (m *GetFactoryResetCapabilityResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.Capability != nil {
+		size, err := m.Capability.MarshalToSizedBufferVTStrict(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *PerformFactoryResetRequest) MarshalVTStrict() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVTStrict(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PerformFactoryResetRequest) MarshalToVTStrict(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVTStrict(dAtA[:size])
+}
+
+func (m *PerformFactoryResetRequest) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.ConfirmHostname) > 0 {
+		i -= len(m.ConfirmHostname)
+		copy(dAtA[i:], m.ConfirmHostname)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.ConfirmHostname)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *PerformFactoryResetResponse) MarshalVTStrict() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVTStrict(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PerformFactoryResetResponse) MarshalToVTStrict(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVTStrict(dAtA[:size])
+}
+
+func (m *PerformFactoryResetResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	return len(dAtA) - i, nil
+}
+
 func (m *GetSystemInfoResponse) SizeVT() (n int) {
 	if m == nil {
 		return 0
@@ -2515,6 +2947,44 @@ func (m *StartLocalUpgradeRequest) SizeVT() (n int) {
 }
 
 func (m *StartLocalUpgradeResponse) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	n += len(m.unknownFields)
+	return n
+}
+
+func (m *GetFactoryResetCapabilityResponse) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Capability != nil {
+		l = m.Capability.SizeVT()
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	n += len(m.unknownFields)
+	return n
+}
+
+func (m *PerformFactoryResetRequest) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.ConfirmHostname)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	n += len(m.unknownFields)
+	return n
+}
+
+func (m *PerformFactoryResetResponse) SizeVT() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -3732,6 +4202,227 @@ func (m *StartLocalUpgradeResponse) UnmarshalVT(dAtA []byte) error {
 		}
 		if fieldNum <= 0 {
 			return fmt.Errorf("proto: StartLocalUpgradeResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GetFactoryResetCapabilityResponse) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GetFactoryResetCapabilityResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GetFactoryResetCapabilityResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Capability", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Capability == nil {
+				m.Capability = &FactoryResetCapability{}
+			}
+			if err := m.Capability.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PerformFactoryResetRequest) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PerformFactoryResetRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PerformFactoryResetRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConfirmHostname", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ConfirmHostname = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PerformFactoryResetResponse) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PerformFactoryResetResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PerformFactoryResetResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		default:
@@ -4976,6 +5667,231 @@ func (m *StartLocalUpgradeResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 		}
 		if fieldNum <= 0 {
 			return fmt.Errorf("proto: StartLocalUpgradeResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GetFactoryResetCapabilityResponse) UnmarshalVTUnsafe(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GetFactoryResetCapabilityResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GetFactoryResetCapabilityResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Capability", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Capability == nil {
+				m.Capability = &FactoryResetCapability{}
+			}
+			if err := m.Capability.UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PerformFactoryResetRequest) UnmarshalVTUnsafe(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PerformFactoryResetRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PerformFactoryResetRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConfirmHostname", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.ConfirmHostname = stringValue
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PerformFactoryResetResponse) UnmarshalVTUnsafe(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PerformFactoryResetResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PerformFactoryResetResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		default:

@@ -439,11 +439,18 @@ func (x *Release) GetAssets() []*Asset {
 // operator and is sitting on disk waiting to be flashed. Single-slot:
 // the manager tracks at most one staged image at a time, replacing the
 // previous file (if any) on a successful re-upload.
+//
+// Hardware compatibility is decided by parsing the OpenWrt FWx0
+// metadata trailer that `fwtool` appends to every sysupgrade image —
+// matching what LuCI's flash page does. The parsed device list is
+// compared against /etc/board.json's model.id (or the first compatible
+// string of /proc/device-tree/compatible). Filename pattern matching
+// is no longer used.
 type StagedImage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Filename is the original filename supplied by the uploader (e.g.
 	// "openmanet-1.9.0-bcm27xx-bcm2711-mm8108-usb-squashfs-sysupgrade.img.gz").
-	// Used both for display and for the filename heuristic match.
+	// Display only.
 	Filename string `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`
 	// SizeBytes is the size of the on-disk image.
 	SizeBytes int64 `protobuf:"varint,2,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
@@ -452,11 +459,6 @@ type StagedImage struct {
 	Sha256 string `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`
 	// UploadedAt is the wall-clock timestamp the upload finalized.
 	UploadedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=uploaded_at,json=uploadedAt,proto3" json:"uploaded_at,omitempty"`
-	// FilenameMatchesTarget is true when the uploaded filename appears to
-	// contain the local device's target string (e.g. "bcm27xx-bcm2711"),
-	// false when it does not. Heuristic only — operators may still
-	// install on a mismatch via skip_preflight.
-	FilenameMatchesTarget bool `protobuf:"varint,5,opt,name=filename_matches_target,json=filenameMatchesTarget,proto3" json:"filename_matches_target,omitempty"`
 	// PreflightOk is true when "sysupgrade -T" returned success against
 	// the staged image, false otherwise. When false, PreflightError
 	// carries the captured stderr line.
@@ -464,8 +466,33 @@ type StagedImage struct {
 	// PreflightError is the captured short error line from a failed
 	// preflight; empty when PreflightOk is true.
 	PreflightError string `protobuf:"bytes,7,opt,name=preflight_error,json=preflightError,proto3" json:"preflight_error,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// MetadataPresent is true when a FWx0 INFO trailer was found in the
+	// image and decoded successfully. False for factory images and for
+	// third-party builds whose Makefile did not declare SUPPORTED_DEVICES.
+	MetadataPresent bool `protobuf:"varint,8,opt,name=metadata_present,json=metadataPresent,proto3" json:"metadata_present,omitempty"`
+	// CompatVersion is the image's compat_version field (e.g. "1.0").
+	// Empty when MetadataPresent is false. Major-version mismatches are
+	// a hard incompatibility in OpenWrt sysupgrade.
+	CompatVersion string `protobuf:"bytes,9,opt,name=compat_version,json=compatVersion,proto3" json:"compat_version,omitempty"`
+	// CompatMessage is the optional human-readable compat_message from
+	// the image; surfaced to the operator when present.
+	CompatMessage string `protobuf:"bytes,10,opt,name=compat_message,json=compatMessage,proto3" json:"compat_message,omitempty"`
+	// SupportedDevices is the effective device list — i.e.
+	// new_supported_devices when CompatVersion != "1.0", otherwise
+	// supported_devices. Each entry is a device-tree compatible string
+	// such as "raspberrypi,4-model-b" or "vendor,mm6108-spi".
+	SupportedDevices []string `protobuf:"bytes,11,rep,name=supported_devices,json=supportedDevices,proto3" json:"supported_devices,omitempty"`
+	// DeviceCompat is the running device's first compatible string,
+	// sourced from /etc/board.json model.id (preferred) or the first
+	// null-separated token of /proc/device-tree/compatible.
+	DeviceCompat string `protobuf:"bytes,12,opt,name=device_compat,json=deviceCompat,proto3" json:"device_compat,omitempty"`
+	// ImageCompatible is true when DeviceCompat appears verbatim in
+	// SupportedDevices. Always false when MetadataPresent is false (no
+	// list to match against, so the image cannot be vouched for from
+	// metadata alone).
+	ImageCompatible bool `protobuf:"varint,13,opt,name=image_compatible,json=imageCompatible,proto3" json:"image_compatible,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *StagedImage) Reset() {
@@ -526,13 +553,6 @@ func (x *StagedImage) GetUploadedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *StagedImage) GetFilenameMatchesTarget() bool {
-	if x != nil {
-		return x.FilenameMatchesTarget
-	}
-	return false
-}
-
 func (x *StagedImage) GetPreflightOk() bool {
 	if x != nil {
 		return x.PreflightOk
@@ -545,6 +565,48 @@ func (x *StagedImage) GetPreflightError() string {
 		return x.PreflightError
 	}
 	return ""
+}
+
+func (x *StagedImage) GetMetadataPresent() bool {
+	if x != nil {
+		return x.MetadataPresent
+	}
+	return false
+}
+
+func (x *StagedImage) GetCompatVersion() string {
+	if x != nil {
+		return x.CompatVersion
+	}
+	return ""
+}
+
+func (x *StagedImage) GetCompatMessage() string {
+	if x != nil {
+		return x.CompatMessage
+	}
+	return ""
+}
+
+func (x *StagedImage) GetSupportedDevices() []string {
+	if x != nil {
+		return x.SupportedDevices
+	}
+	return nil
+}
+
+func (x *StagedImage) GetDeviceCompat() string {
+	if x != nil {
+		return x.DeviceCompat
+	}
+	return ""
+}
+
+func (x *StagedImage) GetImageCompatible() bool {
+	if x != nil {
+		return x.ImageCompatible
+	}
+	return false
 }
 
 // Update is a single available upgrade target — a release combined with
@@ -808,7 +870,12 @@ type ProgressEvent struct {
 	// setsid+nohup; zero before that.
 	ChildPid int32 `protobuf:"varint,9,opt,name=child_pid,json=childPid,proto3" json:"child_pid,omitempty"`
 	// UpdatedAt is the timestamp this event was generated.
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// LogTail is the trailing portion of /sbin/sysupgrade's
+	// stdout+stderr log captured when the detached child exits without
+	// rebooting the device. Populated only on PhaseFailed transitions
+	// originating in the child watcher; empty for every other phase.
+	LogTail       string `protobuf:"bytes,11,opt,name=log_tail,json=logTail,proto3" json:"log_tail,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -913,6 +980,118 @@ func (x *ProgressEvent) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ProgressEvent) GetLogTail() string {
+	if x != nil {
+		return x.LogTail
+	}
+	return ""
+}
+
+// FactoryResetCapability summarizes whether the running OS supports
+// factory reset (overlay wipe + reboot, equivalent to LuCI's "Perform
+// Reset" button) and exposes the discovery details so the UI can
+// surface "why not" when capability is false. Mirrors LuCI's flash.js
+// render check: an overlayfs mount at / OR a rootfs_data partition in
+// /proc/mtd, plus the firstboot helper.
+type FactoryResetCapability struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Capable is true when the device has both an overlay AND firstboot
+	// is installed and executable.
+	Capable bool `protobuf:"varint,1,opt,name=capable,proto3" json:"capable,omitempty"`
+	// Reason is a short human-readable summary: "ok",
+	// "no rootfs_data partition or overlayfs mount",
+	// "firstboot not present at /sbin/firstboot", etc.
+	Reason string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	// OverlayMountpoint is the matched line from /proc/mounts when an
+	// overlay was found at /, e.g. "overlayfs:/overlay /". Empty when
+	// discovered via /proc/mtd instead.
+	OverlayMountpoint string `protobuf:"bytes,3,opt,name=overlay_mountpoint,json=overlayMountpoint,proto3" json:"overlay_mountpoint,omitempty"`
+	// BackingFs describes where the overlay state actually lives. Either
+	// the fstype reported by /proc/mounts ("overlay"), or
+	// "mtd:rootfs_data" when only the MTD partition was found.
+	BackingFs string `protobuf:"bytes,4,opt,name=backing_fs,json=backingFs,proto3" json:"backing_fs,omitempty"`
+	// FirstbootPath is the resolved path to the firstboot helper, set
+	// only when capable=true.
+	FirstbootPath string `protobuf:"bytes,5,opt,name=firstboot_path,json=firstbootPath,proto3" json:"firstboot_path,omitempty"`
+	// Hostname is the device's current hostname, surfaced so the UI can
+	// use it as the typed-confirmation target without an extra round trip.
+	Hostname      string `protobuf:"bytes,6,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FactoryResetCapability) Reset() {
+	*x = FactoryResetCapability{}
+	mi := &file_openmanet_sysupgrade_v1_sysupgrade_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FactoryResetCapability) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FactoryResetCapability) ProtoMessage() {}
+
+func (x *FactoryResetCapability) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_sysupgrade_v1_sysupgrade_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FactoryResetCapability.ProtoReflect.Descriptor instead.
+func (*FactoryResetCapability) Descriptor() ([]byte, []int) {
+	return file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *FactoryResetCapability) GetCapable() bool {
+	if x != nil {
+		return x.Capable
+	}
+	return false
+}
+
+func (x *FactoryResetCapability) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *FactoryResetCapability) GetOverlayMountpoint() string {
+	if x != nil {
+		return x.OverlayMountpoint
+	}
+	return ""
+}
+
+func (x *FactoryResetCapability) GetBackingFs() string {
+	if x != nil {
+		return x.BackingFs
+	}
+	return ""
+}
+
+func (x *FactoryResetCapability) GetFirstbootPath() string {
+	if x != nil {
+		return x.FirstbootPath
+	}
+	return ""
+}
+
+func (x *FactoryResetCapability) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
 var File_openmanet_sysupgrade_v1_sysupgrade_proto protoreflect.FileDescriptor
 
 const file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc = "" +
@@ -953,17 +1132,23 @@ const file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc = "" +
 	"prerelease\x18\x05 \x01(\bR\n" +
 	"prerelease\x12\x18\n" +
 	"\aversion\x18\x06 \x01(\tR\aversion\x126\n" +
-	"\x06assets\x18\a \x03(\v2\x1e.openmanet.sysupgrade.v1.AssetR\x06assets\"\xa1\x02\n" +
+	"\x06assets\x18\a \x03(\v2\x1e.openmanet.sysupgrade.v1.AssetR\x06assets\"\xfe\x03\n" +
 	"\vStagedImage\x12\x1a\n" +
 	"\bfilename\x18\x01 \x01(\tR\bfilename\x12\x1d\n" +
 	"\n" +
 	"size_bytes\x18\x02 \x01(\x03R\tsizeBytes\x12\x16\n" +
 	"\x06sha256\x18\x03 \x01(\tR\x06sha256\x12;\n" +
 	"\vuploaded_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"uploadedAt\x126\n" +
-	"\x17filename_matches_target\x18\x05 \x01(\bR\x15filenameMatchesTarget\x12!\n" +
+	"uploadedAt\x12!\n" +
 	"\fpreflight_ok\x18\x06 \x01(\bR\vpreflightOk\x12'\n" +
-	"\x0fpreflight_error\x18\a \x01(\tR\x0epreflightError\"\xb7\x01\n" +
+	"\x0fpreflight_error\x18\a \x01(\tR\x0epreflightError\x12)\n" +
+	"\x10metadata_present\x18\b \x01(\bR\x0fmetadataPresent\x12%\n" +
+	"\x0ecompat_version\x18\t \x01(\tR\rcompatVersion\x12%\n" +
+	"\x0ecompat_message\x18\n" +
+	" \x01(\tR\rcompatMessage\x12+\n" +
+	"\x11supported_devices\x18\v \x03(\tR\x10supportedDevices\x12#\n" +
+	"\rdevice_compat\x18\f \x01(\tR\fdeviceCompat\x12)\n" +
+	"\x10image_compatible\x18\r \x01(\bR\x0fimageCompatibleJ\x04\b\x05\x10\x06R\x17filename_matches_target\"\xb7\x01\n" +
 	"\x06Update\x12:\n" +
 	"\arelease\x18\x01 \x01(\v2 .openmanet.sysupgrade.v1.ReleaseR\arelease\x12C\n" +
 	"\rmatched_asset\x18\x02 \x01(\v2\x1e.openmanet.sysupgrade.v1.AssetR\fmatchedAsset\x12,\n" +
@@ -984,7 +1169,7 @@ const file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc = "" +
 	"backupPath\x12+\n" +
 	"\frestore_path\x18\f \x01(\tB\b\xbaH\x05r\x03\x18\x80\x02R\vrestorePath\x12/\n" +
 	"\x13preserve_partitions\x18\r \x01(\bR\x12preservePartitions\x12)\n" +
-	"\x10erase_partitions\x18\x0e \x01(\bR\x0ferasePartitions\"\xe7\x02\n" +
+	"\x10erase_partitions\x18\x0e \x01(\bR\x0ferasePartitions\"\x82\x03\n" +
 	"\rProgressEvent\x124\n" +
 	"\x05phase\x18\x01 \x01(\x0e2\x1e.openmanet.sysupgrade.v1.PhaseR\x05phase\x12\x18\n" +
 	"\apercent\x18\x02 \x01(\x05R\apercent\x12\x1d\n" +
@@ -1001,7 +1186,16 @@ const file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc = "" +
 	"\tchild_pid\x18\t \x01(\x05R\bchildPid\x129\n" +
 	"\n" +
 	"updated_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt*\xa6\x01\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x19\n" +
+	"\blog_tail\x18\v \x01(\tR\alogTail\"\xdb\x01\n" +
+	"\x16FactoryResetCapability\x12\x18\n" +
+	"\acapable\x18\x01 \x01(\bR\acapable\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12-\n" +
+	"\x12overlay_mountpoint\x18\x03 \x01(\tR\x11overlayMountpoint\x12\x1d\n" +
+	"\n" +
+	"backing_fs\x18\x04 \x01(\tR\tbackingFs\x12%\n" +
+	"\x0efirstboot_path\x18\x05 \x01(\tR\rfirstbootPath\x12\x1a\n" +
+	"\bhostname\x18\x06 \x01(\tR\bhostname*\xa6\x01\n" +
 	"\x05Phase\x12\x15\n" +
 	"\x11PHASE_UNSPECIFIED\x10\x00\x12\x0e\n" +
 	"\n" +
@@ -1027,26 +1221,27 @@ func file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDescGZIP() []byte {
 }
 
 var file_openmanet_sysupgrade_v1_sysupgrade_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_openmanet_sysupgrade_v1_sysupgrade_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_openmanet_sysupgrade_v1_sysupgrade_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_openmanet_sysupgrade_v1_sysupgrade_proto_goTypes = []any{
-	(Phase)(0),                    // 0: openmanet.sysupgrade.v1.Phase
-	(*SystemInfo)(nil),            // 1: openmanet.sysupgrade.v1.SystemInfo
-	(*Asset)(nil),                 // 2: openmanet.sysupgrade.v1.Asset
-	(*Release)(nil),               // 3: openmanet.sysupgrade.v1.Release
-	(*StagedImage)(nil),           // 4: openmanet.sysupgrade.v1.StagedImage
-	(*Update)(nil),                // 5: openmanet.sysupgrade.v1.Update
-	(*SysupgradeOptions)(nil),     // 6: openmanet.sysupgrade.v1.SysupgradeOptions
-	(*ProgressEvent)(nil),         // 7: openmanet.sysupgrade.v1.ProgressEvent
-	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
+	(Phase)(0),                     // 0: openmanet.sysupgrade.v1.Phase
+	(*SystemInfo)(nil),             // 1: openmanet.sysupgrade.v1.SystemInfo
+	(*Asset)(nil),                  // 2: openmanet.sysupgrade.v1.Asset
+	(*Release)(nil),                // 3: openmanet.sysupgrade.v1.Release
+	(*StagedImage)(nil),            // 4: openmanet.sysupgrade.v1.StagedImage
+	(*Update)(nil),                 // 5: openmanet.sysupgrade.v1.Update
+	(*SysupgradeOptions)(nil),      // 6: openmanet.sysupgrade.v1.SysupgradeOptions
+	(*ProgressEvent)(nil),          // 7: openmanet.sysupgrade.v1.ProgressEvent
+	(*FactoryResetCapability)(nil), // 8: openmanet.sysupgrade.v1.FactoryResetCapability
+	(*timestamppb.Timestamp)(nil),  // 9: google.protobuf.Timestamp
 }
 var file_openmanet_sysupgrade_v1_sysupgrade_proto_depIdxs = []int32{
-	8, // 0: openmanet.sysupgrade.v1.Release.published_at:type_name -> google.protobuf.Timestamp
+	9, // 0: openmanet.sysupgrade.v1.Release.published_at:type_name -> google.protobuf.Timestamp
 	2, // 1: openmanet.sysupgrade.v1.Release.assets:type_name -> openmanet.sysupgrade.v1.Asset
-	8, // 2: openmanet.sysupgrade.v1.StagedImage.uploaded_at:type_name -> google.protobuf.Timestamp
+	9, // 2: openmanet.sysupgrade.v1.StagedImage.uploaded_at:type_name -> google.protobuf.Timestamp
 	3, // 3: openmanet.sysupgrade.v1.Update.release:type_name -> openmanet.sysupgrade.v1.Release
 	2, // 4: openmanet.sysupgrade.v1.Update.matched_asset:type_name -> openmanet.sysupgrade.v1.Asset
 	0, // 5: openmanet.sysupgrade.v1.ProgressEvent.phase:type_name -> openmanet.sysupgrade.v1.Phase
-	8, // 6: openmanet.sysupgrade.v1.ProgressEvent.updated_at:type_name -> google.protobuf.Timestamp
+	9, // 6: openmanet.sysupgrade.v1.ProgressEvent.updated_at:type_name -> google.protobuf.Timestamp
 	7, // [7:7] is the sub-list for method output_type
 	7, // [7:7] is the sub-list for method input_type
 	7, // [7:7] is the sub-list for extension type_name
@@ -1065,7 +1260,7 @@ func file_openmanet_sysupgrade_v1_sysupgrade_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc), len(file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

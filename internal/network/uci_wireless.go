@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/digineo/go-uci/v2"
@@ -12,7 +13,45 @@ import (
 const (
 	defaultWirelessConfigPath string = "/etc/config/wireless"
 	wirelessConfigName        string = "wireless"
+	wifiIfaceSectionType      string = "wifi-iface"
 )
+
+// allWifiDeviceOptions enumerates every wifi-device option that
+// UCIWirelessDevice can persist. WhitelistDeviceFields iterates this
+// list to decide which options to delete on a reset; expanding the
+// struct schema requires expanding this list as well.
+var allWifiDeviceOptions = []string{ //nolint:gochecknoglobals // package-level constant
+	"type", "path", "band", "hwmode", "htmode", "reconf", "bcf",
+	"country", "channel", "cell_density", "txpower",
+	"enable_ps", "enable_dynamic_ps_offload", "enable_twt",
+	"enable_mcast_whitelist", "enable_mcast_rate_control",
+	"disabled",
+}
+
+// allWifiIfaceOptions enumerates every wifi-iface option that
+// UCIWirelessIface can persist.
+var allWifiIfaceOptions = []string{ //nolint:gochecknoglobals // package-level constant
+	"device", "network", "mode", "key", "mesh_id", "mesh_fwding",
+	"mesh_rssi_threshold", "encryption", "ssid", "beacon_int", "disabled",
+}
+
+// WizardWifiDeviceWhitelist is the field whitelist applied to every
+// wifi-device by the setup wizard's reset phase. Any option not in
+// this list is removed. Notably, "disabled" is omitted so the device
+// is implicitly re-enabled.
+var WizardWifiDeviceWhitelist = []string{ //nolint:gochecknoglobals // package-level constant
+	"type", "path", "band", "hwmode", "htmode", "reconf", "bcf",
+	"country", "channel", "cell_density", "txpower",
+	"enable_ps", "enable_dynamic_ps_offload", "enable_twt",
+}
+
+// WizardWifiIfaceWhitelist is the field whitelist applied to every
+// wifi-iface by the setup wizard's reset phase. Any option not in
+// this list is removed. The wizard re-applies "disabled" via
+// DisableAllInterfaces immediately after.
+var WizardWifiIfaceWhitelist = []string{ //nolint:gochecknoglobals // package-level constant
+	"network", "device", "key", "encryption", "mode", "ssid", "mesh_id",
+}
 
 // UCIWirelessDevice represents a UCI wireless radio device (wifi-device section) configuration.
 type UCIWirelessDevice struct {
@@ -60,6 +99,15 @@ func NewUCIWirelessConfigReader() *UCIWirelessConfigReader {
 	return &UCIWirelessConfigReader{
 		tree: uci.NewTree(uci.DefaultTreePath),
 	}
+}
+
+// Tree exposes the underlying digineo go-uci tree so other packages
+// (e.g. the setup wizard's UCI snapshotter) can call methods like
+// LoadConfig(name, true) on it. The setup wizard uses this to trigger
+// a re-read of the on-disk config files into the in-memory tree
+// after a snapshot restore overwrites those files.
+func (r *UCIWirelessConfigReader) Tree() uci.Tree {
+	return r.tree
 }
 
 func (r *UCIWirelessConfigReader) Get(config, section, option string) ([]string, bool) {
@@ -717,6 +765,87 @@ func DeleteWirelessIfaceWithReader(section string, reader ConfigReader) error {
 
 	if err := reader.Commit(); err != nil {
 		return fmt.Errorf("failed to commit wireless config: %w", err)
+	}
+
+	return nil
+}
+
+// WhitelistDeviceFields removes every wifi-device option NOT in the
+// whitelist from the named device section. Mirrors LuCI's
+// whitelistFields() applied to a `wifi-device`. The wizard reset
+// phase passes WizardWifiDeviceWhitelist; tests can pass arbitrary
+// subsets to verify behavior.
+//
+// Does not commit — the caller batches multiple resets and commits
+// once at the end of the reset phase.
+func WhitelistDeviceFields(reader ConfigReader, deviceName string, allowList []string) error {
+	if deviceName == "" {
+		return fmt.Errorf("deviceName cannot be empty")
+	}
+
+	for _, option := range allWifiDeviceOptions {
+		if slices.Contains(allowList, option) {
+			continue
+		}
+
+		if _, exists := reader.Get(wirelessConfigName, deviceName, option); !exists {
+			continue
+		}
+
+		if err := reader.Del(wirelessConfigName, deviceName, option); err != nil {
+			return fmt.Errorf("deleting %s.%s.%s: %w",
+				wirelessConfigName, deviceName, option, err)
+		}
+	}
+
+	return nil
+}
+
+// WhitelistInterfaceFields removes every wifi-iface option NOT in
+// the whitelist from the named interface section. Mirrors LuCI's
+// whitelistFields() applied to a `wifi-iface`.
+//
+// Does not commit.
+func WhitelistInterfaceFields(reader ConfigReader, ifaceName string, allowList []string) error {
+	if ifaceName == "" {
+		return fmt.Errorf("ifaceName cannot be empty")
+	}
+
+	for _, option := range allWifiIfaceOptions {
+		if slices.Contains(allowList, option) {
+			continue
+		}
+
+		if _, exists := reader.Get(wirelessConfigName, ifaceName, option); !exists {
+			continue
+		}
+
+		if err := reader.Del(wirelessConfigName, ifaceName, option); err != nil {
+			return fmt.Errorf("deleting %s.%s.%s: %w",
+				wirelessConfigName, ifaceName, option, err)
+		}
+	}
+
+	return nil
+}
+
+// DisableAllInterfaces sets `disabled='1'` on every wifi-iface in
+// the wireless config. The wizard calls this immediately after
+// whitelisting interface fields so a "disabled" attribute that the
+// whitelist removed is reapplied uniformly. The wizard then
+// individually re-enables only the interfaces it intends to keep.
+//
+// Does not commit.
+func DisableAllInterfaces(reader ConfigReader) error {
+	sections, err := reader.GetSections(wirelessConfigName, wifiIfaceSectionType)
+	if err != nil {
+		return fmt.Errorf("listing wifi-iface sections: %w", err)
+	}
+
+	for _, s := range sections {
+		if err := reader.SetType(wirelessConfigName, s, "disabled", uci.TypeOption, "1"); err != nil {
+			return fmt.Errorf("disabling %s: %w", s, err)
+		}
 	}
 
 	return nil
