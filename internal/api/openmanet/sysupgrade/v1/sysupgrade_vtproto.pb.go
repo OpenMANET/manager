@@ -209,6 +209,28 @@ func (m *ProgressEvent) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
+func (m *FactoryResetCapability) CloneVT() *FactoryResetCapability {
+	if m == nil {
+		return (*FactoryResetCapability)(nil)
+	}
+	r := new(FactoryResetCapability)
+	r.Capable = m.Capable
+	r.Reason = m.Reason
+	r.OverlayMountpoint = m.OverlayMountpoint
+	r.BackingFs = m.BackingFs
+	r.FirstbootPath = m.FirstbootPath
+	r.Hostname = m.Hostname
+	if len(m.unknownFields) > 0 {
+		r.unknownFields = make([]byte, len(m.unknownFields))
+		copy(r.unknownFields, m.unknownFields)
+	}
+	return r
+}
+
+func (m *FactoryResetCapability) CloneMessageVT() proto.Message {
+	return m.CloneVT()
+}
+
 func (this *SystemInfo) EqualVT(that *SystemInfo) bool {
 	if this == that {
 		return true
@@ -531,6 +553,40 @@ func (this *ProgressEvent) EqualVT(that *ProgressEvent) bool {
 
 func (this *ProgressEvent) EqualMessageVT(thatMsg proto.Message) bool {
 	that, ok := thatMsg.(*ProgressEvent)
+	if !ok {
+		return false
+	}
+	return this.EqualVT(that)
+}
+func (this *FactoryResetCapability) EqualVT(that *FactoryResetCapability) bool {
+	if this == that {
+		return true
+	} else if this == nil || that == nil {
+		return false
+	}
+	if this.Capable != that.Capable {
+		return false
+	}
+	if this.Reason != that.Reason {
+		return false
+	}
+	if this.OverlayMountpoint != that.OverlayMountpoint {
+		return false
+	}
+	if this.BackingFs != that.BackingFs {
+		return false
+	}
+	if this.FirstbootPath != that.FirstbootPath {
+		return false
+	}
+	if this.Hostname != that.Hostname {
+		return false
+	}
+	return string(this.unknownFields) == string(that.unknownFields)
+}
+
+func (this *FactoryResetCapability) EqualMessageVT(thatMsg proto.Message) bool {
+	that, ok := thatMsg.(*FactoryResetCapability)
 	if !ok {
 		return false
 	}
@@ -1275,6 +1331,84 @@ func (m *ProgressEvent) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	}
 	if m.Phase != 0 {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Phase))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *FactoryResetCapability) MarshalVT() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVT(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *FactoryResetCapability) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *FactoryResetCapability) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.Hostname) > 0 {
+		i -= len(m.Hostname)
+		copy(dAtA[i:], m.Hostname)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Hostname)))
+		i--
+		dAtA[i] = 0x32
+	}
+	if len(m.FirstbootPath) > 0 {
+		i -= len(m.FirstbootPath)
+		copy(dAtA[i:], m.FirstbootPath)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.FirstbootPath)))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if len(m.BackingFs) > 0 {
+		i -= len(m.BackingFs)
+		copy(dAtA[i:], m.BackingFs)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.BackingFs)))
+		i--
+		dAtA[i] = 0x22
+	}
+	if len(m.OverlayMountpoint) > 0 {
+		i -= len(m.OverlayMountpoint)
+		copy(dAtA[i:], m.OverlayMountpoint)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.OverlayMountpoint)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.Reason) > 0 {
+		i -= len(m.Reason)
+		copy(dAtA[i:], m.Reason)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Reason)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Capable {
+		i--
+		if m.Capable {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
 		i--
 		dAtA[i] = 0x8
 	}
@@ -2026,6 +2160,84 @@ func (m *ProgressEvent) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *FactoryResetCapability) MarshalVTStrict() (dAtA []byte, err error) {
+	if m == nil {
+		return nil, nil
+	}
+	size := m.SizeVT()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBufferVTStrict(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *FactoryResetCapability) MarshalToVTStrict(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVTStrict(dAtA[:size])
+}
+
+func (m *FactoryResetCapability) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.unknownFields != nil {
+		i -= len(m.unknownFields)
+		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.Hostname) > 0 {
+		i -= len(m.Hostname)
+		copy(dAtA[i:], m.Hostname)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Hostname)))
+		i--
+		dAtA[i] = 0x32
+	}
+	if len(m.FirstbootPath) > 0 {
+		i -= len(m.FirstbootPath)
+		copy(dAtA[i:], m.FirstbootPath)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.FirstbootPath)))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if len(m.BackingFs) > 0 {
+		i -= len(m.BackingFs)
+		copy(dAtA[i:], m.BackingFs)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.BackingFs)))
+		i--
+		dAtA[i] = 0x22
+	}
+	if len(m.OverlayMountpoint) > 0 {
+		i -= len(m.OverlayMountpoint)
+		copy(dAtA[i:], m.OverlayMountpoint)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.OverlayMountpoint)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.Reason) > 0 {
+		i -= len(m.Reason)
+		copy(dAtA[i:], m.Reason)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Reason)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Capable {
+		i--
+		if m.Capable {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
 func (m *SystemInfo) SizeVT() (n int) {
 	if m == nil {
 		return 0
@@ -2329,6 +2541,39 @@ func (m *ProgressEvent) SizeVT() (n int) {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
 	l = len(m.LogTail)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	n += len(m.unknownFields)
+	return n
+}
+
+func (m *FactoryResetCapability) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Capable {
+		n += 2
+	}
+	l = len(m.Reason)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.OverlayMountpoint)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.BackingFs)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.FirstbootPath)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	l = len(m.Hostname)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
@@ -4477,6 +4722,237 @@ func (m *ProgressEvent) UnmarshalVT(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.LogTail = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *FactoryResetCapability) UnmarshalVT(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: FactoryResetCapability: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: FactoryResetCapability: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Capable", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Capable = bool(v != 0)
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Reason", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Reason = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field OverlayMountpoint", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.OverlayMountpoint = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field BackingFs", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.BackingFs = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field FirstbootPath", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.FirstbootPath = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Hostname", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Hostname = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -6781,6 +7257,257 @@ func (m *ProgressEvent) UnmarshalVTUnsafe(dAtA []byte) error {
 				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
 			}
 			m.LogTail = stringValue
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.unknownFields = append(m.unknownFields, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *FactoryResetCapability) UnmarshalVTUnsafe(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return protohelpers.ErrIntOverflow
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: FactoryResetCapability: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: FactoryResetCapability: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Capable", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Capable = bool(v != 0)
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Reason", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.Reason = stringValue
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field OverlayMountpoint", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.OverlayMountpoint = stringValue
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field BackingFs", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.BackingFs = stringValue
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field FirstbootPath", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.FirstbootPath = stringValue
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Hostname", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.Hostname = stringValue
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

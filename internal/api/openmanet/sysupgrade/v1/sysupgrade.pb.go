@@ -987,6 +987,111 @@ func (x *ProgressEvent) GetLogTail() string {
 	return ""
 }
 
+// FactoryResetCapability summarizes whether the running OS supports
+// factory reset (overlay wipe + reboot, equivalent to LuCI's "Perform
+// Reset" button) and exposes the discovery details so the UI can
+// surface "why not" when capability is false. Mirrors LuCI's flash.js
+// render check: an overlayfs mount at / OR a rootfs_data partition in
+// /proc/mtd, plus the firstboot helper.
+type FactoryResetCapability struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Capable is true when the device has both an overlay AND firstboot
+	// is installed and executable.
+	Capable bool `protobuf:"varint,1,opt,name=capable,proto3" json:"capable,omitempty"`
+	// Reason is a short human-readable summary: "ok",
+	// "no rootfs_data partition or overlayfs mount",
+	// "firstboot not present at /sbin/firstboot", etc.
+	Reason string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	// OverlayMountpoint is the matched line from /proc/mounts when an
+	// overlay was found at /, e.g. "overlayfs:/overlay /". Empty when
+	// discovered via /proc/mtd instead.
+	OverlayMountpoint string `protobuf:"bytes,3,opt,name=overlay_mountpoint,json=overlayMountpoint,proto3" json:"overlay_mountpoint,omitempty"`
+	// BackingFs describes where the overlay state actually lives. Either
+	// the fstype reported by /proc/mounts ("overlay"), or
+	// "mtd:rootfs_data" when only the MTD partition was found.
+	BackingFs string `protobuf:"bytes,4,opt,name=backing_fs,json=backingFs,proto3" json:"backing_fs,omitempty"`
+	// FirstbootPath is the resolved path to the firstboot helper, set
+	// only when capable=true.
+	FirstbootPath string `protobuf:"bytes,5,opt,name=firstboot_path,json=firstbootPath,proto3" json:"firstboot_path,omitempty"`
+	// Hostname is the device's current hostname, surfaced so the UI can
+	// use it as the typed-confirmation target without an extra round trip.
+	Hostname      string `protobuf:"bytes,6,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FactoryResetCapability) Reset() {
+	*x = FactoryResetCapability{}
+	mi := &file_openmanet_sysupgrade_v1_sysupgrade_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FactoryResetCapability) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FactoryResetCapability) ProtoMessage() {}
+
+func (x *FactoryResetCapability) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_sysupgrade_v1_sysupgrade_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FactoryResetCapability.ProtoReflect.Descriptor instead.
+func (*FactoryResetCapability) Descriptor() ([]byte, []int) {
+	return file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *FactoryResetCapability) GetCapable() bool {
+	if x != nil {
+		return x.Capable
+	}
+	return false
+}
+
+func (x *FactoryResetCapability) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *FactoryResetCapability) GetOverlayMountpoint() string {
+	if x != nil {
+		return x.OverlayMountpoint
+	}
+	return ""
+}
+
+func (x *FactoryResetCapability) GetBackingFs() string {
+	if x != nil {
+		return x.BackingFs
+	}
+	return ""
+}
+
+func (x *FactoryResetCapability) GetFirstbootPath() string {
+	if x != nil {
+		return x.FirstbootPath
+	}
+	return ""
+}
+
+func (x *FactoryResetCapability) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
 var File_openmanet_sysupgrade_v1_sysupgrade_proto protoreflect.FileDescriptor
 
 const file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc = "" +
@@ -1082,7 +1187,15 @@ const file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\n" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x19\n" +
-	"\blog_tail\x18\v \x01(\tR\alogTail*\xa6\x01\n" +
+	"\blog_tail\x18\v \x01(\tR\alogTail\"\xdb\x01\n" +
+	"\x16FactoryResetCapability\x12\x18\n" +
+	"\acapable\x18\x01 \x01(\bR\acapable\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12-\n" +
+	"\x12overlay_mountpoint\x18\x03 \x01(\tR\x11overlayMountpoint\x12\x1d\n" +
+	"\n" +
+	"backing_fs\x18\x04 \x01(\tR\tbackingFs\x12%\n" +
+	"\x0efirstboot_path\x18\x05 \x01(\tR\rfirstbootPath\x12\x1a\n" +
+	"\bhostname\x18\x06 \x01(\tR\bhostname*\xa6\x01\n" +
 	"\x05Phase\x12\x15\n" +
 	"\x11PHASE_UNSPECIFIED\x10\x00\x12\x0e\n" +
 	"\n" +
@@ -1108,26 +1221,27 @@ func file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDescGZIP() []byte {
 }
 
 var file_openmanet_sysupgrade_v1_sysupgrade_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_openmanet_sysupgrade_v1_sysupgrade_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_openmanet_sysupgrade_v1_sysupgrade_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_openmanet_sysupgrade_v1_sysupgrade_proto_goTypes = []any{
-	(Phase)(0),                    // 0: openmanet.sysupgrade.v1.Phase
-	(*SystemInfo)(nil),            // 1: openmanet.sysupgrade.v1.SystemInfo
-	(*Asset)(nil),                 // 2: openmanet.sysupgrade.v1.Asset
-	(*Release)(nil),               // 3: openmanet.sysupgrade.v1.Release
-	(*StagedImage)(nil),           // 4: openmanet.sysupgrade.v1.StagedImage
-	(*Update)(nil),                // 5: openmanet.sysupgrade.v1.Update
-	(*SysupgradeOptions)(nil),     // 6: openmanet.sysupgrade.v1.SysupgradeOptions
-	(*ProgressEvent)(nil),         // 7: openmanet.sysupgrade.v1.ProgressEvent
-	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
+	(Phase)(0),                     // 0: openmanet.sysupgrade.v1.Phase
+	(*SystemInfo)(nil),             // 1: openmanet.sysupgrade.v1.SystemInfo
+	(*Asset)(nil),                  // 2: openmanet.sysupgrade.v1.Asset
+	(*Release)(nil),                // 3: openmanet.sysupgrade.v1.Release
+	(*StagedImage)(nil),            // 4: openmanet.sysupgrade.v1.StagedImage
+	(*Update)(nil),                 // 5: openmanet.sysupgrade.v1.Update
+	(*SysupgradeOptions)(nil),      // 6: openmanet.sysupgrade.v1.SysupgradeOptions
+	(*ProgressEvent)(nil),          // 7: openmanet.sysupgrade.v1.ProgressEvent
+	(*FactoryResetCapability)(nil), // 8: openmanet.sysupgrade.v1.FactoryResetCapability
+	(*timestamppb.Timestamp)(nil),  // 9: google.protobuf.Timestamp
 }
 var file_openmanet_sysupgrade_v1_sysupgrade_proto_depIdxs = []int32{
-	8, // 0: openmanet.sysupgrade.v1.Release.published_at:type_name -> google.protobuf.Timestamp
+	9, // 0: openmanet.sysupgrade.v1.Release.published_at:type_name -> google.protobuf.Timestamp
 	2, // 1: openmanet.sysupgrade.v1.Release.assets:type_name -> openmanet.sysupgrade.v1.Asset
-	8, // 2: openmanet.sysupgrade.v1.StagedImage.uploaded_at:type_name -> google.protobuf.Timestamp
+	9, // 2: openmanet.sysupgrade.v1.StagedImage.uploaded_at:type_name -> google.protobuf.Timestamp
 	3, // 3: openmanet.sysupgrade.v1.Update.release:type_name -> openmanet.sysupgrade.v1.Release
 	2, // 4: openmanet.sysupgrade.v1.Update.matched_asset:type_name -> openmanet.sysupgrade.v1.Asset
 	0, // 5: openmanet.sysupgrade.v1.ProgressEvent.phase:type_name -> openmanet.sysupgrade.v1.Phase
-	8, // 6: openmanet.sysupgrade.v1.ProgressEvent.updated_at:type_name -> google.protobuf.Timestamp
+	9, // 6: openmanet.sysupgrade.v1.ProgressEvent.updated_at:type_name -> google.protobuf.Timestamp
 	7, // [7:7] is the sub-list for method output_type
 	7, // [7:7] is the sub-list for method input_type
 	7, // [7:7] is the sub-list for extension type_name
@@ -1146,7 +1260,7 @@ func file_openmanet_sysupgrade_v1_sysupgrade_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc), len(file_openmanet_sysupgrade_v1_sysupgrade_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

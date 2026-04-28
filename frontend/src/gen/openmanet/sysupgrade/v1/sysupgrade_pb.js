@@ -184,3 +184,25 @@ export const ProgressEvent = /*@__PURE__*/ proto3.makeMessageType(
   ],
 );
 
+/**
+ * FactoryResetCapability summarizes whether the running OS supports
+ * factory reset (overlay wipe + reboot, equivalent to LuCI's "Perform
+ * Reset" button) and exposes the discovery details so the UI can
+ * surface "why not" when capability is false. Mirrors LuCI's flash.js
+ * render check: an overlayfs mount at / OR a rootfs_data partition in
+ * /proc/mtd, plus the firstboot helper.
+ *
+ * @generated from message openmanet.sysupgrade.v1.FactoryResetCapability
+ */
+export const FactoryResetCapability = /*@__PURE__*/ proto3.makeMessageType(
+  "openmanet.sysupgrade.v1.FactoryResetCapability",
+  () => [
+    { no: 1, name: "capable", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 2, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "overlay_mountpoint", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "backing_fs", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "firstboot_path", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 6, name: "hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ],
+);
+

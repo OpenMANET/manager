@@ -125,17 +125,19 @@ func Start(staticFS fs.FS) {
 	// only goroutine it owns is the per-upgrade one created on
 	// StartUpgrade.
 	sysupgradeMgr := sysupgrade.NewManager(sysupgrade.Options{
-		Log:              logger.GetLogger("sysupgrade"),
-		Repo:             "OpenMANET/firmware",
-		Board:            handlers.NewCachedBoardProvider(&handlers.DefaultBoardProvider{}),
-		Firmware:         handlers.NewCachedFirmwareProvider(&system.OpenWrtFirmwareProvider{}),
-		SysInfo:          &system.LinuxSysInfo{},
-		Capable:          &system.LinuxSysupgradeCapabilityProvider{},
-		Cache:            sysupgrade.NewDiskCache("/var/lib/openmanetd/sysupgrade-releases.json"),
-		Releases:         &sysupgrade.GitHubReleasesClient{Repo: "OpenMANET/firmware", Log: logger.GetLogger("sysupgrade-github")},
-		Runner:           &sysupgrade.ExecSysupgradeRunner{},
-		DownloadDir:      "/tmp/openmanetd/sysupgrade",
-		PersistentLogDir: "/etc/openmanetd/sysupgrade",
+		Log:                 logger.GetLogger("sysupgrade"),
+		Repo:                "OpenMANET/firmware",
+		Board:               handlers.NewCachedBoardProvider(&handlers.DefaultBoardProvider{}),
+		Firmware:            handlers.NewCachedFirmwareProvider(&system.OpenWrtFirmwareProvider{}),
+		SysInfo:             &system.LinuxSysInfo{},
+		Capable:             &system.LinuxSysupgradeCapabilityProvider{},
+		Cache:               sysupgrade.NewDiskCache("/var/lib/openmanetd/sysupgrade-releases.json"),
+		Releases:            &sysupgrade.GitHubReleasesClient{Repo: "OpenMANET/firmware", Log: logger.GetLogger("sysupgrade-github")},
+		Runner:              &sysupgrade.ExecSysupgradeRunner{},
+		FactoryReset:        &sysupgrade.ExecFactoryResetRunner{},
+		FactoryResetCapable: &system.LinuxFactoryResetCapabilityProvider{},
+		DownloadDir:         "/tmp/openmanetd/sysupgrade",
+		PersistentLogDir:    "/etc/openmanetd/sysupgrade",
 	})
 
 	// Wire the instrumentation snapshot registry and conditionally spawn

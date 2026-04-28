@@ -166,6 +166,36 @@ export async function discardStagedImage() {
   await client.discardStagedImage({});
 }
 
+export function mapFactoryResetCapability(cap) {
+  if (!cap) {
+    return {
+      capable: false,
+      reason: 'capability not yet detected',
+      overlayMountpoint: '',
+      backingFs: '',
+      firstbootPath: '',
+      hostname: '',
+    };
+  }
+  return {
+    capable: cap.capable ?? false,
+    reason: cap.reason ?? '',
+    overlayMountpoint: cap.overlayMountpoint ?? '',
+    backingFs: cap.backingFs ?? '',
+    firstbootPath: cap.firstbootPath ?? '',
+    hostname: cap.hostname ?? '',
+  };
+}
+
+export async function fetchFactoryResetCapability() {
+  const resp = await client.getFactoryResetCapability({});
+  return mapFactoryResetCapability(resp.capability);
+}
+
+export async function performFactoryReset({ confirmHostname }) {
+  await client.performFactoryReset({ confirmHostname });
+}
+
 export async function startLocalUpgrade({
   options,
   forceInstallUnknownCurrent = false,

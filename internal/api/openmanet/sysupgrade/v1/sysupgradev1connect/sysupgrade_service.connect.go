@@ -64,6 +64,12 @@ const (
 	// SysupgradeServiceStartLocalUpgradeProcedure is the fully-qualified name of the
 	// SysupgradeService's StartLocalUpgrade RPC.
 	SysupgradeServiceStartLocalUpgradeProcedure = "/openmanet.sysupgrade.v1.SysupgradeService/StartLocalUpgrade"
+	// SysupgradeServiceGetFactoryResetCapabilityProcedure is the fully-qualified name of the
+	// SysupgradeService's GetFactoryResetCapability RPC.
+	SysupgradeServiceGetFactoryResetCapabilityProcedure = "/openmanet.sysupgrade.v1.SysupgradeService/GetFactoryResetCapability"
+	// SysupgradeServicePerformFactoryResetProcedure is the fully-qualified name of the
+	// SysupgradeService's PerformFactoryReset RPC.
+	SysupgradeServicePerformFactoryResetProcedure = "/openmanet.sysupgrade.v1.SysupgradeService/PerformFactoryReset"
 )
 
 // SysupgradeServiceClient is a client for the openmanet.sysupgrade.v1.SysupgradeService service.
@@ -109,6 +115,20 @@ type SysupgradeServiceClient interface {
 	// is skipped. Returns FailedPrecondition when no image is staged or
 	// an upgrade is already running.
 	StartLocalUpgrade(context.Context, *v1.StartLocalUpgradeRequest) (*v1.StartLocalUpgradeResponse, error)
+	// GetFactoryResetCapability reports whether the running OS supports
+	// factory reset (overlay wipe + reboot, equivalent to LuCI's
+	// "Perform Reset" button) and surfaces the device's current
+	// hostname so the UI can use it as the typed-confirmation target.
+	GetFactoryResetCapability(context.Context, *emptypb.Empty) (*v1.GetFactoryResetCapabilityResponse, error)
+	// PerformFactoryReset wipes the overlay and reboots the device. The
+	// operator must echo the device hostname in confirm_hostname; the
+	// server re-validates the match before triggering. Fire-and-forget:
+	// the RPC response may not flush before the kernel reboots, so
+	// clients must treat both 200 OK and a transport-closed error as
+	// "reset initiated." Returns FailedPrecondition when the device is
+	// not capable, when an upgrade is in progress, or when hostname is
+	// unknown; InvalidArgument when confirm_hostname does not match.
+	PerformFactoryReset(context.Context, *v1.PerformFactoryResetRequest) (*v1.PerformFactoryResetResponse, error)
 }
 
 // NewSysupgradeServiceClient constructs a client for the openmanet.sysupgrade.v1.SysupgradeService
@@ -182,21 +202,35 @@ func NewSysupgradeServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(sysupgradeServiceMethods.ByName("StartLocalUpgrade")),
 			connect.WithClientOptions(opts...),
 		),
+		getFactoryResetCapability: connect.NewClient[emptypb.Empty, v1.GetFactoryResetCapabilityResponse](
+			httpClient,
+			baseURL+SysupgradeServiceGetFactoryResetCapabilityProcedure,
+			connect.WithSchema(sysupgradeServiceMethods.ByName("GetFactoryResetCapability")),
+			connect.WithClientOptions(opts...),
+		),
+		performFactoryReset: connect.NewClient[v1.PerformFactoryResetRequest, v1.PerformFactoryResetResponse](
+			httpClient,
+			baseURL+SysupgradeServicePerformFactoryResetProcedure,
+			connect.WithSchema(sysupgradeServiceMethods.ByName("PerformFactoryReset")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // sysupgradeServiceClient implements SysupgradeServiceClient.
 type sysupgradeServiceClient struct {
-	getSystemInfo         *connect.Client[emptypb.Empty, v1.GetSystemInfoResponse]
-	listAvailableUpdates  *connect.Client[v1.ListAvailableUpdatesRequest, v1.ListAvailableUpdatesResponse]
-	getReleaseDetail      *connect.Client[v1.GetReleaseDetailRequest, v1.GetReleaseDetailResponse]
-	startUpgrade          *connect.Client[v1.StartUpgradeRequest, v1.StartUpgradeResponse]
-	cancelUpgrade         *connect.Client[emptypb.Empty, v1.CancelUpgradeResponse]
-	getUpgradeStatus      *connect.Client[emptypb.Empty, v1.GetUpgradeStatusResponse]
-	streamUpgradeProgress *connect.Client[emptypb.Empty, v1.StreamUpgradeProgressResponse]
-	getStagedImage        *connect.Client[emptypb.Empty, v1.GetStagedImageResponse]
-	discardStagedImage    *connect.Client[emptypb.Empty, v1.DiscardStagedImageResponse]
-	startLocalUpgrade     *connect.Client[v1.StartLocalUpgradeRequest, v1.StartLocalUpgradeResponse]
+	getSystemInfo             *connect.Client[emptypb.Empty, v1.GetSystemInfoResponse]
+	listAvailableUpdates      *connect.Client[v1.ListAvailableUpdatesRequest, v1.ListAvailableUpdatesResponse]
+	getReleaseDetail          *connect.Client[v1.GetReleaseDetailRequest, v1.GetReleaseDetailResponse]
+	startUpgrade              *connect.Client[v1.StartUpgradeRequest, v1.StartUpgradeResponse]
+	cancelUpgrade             *connect.Client[emptypb.Empty, v1.CancelUpgradeResponse]
+	getUpgradeStatus          *connect.Client[emptypb.Empty, v1.GetUpgradeStatusResponse]
+	streamUpgradeProgress     *connect.Client[emptypb.Empty, v1.StreamUpgradeProgressResponse]
+	getStagedImage            *connect.Client[emptypb.Empty, v1.GetStagedImageResponse]
+	discardStagedImage        *connect.Client[emptypb.Empty, v1.DiscardStagedImageResponse]
+	startLocalUpgrade         *connect.Client[v1.StartLocalUpgradeRequest, v1.StartLocalUpgradeResponse]
+	getFactoryResetCapability *connect.Client[emptypb.Empty, v1.GetFactoryResetCapabilityResponse]
+	performFactoryReset       *connect.Client[v1.PerformFactoryResetRequest, v1.PerformFactoryResetResponse]
 }
 
 // GetSystemInfo calls openmanet.sysupgrade.v1.SysupgradeService.GetSystemInfo.
@@ -285,6 +319,25 @@ func (c *sysupgradeServiceClient) StartLocalUpgrade(ctx context.Context, req *v1
 	return nil, err
 }
 
+// GetFactoryResetCapability calls
+// openmanet.sysupgrade.v1.SysupgradeService.GetFactoryResetCapability.
+func (c *sysupgradeServiceClient) GetFactoryResetCapability(ctx context.Context, req *emptypb.Empty) (*v1.GetFactoryResetCapabilityResponse, error) {
+	response, err := c.getFactoryResetCapability.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// PerformFactoryReset calls openmanet.sysupgrade.v1.SysupgradeService.PerformFactoryReset.
+func (c *sysupgradeServiceClient) PerformFactoryReset(ctx context.Context, req *v1.PerformFactoryResetRequest) (*v1.PerformFactoryResetResponse, error) {
+	response, err := c.performFactoryReset.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
 // SysupgradeServiceHandler is an implementation of the openmanet.sysupgrade.v1.SysupgradeService
 // service.
 type SysupgradeServiceHandler interface {
@@ -329,6 +382,20 @@ type SysupgradeServiceHandler interface {
 	// is skipped. Returns FailedPrecondition when no image is staged or
 	// an upgrade is already running.
 	StartLocalUpgrade(context.Context, *v1.StartLocalUpgradeRequest) (*v1.StartLocalUpgradeResponse, error)
+	// GetFactoryResetCapability reports whether the running OS supports
+	// factory reset (overlay wipe + reboot, equivalent to LuCI's
+	// "Perform Reset" button) and surfaces the device's current
+	// hostname so the UI can use it as the typed-confirmation target.
+	GetFactoryResetCapability(context.Context, *emptypb.Empty) (*v1.GetFactoryResetCapabilityResponse, error)
+	// PerformFactoryReset wipes the overlay and reboots the device. The
+	// operator must echo the device hostname in confirm_hostname; the
+	// server re-validates the match before triggering. Fire-and-forget:
+	// the RPC response may not flush before the kernel reboots, so
+	// clients must treat both 200 OK and a transport-closed error as
+	// "reset initiated." Returns FailedPrecondition when the device is
+	// not capable, when an upgrade is in progress, or when hostname is
+	// unknown; InvalidArgument when confirm_hostname does not match.
+	PerformFactoryReset(context.Context, *v1.PerformFactoryResetRequest) (*v1.PerformFactoryResetResponse, error)
 }
 
 // NewSysupgradeServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -398,6 +465,18 @@ func NewSysupgradeServiceHandler(svc SysupgradeServiceHandler, opts ...connect.H
 		connect.WithSchema(sysupgradeServiceMethods.ByName("StartLocalUpgrade")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sysupgradeServiceGetFactoryResetCapabilityHandler := connect.NewUnaryHandlerSimple(
+		SysupgradeServiceGetFactoryResetCapabilityProcedure,
+		svc.GetFactoryResetCapability,
+		connect.WithSchema(sysupgradeServiceMethods.ByName("GetFactoryResetCapability")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sysupgradeServicePerformFactoryResetHandler := connect.NewUnaryHandlerSimple(
+		SysupgradeServicePerformFactoryResetProcedure,
+		svc.PerformFactoryReset,
+		connect.WithSchema(sysupgradeServiceMethods.ByName("PerformFactoryReset")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/openmanet.sysupgrade.v1.SysupgradeService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SysupgradeServiceGetSystemInfoProcedure:
@@ -420,6 +499,10 @@ func NewSysupgradeServiceHandler(svc SysupgradeServiceHandler, opts ...connect.H
 			sysupgradeServiceDiscardStagedImageHandler.ServeHTTP(w, r)
 		case SysupgradeServiceStartLocalUpgradeProcedure:
 			sysupgradeServiceStartLocalUpgradeHandler.ServeHTTP(w, r)
+		case SysupgradeServiceGetFactoryResetCapabilityProcedure:
+			sysupgradeServiceGetFactoryResetCapabilityHandler.ServeHTTP(w, r)
+		case SysupgradeServicePerformFactoryResetProcedure:
+			sysupgradeServicePerformFactoryResetHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -467,4 +550,12 @@ func (UnimplementedSysupgradeServiceHandler) DiscardStagedImage(context.Context,
 
 func (UnimplementedSysupgradeServiceHandler) StartLocalUpgrade(context.Context, *v1.StartLocalUpgradeRequest) (*v1.StartLocalUpgradeResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.sysupgrade.v1.SysupgradeService.StartLocalUpgrade is not implemented"))
+}
+
+func (UnimplementedSysupgradeServiceHandler) GetFactoryResetCapability(context.Context, *emptypb.Empty) (*v1.GetFactoryResetCapabilityResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.sysupgrade.v1.SysupgradeService.GetFactoryResetCapability is not implemented"))
+}
+
+func (UnimplementedSysupgradeServiceHandler) PerformFactoryReset(context.Context, *v1.PerformFactoryResetRequest) (*v1.PerformFactoryResetResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.sysupgrade.v1.SysupgradeService.PerformFactoryReset is not implemented"))
 }

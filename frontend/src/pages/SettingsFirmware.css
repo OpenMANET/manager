@@ -397,6 +397,138 @@
   }
 }
 
+/* ── Factory reset panel ──────────────────────────────────────── */
+.firmware-reset-panel {
+  border-left: 2px solid rgba(255, 59, 77, 0.55);
+}
+
+.firmware-reset-panel .panel-head h3 {
+  color: var(--crit);
+}
+
+.reset-confirm-form {
+  border-left: 2px solid var(--crit);
+  padding: 12px 14px;
+  background: rgba(255, 59, 77, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reset-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.reset-row .reset-label {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.reset-row .reset-label.crit {
+  color: var(--crit);
+}
+
+.reset-row .lat-input {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 10px;
+  outline: none;
+}
+
+.reset-row .lat-input:focus {
+  border-color: var(--accent);
+}
+
+.reset-row .lat-input.crit {
+  border-color: rgba(255, 59, 77, 0.5);
+}
+
+.reset-row .lat-input.crit:focus {
+  border-color: var(--crit);
+}
+
+.reset-row .lat-input.ok-match {
+  border-color: rgba(0, 230, 118, 0.55);
+}
+
+.reset-row .lat-input::placeholder {
+  color: var(--dim);
+}
+
+.reset-hint {
+  margin-top: 4px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.reset-hint .v {
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.reset-hint.ok {
+  color: var(--ok);
+}
+
+.reset-hint.crit {
+  color: var(--crit);
+}
+
+.reset-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  align-items: center;
+  border-top: 1px dashed var(--border-subtle);
+  padding-top: 10px;
+}
+
+/* solid-red final destructive button — only used by the factory
+   reset confirm. Outline .lat-btn.danger stays the convention for
+   lower-stakes destructive operations like Discard. */
+.lat-btn.danger.solid {
+  color: #fff;
+  background: var(--crit);
+  border-color: var(--crit);
+}
+
+.lat-btn.danger.solid:hover {
+  background: #d92e3e;
+  border-color: #d92e3e;
+  color: #fff;
+}
+
+@keyframes pulseBorderCrit {
+  0%, 100% {
+    border-color: rgba(255, 59, 77, 0.45);
+    box-shadow: 0 0 12px rgba(255, 59, 77, 0.12) inset;
+  }
+  50% {
+    border-color: rgba(255, 59, 77, 0.75);
+    box-shadow: 0 0 24px rgba(255, 59, 77, 0.25) inset;
+  }
+}
+
+.firmware-reset-rebooting {
+  animation: pulseBorderCrit 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .firmware-reset-rebooting {
+    animation: none !important;
+  }
+}
+
 /* ── Mobile ───────────────────────────────────────────────────── */
 @media (max-width: 640px) {
   .settings-firmware-list {
@@ -437,6 +569,24 @@
   }
 
   .confirm-actions .lat-btn {
+    width: 100%;
+  }
+
+  .reset-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .reset-row .reset-label {
+    font-size: 9px;
+  }
+
+  .reset-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .reset-actions .lat-btn {
     width: 100%;
   }
 }

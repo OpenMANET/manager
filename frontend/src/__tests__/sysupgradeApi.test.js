@@ -321,3 +321,71 @@ describe('TestStagedImageRPCs', () => {
     expect(captured.skipPreflight).toBe(true);
   });
 });
+
+describe('TestFactoryResetRPCs', () => {
+  it('GetFactoryResetCapability maps a capable response', async () => {
+    const transport = createRouterTransport(({ service }) => {
+      service(SysupgradeService, {
+        getFactoryResetCapability() {
+          return {
+            capability: {
+              capable: true,
+              reason: 'ok',
+              overlayMountpoint: 'overlayfs:/overlay /',
+              backingFs: 'overlay',
+              firstbootPath: '/sbin/firstboot',
+              hostname: 'BCM2711-1003',
+            },
+          };
+        },
+      });
+    });
+
+    const { fetchFactoryResetCapability } = await loadApiWith(transport);
+    const cap = await fetchFactoryResetCapability();
+    expect(cap).toMatchObject({
+      capable: true,
+      reason: 'ok',
+      overlayMountpoint: 'overlayfs:/overlay /',
+      backingFs: 'overlay',
+      firstbootPath: '/sbin/firstboot',
+      hostname: 'BCM2711-1003',
+    });
+  });
+
+  it('GetFactoryResetCapability maps a not-capable response', async () => {
+    const transport = createRouterTransport(({ service }) => {
+      service(SysupgradeService, {
+        getFactoryResetCapability() {
+          return {
+            capability: {
+              capable: false,
+              reason: 'no rootfs_data partition or overlayfs mount',
+            },
+          };
+        },
+      });
+    });
+
+    const { fetchFactoryResetCapability } = await loadApiWith(transport);
+    const cap = await fetchFactoryResetCapability();
+    expect(cap.capable).toBe(false);
+    expect(cap.reason).toContain('no rootfs_data');
+  });
+
+  it('PerformFactoryReset forwards the confirm hostname', async () => {
+    let captured;
+    const transport = createRouterTransport(({ service }) => {
+      service(SysupgradeService, {
+        performFactoryReset(req) {
+          captured = req;
+          return {};
+        },
+      });
+    });
+
+    const { performFactoryReset } = await loadApiWith(transport);
+    await performFactoryReset({ confirmHostname: 'BCM2711-1003' });
+    expect(captured.confirmHostname).toBe('BCM2711-1003');
+  });
+});

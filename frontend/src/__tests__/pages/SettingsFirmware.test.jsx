@@ -31,6 +31,10 @@ const apiState = {
   uploadCalls: [],
   uploadResult: null,
   uploadErr: null,
+  resetCap: null,
+  resetCapErr: null,
+  resetCalls: [],
+  resetErr: null,
 };
 
 function defaultStream() {
@@ -85,6 +89,14 @@ vi.mock('../../services/sysupgradeApi.js', () => ({
     if (apiState.uploadErr) throw apiState.uploadErr;
     return apiState.uploadResult;
   }),
+  fetchFactoryResetCapability: vi.fn(async () => {
+    if (apiState.resetCapErr) throw apiState.resetCapErr;
+    return apiState.resetCap;
+  }),
+  performFactoryReset: vi.fn(async (req) => {
+    apiState.resetCalls.push(req);
+    if (apiState.resetErr) throw apiState.resetErr;
+  }),
 }));
 
 // Imported AFTER the mock is registered.
@@ -112,6 +124,10 @@ function resetApiState() {
   apiState.uploadCalls = [];
   apiState.uploadResult = null;
   apiState.uploadErr = null;
+  apiState.resetCap = null;
+  apiState.resetCapErr = null;
+  apiState.resetCalls = [];
+  apiState.resetErr = null;
 }
 
 const capableInfo = {
@@ -506,5 +522,186 @@ describe('SettingsFirmware', () => {
       expect(apiState.startLocalCalls).toHaveLength(1);
     });
     expect(apiState.startLocalCalls[0].skipPreflight).toBe(true);
+  });
+});
+
+describe('SettingsFirmware factory reset', () => {
+  beforeEach(() => {
+    resetApiState();
+    apiState.systemInfo = capableInfo;
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  const capableReset = {
+    capable: true,
+    reason: 'ok',
+    overlayMountpoint: 'overlayfs:/overlay /',
+    backingFs: 'overlay',
+    firstbootPath: '/sbin/firstboot',
+    hostname: 'BCM2711-1003',
+  };
+
+  it('renders the panel with Begin button when capable', async () => {
+    apiState.resetCap = capableReset;
+
+    render(<SettingsFirmware />);
+
+    expect(await screen.findByRole('heading', { name: /Factory Reset/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Begin reset/i })).toBeInTheDocument();
+    expect(screen.getByText(/wipes configuration, not firmware/i)).toBeInTheDocument();
+  });
+
+  it('renders the not-capable advisory when capable=false', async () => {
+    apiState.resetCap = {
+      capable: false,
+      reason: 'no rootfs_data partition or overlayfs mount',
+      overlayMountpoint: '',
+      backingFs: '',
+      firstbootPath: '',
+      hostname: 'dev',
+    };
+
+    render(<SettingsFirmware />);
+
+    expect(await screen.findByText(/Factory reset unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Begin reset/i })).not.toBeInTheDocument();
+  });
+
+  it('expands the form when Begin reset is clicked', async () => {
+    apiState.resetCap = capableReset;
+
+    render(<SettingsFirmware />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Begin reset/i }));
+
+    expect(await screen.findByLabelText(/confirm hostname/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/I understand this will wipe/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: /Reset to factory defaults/i,
+    })).toBeDisabled();
+  });
+
+  it('keeps the danger button disabled until hostname matches and ack is checked', async () => {
+    apiState.resetCap = capableReset;
+
+    render(<SettingsFirmware />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Begin reset/i }));
+
+    const input = await screen.findByLabelText(/confirm hostname/i);
+    const ack = screen.getByLabelText(/I understand this will wipe/i);
+    const fireBtn = screen.getByRole('button', { name: /Reset to factory defaults/i });
+
+    // Just hostname — still disabled.
+    fireEvent.change(input, { target: { value: 'BCM2711-1003' } });
+    expect(fireBtn).toBeDisabled();
+
+    // Just ack — still disabled.
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.click(ack);
+    expect(fireBtn).toBeDisabled();
+
+    // Both — enabled.
+    fireEvent.change(input, { target: { value: 'BCM2711-1003' } });
+    expect(fireBtn).toBeEnabled();
+  });
+
+  it('hostname match is case insensitive', async () => {
+    apiState.resetCap = capableReset;
+
+    render(<SettingsFirmware />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Begin reset/i }));
+
+    const input = await screen.findByLabelText(/confirm hostname/i);
+    const ack = screen.getByLabelText(/I understand this will wipe/i);
+
+    fireEvent.click(ack);
+    fireEvent.change(input, { target: { value: 'bcm2711-1003' } });
+
+    expect(screen.getByRole('button', { name: /Reset to factory defaults/i })).toBeEnabled();
+  });
+
+  it('confirm calls performFactoryReset with the typed hostname', async () => {
+    apiState.resetCap = capableReset;
+
+    render(<SettingsFirmware />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Begin reset/i }));
+    fireEvent.change(await screen.findByLabelText(/confirm hostname/i), {
+      target: { value: 'BCM2711-1003' },
+    });
+    fireEvent.click(screen.getByLabelText(/I understand this will wipe/i));
+    fireEvent.click(screen.getByRole('button', { name: /Reset to factory defaults/i }));
+
+    await waitFor(() => {
+      expect(apiState.resetCalls).toHaveLength(1);
+    });
+    expect(apiState.resetCalls[0]).toEqual({ confirmHostname: 'BCM2711-1003' });
+
+    // Triggered state replaces the form with the rebooting advisory.
+    expect(await screen.findByText(/Reset triggered/i)).toBeInTheDocument();
+    expect(screen.getByText(/10\.41\.254\.1/)).toBeInTheDocument();
+  });
+
+  it('treats a transport-closed error as success (firstboot kills the daemon)', async () => {
+    apiState.resetCap = capableReset;
+    // Mimic a Connect transport error — no Connect-error code, so the
+    // page should treat it as "reset initiated".
+    apiState.resetErr = new Error('Failed to fetch');
+
+    render(<SettingsFirmware />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Begin reset/i }));
+    fireEvent.change(await screen.findByLabelText(/confirm hostname/i), {
+      target: { value: 'BCM2711-1003' },
+    });
+    fireEvent.click(screen.getByLabelText(/I understand this will wipe/i));
+    fireEvent.click(screen.getByRole('button', { name: /Reset to factory defaults/i }));
+
+    expect(await screen.findByText(/Reset triggered/i)).toBeInTheDocument();
+  });
+
+  it('surfaces explicit invalid_argument errors instead of declaring success', async () => {
+    apiState.resetCap = capableReset;
+    const err = new Error('confirm_hostname does not match');
+    err.code = 'invalid_argument';
+    apiState.resetErr = err;
+
+    render(<SettingsFirmware />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Begin reset/i }));
+    fireEvent.change(await screen.findByLabelText(/confirm hostname/i), {
+      target: { value: 'BCM2711-1003' },
+    });
+    fireEvent.click(screen.getByLabelText(/I understand this will wipe/i));
+    fireEvent.click(screen.getByRole('button', { name: /Reset to factory defaults/i }));
+
+    await waitFor(() => {
+      expect(apiState.resetCalls).toHaveLength(1);
+    });
+
+    // Should surface the error, not the rebooting advisory.
+    expect(await screen.findByText(/confirm_hostname does not match/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Reset triggered\./)).not.toBeInTheDocument();
+  });
+
+  it('Cancel collapses the form back to Begin', async () => {
+    apiState.resetCap = capableReset;
+
+    render(<SettingsFirmware />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Begin reset/i }));
+    expect(await screen.findByLabelText(/confirm hostname/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Cancel$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/confirm hostname/i)).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: /Begin reset/i })).toBeInTheDocument();
   });
 });
