@@ -57,6 +57,7 @@ export default function Terminal({ wsUrl, onClose }) {
     term.loadAddon(new WebLinksAddon());
     term.open(containerRef.current);
     try { fit.fit(); } catch { /* container may not be sized yet in tests */ }
+    try { term.focus(); } catch { /* term may not be focusable in tests */ }
 
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
