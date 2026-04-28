@@ -1,12 +1,14 @@
 package system
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 // validServiceName matches the conservative set of OpenWrt init.d script
@@ -52,18 +54,39 @@ func (r *InitDReloader) initDir() string {
 
 // Reload implements ServiceReloader.
 func (r *InitDReloader) Reload(ctx context.Context, service string) error {
-	if !validServiceName.MatchString(service) {
-		return fmt.Errorf("%w: %q", ErrInvalidServiceName, service)
-	}
-
-	return exec.CommandContext(ctx, filepath.Join(r.initDir(), service), "reload").Run()
+	return r.runAction(ctx, service, "reload")
 }
 
 // Restart implements ServiceReloader.
 func (r *InitDReloader) Restart(ctx context.Context, service string) error {
+	return r.runAction(ctx, service, "restart")
+}
+
+// runAction validates the service name and invokes
+// `/etc/init.d/<service> <action>`. stderr is captured (rather than
+// passed through to the daemon's stderr) so noise like
+// `/bin/sh: nohup: not found` from inside the init script becomes
+// part of the returned error instead of leaking to the operator's
+// console — the wizard's reload phase tolerates failures and reports
+// them via structured logs.
+func (r *InitDReloader) runAction(ctx context.Context, service, action string) error {
 	if !validServiceName.MatchString(service) {
 		return fmt.Errorf("%w: %q", ErrInvalidServiceName, service)
 	}
 
-	return exec.CommandContext(ctx, filepath.Join(r.initDir(), service), "restart").Run()
+	var stderr bytes.Buffer
+
+	cmd := exec.CommandContext(ctx, filepath.Join(r.initDir(), service), action)
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			return err
+		}
+
+		return fmt.Errorf("%w: %s", err, msg)
+	}
+
+	return nil
 }
