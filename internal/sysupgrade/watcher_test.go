@@ -51,6 +51,18 @@ func TestWatchSysupgradeChild_DetectsEarlyExit(t *testing.T) {
 
 			assert.Contains(t, ev.LogTail, "fatal: corrupt image")
 			assert.Contains(t, ev.Message, "exited without rebooting")
+			// The hint should point at the persistent file so the
+			// operator knows where to look post-reboot.
+			assert.Contains(t, ev.ErrMsg, persistentFailureLogName)
+
+			// Persistent breadcrumb must be on disk with the captured
+			// tail and a header naming the asset and PID.
+			persistent := filepath.Join(mgr.persistentLogDir, persistentFailureLogName)
+			contents, readErr := os.ReadFile(persistent)
+			require.NoError(t, readErr)
+			assert.Contains(t, string(contents), "openmanet.img")
+			assert.Contains(t, string(contents), "fatal: corrupt image")
+			assert.Contains(t, string(contents), fmt.Sprintf("child_pid: %d", pid))
 
 			return
 		}

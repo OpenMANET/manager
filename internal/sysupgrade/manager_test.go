@@ -223,11 +223,12 @@ func makeManager(t *testing.T, fetcher ReleasesFetcher, runner SysupgradeRunner,
 			OverlayPresent: true,
 			BinaryPath:     "/sbin/sysupgrade",
 		}},
-		Cache:       &inMemoryCache{},
-		Releases:    fetcher,
-		Manifest:    fakeManifestFetcher{},
-		Runner:      runner,
-		DownloadDir: t.TempDir(),
+		Cache:            &inMemoryCache{},
+		Releases:         fetcher,
+		Manifest:         fakeManifestFetcher{},
+		Runner:           runner,
+		DownloadDir:      t.TempDir(),
+		PersistentLogDir: t.TempDir(),
 	})
 
 	return mgr

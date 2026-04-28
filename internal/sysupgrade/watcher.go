@@ -3,12 +3,23 @@ package sysupgrade
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 )
+
+// persistentFailureLogName is the basename used for the persistent
+// post-failure breadcrumb under Manager.persistentLogDir. /tmp is
+// tmpfs on OpenWrt and the runtime sysupgrade log evaporates on the
+// next reboot — the operator needs *somewhere* on the persistent
+// overlay to read after the device comes back. This file is small
+// (capped at sysupgradeLogTailBytes) and overwritten on each
+// failure, so it doesn't grow without bound.
+const persistentFailureLogName = "last-failure.log"
 
 // watcherPollInterval is the cadence at which watchSysupgradeChild
 // checks whether the detached sysupgrade child is still alive.
@@ -90,16 +101,24 @@ func (m *Manager) watchSysupgradeChild(ctx context.Context, pid int, logPath, as
 
 			tail := readSysupgradeLogTail(logPath, sysupgradeLogTailBytes)
 
+			persistentPath := m.writePersistentFailureLog(assetName, pid, tail)
+
 			m.log.Warn().
 				Int("pid", pid).
 				Str("log", logPath).
+				Str("persistent_log", persistentPath).
 				Str("asset", assetName).
 				Str("tail", tail).
 				Msg("sysupgrade: child exited without rebooting")
 
+			hint := "Inspect logread for the sysupgrade-tagged messages."
+			if persistentPath != "" {
+				hint = fmt.Sprintf("Inspect %s on the device — it survives reboots.", persistentPath)
+			}
+
 			m.publishUpgradeFailure(
 				"sysupgrade child exited without rebooting",
-				"Inspect /tmp/openmanetd/sysupgrade/*.log on the device for the full output.",
+				hint,
 				tail,
 			)
 
@@ -173,6 +192,46 @@ func readSysupgradeLogTail(path string, tailBytes int64) string {
 	}
 
 	return strings.TrimRight(out, "\n\r\t ")
+}
+
+// writePersistentFailureLog dumps the captured sysupgrade tail to a
+// fixed file under m.persistentLogDir so the operator can read it
+// after the device reboots. Returns the path on success, "" on any
+// failure (best-effort: never blocks PhaseFailed publication on a
+// disk-write error).
+//
+// Format: a short header (asset, pid, timestamp) followed by the
+// captured tail. Each call overwrites — only the most recent failure
+// is kept.
+func (m *Manager) writePersistentFailureLog(assetName string, pid int, tail string) string {
+	if m.persistentLogDir == "" {
+		return ""
+	}
+
+	if err := os.MkdirAll(m.persistentLogDir, 0o755); err != nil {
+		m.log.Warn().Err(err).Str("dir", m.persistentLogDir).
+			Msg("sysupgrade: persistent log dir mkdir failed")
+
+		return ""
+	}
+
+	path := filepath.Join(m.persistentLogDir, persistentFailureLogName)
+
+	header := fmt.Sprintf(
+		"# sysupgrade failure breadcrumb\n# asset:     %s\n# child_pid: %d\n# captured:  %s\n\n",
+		assetName, pid, time.Now().UTC().Format(time.RFC3339),
+	)
+
+	body := []byte(header + tail + "\n")
+
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		m.log.Warn().Err(err).Str("path", path).
+			Msg("sysupgrade: persistent failure log write failed")
+
+		return ""
+	}
+
+	return path
 }
 
 // publishUpgradeFailure transitions the manager to PhaseFailed while
