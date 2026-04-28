@@ -40,6 +40,12 @@ const netClient = createClient(NetworkInterfaceService, transport);
 const blosClient = createClient(BLOSService, transport);
 
 const DASH_POLL_MS = 5000;
+// Interface state (UP/DOWN, IPs, link types) changes on the order of
+// minutes, not seconds — and the same data is already shared with
+// buildNetworkSummary via the backend's CachedInterfaceProvider. Polling
+// at 30s keeps the panel current without adding measurable CPU on the
+// device.
+const IFACE_POLL_MS = 30_000;
 const MESH_POLL_MS = 10000;
 const CHIP_POLL_MS = 10000;
 const CLOCK_TICK_MS = 1000;
@@ -346,7 +352,7 @@ export default function DashboardPage() {
   }, []);
 
   useVisibleInterval(fetchStatus, DASH_POLL_MS);
-  useVisibleInterval(fetchInterfaces, DASH_POLL_MS);
+  useVisibleInterval(fetchInterfaces, IFACE_POLL_MS);
   useVisibleInterval(pollBlosPeers, CHIP_POLL_MS);
 
   // Drive derived peer history + LQ rolling average off each new mesh snapshot.

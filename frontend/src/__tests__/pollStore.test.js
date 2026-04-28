@@ -40,7 +40,7 @@ describe('TestPollStore', () => {
     await vi.waitFor(() => expect(onChange).toHaveBeenCalledWith({ n: 1 }));
   });
 
-  it('hands a late subscriber the cached snapshot and refreshes it', async () => {
+  it('shares one fetch across multiple subscribers', async () => {
     const fetcher = vi.fn().mockResolvedValue({ n: 2 });
     const store = createPollStore(fetcher);
 
@@ -50,11 +50,12 @@ describe('TestPollStore', () => {
     await vi.waitFor(() => expect(a).toHaveBeenCalledWith({ n: 2 }));
 
     store.subscribe(1000, b);
-    // Late subscriber sees the cached snapshot synchronously…
+    // Late subscriber gets the cached snapshot synchronously…
     expect(b).toHaveBeenCalledWith({ n: 2 });
-    // …and a fresh fetch is kicked off so the new mount does not sit on
-    // a stale value when the page becomes visible again.
-    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    // …and rides the existing tick — no extra fetch is triggered, so
+    // multiple components mounting in quick succession do not spike
+    // backend CPU with redundant RPCs.
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('ticks at the minimum of subscribers intervals', async () => {

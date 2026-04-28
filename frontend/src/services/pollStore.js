@@ -92,14 +92,17 @@ export function createPollStore(fetcher) {
 
   function subscribe(intervalMs, onChange) {
     const sub = { intervalMs, onChange };
+    const firstSubscriber = subscribers.size === 0;
     subscribers.add(sub);
     bindVisibility();
     restartTimer();
 
-    // Hand the late subscriber the cached snapshot immediately so the UI
-    // shows the last known data while the next tick fetches a fresh one,
-    // and always kick off a tick so a freshly mounted page never has to
-    // wait a full interval (or sit on stale data) to see live values.
+    // Hand the new subscriber the cached snapshot synchronously so the
+    // UI renders something immediately on remount instead of flashing
+    // empty. Snapshot retention across the last unsubscribe (see cleanup
+    // below) is what makes this work for "navigate away and back" — the
+    // next mount sees the previous data right away while the regular
+    // interval timer drives the next refresh.
     if (snapshot !== null) {
       try {
         onChange(snapshot);
@@ -107,7 +110,10 @@ export function createPollStore(fetcher) {
         /* ignore */
       }
     }
-    if (visible) tick();
+    // Only the first subscriber primes a fresh fetch. Late subscribers
+    // ride the existing/next tick to avoid a tick-per-mount RPC spike
+    // when several pages navigate quickly.
+    if (firstSubscriber && visible) tick();
 
     return () => {
       subscribers.delete(sub);
@@ -117,8 +123,7 @@ export function createPollStore(fetcher) {
           timerId = null;
         }
         unbindVisibility();
-        // Keep the snapshot — the next mount renders cached data instantly
-        // while subscribe() kicks off a fresh tick.
+        // Keep the snapshot — the next mount renders cached data instantly.
         inFlight = false;
       } else {
         restartTimer();
