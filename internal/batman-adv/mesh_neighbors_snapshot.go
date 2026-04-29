@@ -207,13 +207,20 @@ func (s *MeshNeighborsSnapshotter) now() time.Time {
 
 // indexRecordByInterfaceMacs inserts rec into idx under every MAC the
 // publisher advertised — payload.primary_mac plus each entry of
-// payload.interface_macs. Empty values are skipped. Collisions log a
-// warn line and overwrite (last write wins) so a misconfigured fleet
-// surfaces in the daemon logs.
+// payload.interface_macs. Empty values are skipped. Genuine
+// collisions (two distinct publishers — different payload primary
+// MACs — claiming the same interface MAC) log a warn line and
+// last-write-wins so misconfigured fleets surface in the daemon
+// logs. Collisions where both records report the same primary MAC
+// are NOT warnings: that's the same physical node publishing on two
+// alfred channels (e.g. one batman-adv instance per RF + BLOS
+// overlay), which is expected in BLOS multi-mesh deployments.
 func (s *MeshNeighborsSnapshotter) indexRecordByInterfaceMacs(idx map[string]*MeshNeighborsRecord, rec *MeshNeighborsRecord) {
 	if rec == nil || rec.Payload == nil {
 		return
 	}
+
+	recPrimary := strings.ToLower(rec.Payload.GetPrimaryMac())
 
 	add := func(raw string) {
 		mac := strings.ToLower(raw)
@@ -222,17 +229,29 @@ func (s *MeshNeighborsSnapshotter) indexRecordByInterfaceMacs(idx map[string]*Me
 		}
 
 		if existing, ok := idx[mac]; ok && existing != rec && existing.SourceMac != rec.SourceMac {
-			s.Log.Warn().
-				Str("mac", mac).
-				Str("existing_source", existing.SourceMac).
-				Str("new_source", rec.SourceMac).
-				Msg("mesh-neighbors: two publishers claim the same interface MAC; using newest")
+			existingPrimary := ""
+			if existing.Payload != nil {
+				existingPrimary = strings.ToLower(existing.Payload.GetPrimaryMac())
+			}
+
+			// Same node, two alfred channels — not a misconfiguration.
+			samePublisher := recPrimary != "" && recPrimary == existingPrimary
+
+			if !samePublisher {
+				s.Log.Warn().
+					Str("mac", mac).
+					Str("existing_source", existing.SourceMac).
+					Str("existing_primary", existingPrimary).
+					Str("new_source", rec.SourceMac).
+					Str("new_primary", recPrimary).
+					Msg("mesh-neighbors: two publishers claim the same interface MAC; using newest")
+			}
 		}
 
 		idx[mac] = rec
 	}
 
-	add(rec.Payload.GetPrimaryMac())
+	add(recPrimary)
 
 	for _, m := range rec.Payload.GetInterfaceMacs() {
 		add(m)

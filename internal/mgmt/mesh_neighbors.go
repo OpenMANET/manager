@@ -268,10 +268,22 @@ func stripIfaceSuffix(name string) string {
 	return name[:loc[0]]
 }
 
-// listLocalInterfaceMacs returns the lowercased MACs of every local
-// non-loopback interface that has a hardware address. Excludes
-// loopback (no MAC) and any interface without an addr. The list is
-// sorted for determinism in the published payload.
+// listLocalInterfaceMacs returns the lowercased MACs of local layer-2
+// interfaces that participate (or could participate) in batman-adv
+// routing — bat0, vxlan0, wlan0, phy<N>-mesh<N>, eth*, etc. Filters
+// applied:
+//
+//   - skip loopback (no MAC anyway, but explicit)
+//   - skip point-to-point interfaces (wireguard, tun, tap, ppp,
+//     tailscale) — these have no L2 broadcast domain, so no peer's
+//     batadv-vis will ever observe them as a primary MAC, and many
+//     drivers default to a shared placeholder MAC like
+//     12:00:00:00:00:00 that would collide across nodes
+//   - skip empty MACs and obvious placeholders (all-zero, multicast
+//     bit set in byte 0). A multicast-bit MAC is invalid as an L2
+//     interface address and never appears as a vis primary
+//
+// The list is sorted for determinism in the published payload.
 func listLocalInterfaceMacs() []string {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -284,17 +296,48 @@ func listLocalInterfaceMacs() []string {
 			continue
 		}
 
-		mac := strings.ToLower(iface.HardwareAddr.String())
-		if mac == "" {
+		if iface.Flags&net.FlagPointToPoint != 0 {
 			continue
 		}
 
-		out = append(out, mac)
+		mac := iface.HardwareAddr
+		if !isUsableInterfaceMac(mac) {
+			continue
+		}
+
+		out = append(out, strings.ToLower(mac.String()))
 	}
 
 	sort.Strings(out)
 
 	return out
+}
+
+// isUsableInterfaceMac returns true when mac is a syntactically valid
+// L2 unicast hardware address. Rejects empty, all-zero, and
+// multicast-bit-set MACs — anything a real NIC won't carry as its own
+// address and that no peer's vis will ever report as a primary.
+func isUsableInterfaceMac(mac net.HardwareAddr) bool {
+	if len(mac) != 6 {
+		return false
+	}
+
+	// Multicast bit (LSB of byte 0) must be 0 for an interface MAC.
+	if mac[0]&0x01 != 0 {
+		return false
+	}
+
+	allZero := true
+
+	for _, b := range mac {
+		if b != 0 {
+			allZero = false
+
+			break
+		}
+	}
+
+	return !allZero
 }
 
 // collectInterfaceMacs builds the InterfaceMacs slice published in the

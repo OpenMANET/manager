@@ -515,10 +515,11 @@ func TestMeshNeighborsSnapshotter_CoverageViaInterfaceMacs(t *testing.T) {
 }
 
 // TestMeshNeighborsSnapshotter_InterfaceMacCollisionLogsAndKeepsLatest
-// covers the misconfiguration case where two publishers claim the
-// same interface MAC. The snapshotter resolves last-write-wins (map
-// iteration order is unstable, so either record may win — the test
-// only asserts one record resolves and the warn line was emitted).
+// covers the misconfiguration case where two distinct publishers
+// (different payload.primary_mac) claim the same interface MAC.
+// Last-write-wins (map iteration order is unstable, so either
+// record may win — the test only asserts one record resolves and
+// the warn line was emitted).
 func TestMeshNeighborsSnapshotter_InterfaceMacCollisionLogsAndKeepsLatest(t *testing.T) {
 	fixedNow := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
@@ -560,4 +561,59 @@ func TestMeshNeighborsSnapshotter_InterfaceMacCollisionLogsAndKeepsLatest(t *tes
 
 	assert.Contains(t, captured.String(), "two publishers claim the same interface MAC",
 		"collision must be logged at warn level")
+}
+
+// TestMeshNeighborsSnapshotter_SamePublisherDualChannelDoesNotWarn
+// covers the BLOS multi-mesh case: the same physical node publishes
+// alfred records on two batman-adv instances (RF mesh + BLOS
+// overlay). Both records share the same payload.primary_mac and the
+// same interface_macs list — that's expected, not a collision, and
+// must not log a warning. Without this carve-out the daemon spams
+// the log every refresh tick on every interface MAC the node owns.
+func TestMeshNeighborsSnapshotter_SamePublisherDualChannelDoesNotWarn(t *testing.T) {
+	fixedNow := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+
+	const (
+		sharedPrimary = "0a:d7:37:78:2d:3e" // BCM2711-97d6's bat0 MAC
+		ifaceMAC      = "3c:22:7f:37:4c:0c" // BCM2711-97d6's wlan0 MAC
+		// Two different alfred envelopes — one per batman-adv instance.
+		channelARFEnv  = "f2:f9:81:82:98:73"
+		channelBLOSEnv = "f2:48:e8:f5:70:f2"
+	)
+
+	var captured strings.Builder
+
+	logger := zerolog.New(&captured)
+
+	fake := &fakeAlfredRead{}
+	fake.setRecords([]alfred.Record{
+		{
+			Source: macBytes(channelARFEnv),
+			Data: makePayloadWithInterfaceMacs(t, sharedPrimary, "BCM2711-97d6",
+				[]string{sharedPrimary, ifaceMAC}, fixedNow),
+		},
+		{
+			Source: macBytes(channelBLOSEnv),
+			Data: makePayloadWithInterfaceMacs(t, sharedPrimary, "BCM2711-97d6",
+				[]string{sharedPrimary, ifaceMAC}, fixedNow),
+		},
+	})
+
+	s := &batmanadv.MeshNeighborsSnapshotter{
+		Log:      logger,
+		Client:   fake,
+		Interval: time.Hour,
+		Now:      func() time.Time { return fixedNow },
+	}
+
+	ctx, cancel := contextCancel()
+	defer cancel()
+
+	s.Start(ctx)
+
+	_, ok := s.Lookup(ifaceMAC)
+	require.True(t, ok, "shared MAC still resolves through the index")
+
+	assert.NotContains(t, captured.String(), "two publishers claim the same interface MAC",
+		"same physical node publishing on two alfred channels must NOT trigger the warn")
 }

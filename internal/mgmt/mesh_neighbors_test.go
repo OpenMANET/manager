@@ -1,6 +1,7 @@
 package mgmt
 
 import (
+	"net"
 	"testing"
 	"time"
 
@@ -151,6 +152,33 @@ func TestStripIfaceSuffix(t *testing.T) {
 	}
 	for _, tc := range cases {
 		assert.Equal(t, tc.want, stripIfaceSuffix(tc.in), "stripIfaceSuffix(%q)", tc.in)
+	}
+}
+
+// TestIsUsableInterfaceMac asserts the publisher rejects MACs that
+// shouldn't end up in interface_macs: empty, all-zero, multicast-bit
+// set, wrong length. The placeholder MAC `12:00:00:00:00:00` shows
+// up in the field on tunnel/wireguard interfaces of multiple nodes
+// simultaneously and used to trigger spurious "two publishers claim
+// the same interface MAC" warnings — it's NOT multicast (LSB clear)
+// so isUsableInterfaceMac alone wouldn't reject it; the
+// FlagPointToPoint filter in listLocalInterfaceMacs handles that.
+// This unit test pins the bit-level rejection rules.
+func TestIsUsableInterfaceMac(t *testing.T) {
+	cases := []struct {
+		name  string
+		input net.HardwareAddr
+		want  bool
+	}{
+		{"empty", net.HardwareAddr{}, false},
+		{"too short", net.HardwareAddr{0x02, 0x03, 0x04}, false},
+		{"all zero", net.HardwareAddr{0, 0, 0, 0, 0, 0}, false},
+		{"multicast bit set", net.HardwareAddr{0x01, 0x00, 0x5e, 0x00, 0x01, 0x01}, false},
+		{"locally-administered unicast", net.HardwareAddr{0x12, 0x00, 0x00, 0x00, 0x00, 0x00}, true},
+		{"globally-unique unicast", net.HardwareAddr{0x3c, 0x22, 0x7f, 0x37, 0x4c, 0x0c}, true},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, isUsableInterfaceMac(tc.input), "input %v", tc.input)
 	}
 }
 
