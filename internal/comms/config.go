@@ -71,56 +71,36 @@ type CommsRuntime struct {
 // config and the per-startup runtime have distinct lifetimes.
 type CommsConfig struct {
 	Log                      zerolog.Logger
+	AuxHandler               control.AuxEventHandler
 	Interrupt                chan os.Signal
-	NanoPTTDevicePath        string
-	CommKey                  string
+	BluetoothOutputDevice    string
 	Iface                    string
 	BluetoothInputDevice     string
-	BluetoothOutputDevice    string
+	CommKey                  string
 	BluetoothAudioDeviceHint string
 	ControlSource            string
 	NanoPTTDeviceName        string
 	RtpID                    string
+	NanoPTTDevicePath        string
 	McastPorts               []McastPortConfig
+	HalfDuplexThreshold      time.Duration
+	EncoderComplexity        int
 	ROIPVOXHoldTime          time.Duration
 	ROIPMaxTXDuration        time.Duration
-	HalfDuplexThreshold      time.Duration
+	PttStartDelayMs          int
+	CaptureFramesPerBuffer   int
+	CaptureLatencyMs         int
+	PlaybackLatencyMs        int
+	PacketLossPerc           int
 	MicGain                  float32
 	ROIPVOXThreshold         float32
-	ROIPCOSGPIOMask          byte
 	EnableNanoPTT            bool
-	Debug                    bool
-	Loopback                 bool
-	Trace                    bool
-	Enable                   bool
 	EnableBluetoothPtt       bool
-	EncoderComplexity        int
-	// PacketLossPerc is the Opus encoder's initial packet-loss-perc hint
-	// (LBRR bitrate allocation). Also acts as the floor for the FEC
-	// adapter — the adapter is free to raise above this value but will
-	// never drop below it. Zero or out-of-range → default (20).
-	PacketLossPerc    int
-	PlaybackLatencyMs int
-	CaptureLatencyMs  int
-	// CaptureFramesPerBuffer is the per-callback frame count suggested to
-	// malgo as DeviceConfig.PeriodSizeInFrames. 960 matches the Opus frame
-	// size so every callback produces exactly one RTP packet. A value of 0
-	// is translated to the default audiopool.FrameSize (960); a negative
-	// value lets miniaudio choose a period aligned with the native ALSA
-	// period. Either way the capture callback still emits 20 ms frames
-	// downstream via the captureChunker accumulation step. Defaults to
-	// audiopool.FrameSize when the config layer supplies a zero value
-	// through a non-viper path (e.g. tests constructing CommsConfig
-	// directly).
-	CaptureFramesPerBuffer int
-	// PttStartDelayMs bounds how long beginTransmission waits between
-	// queueing the start-tone beep and starting the mic capture stream. The
-	// malgo playback callback drains the beep buffer before falling through
-	// to playoutOneFrame, so the delay is only required to give hardware
-	// that warms its mic stream slowly time to settle before the first
-	// encoded frame goes out. Defaults to defaultPttStartDelayMs (50 ms)
-	// when ≤ 0; set to 0 explicitly to skip the wait entirely.
-	PttStartDelayMs int
+	Enable                   bool
+	Trace                    bool
+	Loopback                 bool
+	Debug                    bool
+	ROIPCOSGPIOMask          byte
 }
 
 // NewComms copies cfg and returns a pointer ready for Start.
@@ -159,6 +139,7 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		CaptureLatencyMs:         cfg.CaptureLatencyMs,
 		CaptureFramesPerBuffer:   cfg.CaptureFramesPerBuffer,
 		PttStartDelayMs:          cfg.PttStartDelayMs,
+		AuxHandler:               cfg.AuxHandler,
 	}
 }
 

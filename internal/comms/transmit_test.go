@@ -2,6 +2,7 @@ package comms
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -506,6 +507,133 @@ func TestRun_PTTToggleFlips(t *testing.T) {
 	if stream.txDisableCalls != 1 {
 		t.Errorf("SetTxEnabled(false) called %d times, want 1", stream.txDisableCalls)
 	}
+}
+
+// ─── Aux event dispatch ──────────────────────────────────────────────────────
+
+// auxEventSource is a test source that satisfies both control.EventSource
+// and control.AuxEventSource so the aux-pump path in Run can be exercised.
+type auxEventSource struct {
+	pttCh chan control.PTTEvent
+	auxCh chan control.AuxEvent
+}
+
+func (s *auxEventSource) Events(_ context.Context) <-chan control.PTTEvent {
+	return s.pttCh
+}
+
+func (s *auxEventSource) AuxEvents() <-chan control.AuxEvent { return s.auxCh }
+
+// recordingAuxHandler records every event passed to Handle, mutex-protected
+// so tests can inspect from outside the dispatch goroutine.
+type recordingAuxHandler struct {
+	mu     sync.Mutex
+	events []control.AuxEvent
+}
+
+func (h *recordingAuxHandler) Handle(_ context.Context, ev control.AuxEvent) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.events = append(h.events, ev)
+}
+
+func (h *recordingAuxHandler) snapshot() []control.AuxEvent {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	out := make([]control.AuxEvent, len(h.events))
+	copy(out, h.events)
+
+	return out
+}
+
+func TestRun_AuxEvents_DispatchedToHandler(t *testing.T) {
+	stream := &mockStream{}
+	rt := newRunRuntime(stream)
+
+	handler := &recordingAuxHandler{}
+	cfg := &CommsConfig{Log: zerolog.Nop(), AuxHandler: handler}
+
+	pttCh := make(chan control.PTTEvent)
+	close(pttCh) // PTT loop exits immediately so Run returns
+
+	auxCh := make(chan control.AuxEvent, 4)
+	auxCh <- control.VolumeUpPressed
+
+	auxCh <- control.VolumeUpReleased
+
+	close(auxCh)
+
+	src := &auxEventSource{pttCh: pttCh, auxCh: auxCh}
+
+	cfg.Run(context.Background(), rt, src)
+
+	// Run returned because PTT channel closed; the aux pump runs on its own
+	// goroutine and may still be draining. Wait briefly for it to observe
+	// the closed aux channel and exit.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if len(handler.snapshot()) >= 2 {
+			break
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	got := handler.snapshot()
+
+	want := []control.AuxEvent{control.VolumeUpPressed, control.VolumeUpReleased}
+	if len(got) != len(want) {
+		t.Fatalf("aux events: got %v, want %v", got, want)
+	}
+
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("aux[%d]: got %v, want %v", i, got[i], w)
+		}
+	}
+
+	rt.Ports[0].Receiver.Close()
+}
+
+func TestRun_AuxEvents_IgnoredWhenHandlerNil(t *testing.T) {
+	stream := &mockStream{}
+	rt := newRunRuntime(stream)
+
+	cfg := &CommsConfig{Log: zerolog.Nop()} // AuxHandler intentionally nil
+
+	pttCh := make(chan control.PTTEvent)
+	close(pttCh)
+
+	auxCh := make(chan control.AuxEvent, 1)
+	auxCh <- control.VolumeUpPressed
+
+	src := &auxEventSource{pttCh: pttCh, auxCh: auxCh}
+
+	// Just must not panic and must return cleanly.
+	cfg.Run(context.Background(), rt, src)
+
+	rt.Ports[0].Receiver.Close()
+}
+
+func TestRun_AuxEvents_IgnoredWhenSourceLacksAuxInterface(t *testing.T) {
+	stream := &mockStream{}
+	rt := newRunRuntime(stream)
+
+	handler := &recordingAuxHandler{}
+	cfg := &CommsConfig{Log: zerolog.Nop(), AuxHandler: handler}
+
+	ch := make(chan control.PTTEvent)
+	close(ch)
+
+	cfg.Run(context.Background(), rt, &mockEventSource{ch: ch})
+
+	if got := handler.snapshot(); len(got) != 0 {
+		t.Errorf("expected no aux events when source lacks AuxEventSource; got %v", got)
+	}
+
+	rt.Ports[0].Receiver.Close()
 }
 
 // ─── Additional beginTransmission / endTransmission edge cases ────────────────

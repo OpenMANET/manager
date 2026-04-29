@@ -72,12 +72,37 @@ func (e *errHIDDevice) Close() error               { return nil }
 // makeOpenVLMReport builds a 5-byte OpenVLM report [ReportID, IR0, IR1, IR2, IR3].
 // gpio3High sets or clears bit 2 of IR1.
 func makeOpenVLMReport(gpio3High bool) []byte {
+	return makeOpenVLMReportFull(0x00, gpio3High)
+}
+
+// makeOpenVLMReportFull builds a 5-byte OpenVLM report with a caller-supplied
+// IR0 byte (volume up = bit 0, volume down = bit 1) and a GPIO3 bit in IR1.
+func makeOpenVLMReportFull(ir0 byte, gpio3High bool) []byte {
 	ir1 := byte(0x00)
 	if gpio3High {
 		ir1 |= OpenVLMGPIO3Mask
 	}
 
-	return []byte{0x00, 0x00, ir1, 0x00, 0x00}
+	return []byte{0x00, ir0, ir1, 0x00, 0x00}
+}
+
+func collectAuxEvents(ch <-chan AuxEvent, timeout time.Duration) []AuxEvent {
+	var events []AuxEvent
+
+	deadline := time.After(timeout)
+
+	for {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				return events
+			}
+
+			events = append(events, ev)
+		case <-deadline:
+			return events
+		}
+	}
 }
 
 func collectPTTEvents(ch <-chan PTTEvent, timeout time.Duration) []PTTEvent {
@@ -282,6 +307,158 @@ func TestOpenVLMSource_ReadError_ClosesChannel(t *testing.T) {
 		}
 	case <-time.After(400 * time.Millisecond):
 		t.Error("channel not closed after read error")
+	}
+}
+
+// ─── Aux event tests (volume up/down) ────────────────────────────────────────
+
+// auxSource is a tiny helper to type-assert an EventSource down to an
+// AuxEventSource in tests.
+func auxSource(t *testing.T, src EventSource) AuxEventSource {
+	t.Helper()
+
+	aux, ok := src.(AuxEventSource)
+	if !ok {
+		t.Fatalf("EventSource does not implement AuxEventSource: %T", src)
+	}
+
+	return aux
+}
+
+func TestOpenVLMSource_VolumeUp_PressRelease_EmitsAuxEvents(t *testing.T) {
+	mock := newMockHIDDevice()
+	mock.queueReport(makeOpenVLMReportFull(0x00, false))             // baseline
+	mock.queueReport(makeOpenVLMReportFull(OpenVLMVolUpMask, false)) // press
+	mock.queueReport(makeOpenVLMReportFull(0x00, false))             // release
+
+	src := NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	_ = src.Events(ctx)
+
+	aux := auxSource(t, src).AuxEvents()
+	events := collectAuxEvents(aux, 400*time.Millisecond)
+
+	if len(events) < 2 {
+		t.Fatalf("expected 2 aux events; got %d: %v", len(events), events)
+	}
+
+	if events[0] != VolumeUpPressed {
+		t.Errorf("aux[0]: got %v, want VolumeUpPressed", events[0])
+	}
+
+	if events[1] != VolumeUpReleased {
+		t.Errorf("aux[1]: got %v, want VolumeUpReleased", events[1])
+	}
+}
+
+func TestOpenVLMSource_VolumeDown_PressRelease_EmitsAuxEvents(t *testing.T) {
+	mock := newMockHIDDevice()
+	mock.queueReport(makeOpenVLMReportFull(0x00, false))
+	mock.queueReport(makeOpenVLMReportFull(OpenVLMVolDnMask, false))
+	mock.queueReport(makeOpenVLMReportFull(0x00, false))
+
+	src := NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	_ = src.Events(ctx)
+
+	aux := auxSource(t, src).AuxEvents()
+	events := collectAuxEvents(aux, 400*time.Millisecond)
+
+	if len(events) < 2 {
+		t.Fatalf("expected 2 aux events; got %d: %v", len(events), events)
+	}
+
+	if events[0] != VolumeDownPressed {
+		t.Errorf("aux[0]: got %v, want VolumeDownPressed", events[0])
+	}
+
+	if events[1] != VolumeDownReleased {
+		t.Errorf("aux[1]: got %v, want VolumeDownReleased", events[1])
+	}
+}
+
+func TestOpenVLMSource_VolumeUp_DuplicateLevel_NoExtraEvent(t *testing.T) {
+	mock := newMockHIDDevice()
+	mock.queueReport(makeOpenVLMReportFull(OpenVLMVolUpMask, false)) // press
+	mock.queueReport(makeOpenVLMReportFull(OpenVLMVolUpMask, false)) // still pressed → no event
+	mock.queueReport(makeOpenVLMReportFull(0x00, false))             // release
+
+	src := NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	_ = src.Events(ctx)
+
+	aux := auxSource(t, src).AuxEvents()
+	events := collectAuxEvents(aux, 400*time.Millisecond)
+
+	if len(events) != 2 {
+		t.Fatalf("expected exactly 2 aux events (no duplicate); got %d: %v", len(events), events)
+	}
+}
+
+func TestOpenVLMSource_VolumeAndPTT_EmitOnTheirOwnChannels(t *testing.T) {
+	mock := newMockHIDDevice()
+	// Press VOL+ while GPIO3 is LOW: only an aux event should fire.
+	mock.queueReport(makeOpenVLMReportFull(OpenVLMVolUpMask, false))
+	// Release VOL+ and assert PTT (GPIO3 HIGH): aux release + PTTDown.
+	mock.queueReport(makeOpenVLMReportFull(0x00, true))
+
+	src := NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	pttCh := src.Events(ctx)
+	auxCh := auxSource(t, src).AuxEvents()
+
+	pttEvents := collectPTTEvents(pttCh, 400*time.Millisecond)
+	auxEvents := collectAuxEvents(auxCh, 50*time.Millisecond) // already drained, just to flush
+
+	if len(pttEvents) < 1 || pttEvents[0] != PTTDown {
+		t.Errorf("expected PTTDown; got %v", pttEvents)
+	}
+
+	wantAux := []AuxEvent{VolumeUpPressed, VolumeUpReleased}
+
+	if len(auxEvents) != len(wantAux) {
+		t.Fatalf("expected aux events %v; got %v", wantAux, auxEvents)
+	}
+
+	for i, want := range wantAux {
+		if auxEvents[i] != want {
+			t.Errorf("aux[%d]: got %v, want %v", i, auxEvents[i], want)
+		}
+	}
+}
+
+func TestOpenVLMSource_AuxChannel_ClosedOnContextCancel(t *testing.T) {
+	mock := newMockHIDDevice()
+
+	src := NewOpenVLMSourceWithOpener(openerReturning(mock), zerolog.Nop())
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	_ = src.Events(ctx)
+
+	aux := auxSource(t, src).AuxEvents()
+
+	cancel()
+
+	select {
+	case _, ok := <-aux:
+		if ok {
+			t.Error("expected aux channel to be closed after context cancel")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Error("aux channel not closed after context cancel")
 	}
 }
 

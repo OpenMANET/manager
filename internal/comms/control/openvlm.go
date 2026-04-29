@@ -36,6 +36,13 @@ const (
 
 	// OpenVLMGPIO3Mask selects GPIO3 within IR1.
 	OpenVLMGPIO3Mask byte = 0x04
+
+	// OpenVLMVolUpMask selects the CM108B volume-up button bit in IR0.
+	// When set, the volume-up button is pressed; when clear, released.
+	OpenVLMVolUpMask byte = 0x01
+
+	// OpenVLMVolDnMask selects the CM108B volume-down button bit in IR0.
+	OpenVLMVolDnMask byte = 0x02
 )
 
 // ─── HIDDevice / HIDOpener abstractions ──────────────────────────────────────
@@ -116,26 +123,57 @@ func preferredOpenVLMSerial(descs []device.CM108Descriptor) string {
 
 // ─── OpenVLMSource ────────────────────────────────────────────────────────────
 
-// OpenVLMSource reads GPIO3 state from an OpenVLM (Open Voice Link Module) USB
-// HID audio dongle and emits PTTDown when the button is pressed and PTTUp when
-// it is released.
+// OpenVLMSource reads GPIO3 and the volume-button bits of HID_IR0 from an
+// OpenVLM (Open Voice Link Module) USB HID audio dongle. It emits PTTDown
+// when GPIO3 transitions HIGH and PTTUp when it transitions LOW; it also
+// emits AuxEvent values on its AuxEvents() channel for volume up/down
+// button transitions.
+//
+// The aux channel buffer is small (8) and sends are non-blocking — a
+// missing or slow consumer cannot stall the HID read loop.
 type OpenVLMSource struct {
 	log    zerolog.Logger
 	opener HIDOpener
+	auxCh  chan AuxEvent
 }
+
+const openvlmAuxBufSize = 8
 
 // NewOpenVLMSource constructs an OpenVLMSource backed by the real HIDAPI library.
 func NewOpenVLMSource(log zerolog.Logger) EventSource {
 	log.Info().Msgf("comms: PTT on OpenVLM HID dongle (VID=0x%04X PID=0x%04X)",
 		OpenVLMVendorID, OpenVLMProductID)
 
-	return &OpenVLMSource{log: log, opener: DefaultHIDOpener}
+	return &OpenVLMSource{
+		log:    log,
+		opener: DefaultHIDOpener,
+		auxCh:  make(chan AuxEvent, openvlmAuxBufSize),
+	}
 }
 
 // NewOpenVLMSourceWithOpener constructs an OpenVLMSource with an injectable opener.
 // Intended for unit tests only.
 func NewOpenVLMSourceWithOpener(opener HIDOpener, log zerolog.Logger) EventSource {
-	return &OpenVLMSource{log: log, opener: opener}
+	return &OpenVLMSource{
+		log:    log,
+		opener: opener,
+		auxCh:  make(chan AuxEvent, openvlmAuxBufSize),
+	}
+}
+
+// AuxEvents implements AuxEventSource. The returned channel is closed when
+// the goroutine started by Events exits (context cancel or read error).
+func (s *OpenVLMSource) AuxEvents() <-chan AuxEvent { return s.auxCh }
+
+// emitAux performs a non-blocking send to the aux channel. If no consumer
+// is attached or the buffer is full, the event is dropped with a debug log;
+// the HID read loop must never block on aux delivery.
+func (s *OpenVLMSource) emitAux(ev AuxEvent) {
+	select {
+	case s.auxCh <- ev:
+	default:
+		s.log.Debug().Msg("OpenVLM: aux event dropped (no consumer / buffer full)")
+	}
 }
 
 // Events implements EventSource.
@@ -144,6 +182,7 @@ func (s *OpenVLMSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:g
 
 	go func() {
 		defer close(ch)
+		defer close(s.auxCh)
 
 		preferredSerial := ""
 
@@ -204,6 +243,8 @@ func (s *OpenVLMSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:g
 
 		buf := make([]byte, OpenVLMReportSize)
 		prevGPIO3 := false
+		prevVolUp := false
+		prevVolDn := false
 
 		for {
 			n, readErr := dev.Read(buf)
@@ -229,10 +270,38 @@ func (s *OpenVLMSource) Events(ctx context.Context) <-chan PTTEvent { //nolint:g
 				continue
 			}
 
+			ir0 := buf[payloadStart+0]
 			ir1 := buf[payloadStart+1]
 			gpio3 := (ir1 & OpenVLMGPIO3Mask) != 0
+			volUp := (ir0 & OpenVLMVolUpMask) != 0
+			volDn := (ir0 & OpenVLMVolDnMask) != 0
 
-			s.log.Trace().Msgf("OpenVLM: IR1=0x%02X  GPIO3=%v", ir1, gpio3)
+			s.log.Trace().Msgf("OpenVLM: IR0=0x%02X IR1=0x%02X GPIO3=%v VOL+=%v VOL-=%v",
+				ir0, ir1, gpio3, volUp, volDn)
+
+			if volUp != prevVolUp {
+				if volUp {
+					s.log.Debug().Msg("OpenVLM: VOL+ pressed")
+					s.emitAux(VolumeUpPressed)
+				} else {
+					s.log.Debug().Msg("OpenVLM: VOL+ released")
+					s.emitAux(VolumeUpReleased)
+				}
+
+				prevVolUp = volUp
+			}
+
+			if volDn != prevVolDn {
+				if volDn {
+					s.log.Debug().Msg("OpenVLM: VOL- pressed")
+					s.emitAux(VolumeDownPressed)
+				} else {
+					s.log.Debug().Msg("OpenVLM: VOL- released")
+					s.emitAux(VolumeDownReleased)
+				}
+
+				prevVolDn = volDn
+			}
 
 			if gpio3 == prevGPIO3 {
 				continue

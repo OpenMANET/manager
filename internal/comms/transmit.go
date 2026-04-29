@@ -230,6 +230,10 @@ func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src control.E
 
 	events := src.Events(ctx)
 
+	if aux, ok := src.(control.AuxEventSource); ok && cfg.AuxHandler != nil {
+		go cfg.runAuxPump(ctx, aux)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -255,6 +259,27 @@ func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src control.E
 					cfg.beginTransmission(rt)
 				}
 			}
+		}
+	}
+}
+
+// runAuxPump forwards every AuxEvent received from the source into
+// cfg.AuxHandler. The pump exits when the source closes its aux channel
+// (which happens when the source's read goroutine exits — typically on
+// context cancel or HID read error).
+func (cfg *CommsConfig) runAuxPump(ctx context.Context, aux control.AuxEventSource) {
+	ch := aux.AuxEvents()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+
+			cfg.AuxHandler.Handle(ctx, ev)
 		}
 	}
 }

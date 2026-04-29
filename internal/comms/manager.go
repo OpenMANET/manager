@@ -4,8 +4,10 @@ import (
 	"context"
 	"sync"
 
-	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
+
+	"github.com/openmanet/openmanetd/internal/comms/control/alsa"
+	"github.com/openmanet/openmanetd/internal/config"
 )
 
 // CommsLifecycle defines the interface for managing comms runtime lifecycle.
@@ -70,6 +72,9 @@ func (m *CommsManager) buildCommsConfig() *CommsConfig {
 		PlaybackLatencyMs:        m.cfg.GetCommsPlaybackLatencyMs(),
 		CaptureLatencyMs:         m.cfg.GetCommsCaptureLatencyMs(),
 		CaptureFramesPerBuffer:   m.cfg.GetCommsCaptureFramesPerBuffer(),
+		AuxHandler: &alsa.Controller{
+			Log: m.logger.With().Str("subsystem", "alsa-vol").Logger(),
+		},
 	})
 }
 
