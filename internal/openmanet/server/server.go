@@ -215,9 +215,11 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		OrigProvider:      cfg.MeshOrigProvider,
 		NeighborsProvider: cfg.MeshNeighborsProvider,
 		DeltaTracker:      cfg.MeshDeltaTracker,
+		BatInterface:      cfg.Cfg.GetAlfredBatInterface(),
 	}
 	if cfg.BatctlSnapshotter != nil {
 		meshTopoSvc.ParseBatHosts = cfg.BatctlSnapshotter.ParseBatHosts
+		meshTopoSvc.GetMeshGateways = cfg.BatctlSnapshotter.GetMeshGateways
 	}
 
 	api.Handle(meshtopoconnect.NewMeshTopologyServiceHandler(meshTopoSvc, connect.WithInterceptors(validateInterceptor)))

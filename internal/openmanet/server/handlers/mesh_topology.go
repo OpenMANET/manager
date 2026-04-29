@@ -54,8 +54,16 @@ type MeshTopologyService struct {
 	NeighborsProvider batmanadv.MeshNeighborsProvider
 	DeltaTracker      *DeltaTracker
 	ParseBatHosts     func(string) (*batmanadv.BatHosts, error)
-	Now               func() time.Time
-	BatHostsPath      string
+	// GetMeshGateways returns the batman-adv gateway list (the peers
+	// announcing themselves with `gw_mode server`). Optional — a nil
+	// hook degrades to "no node is flagged as a gateway" without
+	// failing the RPC. Wired from server.go to BatctlSnapshotter.
+	GetMeshGateways func(string) (*batmanadv.Gateways, error)
+	Now             func() time.Time
+	BatHostsPath    string
+	// BatInterface is the bat0-style mesh aggregator name passed to
+	// GetMeshGateways. Defaults to "bat0" when empty.
+	BatInterface string
 }
 
 func (s *MeshTopologyService) now() time.Time {
@@ -104,8 +112,31 @@ func (s *MeshTopologyService) GetMeshTopology(ctx context.Context, _ *emptypb.Em
 		batHosts, _ = s.ParseBatHosts(s.BatHostsPath)
 	}
 
+	// Best-effort: gateway-mode peers as reported by `batctl gwj`.
+	// A failure here just leaves every node un-flagged — the RPC
+	// stays useful.
+	var gatewayMacs map[string]struct{}
+
+	if s.GetMeshGateways != nil {
+		iface := s.BatInterface
+		if iface == "" {
+			iface = "bat0"
+		}
+
+		if gws, err := s.GetMeshGateways(iface); err == nil && gws != nil {
+			gatewayMacs = make(map[string]struct{}, len(*gws))
+			for _, gw := range *gws {
+				if mac := strings.ToLower(gw.OrigAddress); mac != "" {
+					gatewayMacs[mac] = struct{}{}
+				}
+			}
+		} else if err != nil {
+			s.Log.Debug().Err(err).Msg("mesh gateway lookup failed; topology rendered without gateway flags")
+		}
+	}
+
 	now := s.now()
-	merged := mergeMeshTopology(visDoc, origSnap, batHosts, s.NeighborsProvider, now)
+	merged := mergeMeshTopology(visDoc, origSnap, batHosts, s.NeighborsProvider, gatewayMacs, now)
 	merged.CollectedAt = timestamppb.New(now)
 
 	return &meshtopov1.GetMeshTopologyResponse{Topology: merged}, nil
@@ -123,6 +154,7 @@ func mergeMeshTopology(
 	origSnap *batmanadv.OriginatorTopology,
 	batHosts *batmanadv.BatHosts,
 	neighborsProvider batmanadv.MeshNeighborsProvider,
+	gatewayMacs map[string]struct{},
 	now time.Time,
 ) *meshtopov1.MeshTopology {
 	// 1. MAC → primary index for every vis node (primary + secondaries
@@ -219,8 +251,33 @@ func mergeMeshTopology(
 	// inspector.
 	applyGossipState(nodes, gossip)
 
+	// 4b. Mark BLOS gateways. Two evidence sources are merged so the
+	// flag survives partial gossip / partial gwj availability:
+	//
+	//   - batman-adv gateway announcements (`batctl gwj`) — peers
+	//     advertising themselves with gw_mode server, the canonical
+	//     "this node carries an out-of-mesh route" signal.
+	//   - gossip-derived: any local-segment node whose published
+	//     vxlan0 neighbors include at least one remote-segment peer
+	//     is bridging to that remote, regardless of whether it has
+	//     announced gw_mode.
+	//
+	// Both sets must be folded through primaryByMac because the
+	// `batctl gwj` output uses the peer's bat-iface MAC, which is
+	// not always the canonical primary MAC the topology renders
+	// nodes under (multi-radio dedup, vis-secondary aliasing, etc.).
+	canonicalGwMacs := canonicalizeMacSet(gatewayMacs, primaryByMac)
+	gossipGwMacs := gossipBlosGateways(gossip, segmentByPrimary)
+	applyGatewayFlag(nodes, canonicalGwMacs, gossipGwMacs)
+
+	// 4c. Compute the local-side BLOS gateway for each remote anchor
+	// so buildMeshEdges can redirect self↔remote-anchor BLOS edges
+	// when a real bridging node exists. Uses gossip's BLOS adjacency
+	// from BOTH sides so the path survives one-way gossip outages.
+	localBlosGwByRemote := localBlosGatewayByRemote(gossip, segmentByPrimary, canonicalGwMacs, gossipGwMacs, selfPrimary)
+
 	// 5. Build MeshEdge list — originator-derived first, then vis neighbors.
-	edges := buildMeshEdges(visDoc, origSnap.Originators, primaryByMac, segmentByPrimary, gatewayByPrimary, selfMAC, selfPrimary, gossip, renderedPrimaries(nodes))
+	edges := buildMeshEdges(visDoc, origSnap.Originators, primaryByMac, segmentByPrimary, gatewayByPrimary, selfMAC, selfPrimary, gossip, renderedPrimaries(nodes), localBlosGwByRemote)
 
 	return &meshtopov1.MeshTopology{
 		SelfMac:        origSnap.SelfMAC,
@@ -230,6 +287,180 @@ func mergeMeshTopology(
 		Edges:          edges,
 		GossipCoverage: gossipCoverage(gossip, nodes),
 	}
+}
+
+// canonicalizeMacSet rewrites every MAC in the input set through
+// primaryByMac so the returned set keys are the same canonical
+// primaries the topology renders nodes under. Inputs not in
+// primaryByMac round-trip unchanged. Returns nil when the input is
+// empty so callers can short-circuit.
+func canonicalizeMacSet(macs map[string]struct{}, primaryByMac map[string]string) map[string]struct{} {
+	if len(macs) == 0 {
+		return nil
+	}
+
+	out := make(map[string]struct{}, len(macs))
+	for mac := range macs {
+		canonical := resolvePrimary(primaryByMac, mac)
+		if canonical == "" {
+			continue
+		}
+
+		out[canonical] = struct{}{}
+	}
+
+	return out
+}
+
+// gossipBlosGateways returns the set of local-segment primaries whose
+// gossip-published vxlan0 neighbor list contains at least one
+// remote-segment peer. That's the operational definition of a BLOS
+// gateway in this codebase: a node sitting in the local component
+// that terminates a vxlan0 tunnel toward another component. Returns
+// an empty set when gossip is absent or covers nothing.
+func gossipBlosGateways(gossip *gossipView, segmentByPrimary map[string]string) map[string]struct{} {
+	out := make(map[string]struct{})
+
+	if gossip == nil {
+		return out
+	}
+
+	for primary, blosSet := range gossip.blosByPrimary {
+		if segmentOrDefault(segmentByPrimary, primary) != segmentLocal {
+			continue
+		}
+
+		for nb := range blosSet {
+			if segmentOrDefault(segmentByPrimary, nb) == segmentRemote {
+				out[primary] = struct{}{}
+
+				break
+			}
+		}
+	}
+
+	return out
+}
+
+// applyGatewayFlag sets MeshNode.IsGateway from the union of two
+// evidence sources: gatewayMacs (`batctl gwj`) and gossipGwMacs (the
+// derived "has remote vxlan0 neighbor" set). Either alone is
+// sufficient — relying on both lets the flag survive a partial
+// outage of either source.
+func applyGatewayFlag(nodes []*meshtopov1.MeshNode, gatewayMacs, gossipGwMacs map[string]struct{}) {
+	if len(gatewayMacs) == 0 && len(gossipGwMacs) == 0 {
+		return
+	}
+
+	for _, n := range nodes {
+		mac := strings.ToLower(n.GetMac())
+		if mac == "" {
+			continue
+		}
+
+		if _, ok := gatewayMacs[mac]; ok {
+			n.IsGateway = true
+
+			continue
+		}
+
+		if _, ok := gossipGwMacs[mac]; ok {
+			n.IsGateway = true
+		}
+	}
+}
+
+// localBlosGatewayByRemote builds a remote-primary → local-gateway
+// map so seedOriginatorEdges can redirect spurious self↔remote-anchor
+// BLOS edges through the actual bridging node. The mapping prefers
+// gossip evidence from BOTH sides: pair (L, R) is recorded when L is
+// local AND R is remote AND L has R in its blosByPrimary OR R has L
+// in its blosByPrimary. Picks the highest-throughput local gateway
+// when several local nodes claim BLOS connectivity to the same remote.
+//
+// Self is never used as the local gateway here — by construction the
+// topology view already routes self↔remote-anchor edges; this map's
+// purpose is to override that with a different local node when one
+// is genuinely the bridge.
+func localBlosGatewayByRemote(
+	gossip *gossipView,
+	segmentByPrimary map[string]string,
+	gwMacs, gossipGwMacs map[string]struct{},
+	selfPrimary string,
+) map[string]string {
+	out := make(map[string]string)
+
+	if gossip == nil {
+		return out
+	}
+
+	bestMetric := make(map[string]float64)
+
+	consider := func(local, remote string, metric float64) {
+		if local == "" || remote == "" || local == selfPrimary {
+			return
+		}
+
+		if segmentOrDefault(segmentByPrimary, local) != segmentLocal {
+			return
+		}
+
+		if segmentOrDefault(segmentByPrimary, remote) != segmentRemote {
+			return
+		}
+
+		if existing, ok := out[remote]; ok && existing == local {
+			if metric > bestMetric[remote] {
+				bestMetric[remote] = metric
+			}
+
+			return
+		}
+
+		if metric < bestMetric[remote] {
+			return
+		}
+
+		out[remote] = local
+		bestMetric[remote] = metric
+	}
+
+	// L published "I have R via vxlan0".
+	for local, blosSet := range gossip.blosByPrimary {
+		for remote, metric := range blosSet {
+			consider(local, remote, metric)
+		}
+	}
+
+	// R published "I have L via vxlan0" — same pair, opposite direction.
+	for remote, blosSet := range gossip.blosByPrimary {
+		for local, metric := range blosSet {
+			consider(local, remote, metric)
+		}
+	}
+
+	// Final filter: keep only local gateways that batman-adv or gossip
+	// actually flagged as gateways. Without this guard a randomly-
+	// vxlan0-aware peer would steal the redirect from the real
+	// bridge. Falls back to "any local with a BLOS-confirmed link"
+	// when neither evidence source agrees.
+	if len(gwMacs) == 0 && len(gossipGwMacs) == 0 {
+		return out
+	}
+
+	for remote, local := range out {
+		if _, ok := gwMacs[local]; ok {
+			continue
+		}
+
+		if _, ok := gossipGwMacs[local]; ok {
+			continue
+		}
+
+		delete(out, remote)
+	}
+
+	return out
 }
 
 // applyGossipState sets the GossipStale bool and GossipAgeSeconds on
@@ -699,6 +930,12 @@ func applyOverlay(node *meshtopov1.MeshNode, entry *batmanadv.OriginatorEntry) {
 //
 // Edges whose endpoints map to nodes we didn't render are dropped so
 // the frontend never receives dangling references.
+//
+// localBlosGwByRemote redirects self↔remote-anchor BLOS edges
+// through the actual bridging node when one is known: when the
+// serving node sees a remote anchor as a "direct vxlan0 neighbor"
+// only because of the broadcast overlay, the real path is through a
+// local-segment gateway, and the UI should reflect that.
 func buildMeshEdges(
 	visDoc *batmanadv.VisDoc,
 	origs []batmanadv.OriginatorEntry,
@@ -709,10 +946,11 @@ func buildMeshEdges(
 	selfPrimary string,
 	gossip *gossipView,
 	knownPrimaries map[string]struct{},
+	localBlosGwByRemote map[string]string,
 ) []*meshtopov1.MeshEdge {
 	edgeByKey := make(map[string]*meshtopov1.MeshEdge)
 
-	seedOriginatorEdges(edgeByKey, origs, primaryByMac, segmentByPrimary, gatewayByPrimary, knownPrimaries, selfMAC, selfPrimary, gossip)
+	seedOriginatorEdges(edgeByKey, origs, primaryByMac, segmentByPrimary, gatewayByPrimary, knownPrimaries, selfMAC, selfPrimary, gossip, localBlosGwByRemote)
 	layerGossipEdges(edgeByKey, gossip, segmentByPrimary, knownPrimaries)
 	layerVisEdges(edgeByKey, visDoc, primaryByMac, segmentByPrimary, knownPrimaries)
 
@@ -759,6 +997,7 @@ func seedOriginatorEdges(
 	selfMAC string,
 	selfPrimary string,
 	gossip *gossipView,
+	localBlosGwByRemote map[string]string,
 ) {
 	for _, o := range origs {
 		fromPrimary, toPrimary, ok := originatorEdgeEndpoints(o, primaryByMac, selfMAC)
@@ -770,8 +1009,42 @@ func seedOriginatorEdges(
 			continue
 		}
 
+		// Redirect self↔remote-anchor BLOS edges through the local
+		// gateway that actually bridges to the remote, when one is
+		// known. Without this, the broadcast overlay makes every
+		// remote-segment node look like a direct vxlan0 neighbor of
+		// the serving node and the UI hides the real bridging hop.
+		fromPrimary, toPrimary = redirectThroughLocalGateway(fromPrimary, toPrimary, selfPrimary, localBlosGwByRemote)
+
 		addEdge(edgeByKey, fromPrimary, toPrimary, segmentByPrimary, knownPrimaries, 0, true)
 	}
+}
+
+// redirectThroughLocalGateway substitutes the serving node with the
+// actual local-segment BLOS gateway when an originator entry would
+// have produced a self↔remote-anchor edge. Pure no-op when neither
+// endpoint is self, when no local gateway is known for the remote
+// peer, or when the redirect would produce a self-loop.
+func redirectThroughLocalGateway(
+	from, to, selfPrimary string,
+	localBlosGwByRemote map[string]string,
+) (string, string) {
+	if selfPrimary == "" || len(localBlosGwByRemote) == 0 {
+		return from, to
+	}
+
+	switch {
+	case from == selfPrimary:
+		if gw, ok := localBlosGwByRemote[to]; ok && gw != "" && gw != to {
+			return gw, to
+		}
+	case to == selfPrimary:
+		if gw, ok := localBlosGwByRemote[from]; ok && gw != "" && gw != from {
+			return from, gw
+		}
+	}
+
+	return from, to
 }
 
 // shouldSuppressSelfPeerEdge returns true when (from, to) is a

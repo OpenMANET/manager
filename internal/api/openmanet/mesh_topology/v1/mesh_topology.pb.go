@@ -68,8 +68,17 @@ type MeshNode struct {
 	// record exists or the publisher did not timestamp the payload. Unset
 	// (0) for self, which is always current.
 	GossipAgeSeconds int32 `protobuf:"varint,11,opt,name=gossip_age_seconds,json=gossipAgeSeconds,proto3" json:"gossip_age_seconds,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// is_gateway is true when this node terminates a BLOS tunnel (vxlan0)
+	// for the rest of the mesh. Set for any peer batman-adv announces in
+	// the gateway list (`batctl gwj`) AND for any local-segment peer
+	// whose gossip reports vxlan0 neighbors that classify as remote.
+	// The UI surfaces this as a "GATEWAY" role label and uses it to
+	// anchor BLOS edges through the gateway rather than directly from
+	// the serving node when the broadcast overlay would otherwise hide
+	// the real bridging node.
+	IsGateway     bool `protobuf:"varint,12,opt,name=is_gateway,json=isGateway,proto3" json:"is_gateway,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MeshNode) Reset() {
@@ -170,6 +179,13 @@ func (x *MeshNode) GetGossipAgeSeconds() int32 {
 		return x.GossipAgeSeconds
 	}
 	return 0
+}
+
+func (x *MeshNode) GetIsGateway() bool {
+	if x != nil {
+		return x.IsGateway
+	}
+	return false
 }
 
 // MeshEdge is one link in the mesh, canonicalized so A↔B appears once
@@ -437,7 +453,7 @@ var File_openmanet_mesh_topology_v1_mesh_topology_proto protoreflect.FileDescrip
 
 const file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc = "" +
 	"\n" +
-	".openmanet/mesh_topology/v1/mesh_topology.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf1\x02\n" +
+	".openmanet/mesh_topology/v1/mesh_topology.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x90\x03\n" +
 	"\bMeshNode\x12\x10\n" +
 	"\x03mac\x18\x01 \x01(\tR\x03mac\x12%\n" +
 	"\x0esecondary_macs\x18\x02 \x03(\tR\rsecondaryMacs\x12\x1a\n" +
@@ -449,7 +465,9 @@ const file_openmanet_mesh_topology_v1_mesh_topology_proto_rawDesc = "" +
 	"\x12remote_gateway_mac\x18\t \x01(\tR\x10remoteGatewayMac\x12!\n" +
 	"\fgossip_stale\x18\n" +
 	" \x01(\bR\vgossipStale\x12,\n" +
-	"\x12gossip_age_seconds\x18\v \x01(\x05R\x10gossipAgeSecondsJ\x04\b\x05\x10\x06R\fclient_count\"\x86\x01\n" +
+	"\x12gossip_age_seconds\x18\v \x01(\x05R\x10gossipAgeSeconds\x12\x1d\n" +
+	"\n" +
+	"is_gateway\x18\f \x01(\bR\tisGatewayJ\x04\b\x05\x10\x06R\fclient_count\"\x86\x01\n" +
 	"\bMeshEdge\x12\x19\n" +
 	"\bfrom_mac\x18\x01 \x01(\tR\afromMac\x12\x15\n" +
 	"\x06to_mac\x18\x02 \x01(\tR\x05toMac\x12\x16\n" +

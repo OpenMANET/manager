@@ -726,7 +726,11 @@ const TopologyMap = React.memo(function TopologyMap({
             const kind = host.isSelf
               ? 'self'
               : isRemote ? 'remote' : 'peer';
-            const isGateway = isRemote && anchorHostIds.has(host.id);
+            // Gateway pill fires when the backend flagged the node
+            // as a BLOS gateway OR when the node is the anchor of a
+            // remote segment. Covers both "1003 bridges to remote
+            // mesh" and "Gate_04 sits at the far end of vxlan0."
+            const isGateway = Boolean(host.isGateway) || (isRemote && anchorHostIds.has(host.id));
             return (
               <HostNode
                 key={host.id}

@@ -43,19 +43,25 @@ function isRemoteSegmentId(segmentId) {
   return typeof segmentId === 'string' && segmentId.startsWith('remote');
 }
 
-// isGatewayHost marks the anchor of a remote segment — the node that
-// terminates the vxlan0 tunnel from the serving node's local mesh.
-// Derived here (rather than passed down from the renderer) because the
-// inspector isn't plumbed into the segment list; we use the same
-// remoteGatewayMac field topologyGraph copies off the wire.
+// isGatewayHost answers two related questions in one:
+//   - the anchor of a remote segment (a remote node sitting at the
+//     far end of a vxlan0 tunnel), AND
+//   - any local-segment node the backend flagged as a BLOS gateway
+//     (`is_gateway` on the wire — peers in `batctl gwj` plus any
+//     local node whose gossip reports remote vxlan0 neighbors).
+// The right-hand inspector shows the same "GATEWAY" badge in both
+// cases so operators see the bridging role wherever it lives.
 function isGatewayHost(host) {
-  if (!host || !isRemoteSegmentId(host.segmentId)) return false;
+  if (!host) return false;
+  if (host.isGateway) return true;
+  if (!isRemoteSegmentId(host.segmentId)) return false;
   const gwMac = (host.remoteGatewayMac || '').toLowerCase();
   return gwMac !== '' && gwMac === (host.primaryMac || '').toLowerCase();
 }
 
 function roleLabelForHost(host, meshData) {
-  if (host.isSelf && meshData?.status?.is_gateway) return 'SELF · GATEWAY';
+  const selfIsGateway = host.isSelf && (host.isGateway || meshData?.status?.is_gateway);
+  if (selfIsGateway) return 'SELF · GATEWAY';
   if (host.isSelf) return 'SELF';
   if (isGatewayHost(host)) return 'GATEWAY';
   return 'MESH NODE';

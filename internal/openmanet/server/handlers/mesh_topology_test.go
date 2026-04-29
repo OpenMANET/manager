@@ -1029,6 +1029,212 @@ func TestGetMeshTopology_GossipHostnameFallback(t *testing.T) {
 		"coverage reflects the hostname-matched record")
 }
 
+// TestGetMeshTopology_MarksBatctlGatewaysWithIsGateway is the
+// regression test for the user's "1003 isn't denoted as a gateway"
+// complaint. When `batctl gwj` reports a peer (1003 in this case)
+// as advertising itself with gw_mode server, the handler must set
+// MeshNode.IsGateway=true so the frontend can show the "GATEWAY"
+// role badge.
+func TestGetMeshTopology_MarksBatctlGatewaysWithIsGateway(t *testing.T) {
+	const (
+		selfMAC = "0a:d7:37:78:2d:3e"
+		gwMAC   = "32:0d:d8:c7:f0:82" // BCM2711-1003_bat0
+		peerMAC = "9c:ef:d5:f9:9e:02" // BCM2711-88ba_phy2-mesh0 (NOT a gateway)
+	)
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: selfMAC},
+			{Primary: gwMAC},
+			{Primary: peerMAC},
+		},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC: selfMAC,
+		Originators: []batmanadv.OriginatorEntry{
+			{OrigMAC: gwMAC, OrigHostname: "BCM2711-1003_bat0", NextHopMAC: gwMAC, HardIfname: "wlan0", Hops: 1},
+			{OrigMAC: peerMAC, OrigHostname: "BCM2711-88ba_phy2-mesh0", NextHopMAC: peerMAC, HardIfname: "wlan0", Hops: 1},
+		},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, nil)
+	svc.GetMeshGateways = func(_ string) (*batmanadv.Gateways, error) {
+		return &batmanadv.Gateways{
+			{OrigAddress: gwMAC, HardIfname: "wlan0", Best: true, Throughput: 100000},
+		}, nil
+	}
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	flags := map[string]bool{}
+	for _, n := range resp.GetTopology().GetNodes() {
+		flags[n.GetMac()] = n.GetIsGateway()
+	}
+
+	assert.True(t, flags[gwMAC], "1003 listed in batctl gwj must surface as IsGateway=true")
+	assert.False(t, flags[peerMAC], "88ba is not in batctl gwj and must not be flagged")
+}
+
+// TestGetMeshTopology_GossipDerivedGatewayFlag covers the second
+// evidence source: a local-segment node whose published gossip
+// reports vxlan0 neighbors that classify as remote is, by
+// definition, bridging to that remote. That alone is enough — even
+// when batctl gwj is unavailable.
+func TestGetMeshTopology_GossipDerivedGatewayFlag(t *testing.T) {
+	const (
+		selfMAC   = "aa:aa:aa:aa:aa:00"
+		gwMAC     = "bb:bb:bb:bb:bb:01" // local node bridging via vxlan0
+		remoteMAC = "cc:cc:cc:cc:cc:01" // remote anchor reached via gw
+	)
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: selfMAC},
+			{Primary: gwMAC},
+			{Primary: remoteMAC},
+		},
+	}}
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC: selfMAC,
+		Originators: []batmanadv.OriginatorEntry{
+			{OrigMAC: gwMAC, NextHopMAC: gwMAC, HardIfname: "wlan0", Hops: 1},
+			{OrigMAC: remoteMAC, NextHopMAC: gwMAC, HardIfname: "vxlan0", Hops: 2},
+		},
+	}}
+
+	now := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	collected := now.Add(-3 * time.Second)
+
+	// gw publishes "I have remote on vxlan0" — that's the BLOS
+	// bridging signal.
+	gwPayload := &netv1.MeshNeighbors{
+		PrimaryMac:  gwMAC,
+		Hostname:    "gw",
+		CollectedAt: timestamppb.New(collected),
+		Neighbors: []*netv1.MeshNeighbor{
+			{Mac: selfMAC, HardIfname: "wlan0", ThroughputKbps: 50000},
+			{Mac: remoteMAC, HardIfname: "vxlan0", Blos: true, ThroughputKbps: 20000},
+		},
+	}
+	remotePayload := &netv1.MeshNeighbors{
+		PrimaryMac:  remoteMAC,
+		Hostname:    "remote",
+		CollectedAt: timestamppb.New(collected),
+		Neighbors: []*netv1.MeshNeighbor{
+			{Mac: gwMAC, HardIfname: "vxlan0", Blos: true, ThroughputKbps: 20000},
+		},
+	}
+	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
+		gwMAC:     {Payload: gwPayload, SourceMac: gwMAC},
+		remoteMAC: {Payload: remotePayload, SourceMac: remoteMAC},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, func() time.Time { return now })
+	svc.NeighborsProvider = neighbors
+	// No GetMeshGateways wired — gossip must be sufficient.
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	byMac := map[string]*meshtopov1.MeshNode{}
+	for _, n := range resp.GetTopology().GetNodes() {
+		byMac[n.GetMac()] = n
+	}
+
+	require.NotNil(t, byMac[gwMAC])
+	assert.True(t, byMac[gwMAC].GetIsGateway(),
+		"local node with gossip-confirmed vxlan0 link to a remote must be flagged IsGateway")
+}
+
+// TestGetMeshTopology_RedirectsBlosEdgeThroughLocalGateway is the
+// regression test for the user's "BLOS edge from 1003 to Gate_04_27
+// not shown" complaint. When the serving node's originator table
+// would have produced a self↔remote-anchor BLOS edge (because the
+// vxlan0 broadcast overlay made the remote look like a direct
+// neighbor), the handler must redirect the edge through the actual
+// local-segment gateway.
+func TestGetMeshTopology_RedirectsBlosEdgeThroughLocalGateway(t *testing.T) {
+	const (
+		selfMAC   = "aa:aa:aa:aa:aa:00"
+		gwMAC     = "bb:bb:bb:bb:bb:01" // local gateway
+		remoteMAC = "cc:cc:cc:cc:cc:01" // remote anchor
+	)
+
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: selfMAC},
+			{Primary: gwMAC},
+			{Primary: remoteMAC},
+		},
+	}}
+	// The serving node sees the remote as a "direct vxlan0 neighbor"
+	// (broadcast overlay). Without redirect, this would emit a
+	// self↔remote BLOS edge.
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC: selfMAC,
+		Originators: []batmanadv.OriginatorEntry{
+			{OrigMAC: gwMAC, NextHopMAC: gwMAC, HardIfname: "wlan0", Hops: 1},
+			{OrigMAC: remoteMAC, NextHopMAC: remoteMAC, HardIfname: "vxlan0", Hops: 1},
+		},
+	}}
+
+	now := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	collected := now.Add(-3 * time.Second)
+
+	gwPayload := &netv1.MeshNeighbors{
+		PrimaryMac:  gwMAC,
+		CollectedAt: timestamppb.New(collected),
+		Neighbors: []*netv1.MeshNeighbor{
+			{Mac: selfMAC, HardIfname: "wlan0", ThroughputKbps: 50000},
+			{Mac: remoteMAC, HardIfname: "vxlan0", Blos: true, ThroughputKbps: 30000},
+		},
+	}
+	remotePayload := &netv1.MeshNeighbors{
+		PrimaryMac:  remoteMAC,
+		CollectedAt: timestamppb.New(collected),
+		Neighbors: []*netv1.MeshNeighbor{
+			{Mac: gwMAC, HardIfname: "vxlan0", Blos: true, ThroughputKbps: 30000},
+		},
+	}
+	neighbors := &fakeNeighborsProvider{records: map[string]*batmanadv.MeshNeighborsRecord{
+		gwMAC:     {Payload: gwPayload, SourceMac: gwMAC},
+		remoteMAC: {Payload: remotePayload, SourceMac: remoteMAC},
+	}}
+
+	svc := newMeshTopologyService(vis, orig, func() time.Time { return now })
+	svc.NeighborsProvider = neighbors
+	svc.GetMeshGateways = func(_ string) (*batmanadv.Gateways, error) {
+		return &batmanadv.Gateways{{OrigAddress: gwMAC, Best: true}}, nil
+	}
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	// Find any BLOS edge involving the remote anchor.
+	var blosEndpoints [][2]string
+
+	for _, e := range resp.GetTopology().GetEdges() {
+		if !e.GetBlos() {
+			continue
+		}
+
+		if e.GetFromMac() == remoteMAC || e.GetToMac() == remoteMAC {
+			blosEndpoints = append(blosEndpoints, [2]string{e.GetFromMac(), e.GetToMac()})
+		}
+	}
+
+	require.NotEmpty(t, blosEndpoints, "remote anchor must have at least one BLOS edge")
+
+	for _, pair := range blosEndpoints {
+		assert.NotEqual(t, selfMAC, pair[0], "BLOS edge endpoints must not be self when a local gateway exists; got %v", pair)
+		assert.NotEqual(t, selfMAC, pair[1], "BLOS edge endpoints must not be self when a local gateway exists; got %v", pair)
+
+		assert.True(t, pair[0] == gwMAC || pair[1] == gwMAC,
+			"BLOS edge to remote must touch the local gateway %s; got %v", gwMAC, pair)
+	}
+}
+
 // TestGetMeshTopology_StripsRealBatHostsSuffixes is the regression
 // test for the hostname-display + gossip-coverage breakage that
 // happened when stripIfaceSuffix was made too narrow. The bat-hosts

@@ -118,6 +118,7 @@ export function buildTopologyView(topology) {
       remoteGatewayMac,
       hops: Number.isFinite(n.hopsFromSelf) ? n.hopsFromSelf : HOPS_UNKNOWN,
       isSelf: Boolean(n.isSelf),
+      isGateway: Boolean(n.isGateway),
       myHardIfname: n.myHardIfname || '',
       secondaryMacs: n.secondaryMacs || [],
       gossipStale: Boolean(n.gossipStale),

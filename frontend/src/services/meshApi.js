@@ -152,6 +152,7 @@ export async function fetchMeshTopology() {
         hopsFromSelf: n.hopsFromSelf ?? 0,
         myHardIfname: n.myHardIfname ?? '',
         isSelf: n.isSelf ?? false,
+        isGateway: n.isGateway ?? false,
         gossipStale: n.gossipStale ?? false,
         gossipAgeSeconds: Number.isFinite(n.gossipAgeSeconds) ? n.gossipAgeSeconds : -1,
       })),
