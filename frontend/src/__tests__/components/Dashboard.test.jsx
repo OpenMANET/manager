@@ -10,11 +10,13 @@ import { render, screen, waitFor, cleanup } from '@testing-library/react';
 const {
   mockGetDashboardStatus,
   mockGetGNSSStatus,
+  mockGetBLOSStatus,
   mockListBLOSPeers,
   mockListNetworkInterfaces,
 } = vi.hoisted(() => ({
   mockGetDashboardStatus: vi.fn(),
   mockGetGNSSStatus: vi.fn(),
+  mockGetBLOSStatus: vi.fn(),
   mockListBLOSPeers: vi.fn(),
   mockListNetworkInterfaces: vi.fn(),
 }));
@@ -25,6 +27,7 @@ vi.mock('@connectrpc/connect', () => ({
     // calls need to be populated.
     getDashboardStatus: mockGetDashboardStatus,
     getGNSSStatus: mockGetGNSSStatus,
+    getBLOSStatus: mockGetBLOSStatus,
     listBLOSPeers: mockListBLOSPeers,
     listNetworkInterfaces: mockListNetworkInterfaces,
   }),
@@ -71,6 +74,7 @@ beforeEach(() => {
     position: { fixType: 1 },
     satelliteStatus: { satellitesUsed: 0, satellitesInView: 0, satellites: [] },
   });
+  mockGetBLOSStatus.mockResolvedValue({ blosEnabled: true });
   mockListBLOSPeers.mockResolvedValue({ peers: [] });
   mockListNetworkInterfaces.mockResolvedValue({ interfaces: [] });
 });
@@ -81,6 +85,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   mockGetDashboardStatus.mockReset();
   mockGetGNSSStatus.mockReset();
+  mockGetBLOSStatus.mockReset();
   mockListBLOSPeers.mockReset();
   mockListNetworkInterfaces.mockReset();
 });
@@ -223,6 +228,16 @@ describe('TestDashboardChrome', () => {
       .map((b) => b.textContent.trim());
     expect(toolbarBtns).not.toContain('CUSTOMIZE');
     expect(toolbarBtns).not.toContain('EXPORT');
+  });
+
+  it('hides the BLOS chip when BLOS is disabled', async () => {
+    mockGetBLOSStatus.mockResolvedValue({ blosEnabled: false });
+    mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse());
+    const { container } = render(<DashboardPage />);
+    await waitFor(() => screen.getByText('◇ Dashboard'));
+
+    const chips = [...container.querySelectorAll('.lat-chip')].map((c) => c.textContent.trim());
+    expect(chips.some((c) => /BLOS/.test(c))).toBe(false);
   });
 
   it('does not render a PTT Latency card (PTT lives on Comms)', async () => {

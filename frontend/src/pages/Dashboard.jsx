@@ -308,6 +308,7 @@ export default function DashboardPage() {
   // shows a stale peer count.
   const blos = useBLOSStatus(CHIP_POLL_MS);
   const blosPeers = blos?.peers?.length ?? 0;
+  const blosEnabled = blos?.status?.blosEnabled ?? false;
   // Shared with SettingsNetwork — the kernel-classified interface list
   // shows every interface (incl. wlan AP + halow mesh) with its real
   // role instead of only the curated WAN/LAN/MESH/BAT/Tailscale rollup.
@@ -554,9 +555,11 @@ export default function DashboardPage() {
           <span className={`lat-chip ${gpsFix ? 'ok' : 'warn'}`}>
             <span className="dot" /> GPS {gpsFix ? `LOCK · ${gpsSats} SATS` : 'NO FIX'}
           </span>
-          <span className={`lat-chip ${blosPeers > 0 ? 'ok' : 'warn'}`}>
-            <span className="dot" /> BLOS · {blosPeers} PEERS
-          </span>
+          {blosEnabled && (
+            <span className={`lat-chip ${blosPeers > 0 ? 'ok' : 'warn'}`}>
+              <span className="dot" /> BLOS · {blosPeers} PEERS
+            </span>
+          )}
           <span className="dash-clock">{clockLocal(new Date(now))}</span>
         </div>
       </div>
