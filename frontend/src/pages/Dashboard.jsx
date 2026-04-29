@@ -450,6 +450,43 @@ export default function DashboardPage() {
     [meshData, peerRows, delta],
   );
 
+  // Acked alert texts. ACK ALL snapshots the currently-visible non-OK
+  // alert texts; alerts whose text matches stay hidden. When the
+  // underlying condition clears (text disappears from the live set) the
+  // ack auto-expires, so the same condition re-occurring later re-fires
+  // the alert. OK-level entries (MESH UP, MESH HEALED) are status
+  // indicators and are never ack-able.
+  const [ackedAlerts, setAckedAlerts] = useState(() => new Set());
+
+  useEffect(() => {
+    setAckedAlerts((prev) => {
+      if (prev.size === 0) return prev;
+      const live = new Set(alerts.map((a) => a.text));
+      const next = new Set();
+      for (const t of prev) {
+        if (live.has(t)) next.add(t);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [alerts]);
+
+  const visibleAlerts = useMemo(
+    () => alerts.filter((a) => a.level === 'ok' || !ackedAlerts.has(a.text)),
+    [alerts, ackedAlerts],
+  );
+
+  const ackableCount = visibleAlerts.filter((a) => a.level !== 'ok').length;
+
+  const handleAckAll = useCallback(() => {
+    setAckedAlerts((prev) => {
+      const next = new Set(prev);
+      for (const a of alerts) {
+        if (a.level !== 'ok') next.add(a.text);
+      }
+      return next;
+    });
+  }, [alerts]);
+
   // Hide loopback from the network panel — it adds noise on every device
   // and never carries operator-relevant state. Sort UP-first then by name
   // so the panel's first rows are the live links.
@@ -598,12 +635,22 @@ export default function DashboardPage() {
           <div className="panel-head">
             <h3>Alerts · Active</h3>
             <div className="actions">
-              {/* TODO: wire alert ack */}
-              <button type="button">ACK ALL</button>
+              <button
+                type="button"
+                onClick={handleAckAll}
+                disabled={ackableCount === 0}
+              >
+                ACK ALL
+              </button>
             </div>
           </div>
-          {alerts.map((a, i) => (
-            <div key={i} className={`lat-alert ${a.level}`}>{a.text}</div>
+          {visibleAlerts.length === 0 && (
+            <div className="lat-alert ok">NO ACTIVE ALERTS</div>
+          )}
+          {visibleAlerts.map((a) => (
+            <div key={`${a.level}:${a.text}`} className={`lat-alert ${a.level}`}>
+              {a.text}
+            </div>
           ))}
         </div>
 

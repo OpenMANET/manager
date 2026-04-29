@@ -56,7 +56,8 @@
       "Bash(grep -E \"\\\\.\\(go\\)$\")",
       "Read(//home/vscode/.claude/plans/**)",
       "Bash(git -C /workspaces/openmanetd submodule status)",
-      "Bash(git -C /workspaces/openmanetd/proto status --short)"
+      "Bash(git -C /workspaces/openmanetd/proto status --short)",
+      "Bash(xargs -I {} basename {})"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"
