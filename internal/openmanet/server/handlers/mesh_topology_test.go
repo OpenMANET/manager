@@ -1029,6 +1029,83 @@ func TestGetMeshTopology_GossipHostnameFallback(t *testing.T) {
 		"coverage reflects the hostname-matched record")
 }
 
+// TestGetMeshTopology_StripsRealBatHostsSuffixes is the regression
+// test for the hostname-display + gossip-coverage breakage that
+// happened when stripIfaceSuffix was made too narrow. The bat-hosts
+// fixture (testfixtures/batman-adv/bat-hosts) is the source of truth
+// for the suffix shapes that appear in the field — phy0-mesh0,
+// phy2-mesh0, br-ahwlan, wlan-10-04, mesh0, vxlan0, bat0. Every
+// node.Hostname rendered by the handler must come out the way
+// `shortHostname` expects: base name only, no iface suffix.
+//
+// This also indirectly covers the gossip-coverage path: receivers
+// that strip these suffixes correctly will index records by the same
+// stripped hostname old publishers wrote on the wire, so
+// LookupByHostname keeps bridging the MAC mismatch on un-upgraded
+// fleets.
+func TestGetMeshTopology_StripsRealBatHostsSuffixes(t *testing.T) {
+	const selfMAC = "0a:d7:37:78:2d:3e" // matches fixture's BCM2711-97d6_bat0
+
+	// vis carries the same MAC space the handler will look up against.
+	vis := &fakeVisProvider{doc: &batmanadv.VisDoc{
+		Vis: []batmanadv.VisNode{
+			{Primary: selfMAC},
+			{Primary: "9c:ef:d5:f9:9e:02"}, // BCM2711-88ba_phy2-mesh0
+			{Primary: "00:0a:52:0b:7d:ae"}, // BCM2711-1003_phy1-mesh0
+			{Primary: "00:c0:ca:b6:5c:58"}, // HaLow-R-b65c57_mesh0
+			{Primary: "2c:cf:67:b8:88:bb"}, // BLOS-GW1_vxlan0
+		},
+	}}
+
+	// Originator entries carry OrigHostname directly from bat-hosts —
+	// the receiver doesn't reach into the bat-hosts file again.
+	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
+		SelfMAC:      selfMAC,
+		SelfHostname: "BCM2711-97d6", // already stripped by deriveSelfHostname
+		Originators: []batmanadv.OriginatorEntry{
+			{
+				OrigMAC: "9c:ef:d5:f9:9e:02", OrigHostname: "BCM2711-88ba_phy2-mesh0",
+				NextHopMAC: "9c:ef:d5:f9:9e:02", HardIfname: "phy2-mesh0", Hops: 1,
+			},
+			{
+				OrigMAC: "00:0a:52:0b:7d:ae", OrigHostname: "BCM2711-1003_phy1-mesh0",
+				NextHopMAC: "9c:ef:d5:f9:9e:02", HardIfname: "phy2-mesh0", Hops: 2,
+			},
+			{
+				OrigMAC: "00:c0:ca:b6:5c:58", OrigHostname: "HaLow-R-b65c57_mesh0",
+				NextHopMAC: "00:c0:ca:b6:5c:58", HardIfname: "phy0-mesh0", Hops: 1,
+			},
+			{
+				OrigMAC: "2c:cf:67:b8:88:bb", OrigHostname: "BLOS-GW1_vxlan0",
+				NextHopMAC: "2c:cf:67:b8:88:bb", HardIfname: "vxlan0", Hops: 1,
+			},
+		},
+	}}
+
+	now := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	svc := newMeshTopologyService(vis, orig, func() time.Time { return now })
+
+	resp, err := svc.GetMeshTopology(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	hostByMac := map[string]string{}
+	for _, n := range resp.GetTopology().GetNodes() {
+		hostByMac[n.GetMac()] = n.GetHostname()
+	}
+
+	want := map[string]string{
+		"9c:ef:d5:f9:9e:02": "BCM2711-88ba",
+		"00:0a:52:0b:7d:ae": "BCM2711-1003",
+		"00:c0:ca:b6:5c:58": "HaLow-R-b65c57",
+		"2c:cf:67:b8:88:bb": "BLOS-GW1",
+	}
+	for mac, expected := range want {
+		assert.Equal(t, expected, hostByMac[mac],
+			"node %s should render with bat-hosts iface suffix stripped (was %q)",
+			mac, hostByMac[mac])
+	}
+}
+
 // TestGetMeshTopology_GossipInterfaceMacBridgesBLOSMultiMesh is the
 // regression test for the production bug behind this changeset: a
 // remote BLOS gateway is observed by the local mesh's batadv-vis under

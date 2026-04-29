@@ -18,12 +18,19 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// ifaceSuffixRe matches a trailing "_<iface>" token where the suffix
-// looks like a Linux network interface name. Compiled once per the
-// performance rules. Anything not matching this pattern is preserved —
-// so a legitimate hostname like "Gate_04_27" is left alone, while
-// "BCM2711-97d6_bat0" still strips down to "BCM2711-97d6".
-var ifaceSuffixRe = regexp.MustCompile(`_(bat|wlan|eth|vxlan|br|tun|tap|wg|usb)\d*$`)
+// ifaceSuffixRe matches a trailing "_<iface>" token whose first
+// character is a lowercase letter — the structural fingerprint of
+// every Linux network interface name OpenMANET nodes carry on the
+// wire (bat0, wlan0, eth0, vxlan0, phy2-mesh0, br-ahwlan,
+// wlan-10-04, mesh0, etc.). The character class allows letters,
+// digits, dashes, AND underscores so a hostname carrying a chain of
+// suffixes ("BCM2711-88ba_phy2-mesh0_bat0") is consumed in a single
+// match. Anything starting with a digit ("_27") or uppercase letter
+// ("_BACKUP") is preserved — that's the rule that keeps legitimate
+// underscored hostnames like "Gate_04_27" intact. Compiled once per
+// the performance rules. Kept in lockstep with the duplicate in
+// internal/openmanet/server/handlers/mesh_topology.go.
+var ifaceSuffixRe = regexp.MustCompile(`_[a-z][a-z0-9_-]*$`)
 
 // blosIfname identifies the BLOS tunnel interface. Duplicated from the
 // mesh_topology handler so this package doesn't import it; the value is

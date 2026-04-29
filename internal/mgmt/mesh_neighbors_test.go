@@ -113,25 +113,41 @@ func TestMeshNeighborsWorker_SendOncePublishesExpectedPayload(t *testing.T) {
 		got.GetInterfaceMacs())
 }
 
-// TestStripIfaceSuffix asserts the regex preserves hostnames whose
-// trailing token is not a recognized interface name (Gate_04_27, the
-// production bug) and still strips well-known iface suffixes.
+// TestStripIfaceSuffix exercises the regex against every bat-hosts
+// suffix shape that appears in testfixtures/batman-adv/bat-hosts plus
+// the regression cases (Gate_04_27 must survive, the chained
+// "_phy2-mesh0_bat0" must collapse in one match).
 func TestStripIfaceSuffix(t *testing.T) {
 	cases := []struct {
 		in   string
 		want string
 	}{
+		// Canonical iface suffixes from the production bat-hosts.
 		{"BCM2711-97d6_bat0", "BCM2711-97d6"},
-		{"node_wlan0", "node"},
-		{"node_eth0", "node"},
-		{"node_vxlan0", "node"},
+		{"BCM2711-97d6_wlan0", "BCM2711-97d6"},
+		{"BCM2711-97d6_phy2-mesh0", "BCM2711-97d6"},
+		{"BCM2711-97d6_eth0", "BCM2711-97d6"},
+		{"BCM2711-97d6_wlan-97-d9", "BCM2711-97d6"},
+		{"BCM2711-88ba_br-ahwlan", "BCM2711-88ba"},
+		{"BCM2711-1003_wlan-10-04", "BCM2711-1003"},
+		{"BCM2711-1003_phy1-mesh0", "BCM2711-1003"},
+		{"HaLow-R-b65c57_phy0-mesh0", "HaLow-R-b65c57"},
+		{"HaLow-R-b65c57_mesh0", "HaLow-R-b65c57"},
+		{"BLOS-GW1_vxlan0", "BLOS-GW1"},
+		{"Remote-Node1_vxlan0", "Remote-Node1"},
+		// Chained suffix — single match consumes both because `_` is in
+		// the iface character class.
+		{"BCM2711-88ba_phy2-mesh0_bat0", "BCM2711-88ba"},
+		// Legitimate underscored hostnames must survive.
 		{"Gate_04_27", "Gate_04_27"},
 		{"Gate_04", "Gate_04"},
+		// Uppercase and digit-starting suffixes are not iface names.
+		{"node_BACKUP", "node_BACKUP"},
+		{"node_27", "node_27"},
+		// Degenerate inputs.
 		{"plain", "plain"},
 		{"", ""},
 		{"_bat0", "_bat0"},
-		{"node_wg0", "node"},
-		{"node_unknown", "node_unknown"},
 	}
 	for _, tc := range cases {
 		assert.Equal(t, tc.want, stripIfaceSuffix(tc.in), "stripIfaceSuffix(%q)", tc.in)
