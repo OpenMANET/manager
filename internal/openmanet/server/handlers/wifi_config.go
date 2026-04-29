@@ -285,6 +285,11 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 
 	if mode := ProtoToWifiMode(settings.GetMode()); mode != "" {
 		ifaceCfg.Mode = mode
+		if mode == uciModeMesh {
+			// batman-adv handles mesh forwarding; disable 802.11s
+			// in-kernel forwarding so frames are not double-forwarded.
+			ifaceCfg.MeshFwding = "0"
+		}
 	}
 
 	if settings.Disabled != nil {

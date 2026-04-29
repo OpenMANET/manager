@@ -1540,6 +1540,63 @@ func TestUpdateRadioSettings_UnspecifiedModeSkipped(t *testing.T) {
 	}
 }
 
+func TestUpdateRadioSettings_MeshModeSetsMeshFwdingZero(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "test-mesh",
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	vals, ok := reader.Get("wireless", "default_radio2", "mesh_fwding")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected mesh_fwding to be set on the wifi-iface")
+	}
+
+	if vals[0] != "0" {
+		t.Errorf("mesh_fwding: got %q, want %q", vals[0], "0")
+	}
+}
+
+func TestUpdateRadioSettings_NonMeshModeLeavesMeshFwdingAlone(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "test-ap",
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_AP,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	if vals, ok := reader.Get("wireless", "default_radio2", "mesh_fwding"); ok {
+		t.Errorf("expected mesh_fwding not to be written for AP mode, got %v", vals)
+	}
+}
+
 func TestWifiModeRoundTrip(t *testing.T) {
 	tests := []struct {
 		uci  string
