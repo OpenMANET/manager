@@ -59,6 +59,7 @@ func (m *Satellite) CloneVT() *Satellite {
 	r.Azimuth = m.Azimuth
 	r.Snr = m.Snr
 	r.Used = m.Used
+	r.Constellation = m.Constellation
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -269,6 +270,9 @@ func (this *Satellite) EqualVT(that *Satellite) bool {
 		return false
 	}
 	if this.Used != that.Used {
+		return false
+	}
+	if this.Constellation != that.Constellation {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -574,6 +578,11 @@ func (m *Satellite) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.Constellation != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Constellation))
+		i--
+		dAtA[i] = 0x30
 	}
 	if m.Used {
 		i--
@@ -1108,6 +1117,11 @@ func (m *Satellite) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.Constellation != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Constellation))
+		i--
+		dAtA[i] = 0x30
+	}
 	if m.Used {
 		i--
 		if m.Used {
@@ -1580,6 +1594,9 @@ func (m *Satellite) SizeVT() (n int) {
 	if m.Used {
 		n += 2
 	}
+	if m.Constellation != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.Constellation))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -1998,6 +2015,25 @@ func (m *Satellite) UnmarshalVT(dAtA []byte) error {
 				}
 			}
 			m.Used = bool(v != 0)
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Constellation", wireType)
+			}
+			m.Constellation = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Constellation |= Constellation(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -3130,6 +3166,25 @@ func (m *Satellite) UnmarshalVTUnsafe(dAtA []byte) error {
 				}
 			}
 			m.Used = bool(v != 0)
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Constellation", wireType)
+			}
+			m.Constellation = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Constellation |= Constellation(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

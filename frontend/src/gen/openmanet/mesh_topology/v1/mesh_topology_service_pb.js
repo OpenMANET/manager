@@ -5,6 +5,10 @@
 
 import { Duration, proto3 } from "@bufbuild/protobuf";
 import { MeshTopology } from "./mesh_topology_pb.js";
+import { ServiceStatus } from "../../service/v1/status_pb.js";
+import { Node } from "../../network/v1/node_pb.js";
+import { MeshNeighbor } from "../../service/v1/mesh_pb.js";
+import { WirelessInterface } from "../../service/v1/interface_pb.js";
 
 /**
  * GetMeshTopologyResponse carries a single mesh-topology snapshot.
@@ -29,6 +33,24 @@ export const GetMeshTopologyDeltaRequest = /*@__PURE__*/ proto3.makeMessageType(
   "openmanet.mesh_topology.v1.GetMeshTopologyDeltaRequest",
   () => [
     { no: 1, name: "window", kind: "message", T: Duration },
+  ],
+);
+
+/**
+ * GetMeshSnapshotResponse bundles the per-tick mesh-status sections into
+ * a single round trip. Any section may be unset/empty if its underlying
+ * data source failed; the RPC's error value will be non-nil in that case
+ * even when the response is partially populated.
+ *
+ * @generated from message openmanet.mesh_topology.v1.GetMeshSnapshotResponse
+ */
+export const GetMeshSnapshotResponse = /*@__PURE__*/ proto3.makeMessageType(
+  "openmanet.mesh_topology.v1.GetMeshSnapshotResponse",
+  () => [
+    { no: 1, name: "status", kind: "message", T: ServiceStatus },
+    { no: 2, name: "nodes", kind: "message", T: Node, repeated: true },
+    { no: 3, name: "neighbors", kind: "message", T: MeshNeighbor, repeated: true },
+    { no: 4, name: "interfaces", kind: "message", T: WirelessInterface, repeated: true },
   ],
 );
 

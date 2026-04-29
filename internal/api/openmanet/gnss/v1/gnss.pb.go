@@ -83,6 +83,76 @@ func (FixType) EnumDescriptor() ([]byte, []int) {
 	return file_openmanet_gnss_v1_gnss_proto_rawDescGZIP(), []int{0}
 }
 
+// Constellation identifies the GNSS satellite system that emitted a signal.
+// Values match gpsd's gnssid encoding; UNSPECIFIED is reported for any
+// constellation the daemon could not identify.
+type Constellation int32
+
+const (
+	Constellation_CONSTELLATION_UNSPECIFIED Constellation = 0
+	Constellation_CONSTELLATION_GPS         Constellation = 1
+	Constellation_CONSTELLATION_SBAS        Constellation = 2
+	Constellation_CONSTELLATION_GALILEO     Constellation = 3
+	Constellation_CONSTELLATION_BEIDOU      Constellation = 4
+	Constellation_CONSTELLATION_IMES        Constellation = 5
+	Constellation_CONSTELLATION_QZSS        Constellation = 6
+	Constellation_CONSTELLATION_GLONASS     Constellation = 7
+	Constellation_CONSTELLATION_IRNSS       Constellation = 8
+)
+
+// Enum value maps for Constellation.
+var (
+	Constellation_name = map[int32]string{
+		0: "CONSTELLATION_UNSPECIFIED",
+		1: "CONSTELLATION_GPS",
+		2: "CONSTELLATION_SBAS",
+		3: "CONSTELLATION_GALILEO",
+		4: "CONSTELLATION_BEIDOU",
+		5: "CONSTELLATION_IMES",
+		6: "CONSTELLATION_QZSS",
+		7: "CONSTELLATION_GLONASS",
+		8: "CONSTELLATION_IRNSS",
+	}
+	Constellation_value = map[string]int32{
+		"CONSTELLATION_UNSPECIFIED": 0,
+		"CONSTELLATION_GPS":         1,
+		"CONSTELLATION_SBAS":        2,
+		"CONSTELLATION_GALILEO":     3,
+		"CONSTELLATION_BEIDOU":      4,
+		"CONSTELLATION_IMES":        5,
+		"CONSTELLATION_QZSS":        6,
+		"CONSTELLATION_GLONASS":     7,
+		"CONSTELLATION_IRNSS":       8,
+	}
+)
+
+func (x Constellation) Enum() *Constellation {
+	p := new(Constellation)
+	*p = x
+	return p
+}
+
+func (x Constellation) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Constellation) Descriptor() protoreflect.EnumDescriptor {
+	return file_openmanet_gnss_v1_gnss_proto_enumTypes[1].Descriptor()
+}
+
+func (Constellation) Type() protoreflect.EnumType {
+	return &file_openmanet_gnss_v1_gnss_proto_enumTypes[1]
+}
+
+func (x Constellation) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Constellation.Descriptor instead.
+func (Constellation) EnumDescriptor() ([]byte, []int) {
+	return file_openmanet_gnss_v1_gnss_proto_rawDescGZIP(), []int{1}
+}
+
 // Position holds the current GPS position, motion vector, and accuracy
 // metrics as reported by the GNSS receiver.
 type Position struct {
@@ -232,7 +302,11 @@ type Satellite struct {
 	Snr float64 `protobuf:"fixed64,4,opt,name=snr,proto3" json:"snr,omitempty"`
 	// used indicates whether this satellite is currently included in the
 	// receiver's navigation solution.
-	Used          bool `protobuf:"varint,5,opt,name=used,proto3" json:"used,omitempty"`
+	Used bool `protobuf:"varint,5,opt,name=used,proto3" json:"used,omitempty"`
+	// constellation identifies the GNSS system this satellite belongs to.
+	// CONSTELLATION_UNSPECIFIED is emitted by older receivers or by gpsd
+	// builds that do not propagate the gnssid field.
+	Constellation Constellation `protobuf:"varint,6,opt,name=constellation,proto3,enum=openmanet.gnss.v1.Constellation" json:"constellation,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -300,6 +374,13 @@ func (x *Satellite) GetUsed() bool {
 		return x.Used
 	}
 	return false
+}
+
+func (x *Satellite) GetConstellation() Constellation {
+	if x != nil {
+		return x.Constellation
+	}
+	return Constellation_CONSTELLATION_UNSPECIFIED
 }
 
 // SatelliteStatus provides an overview of the GNSS satellite constellation
@@ -744,13 +825,14 @@ const file_openmanet_gnss_v1_gnss_proto_rawDesc = "" +
 	"\x04pdop\x18\a \x01(\x01R\x04pdop\x12\x12\n" +
 	"\x04hdop\x18\b \x01(\x01R\x04hdop\x12;\n" +
 	"\vlast_update\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"lastUpdate\"{\n" +
+	"lastUpdate\"\xc3\x01\n" +
 	"\tSatellite\x12\x10\n" +
 	"\x03prn\x18\x01 \x01(\x05R\x03prn\x12\x1c\n" +
 	"\televation\x18\x02 \x01(\x01R\televation\x12\x18\n" +
 	"\aazimuth\x18\x03 \x01(\x01R\aazimuth\x12\x10\n" +
 	"\x03snr\x18\x04 \x01(\x01R\x03snr\x12\x12\n" +
-	"\x04used\x18\x05 \x01(\bR\x04used\"\xe3\x01\n" +
+	"\x04used\x18\x05 \x01(\bR\x04used\x12F\n" +
+	"\rconstellation\x18\x06 \x01(\x0e2 .openmanet.gnss.v1.ConstellationR\rconstellation\"\xe3\x01\n" +
 	"\x0fSatelliteStatus\x12'\n" +
 	"\x0fsatellites_used\x18\x01 \x01(\x05R\x0esatellitesUsed\x12,\n" +
 	"\x12satellites_in_view\x18\x02 \x01(\x05R\x10satellitesInView\x12<\n" +
@@ -785,7 +867,17 @@ const file_openmanet_gnss_v1_gnss_proto_rawDesc = "" +
 	"\x14FIX_TYPE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fFIX_TYPE_NO_FIX\x10\x01\x12\x0f\n" +
 	"\vFIX_TYPE_2D\x10\x02\x12\x0f\n" +
-	"\vFIX_TYPE_3D\x10\x03B\xcf\x01\n" +
+	"\vFIX_TYPE_3D\x10\x03*\xf6\x01\n" +
+	"\rConstellation\x12\x1d\n" +
+	"\x19CONSTELLATION_UNSPECIFIED\x10\x00\x12\x15\n" +
+	"\x11CONSTELLATION_GPS\x10\x01\x12\x16\n" +
+	"\x12CONSTELLATION_SBAS\x10\x02\x12\x19\n" +
+	"\x15CONSTELLATION_GALILEO\x10\x03\x12\x18\n" +
+	"\x14CONSTELLATION_BEIDOU\x10\x04\x12\x16\n" +
+	"\x12CONSTELLATION_IMES\x10\x05\x12\x16\n" +
+	"\x12CONSTELLATION_QZSS\x10\x06\x12\x19\n" +
+	"\x15CONSTELLATION_GLONASS\x10\a\x12\x17\n" +
+	"\x13CONSTELLATION_IRNSS\x10\bB\xcf\x01\n" +
 	"\x15com.openmanet.gnss.v1B\tGnssProtoP\x01ZEgithub.com/openmanet/openmanetd/internal/api/openmanet/gnss/v1;gnssv1\xa2\x02\x03OGX\xaa\x02\x11Openmanet.Gnss.V1\xca\x02\x11Openmanet\\Gnss\\V1\xe2\x02\x1dOpenmanet\\Gnss\\V1\\GPBMetadata\xea\x02\x13Openmanet::Gnss::V1b\x06proto3"
 
 var (
@@ -800,37 +892,39 @@ func file_openmanet_gnss_v1_gnss_proto_rawDescGZIP() []byte {
 	return file_openmanet_gnss_v1_gnss_proto_rawDescData
 }
 
-var file_openmanet_gnss_v1_gnss_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_openmanet_gnss_v1_gnss_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_openmanet_gnss_v1_gnss_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_openmanet_gnss_v1_gnss_proto_goTypes = []any{
 	(FixType)(0),                     // 0: openmanet.gnss.v1.FixType
-	(*Position)(nil),                 // 1: openmanet.gnss.v1.Position
-	(*Satellite)(nil),                // 2: openmanet.gnss.v1.Satellite
-	(*SatelliteStatus)(nil),          // 3: openmanet.gnss.v1.SatelliteStatus
-	(*GNSSSettings)(nil),             // 4: openmanet.gnss.v1.GNSSSettings
-	(*OutputProtocols)(nil),          // 5: openmanet.gnss.v1.OutputProtocols
-	(*GetGNSSStatusResponse)(nil),    // 6: openmanet.gnss.v1.GetGNSSStatusResponse
-	(*GetGNSSConfigResponse)(nil),    // 7: openmanet.gnss.v1.GetGNSSConfigResponse
-	(*UpdateGNSSConfigRequest)(nil),  // 8: openmanet.gnss.v1.UpdateGNSSConfigRequest
-	(*UpdateGNSSConfigResponse)(nil), // 9: openmanet.gnss.v1.UpdateGNSSConfigResponse
-	(*timestamppb.Timestamp)(nil),    // 10: google.protobuf.Timestamp
+	(Constellation)(0),               // 1: openmanet.gnss.v1.Constellation
+	(*Position)(nil),                 // 2: openmanet.gnss.v1.Position
+	(*Satellite)(nil),                // 3: openmanet.gnss.v1.Satellite
+	(*SatelliteStatus)(nil),          // 4: openmanet.gnss.v1.SatelliteStatus
+	(*GNSSSettings)(nil),             // 5: openmanet.gnss.v1.GNSSSettings
+	(*OutputProtocols)(nil),          // 6: openmanet.gnss.v1.OutputProtocols
+	(*GetGNSSStatusResponse)(nil),    // 7: openmanet.gnss.v1.GetGNSSStatusResponse
+	(*GetGNSSConfigResponse)(nil),    // 8: openmanet.gnss.v1.GetGNSSConfigResponse
+	(*UpdateGNSSConfigRequest)(nil),  // 9: openmanet.gnss.v1.UpdateGNSSConfigRequest
+	(*UpdateGNSSConfigResponse)(nil), // 10: openmanet.gnss.v1.UpdateGNSSConfigResponse
+	(*timestamppb.Timestamp)(nil),    // 11: google.protobuf.Timestamp
 }
 var file_openmanet_gnss_v1_gnss_proto_depIdxs = []int32{
 	0,  // 0: openmanet.gnss.v1.Position.fix_type:type_name -> openmanet.gnss.v1.FixType
-	10, // 1: openmanet.gnss.v1.Position.last_update:type_name -> google.protobuf.Timestamp
-	2,  // 2: openmanet.gnss.v1.SatelliteStatus.satellites:type_name -> openmanet.gnss.v1.Satellite
-	10, // 3: openmanet.gnss.v1.SatelliteStatus.last_update:type_name -> google.protobuf.Timestamp
-	1,  // 4: openmanet.gnss.v1.GetGNSSStatusResponse.position:type_name -> openmanet.gnss.v1.Position
-	3,  // 5: openmanet.gnss.v1.GetGNSSStatusResponse.satellite_status:type_name -> openmanet.gnss.v1.SatelliteStatus
-	4,  // 6: openmanet.gnss.v1.GetGNSSConfigResponse.settings:type_name -> openmanet.gnss.v1.GNSSSettings
-	5,  // 7: openmanet.gnss.v1.GetGNSSConfigResponse.output_protocols:type_name -> openmanet.gnss.v1.OutputProtocols
-	4,  // 8: openmanet.gnss.v1.UpdateGNSSConfigRequest.settings:type_name -> openmanet.gnss.v1.GNSSSettings
-	5,  // 9: openmanet.gnss.v1.UpdateGNSSConfigRequest.output_protocols:type_name -> openmanet.gnss.v1.OutputProtocols
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	11, // 1: openmanet.gnss.v1.Position.last_update:type_name -> google.protobuf.Timestamp
+	1,  // 2: openmanet.gnss.v1.Satellite.constellation:type_name -> openmanet.gnss.v1.Constellation
+	3,  // 3: openmanet.gnss.v1.SatelliteStatus.satellites:type_name -> openmanet.gnss.v1.Satellite
+	11, // 4: openmanet.gnss.v1.SatelliteStatus.last_update:type_name -> google.protobuf.Timestamp
+	2,  // 5: openmanet.gnss.v1.GetGNSSStatusResponse.position:type_name -> openmanet.gnss.v1.Position
+	4,  // 6: openmanet.gnss.v1.GetGNSSStatusResponse.satellite_status:type_name -> openmanet.gnss.v1.SatelliteStatus
+	5,  // 7: openmanet.gnss.v1.GetGNSSConfigResponse.settings:type_name -> openmanet.gnss.v1.GNSSSettings
+	6,  // 8: openmanet.gnss.v1.GetGNSSConfigResponse.output_protocols:type_name -> openmanet.gnss.v1.OutputProtocols
+	5,  // 9: openmanet.gnss.v1.UpdateGNSSConfigRequest.settings:type_name -> openmanet.gnss.v1.GNSSSettings
+	6,  // 10: openmanet.gnss.v1.UpdateGNSSConfigRequest.output_protocols:type_name -> openmanet.gnss.v1.OutputProtocols
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_openmanet_gnss_v1_gnss_proto_init() }
@@ -844,7 +938,7 @@ func file_openmanet_gnss_v1_gnss_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_gnss_v1_gnss_proto_rawDesc), len(file_openmanet_gnss_v1_gnss_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,

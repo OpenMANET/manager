@@ -53,7 +53,14 @@ type MeshTopologyService struct {
 	OrigProvider      batmanadv.OriginatorTopologyProvider
 	NeighborsProvider batmanadv.MeshNeighborsProvider
 	DeltaTracker      *DeltaTracker
-	ParseBatHosts     func(string) (*batmanadv.BatHosts, error)
+	// Sibling handlers for GetMeshSnapshot. Each may be nil; a nil
+	// section yields an empty value and an error joined into the
+	// response.
+	StatusSvc     *StatusService
+	NodeSvc       *NodeService
+	MeshSvc       *MeshService
+	InterfaceSvc  *InterfaceService
+	ParseBatHosts func(string) (*batmanadv.BatHosts, error)
 	// GetMeshGateways returns the batman-adv gateway list (the peers
 	// announcing themselves with `gw_mode server`). Optional — a nil
 	// hook degrades to "no node is flagged as a gateway" without
@@ -64,6 +71,51 @@ type MeshTopologyService struct {
 	// BatInterface is the bat0-style mesh aggregator name passed to
 	// GetMeshGateways. Defaults to "bat0" when empty.
 	BatInterface string
+}
+
+// GetMeshSnapshot bundles the four mesh-status reads into a single RPC.
+// Each section is independently populated; partial failures surface via
+// the joined error so callers can render a degraded UI.
+func (s *MeshTopologyService) GetMeshSnapshot(ctx context.Context, _ *emptypb.Empty) (*meshtopov1.GetMeshSnapshotResponse, error) {
+	s.Log.Debug().Msg("GetMeshSnapshot Request Received")
+
+	res := &meshtopov1.GetMeshSnapshotResponse{}
+
+	var errs []error
+
+	if s.StatusSvc != nil {
+		if resp, err := s.StatusSvc.GetServiceStatus(ctx, &emptypb.Empty{}); err != nil {
+			errs = append(errs, fmt.Errorf("status: %w", err))
+		} else {
+			res.Status = resp.Status
+		}
+	}
+
+	if s.NodeSvc != nil {
+		if resp, err := s.NodeSvc.ListNodes(ctx, &emptypb.Empty{}); err != nil {
+			errs = append(errs, fmt.Errorf("nodes: %w", err))
+		} else {
+			res.Nodes = resp.Nodes
+		}
+	}
+
+	if s.MeshSvc != nil {
+		if resp, err := s.MeshSvc.ListMeshNeighbors(ctx, &emptypb.Empty{}); err != nil {
+			errs = append(errs, fmt.Errorf("neighbors: %w", err))
+		} else {
+			res.Neighbors = resp.Neighbors
+		}
+	}
+
+	if s.InterfaceSvc != nil {
+		if resp, err := s.InterfaceSvc.ListWirelessInterfaces(ctx, &emptypb.Empty{}); err != nil {
+			errs = append(errs, fmt.Errorf("interfaces: %w", err))
+		} else {
+			res.Interfaces = resp.Interfaces
+		}
+	}
+
+	return res, errors.Join(errs...)
 }
 
 func (s *MeshTopologyService) now() time.Time {

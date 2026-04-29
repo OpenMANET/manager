@@ -471,13 +471,7 @@ func TestUpdateSatelliteInfo_CachesFullReport(t *testing.T) {
 		PDOP:  2.4,
 		NSat:  12,
 		USat:  8,
-		Satellites: []struct {
-			PRN  int     `json:"PRN"`
-			El   float64 `json:"el"`
-			Az   float64 `json:"az"`
-			Ss   float64 `json:"ss"`
-			Used bool    `json:"used"`
-		}{
+		Satellites: []SKYSatellite{
 			{PRN: 2, El: 45.0, Az: 120.0, Ss: 38.0, Used: true},
 			{PRN: 5, El: 72.0, Az: 210.0, Ss: 42.0, Used: true},
 			{PRN: 7, El: 15.0, Az: 330.0, Ss: 18.0, Used: false},
@@ -533,13 +527,7 @@ func TestGetSatelliteReport_ReturnsCopy(t *testing.T) {
 		PDOP:  2.0,
 		NSat:  2,
 		USat:  1,
-		Satellites: []struct {
-			PRN  int     `json:"PRN"`
-			El   float64 `json:"el"`
-			Az   float64 `json:"az"`
-			Ss   float64 `json:"ss"`
-			Used bool    `json:"used"`
-		}{
+		Satellites: []SKYSatellite{
 			{PRN: 10, El: 30.0, Az: 90.0, Ss: 25.0, Used: true},
 		},
 	}
@@ -608,13 +596,7 @@ func TestUpdateSatelliteInfo_TimestampOnlyOnConstellation(t *testing.T) {
 		PDOP:  1.98,
 		NSat:  12,
 		USat:  8,
-		Satellites: []struct {
-			PRN  int     `json:"PRN"`
-			El   float64 `json:"el"`
-			Az   float64 `json:"az"`
-			Ss   float64 `json:"ss"`
-			Used bool    `json:"used"`
-		}{
+		Satellites: []SKYSatellite{
 			{PRN: 2, El: 45.0, Az: 120.0, Ss: 38.0, Used: true},
 		},
 	}
@@ -660,13 +642,7 @@ func TestUpdateSatelliteInfo_TimestampFallsBackToNow(t *testing.T) {
 
 	gps.updateSatelliteInfo(SKYReport{
 		Class: "SKY",
-		Satellites: []struct {
-			PRN  int     `json:"PRN"`
-			El   float64 `json:"el"`
-			Az   float64 `json:"az"`
-			Ss   float64 `json:"ss"`
-			Used bool    `json:"used"`
-		}{
+		Satellites: []SKYSatellite{
 			{PRN: 1, El: 30.0, Az: 90.0, Ss: 25.0, Used: true},
 		},
 	})
@@ -695,13 +671,7 @@ func TestUpdateSatelliteInfo_PartialSKYPreservesConstellation(t *testing.T) {
 		PDOP:  1.98,
 		NSat:  12,
 		USat:  8,
-		Satellites: []struct {
-			PRN  int     `json:"PRN"`
-			El   float64 `json:"el"`
-			Az   float64 `json:"az"`
-			Ss   float64 `json:"ss"`
-			Used bool    `json:"used"`
-		}{
+		Satellites: []SKYSatellite{
 			{PRN: 2, El: 45.0, Az: 120.0, Ss: 38.0, Used: true},
 			{PRN: 5, El: 72.0, Az: 210.0, Ss: 42.0, Used: true},
 			{PRN: 7, El: 15.0, Az: 330.0, Ss: 18.0, Used: false},
@@ -770,13 +740,7 @@ func TestUpdateSatelliteInfo_DerivesCountsWhenSummaryMissing(t *testing.T) {
 		HDOP:  1.0,
 		PDOP:  2.0,
 		// uSat and nSat intentionally absent.
-		Satellites: []struct {
-			PRN  int     `json:"PRN"`
-			El   float64 `json:"el"`
-			Az   float64 `json:"az"`
-			Ss   float64 `json:"ss"`
-			Used bool    `json:"used"`
-		}{
+		Satellites: []SKYSatellite{
 			{PRN: 2, El: 45.0, Az: 120.0, Ss: 38.0, Used: true},
 			{PRN: 5, El: 72.0, Az: 210.0, Ss: 42.0, Used: true},
 			{PRN: 7, El: 15.0, Az: 330.0, Ss: 18.0, Used: false},
@@ -811,13 +775,7 @@ func TestUpdateSatelliteInfo_SummaryWinsWhenLargerThanArray(t *testing.T) {
 		Class: "SKY",
 		NSat:  18,
 		USat:  11,
-		Satellites: []struct {
-			PRN  int     `json:"PRN"`
-			El   float64 `json:"el"`
-			Az   float64 `json:"az"`
-			Ss   float64 `json:"ss"`
-			Used bool    `json:"used"`
-		}{
+		Satellites: []SKYSatellite{
 			{PRN: 2, El: 45.0, Az: 120.0, Ss: 38.0, Used: true},
 			{PRN: 5, El: 72.0, Az: 210.0, Ss: 42.0, Used: true},
 		},
@@ -845,13 +803,7 @@ func TestUpdateSatelliteInfo_LossOfLockClearsUSat(t *testing.T) {
 		Class: "SKY",
 		USat:  8,
 		NSat:  12,
-		Satellites: []struct {
-			PRN  int     `json:"PRN"`
-			El   float64 `json:"el"`
-			Az   float64 `json:"az"`
-			Ss   float64 `json:"ss"`
-			Used bool    `json:"used"`
-		}{
+		Satellites: []SKYSatellite{
 			{PRN: 2, Used: true},
 			{PRN: 5, Used: true},
 		},
@@ -866,13 +818,7 @@ func TestUpdateSatelliteInfo_LossOfLockClearsUSat(t *testing.T) {
 		Class: "SKY",
 		// Receiver no longer treats any tracked sat as part of the
 		// solution. uSat is absent and the array shows used:false.
-		Satellites: []struct {
-			PRN  int     `json:"PRN"`
-			El   float64 `json:"el"`
-			Az   float64 `json:"az"`
-			Ss   float64 `json:"ss"`
-			Used bool    `json:"used"`
-		}{
+		Satellites: []SKYSatellite{
 			{PRN: 2, Used: false},
 			{PRN: 5, Used: false},
 		},
@@ -906,13 +852,7 @@ func TestGetSatelliteReport_ConcurrentAccess(t *testing.T) {
 				HDOP:  float64(i) * 0.1,
 				USat:  i % 15,
 				NSat:  i%15 + 5,
-				Satellites: []struct {
-					PRN  int     `json:"PRN"`
-					El   float64 `json:"el"`
-					Az   float64 `json:"az"`
-					Ss   float64 `json:"ss"`
-					Used bool    `json:"used"`
-				}{
+				Satellites: []SKYSatellite{
 					{PRN: i, El: 45.0, Az: 180.0, Ss: 30.0, Used: true},
 				},
 			}

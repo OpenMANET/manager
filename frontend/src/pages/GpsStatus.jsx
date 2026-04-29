@@ -12,11 +12,13 @@ import { coastlines } from '../data/coastlines.js';
 import { latLonToMGRS } from '../utils/mgrs.js';
 import {
   prnToConstellation,
+  satelliteConstellation,
   estimateCEP95,
   computeFixRateHz,
   dopSeverity,
   formatAgo,
 } from '../utils/gnss.js';
+import LatSelect from '../components/LatSelect.jsx';
 import './GpsStatus.css';
 
 const gnssClient = createClient(GNSSService, transport);
@@ -361,9 +363,25 @@ function GlobePanel({ position, actionsRef }) {
 
 // ── Sky plot panel ──────────────────────────────────────────────────────────
 
+const BAND_OPTIONS = [
+  { value: 'all', label: 'ALL BANDS' },
+  { value: 'GPS', label: 'GPS' },
+  { value: 'GLONASS', label: 'GLONASS' },
+  { value: 'GALILEO', label: 'GALILEO' },
+  { value: 'BEIDOU', label: 'BEIDOU' },
+  { value: 'QZSS', label: 'QZSS' },
+  { value: 'SBAS', label: 'SBAS' },
+];
+
 function SkyPlotPanel({ satelliteStatus }) {
-  const sats = satelliteStatus?.satellites ?? [];
-  const inView = satelliteStatus?.satellitesInView ?? sats.length;
+  const [bandFilter, setBandFilter] = useState('all');
+  const sats = useMemo(() => satelliteStatus?.satellites ?? [], [satelliteStatus]);
+  const filteredSats = useMemo(() => (
+    bandFilter === 'all' ? sats : sats.filter((s) => satelliteConstellation(s) === bandFilter)
+  ), [sats, bandFilter]);
+  const inView = bandFilter === 'all'
+    ? (satelliteStatus?.satellitesInView ?? sats.length)
+    : filteredSats.length;
   const ago = formatAgo(satelliteStatus?.lastUpdate);
 
   return (
@@ -371,11 +389,16 @@ function SkyPlotPanel({ satelliteStatus }) {
       <div className="panel-head">
         <h3>Sky Plot · {inView} Sats</h3>
         <div className="actions">
-          <button type="button" title="Band filter (coming soon)">BAND</button>
+          <LatSelect
+            ariaLabel="Constellation filter"
+            value={bandFilter}
+            onChange={setBandFilter}
+            options={BAND_OPTIONS}
+          />
         </div>
       </div>
       <div className="gps-sky-wrap">
-        <SkyPlot satellites={sats} />
+        <SkyPlot satellites={filteredSats} />
         <div className="gps-sky-hint">Zenith · N up · rings = 30° elevation</div>
         <div className="gps-sky-hint">Updated {ago ?? '—'}</div>
       </div>
@@ -544,15 +567,6 @@ function OutputProtocolsPanel({ config, onConfigChange, onSave, saving }) {
     <div className="lat-panel col-span-3 gps-panel-output">
       <div className="panel-head">
         <h3>Output Protocols</h3>
-        <div className="actions">
-          <button
-            type="button"
-            title="Test output (coming soon)"
-            onClick={() => console.debug('GNSS TEST OUT: not yet implemented')}
-          >
-            TEST OUT
-          </button>
-        </div>
       </div>
       <div className="gps-output-row">
         {toggle(settings.enableGps ?? false, 'GPS Enabled', (v) => update('settings', 'enableGps', v))}

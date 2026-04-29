@@ -8,6 +8,8 @@ package mesh_topologyv1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	v11 "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
+	v1 "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
@@ -119,6 +121,85 @@ func (x *GetMeshTopologyDeltaRequest) GetWindow() *durationpb.Duration {
 	return nil
 }
 
+// GetMeshSnapshotResponse bundles the per-tick mesh-status sections into
+// a single round trip. Any section may be unset/empty if its underlying
+// data source failed; the RPC's error value will be non-nil in that case
+// even when the response is partially populated.
+type GetMeshSnapshotResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// status is the aggregate mesh service status (connectivity,
+	// gateway role, neighbor count). Unset when the status read failed.
+	Status *v1.ServiceStatus `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	// nodes is the list of mesh nodes known to the local node from the
+	// bat-hosts table.
+	Nodes []*v11.Node `protobuf:"bytes,2,rep,name=nodes,proto3" json:"nodes,omitempty"`
+	// neighbors is the list of direct mesh neighbors observed via batctl
+	// and the wireless driver.
+	Neighbors []*v1.MeshNeighbor `protobuf:"bytes,3,rep,name=neighbors,proto3" json:"neighbors,omitempty"`
+	// interfaces is the list of wireless interfaces involved in the mesh.
+	Interfaces    []*v1.WirelessInterface `protobuf:"bytes,4,rep,name=interfaces,proto3" json:"interfaces,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetMeshSnapshotResponse) Reset() {
+	*x = GetMeshSnapshotResponse{}
+	mi := &file_openmanet_mesh_topology_v1_mesh_topology_service_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetMeshSnapshotResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetMeshSnapshotResponse) ProtoMessage() {}
+
+func (x *GetMeshSnapshotResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_mesh_topology_v1_mesh_topology_service_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetMeshSnapshotResponse.ProtoReflect.Descriptor instead.
+func (*GetMeshSnapshotResponse) Descriptor() ([]byte, []int) {
+	return file_openmanet_mesh_topology_v1_mesh_topology_service_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *GetMeshSnapshotResponse) GetStatus() *v1.ServiceStatus {
+	if x != nil {
+		return x.Status
+	}
+	return nil
+}
+
+func (x *GetMeshSnapshotResponse) GetNodes() []*v11.Node {
+	if x != nil {
+		return x.Nodes
+	}
+	return nil
+}
+
+func (x *GetMeshSnapshotResponse) GetNeighbors() []*v1.MeshNeighbor {
+	if x != nil {
+		return x.Neighbors
+	}
+	return nil
+}
+
+func (x *GetMeshSnapshotResponse) GetInterfaces() []*v1.WirelessInterface {
+	if x != nil {
+		return x.Interfaces
+	}
+	return nil
+}
+
 // GetMeshTopologyDeltaResponse carries aggregated mesh-network churn
 // metrics over the requested look-back window. All counters are
 // non-negative integers.
@@ -150,7 +231,7 @@ type GetMeshTopologyDeltaResponse struct {
 
 func (x *GetMeshTopologyDeltaResponse) Reset() {
 	*x = GetMeshTopologyDeltaResponse{}
-	mi := &file_openmanet_mesh_topology_v1_mesh_topology_service_proto_msgTypes[2]
+	mi := &file_openmanet_mesh_topology_v1_mesh_topology_service_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -162,7 +243,7 @@ func (x *GetMeshTopologyDeltaResponse) String() string {
 func (*GetMeshTopologyDeltaResponse) ProtoMessage() {}
 
 func (x *GetMeshTopologyDeltaResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_mesh_topology_v1_mesh_topology_service_proto_msgTypes[2]
+	mi := &file_openmanet_mesh_topology_v1_mesh_topology_service_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -175,7 +256,7 @@ func (x *GetMeshTopologyDeltaResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMeshTopologyDeltaResponse.ProtoReflect.Descriptor instead.
 func (*GetMeshTopologyDeltaResponse) Descriptor() ([]byte, []int) {
-	return file_openmanet_mesh_topology_v1_mesh_topology_service_proto_rawDescGZIP(), []int{2}
+	return file_openmanet_mesh_topology_v1_mesh_topology_service_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GetMeshTopologyDeltaResponse) GetRoutesAdded() uint32 {
@@ -217,11 +298,18 @@ var File_openmanet_mesh_topology_v1_mesh_topology_service_proto protoreflect.Fil
 
 const file_openmanet_mesh_topology_v1_mesh_topology_service_proto_rawDesc = "" +
 	"\n" +
-	"6openmanet/mesh_topology/v1/mesh_topology_service.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a.openmanet/mesh_topology/v1/mesh_topology.proto\"_\n" +
+	"6openmanet/mesh_topology/v1/mesh_topology_service.proto\x12\x1aopenmanet.mesh_topology.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a.openmanet/mesh_topology/v1/mesh_topology.proto\x1a\x1fopenmanet/network/v1/node.proto\x1a$openmanet/service/v1/interface.proto\x1a\x1fopenmanet/service/v1/mesh.proto\x1a!openmanet/service/v1/status.proto\"_\n" +
 	"\x17GetMeshTopologyResponse\x12D\n" +
 	"\btopology\x18\x01 \x01(\v2(.openmanet.mesh_topology.v1.MeshTopologyR\btopology\"a\n" +
 	"\x1bGetMeshTopologyDeltaRequest\x12B\n" +
-	"\x06window\x18\x01 \x01(\v2\x19.google.protobuf.DurationB\x0f\xbaH\f\xaa\x01\t\"\x03\b\xac\x022\x02\b\x01R\x06window\"\x86\x02\n" +
+	"\x06window\x18\x01 \x01(\v2\x19.google.protobuf.DurationB\x0f\xbaH\f\xaa\x01\t\"\x03\b\xac\x022\x02\b\x01R\x06window\"\x93\x02\n" +
+	"\x17GetMeshSnapshotResponse\x12;\n" +
+	"\x06status\x18\x01 \x01(\v2#.openmanet.service.v1.ServiceStatusR\x06status\x120\n" +
+	"\x05nodes\x18\x02 \x03(\v2\x1a.openmanet.network.v1.NodeR\x05nodes\x12@\n" +
+	"\tneighbors\x18\x03 \x03(\v2\".openmanet.service.v1.MeshNeighborR\tneighbors\x12G\n" +
+	"\n" +
+	"interfaces\x18\x04 \x03(\v2'.openmanet.service.v1.WirelessInterfaceR\n" +
+	"interfaces\"\x86\x02\n" +
 	"\x1cGetMeshTopologyDeltaResponse\x12!\n" +
 	"\froutes_added\x18\x01 \x01(\rR\vroutesAdded\x12\x1f\n" +
 	"\vroutes_lost\x18\x02 \x01(\rR\n" +
@@ -230,10 +318,11 @@ const file_openmanet_mesh_topology_v1_mesh_topology_service_proto_rawDesc = "" +
 	"\n" +
 	"reconverge\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\n" +
 	"reconverge\x12>\n" +
-	"\ractual_window\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\factualWindow2\x85\x02\n" +
+	"\ractual_window\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\factualWindow2\xe7\x02\n" +
 	"\x13MeshTopologyService\x12`\n" +
 	"\x0fGetMeshTopology\x12\x16.google.protobuf.Empty\x1a3.openmanet.mesh_topology.v1.GetMeshTopologyResponse\"\x00\x12\x8b\x01\n" +
-	"\x14GetMeshTopologyDelta\x127.openmanet.mesh_topology.v1.GetMeshTopologyDeltaRequest\x1a8.openmanet.mesh_topology.v1.GetMeshTopologyDeltaResponse\"\x00B\x99\x02\n" +
+	"\x14GetMeshTopologyDelta\x127.openmanet.mesh_topology.v1.GetMeshTopologyDeltaRequest\x1a8.openmanet.mesh_topology.v1.GetMeshTopologyDeltaResponse\"\x00\x12`\n" +
+	"\x0fGetMeshSnapshot\x12\x16.google.protobuf.Empty\x1a3.openmanet.mesh_topology.v1.GetMeshSnapshotResponse\"\x00B\x99\x02\n" +
 	"\x1ecom.openmanet.mesh_topology.v1B\x18MeshTopologyServiceProtoP\x01ZWgithub.com/openmanet/openmanetd/internal/api/openmanet/mesh_topology/v1;mesh_topologyv1\xa2\x02\x03OMX\xaa\x02\x19Openmanet.MeshTopology.V1\xca\x02\x19Openmanet\\MeshTopology\\V1\xe2\x02%Openmanet\\MeshTopology\\V1\\GPBMetadata\xea\x02\x1bOpenmanet::MeshTopology::V1b\x06proto3"
 
 var (
@@ -248,29 +337,40 @@ func file_openmanet_mesh_topology_v1_mesh_topology_service_proto_rawDescGZIP() [
 	return file_openmanet_mesh_topology_v1_mesh_topology_service_proto_rawDescData
 }
 
-var file_openmanet_mesh_topology_v1_mesh_topology_service_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_openmanet_mesh_topology_v1_mesh_topology_service_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_openmanet_mesh_topology_v1_mesh_topology_service_proto_goTypes = []any{
 	(*GetMeshTopologyResponse)(nil),      // 0: openmanet.mesh_topology.v1.GetMeshTopologyResponse
 	(*GetMeshTopologyDeltaRequest)(nil),  // 1: openmanet.mesh_topology.v1.GetMeshTopologyDeltaRequest
-	(*GetMeshTopologyDeltaResponse)(nil), // 2: openmanet.mesh_topology.v1.GetMeshTopologyDeltaResponse
-	(*MeshTopology)(nil),                 // 3: openmanet.mesh_topology.v1.MeshTopology
-	(*durationpb.Duration)(nil),          // 4: google.protobuf.Duration
-	(*emptypb.Empty)(nil),                // 5: google.protobuf.Empty
+	(*GetMeshSnapshotResponse)(nil),      // 2: openmanet.mesh_topology.v1.GetMeshSnapshotResponse
+	(*GetMeshTopologyDeltaResponse)(nil), // 3: openmanet.mesh_topology.v1.GetMeshTopologyDeltaResponse
+	(*MeshTopology)(nil),                 // 4: openmanet.mesh_topology.v1.MeshTopology
+	(*durationpb.Duration)(nil),          // 5: google.protobuf.Duration
+	(*v1.ServiceStatus)(nil),             // 6: openmanet.service.v1.ServiceStatus
+	(*v11.Node)(nil),                     // 7: openmanet.network.v1.Node
+	(*v1.MeshNeighbor)(nil),              // 8: openmanet.service.v1.MeshNeighbor
+	(*v1.WirelessInterface)(nil),         // 9: openmanet.service.v1.WirelessInterface
+	(*emptypb.Empty)(nil),                // 10: google.protobuf.Empty
 }
 var file_openmanet_mesh_topology_v1_mesh_topology_service_proto_depIdxs = []int32{
-	3, // 0: openmanet.mesh_topology.v1.GetMeshTopologyResponse.topology:type_name -> openmanet.mesh_topology.v1.MeshTopology
-	4, // 1: openmanet.mesh_topology.v1.GetMeshTopologyDeltaRequest.window:type_name -> google.protobuf.Duration
-	4, // 2: openmanet.mesh_topology.v1.GetMeshTopologyDeltaResponse.reconverge:type_name -> google.protobuf.Duration
-	4, // 3: openmanet.mesh_topology.v1.GetMeshTopologyDeltaResponse.actual_window:type_name -> google.protobuf.Duration
-	5, // 4: openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopology:input_type -> google.protobuf.Empty
-	1, // 5: openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopologyDelta:input_type -> openmanet.mesh_topology.v1.GetMeshTopologyDeltaRequest
-	0, // 6: openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopology:output_type -> openmanet.mesh_topology.v1.GetMeshTopologyResponse
-	2, // 7: openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopologyDelta:output_type -> openmanet.mesh_topology.v1.GetMeshTopologyDeltaResponse
-	6, // [6:8] is the sub-list for method output_type
-	4, // [4:6] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	4,  // 0: openmanet.mesh_topology.v1.GetMeshTopologyResponse.topology:type_name -> openmanet.mesh_topology.v1.MeshTopology
+	5,  // 1: openmanet.mesh_topology.v1.GetMeshTopologyDeltaRequest.window:type_name -> google.protobuf.Duration
+	6,  // 2: openmanet.mesh_topology.v1.GetMeshSnapshotResponse.status:type_name -> openmanet.service.v1.ServiceStatus
+	7,  // 3: openmanet.mesh_topology.v1.GetMeshSnapshotResponse.nodes:type_name -> openmanet.network.v1.Node
+	8,  // 4: openmanet.mesh_topology.v1.GetMeshSnapshotResponse.neighbors:type_name -> openmanet.service.v1.MeshNeighbor
+	9,  // 5: openmanet.mesh_topology.v1.GetMeshSnapshotResponse.interfaces:type_name -> openmanet.service.v1.WirelessInterface
+	5,  // 6: openmanet.mesh_topology.v1.GetMeshTopologyDeltaResponse.reconverge:type_name -> google.protobuf.Duration
+	5,  // 7: openmanet.mesh_topology.v1.GetMeshTopologyDeltaResponse.actual_window:type_name -> google.protobuf.Duration
+	10, // 8: openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopology:input_type -> google.protobuf.Empty
+	1,  // 9: openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopologyDelta:input_type -> openmanet.mesh_topology.v1.GetMeshTopologyDeltaRequest
+	10, // 10: openmanet.mesh_topology.v1.MeshTopologyService.GetMeshSnapshot:input_type -> google.protobuf.Empty
+	0,  // 11: openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopology:output_type -> openmanet.mesh_topology.v1.GetMeshTopologyResponse
+	3,  // 12: openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopologyDelta:output_type -> openmanet.mesh_topology.v1.GetMeshTopologyDeltaResponse
+	2,  // 13: openmanet.mesh_topology.v1.MeshTopologyService.GetMeshSnapshot:output_type -> openmanet.mesh_topology.v1.GetMeshSnapshotResponse
+	11, // [11:14] is the sub-list for method output_type
+	8,  // [8:11] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_openmanet_mesh_topology_v1_mesh_topology_service_proto_init() }
@@ -285,7 +385,7 @@ func file_openmanet_mesh_topology_v1_mesh_topology_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_mesh_topology_v1_mesh_topology_service_proto_rawDesc), len(file_openmanet_mesh_topology_v1_mesh_topology_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

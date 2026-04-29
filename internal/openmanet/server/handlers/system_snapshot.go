@@ -45,6 +45,7 @@ type SystemSnapshotter struct {
 type systemSnapshot struct {
 	at              time.Time
 	cpuLoadErr      error
+	cpuTempErr      error
 	servicesErr     error
 	kernelErr       error
 	architectureErr error
@@ -58,6 +59,7 @@ type systemSnapshot struct {
 	services        []system.ServiceStatus
 	uptime          time.Duration
 	cpuLoad         float32
+	cpuTemp         float32
 }
 
 // NewSystemSnapshotter constructs a snapshotter wrapping the given inner
@@ -124,6 +126,7 @@ func (s *SystemSnapshotter) refresh(ctx context.Context) {
 		next.uptime, next.uptimeErr = s.Inner.GetUptime()
 		next.memory, next.memoryErr = s.Inner.GetMemoryInfo()
 		next.cpuLoad, next.cpuLoadErr = s.Inner.GetCPULoadPercent()
+		next.cpuTemp, next.cpuTempErr = s.Inner.GetCPUTempCelsius()
 		next.overlay, next.overlayErr = s.Inner.GetOverlayUsage()
 	}
 
@@ -189,6 +192,16 @@ func (s *SystemSnapshotter) GetCPULoadPercent() (float32, error) {
 	}
 
 	return s.Inner.GetCPULoadPercent()
+}
+
+// GetCPUTempCelsius returns the cached CPU temperature in degrees Celsius.
+// Negative values mean the device does not expose a thermal zone.
+func (s *SystemSnapshotter) GetCPUTempCelsius() (float32, error) {
+	if snap := s.snap.Load(); snap != nil {
+		return snap.cpuTemp, snap.cpuTempErr
+	}
+
+	return s.Inner.GetCPUTempCelsius()
 }
 
 // GetOverlayUsage returns the cached overlay filesystem usage.

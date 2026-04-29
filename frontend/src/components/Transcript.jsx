@@ -17,9 +17,6 @@
 import React, { useRef, useEffect } from 'react';
 import LatSelect from './LatSelect.jsx';
 
-// TODO(api): Severity classification is a client-side keyword heuristic today.
-// A future WS transcript message should carry a real `severity` field populated
-// by the producer (whisper pipeline or sender-side tagging).
 function defaultSeverity(text) {
   if (!text) return null;
   const t = text.toLowerCase();

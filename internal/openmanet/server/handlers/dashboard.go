@@ -234,6 +234,12 @@ func (d *DashboardService) buildSystemResources() (*v1.SystemResources, error) {
 		res.CpuLoadPercent = cpuLoad
 	}
 
+	if temp, err := d.SysInfo.GetCPUTempCelsius(); err != nil {
+		errs = append(errs, err)
+	} else {
+		res.CpuTempCelsius = temp
+	}
+
 	if mem, err := d.SysInfo.GetMemoryInfo(); err != nil {
 		errs = append(errs, err)
 	} else {

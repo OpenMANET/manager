@@ -278,8 +278,11 @@ type SystemResources struct {
 	OverlayTotalBytes int64 `protobuf:"varint,6,opt,name=overlay_total_bytes,json=overlayTotalBytes,proto3" json:"overlay_total_bytes,omitempty"`
 	// Currently used overlay filesystem space in bytes.
 	OverlayUsedBytes int64 `protobuf:"varint,7,opt,name=overlay_used_bytes,json=overlayUsedBytes,proto3" json:"overlay_used_bytes,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// CPU temperature in degrees Celsius. Negative values mean the running
+	// device does not expose a CPU thermal sensor.
+	CpuTempCelsius float32 `protobuf:"fixed32,8,opt,name=cpu_temp_celsius,json=cpuTempCelsius,proto3" json:"cpu_temp_celsius,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SystemResources) Reset() {
@@ -357,6 +360,13 @@ func (x *SystemResources) GetOverlayTotalBytes() int64 {
 func (x *SystemResources) GetOverlayUsedBytes() int64 {
 	if x != nil {
 		return x.OverlayUsedBytes
+	}
+	return 0
+}
+
+func (x *SystemResources) GetCpuTempCelsius() float32 {
+	if x != nil {
+		return x.CpuTempCelsius
 	}
 	return 0
 }
@@ -752,7 +762,7 @@ const file_openmanet_dashboard_v1_dashboard_proto_rawDesc = "" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x1a\n" +
 	"\bfirmware\x18\x03 \x01(\tR\bfirmware\x12\x16\n" +
 	"\x06kernel\x18\x04 \x01(\tR\x06kernel\x12\"\n" +
-	"\farchitecture\x18\x05 \x01(\tR\farchitecture\"\xe1\x02\n" +
+	"\farchitecture\x18\x05 \x01(\tR\farchitecture\"\x8b\x03\n" +
 	"\x0fSystemResources\x121\n" +
 	"\x06uptime\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x06uptime\x129\n" +
 	"\n" +
@@ -761,7 +771,8 @@ const file_openmanet_dashboard_v1_dashboard_proto_rawDesc = "" +
 	"\x12memory_total_bytes\x18\x04 \x01(\x03R\x10memoryTotalBytes\x12*\n" +
 	"\x11memory_used_bytes\x18\x05 \x01(\x03R\x0fmemoryUsedBytes\x12.\n" +
 	"\x13overlay_total_bytes\x18\x06 \x01(\x03R\x11overlayTotalBytes\x12,\n" +
-	"\x12overlay_used_bytes\x18\a \x01(\x03R\x10overlayUsedBytes\"\xf2\x01\n" +
+	"\x12overlay_used_bytes\x18\a \x01(\x03R\x10overlayUsedBytes\x12(\n" +
+	"\x10cpu_temp_celsius\x18\b \x01(\x02R\x0ecpuTempCelsius\"\xf2\x01\n" +
 	"\x13NetworkSummaryEntry\x12%\n" +
 	"\x0einterface_name\x18\x01 \x01(\tR\rinterfaceName\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12C\n" +

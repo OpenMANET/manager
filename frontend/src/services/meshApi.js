@@ -4,16 +4,18 @@
 //
 // Fetches mesh network status directly from the openmanetd ConnectRPC backend.
 //
-// Four service RPCs are called in parallel:
-//   StatusService.GetServiceStatus  — connection state, neighbor count, gateway
-//   NodeService.ListNodes           — known mesh nodes (hostname, IP)
-//   MeshNeighborService.ListMeshNeighbors — direct neighbors (MAC, signal, throughput)
-//   InterfaceService.ListWirelessInterfaces — mesh radio interfaces
+// Primary path: a single MeshTopologyService.GetMeshSnapshot call bundles
+// service status, known nodes, direct neighbors, and wireless interfaces
+// into one round-trip.
 //
-// Responses are mapped to the JSON shape consumed by the UI components so that
-// MeshStatus.jsx, TopologyMap.jsx, and App.jsx require no changes.
+// Fallback path: when the daemon does not implement the snapshot RPC (older
+// firmware), we fall back to the four parallel service RPCs:
+//   StatusService.GetServiceStatus
+//   NodeService.ListNodes
+//   MeshNeighborService.ListMeshNeighbors
+//   InterfaceService.ListWirelessInterfaces
 
-import { createClient } from "@connectrpc/connect";
+import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { transport } from "./connectClient.js";
 import { StatusService } from "../gen/openmanet/service/v1/status_connect.js";
 import { NodeService } from "../gen/openmanet/service/v1/node_connect.js";
@@ -27,57 +29,77 @@ const meshClient = createClient(MeshNeighborService, transport);
 const ifaceClient = createClient(InterfaceService, transport);
 const topologyClient = createClient(MeshTopologyService, transport);
 
-// -----------------------------------------------------------------------------
-// fetchMeshStatus()
-// -----------------------------------------------------------------------------
-// Fetches all mesh status RPCs in parallel.
+// Cache the "this daemon does not implement GetMeshSnapshot" decision so we
+// stop hitting the new RPC every tick once we've confirmed it is missing.
+let snapshotUnsupported = false;
+
+function mapStatus(st) {
+  return {
+    connected: st?.isConnected ?? false,
+    neighbors: st?.connectedNeighbors ?? 0,
+    mesh_interfaces: st?.activeMeshInterfaces ?? 0,
+    is_gateway: st?.isMeshGateway ?? false,
+    selected_gateway_mac: st?.selectedGatewayMac ?? '',
+  };
+}
+
+function mapNodes(nodes) {
+  return (nodes ?? []).map((n) => ({ hostname: n.hostname, ip: n.ipaddr }));
+}
+
+function mapNeighbors(neighbors) {
+  return (neighbors ?? []).map((n) => ({
+    name: n.neighbor,
+    mac: n.hardwareAddress,
+    signal: n.signal,
+    throughput: n.throughput,
+  }));
+}
+
+function mapInterfaces(interfaces) {
+  return (interfaces ?? []).map((i) => ({
+    name: i.name,
+    type: i.interfaceType,
+    frequency: i.frequency,
+    channel_width: i.channelWidth,
+  }));
+}
+
+// fetchMeshStatus() — single-RPC primary path with four-RPC fallback.
 //
 // Returns an object with four keys (status, nodes, neighbors, interfaces).
 // Each value is the mapped response if the call succeeded, or null if it
 // failed.  The caller is responsible for handling null values gracefully.
-//
-// TODO: collapse these four parallel RPCs into a single MeshSnapshot RPC
-// on the daemon. Today every tick fans out four ConnectRPC round trips
-// to the same process; on resource-constrained MIPS targets the HTTP
-// framing and per-RPC handler dispatch dominate the actual work. A
-// single aggregator RPC would let the daemon batch its batctl/iw reads
-// under one lock and would cut tick CPU on the device by ~75%. This
-// change requires a new proto (proto/openmanet/mesh/v1/snapshot.proto)
-// and a backend handler; see plans/review-all-of-the-toasty-floyd.md.
 export async function fetchMeshStatus() {
-  const [statusRes, nodesRes, neighborsRes, ifacesRes] = await Promise.allSettled([
-    statusClient.getServiceStatus({}).then((resp) => {
-      const st = resp.status;
+  if (!snapshotUnsupported) {
+    try {
+      const resp = await topologyClient.getMeshSnapshot({});
       return {
-        connected: st?.isConnected ?? false,
-        neighbors: st?.connectedNeighbors ?? 0,
-        mesh_interfaces: st?.activeMeshInterfaces ?? 0,
-        is_gateway: st?.isMeshGateway ?? false,
-        selected_gateway_mac: st?.selectedGatewayMac ?? '',
+        status: resp.status ? mapStatus(resp.status) : null,
+        nodes: mapNodes(resp.nodes),
+        neighbors: mapNeighbors(resp.neighbors),
+        interfaces: mapInterfaces(resp.interfaces),
       };
-    }),
-    nodeClient.listNodes({}).then((resp) =>
-      (resp.nodes ?? []).map((n) => ({
-        hostname: n.hostname,
-        ip: n.ipaddr,
-      })),
-    ),
-    meshClient.listMeshNeighbors({}).then((resp) =>
-      (resp.neighbors ?? []).map((n) => ({
-        name: n.neighbor,
-        mac: n.hardwareAddress,
-        signal: n.signal,
-        throughput: n.throughput,
-      })),
-    ),
-    ifaceClient.listWirelessInterfaces({}).then((resp) =>
-      (resp.interfaces ?? []).map((i) => ({
-        name: i.name,
-        type: i.interfaceType,
-        frequency: i.frequency,
-        channel_width: i.channelWidth,
-      })),
-    ),
+    } catch (err) {
+      if (err instanceof ConnectError && err.code === Code.Unimplemented) {
+        // Older daemon — remember and don't retry the new RPC.
+        snapshotUnsupported = true;
+      } else {
+        // Any other failure: fall through to the legacy fan-out so the
+        // caller still gets best-effort partial data.
+      }
+    }
+  }
+
+  return fetchMeshStatusLegacy();
+}
+
+async function fetchMeshStatusLegacy() {
+  const [statusRes, nodesRes, neighborsRes, ifacesRes] = await Promise.allSettled([
+    statusClient.getServiceStatus({}).then((resp) => mapStatus(resp.status)),
+    nodeClient.listNodes({}).then((resp) => mapNodes(resp.nodes)),
+    meshClient.listMeshNeighbors({}).then((resp) => mapNeighbors(resp.neighbors)),
+    ifaceClient.listWirelessInterfaces({}).then((resp) => mapInterfaces(resp.interfaces)),
   ]);
 
   return {
@@ -86,6 +108,12 @@ export async function fetchMeshStatus() {
     neighbors: neighborsRes.status === 'fulfilled' ? neighborsRes.value : null,
     interfaces: ifacesRes.status === 'fulfilled' ? ifacesRes.value : null,
   };
+}
+
+// __resetSnapshotSupportForTests is a hatch for unit tests that exercise
+// both the primary and fallback paths within a single test file.
+export function __resetSnapshotSupportForTests() {
+  snapshotUnsupported = false;
 }
 
 // -----------------------------------------------------------------------------

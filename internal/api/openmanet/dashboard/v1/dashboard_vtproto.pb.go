@@ -59,6 +59,7 @@ func (m *SystemResources) CloneVT() *SystemResources {
 	r.MemoryUsedBytes = m.MemoryUsedBytes
 	r.OverlayTotalBytes = m.OverlayTotalBytes
 	r.OverlayUsedBytes = m.OverlayUsedBytes
+	r.CpuTempCelsius = m.CpuTempCelsius
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -254,6 +255,9 @@ func (this *SystemResources) EqualVT(that *SystemResources) bool {
 		return false
 	}
 	if this.OverlayUsedBytes != that.OverlayUsedBytes {
+		return false
+	}
+	if this.CpuTempCelsius != that.CpuTempCelsius {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -538,6 +542,12 @@ func (m *SystemResources) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.CpuTempCelsius != 0 {
+		i -= 4
+		binary.LittleEndian.PutUint32(dAtA[i:], uint32(math.Float32bits(float32(m.CpuTempCelsius))))
+		i--
+		dAtA[i] = 0x45
 	}
 	if m.OverlayUsedBytes != 0 {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.OverlayUsedBytes))
@@ -1013,6 +1023,12 @@ func (m *SystemResources) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error)
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.CpuTempCelsius != 0 {
+		i -= 4
+		binary.LittleEndian.PutUint32(dAtA[i:], uint32(math.Float32bits(float32(m.CpuTempCelsius))))
+		i--
+		dAtA[i] = 0x45
+	}
 	if m.OverlayUsedBytes != 0 {
 		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.OverlayUsedBytes))
 		i--
@@ -1447,6 +1463,9 @@ func (m *SystemResources) SizeVT() (n int) {
 	}
 	if m.OverlayUsedBytes != 0 {
 		n += 1 + protohelpers.SizeOfVarint(uint64(m.OverlayUsedBytes))
+	}
+	if m.CpuTempCelsius != 0 {
+		n += 5
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1976,6 +1995,17 @@ func (m *SystemResources) UnmarshalVT(dAtA []byte) error {
 					break
 				}
 			}
+		case 8:
+			if wireType != 5 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CpuTempCelsius", wireType)
+			}
+			var v uint32
+			if (iNdEx + 4) > l {
+				return io.ErrUnexpectedEOF
+			}
+			v = uint32(binary.LittleEndian.Uint32(dAtA[iNdEx:]))
+			iNdEx += 4
+			m.CpuTempCelsius = float32(math.Float32frombits(v))
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -3194,6 +3224,17 @@ func (m *SystemResources) UnmarshalVTUnsafe(dAtA []byte) error {
 					break
 				}
 			}
+		case 8:
+			if wireType != 5 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CpuTempCelsius", wireType)
+			}
+			var v uint32
+			if (iNdEx + 4) > l {
+				return io.ErrUnexpectedEOF
+			}
+			v = uint32(binary.LittleEndian.Uint32(dAtA[iNdEx:]))
+			iNdEx += 4
+			m.CpuTempCelsius = float32(math.Float32frombits(v))
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

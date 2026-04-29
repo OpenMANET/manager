@@ -121,13 +121,7 @@ func (m *mockGPSDServer) AddSKYMessageWithSatellites(hdop float64, uSat int, sat
 	}
 
 	for _, s := range satellites {
-		sky.Satellites = append(sky.Satellites, struct {
-			PRN  int     `json:"PRN"`
-			El   float64 `json:"el"`
-			Az   float64 `json:"az"`
-			Ss   float64 `json:"ss"`
-			Used bool    `json:"used"`
-		}{PRN: s.PRN, El: s.El, Az: s.Az, Ss: s.Ss, Used: s.Used})
+		sky.Satellites = append(sky.Satellites, SKYSatellite(s))
 	}
 
 	data, _ := json.Marshal(sky)

@@ -245,24 +245,13 @@ describe('TestDashboardChrome', () => {
 // ── KPI cards (Row 1) ──────────────────────────────────────────────────────
 
 describe('TestDashboardKpis', () => {
-  it('renders the three KPI panels', async () => {
+  it('renders the two KPI panels', async () => {
     mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse());
     render(<DashboardPage />);
     await waitFor(() => {
       expect(screen.getByText('Mesh Peers')).toBeTruthy();
       expect(screen.getByText('Link Quality · 5m')).toBeTruthy();
-      expect(screen.getByText('Battery & Power')).toBeTruthy();
     });
-  });
-
-  it('battery KPI renders dashes until backend exposes it', async () => {
-    mockGetDashboardStatus.mockResolvedValue(makeDashboardResponse());
-    const { container } = render(<DashboardPage />);
-    await waitFor(() => screen.getByText('Battery & Power'));
-    const batteryPanel = [...container.querySelectorAll('.lat-panel')]
-      .find((p) => p.textContent.includes('Battery & Power'));
-    expect(batteryPanel).toBeTruthy();
-    expect(batteryPanel.textContent).toContain('—');
   });
 });
 

@@ -16,6 +16,30 @@ export function prnToConstellation(prn) {
   return 'GPS';
 }
 
+// Maps the proto Constellation enum (numeric) to the same upper-case label
+// vocabulary as prnToConstellation. UNSPECIFIED returns null so callers can
+// fall back to PRN-range derivation.
+const CONSTELLATION_BY_ENUM = {
+  1: 'GPS',
+  2: 'SBAS',
+  3: 'GALILEO',
+  4: 'BEIDOU',
+  5: 'IMES',
+  6: 'QZSS',
+  7: 'GLONASS',
+  8: 'IRNSS',
+};
+
+// satelliteConstellation prefers the proto-supplied constellation field; if
+// the receiver/daemon couldn't identify it (UNSPECIFIED), falls back to a
+// PRN-range derivation so older daemons still produce a usable label.
+export function satelliteConstellation(sat) {
+  if (!sat) return 'GPS';
+  const fromProto = CONSTELLATION_BY_ENUM[sat.constellation];
+  if (fromProto) return fromProto;
+  return prnToConstellation(sat.prn);
+}
+
 // CEP 95% estimate in meters from HDOP. Assumes σ_UERE ≈ 3 m (typical
 // consumer receiver) and scales to the 95% confidence ring:
 //   CEP95 ≈ HDOP × σ_UERE × 1.52

@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	meshtopov1 "github.com/openmanet/openmanetd/internal/api/openmanet/mesh_topology/v1"
 	netv1 "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
+	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -1678,4 +1680,45 @@ func TestGetMeshTopology_DeltaUnchanged(t *testing.T) {
 	var ce *connect.Error
 	require.ErrorAs(t, err, &ce)
 	assert.Equal(t, connect.CodeFailedPrecondition, ce.Code())
+}
+
+// TestGetMeshSnapshot_AllNilSiblings verifies that a snapshot service with
+// no sibling handlers returns an empty response and no error, so callers
+// receive a consistent shape during early daemon startup.
+func TestGetMeshSnapshot_AllNilSiblings(t *testing.T) {
+	svc := &handlers.MeshTopologyService{Log: zerolog.Nop()}
+
+	resp, err := svc.GetMeshSnapshot(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Nil(t, resp.GetStatus())
+	assert.Empty(t, resp.GetNodes())
+	assert.Empty(t, resp.GetNeighbors())
+	assert.Empty(t, resp.GetInterfaces())
+}
+
+// TestGetMeshSnapshot_PopulatesNodes verifies that a populated NodeSvc
+// causes the nodes section of the snapshot to carry data from the same
+// upstream source ListNodes serves.
+func TestGetMeshSnapshot_PopulatesNodes(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	_, err := db.CreateMeshNode(ctx, models.CreateMeshNodeParams{
+		MacAddr:   "aa:bb:cc:dd:ee:ff",
+		Hostname:  "node-1",
+		IpAddr:    "10.0.0.1",
+		Latitude:  sql.NullFloat64{Float64: 0, Valid: false},
+		Longitude: sql.NullFloat64{Float64: 0, Valid: false},
+	})
+	require.NoError(t, err)
+
+	svc := &handlers.MeshTopologyService{
+		Log:     zerolog.Nop(),
+		NodeSvc: &handlers.NodeService{DB: db, Log: zerolog.Nop()},
+	}
+
+	resp, err := svc.GetMeshSnapshot(ctx, &emptypb.Empty{})
+	require.NoError(t, err)
+	require.Len(t, resp.GetNodes(), 1)
+	assert.Equal(t, "node-1", resp.GetNodes()[0].GetHostname())
 }

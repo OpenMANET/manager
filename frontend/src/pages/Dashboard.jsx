@@ -431,6 +431,11 @@ export default function DashboardPage() {
   const linkQuality = lqHistory.length > 0 ? lqHistory[lqHistory.length - 1] : 0;
   const lqClass = linkQuality >= 80 ? 'ok' : linkQuality >= 50 ? '' : 'warn';
 
+  const cpuTemp = data?.systemResources?.cpuTempCelsius;
+  const tempAvailable = cpuTemp != null && cpuTemp > 0;
+  const tempClass = !tempAvailable ? '' : cpuTemp >= 85 ? 'crit' : cpuTemp >= 70 ? 'warn' : '';
+  const tempLabel = tempAvailable ? `${cpuTemp.toFixed(1)} °C` : '—';
+
   const alerts = useMemo(
     () => classifyAlerts({ mesh: meshData, peerRows, delta }),
     [meshData, peerRows, delta],
@@ -533,7 +538,6 @@ export default function DashboardPage() {
           <span className={`lat-chip ${blosPeers > 0 ? 'ok' : 'warn'}`}>
             <span className="dot" /> BLOS · {blosPeers} PEERS
           </span>
-          {/* TODO(api-plan): battery percent — add BATT chip when backend exposes it */}
           <span className="dash-clock">{clockLocal(new Date(now))}</span>
         </div>
       </div>
@@ -567,14 +571,6 @@ export default function DashboardPage() {
                 ))
               )}
             </div>
-          </div>
-          <div className="lat-panel">
-            <div className="panel-head"><h3>Battery & Power</h3></div>
-            {/* TODO(api-plan): surface battery metrics — percent, voltage, draw, eta */}
-            <div className="big-num">—</div>
-            <div className="kv"><span className="k">Voltage</span><span className="v">—</span></div>
-            <div className="kv"><span className="k">Draw</span><span className="v">—</span></div>
-            <div className="kv"><span className="k">ETA</span><span className="v">—</span></div>
           </div>
         </div>
 
@@ -666,8 +662,7 @@ export default function DashboardPage() {
               <div className="kv"><span className="k">Kernel</span><span className="v">{data?.deviceInfo?.kernel || '—'}</span></div>
               <div className="kv"><span className="k">Firmware</span><span className="v">{data?.deviceInfo?.firmware || '—'}</span></div>
               <div className="kv"><span className="k">Arch</span><span className="v">{data?.deviceInfo?.architecture || '—'}</span></div>
-              {/* TODO(api-plan): expose CPU temperature via sysfs */}
-              <div className="kv"><span className="k">Temp</span><span className="v">—</span></div>
+              <div className="kv"><span className="k">Temp</span><span className={`v ${tempClass}`}>{tempLabel}</span></div>
             </div>
           </div>
         </div>

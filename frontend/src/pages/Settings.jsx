@@ -78,7 +78,6 @@ export default function SettingsPage() {
     comms_enabled: true,
     control_source: 'web',
     debug: false,
-    talkgroup_count: 5,
   });
   const [originalConfig, setOriginalConfig] = useState(null);
   const [fullConfig, setFullConfig] = useState(null);
@@ -123,7 +122,6 @@ export default function SettingsPage() {
           comms_enabled: commsResp.commsEnabled,
           control_source: controlSourceToString(commsResp.controlSource),
           debug: results[1].status === 'fulfilled' ? (results[1].value.comms?.debug ?? false) : false,
-          talkgroup_count: results[1].status === 'fulfilled' ? (results[1].value.comms?.talkgroups ?? 5) : 5,
         };
       } else if (results[1].status === 'fulfilled') {
         const comms = results[1].value.comms || {};
@@ -131,7 +129,6 @@ export default function SettingsPage() {
           comms_enabled: comms.enable ?? true,
           control_source: comms.controlSource ?? 'web',
           debug: comms.debug ?? false,
-          talkgroup_count: comms.talkgroups ?? 5,
         };
       }
 
@@ -160,7 +157,6 @@ export default function SettingsPage() {
     merged.comms.enable = config.comms_enabled;
     merged.comms.controlSource = config.control_source;
     merged.comms.debug = config.debug;
-    merged.comms.talkgroups = config.talkgroup_count;
     return formatYaml(merged, 0);
   }, [fullConfig, config]);
 
@@ -192,7 +188,6 @@ export default function SettingsPage() {
       const enableChanged = config.comms_enabled !== originalConfig?.comms_enabled;
       const sourceChanged = config.control_source !== originalConfig?.control_source;
       const debugChanged = config.debug !== originalConfig?.debug;
-      const talkgroupChanged = config.talkgroup_count !== originalConfig?.talkgroup_count;
 
       // Live-apply enable + control source via the comms RPC. The handler
       // persists to YAML and bounces only the comms subsystem — no daemon
@@ -204,16 +199,15 @@ export default function SettingsPage() {
         });
       }
 
-      // Debug and talkgroup count have no live-apply path; they are written
-      // to YAML and only take effect after a daemon restart.
-      if (debugChanged || talkgroupChanged) {
+      // Debug has no live-apply path; written to YAML and takes effect
+      // after a daemon restart.
+      if (debugChanged) {
         const res = await authFetch('/api/settings/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             comms: {
               debug: config.debug,
-              talkgroups: config.talkgroup_count,
             },
           }),
         });
@@ -289,8 +283,7 @@ export default function SettingsPage() {
   const configChanged = originalConfig && (
     config.comms_enabled !== originalConfig.comms_enabled ||
     config.control_source !== originalConfig.control_source ||
-    config.debug !== originalConfig.debug ||
-    config.talkgroup_count !== originalConfig.talkgroup_count
+    config.debug !== originalConfig.debug
   );
 
   return (

@@ -40,6 +40,7 @@ type mockSysInfoProvider struct {
 	memTotal int64
 	memAvail int64
 	cpuLoad  float32
+	cpuTemp  float32
 	overlay  system.OverlayUsage
 	err      error
 }
@@ -90,6 +91,14 @@ func (m *mockSysInfoProvider) GetCPULoadPercent() (float32, error) {
 	}
 
 	return m.cpuLoad, nil
+}
+
+func (m *mockSysInfoProvider) GetCPUTempCelsius() (float32, error) {
+	if m.err != nil {
+		return 0, m.err
+	}
+
+	return m.cpuTemp, nil
 }
 
 func (m *mockSysInfoProvider) GetOverlayUsage() (*system.OverlayUsage, error) {
@@ -180,6 +189,7 @@ func newTestDashboardService() *DashboardService {
 			memTotal: 248168 * 1024,
 			memAvail: 80000 * 1024,
 			cpuLoad:  12.0,
+			cpuTemp:  61.5,
 			overlay:  system.OverlayUsage{TotalBytes: 3700000, UsedBytes: 3100000},
 		},
 		Firmware: &mockFirmwareProvider{
@@ -241,6 +251,7 @@ func TestDashboardService_GetDashboardStatus_SystemResources(t *testing.T) {
 	require.NotNil(t, sr)
 	assert.NotNil(t, sr.LocalTime)
 	assert.InDelta(t, 12.0, float64(sr.CpuLoadPercent), 0.1)
+	assert.InDelta(t, 61.5, float64(sr.CpuTempCelsius), 0.01)
 	assert.Equal(t, int64(248168*1024), sr.MemoryTotalBytes)
 	assert.Equal(t, int64((248168-80000)*1024), sr.MemoryUsedBytes)
 	assert.Equal(t, int64(3700000), sr.OverlayTotalBytes)

@@ -12,17 +12,11 @@
   text-align: center;
 }
 
-/* Row 1 — a 3-column sub-grid spanning the full 4-column body. The inner
-   grid keeps the three KPI panels equal-width without leaving a ghost cell
-   in the parent .lat-body.grid-4. */
 .dashboard-kpi-row {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 14px;
-}
-@media (max-width: 900px) {
-  .dashboard-kpi-row { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 640px) {
   .dashboard-kpi-row { grid-template-columns: 1fr; }

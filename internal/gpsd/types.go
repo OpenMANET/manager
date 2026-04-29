@@ -53,32 +53,37 @@ type TPVReport struct {
 	DGPSSta  int     `json:"dgpsSta,omitempty"`  // DGPS reference station ID
 }
 
+// SKYSatellite is the per-satellite shape inside a gpsd SKY report.
+type SKYSatellite struct {
+	PRN    int     `json:"PRN"`
+	El     float64 `json:"el"`
+	Az     float64 `json:"az"`
+	Ss     float64 `json:"ss"`
+	Used   bool    `json:"used"`
+	Gnssid int     `json:"gnssid,omitempty"`
+}
+
 // SKYReport represents a satellite information report from GPSD
 type SKYReport struct {
-	Class      string `json:"class"`
-	Device     string `json:"device,omitempty"`
-	Time       string `json:"time,omitempty"`
-	Satellites []struct {
-		PRN  int     `json:"PRN"`
-		El   float64 `json:"el"`
-		Az   float64 `json:"az"`
-		Ss   float64 `json:"ss"`
-		Used bool    `json:"used"`
-	} `json:"satellites,omitempty"`
-	HDOP float64 `json:"hdop,omitempty"` // Horizontal dilution of precision
-	VDOP float64 `json:"vdop,omitempty"` // Vertical dilution of precision
-	PDOP float64 `json:"pdop,omitempty"` // Position dilution of precision
-	NSat int     `json:"nSat,omitempty"` // Number of satellites visible
-	USat int     `json:"uSat,omitempty"` // Number of satellites used in solution
+	Class      string         `json:"class"`
+	Device     string         `json:"device,omitempty"`
+	Time       string         `json:"time,omitempty"`
+	Satellites []SKYSatellite `json:"satellites,omitempty"`
+	HDOP       float64        `json:"hdop,omitempty"` // Horizontal dilution of precision
+	VDOP       float64        `json:"vdop,omitempty"` // Vertical dilution of precision
+	PDOP       float64        `json:"pdop,omitempty"` // Position dilution of precision
+	NSat       int            `json:"nSat,omitempty"` // Number of satellites visible
+	USat       int            `json:"uSat,omitempty"` // Number of satellites used in solution
 }
 
 // SatelliteInfo holds data for a single visible satellite.
 type SatelliteInfo struct {
-	PRN  int     // Satellite PRN number
-	El   float64 // Elevation in degrees
-	Az   float64 // Azimuth in degrees
-	Ss   float64 // Signal strength (SNR) in dB-Hz
-	Used bool    // Whether this satellite is used in the navigation solution
+	PRN    int     // Satellite PRN number
+	El     float64 // Elevation in degrees
+	Az     float64 // Azimuth in degrees
+	Ss     float64 // Signal strength (SNR) in dB-Hz
+	Used   bool    // Whether this satellite is used in the navigation solution
+	Gnssid int     // gpsd gnssid (0=GPS,1=SBAS,2=Galileo,3=BeiDou,5=QZSS,6=GLONASS,7=IRNSS); 0 if absent
 }
 
 // SatelliteReport holds the cached satellite constellation data from the last SKY report.

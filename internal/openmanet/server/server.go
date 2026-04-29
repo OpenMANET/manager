@@ -105,15 +105,17 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		wifi = handlers.NewCachedWirelessProvider(cfg.Wifi, handlers.DefaultWirelessCacheTTL)
 	}
 
-	api.Handle(services.NewNodeServiceHandler(&handlers.NodeService{
+	nodeSvc := &handlers.NodeService{
 		DB:  cfg.DB,
 		Log: cfg.Log,
-	}, connect.WithInterceptors(validateInterceptor)))
+	}
+	api.Handle(services.NewNodeServiceHandler(nodeSvc, connect.WithInterceptors(validateInterceptor)))
 
-	api.Handle(services.NewInterfaceServiceHandler(&handlers.InterfaceService{
+	ifaceSvc := &handlers.InterfaceService{
 		Log:  cfg.Log,
 		Wifi: wifi,
-	}, connect.WithInterceptors(validateInterceptor)))
+	}
+	api.Handle(services.NewInterfaceServiceHandler(ifaceSvc, connect.WithInterceptors(validateInterceptor)))
 
 	meshSvc := &handlers.MeshService{
 		Log:  cfg.Log,
@@ -216,6 +218,10 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		NeighborsProvider: cfg.MeshNeighborsProvider,
 		DeltaTracker:      cfg.MeshDeltaTracker,
 		BatInterface:      cfg.Cfg.GetAlfredBatInterface(),
+		StatusSvc:         statusSvc,
+		NodeSvc:           nodeSvc,
+		MeshSvc:           meshSvc,
+		InterfaceSvc:      ifaceSvc,
 	}
 	if cfg.BatctlSnapshotter != nil {
 		meshTopoSvc.ParseBatHosts = cfg.BatctlSnapshotter.ParseBatHosts

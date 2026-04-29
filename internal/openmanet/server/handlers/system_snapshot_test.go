@@ -20,6 +20,7 @@ type fakeSysInfo struct {
 	uptimeCalls   atomic.Int64
 	memCalls      atomic.Int64
 	loadCalls     atomic.Int64
+	tempCalls     atomic.Int64
 	overlayCalls  atomic.Int64
 
 	hostname     string
@@ -28,6 +29,7 @@ type fakeSysInfo struct {
 	uptime       time.Duration
 	memory       *system.MemoryInfo
 	cpuLoad      float32
+	cpuTemp      float32
 	overlay      *system.OverlayUsage
 
 	hostnameErr error
@@ -35,6 +37,7 @@ type fakeSysInfo struct {
 	uptimeErr   error
 	memErr      error
 	loadErr     error
+	tempErr     error
 	overlayErr  error
 }
 
@@ -68,6 +71,12 @@ func (f *fakeSysInfo) GetCPULoadPercent() (float32, error) {
 	f.loadCalls.Add(1)
 
 	return f.cpuLoad, f.loadErr
+}
+
+func (f *fakeSysInfo) GetCPUTempCelsius() (float32, error) {
+	f.tempCalls.Add(1)
+
+	return f.cpuTemp, f.tempErr
 }
 
 func (f *fakeSysInfo) GetOverlayUsage() (*system.OverlayUsage, error) {

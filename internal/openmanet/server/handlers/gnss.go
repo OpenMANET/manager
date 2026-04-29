@@ -55,11 +55,12 @@ func (g *GNSSService) GetGNSSStatus(_ context.Context, _ *emptypb.Empty) (*gnssv
 	sats := make([]*gnssv1.Satellite, 0, len(satReport.Satellites))
 	for _, s := range satReport.Satellites {
 		sats = append(sats, &gnssv1.Satellite{
-			Prn:       int32(s.PRN),
-			Elevation: s.El,
-			Azimuth:   s.Az,
-			Snr:       s.Ss,
-			Used:      s.Used,
+			Prn:           int32(s.PRN),
+			Elevation:     s.El,
+			Azimuth:       s.Az,
+			Snr:           s.Ss,
+			Used:          s.Used,
+			Constellation: gnssIDToConstellation(s.Gnssid),
 		})
 	}
 
@@ -123,5 +124,30 @@ func modeToFixType(mode int) gnssv1.FixType {
 		return gnssv1.FixType_FIX_TYPE_3D
 	default:
 		return gnssv1.FixType_FIX_TYPE_NO_FIX
+	}
+}
+
+// gnssIDToConstellation maps gpsd's gnssid encoding to the protobuf
+// Constellation enum. Unknown ids fall back to UNSPECIFIED.
+func gnssIDToConstellation(id int) gnssv1.Constellation {
+	switch id {
+	case 0:
+		return gnssv1.Constellation_CONSTELLATION_GPS
+	case 1:
+		return gnssv1.Constellation_CONSTELLATION_SBAS
+	case 2:
+		return gnssv1.Constellation_CONSTELLATION_GALILEO
+	case 3:
+		return gnssv1.Constellation_CONSTELLATION_BEIDOU
+	case 4:
+		return gnssv1.Constellation_CONSTELLATION_IMES
+	case 5:
+		return gnssv1.Constellation_CONSTELLATION_QZSS
+	case 6:
+		return gnssv1.Constellation_CONSTELLATION_GLONASS
+	case 7:
+		return gnssv1.Constellation_CONSTELLATION_IRNSS
+	default:
+		return gnssv1.Constellation_CONSTELLATION_UNSPECIFIED
 	}
 }

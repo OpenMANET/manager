@@ -194,6 +194,36 @@ func TestLinuxSysInfo_GetCPULoadPercent(t *testing.T) {
 	assert.Greater(t, pct, float32(0))
 }
 
+func TestLinuxSysInfo_GetCPUTempCelsius(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "temp")
+		require.NoError(t, os.WriteFile(path, []byte("52345\n"), 0o644))
+
+		si := &LinuxSysInfo{ThermalPath: path}
+		c, err := si.GetCPUTempCelsius()
+		require.NoError(t, err)
+		assert.InDelta(t, 52.345, c, 0.001)
+	})
+
+	t.Run("missing returns sentinel", func(t *testing.T) {
+		si := &LinuxSysInfo{ThermalPath: "/nonexistent/thermal/zone/temp"}
+		c, err := si.GetCPUTempCelsius()
+		require.NoError(t, err)
+		assert.Equal(t, float32(-1), c)
+	})
+
+	t.Run("malformed returns error", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "temp")
+		require.NoError(t, os.WriteFile(path, []byte("not-a-number\n"), 0o644))
+
+		si := &LinuxSysInfo{ThermalPath: path}
+		_, err := si.GetCPUTempCelsius()
+		require.Error(t, err)
+	})
+}
+
 func TestLinuxSysInfo_GetOverlayUsage_MissingPath(t *testing.T) {
 	si := &LinuxSysInfo{OverlayPath: "/nonexistent/overlay/path/that/does/not/exist"}
 	usage, err := si.GetOverlayUsage()

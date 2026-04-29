@@ -4,7 +4,7 @@
 // @ts-nocheck
 
 import { Empty, MethodKind } from "@bufbuild/protobuf";
-import { GetMeshTopologyDeltaRequest, GetMeshTopologyDeltaResponse, GetMeshTopologyResponse } from "./mesh_topology_service_pb.js";
+import { GetMeshSnapshotResponse, GetMeshTopologyDeltaRequest, GetMeshTopologyDeltaResponse, GetMeshTopologyResponse } from "./mesh_topology_service_pb.js";
 
 /**
  * MeshTopologyService exposes the full mesh network topology gathered by
@@ -44,6 +44,23 @@ export const MeshTopologyService = {
       name: "GetMeshTopologyDelta",
       I: GetMeshTopologyDeltaRequest,
       O: GetMeshTopologyDeltaResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * GetMeshSnapshot bundles the four mesh-status reads (service status,
+     * known nodes, direct neighbors, wireless interfaces) into a single
+     * response so callers polling the dashboard pay one round-trip per
+     * tick instead of four. Partial failures are tolerated: each section
+     * is independently populated, and the call returns a non-nil error
+     * joined from any section that failed so callers can render
+     * best-effort UI on a degraded subset.
+     *
+     * @generated from rpc openmanet.mesh_topology.v1.MeshTopologyService.GetMeshSnapshot
+     */
+    getMeshSnapshot: {
+      name: "GetMeshSnapshot",
+      I: Empty,
+      O: GetMeshSnapshotResponse,
       kind: MethodKind.Unary,
     },
   }

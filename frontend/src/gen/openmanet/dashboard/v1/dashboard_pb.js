@@ -80,6 +80,7 @@ export const SystemResources = /*@__PURE__*/ proto3.makeMessageType(
     { no: 5, name: "memory_used_bytes", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
     { no: 6, name: "overlay_total_bytes", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
     { no: 7, name: "overlay_used_bytes", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 8, name: "cpu_temp_celsius", kind: "scalar", T: 2 /* ScalarType.FLOAT */ },
   ],
 );
 

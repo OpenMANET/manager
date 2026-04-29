@@ -40,6 +40,9 @@ const (
 	// MeshTopologyServiceGetMeshTopologyDeltaProcedure is the fully-qualified name of the
 	// MeshTopologyService's GetMeshTopologyDelta RPC.
 	MeshTopologyServiceGetMeshTopologyDeltaProcedure = "/openmanet.mesh_topology.v1.MeshTopologyService/GetMeshTopologyDelta"
+	// MeshTopologyServiceGetMeshSnapshotProcedure is the fully-qualified name of the
+	// MeshTopologyService's GetMeshSnapshot RPC.
+	MeshTopologyServiceGetMeshSnapshotProcedure = "/openmanet.mesh_topology.v1.MeshTopologyService/GetMeshSnapshot"
 )
 
 // MeshTopologyServiceClient is a client for the openmanet.mesh_topology.v1.MeshTopologyService
@@ -56,6 +59,14 @@ type MeshTopologyServiceClient interface {
 	// delta tracker is not running (e.g. batadv-vis unavailable at
 	// startup) and CodeInternal on unexpected failures.
 	GetMeshTopologyDelta(context.Context, *v1.GetMeshTopologyDeltaRequest) (*v1.GetMeshTopologyDeltaResponse, error)
+	// GetMeshSnapshot bundles the four mesh-status reads (service status,
+	// known nodes, direct neighbors, wireless interfaces) into a single
+	// response so callers polling the dashboard pay one round-trip per
+	// tick instead of four. Partial failures are tolerated: each section
+	// is independently populated, and the call returns a non-nil error
+	// joined from any section that failed so callers can render
+	// best-effort UI on a degraded subset.
+	GetMeshSnapshot(context.Context, *emptypb.Empty) (*v1.GetMeshSnapshotResponse, error)
 }
 
 // NewMeshTopologyServiceClient constructs a client for the
@@ -82,6 +93,12 @@ func NewMeshTopologyServiceClient(httpClient connect.HTTPClient, baseURL string,
 			connect.WithSchema(meshTopologyServiceMethods.ByName("GetMeshTopologyDelta")),
 			connect.WithClientOptions(opts...),
 		),
+		getMeshSnapshot: connect.NewClient[emptypb.Empty, v1.GetMeshSnapshotResponse](
+			httpClient,
+			baseURL+MeshTopologyServiceGetMeshSnapshotProcedure,
+			connect.WithSchema(meshTopologyServiceMethods.ByName("GetMeshSnapshot")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -89,6 +106,7 @@ func NewMeshTopologyServiceClient(httpClient connect.HTTPClient, baseURL string,
 type meshTopologyServiceClient struct {
 	getMeshTopology      *connect.Client[emptypb.Empty, v1.GetMeshTopologyResponse]
 	getMeshTopologyDelta *connect.Client[v1.GetMeshTopologyDeltaRequest, v1.GetMeshTopologyDeltaResponse]
+	getMeshSnapshot      *connect.Client[emptypb.Empty, v1.GetMeshSnapshotResponse]
 }
 
 // GetMeshTopology calls openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopology.
@@ -109,6 +127,15 @@ func (c *meshTopologyServiceClient) GetMeshTopologyDelta(ctx context.Context, re
 	return nil, err
 }
 
+// GetMeshSnapshot calls openmanet.mesh_topology.v1.MeshTopologyService.GetMeshSnapshot.
+func (c *meshTopologyServiceClient) GetMeshSnapshot(ctx context.Context, req *emptypb.Empty) (*v1.GetMeshSnapshotResponse, error) {
+	response, err := c.getMeshSnapshot.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
 // MeshTopologyServiceHandler is an implementation of the
 // openmanet.mesh_topology.v1.MeshTopologyService service.
 type MeshTopologyServiceHandler interface {
@@ -123,6 +150,14 @@ type MeshTopologyServiceHandler interface {
 	// delta tracker is not running (e.g. batadv-vis unavailable at
 	// startup) and CodeInternal on unexpected failures.
 	GetMeshTopologyDelta(context.Context, *v1.GetMeshTopologyDeltaRequest) (*v1.GetMeshTopologyDeltaResponse, error)
+	// GetMeshSnapshot bundles the four mesh-status reads (service status,
+	// known nodes, direct neighbors, wireless interfaces) into a single
+	// response so callers polling the dashboard pay one round-trip per
+	// tick instead of four. Partial failures are tolerated: each section
+	// is independently populated, and the call returns a non-nil error
+	// joined from any section that failed so callers can render
+	// best-effort UI on a degraded subset.
+	GetMeshSnapshot(context.Context, *emptypb.Empty) (*v1.GetMeshSnapshotResponse, error)
 }
 
 // NewMeshTopologyServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -144,12 +179,20 @@ func NewMeshTopologyServiceHandler(svc MeshTopologyServiceHandler, opts ...conne
 		connect.WithSchema(meshTopologyServiceMethods.ByName("GetMeshTopologyDelta")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshTopologyServiceGetMeshSnapshotHandler := connect.NewUnaryHandlerSimple(
+		MeshTopologyServiceGetMeshSnapshotProcedure,
+		svc.GetMeshSnapshot,
+		connect.WithSchema(meshTopologyServiceMethods.ByName("GetMeshSnapshot")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/openmanet.mesh_topology.v1.MeshTopologyService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MeshTopologyServiceGetMeshTopologyProcedure:
 			meshTopologyServiceGetMeshTopologyHandler.ServeHTTP(w, r)
 		case MeshTopologyServiceGetMeshTopologyDeltaProcedure:
 			meshTopologyServiceGetMeshTopologyDeltaHandler.ServeHTTP(w, r)
+		case MeshTopologyServiceGetMeshSnapshotProcedure:
+			meshTopologyServiceGetMeshSnapshotHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -165,4 +208,8 @@ func (UnimplementedMeshTopologyServiceHandler) GetMeshTopology(context.Context, 
 
 func (UnimplementedMeshTopologyServiceHandler) GetMeshTopologyDelta(context.Context, *v1.GetMeshTopologyDeltaRequest) (*v1.GetMeshTopologyDeltaResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.mesh_topology.v1.MeshTopologyService.GetMeshTopologyDelta is not implemented"))
+}
+
+func (UnimplementedMeshTopologyServiceHandler) GetMeshSnapshot(context.Context, *emptypb.Empty) (*v1.GetMeshSnapshotResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.mesh_topology.v1.MeshTopologyService.GetMeshSnapshot is not implemented"))
 }

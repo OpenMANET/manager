@@ -39,6 +39,7 @@ type SysInfoProvider interface {
 	GetUptime() (time.Duration, error)
 	GetMemoryInfo() (*MemoryInfo, error)
 	GetCPULoadPercent() (float32, error)
+	GetCPUTempCelsius() (float32, error)
 	GetOverlayUsage() (*OverlayUsage, error)
 }
 
@@ -48,6 +49,9 @@ type LinuxSysInfo struct {
 	ProcDir string
 	// OverlayPath is the mountpoint to stat (default "/overlay").
 	OverlayPath string
+	// ThermalPath is the file to read CPU temperature from in millidegrees C
+	// (default "/sys/class/thermal/thermal_zone0/temp").
+	ThermalPath string
 }
 
 func (l *LinuxSysInfo) procDir() string {
@@ -64,6 +68,14 @@ func (l *LinuxSysInfo) overlayPath() string {
 	}
 
 	return "/overlay"
+}
+
+func (l *LinuxSysInfo) thermalPath() string {
+	if l.ThermalPath != "" {
+		return l.ThermalPath
+	}
+
+	return "/sys/class/thermal/thermal_zone0/temp"
 }
 
 // GetHostname returns the system hostname.
@@ -225,6 +237,28 @@ func ParseCPULoad(content string, numCPU int) (float32, error) {
 	}
 
 	return pct, nil
+}
+
+// GetCPUTempCelsius reads the CPU temperature from sysfs and returns it in
+// degrees Celsius. Returns -1 (without error) on devices that do not expose
+// a thermal zone, so callers can render an "unavailable" placeholder rather
+// than treat the read as a failure.
+func (l *LinuxSysInfo) GetCPUTempCelsius() (float32, error) {
+	data, err := os.ReadFile(l.thermalPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return -1, nil
+		}
+
+		return 0, fmt.Errorf("read cpu temp: %w", err)
+	}
+
+	milli, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse cpu temp: %w", err)
+	}
+
+	return float32(milli) / 1000, nil
 }
 
 // GetOverlayUsage returns the total and used bytes of the overlay filesystem.

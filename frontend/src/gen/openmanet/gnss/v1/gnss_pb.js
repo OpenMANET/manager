@@ -22,6 +22,28 @@ export const FixType = /*@__PURE__*/ proto3.makeEnum(
 );
 
 /**
+ * Constellation identifies the GNSS satellite system that emitted a signal.
+ * Values match gpsd's gnssid encoding; UNSPECIFIED is reported for any
+ * constellation the daemon could not identify.
+ *
+ * @generated from enum openmanet.gnss.v1.Constellation
+ */
+export const Constellation = /*@__PURE__*/ proto3.makeEnum(
+  "openmanet.gnss.v1.Constellation",
+  [
+    {no: 0, name: "CONSTELLATION_UNSPECIFIED", localName: "UNSPECIFIED"},
+    {no: 1, name: "CONSTELLATION_GPS", localName: "GPS"},
+    {no: 2, name: "CONSTELLATION_SBAS", localName: "SBAS"},
+    {no: 3, name: "CONSTELLATION_GALILEO", localName: "GALILEO"},
+    {no: 4, name: "CONSTELLATION_BEIDOU", localName: "BEIDOU"},
+    {no: 5, name: "CONSTELLATION_IMES", localName: "IMES"},
+    {no: 6, name: "CONSTELLATION_QZSS", localName: "QZSS"},
+    {no: 7, name: "CONSTELLATION_GLONASS", localName: "GLONASS"},
+    {no: 8, name: "CONSTELLATION_IRNSS", localName: "IRNSS"},
+  ],
+);
+
+/**
  * Position holds the current GPS position, motion vector, and accuracy
  * metrics as reported by the GNSS receiver.
  *
@@ -57,6 +79,7 @@ export const Satellite = /*@__PURE__*/ proto3.makeMessageType(
     { no: 3, name: "azimuth", kind: "scalar", T: 1 /* ScalarType.DOUBLE */ },
     { no: 4, name: "snr", kind: "scalar", T: 1 /* ScalarType.DOUBLE */ },
     { no: 5, name: "used", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 6, name: "constellation", kind: "enum", T: proto3.getEnumType(Constellation) },
   ],
 );
 
