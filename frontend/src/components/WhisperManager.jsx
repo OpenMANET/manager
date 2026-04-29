@@ -8,6 +8,7 @@ import {
   downloadWhisperModel,
   removeWhisperModel,
 } from '../services/whisperService.js';
+import { useVisibleInterval } from '../hooks/useVisibleInterval.js';
 
 export default function WhisperManager() {
   const [status, setStatus] = useState(null); // server status response
@@ -37,26 +38,20 @@ export default function WhisperManager() {
   }, [fetchStatus]);
 
   // If we land on the page while a download is already in progress, poll for it.
-  useEffect(() => {
-    if (!downloading) return;
-
-    const poll = setInterval(async () => {
-      const s = await checkWhisperAvailable();
-      setStatus(s);
-      setProgress(s.progress || 0);
-
-      if (s.state === 'ready') {
-        setDownloading(false);
-        clearInterval(poll);
-      } else if (s.state === 'error') {
-        setDownloading(false);
-        setError(s.error || 'Download failed');
-        clearInterval(poll);
-      }
-    }, 1000);
-
-    return () => clearInterval(poll);
-  }, [downloading]);
+  // useVisibleInterval pauses while the tab is hidden; downloading=false gates
+  // the interval to 0 so the effect tears down once the download completes.
+  const pollDownload = useCallback(async () => {
+    const s = await checkWhisperAvailable();
+    setStatus(s);
+    setProgress(s.progress || 0);
+    if (s.state === 'ready') {
+      setDownloading(false);
+    } else if (s.state === 'error') {
+      setDownloading(false);
+      setError(s.error || 'Download failed');
+    }
+  }, []);
+  useVisibleInterval(pollDownload, downloading ? 1000 : 0, [downloading]);
 
   const handleDownload = async () => {
     setError(null);

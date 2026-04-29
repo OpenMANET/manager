@@ -7,13 +7,13 @@
 // BLOS subsystem is not running, the RPCs return zero-valued or empty
 // structures and the UI renders em-dashes.
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useVisibleInterval } from '../hooks/useVisibleInterval.js';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { BLOSService } from "../gen/openmanet/blos/v1/blos_service_connect.js";
 import { BLOSEventKind } from "../gen/openmanet/blos/v1/blos_pb.js";
 import { pushSparklineSample, useSparklineSamples } from '../services/sparklineStore.js';
+import { useBLOSStatus, refreshBLOSStatus } from '../hooks/useBLOSStatus.js';
 import './BLOS.css';
 
 // Keys for the shared sparkline store. Keep them in sync with every
@@ -105,53 +105,43 @@ function SparkBars({ data, variant }) {
 }
 
 export default function BLOSPage() {
-  const [status, setStatus] = useState(null);
-  const [peers, setPeers] = useState([]);
   const [events, setEvents] = useState([]);
   // RX/TX traffic series live in the module-scoped sparkline store so
   // the bars persist across navigation — component-local useState was
   // resetting to [] every time the user left and returned to the page.
   const rxHistory = useSparklineSamples(RX_SERIES_KEY);
   const txHistory = useSparklineSamples(TX_SERIES_KEY);
+  // Shared with the Dashboard chip — single store, single in-flight RPC.
+  const snapshot = useBLOSStatus(10_000);
+  const status = snapshot?.status ?? null;
+  const peers = snapshot?.peers ?? [];
+  const fetchError = snapshot?.error ?? null;
   const [enableBlos, setEnableBlos] = useState(false);
   const [authKey, setAuthKey] = useState('');
   const [loginServer, setLoginServer] = useState('');
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
+  const [saveError, setSaveError] = useState(null);
   const [success, setSuccess] = useState(null);
 
-  const fetchStatus = useCallback(async () => {
-    try {
-      const resp = await blosClient.getBLOSStatus({});
-      setStatus(resp);
-      setEnableBlos(resp.blosEnabled ?? false);
-      const rx = Number(resp?.counters?.rxBytesPerSec ?? 0);
-      const tx = Number(resp?.counters?.txBytesPerSec ?? 0);
-      pushSparklineSample(RX_SERIES_KEY, rx, TRAFFIC_HISTORY_CAP);
-      pushSparklineSample(TX_SERIES_KEY, tx, TRAFFIC_HISTORY_CAP);
-      setError(null);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Display either a save error (last write attempt) or a fetch error
+  // surfaced by the shared store.
+  const error = saveError ?? fetchError;
 
-  const fetchPeers = useCallback(async () => {
-    try {
-      const resp = await blosClient.listBLOSPeers({});
-      setPeers(resp.peers ?? []);
-    } catch {
-      // non-fatal — keep previous peer list
-    }
-  }, []);
+  // Loading is true only before the first snapshot publishes; once the
+  // store has data (even an error envelope) we render the page so the
+  // user sees the error banner instead of being stuck on "Loading…".
+  const loading = snapshot === null;
 
-  const pollStatusAndPeers = useCallback(() => {
-    fetchStatus();
-    fetchPeers();
-  }, [fetchStatus, fetchPeers]);
-  useVisibleInterval(pollStatusAndPeers, 10_000);
+  // Each new snapshot drives the sparkline buffers and the local toggle
+  // echo (matches pre-existing per-tick reset behavior).
+  useEffect(() => {
+    if (!status) return;
+    const rx = Number(status?.counters?.rxBytesPerSec ?? 0);
+    const tx = Number(status?.counters?.txBytesPerSec ?? 0);
+    pushSparklineSample(RX_SERIES_KEY, rx, TRAFFIC_HISTORY_CAP);
+    pushSparklineSample(TX_SERIES_KEY, tx, TRAFFIC_HISTORY_CAP);
+    setEnableBlos(status.blosEnabled ?? false);
+  }, [status]);
 
   // Event stream: open when BLOS is running, close on unmount or disable.
   const streamAbortRef = useRef(null);
@@ -190,7 +180,7 @@ export default function BLOSPage() {
 
   const handleSave = async () => {
     setSaving(true);
-    setError(null);
+    setSaveError(null);
     setSuccess(null);
     try {
       const req = { enableBlos, authKey };
@@ -199,9 +189,9 @@ export default function BLOSPage() {
       if (resp.success === false) throw new Error(resp.message || 'Update failed');
       setSuccess(resp.message || 'BLOS configuration updated.');
       setAuthKey('');
-      fetchStatus();
+      refreshBLOSStatus();
     } catch (e) {
-      setError('Failed to update BLOS: ' + e.message);
+      setSaveError('Failed to update BLOS: ' + e.message);
     } finally {
       setSaving(false);
     }

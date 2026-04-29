@@ -35,6 +35,15 @@ const topologyClient = createClient(MeshTopologyService, transport);
 // Returns an object with four keys (status, nodes, neighbors, interfaces).
 // Each value is the mapped response if the call succeeded, or null if it
 // failed.  The caller is responsible for handling null values gracefully.
+//
+// TODO: collapse these four parallel RPCs into a single MeshSnapshot RPC
+// on the daemon. Today every tick fans out four ConnectRPC round trips
+// to the same process; on resource-constrained MIPS targets the HTTP
+// framing and per-RPC handler dispatch dominate the actual work. A
+// single aggregator RPC would let the daemon batch its batctl/iw reads
+// under one lock and would cut tick CPU on the device by ~75%. This
+// change requires a new proto (proto/openmanet/mesh/v1/snapshot.proto)
+// and a backend handler; see plans/review-all-of-the-toasty-floyd.md.
 export async function fetchMeshStatus() {
   const [statusRes, nodesRes, neighborsRes, ifacesRes] = await Promise.allSettled([
     statusClient.getServiceStatus({}).then((resp) => {

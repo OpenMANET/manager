@@ -6,9 +6,15 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@connectrpc/connect';
 import { transport } from '../services/connectClient.js';
 import { NetworkInterfaceService } from '../gen/openmanet/network_interface/v1/network_interface_service_connect.js';
+import { useNetworkInterfaces, refreshNetworkInterfaces } from '../hooks/useNetworkInterfaces.js';
 import './SettingsNetwork.css';
 
 const netClient = createClient(NetworkInterfaceService, transport);
+
+// Shared interface list polls at the same cadence Dashboard uses (30s).
+// The Refresh button calls refreshNetworkInterfaces() for an off-cycle
+// fetch so the user does not have to wait for the next regular tick.
+const SETTINGS_IFACE_POLL_MS = 30_000;
 
 const IFACE_TYPE_LABELS = {
   0: 'Unknown',
@@ -34,24 +40,12 @@ function formatBytes(bytes) {
 }
 
 function InterfacesPanel() {
-  const [interfaces, setInterfaces] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const resp = await netClient.listNetworkInterfaces({});
-      setInterfaces(resp.interfaces ?? []);
-      setError(null);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
+  // Shared with Dashboard so navigating Dashboard → SettingsNetwork
+  // renders cached interfaces immediately instead of flashing empty.
+  const snapshot = useNetworkInterfaces(SETTINGS_IFACE_POLL_MS);
+  const loading = snapshot === null;
+  const interfaces = snapshot?.interfaces ?? [];
+  const error = snapshot?.error ?? null;
 
   const upCount = interfaces.filter((i) => i.status === IFACE_STATUS_UP).length;
 
@@ -64,7 +58,7 @@ function InterfacesPanel() {
             <span className="lat-chip ok"><span className="dot" />{upCount} / {interfaces.length} Up</span>
           )}
           <div className="actions">
-            <button type="button" onClick={load} disabled={loading}>Refresh</button>
+            <button type="button" onClick={refreshNetworkInterfaces} disabled={loading}>Refresh</button>
           </div>
         </div>
       </div>

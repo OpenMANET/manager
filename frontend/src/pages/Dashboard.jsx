@@ -18,16 +18,16 @@ import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
 import { DashboardService } from "../gen/openmanet/dashboard/v1/dashboard_service_connect.js";
 import { NetworkInterfaceState } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
-import { NetworkInterfaceService } from "../gen/openmanet/network_interface/v1/network_interface_service_connect.js";
 import {
   InterfaceType,
   InterfaceStatus,
 } from "../gen/openmanet/network_interface/v1/interface_pb.js";
-import { BLOSService } from "../gen/openmanet/blos/v1/blos_service_connect.js";
 import { useVisibleInterval } from '../hooks/useVisibleInterval.js';
 import { useMeshStatus } from '../hooks/useMeshStatus.js';
 import { useMeshTopology } from '../hooks/useMeshTopology.js';
 import { useGnssStatus } from '../hooks/useGnssStatus.js';
+import { useBLOSStatus } from '../hooks/useBLOSStatus.js';
+import { useNetworkInterfaces } from '../hooks/useNetworkInterfaces.js';
 import { pushSparklineSample, useSparklineSamples } from '../services/sparklineStore.js';
 import './Dashboard.css';
 
@@ -36,8 +36,6 @@ import './Dashboard.css';
 const LQ_SERIES_KEY = 'dashboard.linkQualityPct';
 
 const dashClient = createClient(DashboardService, transport);
-const netClient = createClient(NetworkInterfaceService, transport);
-const blosClient = createClient(BLOSService, transport);
 
 const DASH_POLL_MS = 5000;
 // Interface state (UP/DOWN, IPs, link types) changes on the order of
@@ -299,9 +297,7 @@ function extractAddr(detail) {
 
 export default function DashboardPage() {
   const [data, setData] = useState(null);
-  const [interfaces, setInterfaces] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [blosPeers, setBlosPeers] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
   // Link-quality series lives in the module-scoped store so the
@@ -315,6 +311,19 @@ export default function DashboardPage() {
   const meshData = useMeshStatus(MESH_POLL_MS);
   const meshTopology = useMeshTopology(MESH_POLL_MS);
   const gps = useGnssStatus(CHIP_POLL_MS);
+  // Shared with the BLOS page — the chip and the page render from the
+  // same snapshot so navigating Dashboard → BLOS → Dashboard never
+  // shows a stale peer count.
+  const blos = useBLOSStatus(CHIP_POLL_MS);
+  const blosPeers = blos?.peers?.length ?? 0;
+  // Shared with SettingsNetwork — the kernel-classified interface list
+  // shows every interface (incl. wlan AP + halow mesh) with its real
+  // role instead of only the curated WAN/LAN/MESH/BAT/Tailscale rollup.
+  const ifaceSnapshot = useNetworkInterfaces(IFACE_POLL_MS);
+  const interfaces = useMemo(
+    () => ifaceSnapshot?.interfaces ?? [],
+    [ifaceSnapshot],
+  );
   const topology = meshTopology?.topology ?? null;
   const delta = meshTopology?.delta ?? null;
 
@@ -330,30 +339,7 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const pollBlosPeers = useCallback(async () => {
-    try {
-      const b = await blosClient.listBLOSPeers({});
-      setBlosPeers(b?.peers?.length ?? 0);
-    } catch {
-      // BLOS service may be disabled
-    }
-  }, []);
-
-  // Poll the kernel-classified interface list so the network panel shows
-  // every interface (incl. wlan AP + halow mesh) with its real role
-  // instead of only the curated WAN/LAN/MESH/BAT/Tailscale rollup.
-  const fetchInterfaces = useCallback(async () => {
-    try {
-      const resp = await netClient.listNetworkInterfaces({});
-      setInterfaces(resp.interfaces ?? []);
-    } catch {
-      // best-effort
-    }
-  }, []);
-
   useVisibleInterval(fetchStatus, DASH_POLL_MS);
-  useVisibleInterval(fetchInterfaces, IFACE_POLL_MS);
-  useVisibleInterval(pollBlosPeers, CHIP_POLL_MS);
 
   // Drive derived peer history + LQ rolling average off each new mesh snapshot.
   useEffect(() => {

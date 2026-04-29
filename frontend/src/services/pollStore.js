@@ -135,5 +135,13 @@ export function createPollStore(fetcher) {
     return snapshot;
   }
 
-  return { subscribe, getSnapshot };
+  // refresh triggers an off-cycle fetch — useful for manual refresh buttons.
+  // The in-flight guard inside tick() prevents this from racing with the
+  // scheduled timer, and the regular interval cadence is unaffected.
+  function refresh() {
+    if (!visible) return;
+    tick();
+  }
+
+  return { subscribe, getSnapshot, refresh };
 }
