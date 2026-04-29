@@ -275,13 +275,17 @@ func stripIfaceSuffix(name string) string {
 //
 //   - skip loopback (no MAC anyway, but explicit)
 //   - skip point-to-point interfaces (wireguard, tun, tap, ppp,
-//     tailscale) — these have no L2 broadcast domain, so no peer's
-//     batadv-vis will ever observe them as a primary MAC, and many
-//     drivers default to a shared placeholder MAC like
-//     12:00:00:00:00:00 that would collide across nodes
-//   - skip empty MACs and obvious placeholders (all-zero, multicast
-//     bit set in byte 0). A multicast-bit MAC is invalid as an L2
-//     interface address and never appears as a vis primary
+//     tailscale) — no L2 broadcast domain, no peer vis will see them
+//   - skip interfaces whose name matches a non-mesh prefix (defense
+//     in depth for drivers that don't set FlagPointToPoint correctly,
+//     and for morse0 which IS broadcast-flagged but carries a
+//     known-shared placeholder MAC)
+//   - skip empty MACs and obvious placeholders (all-zero,
+//     multicast-bit set, or a "trailing-five-zeros" pattern like
+//     12:00:00:00:00:00). The trailing-zeros check catches drivers
+//     that set only an OUI-style first byte and leave the rest
+//     unconfigured — universally a placeholder, never a real
+//     interface MAC
 //
 // The list is sorted for determinism in the published payload.
 func listLocalInterfaceMacs() []string {
@@ -300,6 +304,10 @@ func listLocalInterfaceMacs() []string {
 			continue
 		}
 
+		if isNonMeshInterfaceName(iface.Name) {
+			continue
+		}
+
 		mac := iface.HardwareAddr
 		if !isUsableInterfaceMac(mac) {
 			continue
@@ -313,10 +321,43 @@ func listLocalInterfaceMacs() []string {
 	return out
 }
 
+// isNonMeshInterfaceName returns true when name matches one of the
+// known non-mesh interface prefixes. Case-insensitive on the prefix
+// match, since iface names are conventionally lowercase but kernel
+// drivers occasionally diverge.
+//
+// Prefix list (rationale):
+//   - morse: Morse Micro HaLow radio. The driver hard-codes
+//     12:00:00:00:00:00 as the device MAC on every board — including
+//     it in interface_macs would index every node's gossip record
+//     under the same colliding key.
+//   - tun, tap, wg, tailscale, ppp: tunnel interfaces. Already caught
+//     by FlagPointToPoint, but the name filter is faster and survives
+//     drivers that mis-flag their devices.
+//   - docker: container bridge — never participates in mesh routing.
+func isNonMeshInterfaceName(name string) bool {
+	lower := strings.ToLower(name)
+	for _, p := range []string{"morse", "tun", "tap", "wg", "tailscale", "ppp", "docker"} {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // isUsableInterfaceMac returns true when mac is a syntactically valid
-// L2 unicast hardware address. Rejects empty, all-zero, and
-// multicast-bit-set MACs — anything a real NIC won't carry as its own
-// address and that no peer's vis will ever report as a primary.
+// L2 unicast hardware address suitable for use as a node identifier.
+// Rejects:
+//
+//   - wrong length (not 6 bytes)
+//   - multicast bit set in byte 0 (not a valid interface MAC)
+//   - all-zero (00:00:00:00:00:00 — uninitialised interface)
+//   - trailing-five-zeros (e.g. 12:00:00:00:00:00 — the Morse Micro
+//     HaLow radio's hard-coded placeholder, plus any other driver
+//     defaulting to "set the OUI-style first byte and leave the rest
+//     blank"). A real NIC's lower bytes are never all zero outside
+//     contrived test vectors.
 func isUsableInterfaceMac(mac net.HardwareAddr) bool {
 	if len(mac) != 6 {
 		return false
@@ -327,17 +368,24 @@ func isUsableInterfaceMac(mac net.HardwareAddr) bool {
 		return false
 	}
 
-	allZero := true
+	trailingAllZero := true
 
-	for _, b := range mac {
-		if b != 0 {
-			allZero = false
+	for i := 1; i < 6; i++ {
+		if mac[i] != 0 {
+			trailingAllZero = false
 
 			break
 		}
 	}
 
-	return !allZero
+	if trailingAllZero {
+		// Catches both 00:00:00:00:00:00 and the morse0 12:00:…
+		// pattern in one branch. A real interface's lower five
+		// bytes are never all zero.
+		return false
+	}
+
+	return true
 }
 
 // collectInterfaceMacs builds the InterfaceMacs slice published in the

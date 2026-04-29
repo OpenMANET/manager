@@ -155,15 +155,10 @@ func TestStripIfaceSuffix(t *testing.T) {
 	}
 }
 
-// TestIsUsableInterfaceMac asserts the publisher rejects MACs that
-// shouldn't end up in interface_macs: empty, all-zero, multicast-bit
-// set, wrong length. The placeholder MAC `12:00:00:00:00:00` shows
-// up in the field on tunnel/wireguard interfaces of multiple nodes
-// simultaneously and used to trigger spurious "two publishers claim
-// the same interface MAC" warnings — it's NOT multicast (LSB clear)
-// so isUsableInterfaceMac alone wouldn't reject it; the
-// FlagPointToPoint filter in listLocalInterfaceMacs handles that.
-// This unit test pins the bit-level rejection rules.
+// TestIsUsableInterfaceMac pins the bit-level rejection rules. The
+// driver-default MAC 12:00:00:00:00:00 (Morse Micro HaLow radio's
+// hard-coded address — same on every device) MUST be rejected so it
+// never ends up in interface_macs.
 func TestIsUsableInterfaceMac(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -174,11 +169,46 @@ func TestIsUsableInterfaceMac(t *testing.T) {
 		{"too short", net.HardwareAddr{0x02, 0x03, 0x04}, false},
 		{"all zero", net.HardwareAddr{0, 0, 0, 0, 0, 0}, false},
 		{"multicast bit set", net.HardwareAddr{0x01, 0x00, 0x5e, 0x00, 0x01, 0x01}, false},
-		{"locally-administered unicast", net.HardwareAddr{0x12, 0x00, 0x00, 0x00, 0x00, 0x00}, true},
+		{"morse0 placeholder 12:00:00:00:00:00", net.HardwareAddr{0x12, 0x00, 0x00, 0x00, 0x00, 0x00}, false},
+		{"trailing zeros 02:00:00:00:00:00", net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x00}, false},
+		{"locally-administered with real lower bytes", net.HardwareAddr{0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc}, true},
 		{"globally-unique unicast", net.HardwareAddr{0x3c, 0x22, 0x7f, 0x37, 0x4c, 0x0c}, true},
 	}
 	for _, tc := range cases {
 		assert.Equal(t, tc.want, isUsableInterfaceMac(tc.input), "input %v", tc.input)
+	}
+}
+
+// TestIsNonMeshInterfaceName asserts the name-based skip catches
+// every prefix the snapshot publisher must ignore — most importantly
+// morse0, the HaLow radio whose driver assigns the same shared MAC
+// to every device. Tunnel prefixes are belt-and-suspenders alongside
+// the FlagPointToPoint filter.
+func TestIsNonMeshInterfaceName(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{"morse0", true},
+		{"morse1", true},
+		{"MORSE0", true}, // case-insensitive
+		{"tun0", true},
+		{"tap0", true},
+		{"wg0", true},
+		{"tailscale0", true},
+		{"ppp0", true},
+		{"docker0", true},
+		// Mesh-relevant interfaces must NOT be filtered.
+		{"bat0", false},
+		{"vxlan0", false},
+		{"wlan0", false},
+		{"phy2-mesh0", false},
+		{"eth0", false},
+		{"br-ahwlan", false},
+		{"mesh0", false},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, isNonMeshInterfaceName(tc.name), "name %q", tc.name)
 	}
 }
 
