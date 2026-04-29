@@ -26,14 +26,15 @@
 .settings-terminal-host {
   flex: 1;
   min-height: 0;
+  position: relative;
   border-top: 1px solid var(--border);
   overflow: hidden;
   background: var(--bg);
 }
 
 .settings-terminal-host .lat-terminal {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
 }
 
 .settings-terminal-banner {
