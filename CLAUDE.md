@@ -5,7 +5,7 @@
 | Task | Command |
 |------|---------|
 | Full build (CGO + all hardware deps) | `make build` |
-| Lite build (no whisper/comms, ~5MB) | `make build-lite` |
+| Lite build (excludes whisper WASM, UPX-compressed, ~5MB) | `make build-lite` |
 | Build React frontend to `static/` | `make frontend` |
 | Run Go tests | `make test` |
 | Tests with race detector | `make test-race` |

@@ -29,6 +29,7 @@ import { useGnssStatus } from '../hooks/useGnssStatus.js';
 import { useBLOSStatus } from '../hooks/useBLOSStatus.js';
 import { useNetworkInterfaces } from '../hooks/useNetworkInterfaces.js';
 import { pushSparklineSample, useSparklineSamples } from '../services/sparklineStore.js';
+import { classifyAlerts, findLostPeers } from './dashboardAlerts.js';
 import './Dashboard.css';
 
 // Key used by the module-scoped sparkline store. Kept as a constant so
@@ -49,6 +50,13 @@ const CHIP_POLL_MS = 10000;
 const CLOCK_TICK_MS = 1000;
 const LQ_HISTORY_LEN = 60;
 const NEIGHBOR_STALE_MS = 30_000;
+// A peer is considered "lost" once we have missed ~3 mesh polls; the
+// alert then auto-clears 60s later (total 90s forget window) so a
+// long-gone peer doesn't permanently haunt the alerts panel. If the
+// peer comes back inside that window the alert is suppressed
+// immediately because the peer is in the present-name set again.
+const PEER_LOST_MS = NEIGHBOR_STALE_MS;
+const PEER_FORGET_MS = PEER_LOST_MS + 60_000;
 
 // ── Formatting ─────────────────────────────────────────────────────────────
 
@@ -237,27 +245,7 @@ function buildPeerRows(topology, neighbors, historyRef, nowMs) {
 }
 
 // ── Alerts ─────────────────────────────────────────────────────────────────
-
-function classifyAlerts({ mesh, peerRows, delta }) {
-  const out = [];
-  if (mesh?.status?.connected) {
-    out.push({ level: 'ok', text: 'MESH UP · CONVERGED' });
-  } else {
-    out.push({ level: 'crit', text: 'MESH DOWN · NO NEIGHBORS' });
-  }
-  for (const p of peerRows) {
-    if (p.tq > 0 && p.tq < 100) {
-      out.push({ level: 'warn', text: `PEER ${p.name.toUpperCase()} TQ ${p.tq} · DEGRADED` });
-    }
-  }
-  if (delta?.routesLost > 0) {
-    out.push({ level: 'warn', text: `${delta.routesLost} ROUTE${delta.routesLost > 1 ? 'S' : ''} LOST · 60s` });
-  }
-  if (delta?.routesAdded > 0 && (delta?.routesLost ?? 0) === 0) {
-    out.push({ level: 'ok', text: `MESH HEALED · +${delta.routesAdded} ROUTES` });
-  }
-  return out.slice(0, 6);
-}
+// Pure helpers live in dashboardAlerts.js so this file stays JSX-only.
 
 // ── Network interface helpers ──────────────────────────────────────────────
 
@@ -306,6 +294,10 @@ export default function DashboardPage() {
   const lqHistory = useSparklineSamples(LQ_SERIES_KEY);
 
   const neighborHistoryRef = useRef({});
+  // peerHistRef tracks the lastSeenMs for each currently-or-recently
+  // connected peer keyed by upper-cased hostname. Used by the alerts
+  // panel to surface peers that have disappeared.
+  const peerHistRef = useRef({});
 
   // Shared across Dashboard / Comms / Topology — dedupes the underlying RPCs.
   const meshData = useMeshStatus(MESH_POLL_MS);
@@ -384,6 +376,33 @@ export default function DashboardPage() {
     [topology, neighbors, now],
   );
 
+  // Track which peers we are currently seeing so the alerts panel can
+  // surface ones that have disappeared. Stamping happens on every
+  // peerRows change; pruning forgets entries that have been gone longer
+  // than PEER_FORGET_MS so the alert auto-clears.
+  useEffect(() => {
+    const nowMs = Date.now();
+    for (const p of peerRows) {
+      const name = (p.name || '').toUpperCase();
+      if (!name) continue;
+      peerHistRef.current[name] = nowMs;
+    }
+    for (const [name, lastSeenMs] of Object.entries(peerHistRef.current)) {
+      if (nowMs - lastSeenMs > PEER_FORGET_MS) {
+        delete peerHistRef.current[name];
+      }
+    }
+  }, [peerRows]);
+
+  const lostPeers = useMemo(() => {
+    const present = new Set();
+    for (const p of peerRows) {
+      const name = (p.name || '').toUpperCase();
+      if (name) present.add(name);
+    }
+    return findLostPeers(peerHistRef.current, present, now, PEER_LOST_MS, PEER_FORGET_MS);
+  }, [peerRows, now]);
+
   const peerCount = peerRows.length;
   // Gateway = the batman-adv-selected best gateway reported by
   // StatusService.selected_gateway_mac. We cross-reference the MAC against
@@ -437,8 +456,8 @@ export default function DashboardPage() {
   const tempLabel = tempAvailable ? `${cpuTemp.toFixed(1)} °C` : '—';
 
   const alerts = useMemo(
-    () => classifyAlerts({ mesh: meshData, peerRows, delta }),
-    [meshData, peerRows, delta],
+    () => classifyAlerts({ mesh: meshData, lostPeers, delta }),
+    [meshData, lostPeers, delta],
   );
 
   // Acked alert texts. ACK ALL snapshots the currently-visible non-OK
