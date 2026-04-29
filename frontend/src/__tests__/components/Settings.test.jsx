@@ -8,9 +8,10 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 // Mock the ConnectRPC transport and dashboard client used by Settings.jsx
 // for the restart button. vi.hoisted ensures the fn is available when
 // vi.mock factories execute (they are hoisted above imports).
-const { mockExecuteQuickAction, mockGetCommsConfig, mockChangePassword, authEnabledRef } = vi.hoisted(() => ({
+const { mockExecuteQuickAction, mockGetCommsConfig, mockUpdateCommsConfig, mockChangePassword, authEnabledRef } = vi.hoisted(() => ({
   mockExecuteQuickAction: vi.fn().mockResolvedValue({ success: true, message: '' }),
   mockGetCommsConfig: vi.fn().mockResolvedValue({ commsEnabled: true, controlSource: 3 }),
+  mockUpdateCommsConfig: vi.fn().mockResolvedValue({}),
   mockChangePassword: vi.fn().mockResolvedValue(undefined),
   authEnabledRef: { current: true },
 }));
@@ -18,6 +19,7 @@ vi.mock('@connectrpc/connect', () => ({
   createClient: () => ({
     executeQuickAction: mockExecuteQuickAction,
     getCommsConfig: mockGetCommsConfig,
+    updateCommsConfig: mockUpdateCommsConfig,
   }),
 }));
 vi.mock('../../services/connectClient.js', () => ({ transport: {} }));
@@ -39,6 +41,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   mockExecuteQuickAction.mockReset().mockResolvedValue({ success: true, message: '' });
   mockGetCommsConfig.mockReset().mockResolvedValue({ commsEnabled: true, controlSource: 3 });
+  mockUpdateCommsConfig.mockReset().mockResolvedValue({});
   mockChangePassword.mockReset().mockResolvedValue(undefined);
   authEnabledRef.current = true;
 });
@@ -235,18 +238,8 @@ describe('TestSettingsSaveConfig', () => {
   });
 
   it('shows error on config save failure', async () => {
-    vi.stubGlobal('fetch', vi.fn((url, opts) => {
-      if (opts?.method === 'POST' && url === '/api/settings/config') {
-        return Promise.resolve({ ok: false, status: 500 });
-      }
-      if (url === '/api/settings/hostname') {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(HOSTNAME_RESPONSE) });
-      }
-      if (url === '/api/settings/config') {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(CONFIG_RESPONSE) });
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-    }));
+    mockFetchSuccess();
+    mockUpdateCommsConfig.mockRejectedValueOnce(new Error('rpc unavailable'));
 
     const { container } = render(<SettingsPage />);
     await waitFor(() => screen.getByText('Enabled'));
@@ -257,6 +250,26 @@ describe('TestSettingsSaveConfig', () => {
     await waitFor(() => {
       expect(screen.getByText(/Failed to save config/)).toBeTruthy();
     });
+  });
+
+  it('calls updateCommsConfig when control source changes', async () => {
+    mockFetchSuccess();
+    render(<SettingsPage />);
+    await waitFor(() => screen.getByText('OpenMANETd Configuration'));
+
+    const trigger = screen.getByRole('button', { name: 'Control Source' });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('option', { name: 'OpenVLM (default)' }));
+    fireEvent.click(screen.getByText('Save Configuration'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Configuration saved.')).toBeTruthy();
+    });
+    expect(mockUpdateCommsConfig).toHaveBeenCalledTimes(1);
+    const arg = mockUpdateCommsConfig.mock.calls[0][0];
+    expect(arg.enableComms).toBe(true);
+    // ControlSource.OPENVLM === 1
+    expect(arg.controlSource).toBe(1);
   });
 });
 

@@ -29,6 +29,14 @@ function controlSourceToString(cs) {
   }
 }
 
+function stringToControlSource(s) {
+  switch (s) {
+    case 'openvlm': return ControlSource.OPENVLM;
+    case 'nanoptt': return ControlSource.NANOPTT;
+    default:        return ControlSource.WEB;
+  }
+}
+
 // Simple YAML formatter for preview display (no external library needed).
 function formatYaml(obj, indent) {
   if (!obj || typeof obj !== 'object') return '';
@@ -181,20 +189,37 @@ export default function SettingsPage() {
     clearMessages();
     setSaving(true);
     try {
-      const payload = {
-        comms: {
-          enable: config.comms_enabled,
-          controlSource: config.control_source,
-          debug: config.debug,
-          talkgroups: config.talkgroup_count,
-        },
-      };
-      const res = await authFetch('/api/settings/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const enableChanged = config.comms_enabled !== originalConfig?.comms_enabled;
+      const sourceChanged = config.control_source !== originalConfig?.control_source;
+      const debugChanged = config.debug !== originalConfig?.debug;
+      const talkgroupChanged = config.talkgroup_count !== originalConfig?.talkgroup_count;
+
+      // Live-apply enable + control source via the comms RPC. The handler
+      // persists to YAML and bounces only the comms subsystem — no daemon
+      // restart needed.
+      if (enableChanged || sourceChanged) {
+        await commsClient.updateCommsConfig({
+          enableComms: config.comms_enabled,
+          controlSource: stringToControlSource(config.control_source),
+        });
+      }
+
+      // Debug and talkgroup count have no live-apply path; they are written
+      // to YAML and only take effect after a daemon restart.
+      if (debugChanged || talkgroupChanged) {
+        const res = await authFetch('/api/settings/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            comms: {
+              debug: config.debug,
+              talkgroups: config.talkgroup_count,
+            },
+          }),
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+      }
+
       setOriginalConfig({ ...config });
       setSuccess('Configuration saved.');
     } catch (e) {
