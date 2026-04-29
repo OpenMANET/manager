@@ -102,48 +102,46 @@ MemFree:           12340 kB
 	}
 }
 
-func TestParseCPULoad(t *testing.T) {
+func TestParseCPUStat(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		numCPU  int
-		want    float32
-		wantErr bool
+		name      string
+		input     string
+		wantTotal uint64
+		wantIdle  uint64
+		wantErr   bool
 	}{
 		{
-			name:   "single CPU 12% load",
-			input:  "0.12 0.07 0.02 1/128 4567\n",
-			numCPU: 1,
-			want:   12.0,
+			name: "aggregate cpu line picked over per-core lines",
+			// cpu  user=100 nice=20 system=50 idle=800 iowait=30 irq=0 softirq=0 steal=0
+			input:     "cpu  100 20 50 800 30 0 0 0\ncpu0 50 10 25 400 15 0 0 0\n",
+			wantTotal: 1000,
+			wantIdle:  830,
 		},
 		{
-			name:   "dual CPU normalised",
-			input:  "1.00 0.50 0.25 2/200 1234\n",
-			numCPU: 2,
-			want:   50.0,
+			name:      "missing iowait column still parses",
+			input:     "cpu  100 20 50 800\n",
+			wantTotal: 970,
+			wantIdle:  800,
 		},
 		{
-			name:   "clamped to 100",
-			input:  "4.00 2.00 1.00 1/50 100\n",
-			numCPU: 1,
-			want:   100.0,
+			name:    "no cpu line is an error",
+			input:   "intr 1\nctxt 2\n",
+			wantErr: true,
 		},
 		{
-			name:   "zero CPUs defaults to 1",
-			input:  "0.50 0.25 0.10 1/50 100\n",
-			numCPU: 0,
-			want:   50.0,
+			name:    "malformed value is an error",
+			input:   "cpu  100 nope 50 800 30\n",
+			wantErr: true,
 		},
 		{
-			name:    "empty input",
-			input:   "",
-			numCPU:  1,
+			name:    "too few fields is an error",
+			input:   "cpu  100 20\n",
 			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseCPULoad(tt.input, tt.numCPU)
+			got, err := ParseCPUStat(tt.input)
 			if tt.wantErr {
 				assert.Error(t, err)
 
@@ -151,7 +149,54 @@ func TestParseCPULoad(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.InDelta(t, float64(tt.want), float64(got), 0.1)
+			assert.Equal(t, tt.wantTotal, got.total)
+			assert.Equal(t, tt.wantIdle, got.idle)
+		})
+	}
+}
+
+func TestComputeCPUPercent(t *testing.T) {
+	tests := []struct {
+		name string
+		prev cpuStatSample
+		cur  cpuStatSample
+		want float32
+	}{
+		{
+			name: "50% busy",
+			prev: cpuStatSample{total: 1000, idle: 800},
+			cur:  cpuStatSample{total: 1100, idle: 850},
+			want: 50,
+		},
+		{
+			name: "0% when fully idle",
+			prev: cpuStatSample{total: 1000, idle: 800},
+			cur:  cpuStatSample{total: 1100, idle: 900},
+			want: 0,
+		},
+		{
+			name: "100% when fully busy",
+			prev: cpuStatSample{total: 1000, idle: 800},
+			cur:  cpuStatSample{total: 1100, idle: 800},
+			want: 100,
+		},
+		{
+			name: "no elapsed time returns 0",
+			prev: cpuStatSample{total: 1000, idle: 800},
+			cur:  cpuStatSample{total: 1000, idle: 800},
+			want: 0,
+		},
+		{
+			name: "counter regression returns 0 (no spike)",
+			prev: cpuStatSample{total: 2000, idle: 1500},
+			cur:  cpuStatSample{total: 1000, idle: 800},
+			want: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := computeCPUPercent(tt.prev, tt.cur)
+			assert.InDelta(t, float64(tt.want), float64(got), 0.01)
 		})
 	}
 }
@@ -186,12 +231,30 @@ Cached:            50000 kB
 
 func TestLinuxSysInfo_GetCPULoadPercent(t *testing.T) {
 	procDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(procDir, "loadavg"), []byte("0.12 0.07 0.02 1/128 4567\n"), 0o644))
+	statPath := filepath.Join(procDir, "stat")
+
+	// First sample: total=1000, idle+iowait=830.
+	require.NoError(t, os.WriteFile(statPath, []byte("cpu  100 20 50 800 30 0 0 0\n"), 0o644))
 
 	si := &LinuxSysInfo{ProcDir: procDir}
+
+	// First call has no prior sample — must return 0 without erroring.
 	pct, err := si.GetCPULoadPercent()
 	require.NoError(t, err)
-	assert.Greater(t, pct, float32(0))
+	assert.Equal(t, float32(0), pct)
+
+	// Second sample: total=1100 (delta 100), idle=880 (delta 50) → 50% busy.
+	require.NoError(t, os.WriteFile(statPath, []byte("cpu  140 20 60 850 30 0 0 0\n"), 0o644))
+
+	pct, err = si.GetCPULoadPercent()
+	require.NoError(t, err)
+	assert.InDelta(t, 50.0, float64(pct), 0.5)
+
+	// Third sample with no movement returns 0 (no elapsed time), and
+	// does not corrupt the cached previous sample.
+	pct, err = si.GetCPULoadPercent()
+	require.NoError(t, err)
+	assert.Equal(t, float32(0), pct)
 }
 
 func TestLinuxSysInfo_GetCPUTempCelsius(t *testing.T) {

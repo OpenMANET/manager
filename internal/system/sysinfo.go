@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -52,6 +52,20 @@ type LinuxSysInfo struct {
 	// ThermalPath is the file to read CPU temperature from in millidegrees C
 	// (default "/sys/class/thermal/thermal_zone0/temp").
 	ThermalPath string
+
+	// cpuMu guards the cached previous /proc/stat sample used by
+	// GetCPULoadPercent for delta-based utilization.
+	cpuMu       sync.Mutex
+	cpuPrev     cpuStatSample
+	cpuHavePrev bool
+}
+
+// cpuStatSample is a single read of /proc/stat's aggregate "cpu" line:
+// total = sum of all jiffies, idle = idle + iowait. Two consecutive
+// samples are required to derive a utilization percentage.
+type cpuStatSample struct {
+	total uint64
+	idle  uint64
 }
 
 func (l *LinuxSysInfo) procDir() string {
@@ -203,40 +217,111 @@ func parseMemInfoLine(line string) (int64, error) {
 	return kB * 1024, nil
 }
 
-// GetCPULoadPercent reads /proc/loadavg and returns the 1-minute load average
-// normalised by the number of CPUs as a percentage.
+// GetCPULoadPercent returns aggregate CPU utilization as a percentage,
+// computed from the delta between two consecutive reads of the "cpu"
+// line in /proc/stat. The first call after process start has no prior
+// sample to compare against and returns 0; subsequent calls return the
+// fraction of jiffies spent doing non-idle work since the previous
+// call.
+//
+// One small (~1 KB) procfs read per call, no sleeps, no spawned
+// processes — the same I/O cost as the previous loadavg-based
+// implementation. The cached sample makes this method
+// goroutine-safe and side-effecting; callers should not depend on the
+// first result reflecting current load.
 func (l *LinuxSysInfo) GetCPULoadPercent() (float32, error) {
-	data, err := os.ReadFile(l.procDir() + "/loadavg")
+	data, err := os.ReadFile(l.procDir() + "/stat")
 	if err != nil {
-		return 0, fmt.Errorf("read loadavg: %w", err)
+		return 0, fmt.Errorf("read stat: %w", err)
 	}
 
-	return ParseCPULoad(string(data), runtime.NumCPU())
+	cur, err := ParseCPUStat(string(data))
+	if err != nil {
+		return 0, err
+	}
+
+	l.cpuMu.Lock()
+	defer l.cpuMu.Unlock()
+
+	prev := l.cpuPrev
+	hadPrev := l.cpuHavePrev
+	l.cpuPrev = cur
+	l.cpuHavePrev = true
+
+	if !hadPrev {
+		return 0, nil
+	}
+
+	return computeCPUPercent(prev, cur), nil
 }
 
-// ParseCPULoad extracts the 1-minute load average from /proc/loadavg content
-// and normalises it by numCPU to produce a 0-100 percentage.
-func ParseCPULoad(content string, numCPU int) (float32, error) {
-	fields := strings.Fields(content)
-	if len(fields) < 1 {
-		return 0, fmt.Errorf("unexpected loadavg format")
+// ParseCPUStat extracts the aggregate "cpu" line from /proc/stat
+// content and returns its total and idle jiffies. Idle includes
+// iowait so the result matches the convention used by top(1) and
+// vmstat(1). guest / guest_nice are not added because the kernel
+// already accounts for them inside user / nice on Linux 2.6.33+.
+func ParseCPUStat(content string) (cpuStatSample, error) {
+	for line := range strings.SplitSeq(content, "\n") {
+		if !strings.HasPrefix(line, "cpu ") && !strings.HasPrefix(line, "cpu\t") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		// "cpu" + at least user, nice, system, idle.
+		if len(fields) < 5 {
+			return cpuStatSample{}, fmt.Errorf("unexpected /proc/stat cpu line: %q", line)
+		}
+
+		var total, idle uint64
+
+		for i, f := range fields[1:] {
+			v, err := strconv.ParseUint(f, 10, 64)
+			if err != nil {
+				return cpuStatSample{}, fmt.Errorf("parse /proc/stat field %d: %w", i, err)
+			}
+
+			total += v
+			// idle = field index 3, iowait = field index 4 (0-based,
+			// after the "cpu" label).
+			if i == 3 || i == 4 {
+				idle += v
+			}
+		}
+
+		return cpuStatSample{total: total, idle: idle}, nil
 	}
 
-	load, err := strconv.ParseFloat(fields[0], 32)
-	if err != nil {
-		return 0, fmt.Errorf("parse load average: %w", err)
+	return cpuStatSample{}, fmt.Errorf("/proc/stat: missing cpu aggregate line")
+}
+
+// computeCPUPercent returns the busy fraction between two samples,
+// clamped to [0, 100]. Returns 0 when totals haven't moved (no
+// elapsed time) or when a counter reset is detected (cur < prev),
+// which keeps the gauge from spiking on monotonicity violations.
+func computeCPUPercent(prev, cur cpuStatSample) float32 {
+	if cur.total <= prev.total || cur.idle < prev.idle {
+		return 0
 	}
 
-	if numCPU < 1 {
-		numCPU = 1
+	totalDelta := cur.total - prev.total
+
+	idleDelta := cur.idle - prev.idle
+	if idleDelta > totalDelta {
+		return 0
 	}
 
-	pct := float32(load / float64(numCPU) * 100)
+	busy := totalDelta - idleDelta
+
+	pct := float32(busy) * 100 / float32(totalDelta)
+	if pct < 0 {
+		pct = 0
+	}
+
 	if pct > 100 {
 		pct = 100
 	}
 
-	return pct, nil
+	return pct
 }
 
 // GetCPUTempCelsius reads the CPU temperature from sysfs and returns it in
