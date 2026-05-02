@@ -365,10 +365,8 @@ export default function DashboardPage() {
     }
   }, [meshData]);
 
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
-    return () => clearInterval(id);
-  }, []);
+  const tickClock = useCallback(() => setNow(Date.now()), []);
+  useVisibleInterval(tickClock, CLOCK_TICK_MS);
 
   // ─ Derived ─
   const neighbors = useMemo(() => meshData?.neighbors ?? [], [meshData]);

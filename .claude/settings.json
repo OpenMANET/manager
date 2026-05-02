@@ -108,6 +108,15 @@
             "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE 'frontend/src/.*\\.(js|jsx)$' && ! echo \"$FILE\" | grep -q 'src/gen/'; then pnpm -C /workspaces/openmanetd/frontend run lint:fix -- \"$FILE\" 2>/dev/null; fi; exit 0"
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/react-app/quality-check.js"
+          }
+        ]
       }
     ]
   },

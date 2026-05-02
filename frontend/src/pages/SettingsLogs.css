@@ -94,7 +94,14 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
-@media (max-width: 480px) {
+@media (max-width: 900px) {
+  .settings-logs-controls {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
   .settings-logs-toolbar {
     padding: 8px;
     gap: 8px;
@@ -105,10 +112,6 @@
   }
   .settings-logs-source .lat-btn {
     flex: 1;
-  }
-  .settings-logs-controls {
-    margin-left: 0;
-    width: 100%;
   }
   .settings-logs-host {
     margin: 0 8px 8px;

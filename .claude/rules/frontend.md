@@ -14,6 +14,32 @@ it instead of silently inventing a new style.
 
 ---
 
+## Required skills
+
+Two skills MUST be invoked when working on the frontend. Do not skip them —
+they encode patterns that are not duplicated in this rules file.
+
+- **`react-best-practices`** — invoke whenever writing, reviewing, or
+  refactoring any React code under `frontend/src/`. Vercel's 70-rule
+  performance guide covers waterfalls, bundle size, re-render and rendering
+  perf, and client/server data-fetching patterns. Resource-constrained
+  target devices (MIPS routers, embedded ARM) make these rules non-optional
+  here — performance regressions on the host show up immediately in the field.
+- **`react-view-transitions`** — invoke whenever animating between UI states:
+  route changes, panel enter/exit, list reorder, shared-element transitions,
+  or anything mentioning `<ViewTransition>` / `startViewTransition` /
+  transition types. This skill is the source of truth for animation in the
+  app — Lattice deliberately avoids third-party animation libraries, so the
+  browser's native View Transition API is the only sanctioned approach.
+  Honor `prefers-reduced-motion` per Lattice; the skill aligns with that.
+
+If a skill's guidance and these Lattice rules ever conflict (e.g. a perf
+recommendation that would require a hard-coded color or a third-party
+library), Lattice and the user's instructions win — raise the conflict
+rather than silently breaking the design system.
+
+---
+
 ## Core principles
 
 1. **Lattice is the design system.** Reach for an existing primitive
@@ -333,3 +359,6 @@ When writing or reviewing frontend code, verify:
 7. Generated code under `frontend/src/gen/` was not edited by hand.
 8. `make frontend` was re-run if the changes need to ship through the
    daemon binary.
+9. The `react-best-practices` skill was consulted for any non-trivial React
+   change, and `react-view-transitions` was consulted whenever animation
+   between UI states was added or modified.

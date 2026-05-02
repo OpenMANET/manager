@@ -50,6 +50,11 @@
   color: var(--text);
 }
 
-@media (max-width: 480px) {
+@media (max-width: 900px) {
+  .settings-terminal-banner { margin: 12px; padding: 12px; }
+}
+
+@media (max-width: 640px) {
   .settings-terminal-toolbar { padding: 6px 8px; }
+  .settings-terminal-banner { margin: 8px; padding: 10px; }
 }

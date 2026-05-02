@@ -85,15 +85,19 @@ export default React.memo(function AudioControls({
       )}
 
       <div className="audio-vox-row">
-        <label className={`lat-toggle${voxEnabled ? ' on' : ''}`}>
-          <span
-            className="track"
-            onClick={() => onVoxToggle && onVoxToggle(!voxEnabled)}
-          >
+        <button
+          type="button"
+          role="switch"
+          aria-checked={voxEnabled}
+          aria-label="VOX"
+          className={`lat-toggle${voxEnabled ? ' on' : ''}`}
+          onClick={() => onVoxToggle && onVoxToggle(!voxEnabled)}
+        >
+          <span className="track">
             <span className="thumb" />
           </span>
           <span className="label">VOX</span>
-        </label>
+        </button>
         {voxEnabled && (
           <div className="pbar-row audio-vox-threshold">
             <span className="pbar-label">Threshold</span>

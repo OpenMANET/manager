@@ -84,7 +84,7 @@
 .settings-unsaved {
   font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--yellow);
+  color: var(--warn);
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }

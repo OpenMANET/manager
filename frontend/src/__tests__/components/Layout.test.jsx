@@ -85,30 +85,42 @@ describe('TestLayoutSidebarCollapse', () => {
 });
 
 describe('TestLayoutResize', () => {
-  it('switches from desktop to mobile on resize', () => {
-    const { container } = renderLayout(1024);
-    expect(container.querySelector('.sidebar')).toBeTruthy();
+  it('switches from desktop to mobile on resize (debounced)', () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = renderLayout(1024);
+      expect(container.querySelector('.sidebar')).toBeTruthy();
 
-    act(() => {
-      window.innerWidth = 500;
-      window.dispatchEvent(new Event('resize'));
-    });
+      act(() => {
+        window.innerWidth = 500;
+        window.dispatchEvent(new Event('resize'));
+        vi.advanceTimersByTime(150);
+      });
 
-    expect(container.querySelector('.bottom-tab-bar')).toBeTruthy();
-    expect(container.querySelector('.sidebar')).toBeNull();
+      expect(container.querySelector('.bottom-tab-bar')).toBeTruthy();
+      expect(container.querySelector('.sidebar')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('switches from mobile to desktop on resize', () => {
-    const { container } = renderLayout(500);
-    expect(container.querySelector('.bottom-tab-bar')).toBeTruthy();
+  it('switches from mobile to desktop on resize (debounced)', () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = renderLayout(500);
+      expect(container.querySelector('.bottom-tab-bar')).toBeTruthy();
 
-    act(() => {
-      window.innerWidth = 1024;
-      window.dispatchEvent(new Event('resize'));
-    });
+      act(() => {
+        window.innerWidth = 1024;
+        window.dispatchEvent(new Event('resize'));
+        vi.advanceTimersByTime(150);
+      });
 
-    expect(container.querySelector('.sidebar')).toBeTruthy();
-    expect(container.querySelector('.bottom-tab-bar')).toBeNull();
+      expect(container.querySelector('.sidebar')).toBeTruthy();
+      expect(container.querySelector('.bottom-tab-bar')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

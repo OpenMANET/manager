@@ -198,6 +198,25 @@ html, body {
 .lat-btn.danger.solid { background: rgba(255, 59, 77, 0.14); }
 .lat-btn.danger.solid:hover { background: rgba(255, 59, 77, 0.22); }
 
+/* Fully filled crit-red — reserved for the highest-stakes destructive
+   confirms (e.g. factory reset). Use .lat-btn.danger.solid for ordinary
+   destructive ops; .filled is the louder variant. */
+.lat-btn.danger.filled {
+  color: var(--text);
+  background: var(--crit);
+  border-color: var(--crit);
+}
+.lat-btn.danger.filled:hover {
+  background: color-mix(in srgb, var(--crit) 82%, black);
+  border-color: color-mix(in srgb, var(--crit) 82%, black);
+}
+
+/* Compact size modifier — for inline actions inside dense tables/rows. */
+.lat-btn.sm {
+  padding: 3px 9px;
+  font-size: 10px;
+}
+
 /* ------------------------------------------------------------------ toggle */
 
 .lat-toggle {
@@ -237,6 +256,27 @@ html, body {
 .lat-toggle.on .track { background: rgba(0, 229, 255, 0.22); border-color: var(--accent); }
 .lat-toggle.on .thumb { left: 22px; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 .lat-toggle.on .label { color: var(--accent); }
+
+/* ------------------------------------------------------------------ check */
+
+/* Compact native checkbox + uppercase mono label, color-shifted for
+   confirmation severity. Pair with .warn-text or .crit-text on the label
+   to bump the typographic emphasis. */
+.lat-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  user-select: none;
+}
+.lat-check input { accent-color: var(--accent); }
+.lat-check.warn-text { color: var(--warn); }
+.lat-check.crit-text { color: var(--crit); }
+.lat-check input[disabled] { cursor: not-allowed; }
 
 /* ------------------------------------------------------------------ alerts */
 

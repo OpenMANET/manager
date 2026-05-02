@@ -46,9 +46,19 @@ export default function Layout() {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 768);
+    let timeoutId = null;
+    const onResize = () => {
+      if (timeoutId != null) return;
+      timeoutId = setTimeout(() => {
+        timeoutId = null;
+        setIsMobile(window.innerWidth < 768);
+      }, 100);
+    };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (timeoutId != null) clearTimeout(timeoutId);
+    };
   }, []);
 
   // Mobile: bottom tab bar

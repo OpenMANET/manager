@@ -342,31 +342,28 @@ export default function CommsPage() {
   useEffect(() => { pttDownRef.current = pttDown; }, [pttDown]);
   useEffect(() => { pttUpRef.current = pttUp; }, [pttUp]);
 
-  useEffect(() => {
-    if (!voxEnabled) return;
-    const id = setInterval(() => {
-      const level = micLevelRef.current;
-      const thresh = voxThresholdRef.current;
-      if (level > thresh) {
-        if (voxTimerRef.current) { clearTimeout(voxTimerRef.current); voxTimerRef.current = null; }
-        if (!pttActiveRef.current) {
-          voxActiveRef.current = true;
-          pttDownRef.current();
-        }
-      } else if (voxActiveRef.current && pttActiveRef.current) {
-        if (!voxTimerRef.current) {
-          voxTimerRef.current = setTimeout(() => {
-            voxTimerRef.current = null;
-            if (voxActiveRef.current && pttActiveRef.current) {
-              voxActiveRef.current = false;
-              pttUpRef.current();
-            }
-          }, VOX_HANGTIME_MS);
-        }
+  const voxTick = useCallback(() => {
+    const level = micLevelRef.current;
+    const thresh = voxThresholdRef.current;
+    if (level > thresh) {
+      if (voxTimerRef.current) { clearTimeout(voxTimerRef.current); voxTimerRef.current = null; }
+      if (!pttActiveRef.current) {
+        voxActiveRef.current = true;
+        pttDownRef.current();
       }
-    }, 50);
-    return () => clearInterval(id);
-  }, [voxEnabled]);
+    } else if (voxActiveRef.current && pttActiveRef.current) {
+      if (!voxTimerRef.current) {
+        voxTimerRef.current = setTimeout(() => {
+          voxTimerRef.current = null;
+          if (voxActiveRef.current && pttActiveRef.current) {
+            voxActiveRef.current = false;
+            pttUpRef.current();
+          }
+        }, VOX_HANGTIME_MS);
+      }
+    }
+  }, []);
+  useVisibleInterval(voxTick, voxEnabled ? 50 : 0);
 
   // ---------------------------------------------------------------------------
   // Volume + mute
@@ -519,20 +516,18 @@ export default function CommsPage() {
     setWhisperStatus(enabled ? (whisperIsReady() ? 'Whisper ready' : 'Loading model...') : '');
   }, [addLog]);
 
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (!whisperEnabledRef.current || !whisperIsReady()) return;
-      checkSilenceAndTranscribe((ch, ip, text) => {
-        const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
-        setChatMessages((prev) => {
-          const next = [...prev, { ch, ip, text, ts }];
-          if (next.length > MAX_CHAT) return next.slice(-MAX_CHAT);
-          return next;
-        });
+  const whisperTick = useCallback(() => {
+    if (!whisperEnabledRef.current || !whisperIsReady()) return;
+    checkSilenceAndTranscribe((ch, ip, text) => {
+      const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+      setChatMessages((prev) => {
+        const next = [...prev, { ch, ip, text, ts }];
+        if (next.length > MAX_CHAT) return next.slice(-MAX_CHAT);
+        return next;
       });
-    }, 500);
-    return () => clearInterval(id);
+    });
   }, []);
+  useVisibleInterval(whisperTick, 500);
 
   // ---------------------------------------------------------------------------
   // Polling — mesh + comms status
@@ -627,16 +622,14 @@ export default function CommsPage() {
   }, [rxSource, channelAliases]);
 
   // Expire rxSource if no audio for 2 seconds.
-  useEffect(() => {
-    const id = setInterval(() => {
-      const last = rxLastSourceRef.current;
-      if (last && Date.now() - last.ts > 2000) {
-        rxLastSourceRef.current = null;
-        setRxSource(null);
-      }
-    }, 500);
-    return () => clearInterval(id);
+  const rxSourceExpireTick = useCallback(() => {
+    const last = rxLastSourceRef.current;
+    if (last && Date.now() - last.ts > 2000) {
+      rxLastSourceRef.current = null;
+      setRxSource(null);
+    }
   }, []);
+  useVisibleInterval(rxSourceExpireTick, 500);
 
   const pttLabel = pttActive
     ? `TRANSMITTING · CH ${activeCh} ${activeChName}`

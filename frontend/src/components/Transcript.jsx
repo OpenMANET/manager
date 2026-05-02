@@ -85,7 +85,7 @@ export default function Transcript({
               checked={debugMode}
               onChange={(e) => onDebugToggle(e.target.checked)}
             />
-            <label htmlFor="debug-toggle" style={{ color: 'var(--orange)' }}>Debug</label>
+            <label htmlFor="debug-toggle" style={{ color: 'var(--warn)' }}>Debug</label>
           </div>
         </>
       )}

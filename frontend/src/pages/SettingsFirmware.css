@@ -178,27 +178,7 @@
   background: rgba(0, 229, 255, 0.08);
 }
 
-.lat-btn.sm {
-  padding: 3px 9px;
-  font-size: 10px;
-}
-
-/* ── Pre-release toggle ───────────────────────────────────────── */
-.lat-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  user-select: none;
-}
-.lat-check input { accent-color: var(--accent); }
-.lat-check.warn-text { color: var(--warn); }
-.lat-check.crit-text { color: var(--crit); }
-.lat-check input[disabled] { cursor: not-allowed; }
+/* .lat-btn.sm and .lat-check now live in lattice.css. */
 
 /* ── Confirm card ─────────────────────────────────────────────── */
 .firmware-confirm {
@@ -493,20 +473,10 @@
   padding-top: 10px;
 }
 
-/* solid-red final destructive button — only used by the factory
-   reset confirm. Outline .lat-btn.danger stays the convention for
-   lower-stakes destructive operations like Discard. */
-.lat-btn.danger.solid {
-  color: #fff;
-  background: var(--crit);
-  border-color: var(--crit);
-}
-
-.lat-btn.danger.solid:hover {
-  background: #d92e3e;
-  border-color: #d92e3e;
-  color: #fff;
-}
+/* The factory reset confirm uses .lat-btn.danger.filled (defined in
+   lattice.css) for its fully-saturated crit-red look. Outline
+   .lat-btn.danger remains the convention for lower-stakes destructive
+   operations like Discard. */
 
 @keyframes pulseBorderCrit {
   0%, 100% {

@@ -4,7 +4,8 @@
 // Renders the channel grid showing each channel's label, port, RX/TX buttons,
 // replay button, and a green RX-dot that pulses when audio is recently received.
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useVisibleInterval } from '../hooks/useVisibleInterval.js';
 
 export default function ChannelGrid({
   channels,
@@ -22,14 +23,13 @@ export default function ChannelGrid({
   tiles = false,
 }) {
   // Force re-render at 150ms interval to update RX dot activity state.
+  // Visibility-gated so a backgrounded tab does no work.
   const [, setTick] = useState(0);
   const [editingCh, setEditingCh] = useState(null);
   const inputRef = useRef(null);
 
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 150);
-    return () => clearInterval(id);
-  }, []);
+  const tickRxDots = useCallback(() => setTick((t) => t + 1), []);
+  useVisibleInterval(tickRxDots, 150);
 
   useEffect(() => {
     if (editingCh !== null && inputRef.current) {

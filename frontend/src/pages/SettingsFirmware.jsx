@@ -1222,7 +1222,7 @@ function FactoryResetPanel({
                 </button>
                 <button
                   type="button"
-                  className="lat-btn danger solid"
+                  className="lat-btn danger filled"
                   onClick={onConfirm}
                   disabled={!armed}
                 >

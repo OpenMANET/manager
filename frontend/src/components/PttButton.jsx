@@ -36,7 +36,7 @@ export default function PttButton({ active, onDown, onUp, txChannels, channelAli
   // Build the TX info string shown below the button.
   let txInfoContent;
   if (!txChannels || txChannels.length === 0) {
-    txInfoContent = <span>TX: <span style={{ color: 'var(--red)' }}>none</span></span>;
+    txInfoContent = <span>TX: <span style={{ color: 'var(--crit)' }}>none</span></span>;
   } else if (txChannels.length === 5) {
     txInfoContent = <span>TX: <span className="active-ch">All channels</span></span>;
   } else {

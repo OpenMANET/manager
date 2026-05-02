@@ -161,8 +161,8 @@
   width: 100%;
 }
 
-.gps-filter-active {
-  color: var(--accent) !important;
+.lat-panel .panel-head .actions button.gps-filter-active {
+  color: var(--accent);
   border-bottom: 1px solid var(--accent);
 }
 
