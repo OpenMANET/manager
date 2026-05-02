@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/digineo/go-uci/v2"
 	"github.com/mdlayher/wifi"
 	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
@@ -1594,6 +1595,162 @@ func TestUpdateRadioSettings_NonMeshModeLeavesMeshFwdingAlone(t *testing.T) {
 
 	if vals, ok := reader.Get("wireless", "default_radio2", "mesh_fwding"); ok {
 		t.Errorf("expected mesh_fwding not to be written for AP mode, got %v", vals)
+	}
+
+	// AP mode must rebind to ahwlan so the iface joins br-ahwlan.
+	vals, ok := reader.Get("wireless", "default_radio2", "network")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected network to be set on the wifi-iface")
+	}
+
+	if vals[0] != "ahwlan" {
+		t.Errorf("network: got %q, want %q", vals[0], "ahwlan")
+	}
+}
+
+func TestUpdateRadioSettings_MeshMode_BindsToUnusedBatmesh(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// Fixture: default_radio2 is on ahwlan; default_radio3 is on batmesh0.
+	// Switching radio2 to mesh should pick batmesh1 (the only free slot).
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "mesh-ssid",
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	vals, ok := reader.Get("wireless", "default_radio2", "network")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected network to be set on the wifi-iface")
+	}
+
+	if vals[0] != "batmesh1" {
+		t.Errorf("network: got %q, want %q", vals[0], "batmesh1")
+	}
+}
+
+func TestUpdateRadioSettings_MeshMode_AlreadyOnBatmesh_LeavesUnchanged(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// Fixture: default_radio3 is already on batmesh0 in mesh mode.
+	// A mesh update should not migrate it.
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio3",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "mesh-ssid",
+			Channel: "42",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	vals, ok := reader.Get("wireless", "default_radio3", "network")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected network to remain set on the wifi-iface")
+	}
+
+	if vals[0] != "batmesh0" {
+		t.Errorf("network: got %q, want %q (must not migrate when already on batmesh*)", vals[0], "batmesh0")
+	}
+}
+
+func TestUpdateRadioSettings_MeshMode_NoSlotReturnsFailedPrecondition(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// Take batmesh1 with an unrelated iface so both canonical slots are
+	// in use by ifaces other than the target. default_radio2 is on
+	// ahwlan; switching it to mesh must now fail.
+	if err := reader.AddSection("wireless", "extra_mesh", "wifi-iface"); err != nil {
+		t.Fatalf("AddSection: %v", err)
+	}
+
+	if err := reader.SetType("wireless", "extra_mesh", "network", uci.TypeOption, "batmesh1"); err != nil {
+		t.Fatalf("SetType network: %v", err)
+	}
+
+	if err := reader.SetType("wireless", "extra_mesh", "device", uci.TypeOption, "radioX"); err != nil {
+		t.Fatalf("SetType device: %v", err)
+	}
+
+	_, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "mesh-ssid",
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected an error when no batmesh slot is free")
+	}
+
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		t.Fatalf("expected *connect.Error, got %T: %v", err, err)
+	}
+
+	if connectErr.Code() != connect.CodeFailedPrecondition {
+		t.Errorf("code: got %v, want %v", connectErr.Code(), connect.CodeFailedPrecondition)
+	}
+
+	// Iface UCI must be unchanged.
+	vals, ok := reader.Get("wireless", "default_radio2", "network")
+	if !ok || len(vals) == 0 || vals[0] != "ahwlan" {
+		t.Errorf("network: expected unchanged %q, got %v (ok=%v)", "ahwlan", vals, ok)
+	}
+}
+
+func TestUpdateRadioSettings_NoModeChange_LeavesNetworkAlone(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// default_radio3 is on batmesh0. A txpower-only update must not
+	// touch the network binding.
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio3",
+		Settings: &wificonfigv1.RadioSettings{
+			TxPower: 12,
+			// Mode left as UNSPECIFIED.
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	vals, ok := reader.Get("wireless", "default_radio3", "network")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected network to remain set")
+	}
+
+	if vals[0] != "batmesh0" {
+		t.Errorf("network: got %q, want %q (must not change when mode is UNSPECIFIED)", vals[0], "batmesh0")
 	}
 }
 

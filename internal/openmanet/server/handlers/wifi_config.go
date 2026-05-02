@@ -285,10 +285,38 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 
 	if mode := ProtoToWifiMode(settings.GetMode()); mode != "" {
 		ifaceCfg.Mode = mode
-		if mode == uciModeMesh {
+
+		switch mode {
+		case uciModeMesh:
 			// batman-adv handles mesh forwarding; disable 802.11s
 			// in-kernel forwarding so frames are not double-forwarded.
 			ifaceCfg.MeshFwding = "0"
+
+			// Mesh radios must be bound to a batadv_hardif network
+			// (batmesh*); ahwlan is the AP bridge and does not attach
+			// to bat0, so leaving the iface there breaks the mesh.
+			// If the iface is already on a batmesh* slot (e.g. the
+			// wizard's primary mesh radio), leave it.
+			currentNet := ""
+			if vals, ok := s.ConfigReader.Get(wirelessConfig, ifaceName, "network"); ok && len(vals) > 0 {
+				currentNet = vals[0]
+			}
+
+			if !strings.HasPrefix(currentNet, "batmesh") {
+				unused, err := findUnusedBatmesh(s.ConfigReader, ifaceName)
+				if err != nil {
+					s.Log.Warn().Err(err).Str("radio", radioName).Msg("no batmesh network available")
+
+					return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+				}
+
+				ifaceCfg.Network = unused
+			}
+
+		case uciModeAP, uciModeSTA:
+			// Coming back from mesh (or any other state) — rebind to
+			// the AP bridge so the iface joins br-ahwlan.
+			ifaceCfg.Network = "ahwlan"
 		}
 	}
 
@@ -415,6 +443,42 @@ func findLinkedIface(deviceName string, ifaceSections []string, reader network.C
 	}
 
 	return ""
+}
+
+// findUnusedBatmesh returns the first canonical batmesh* network (in order:
+// batmesh0, batmesh1) whose name is not currently set as the "network" option
+// on any wifi-iface section other than excludeIface. Returns an error if every
+// candidate is already bound.
+func findUnusedBatmesh(reader network.ConfigReader, excludeIface string) (string, error) {
+	candidates := [...]string{network.BatmanPrimaryIface, network.BatmanSecondaryIface}
+
+	sections, err := reader.GetSections(wirelessConfig, "wifi-iface")
+	if err != nil {
+		return "", fmt.Errorf("list wifi-iface sections: %w", err)
+	}
+
+	inUse := make(map[string]struct{}, len(sections))
+
+	for _, sec := range sections {
+		if sec == excludeIface {
+			continue
+		}
+
+		vals, ok := reader.Get(wirelessConfig, sec, "network")
+		if !ok || len(vals) == 0 {
+			continue
+		}
+
+		inUse[vals[0]] = struct{}{}
+	}
+
+	for _, name := range candidates {
+		if _, taken := inUse[name]; !taken {
+			return name, nil
+		}
+	}
+
+	return "", fmt.Errorf("no available batmesh network (all in use)")
 }
 
 // resolveHardwareName looks up the hardware chip name by correlating the UCI
