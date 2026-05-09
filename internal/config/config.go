@@ -91,7 +91,7 @@ const (
 	// comms.packetLossPerc; the FEC adapter is free to raise above
 	// the configured floor in response to observed RX loss but will
 	// never drop below it. Valid range is [10, 40].
-	DefaultCommsPacketLossPerc int = 20
+	DefaultCommsPacketLossPerc int = 30
 	// CommsPacketLossPercMin is the lower clamp for comms.packetLossPerc.
 	// Below 10, LBRR is too small to meaningfully recover a lost frame.
 	CommsPacketLossPercMin int = 10

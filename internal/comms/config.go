@@ -73,27 +73,28 @@ type CommsConfig struct {
 	Log                      zerolog.Logger
 	AuxHandler               control.AuxEventHandler
 	Interrupt                chan os.Signal
-	BluetoothOutputDevice    string
-	Iface                    string
-	BluetoothInputDevice     string
+	startHardwareAudioFn     func(rt *CommsRuntime) (func(), error)
 	CommKey                  string
+	BluetoothInputDevice     string
+	Iface                    string
 	BluetoothAudioDeviceHint string
 	ControlSource            string
 	NanoPTTDeviceName        string
 	RtpID                    string
 	NanoPTTDevicePath        string
+	BluetoothOutputDevice    string
 	McastPorts               []McastPortConfig
-	HalfDuplexThreshold      time.Duration
-	EncoderComplexity        int
-	ROIPVOXHoldTime          time.Duration
 	ROIPMaxTXDuration        time.Duration
+	ROIPVOXHoldTime          time.Duration
+	EncoderComplexity        int
 	PttStartDelayMs          int
 	CaptureFramesPerBuffer   int
 	CaptureLatencyMs         int
 	PlaybackLatencyMs        int
 	PacketLossPerc           int
-	MicGain                  float32
+	HalfDuplexThreshold      time.Duration
 	ROIPVOXThreshold         float32
+	MicGain                  float32
 	EnableNanoPTT            bool
 	EnableBluetoothPtt       bool
 	Enable                   bool

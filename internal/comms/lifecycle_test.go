@@ -1,0 +1,110 @@
+package comms
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestInitAudioIO_HardwareFailureIsNonFatal exercises the lifecycle invariant
+// that powers the OpenVLM "RX/TX toggles must work no matter the control
+// source" requirement: when the local audio hardware fails to initialize,
+// the comms subsystem still stands up enough state for the WebUI to toggle
+// per-channel send/receive flags via the RPC path.
+//
+// Before the fix in lifecycle.go, a startHardwareAudio error would cause
+// Start to return early; the deferred SetDefault(nil) at the top of Start
+// would clear the published service, and every subsequent
+// SetSendTalkGroup / SetReceiveTalkGroup RPC would return ErrNotRunning.
+// The WebUI bridge silently swallows that error, so the user saw a UI
+// that "did nothing".
+func TestInitAudioIO_HardwareFailureIsNonFatal(t *testing.T) {
+	cfg := &CommsConfig{
+		Log:           zerolog.Nop(),
+		ControlSource: defaultCtrlSrc, // openvlm — the user-reported case
+		startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+			return nil, errors.New("simulated: no ALSA card / dongle unplugged")
+		},
+	}
+
+	rt := &CommsRuntime{
+		Ports: []*PortChannel{
+			{cfg: McastPortConfig{Address: "239.0.0.1", Port: 5004, Send: true, Receive: true}},
+			{cfg: McastPortConfig{Address: "239.0.0.2", Port: 5006, Send: true, Receive: true}},
+		},
+	}
+
+	rt.Ports[0].SendEnabled.Store(true)
+	rt.Ports[0].ReceiveEnabled.Store(true)
+	rt.Ports[1].SendEnabled.Store(false)
+	rt.Ports[1].ReceiveEnabled.Store(false)
+
+	cleanup := cfg.initAudioIO(rt)
+
+	assert.Nil(t, cleanup, "audio failure must not return a cleanup func to defer")
+	assert.Nil(t, rt.BroadcastStream, "BroadcastStream must remain nil so transmit.go's nil guards engage")
+	assert.Nil(t, rt.WebBridge, "WebBridge must stay nil for non-web control sources")
+
+	// Publish the service the same way Start does so Default()/handler paths see it.
+	svc := &Service{Cfg: cfg, Rt: rt}
+	SetDefault(svc)
+	t.Cleanup(func() { SetDefault(nil) })
+
+	require.NoError(t, svc.EnableTalkGroupSend(1, true), "TX toggle must succeed despite missing hardware")
+	require.NoError(t, svc.EnableTalkGroupReceive(0, false), "RX toggle must succeed despite missing hardware")
+
+	states, err := svc.TalkGroupStates()
+	require.NoError(t, err)
+	require.Len(t, states, 2)
+	assert.True(t, states[1].SendEnabled, "EnableTalkGroupSend(1, true) must be observable in TalkGroupStates")
+	assert.False(t, states[0].ReceiveEnabled, "EnableTalkGroupReceive(0, false) must be observable in TalkGroupStates")
+}
+
+// TestInitAudioIO_HardwareSuccessReturnsCleanup verifies the happy-path
+// counterpart of the failure test: a successful audio init returns the
+// cleanup func so Start can defer it.
+func TestInitAudioIO_HardwareSuccessReturnsCleanup(t *testing.T) {
+	called := 0
+
+	cfg := &CommsConfig{
+		Log:           zerolog.Nop(),
+		ControlSource: defaultCtrlSrc,
+		startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+			return func() { called++ }, nil
+		},
+	}
+
+	rt := &CommsRuntime{}
+
+	cleanup := cfg.initAudioIO(rt)
+	require.NotNil(t, cleanup)
+
+	cleanup()
+	assert.Equal(t, 1, called)
+}
+
+// TestInitAudioIO_WebModeBuildsBridge verifies that web mode bypasses the
+// hardware audio path entirely and constructs a WebBridge instead — the
+// existing behavior, locked down so the refactor in initAudioIO does not
+// regress it.
+func TestInitAudioIO_WebModeBuildsBridge(t *testing.T) {
+	cfg := &CommsConfig{
+		Log:           zerolog.Nop(),
+		ControlSource: controlSourceWeb,
+		startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+			t.Fatal("startHardwareAudioFn must not be called in web mode")
+
+			return nil, nil
+		},
+	}
+
+	rt := &CommsRuntime{}
+
+	cleanup := cfg.initAudioIO(rt)
+
+	assert.Nil(t, cleanup, "web mode has no malgo lifecycle to clean up")
+	assert.NotNil(t, rt.WebBridge, "web mode must construct a WebBridge")
+}

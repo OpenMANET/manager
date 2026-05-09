@@ -78,6 +78,42 @@ func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) (cleanup func(), er
 	return cleanup, nil
 }
 
+// initAudioIO wires up the local audio path for cfg.ControlSource. In web
+// mode it constructs a webaudio bridge; in non-web modes (openvlm, nanoptt,
+// roip) it tries to open the malgo capture/playback streams.
+//
+// A failure to bring up local audio is non-fatal: the comms subsystem stays
+// alive so RTP relay between mesh peers continues, and the WebUI's
+// per-channel RX/TX toggles still take effect. The TX/RX hot paths already
+// guard against the resulting nil BroadcastStream / PlaybackStream.
+//
+// Returns the malgo cleanup function (nil when there is nothing to clean
+// up) so Start can defer it.
+func (cfg *CommsConfig) initAudioIO(rt *CommsRuntime) func() {
+	if cfg.ControlSource == controlSourceWeb {
+		// Web mode: skip the malgo pipeline entirely; the browser provides audio I/O.
+		rt.WebBridge = webaudio.NewBridge(cfg.Log, func(payload []byte) {
+			cfg.sendToAllPorts(rt, payload)
+		})
+
+		return nil
+	}
+
+	startHA := cfg.startHardwareAudioFn
+	if startHA == nil {
+		startHA = cfg.startHardwareAudio
+	}
+
+	cleanup, hwErr := startHA(rt)
+	if hwErr != nil {
+		cfg.Log.Error().Err(hwErr).Msg("comms: hardware audio init failed; continuing without local mic/speaker")
+
+		return nil
+	}
+
+	return cleanup
+}
+
 // Start initializes all comms subsystems and blocks until ctx is canceled.
 // Returns nil on clean shutdown, or an error if initialization fails.
 // The caller is responsible for canceling ctx to stop the subsystem.
@@ -186,17 +222,7 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 	}
 
 	// ── audio I/O ─────────────────────────────────────────────────────────
-	if cfg.ControlSource == controlSourceWeb {
-		// Web mode: skip the malgo pipeline entirely; the browser provides audio I/O.
-		rt.WebBridge = webaudio.NewBridge(cfg.Log, func(payload []byte) {
-			cfg.sendToAllPorts(rt, payload)
-		})
-	} else {
-		cleanup, hwErr := cfg.startHardwareAudio(rt)
-		if hwErr != nil {
-			return hwErr
-		}
-
+	if cleanup := cfg.initAudioIO(rt); cleanup != nil {
 		defer cleanup()
 	}
 
