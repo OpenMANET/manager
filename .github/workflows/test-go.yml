@@ -86,6 +86,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           files: ./coverage.out
+          flags: golang, unit
           fail_ci_if_error: false
           report_type: coverage
         env:
@@ -129,7 +130,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           files: ./coverage.out
-          flags: integration
+          flags: golang, integration
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
