@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -231,6 +232,21 @@ func makeManager(t *testing.T, fetcher ReleasesFetcher, runner SysupgradeRunner,
 		PersistentLogDir: t.TempDir(),
 	})
 
+	// Drain in-flight upgrade / watcher goroutines before the test's
+	// t.TempDir cleanup runs RemoveAll on the download / persistent log
+	// directories. t.Cleanup is LIFO, so a Cleanup registered here runs
+	// before the TempDir cleanups registered above. Without this, the
+	// per-upgrade goroutine spawned by StartLocalUpgrade can race with
+	// RemoveAll and leave the parent temp directory non-empty.
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := mgr.Shutdown(ctx); err != nil {
+			t.Errorf("sysupgrade manager shutdown: %v", err)
+		}
+	})
+
 	return mgr
 }
 
@@ -400,6 +416,61 @@ func TestManager_StartUpgrade_HappyPath(t *testing.T) {
 	assert.True(t, runner.lastOpts.TestOnly)
 	assert.Equal(t, filepath.Dir(runner.lastImage)+"/openmanet-1.8.0-bcm27xx-bcm2711-mm8108-usb-squashfs-sysupgrade.img.gz.log", runner.lastLog)
 }
+
+func TestManager_Shutdown_NoUpgradeIsNoop(t *testing.T) {
+	mgr := makeManager(t, &fakeReleasesFetcher{}, &fakeRunner{}, "1.7.0")
+
+	// With nothing running, Shutdown should return immediately even
+	// when called multiple times.
+	require.NoError(t, mgr.Shutdown(context.Background()))
+	require.NoError(t, mgr.Shutdown(context.Background()))
+}
+
+func TestManager_Shutdown_WaitsForLocalUpgradeGoroutines(t *testing.T) {
+	// blockingRunner makes Run hang until Shutdown's ctx cancel reaches
+	// it via the upgrade context. This exercises the cancel-and-wait
+	// path: without Shutdown propagating cancel into the goroutine, the
+	// test would deadlock on Shutdown's wg.Wait().
+	runner := &blockingRunner{started: make(chan struct{}), released: make(chan struct{})}
+	mgr := makeManager(t, &fakeReleasesFetcher{}, runner, "1.7.0")
+
+	_, err := mgr.StoreStagedImage(context.Background(), strings.NewReader("payload"), "x.img")
+	require.NoError(t, err)
+	require.NoError(t, mgr.StartLocalUpgrade(context.Background(), SysupgradeOptions{}, false, false))
+
+	// Wait until the runner has been entered so we know the goroutine
+	// is actually parked inside Run.
+	select {
+	case <-runner.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("runner.Run never invoked")
+	}
+
+	require.NoError(t, mgr.Shutdown(context.Background()))
+	// runner.Run must have been released by the propagated ctx cancel.
+	select {
+	case <-runner.released:
+	default:
+		t.Fatal("runner did not observe ctx cancellation")
+	}
+}
+
+// blockingRunner satisfies SysupgradeRunner, parking Run until ctx is
+// done so a test can observe Shutdown-driven cancellation.
+type blockingRunner struct {
+	started  chan struct{}
+	released chan struct{}
+}
+
+func (b *blockingRunner) Run(ctx context.Context, _, _ string, _ SysupgradeOptions) (int, error) {
+	close(b.started)
+	<-ctx.Done()
+	close(b.released)
+
+	return 0, fmt.Errorf("blockingRunner: %w", ctx.Err())
+}
+
+func (b *blockingRunner) Preflight(_ context.Context, _ string) error { return nil }
 
 func TestManager_CancelUpgrade_NoneRunning(t *testing.T) {
 	mgr := makeManager(t, &fakeReleasesFetcher{}, &fakeRunner{}, "1.7.0")

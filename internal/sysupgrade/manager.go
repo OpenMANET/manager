@@ -137,6 +137,7 @@ type Manager struct {
 	nextSub            uint64
 	mu                 sync.Mutex
 	subsMu             sync.Mutex
+	wg                 sync.WaitGroup // tracks runUpgrade / runLocalUpgrade / watchSysupgradeChild goroutines
 	upgradeStarted     bool
 	uploadInFlight     bool
 }
@@ -469,7 +470,9 @@ func (m *Manager) StartUpgrade(ctx context.Context, tag, assetName string, opts 
 		asset = matched
 	}
 
-	go m.runUpgrade(upgradeCtx, rel, asset, opts)
+	m.wg.Go(func() {
+		m.runUpgrade(upgradeCtx, rel, asset, opts)
+	})
 
 	return nil
 }
@@ -546,7 +549,9 @@ func (m *Manager) runUpgrade(ctx context.Context, rel Release, asset Asset, opts
 		UpdatedAt:  time.Now(),
 	})
 
-	go m.watchSysupgradeChild(ctx, pid, logPath, asset.Name)
+	m.wg.Go(func() {
+		m.watchSysupgradeChild(ctx, pid, logPath, asset.Name)
+	})
 }
 
 // downloadAndVerify performs the sums fetch + image stream + verify
@@ -625,6 +630,39 @@ func (m *Manager) CancelUpgrade(_ context.Context) error {
 	m.publishLocked(m.progress)
 
 	return nil
+}
+
+// Shutdown cancels any in-flight upgrade context and blocks until every
+// goroutine owned by the manager (runUpgrade, runLocalUpgrade, the
+// per-upgrade watcher) has returned. Returns ctx.Err() if ctx is
+// canceled before the goroutines finish. Safe to call multiple times
+// and safe to call when no upgrade is running.
+//
+// In production, the sysupgrade flow normally ends with the kernel
+// killing the daemon mid-flash; Shutdown exists for graceful daemon
+// teardown and for tests that need to wait out spawned goroutines
+// before tmpdir cleanup runs.
+func (m *Manager) Shutdown(ctx context.Context) error {
+	m.mu.Lock()
+	if m.upgradeCancel != nil {
+		m.upgradeCancel()
+		m.upgradeCancel = nil
+	}
+	m.mu.Unlock()
+
+	done := make(chan struct{})
+
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("sysupgrade: shutdown wait: %w", ctx.Err())
+	}
 }
 
 // GetUpgradeStatus returns a copy of the current Progress snapshot.

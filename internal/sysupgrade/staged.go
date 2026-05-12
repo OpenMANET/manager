@@ -266,7 +266,9 @@ func (m *Manager) StartLocalUpgrade(ctx context.Context, opts SysupgradeOptions,
 	m.upgradeStarted = false
 	m.mu.Unlock()
 
-	go m.runLocalUpgrade(upgradeCtx, staged, opts)
+	m.wg.Go(func() {
+		m.runLocalUpgrade(upgradeCtx, staged, opts)
+	})
 
 	return nil
 }
@@ -335,7 +337,9 @@ func (m *Manager) runLocalUpgrade(ctx context.Context, staged *StagedImage, opts
 		UpdatedAt: time.Now(),
 	})
 
-	go m.watchSysupgradeChild(ctx, pid, logPath, staged.Filename)
+	m.wg.Go(func() {
+		m.watchSysupgradeChild(ctx, pid, logPath, staged.Filename)
+	})
 }
 
 // cleanUploadedFilename strips any path component the uploader may have
