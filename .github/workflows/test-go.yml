@@ -166,4 +166,4 @@ jobs:
           go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.19.1
 
       - name: Run benchmarks
-        run: make benchmark
+        run: make bench-comms
