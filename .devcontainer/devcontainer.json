@@ -18,7 +18,9 @@
       "version": "1.26",
       "golangciLintVersion": "latest"
     },
-    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24"
+    },
     "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
     "ghcr.io/rocker-org/devcontainer-features/apt-packages:1": {
       "packages": "ripgrep,build-essential,libnl-3-dev,libnl-genl-3-dev,libgps-dev,libcap-dev,pkg-config,libopus-dev,libopusfile-dev,portaudio19-dev,batctl,net-tools,alfred,iproute2,libhidapi-dev,libusb-1.0-0-dev,libudev-dev,libpam0g-dev"

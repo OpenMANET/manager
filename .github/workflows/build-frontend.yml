@@ -76,7 +76,7 @@ jobs:
           github.event.pull_request.head.repo.fork == false
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "pnpm"
           cache-dependency-path: frontend/pnpm-lock.yaml
 

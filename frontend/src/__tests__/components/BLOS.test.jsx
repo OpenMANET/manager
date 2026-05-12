@@ -1,79 +1,102 @@
 // =============================================================================
 // BLOS.test.jsx — Tests for BLOS (VPN) page
 // =============================================================================
+//
+// The page reads status via the `useBLOSStatus` hook, which is backed by a
+// module-scoped pollStore singleton (see services/pollStore.js). That
+// singleton intentionally retains its snapshot across mount/unmount so
+// navigation back to /blos shows cached data instantly — but the same
+// behavior makes per-test isolation fragile, because the snapshot leaks
+// across tests within this file and races against the first poll cycle of
+// each subsequent render. We mock the hook directly so the page sees a
+// synchronous, deterministic status; pollStore has its own dedicated test
+// in pollStore.test.js.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
-const { mockGetBLOSStatus, mockUpdateBLOSConfig } = vi.hoisted(() => ({
-  mockGetBLOSStatus: vi.fn(),
+const { mockBLOSData, mockUpdateBLOSConfig, mockRefreshBLOSStatus } = vi.hoisted(() => ({
+  mockBLOSData: { current: null },
   mockUpdateBLOSConfig: vi.fn(),
+  mockRefreshBLOSStatus: vi.fn(),
 }));
+
+vi.mock('../../hooks/useBLOSStatus.js', () => ({
+  useBLOSStatus: () => mockBLOSData.current,
+  refreshBLOSStatus: mockRefreshBLOSStatus,
+}));
+
 vi.mock('@connectrpc/connect', () => ({
   createClient: () => ({
-    getBLOSStatus: mockGetBLOSStatus,
     updateBLOSConfig: mockUpdateBLOSConfig,
+    // Async-iterable stub for streamBLOSEvents — fires when blosEnabled=true.
+    streamBLOSEvents: () => ({
+      // eslint-disable-next-line require-yield
+      async *[Symbol.asyncIterator]() {},
+    }),
   }),
 }));
 vi.mock('../../services/connectClient.js', () => ({ transport: {} }));
 
 import BLOSPage from '../../pages/BLOS.jsx';
 
+function setSnapshot(snapshot) {
+  mockBLOSData.current = snapshot;
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
-  mockGetBLOSStatus.mockReset();
+  mockBLOSData.current = null;
   mockUpdateBLOSConfig.mockReset();
+  mockRefreshBLOSStatus.mockReset();
 });
 
 describe('TestBLOSLoading', () => {
   it('renders loading state', () => {
-    mockGetBLOSStatus.mockReturnValue(new Promise(() => {}));
+    // Hook returns null before the first poll completes.
+    setSnapshot(null);
     render(<BLOSPage />);
     expect(screen.getByText('Loading BLOS status...')).toBeTruthy();
   });
 });
 
 describe('TestBLOSStatusEnabled', () => {
-  it('shows enabled status', async () => {
-    mockGetBLOSStatus.mockResolvedValue({ blosEnabled: true, message: 'connected to headscale' });
-    render(<BLOSPage />);
-    await waitFor(() => {
-      expect(screen.getByText('Enabled')).toBeTruthy();
-      expect(screen.getByText(/connected to headscale/)).toBeTruthy();
+  it('shows enabled status', () => {
+    setSnapshot({
+      status: { blosEnabled: true, message: 'connected to headscale' },
+      peers: [],
+      error: null,
     });
+    render(<BLOSPage />);
+    expect(screen.getByText('Enabled')).toBeTruthy();
+    expect(screen.getByText(/connected to headscale/)).toBeTruthy();
   });
 });
 
 describe('TestBLOSStatusDisabled', () => {
-  it('shows disabled status', async () => {
-    mockGetBLOSStatus.mockResolvedValue({ blosEnabled: false });
+  it('shows disabled status', () => {
+    setSnapshot({ status: { blosEnabled: false }, peers: [], error: null });
     render(<BLOSPage />);
-    await waitFor(() => {
-      expect(screen.getByText('Disabled')).toBeTruthy();
-    });
-    // Toggle should show Off
+    expect(screen.getByText('Disabled')).toBeTruthy();
     expect(screen.getByText('Off')).toBeTruthy();
   });
 });
 
 describe('TestBLOSStatusError', () => {
-  it('shows error when status fetch fails', async () => {
-    mockGetBLOSStatus.mockRejectedValue(new Error('connection refused'));
+  it('shows error when status fetch fails', () => {
+    setSnapshot({ status: null, peers: [], error: 'connection refused' });
     render(<BLOSPage />);
-    await waitFor(() => {
-      expect(screen.getByText('connection refused')).toBeTruthy();
-    });
+    expect(screen.getByText('connection refused')).toBeTruthy();
   });
 });
 
 describe('TestBLOSToggle', () => {
-  it('toggles enable switch', async () => {
-    mockGetBLOSStatus.mockResolvedValue({ blosEnabled: false });
+  it('toggles enable switch', () => {
+    setSnapshot({ status: { blosEnabled: false }, peers: [], error: null });
     const { container } = render(<BLOSPage />);
-    await waitFor(() => screen.getByText('Off'));
+    expect(screen.getByText('Off')).toBeTruthy();
 
-    // Click the toggle
     const toggle = container.querySelector('.lat-toggle');
     fireEvent.click(toggle);
     expect(screen.getByText('On')).toBeTruthy();
@@ -82,26 +105,20 @@ describe('TestBLOSToggle', () => {
 
 describe('TestBLOSUpdateSuccess', () => {
   it('shows success message after save', async () => {
-    mockGetBLOSStatus.mockResolvedValue({ blosEnabled: false });
+    setSnapshot({ status: { blosEnabled: false }, peers: [], error: null });
     mockUpdateBLOSConfig.mockResolvedValue({ success: true, message: 'BLOS enabled' });
 
     const { container } = render(<BLOSPage />);
-    await waitFor(() => screen.getByText('Off'));
 
-    // Toggle on
     const toggle = container.querySelector('.lat-toggle');
     fireEvent.click(toggle);
 
-    // Enter auth key
     const authInput = screen.getByPlaceholderText('Paste auth key');
     fireEvent.change(authInput, { target: { value: 'tskey-auth-abc123' } });
 
-    // Save
     fireEvent.click(screen.getByText('Update BLOS Config'));
 
-    await waitFor(() => {
-      expect(screen.getByText('BLOS enabled')).toBeTruthy();
-    });
+    await screen.findByText('BLOS enabled');
     expect(mockUpdateBLOSConfig).toHaveBeenCalledWith(
       expect.objectContaining({ enableBlos: true, authKey: 'tskey-auth-abc123' }),
     );
@@ -110,11 +127,10 @@ describe('TestBLOSUpdateSuccess', () => {
 
 describe('TestBLOSUpdateWithLoginServer', () => {
   it('sends login server URL when provided', async () => {
-    mockGetBLOSStatus.mockResolvedValue({ blosEnabled: true });
+    setSnapshot({ status: { blosEnabled: true }, peers: [], error: null });
     mockUpdateBLOSConfig.mockResolvedValue({ success: true });
 
     render(<BLOSPage />);
-    await waitFor(() => screen.getByText('Enabled'));
 
     fireEvent.change(screen.getByPlaceholderText('Paste auth key'), {
       target: { value: 'key123' },
@@ -124,7 +140,7 @@ describe('TestBLOSUpdateWithLoginServer', () => {
     });
     fireEvent.click(screen.getByText('Update BLOS Config'));
 
-    await waitFor(() => {
+    await vi.waitFor(() => {
       expect(mockUpdateBLOSConfig).toHaveBeenCalledWith(
         expect.objectContaining({ loginServerUrl: 'https://hs.local' }),
       );
@@ -134,30 +150,24 @@ describe('TestBLOSUpdateWithLoginServer', () => {
 
 describe('TestBLOSUpdateFailure', () => {
   it('shows error on update failure', async () => {
-    mockGetBLOSStatus.mockResolvedValue({ blosEnabled: false });
+    setSnapshot({ status: { blosEnabled: false }, peers: [], error: null });
     mockUpdateBLOSConfig.mockRejectedValue(new Error('unauthorized'));
 
     render(<BLOSPage />);
-    await waitFor(() => screen.getByText('Off'));
 
     fireEvent.click(screen.getByText('Update BLOS Config'));
 
-    await waitFor(() => {
-      expect(screen.getByText(/Failed to update BLOS/)).toBeTruthy();
-    });
+    await screen.findByText(/Failed to update BLOS/);
   });
 
   it('shows error when response indicates failure', async () => {
-    mockGetBLOSStatus.mockResolvedValue({ blosEnabled: false });
+    setSnapshot({ status: { blosEnabled: false }, peers: [], error: null });
     mockUpdateBLOSConfig.mockResolvedValue({ success: false, message: 'invalid auth key' });
 
     render(<BLOSPage />);
-    await waitFor(() => screen.getByText('Off'));
 
     fireEvent.click(screen.getByText('Update BLOS Config'));
 
-    await waitFor(() => {
-      expect(screen.getByText(/Failed to update BLOS/)).toBeTruthy();
-    });
+    await screen.findByText(/Failed to update BLOS/);
   });
 });
