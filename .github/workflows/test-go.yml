@@ -35,6 +35,9 @@ jobs:
         with:
           go-version-file: "go.mod"
 
+      - name: Install Dependencies
+        run: sudo apt update && sudo apt install -y build-essential libnl-3-dev libnl-genl-3-dev libgps-dev libcap-dev libopus-dev libopusfile-dev pkg-config portaudio19-dev batctl net-tools alfred iproute2 libhidapi-dev libusb-1.0-0-dev libudev-dev libpam0g-dev
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
@@ -55,7 +58,7 @@ jobs:
           go-version-file: "go.mod"
 
       - name: Install Dependencies
-        run: sudo apt update && sudo apt install -y build-essential libnl-3-dev libnl-genl-3-dev libgps-dev libcap-dev pkg-config libopus-dev libopusfile-dev portaudio19-dev batctl net-tools alfred iproute2 libhidapi-dev libusb-1.0-0-dev libudev-dev libpam0g-dev
+        run: sudo apt update && sudo apt install -y build-essential libnl-3-dev libnl-genl-3-dev libgps-dev libcap-dev libopus-dev libopusfile-dev pkg-config portaudio19-dev batctl net-tools alfred iproute2 libhidapi-dev libusb-1.0-0-dev libudev-dev libpam0g-dev
 
       - name: Compile Alfred Go Bindings
         run: make alfred
@@ -94,7 +97,7 @@ jobs:
           go-version-file: "go.mod"
 
       - name: Install Dependencies
-        run: sudo apt update && sudo apt install -y build-essential libnl-3-dev libnl-genl-3-dev libgps-dev libcap-dev pkg-config libopus-dev libopusfile-dev portaudio19-dev batctl net-tools alfred iproute2 libhidapi-dev libusb-1.0-0-dev libudev-dev libpam0g-dev
+        run: sudo apt update && sudo apt install -y build-essential libnl-3-dev libnl-genl-3-dev libgps-dev libcap-dev libopus-dev libopusfile-dev pkg-config portaudio19-dev batctl net-tools alfred iproute2 libhidapi-dev libusb-1.0-0-dev libudev-dev libpam0g-dev
 
       - name: Compile Alfred Go Bindings
         run: make alfred
@@ -127,7 +130,7 @@ jobs:
           go-version-file: "go.mod"
 
       - name: Install Dependencies
-        run: sudo apt update && sudo apt install -y build-essential libnl-3-dev libnl-genl-3-dev libgps-dev libcap-dev pkg-config libopus-dev libopusfile-dev portaudio19-dev batctl net-tools alfred iproute2 libhidapi-dev libusb-1.0-0-dev libudev-dev libpam0g-dev
+        run: sudo apt update && sudo apt install -y build-essential libnl-3-dev libnl-genl-3-dev libgps-dev libcap-dev libopus-dev libopusfile-dev pkg-config portaudio19-dev batctl net-tools alfred iproute2 libhidapi-dev libusb-1.0-0-dev libudev-dev libpam0g-dev
 
       - name: Compile Alfred Go Bindings
         run: make alfred
