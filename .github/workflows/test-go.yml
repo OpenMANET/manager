@@ -63,6 +63,10 @@ jobs:
       - name: Compile Alfred Go Bindings
         run: make alfred
 
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+
       - name: Run tests
         run: make test
 
@@ -102,6 +106,9 @@ jobs:
       - name: Compile Alfred Go Bindings
         run: make alfred
 
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
       - name: Run integration tests
         run: make integration-test
 
@@ -135,5 +142,8 @@ jobs:
       - name: Compile Alfred Go Bindings
         run: make alfred
 
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
       - name: Run benchmarks
         run: make benchmark
