@@ -31,6 +31,7 @@ func formatGGA(pos PositionReport) string {
 	latDegInt := int(latDeg)
 	latMin := (latDeg - float64(latDegInt)) * 60.0
 	latStr := fmt.Sprintf("%02d%08.5f", latDegInt, latMin)
+
 	latHem := "N"
 	if pos.Latitude < 0 {
 		latHem = "S"
@@ -41,6 +42,7 @@ func formatGGA(pos PositionReport) string {
 	lonDegInt := int(lonDeg)
 	lonMin := (lonDeg - float64(lonDegInt)) * 60.0
 	lonStr := fmt.Sprintf("%03d%08.5f", lonDegInt, lonMin)
+
 	lonHem := "E"
 	if pos.Longitude < 0 {
 		lonHem = "W"
@@ -50,6 +52,7 @@ func formatGGA(pos PositionReport) string {
 	// 0 = Invalid, 1 = GPS fix (SPS), 2 = DGPS fix, 3 = PPS fix, etc.
 	// GPSD Mode: 0/1 = no fix, 2 = 2D fix, 3 = 3D fix
 	quality := "0"
+
 	if pos.Mode >= 2 {
 		if pos.DGPSStation > 0 {
 			quality = "2" // DGPS fix
@@ -79,6 +82,7 @@ func formatGGA(pos PositionReport) string {
 	if pos.GeoidSeparation != 0 {
 		geoidHeight = fmt.Sprintf("%.1f", pos.GeoidSeparation)
 	}
+
 	geoidUnit := "M"
 
 	// Time since last DGPS update (empty if not using DGPS)
@@ -111,6 +115,7 @@ func calculateNMEAChecksum(sentence string) byte {
 	for i := 0; i < len(sentence); i++ {
 		checksum ^= sentence[i]
 	}
+
 	return checksum
 }
 
@@ -120,6 +125,7 @@ func (g *GPSService) sendRawNMEAToActiveDevices(sentence string) {
 	leases, err := network.GetCurrentDHCPLeases()
 	if err != nil {
 		g.Log.Debug().Err(err).Msg("Failed to get DHCP leases for NMEA distribution")
+
 		return
 	}
 
@@ -141,12 +147,14 @@ func (g *GPSService) sendRawNMEAToActiveDevices(sentence string) {
 		addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", ipAddr, DefaultTAKGPSPort))
 		if err != nil {
 			g.Log.Debug().Err(err).Str("ip", ipAddr).Msg("Failed to resolve address for NMEA")
+
 			continue
 		}
 
 		conn, err := net.DialUDP("udp", nil, addr)
 		if err != nil {
 			g.Log.Debug().Err(err).Str("ip", ipAddr).Msg("Failed to dial UDP for NMEA")
+
 			continue
 		}
 

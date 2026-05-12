@@ -19,9 +19,11 @@ func TestGetInterfaceByName(t *testing.T) {
 		if result.Name != iface.Name {
 			t.Errorf("Expected name %s, got %s", iface.Name, result.Name)
 		}
+
 		if result.MTU != iface.MTU {
 			t.Errorf("Expected MTU %d, got %d", iface.MTU, result.MTU)
 		}
+
 		if result.MAC != iface.HardwareAddr.String() {
 			t.Errorf("Expected MAC %s, got %s", iface.HardwareAddr.String(), result.MAC)
 		}
@@ -91,6 +93,7 @@ func TestCalculateBroadcastAddress(t *testing.T) {
 				if result == nil {
 					t.Fatal("Expected broadcast address, got nil")
 				}
+
 				if result.String() != tt.wantIP {
 					t.Errorf("Expected broadcast %s, got %s", tt.wantIP, result.String())
 				}
@@ -107,12 +110,15 @@ func TestGetInterfaceIPAddresses(t *testing.T) {
 
 	// Find an interface with at least one IP address
 	var testIface net.Interface
+
 	found := false
+
 	for _, iface := range interfaces {
 		addrs, err := iface.Addrs()
 		if err == nil && len(addrs) > 0 {
 			testIface = iface
 			found = true
+
 			break
 		}
 	}
@@ -144,17 +150,21 @@ func TestGetNetworkCIDR(t *testing.T) {
 
 	// Find an interface with at least one IPv4 address
 	var testIfaceName string
+
 	for _, iface := range interfaces {
 		addrs, err := iface.Addrs()
 		if err != nil {
 			continue
 		}
+
 		for _, addr := range addrs {
 			if ipNet, ok := addr.(*net.IPNet); ok && ipNet.IP.To4() != nil {
 				testIfaceName = iface.Name
+
 				break
 			}
 		}
+
 		if testIfaceName != "" {
 			break
 		}
@@ -197,8 +207,8 @@ func TestGetNetworkCIDRCalculation(t *testing.T) {
 	tests := []struct {
 		name            string
 		ipStr           string
-		maskBits        int
 		expectedNetwork string
+		maskBits        int
 	}{
 		{
 			name:            "10.41.1.1/16 -> 10.41.0.0/16",
@@ -334,6 +344,7 @@ func TestCalculateBroadcastAddressEdgeCases(t *testing.T) {
 				if result == nil {
 					t.Fatal("Expected broadcast address, got nil")
 				}
+
 				if result.String() != tt.wantIP {
 					t.Errorf("Expected broadcast %s, got %s", tt.wantIP, result.String())
 				}
@@ -365,12 +376,15 @@ func TestGetInterfaceByNameIPAddresses(t *testing.T) {
 
 	// Find an interface with at least one IP address
 	var testIface net.Interface
+
 	found := false
+
 	for _, iface := range interfaces {
 		addrs, err := iface.Addrs()
 		if err == nil && len(addrs) > 0 {
 			testIface = iface
 			found = true
+
 			break
 		}
 	}
@@ -400,12 +414,15 @@ func TestGetInterfaceByNameEmptyString(t *testing.T) {
 		if result.Name != "" {
 			t.Errorf("Expected empty InterfaceInfo for empty name, got %+v", result)
 		}
+
 		if result.MTU != 0 {
 			t.Errorf("Expected MTU 0, got %d", result.MTU)
 		}
+
 		if result.MAC != "" {
 			t.Errorf("Expected empty MAC, got %s", result.MAC)
 		}
+
 		if len(result.IP) != 0 {
 			t.Errorf("Expected no IP addresses, got %d", len(result.IP))
 		}
@@ -437,6 +454,7 @@ func TestGetInterfaceByNameCaseSensitivity(t *testing.T) {
 		// Try uppercase version
 		upperName := ""
 		hasLower := false
+
 		for _, c := range iface.Name {
 			if c >= 'a' && c <= 'z' {
 				hasLower = true
@@ -460,8 +478,8 @@ func TestGetInterfaceByNameCaseSensitivity(t *testing.T) {
 func TestNetworkInterface_GetCIDR(t *testing.T) {
 	tests := []struct {
 		name      string
-		iface     NetworkInterface
 		wantCIDRs []string
+		iface     NetworkInterface
 	}{
 		{
 			name: "single IPv4 address",
@@ -588,6 +606,7 @@ func TestNetworkInterface_GetCIDR(t *testing.T) {
 				t.Errorf("GetCIDR() returned %d CIDRs, want %d", len(got), len(tt.wantCIDRs))
 				t.Errorf("Got: %v", got)
 				t.Errorf("Want: %v", tt.wantCIDRs)
+
 				return
 			}
 

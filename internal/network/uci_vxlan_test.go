@@ -6,12 +6,18 @@ import (
 	"testing"
 )
 
+const (
+	testVXLANVIDKey = "vid"
+	testVXLANPeer0  = "vxlan_peer_0"
+	testVXLANDSTKey = "dst"
+)
+
 func newMockVXLANReader() *mockConfigReader {
 	return &mockConfigReader{
 		data: map[string]map[string]map[string][]string{
 			"network": {
-				"vxlan0": {
-					"proto":          {"vxlan"},
+				testVXLANIface: {
+					"proto":          {DefaultVXLANProto},
 					"tunlink":        {"eth0"},
 					"ipaddr":         {"10.0.1.1"},
 					"peeraddr":       {"192.168.1.100"},
@@ -26,7 +32,7 @@ func newMockVXLANReader() *mockConfigReader {
 					"tos":            {"inherit"},
 					"df":             {"1"},
 					"flowlabel":      {"0x12345"},
-					"ageing":         {"300"},
+					"aging":          {"300"},
 					"maxaddress":     {"1024"},
 					"learning":       {"1"},
 					"rsc":            {"0"},
@@ -39,16 +45,16 @@ func newMockVXLANReader() *mockConfigReader {
 					"gbp":            {"1"},
 				},
 				"vxlan1": {
-					"proto":    {"vxlan"},
+					"proto":    {DefaultVXLANProto},
 					"peeraddr": {"10.0.0.1"},
 					"vid":      {"200"},
 				},
 				"vxlan_minimal": {
-					"proto": {"vxlan"},
+					"proto": {DefaultVXLANProto},
 					"vid":   {"300"},
 				},
 				"peer0": {
-					"vxlan":   {"vxlan0"},
+					"vxlan":   {testVXLANIface},
 					"lladdr":  {"00:11:22:33:44:55"},
 					"dst":     {"10.0.0.2"},
 					"port":    {"4789"},
@@ -57,11 +63,11 @@ func newMockVXLANReader() *mockConfigReader {
 					"src_vni": {"200"},
 				},
 				"peer1": {
-					"vxlan": {"vxlan0"},
+					"vxlan": {testVXLANIface},
 					"dst":   {"10.0.0.3"},
 				},
 				"peer_multicast": {
-					"vxlan": {"vxlan0"},
+					"vxlan": {testVXLANIface},
 					"dst":   {"239.1.1.1"},
 					"via":   {"br-lan"},
 				},
@@ -74,7 +80,7 @@ func TestGetVXLANByNameWithReader_FullConfig(t *testing.T) {
 	reader := newMockVXLANReader()
 
 	want := &UCIVXLANConfig{
-		Proto:          "vxlan",
+		Proto:          DefaultVXLANProto,
 		Tunlink:        "eth0",
 		IPAddr:         "10.0.1.1",
 		PeerAddr:       "192.168.1.100",
@@ -89,7 +95,7 @@ func TestGetVXLANByNameWithReader_FullConfig(t *testing.T) {
 		TOS:            "inherit",
 		DF:             "1",
 		FlowLabel:      "0x12345",
-		Ageing:         "300",
+		Aging:          "300",
 		MaxAddress:     "1024",
 		Learning:       "1",
 		RSC:            "0",
@@ -102,10 +108,11 @@ func TestGetVXLANByNameWithReader_FullConfig(t *testing.T) {
 		GBP:            "1",
 	}
 
-	got, err := GetVXLANByNameWithReader("vxlan0", reader)
+	got, err := GetVXLANByNameWithReader(testVXLANIface, reader)
 	if err != nil {
 		t.Fatalf("GetVXLANByNameWithReader failed: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("GetVXLANByNameWithReader = %+v, want %+v", got, want)
 	}
@@ -115,7 +122,7 @@ func TestGetVXLANByNameWithReader_PartialConfig(t *testing.T) {
 	reader := newMockVXLANReader()
 
 	want := &UCIVXLANConfig{
-		Proto:    "vxlan",
+		Proto:    DefaultVXLANProto,
 		PeerAddr: "10.0.0.1",
 		VID:      "200",
 	}
@@ -124,6 +131,7 @@ func TestGetVXLANByNameWithReader_PartialConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVXLANByNameWithReader failed: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("GetVXLANByNameWithReader = %+v, want %+v", got, want)
 	}
@@ -133,7 +141,7 @@ func TestGetVXLANByNameWithReader_MinimalConfig(t *testing.T) {
 	reader := newMockVXLANReader()
 
 	want := &UCIVXLANConfig{
-		Proto: "vxlan",
+		Proto: DefaultVXLANProto,
 		VID:   "300",
 	}
 
@@ -141,6 +149,7 @@ func TestGetVXLANByNameWithReader_MinimalConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVXLANByNameWithReader failed: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("GetVXLANByNameWithReader = %+v, want %+v", got, want)
 	}
@@ -155,6 +164,7 @@ func TestGetVXLANByNameWithReader_NonExistent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVXLANByNameWithReader failed: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("GetVXLANByNameWithReader = %+v, want %+v", got, want)
 	}
@@ -168,7 +178,7 @@ func TestSetVXLANConfigWithReader_CreateNew(t *testing.T) {
 	}
 
 	config := &UCIVXLANConfig{
-		Proto:    "vxlan",
+		Proto:    DefaultVXLANProto,
 		Tunlink:  "br-lan",
 		PeerAddr: "172.16.0.1",
 		VID:      "500",
@@ -201,10 +211,10 @@ func TestSetVXLANConfigWithReader_CreateNew(t *testing.T) {
 		option string
 		value  string
 	}{
-		{"proto", "vxlan"},
+		{"proto", DefaultVXLANProto},
 		{"tunlink", "br-lan"},
 		{"peeraddr", "172.16.0.1"},
-		{"vid", "500"},
+		{testVXLANVIDKey, "500"},
 		{"port", "8472"},
 		{"macaddr", "aa:bb:cc:dd:ee:ff"},
 		{"rxcsum", "0"},
@@ -216,12 +226,15 @@ func TestSetVXLANConfigWithReader_CreateNew(t *testing.T) {
 
 	for _, expected := range expectedCalls {
 		found := false
+
 		for _, call := range reader.setTypeCalls {
 			if call.option == expected.option && len(call.values) > 0 && call.values[0] == expected.value {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			t.Errorf("Expected SetType call for option %q with value %q", expected.option, expected.value)
 		}
@@ -232,13 +245,13 @@ func TestSetVXLANConfigWithReader_UpdateExisting(t *testing.T) {
 	reader := newMockVXLANReader()
 
 	config := &UCIVXLANConfig{
-		Proto:    "vxlan",
+		Proto:    DefaultVXLANProto,
 		PeerAddr: "192.168.2.200",
 		VID:      "999",
 		Port:     "9999",
 	}
 
-	err := SetVXLANConfigWithReader("vxlan0", config, reader)
+	err := SetVXLANConfigWithReader(testVXLANIface, config, reader)
 	if err != nil {
 		t.Fatalf("SetVXLANConfigWithReader failed: %v", err)
 	}
@@ -257,20 +270,23 @@ func TestSetVXLANConfigWithReader_UpdateExisting(t *testing.T) {
 		option string
 		value  string
 	}{
-		{"proto", "vxlan"},
+		{"proto", DefaultVXLANProto},
 		{"peeraddr", "192.168.2.200"},
-		{"vid", "999"},
+		{testVXLANVIDKey, "999"},
 		{"port", "9999"},
 	}
 
 	for _, expected := range expectedCalls {
 		found := false
+
 		for _, call := range reader.setTypeCalls {
 			if call.option == expected.option && len(call.values) > 0 && call.values[0] == expected.value {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			t.Errorf("Expected SetType call for option %q with value %q", expected.option, expected.value)
 		}
@@ -285,7 +301,7 @@ func TestSetVXLANConfigWithReader_MinimalConfig(t *testing.T) {
 	}
 
 	config := &UCIVXLANConfig{
-		Proto: "vxlan",
+		Proto: DefaultVXLANProto,
 		VID:   "100",
 	}
 
@@ -301,11 +317,13 @@ func TestSetVXLANConfigWithReader_MinimalConfig(t *testing.T) {
 	// Verify only required fields were set
 	protoSet := false
 	vidSet := false
+
 	for _, call := range reader.setTypeCalls {
-		if call.option == "proto" && len(call.values) > 0 && call.values[0] == "vxlan" {
+		if call.option == "proto" && len(call.values) > 0 && call.values[0] == DefaultVXLANProto {
 			protoSet = true
 		}
-		if call.option == "vid" && len(call.values) > 0 && call.values[0] == "100" {
+
+		if call.option == testVXLANVIDKey && len(call.values) > 0 && call.values[0] == "100" {
 			vidSet = true
 		}
 	}
@@ -313,6 +331,7 @@ func TestSetVXLANConfigWithReader_MinimalConfig(t *testing.T) {
 	if !protoSet {
 		t.Error("Expected proto to be set")
 	}
+
 	if !vidSet {
 		t.Error("Expected vid to be set")
 	}
@@ -327,7 +346,7 @@ func TestSetVXLANConfigWithReader_SetTypeError(t *testing.T) {
 	}
 
 	config := &UCIVXLANConfig{
-		Proto: "vxlan",
+		Proto: DefaultVXLANProto,
 		VID:   "100",
 	}
 
@@ -350,7 +369,7 @@ func TestSetVXLANConfigWithReader_CommitError(t *testing.T) {
 	}
 
 	config := &UCIVXLANConfig{
-		Proto: "vxlan",
+		Proto: DefaultVXLANProto,
 		VID:   "100",
 	}
 
@@ -367,7 +386,7 @@ func TestSetVXLANConfigWithReader_CommitError(t *testing.T) {
 func TestDeleteVXLANConfigWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := DeleteVXLANConfigWithReader("vxlan0", reader)
+	err := DeleteVXLANConfigWithReader(testVXLANIface, reader)
 	if err != nil {
 		t.Fatalf("DeleteVXLANConfigWithReader failed: %v", err)
 	}
@@ -390,7 +409,7 @@ func TestDeleteVXLANConfigWithReader_DelSectionError(t *testing.T) {
 		delSectionErr: fmt.Errorf("delete section error"),
 	}
 
-	err := DeleteVXLANConfigWithReader("vxlan0", reader)
+	err := DeleteVXLANConfigWithReader(testVXLANIface, reader)
 	if err == nil {
 		t.Fatal("Expected DeleteVXLANConfigWithReader to return error")
 	}
@@ -408,7 +427,7 @@ func TestDeleteVXLANConfigWithReader_CommitError(t *testing.T) {
 		commitError: fmt.Errorf("commit error"),
 	}
 
-	err := DeleteVXLANConfigWithReader("vxlan0", reader)
+	err := DeleteVXLANConfigWithReader(testVXLANIface, reader)
 	if err == nil {
 		t.Fatal("Expected DeleteVXLANConfigWithReader to return error")
 	}
@@ -428,7 +447,7 @@ func TestVXLANSectionExistsWithReader(t *testing.T) {
 	}{
 		{
 			name:     "existing vxlan0",
-			section:  "vxlan0",
+			section:  testVXLANIface,
 			expected: true,
 		},
 		{
@@ -461,7 +480,7 @@ func TestVXLANSectionExistsWithReader(t *testing.T) {
 func TestSetVXLANProtoWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANProtoWithReader("vxlan0", reader)
+	err := SetVXLANProtoWithReader(testVXLANIface, reader)
 	if err != nil {
 		t.Fatalf("SetVXLANProtoWithReader failed: %v", err)
 	}
@@ -472,10 +491,12 @@ func TestSetVXLANProtoWithReader(t *testing.T) {
 
 	// Verify proto was set
 	found := false
+
 	for _, call := range reader.setTypeCalls {
-		if call.config == "network" && call.section == "vxlan0" && call.option == "proto" {
+		if call.config == "network" && call.section == testVXLANIface && call.option == "proto" {
 			if len(call.values) > 0 && call.values[0] == DefaultVXLANProto {
 				found = true
+
 				break
 			}
 		}
@@ -494,7 +515,7 @@ func TestSetVXLANProtoWithReader_CommitError(t *testing.T) {
 		commitError: fmt.Errorf("commit error"),
 	}
 
-	err := SetVXLANProtoWithReader("vxlan0", reader)
+	err := SetVXLANProtoWithReader(testVXLANIface, reader)
 	if err == nil {
 		t.Fatal("Expected SetVXLANProtoWithReader to return error")
 	}
@@ -507,7 +528,7 @@ func TestSetVXLANProtoWithReader_CommitError(t *testing.T) {
 func TestSetVXLANTunlinkWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANTunlinkWithReader("vxlan0", "br-wan", reader)
+	err := SetVXLANTunlinkWithReader(testVXLANIface, "br-wan", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANTunlinkWithReader failed: %v", err)
 	}
@@ -518,9 +539,11 @@ func TestSetVXLANTunlinkWithReader(t *testing.T) {
 
 	// Verify tunlink was set
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "tunlink" && len(call.values) > 0 && call.values[0] == "br-wan" {
 			found = true
+
 			break
 		}
 	}
@@ -538,7 +561,7 @@ func TestSetVXLANTunlinkWithReader_SetTypeError(t *testing.T) {
 		setTypeError: fmt.Errorf("settype error"),
 	}
 
-	err := SetVXLANTunlinkWithReader("vxlan0", "eth0", reader)
+	err := SetVXLANTunlinkWithReader(testVXLANIface, "eth0", reader)
 	if err == nil {
 		t.Fatal("Expected SetVXLANTunlinkWithReader to return error")
 	}
@@ -551,7 +574,7 @@ func TestSetVXLANTunlinkWithReader_SetTypeError(t *testing.T) {
 func TestSetVXLANPeerAddrWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANPeerAddrWithReader("vxlan0", "10.20.30.40", reader)
+	err := SetVXLANPeerAddrWithReader(testVXLANIface, "10.20.30.40", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANPeerAddrWithReader failed: %v", err)
 	}
@@ -562,9 +585,11 @@ func TestSetVXLANPeerAddrWithReader(t *testing.T) {
 
 	// Verify peeraddr was set
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "peeraddr" && len(call.values) > 0 && call.values[0] == "10.20.30.40" {
 			found = true
+
 			break
 		}
 	}
@@ -582,7 +607,7 @@ func TestSetVXLANPeerAddrWithReader_CommitError(t *testing.T) {
 		commitError: fmt.Errorf("commit error"),
 	}
 
-	err := SetVXLANPeerAddrWithReader("vxlan0", "10.0.0.1", reader)
+	err := SetVXLANPeerAddrWithReader(testVXLANIface, "10.0.0.1", reader)
 	if err == nil {
 		t.Fatal("Expected SetVXLANPeerAddrWithReader to return error")
 	}
@@ -595,7 +620,7 @@ func TestSetVXLANPeerAddrWithReader_CommitError(t *testing.T) {
 func TestSetVXLANVIDWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANVIDWithReader("vxlan0", "12345", reader)
+	err := SetVXLANVIDWithReader(testVXLANIface, "12345", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANVIDWithReader failed: %v", err)
 	}
@@ -606,9 +631,11 @@ func TestSetVXLANVIDWithReader(t *testing.T) {
 
 	// Verify vid was set
 	found := false
+
 	for _, call := range reader.setTypeCalls {
-		if call.option == "vid" && len(call.values) > 0 && call.values[0] == "12345" {
+		if call.option == testVXLANVIDKey && len(call.values) > 0 && call.values[0] == "12345" {
 			found = true
+
 			break
 		}
 	}
@@ -626,7 +653,7 @@ func TestSetVXLANVIDWithReader_SetTypeError(t *testing.T) {
 		setTypeError: fmt.Errorf("settype error"),
 	}
 
-	err := SetVXLANVIDWithReader("vxlan0", "100", reader)
+	err := SetVXLANVIDWithReader(testVXLANIface, "100", reader)
 	if err == nil {
 		t.Fatal("Expected SetVXLANVIDWithReader to return error")
 	}
@@ -639,7 +666,7 @@ func TestSetVXLANVIDWithReader_SetTypeError(t *testing.T) {
 func TestSetVXLANPortWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANPortWithReader("vxlan0", "8888", reader)
+	err := SetVXLANPortWithReader(testVXLANIface, "8888", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANPortWithReader failed: %v", err)
 	}
@@ -650,9 +677,11 @@ func TestSetVXLANPortWithReader(t *testing.T) {
 
 	// Verify port was set
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "port" && len(call.values) > 0 && call.values[0] == "8888" {
 			found = true
+
 			break
 		}
 	}
@@ -670,7 +699,7 @@ func TestSetVXLANPortWithReader_CommitError(t *testing.T) {
 		commitError: fmt.Errorf("commit error"),
 	}
 
-	err := SetVXLANPortWithReader("vxlan0", "4789", reader)
+	err := SetVXLANPortWithReader(testVXLANIface, "4789", reader)
 	if err == nil {
 		t.Fatal("Expected SetVXLANPortWithReader to return error")
 	}
@@ -683,7 +712,7 @@ func TestSetVXLANPortWithReader_CommitError(t *testing.T) {
 func TestSetVXLANMacAddrWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANMacAddrWithReader("vxlan0", "11:22:33:44:55:66", reader)
+	err := SetVXLANMacAddrWithReader(testVXLANIface, "11:22:33:44:55:66", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANMacAddrWithReader failed: %v", err)
 	}
@@ -694,9 +723,11 @@ func TestSetVXLANMacAddrWithReader(t *testing.T) {
 
 	// Verify macaddr was set
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "macaddr" && len(call.values) > 0 && call.values[0] == "11:22:33:44:55:66" {
 			found = true
+
 			break
 		}
 	}
@@ -714,7 +745,7 @@ func TestSetVXLANMacAddrWithReader_SetTypeError(t *testing.T) {
 		setTypeError: fmt.Errorf("settype error"),
 	}
 
-	err := SetVXLANMacAddrWithReader("vxlan0", "00:11:22:33:44:55", reader)
+	err := SetVXLANMacAddrWithReader(testVXLANIface, "00:11:22:33:44:55", reader)
 	if err == nil {
 		t.Fatal("Expected SetVXLANMacAddrWithReader to return error")
 	}
@@ -727,7 +758,7 @@ func TestSetVXLANMacAddrWithReader_SetTypeError(t *testing.T) {
 func TestSetVXLANRxCsumWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANRxCsumWithReader("vxlan0", "0", reader)
+	err := SetVXLANRxCsumWithReader(testVXLANIface, "0", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANRxCsumWithReader failed: %v", err)
 	}
@@ -738,9 +769,11 @@ func TestSetVXLANRxCsumWithReader(t *testing.T) {
 
 	// Verify rxcsum was set
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "rxcsum" && len(call.values) > 0 && call.values[0] == "0" {
 			found = true
+
 			break
 		}
 	}
@@ -758,7 +791,7 @@ func TestSetVXLANRxCsumWithReader_CommitError(t *testing.T) {
 		commitError: fmt.Errorf("commit error"),
 	}
 
-	err := SetVXLANRxCsumWithReader("vxlan0", "1", reader)
+	err := SetVXLANRxCsumWithReader(testVXLANIface, "1", reader)
 	if err == nil {
 		t.Fatal("Expected SetVXLANRxCsumWithReader to return error")
 	}
@@ -771,7 +804,7 @@ func TestSetVXLANRxCsumWithReader_CommitError(t *testing.T) {
 func TestSetVXLANTxCsumWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANTxCsumWithReader("vxlan0", "0", reader)
+	err := SetVXLANTxCsumWithReader(testVXLANIface, "0", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANTxCsumWithReader failed: %v", err)
 	}
@@ -782,9 +815,11 @@ func TestSetVXLANTxCsumWithReader(t *testing.T) {
 
 	// Verify txcsum was set
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "txcsum" && len(call.values) > 0 && call.values[0] == "0" {
 			found = true
+
 			break
 		}
 	}
@@ -802,7 +837,7 @@ func TestSetVXLANTxCsumWithReader_SetTypeError(t *testing.T) {
 		setTypeError: fmt.Errorf("settype error"),
 	}
 
-	err := SetVXLANTxCsumWithReader("vxlan0", "1", reader)
+	err := SetVXLANTxCsumWithReader(testVXLANIface, "1", reader)
 	if err == nil {
 		t.Fatal("Expected SetVXLANTxCsumWithReader to return error")
 	}
@@ -815,7 +850,7 @@ func TestSetVXLANTxCsumWithReader_SetTypeError(t *testing.T) {
 func TestSetVXLANMTUWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANMTUWithReader("vxlan0", "1350", reader)
+	err := SetVXLANMTUWithReader(testVXLANIface, "1350", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANMTUWithReader failed: %v", err)
 	}
@@ -826,9 +861,11 @@ func TestSetVXLANMTUWithReader(t *testing.T) {
 
 	// Verify mtu was set
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "mtu" && len(call.values) > 0 && call.values[0] == "1350" {
 			found = true
+
 			break
 		}
 	}
@@ -846,7 +883,7 @@ func TestSetVXLANMTUWithReader_CommitError(t *testing.T) {
 		commitError: fmt.Errorf("commit error"),
 	}
 
-	err := SetVXLANMTUWithReader("vxlan0", "1400", reader)
+	err := SetVXLANMTUWithReader(testVXLANIface, "1400", reader)
 	if err == nil {
 		t.Fatal("Expected SetVXLANMTUWithReader to return error")
 	}
@@ -859,7 +896,7 @@ func TestSetVXLANMTUWithReader_CommitError(t *testing.T) {
 func TestSetVXLANTTLWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANTTLWithReader("vxlan0", "128", reader)
+	err := SetVXLANTTLWithReader(testVXLANIface, "128", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANTTLWithReader failed: %v", err)
 	}
@@ -870,9 +907,11 @@ func TestSetVXLANTTLWithReader(t *testing.T) {
 
 	// Verify ttl was set
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "ttl" && len(call.values) > 0 && call.values[0] == "128" {
 			found = true
+
 			break
 		}
 	}
@@ -890,7 +929,7 @@ func TestSetVXLANTTLWithReader_SetTypeError(t *testing.T) {
 		setTypeError: fmt.Errorf("settype error"),
 	}
 
-	err := SetVXLANTTLWithReader("vxlan0", "64", reader)
+	err := SetVXLANTTLWithReader(testVXLANIface, "64", reader)
 	if err == nil {
 		t.Fatal("Expected SetVXLANTTLWithReader to return error")
 	}
@@ -903,7 +942,7 @@ func TestSetVXLANTTLWithReader_SetTypeError(t *testing.T) {
 func TestSetVXLANTOSWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANTOSWithReader("vxlan0", "cs2", reader)
+	err := SetVXLANTOSWithReader(testVXLANIface, "cs2", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANTOSWithReader failed: %v", err)
 	}
@@ -914,9 +953,11 @@ func TestSetVXLANTOSWithReader(t *testing.T) {
 
 	// Verify tos was set
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "tos" && len(call.values) > 0 && call.values[0] == "cs2" {
 			found = true
+
 			break
 		}
 	}
@@ -934,7 +975,7 @@ func TestSetVXLANTOSWithReader_CommitError(t *testing.T) {
 		commitError: fmt.Errorf("commit error"),
 	}
 
-	err := SetVXLANTOSWithReader("vxlan0", "inherit", reader)
+	err := SetVXLANTOSWithReader(testVXLANIface, "inherit", reader)
 	if err == nil {
 		t.Fatal("Expected SetVXLANTOSWithReader to return error")
 	}
@@ -983,7 +1024,7 @@ func TestVXLANConstants(t *testing.T) {
 		expected string
 	}{
 		{"DefaultVXLANPort", DefaultVXLANPort, "4789"},
-		{"DefaultVXLANProto", DefaultVXLANProto, "vxlan"},
+		{"DefaultVXLANProto", DefaultVXLANProto, DefaultVXLANProto},
 		{"DefaultVXLANRxCsum", DefaultVXLANRxCsum, "1"},
 		{"DefaultVXLANTxCsum", DefaultVXLANTxCsum, "1"},
 	}
@@ -1006,7 +1047,7 @@ func TestSetVXLANConfigWithReader_AddSectionError(t *testing.T) {
 	}
 
 	config := &UCIVXLANConfig{
-		Proto: "vxlan",
+		Proto: DefaultVXLANProto,
 		VID:   "100",
 	}
 
@@ -1025,7 +1066,7 @@ func TestGetVXLANByNameWithReader_AllFieldsPopulated(t *testing.T) {
 		data: map[string]map[string]map[string][]string{
 			"network": {
 				"vxlan_full": {
-					"proto":    {"vxlan"},
+					"proto":    {DefaultVXLANProto},
 					"tunlink":  {"wan"},
 					"peeraddr": {"203.0.113.1"},
 					"vid":      {"16777215"}, // Max 24-bit value
@@ -1042,7 +1083,7 @@ func TestGetVXLANByNameWithReader_AllFieldsPopulated(t *testing.T) {
 	}
 
 	want := &UCIVXLANConfig{
-		Proto:    "vxlan",
+		Proto:    DefaultVXLANProto,
 		Tunlink:  "wan",
 		PeerAddr: "203.0.113.1",
 		VID:      "16777215",
@@ -1059,6 +1100,7 @@ func TestGetVXLANByNameWithReader_AllFieldsPopulated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVXLANByNameWithReader failed: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("GetVXLANByNameWithReader = %+v, want %+v", got, want)
 	}
@@ -1069,12 +1111,12 @@ func TestSetVXLANConfigWithReader_SelectiveUpdate(t *testing.T) {
 
 	// Update only specific fields of existing config
 	config := &UCIVXLANConfig{
-		Proto: "vxlan",
+		Proto: DefaultVXLANProto,
 		VID:   "500",  // Changed
 		MTU:   "1300", // New field
 	}
 
-	err := SetVXLANConfigWithReader("vxlan0", config, reader)
+	err := SetVXLANConfigWithReader(testVXLANIface, config, reader)
 	if err != nil {
 		t.Fatalf("SetVXLANConfigWithReader failed: %v", err)
 	}
@@ -1084,9 +1126,10 @@ func TestSetVXLANConfigWithReader_SelectiveUpdate(t *testing.T) {
 	mtuFound := false
 
 	for _, call := range reader.setTypeCalls {
-		if call.option == "vid" && len(call.values) > 0 && call.values[0] == "500" {
+		if call.option == testVXLANVIDKey && len(call.values) > 0 && call.values[0] == "500" {
 			vidFound = true
 		}
+
 		if call.option == "mtu" && len(call.values) > 0 && call.values[0] == "1300" {
 			mtuFound = true
 		}
@@ -1095,6 +1138,7 @@ func TestSetVXLANConfigWithReader_SelectiveUpdate(t *testing.T) {
 	if !vidFound {
 		t.Error("Expected vid to be updated to '500'")
 	}
+
 	if !mtuFound {
 		t.Error("Expected mtu to be set to '1300'")
 	}
@@ -1103,7 +1147,7 @@ func TestSetVXLANConfigWithReader_SelectiveUpdate(t *testing.T) {
 func TestSetVXLANIPAddrWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANIPAddrWithReader("vxlan0", "10.1.1.1", reader)
+	err := SetVXLANIPAddrWithReader(testVXLANIface, "10.1.1.1", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANIPAddrWithReader failed: %v", err)
 	}
@@ -1113,9 +1157,11 @@ func TestSetVXLANIPAddrWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "ipaddr" && len(call.values) > 0 && call.values[0] == "10.1.1.1" {
 			found = true
+
 			break
 		}
 	}
@@ -1128,7 +1174,7 @@ func TestSetVXLANIPAddrWithReader(t *testing.T) {
 func TestSetVXLANSrcPortWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANSrcPortWithReader("vxlan0", "5000-6000", reader)
+	err := SetVXLANSrcPortWithReader(testVXLANIface, "5000-6000", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANSrcPortWithReader failed: %v", err)
 	}
@@ -1138,9 +1184,11 @@ func TestSetVXLANSrcPortWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "srcport" && len(call.values) > 0 && call.values[0] == "5000-6000" {
 			found = true
+
 			break
 		}
 	}
@@ -1153,7 +1201,7 @@ func TestSetVXLANSrcPortWithReader(t *testing.T) {
 func TestSetVXLANDFWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANDFWithReader("vxlan0", "0", reader)
+	err := SetVXLANDFWithReader(testVXLANIface, "0", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANDFWithReader failed: %v", err)
 	}
@@ -1163,9 +1211,11 @@ func TestSetVXLANDFWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "df" && len(call.values) > 0 && call.values[0] == "0" {
 			found = true
+
 			break
 		}
 	}
@@ -1178,7 +1228,7 @@ func TestSetVXLANDFWithReader(t *testing.T) {
 func TestSetVXLANFlowLabelWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANFlowLabelWithReader("vxlan0", "0xabcde", reader)
+	err := SetVXLANFlowLabelWithReader(testVXLANIface, "0xabcde", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANFlowLabelWithReader failed: %v", err)
 	}
@@ -1188,9 +1238,11 @@ func TestSetVXLANFlowLabelWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "flowlabel" && len(call.values) > 0 && call.values[0] == "0xabcde" {
 			found = true
+
 			break
 		}
 	}
@@ -1203,7 +1255,7 @@ func TestSetVXLANFlowLabelWithReader(t *testing.T) {
 func TestSetVXLANAgeingWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANAgeingWithReader("vxlan0", "600", reader)
+	err := SetVXLANAgeingWithReader(testVXLANIface, "600", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANAgeingWithReader failed: %v", err)
 	}
@@ -1213,22 +1265,24 @@ func TestSetVXLANAgeingWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
-		if call.option == "ageing" && len(call.values) > 0 && call.values[0] == "600" {
+		if call.option == "aging" && len(call.values) > 0 && call.values[0] == "600" {
 			found = true
+
 			break
 		}
 	}
 
 	if !found {
-		t.Error("Expected ageing to be set to '600'")
+		t.Error("Expected aging to be set to '600'")
 	}
 }
 
 func TestSetVXLANMaxAddressWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANMaxAddressWithReader("vxlan0", "2048", reader)
+	err := SetVXLANMaxAddressWithReader(testVXLANIface, "2048", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANMaxAddressWithReader failed: %v", err)
 	}
@@ -1238,9 +1292,11 @@ func TestSetVXLANMaxAddressWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "maxaddress" && len(call.values) > 0 && call.values[0] == "2048" {
 			found = true
+
 			break
 		}
 	}
@@ -1253,7 +1309,7 @@ func TestSetVXLANMaxAddressWithReader(t *testing.T) {
 func TestSetVXLANLearningWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANLearningWithReader("vxlan0", "0", reader)
+	err := SetVXLANLearningWithReader(testVXLANIface, "0", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANLearningWithReader failed: %v", err)
 	}
@@ -1263,9 +1319,11 @@ func TestSetVXLANLearningWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "learning" && len(call.values) > 0 && call.values[0] == "0" {
 			found = true
+
 			break
 		}
 	}
@@ -1278,7 +1336,7 @@ func TestSetVXLANLearningWithReader(t *testing.T) {
 func TestSetVXLANRSCWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANRSCWithReader("vxlan0", "1", reader)
+	err := SetVXLANRSCWithReader(testVXLANIface, "1", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANRSCWithReader failed: %v", err)
 	}
@@ -1288,9 +1346,11 @@ func TestSetVXLANRSCWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "rsc" && len(call.values) > 0 && call.values[0] == "1" {
 			found = true
+
 			break
 		}
 	}
@@ -1303,7 +1363,7 @@ func TestSetVXLANRSCWithReader(t *testing.T) {
 func TestSetVXLANProxyWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANProxyWithReader("vxlan0", "0", reader)
+	err := SetVXLANProxyWithReader(testVXLANIface, "0", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANProxyWithReader failed: %v", err)
 	}
@@ -1313,9 +1373,11 @@ func TestSetVXLANProxyWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "proxy" && len(call.values) > 0 && call.values[0] == "0" {
 			found = true
+
 			break
 		}
 	}
@@ -1328,7 +1390,7 @@ func TestSetVXLANProxyWithReader(t *testing.T) {
 func TestSetVXLANL2MissWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANL2MissWithReader("vxlan0", "0", reader)
+	err := SetVXLANL2MissWithReader(testVXLANIface, "0", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANL2MissWithReader failed: %v", err)
 	}
@@ -1338,9 +1400,11 @@ func TestSetVXLANL2MissWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "l2miss" && len(call.values) > 0 && call.values[0] == "0" {
 			found = true
+
 			break
 		}
 	}
@@ -1353,7 +1417,7 @@ func TestSetVXLANL2MissWithReader(t *testing.T) {
 func TestSetVXLANL3MissWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANL3MissWithReader("vxlan0", "0", reader)
+	err := SetVXLANL3MissWithReader(testVXLANIface, "0", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANL3MissWithReader failed: %v", err)
 	}
@@ -1363,9 +1427,11 @@ func TestSetVXLANL3MissWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "l3miss" && len(call.values) > 0 && call.values[0] == "0" {
 			found = true
+
 			break
 		}
 	}
@@ -1378,7 +1444,7 @@ func TestSetVXLANL3MissWithReader(t *testing.T) {
 func TestSetVXLANUDPCsumWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANUDPCsumWithReader("vxlan0", "0", reader)
+	err := SetVXLANUDPCsumWithReader(testVXLANIface, "0", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANUDPCsumWithReader failed: %v", err)
 	}
@@ -1388,9 +1454,11 @@ func TestSetVXLANUDPCsumWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "udpcsum" && len(call.values) > 0 && call.values[0] == "0" {
 			found = true
+
 			break
 		}
 	}
@@ -1403,7 +1471,7 @@ func TestSetVXLANUDPCsumWithReader(t *testing.T) {
 func TestSetVXLANUDP6ZeroCsumTxWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANUDP6ZeroCsumTxWithReader("vxlan0", "1", reader)
+	err := SetVXLANUDP6ZeroCsumTxWithReader(testVXLANIface, "1", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANUDP6ZeroCsumTxWithReader failed: %v", err)
 	}
@@ -1413,9 +1481,11 @@ func TestSetVXLANUDP6ZeroCsumTxWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "udp6zerocsumtx" && len(call.values) > 0 && call.values[0] == "1" {
 			found = true
+
 			break
 		}
 	}
@@ -1428,7 +1498,7 @@ func TestSetVXLANUDP6ZeroCsumTxWithReader(t *testing.T) {
 func TestSetVXLANUDP6ZeroCsumRxWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANUDP6ZeroCsumRxWithReader("vxlan0", "1", reader)
+	err := SetVXLANUDP6ZeroCsumRxWithReader(testVXLANIface, "1", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANUDP6ZeroCsumRxWithReader failed: %v", err)
 	}
@@ -1438,9 +1508,11 @@ func TestSetVXLANUDP6ZeroCsumRxWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "udp6zerocsumrx" && len(call.values) > 0 && call.values[0] == "1" {
 			found = true
+
 			break
 		}
 	}
@@ -1453,7 +1525,7 @@ func TestSetVXLANUDP6ZeroCsumRxWithReader(t *testing.T) {
 func TestSetVXLANGBPWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
-	err := SetVXLANGBPWithReader("vxlan0", "0", reader)
+	err := SetVXLANGBPWithReader(testVXLANIface, "0", reader)
 	if err != nil {
 		t.Fatalf("SetVXLANGBPWithReader failed: %v", err)
 	}
@@ -1463,9 +1535,11 @@ func TestSetVXLANGBPWithReader(t *testing.T) {
 	}
 
 	found := false
+
 	for _, call := range reader.setTypeCalls {
 		if call.option == "gbp" && len(call.values) > 0 && call.values[0] == "0" {
 			found = true
+
 			break
 		}
 	}
@@ -1483,13 +1557,13 @@ func TestSetVXLANConfigWithReader_AllNewFields(t *testing.T) {
 	}
 
 	config := &UCIVXLANConfig{
-		Proto:          "vxlan",
+		Proto:          DefaultVXLANProto,
 		IPAddr:         "10.2.2.2",
 		VID:            "999",
 		SrcPort:        "8000-9000",
 		DF:             "0",
 		FlowLabel:      "0xfffff",
-		Ageing:         "450",
+		Aging:          "450",
 		MaxAddress:     "512",
 		Learning:       "0",
 		RSC:            "1",
@@ -1517,7 +1591,7 @@ func TestSetVXLANConfigWithReader_AllNewFields(t *testing.T) {
 		"srcport":        "8000-9000",
 		"df":             "0",
 		"flowlabel":      "0xfffff",
-		"ageing":         "450",
+		"aging":          "450",
 		"maxaddress":     "512",
 		"learning":       "0",
 		"rsc":            "1",
@@ -1532,12 +1606,15 @@ func TestSetVXLANConfigWithReader_AllNewFields(t *testing.T) {
 
 	for option, expectedValue := range expectedCalls {
 		found := false
+
 		for _, call := range reader.setTypeCalls {
 			if call.option == option && len(call.values) > 0 && call.values[0] == expectedValue {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			t.Errorf("Expected SetType call for option %q with value %q", option, expectedValue)
 		}
@@ -1550,7 +1627,7 @@ func TestGetVXLANPeerByNameWithReader_FullConfig(t *testing.T) {
 	reader := newMockVXLANReader()
 
 	want := &UCIVXLANPeer{
-		VXLAN:  "vxlan0",
+		VXLAN:  testVXLANIface,
 		LLAddr: "00:11:22:33:44:55",
 		Dst:    "10.0.0.2",
 		Port:   "4789",
@@ -1563,6 +1640,7 @@ func TestGetVXLANPeerByNameWithReader_FullConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVXLANPeerByNameWithReader failed: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("GetVXLANPeerByNameWithReader = %+v, want %+v", got, want)
 	}
@@ -1572,7 +1650,7 @@ func TestGetVXLANPeerByNameWithReader_MinimalConfig(t *testing.T) {
 	reader := newMockVXLANReader()
 
 	want := &UCIVXLANPeer{
-		VXLAN: "vxlan0",
+		VXLAN: testVXLANIface,
 		Dst:   "10.0.0.3",
 	}
 
@@ -1580,6 +1658,7 @@ func TestGetVXLANPeerByNameWithReader_MinimalConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVXLANPeerByNameWithReader failed: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("GetVXLANPeerByNameWithReader = %+v, want %+v", got, want)
 	}
@@ -1589,7 +1668,7 @@ func TestGetVXLANPeerByNameWithReader_MulticastConfig(t *testing.T) {
 	reader := newMockVXLANReader()
 
 	want := &UCIVXLANPeer{
-		VXLAN: "vxlan0",
+		VXLAN: testVXLANIface,
 		Dst:   "239.1.1.1",
 		Via:   "br-lan",
 	}
@@ -1598,6 +1677,7 @@ func TestGetVXLANPeerByNameWithReader_MulticastConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVXLANPeerByNameWithReader failed: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("GetVXLANPeerByNameWithReader = %+v, want %+v", got, want)
 	}
@@ -1612,6 +1692,7 @@ func TestGetVXLANPeerByNameWithReader_NonExistent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetVXLANPeerByNameWithReader failed: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("GetVXLANPeerByNameWithReader = %+v, want %+v", got, want)
 	}
@@ -1659,23 +1740,26 @@ func TestAddVXLANPeerWithReader(t *testing.T) {
 		option  string
 		value   string
 	}{
-		{"vxlan_peer_0", "vxlan", "vxlan1"},
-		{"vxlan_peer_0", "lladdr", "aa:bb:cc:dd:ee:ff"},
-		{"vxlan_peer_0", "dst", "192.168.1.100"},
-		{"vxlan_peer_0", "port", "8472"},
-		{"vxlan_peer_0", "via", "wan"},
-		{"vxlan_peer_0", "vni", "999"},
-		{"vxlan_peer_0", "src_vni", "888"},
+		{testVXLANPeer0, DefaultVXLANProto, "vxlan1"},
+		{testVXLANPeer0, "lladdr", "aa:bb:cc:dd:ee:ff"},
+		{testVXLANPeer0, testVXLANDSTKey, "192.168.1.100"},
+		{testVXLANPeer0, "port", "8472"},
+		{testVXLANPeer0, "via", "wan"},
+		{testVXLANPeer0, "vni", "999"},
+		{testVXLANPeer0, "src_vni", "888"},
 	}
 
 	for _, expected := range expectedCalls {
 		found := false
+
 		for _, call := range reader.setTypeCalls {
 			if call.section == expected.section && call.option == expected.option && len(call.values) > 0 && call.values[0] == expected.value {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			t.Errorf("Expected SetType call for section %q option %q with value %q", expected.section, expected.option, expected.value)
 		}
@@ -1686,7 +1770,7 @@ func TestUpdateVXLANPeerWithReader(t *testing.T) {
 	reader := newMockVXLANReader()
 
 	peer := &UCIVXLANPeer{
-		VXLAN: "vxlan0",
+		VXLAN: testVXLANIface,
 		Dst:   "10.0.0.99",
 		Port:  "9999",
 	}
@@ -1710,19 +1794,22 @@ func TestUpdateVXLANPeerWithReader(t *testing.T) {
 		option string
 		value  string
 	}{
-		{"vxlan", "vxlan0"},
-		{"dst", "10.0.0.99"},
+		{DefaultVXLANProto, testVXLANIface},
+		{testVXLANDSTKey, "10.0.0.99"},
 		{"port", "9999"},
 	}
 
 	for _, expected := range expectedCalls {
 		found := false
+
 		for _, call := range reader.setTypeCalls {
 			if call.option == expected.option && len(call.values) > 0 && call.values[0] == expected.value {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			t.Errorf("Expected SetType call for option %q with value %q", expected.option, expected.value)
 		}
@@ -1740,7 +1827,7 @@ func TestAddVXLANPeerWithReader_MinimalConfig(t *testing.T) {
 	}
 
 	peer := &UCIVXLANPeer{
-		VXLAN: "vxlan0",
+		VXLAN: testVXLANIface,
 		Dst:   "10.0.0.5",
 	}
 
@@ -1756,11 +1843,13 @@ func TestAddVXLANPeerWithReader_MinimalConfig(t *testing.T) {
 	// Verify only required fields were set with the correct section reference
 	vxlanSet := false
 	dstSet := false
+
 	for _, call := range reader.setTypeCalls {
-		if call.section == "vxlan_peer_0" && call.option == "vxlan" && len(call.values) > 0 && call.values[0] == "vxlan0" {
+		if call.section == testVXLANPeer0 && call.option == DefaultVXLANProto && len(call.values) > 0 && call.values[0] == testVXLANIface {
 			vxlanSet = true
 		}
-		if call.section == "vxlan_peer_0" && call.option == "dst" && len(call.values) > 0 && call.values[0] == "10.0.0.5" {
+
+		if call.section == testVXLANPeer0 && call.option == testVXLANDSTKey && len(call.values) > 0 && call.values[0] == "10.0.0.5" {
 			dstSet = true
 		}
 	}
@@ -1768,6 +1857,7 @@ func TestAddVXLANPeerWithReader_MinimalConfig(t *testing.T) {
 	if !vxlanSet {
 		t.Error("Expected vxlan to be set on section vxlan_peer_0")
 	}
+
 	if !dstSet {
 		t.Error("Expected dst to be set on section vxlan_peer_0")
 	}
@@ -1785,7 +1875,7 @@ func TestAddVXLANPeerWithReader_SetTypeError(t *testing.T) {
 	}
 
 	peer := &UCIVXLANPeer{
-		VXLAN: "vxlan0",
+		VXLAN: testVXLANIface,
 		Dst:   "10.0.0.1",
 	}
 
@@ -1811,7 +1901,7 @@ func TestAddVXLANPeerWithReader_CommitError(t *testing.T) {
 	}
 
 	peer := &UCIVXLANPeer{
-		VXLAN: "vxlan0",
+		VXLAN: testVXLANIface,
 		Dst:   "10.0.0.1",
 	}
 
@@ -1837,17 +1927,17 @@ func TestBatchAddVXLANPeersWithReader(t *testing.T) {
 
 	peers := []UCIVXLANPeer{
 		{
-			VXLAN: "vxlan0",
+			VXLAN: testVXLANIface,
 			Dst:   "239.2.3.1",
 			Via:   "tailscale0",
 		},
 		{
-			VXLAN: "vxlan0",
+			VXLAN: testVXLANIface,
 			Dst:   "224.10.10.1",
 			Via:   "tailscale0",
 		},
 		{
-			VXLAN: "vxlan0",
+			VXLAN: testVXLANIface,
 			Dst:   "224.0.0.251",
 			Via:   "tailscale0",
 		},
@@ -1873,12 +1963,14 @@ func TestBatchAddVXLANPeersWithReader(t *testing.T) {
 		foundVia := false
 
 		for _, call := range reader.setTypeCalls {
-			if call.section == sectionRef && call.option == "vxlan" && len(call.values) > 0 && call.values[0] == peer.VXLAN {
+			if call.section == sectionRef && call.option == DefaultVXLANProto && len(call.values) > 0 && call.values[0] == peer.VXLAN {
 				foundVxlan = true
 			}
-			if call.section == sectionRef && call.option == "dst" && len(call.values) > 0 && call.values[0] == peer.Dst {
+
+			if call.section == sectionRef && call.option == testVXLANDSTKey && len(call.values) > 0 && call.values[0] == peer.Dst {
 				foundDst = true
 			}
+
 			if call.section == sectionRef && call.option == "via" && len(call.values) > 0 && call.values[0] == peer.Via {
 				foundVia = true
 			}
@@ -1887,9 +1979,11 @@ func TestBatchAddVXLANPeersWithReader(t *testing.T) {
 		if !foundVxlan {
 			t.Errorf("Expected SetType call for peer %d section %q option 'vxlan' with value %q", i, sectionRef, peer.VXLAN)
 		}
+
 		if !foundDst {
 			t.Errorf("Expected SetType call for peer %d section %q option 'dst' with value %q", i, sectionRef, peer.Dst)
 		}
+
 		if !foundVia {
 			t.Errorf("Expected SetType call for peer %d section %q option 'via' with value %q", i, sectionRef, peer.Via)
 		}
@@ -1926,7 +2020,7 @@ func TestBatchAddVXLANPeersWithReader_AllFields(t *testing.T) {
 
 	peers := []UCIVXLANPeer{
 		{
-			VXLAN:  "vxlan0",
+			VXLAN:  testVXLANIface,
 			LLAddr: "aa:bb:cc:dd:ee:ff",
 			Dst:    "192.168.1.100",
 			Port:   "8472",
@@ -1935,7 +2029,7 @@ func TestBatchAddVXLANPeersWithReader_AllFields(t *testing.T) {
 			SrcVNI: "888",
 		},
 		{
-			VXLAN: "vxlan0",
+			VXLAN: testVXLANIface,
 			Dst:   "192.168.1.101",
 			Via:   "lan",
 		},
@@ -1947,14 +2041,14 @@ func TestBatchAddVXLANPeersWithReader_AllFields(t *testing.T) {
 	}
 
 	// Verify first peer has all fields set
-	firstPeerSection := "vxlan_peer_0"
+	firstPeerSection := testVXLANPeer0
 	expectedFirstPeerCalls := []struct {
 		option string
 		value  string
 	}{
-		{"vxlan", "vxlan0"},
+		{DefaultVXLANProto, testVXLANIface},
 		{"lladdr", "aa:bb:cc:dd:ee:ff"},
-		{"dst", "192.168.1.100"},
+		{testVXLANDSTKey, "192.168.1.100"},
 		{"port", "8472"},
 		{"via", "wan"},
 		{"vni", "999"},
@@ -1963,12 +2057,15 @@ func TestBatchAddVXLANPeersWithReader_AllFields(t *testing.T) {
 
 	for _, expected := range expectedFirstPeerCalls {
 		found := false
+
 		for _, call := range reader.setTypeCalls {
 			if call.section == firstPeerSection && call.option == expected.option && len(call.values) > 0 && call.values[0] == expected.value {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			t.Errorf("Expected SetType call for section %q option %q with value %q", firstPeerSection, expected.option, expected.value)
 		}
@@ -1980,19 +2077,22 @@ func TestBatchAddVXLANPeersWithReader_AllFields(t *testing.T) {
 		option string
 		value  string
 	}{
-		{"vxlan", "vxlan0"},
-		{"dst", "192.168.1.101"},
+		{DefaultVXLANProto, testVXLANIface},
+		{testVXLANDSTKey, "192.168.1.101"},
 		{"via", "lan"},
 	}
 
 	for _, expected := range expectedSecondPeerCalls {
 		found := false
+
 		for _, call := range reader.setTypeCalls {
 			if call.section == secondPeerSection && call.option == expected.option && len(call.values) > 0 && call.values[0] == expected.value {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			t.Errorf("Expected SetType call for section %q option %q with value %q", secondPeerSection, expected.option, expected.value)
 		}
@@ -2008,7 +2108,7 @@ func TestBatchAddVXLANPeersWithReader_AddSectionError(t *testing.T) {
 	}
 
 	peers := []UCIVXLANPeer{
-		{VXLAN: "vxlan0", Dst: "10.0.0.1"},
+		{VXLAN: testVXLANIface, Dst: "10.0.0.1"},
 	}
 
 	err := BatchAddVXLANPeersWithReader(peers, reader)
@@ -2033,7 +2133,7 @@ func TestBatchAddVXLANPeersWithReader_CommitError(t *testing.T) {
 	}
 
 	peers := []UCIVXLANPeer{
-		{VXLAN: "vxlan0", Dst: "10.0.0.1"},
+		{VXLAN: testVXLANIface, Dst: "10.0.0.1"},
 	}
 
 	err := BatchAddVXLANPeersWithReader(peers, reader)
@@ -2058,7 +2158,7 @@ func TestBatchAddVXLANPeersWithReader_SetTypeError(t *testing.T) {
 	}
 
 	peers := []UCIVXLANPeer{
-		{VXLAN: "vxlan0", Dst: "10.0.0.1"},
+		{VXLAN: testVXLANIface, Dst: "10.0.0.1"},
 	}
 
 	err := BatchAddVXLANPeersWithReader(peers, reader)
@@ -2206,7 +2306,7 @@ func TestAddVXLANPeerWithReader_AddSectionError(t *testing.T) {
 	}
 
 	peer := &UCIVXLANPeer{
-		VXLAN: "vxlan0",
+		VXLAN: testVXLANIface,
 		Dst:   "10.0.0.1",
 	}
 
@@ -2225,11 +2325,11 @@ func TestAddVXLANPeerWithReader_WithExistingPeers(t *testing.T) {
 		data: map[string]map[string]map[string][]string{
 			"network": {
 				"peer0": {
-					"vxlan": {"vxlan0"},
+					"vxlan": {testVXLANIface},
 					"dst":   {"10.0.0.1"},
 				},
 				"peer1": {
-					"vxlan": {"vxlan0"},
+					"vxlan": {testVXLANIface},
 					"dst":   {"10.0.0.2"},
 				},
 			},
@@ -2243,7 +2343,7 @@ func TestAddVXLANPeerWithReader_WithExistingPeers(t *testing.T) {
 	}
 
 	peer := &UCIVXLANPeer{
-		VXLAN: "vxlan0",
+		VXLAN: testVXLANIface,
 		Dst:   "10.0.0.3",
 	}
 
@@ -2259,11 +2359,13 @@ func TestAddVXLANPeerWithReader_WithExistingPeers(t *testing.T) {
 	// With 2 existing named sections, the new peer should be named vxlan_peer_2
 	vxlanSet := false
 	dstSet := false
+
 	for _, call := range reader.setTypeCalls {
-		if call.section == "vxlan_peer_2" && call.option == "vxlan" && len(call.values) > 0 && call.values[0] == "vxlan0" {
+		if call.section == "vxlan_peer_2" && call.option == DefaultVXLANProto && len(call.values) > 0 && call.values[0] == testVXLANIface {
 			vxlanSet = true
 		}
-		if call.section == "vxlan_peer_2" && call.option == "dst" && len(call.values) > 0 && call.values[0] == "10.0.0.3" {
+
+		if call.section == "vxlan_peer_2" && call.option == testVXLANDSTKey && len(call.values) > 0 && call.values[0] == "10.0.0.3" {
 			dstSet = true
 		}
 	}
@@ -2271,6 +2373,7 @@ func TestAddVXLANPeerWithReader_WithExistingPeers(t *testing.T) {
 	if !vxlanSet {
 		t.Error("Expected vxlan to be set on section vxlan_peer_2")
 	}
+
 	if !dstSet {
 		t.Error("Expected dst to be set on section vxlan_peer_2")
 	}
@@ -2289,7 +2392,7 @@ func TestGetVXLANPeerByDstWithReader_Found(t *testing.T) {
 	}
 
 	want := &UCIVXLANPeer{
-		VXLAN:  "vxlan0",
+		VXLAN:  testVXLANIface,
 		LLAddr: "00:11:22:33:44:55",
 		Dst:    "10.0.0.2",
 		Port:   "4789",
@@ -2316,7 +2419,7 @@ func TestGetVXLANPeerByDstWithReader_MulticastAddress(t *testing.T) {
 	}
 
 	want := &UCIVXLANPeer{
-		VXLAN: "vxlan0",
+		VXLAN: testVXLANIface,
 		Dst:   "239.1.1.1",
 		Via:   "br-lan",
 	}
@@ -2361,7 +2464,7 @@ func TestGetVXLANPeerByDstWithReader_MultiplePeers(t *testing.T) {
 	}
 
 	want := &UCIVXLANPeer{
-		VXLAN: "vxlan0",
+		VXLAN: testVXLANIface,
 		Dst:   "10.0.0.3",
 	}
 

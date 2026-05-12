@@ -32,4 +32,15 @@ go.work.sum
 # .vscode/
 .DS_Store
 bin
-.claude
+static/whisper/*.bin
+
+# Frontend build artifacts
+frontend/node_modules/
+node_modules
+frontend/coverage
+.vite/vitest
+.claude/settings.local.json
+.gocache
+.pnpm-store
+bench
+.superpowers

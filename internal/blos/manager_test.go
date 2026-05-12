@@ -1,0 +1,926 @@
+package blos
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/openmanet/openmanetd/internal/config"
+	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"tailscale.com/ipn"
+	"tailscale.com/ipn/ipnstate"
+)
+
+// fakeTailscaleAuthClient records calls and returns configured errors.
+type fakeTailscaleAuthClient struct {
+	mu             sync.Mutex
+	err            error
+	authKey        string
+	loginServerURL string
+	calls          int
+}
+
+func (m *fakeTailscaleAuthClient) Authenticate(_ context.Context, authKey, loginServerURL string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.calls++
+	m.authKey = authKey
+	m.loginServerURL = loginServerURL
+
+	return m.err
+}
+
+func (m *fakeTailscaleAuthClient) getCalls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.calls
+}
+
+func (m *fakeTailscaleAuthClient) getAuthKey() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.authKey
+}
+
+func (m *fakeTailscaleAuthClient) getLoginServerURL() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.loginServerURL
+}
+
+// fakeInitDService records calls and returns configured results.
+type fakeInitDService struct {
+	mu           sync.Mutex
+	isEnabledVal bool
+	isEnabledErr error
+	enableErr    error
+	enableCalls  int
+	isRunningVal bool
+	isRunningErr error
+	startErr     error
+	startCalls   int
+}
+
+func (m *fakeInitDService) IsEnabled(_ context.Context) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.isEnabledVal, m.isEnabledErr
+}
+
+func (m *fakeInitDService) Enable(_ context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.enableCalls++
+
+	return m.enableErr
+}
+
+func (m *fakeInitDService) IsRunning(_ context.Context) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.isRunningVal, m.isRunningErr
+}
+
+func (m *fakeInitDService) Start(_ context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.startCalls++
+
+	return m.startErr
+}
+
+func (m *fakeInitDService) getEnableCalls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.enableCalls
+}
+
+func (m *fakeInitDService) getStartCalls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.startCalls
+}
+
+// runningInitDService returns a fakeInitDService that reports already enabled and running.
+func runningInitDService() *fakeInitDService {
+	return &fakeInitDService{isEnabledVal: true, isRunningVal: true}
+}
+
+// newTestManager creates a BLOSManager with an injectable createFn for testing.
+func newTestManager(t *testing.T, createFn func(*config.Config, zerolog.Logger) (*BLOS, error)) *BLOSManager {
+	t.Helper()
+
+	return &BLOSManager{
+		cfg:      &config.Config{},
+		logger:   zerolog.Nop(),
+		createFn: createFn,
+	}
+}
+
+// failingTailscaleClient is a TailscaleClient that always returns an error from Status.
+type failingTailscaleClient struct {
+	err error
+}
+
+func (f *failingTailscaleClient) Status(_ context.Context) (*ipnstate.Status, error) {
+	return nil, f.err
+}
+
+func (f *failingTailscaleClient) GetPrefs(_ context.Context) (*ipn.Prefs, error) {
+	return nil, f.err
+}
+
+func (f *failingTailscaleClient) EditPrefs(_ context.Context, _ *ipn.MaskedPrefs) (*ipn.Prefs, error) {
+	return nil, f.err
+}
+
+// successCreateFn returns a minimal BLOS instance.
+func successCreateFn(_ *config.Config, _ zerolog.Logger) (*BLOS, error) {
+	return &BLOS{}, nil
+}
+
+// notGatewayCreateFn simulates NewBLOS returning (nil, nil) when not in gateway mode.
+func notGatewayCreateFn(_ *config.Config, _ zerolog.Logger) (*BLOS, error) {
+	return nil, nil
+}
+
+func TestBLOSManager_Enable_Success(t *testing.T) {
+	m := newTestManager(t, successCreateFn)
+
+	err := m.Enable(context.Background())
+	require.NoError(t, err)
+	assert.True(t, m.IsRunning())
+	assert.NotNil(t, m.GetBLOS())
+}
+
+func TestBLOSManager_Enable_Idempotent(t *testing.T) {
+	callCount := 0
+	m := newTestManager(t, func(c *config.Config, l zerolog.Logger) (*BLOS, error) {
+		callCount++
+
+		return &BLOS{}, nil
+	})
+
+	err := m.Enable(context.Background())
+	require.NoError(t, err)
+
+	err = m.Enable(context.Background())
+	require.NoError(t, err)
+
+	assert.True(t, m.IsRunning())
+	assert.Equal(t, 1, callCount, "createFn should only be called once")
+}
+
+func TestBLOSManager_Enable_NotGatewayMode(t *testing.T) {
+	m := newTestManager(t, notGatewayCreateFn)
+
+	err := m.Enable(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gateway mode")
+	assert.False(t, m.IsRunning())
+	assert.Nil(t, m.GetBLOS())
+}
+
+func TestBLOSManager_Enable_Error(t *testing.T) {
+	m := newTestManager(t, func(_ *config.Config, _ zerolog.Logger) (*BLOS, error) {
+		return nil, errors.New("tailscale not running")
+	})
+
+	err := m.Enable(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tailscale not running")
+	assert.False(t, m.IsRunning())
+}
+
+func TestBLOSManager_Disable_Success(t *testing.T) {
+	stopCalled := false
+	m := newTestManager(t, func(_ *config.Config, _ zerolog.Logger) (*BLOS, error) {
+		b := &BLOS{}
+
+		return b, nil
+	})
+
+	err := m.Enable(context.Background())
+	require.NoError(t, err)
+	assert.True(t, m.IsRunning())
+
+	// Replace the BLOS instance's multicastConns to verify Stop behavior
+	// Stop() closes multicast connections and stops the status worker.
+	// Since our test BLOS has nil statusWorker and nil multicastConns,
+	// Stop() will just nil them out.
+	_ = stopCalled
+
+	m.Disable()
+	assert.False(t, m.IsRunning())
+	assert.Nil(t, m.GetBLOS())
+}
+
+func TestBLOSManager_Disable_Idempotent(t *testing.T) {
+	m := newTestManager(t, successCreateFn)
+
+	// Disable when not running should not panic
+	m.Disable()
+	assert.False(t, m.IsRunning())
+
+	// Enable then disable twice
+	err := m.Enable(context.Background())
+	require.NoError(t, err)
+
+	m.Disable()
+	m.Disable()
+	assert.False(t, m.IsRunning())
+}
+
+func TestBLOSManager_Disable_ThenReEnable(t *testing.T) {
+	callCount := 0
+	m := newTestManager(t, func(c *config.Config, l zerolog.Logger) (*BLOS, error) {
+		callCount++
+
+		return &BLOS{}, nil
+	})
+
+	// First cycle
+	err := m.Enable(context.Background())
+	require.NoError(t, err)
+	assert.True(t, m.IsRunning())
+
+	m.Disable()
+	assert.False(t, m.IsRunning())
+
+	// Second cycle
+	err = m.Enable(context.Background())
+	require.NoError(t, err)
+	assert.True(t, m.IsRunning())
+	assert.Equal(t, 2, callCount, "createFn should be called once per enable cycle")
+}
+
+func TestBLOSManager_ConcurrentAccess(t *testing.T) {
+	m := newTestManager(t, func(_ *config.Config, _ zerolog.Logger) (*BLOS, error) {
+		return &BLOS{}, nil
+	})
+
+	var wg sync.WaitGroup
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for j := 0; j < 50; j++ {
+				_ = m.Enable(context.Background())
+				_ = m.IsRunning()
+				_ = m.GetBLOS()
+				m.Disable()
+			}
+		}()
+	}
+
+	wg.Wait()
+	// If we get here without race/panic, the test passes.
+}
+
+func TestBLOSManager_IsRunning_InitialState(t *testing.T) {
+	m := newTestManager(t, successCreateFn)
+	assert.False(t, m.IsRunning())
+}
+
+func TestBLOSManager_GetBLOS_WhenNotRunning(t *testing.T) {
+	m := newTestManager(t, successCreateFn)
+	assert.Nil(t, m.GetBLOS())
+}
+
+// ── ConfigureAndEnable ────────────────────────────────────────────────────────
+
+// runningStatusClient returns a fakeStatusClient that always reports "Running".
+func runningStatusClient() *fakeStatusClient {
+	sc := &fakeStatusClient{}
+	sc.SetStatus(&ipnstate.Status{BackendState: "Running"})
+
+	return sc
+}
+
+func newTestManagerWithAuth(t *testing.T, auth *fakeTailscaleAuthClient, initD InitDService, createFn func(*config.Config, zerolog.Logger) (*BLOS, error)) *BLOSManager {
+	t.Helper()
+
+	return &BLOSManager{
+		cfg:          newTestConfig(t),
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		statusClient: runningStatusClient(),
+		initDService: initD,
+		createFn:     createFn,
+	}
+}
+
+// newTestConfig creates a Config backed by a temp YAML file so that
+// PersistBLOSConfig can read/write without panicking on a nil viper.
+func newTestConfig(t *testing.T) *config.Config {
+	t.Helper()
+
+	cfgPath := filepath.Join(t.TempDir(), "config.yml")
+
+	err := os.WriteFile(cfgPath, []byte("blos:\n  enable: false\n"), 0644)
+	require.NoError(t, err)
+
+	v := viper.New()
+	v.SetConfigFile(cfgPath)
+
+	err = v.ReadInConfig()
+	require.NoError(t, err)
+
+	return config.NewWithoutWatch(v)
+}
+
+func TestBLOSManager_ConfigureAndEnable_Success(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.True(t, m.IsRunning())
+	assert.Equal(t, 1, auth.getCalls())
+
+	assert.Equal(t, "tskey-abc123", auth.getAuthKey())
+	assert.Equal(t, "", auth.getLoginServerURL())
+}
+
+func TestBLOSManager_ConfigureAndEnable_WithLoginServer(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "https://hs.example.com")
+	require.NoError(t, err)
+	assert.True(t, m.IsRunning())
+
+	assert.Equal(t, "tskey-abc123", auth.getAuthKey())
+	assert.Equal(t, "https://hs.example.com", auth.getLoginServerURL())
+}
+
+func TestBLOSManager_ConfigureAndEnable_WithoutLoginServer(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+
+	assert.Equal(t, "tskey-abc123", auth.getAuthKey())
+	assert.Equal(t, "", auth.getLoginServerURL())
+}
+
+func TestBLOSManager_ConfigureAndEnable_AuthFailure(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{err: errors.New("auth failed")}
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-bad", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tailscale authentication failed")
+	assert.False(t, m.IsRunning())
+	assert.Equal(t, 1, auth.getCalls())
+}
+
+func TestBLOSManager_ConfigureAndEnable_CreateFnFailure(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), func(_ *config.Config, _ zerolog.Logger) (*BLOS, error) {
+		return nil, errors.New("create failed")
+	})
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "create failed")
+	assert.False(t, m.IsRunning())
+	assert.Equal(t, 1, auth.getCalls()) // auth was called before createFn
+}
+
+func TestBLOSManager_ConfigureAndEnable_PersistsConfigBeforeStart(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	cfg := newTestConfig(t)
+	m := &BLOSManager{
+		cfg:          cfg,
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		statusClient: runningStatusClient(),
+		initDService: runningInitDService(),
+		createFn:     successCreateFn,
+	}
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.True(t, cfg.BLOSEnabled(), "blos.enable should be persisted as true after ConfigureAndEnable")
+}
+
+func TestBLOSManager_ConfigureAndEnable_StartFailure_RollsBackConfig(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	cfg := newTestConfig(t)
+
+	// Create a BLOS whose Start will fail because tsClient.Status returns an error.
+	failStartCreateFn := func(_ *config.Config, _ zerolog.Logger) (*BLOS, error) {
+		return &BLOS{tsClient: &failingTailscaleClient{err: errors.New("status check failed")}}, nil
+	}
+
+	m := &BLOSManager{
+		cfg:          cfg,
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		statusClient: runningStatusClient(),
+		initDService: runningInitDService(),
+		createFn:     failStartCreateFn,
+	}
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.Error(t, err)
+	assert.False(t, m.IsRunning())
+	assert.False(t, cfg.BLOSEnabled(), "blos.enable should be rolled back to false after Start failure")
+}
+
+func TestBLOSManager_ConfigureAndEnable_Idempotent(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+
+	err = m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+
+	assert.True(t, m.IsRunning())
+	assert.Equal(t, 1, auth.getCalls(), "auth client should only be called once")
+}
+
+func TestBLOSManager_ConfigureAndEnable_NotGatewayMode(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	m := newTestManagerWithAuth(t, auth, runningInitDService(), notGatewayCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gateway mode")
+	assert.False(t, m.IsRunning())
+}
+
+// ── InitDService integration with ConfigureAndEnable ─────────────────────────
+
+func TestBLOSManager_ConfigureAndEnable_EnablesService(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: false, isRunningVal: true}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.Equal(t, 1, initD.getEnableCalls(), "Enable should be called when not enabled")
+	assert.Equal(t, 1, auth.getCalls(), "auth should proceed after enabling service")
+}
+
+func TestBLOSManager_ConfigureAndEnable_SkipsEnableWhenAlreadyEnabled(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: true, isRunningVal: true}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.Equal(t, 0, initD.getEnableCalls(), "Enable should not be called when already enabled")
+}
+
+func TestBLOSManager_ConfigureAndEnable_StartsService(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: true, isRunningVal: false}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.Equal(t, 1, initD.getStartCalls(), "Start should be called when not running")
+	assert.Equal(t, 1, auth.getCalls(), "auth should proceed after starting service")
+}
+
+func TestBLOSManager_ConfigureAndEnable_SkipsStartWhenAlreadyRunning(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: true, isRunningVal: true}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.Equal(t, 0, initD.getStartCalls(), "Start should not be called when already running")
+}
+
+func TestBLOSManager_ConfigureAndEnable_EnableFailure(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: false, isRunningVal: true, enableErr: errors.New("enable failed")}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "enable tailscale service")
+	assert.Equal(t, 0, auth.getCalls(), "auth should not be called when enable fails")
+	assert.False(t, m.IsRunning())
+}
+
+func TestBLOSManager_ConfigureAndEnable_StartFailure(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: true, isRunningVal: false, startErr: errors.New("start failed")}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "start tailscale service")
+	assert.Equal(t, 0, auth.getCalls(), "auth should not be called when start fails")
+	assert.False(t, m.IsRunning())
+}
+
+func TestBLOSManager_ConfigureAndEnable_IsEnabledCheckFailure(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledErr: errors.New("check failed")}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "check tailscale service enabled")
+	assert.Equal(t, 0, auth.getCalls())
+}
+
+func TestBLOSManager_ConfigureAndEnable_IsRunningCheckFailure(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: true, isRunningErr: errors.New("check failed")}
+	m := newTestManagerWithAuth(t, auth, initD, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "check tailscale service running")
+	assert.Equal(t, 0, auth.getCalls())
+}
+
+func TestBLOSManager_ConfigureAndEnable_NilInitDService(t *testing.T) {
+	auth := &fakeTailscaleAuthClient{}
+	m := newTestManagerWithAuth(t, auth, nil, successCreateFn)
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.True(t, m.IsRunning())
+	assert.Equal(t, 1, auth.getCalls(), "auth should proceed when initDService is nil")
+}
+
+// ── waitForTailscaleReady ────────────────────────────────────────────────────
+
+func TestWaitForTailscaleReady_ImmediatelyRunning(t *testing.T) {
+	sc := runningStatusClient()
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleReady(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, sc.GetCallCount())
+}
+
+func TestWaitForTailscaleReady_TransitionsFromStarting(t *testing.T) {
+	var calls atomic.Int32
+
+	sc := &fakeStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+			if n <= 3 {
+				return &ipnstate.Status{BackendState: "Starting"}, nil
+			}
+
+			return &ipnstate.Status{BackendState: "Running"}, nil
+		},
+	}
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleReady(context.Background())
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, int(calls.Load()), 4, "should have polled at least 4 times")
+}
+
+func TestWaitForTailscaleReady_TransitionsFromNeedsLogin(t *testing.T) {
+	var calls atomic.Int32
+
+	sc := &fakeStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+			if n <= 3 {
+				return &ipnstate.Status{BackendState: "NeedsLogin"}, nil
+			}
+
+			return &ipnstate.Status{BackendState: "Running"}, nil
+		},
+	}
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleReady(context.Background())
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, int(calls.Load()), 4, "should have polled through NeedsLogin until Running")
+}
+
+func TestWaitForTailscaleReady_NeedsLoginTimesOut(t *testing.T) {
+	sc := &fakeStatusClient{}
+	sc.SetStatus(&ipnstate.Status{BackendState: "NeedsLogin"})
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := m.waitForTailscaleReady(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timeout waiting for tailscale")
+	assert.Contains(t, err.Error(), "NeedsLogin")
+}
+
+func TestWaitForTailscaleReady_Timeout(t *testing.T) {
+	sc := &fakeStatusClient{}
+	sc.SetStatus(&ipnstate.Status{BackendState: "Starting"})
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	// Use a short-lived context to avoid waiting the full 30s
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := m.waitForTailscaleReady(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timeout waiting for tailscale")
+	assert.Contains(t, err.Error(), "Starting")
+}
+
+func TestWaitForTailscaleReady_StatusErrorsAreTransient(t *testing.T) {
+	sc := &fakeStatusClient{}
+	sc.SetError(errors.New("socket not found"))
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	// Status errors are now transient — should timeout, not fail immediately
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := m.waitForTailscaleReady(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timeout waiting for tailscale")
+}
+
+func TestWaitForTailscaleReady_TransientStatusErrors(t *testing.T) {
+	var calls atomic.Int32
+
+	sc := &fakeStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+
+			switch {
+			case n <= 2:
+				return nil, errors.New("connection refused")
+			case n <= 4:
+				return &ipnstate.Status{BackendState: "NeedsLogin"}, nil
+			default:
+				return &ipnstate.Status{BackendState: "Running"}, nil
+			}
+		},
+	}
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleReady(context.Background())
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, int(calls.Load()), 5, "should have polled through errors and NeedsLogin")
+}
+
+func TestBLOSManager_ConfigureAndEnable_WaitsForReady(t *testing.T) {
+	var calls atomic.Int32
+
+	sc := &fakeStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+			if n <= 2 {
+				return &ipnstate.Status{BackendState: "Starting"}, nil
+			}
+
+			return &ipnstate.Status{BackendState: "Running"}, nil
+		},
+	}
+
+	auth := &fakeTailscaleAuthClient{}
+	m := &BLOSManager{
+		cfg:          newTestConfig(t),
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		statusClient: sc,
+		initDService: runningInitDService(),
+		createFn:     successCreateFn,
+	}
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.True(t, m.IsRunning())
+	assert.Equal(t, 1, auth.getCalls())
+	assert.GreaterOrEqual(t, int(calls.Load()), 3, "should have polled until Running")
+}
+
+func TestBLOSManager_ConfigureAndEnable_TailscaleNotReady(t *testing.T) {
+	sc := &fakeStatusClient{}
+	sc.SetStatus(&ipnstate.Status{BackendState: "NeedsLogin"})
+
+	auth := &fakeTailscaleAuthClient{}
+	m := &BLOSManager{
+		cfg:          newTestConfig(t),
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		statusClient: sc,
+		initDService: runningInitDService(),
+		createFn:     successCreateFn,
+	}
+
+	// Use a short context so the test doesn't wait the full 30s
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	err := m.ConfigureAndEnable(ctx, "tskey-abc123", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tailscale not ready after authentication")
+	assert.False(t, m.IsRunning())
+	assert.Equal(t, 1, auth.getCalls(), "auth should have been called before status check")
+}
+
+// ── waitForTailscaleDaemon ───────────────────────────────────────────────────
+
+func TestWaitForTailscaleDaemon_ImmediatelyAvailable(t *testing.T) {
+	sc := runningStatusClient()
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleDaemon(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, sc.GetCallCount())
+}
+
+func TestWaitForTailscaleDaemon_WaitsForBackendState(t *testing.T) {
+	var calls atomic.Int32
+
+	sc := &fakeStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+			if n <= 3 {
+				// Daemon socket is up but backend not yet initialized
+				return &ipnstate.Status{BackendState: ""}, nil
+			}
+
+			return &ipnstate.Status{BackendState: "Stopped"}, nil
+		},
+	}
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleDaemon(context.Background())
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, int(calls.Load()), 4, "should have waited for non-empty BackendState")
+}
+
+func TestWaitForTailscaleDaemon_BecomesAvailableAfterRetries(t *testing.T) {
+	var calls atomic.Int32
+
+	sc := &fakeStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+			if n <= 3 {
+				return nil, errors.New("dial unix /var/run/tailscale/tailscaled.sock: connect: no such file or directory")
+			}
+
+			return &ipnstate.Status{BackendState: "Stopped"}, nil
+		},
+	}
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	err := m.waitForTailscaleDaemon(context.Background())
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, int(calls.Load()), 4, "should have retried until daemon was reachable")
+}
+
+func TestWaitForTailscaleDaemon_Timeout(t *testing.T) {
+	sc := &fakeStatusClient{}
+	sc.SetError(errors.New("no such file or directory"))
+	m := &BLOSManager{logger: zerolog.Nop(), statusClient: sc}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := m.waitForTailscaleDaemon(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timeout waiting for tailscale daemon")
+}
+
+func TestBLOSManager_ConfigureAndEnable_WaitsForDaemon(t *testing.T) {
+	// Simulate: daemon socket unavailable for 2 polls, then comes up as "Stopped"
+	// (logged out), then auth succeeds, then backend transitions to "Running".
+	var calls atomic.Int32
+
+	sc := &fakeStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := calls.Add(1)
+
+			switch {
+			case n <= 2:
+				// Daemon not yet listening
+				return nil, errors.New("dial unix: no such file or directory")
+			case n == 3:
+				// Daemon up, pre-auth (waitForTailscaleDaemon succeeds here)
+				return &ipnstate.Status{BackendState: "Stopped"}, nil
+			default:
+				// Post-auth polls (waitForTailscaleReady)
+				return &ipnstate.Status{BackendState: "Running"}, nil
+			}
+		},
+	}
+
+	auth := &fakeTailscaleAuthClient{}
+	m := &BLOSManager{
+		cfg:          newTestConfig(t),
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		statusClient: sc,
+		initDService: runningInitDService(),
+		createFn:     successCreateFn,
+	}
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "")
+	require.NoError(t, err)
+	assert.True(t, m.IsRunning())
+	assert.Equal(t, 1, auth.getCalls())
+	// At least 3 calls for daemon wait + 1 for ready wait
+	assert.GreaterOrEqual(t, int(calls.Load()), 4)
+}
+
+func TestBLOSManager_ConfigureAndEnable_PassesCorrectArgs(t *testing.T) {
+	tests := []struct {
+		name           string
+		authKey        string
+		loginServerURL string
+	}{
+		{"empty login server", "tskey-abc123", ""},
+		{"custom login server", "tskey-abc123", "https://hs.example.com"},
+		{"default tailscale server", "tskey-abc123", "https://controlplane.tailscale.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			auth := &fakeTailscaleAuthClient{}
+			m := newTestManagerWithAuth(t, auth, runningInitDService(), successCreateFn)
+
+			err := m.ConfigureAndEnable(context.Background(), tt.authKey, tt.loginServerURL)
+			require.NoError(t, err)
+
+			assert.Equal(t, 1, auth.getCalls())
+			assert.Equal(t, tt.authKey, auth.getAuthKey())
+			assert.Equal(t, tt.loginServerURL, auth.getLoginServerURL())
+		})
+	}
+}
+
+func TestBLOSManager_ConfigureAndEnable_FullFlowPassesCorrectArgs(t *testing.T) {
+	var statusCalls atomic.Int32
+
+	sc := &fakeStatusClient{
+		statusFunc: func(_ context.Context) (*ipnstate.Status, error) {
+			n := statusCalls.Add(1)
+
+			switch {
+			case n <= 2:
+				return nil, errors.New("dial unix: no such file or directory")
+			case n == 3:
+				return &ipnstate.Status{BackendState: "Stopped"}, nil
+			default:
+				return &ipnstate.Status{BackendState: "Running"}, nil
+			}
+		},
+	}
+
+	auth := &fakeTailscaleAuthClient{}
+	initD := &fakeInitDService{isEnabledVal: false, isRunningVal: false}
+	m := &BLOSManager{
+		cfg:          newTestConfig(t),
+		logger:       zerolog.Nop(),
+		authClient:   auth,
+		statusClient: sc,
+		initDService: initD,
+		createFn:     successCreateFn,
+	}
+
+	err := m.ConfigureAndEnable(context.Background(), "tskey-abc123", "https://headscale.local")
+	require.NoError(t, err)
+
+	// Service was enabled and started
+	assert.Equal(t, 1, initD.getEnableCalls())
+	assert.Equal(t, 1, initD.getStartCalls())
+
+	// Auth was called with correct arguments
+	assert.Equal(t, 1, auth.getCalls())
+	assert.Equal(t, "tskey-abc123", auth.getAuthKey())
+	assert.Equal(t, "https://headscale.local", auth.getLoginServerURL())
+
+	assert.True(t, m.IsRunning())
+}

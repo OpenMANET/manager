@@ -1,7 +1,9 @@
 package batmanadv
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os/exec"
 )
 
@@ -55,15 +57,16 @@ type McastFlagsPriv struct {
 }
 
 func GetMeshConfig(iface string) (*MeshConfig, error) {
-	cmd := exec.Command("batctl", "mj")
+	cmd := exec.CommandContext(context.Background(), "batctl", "mj")
+
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("batctl mj: %w", err)
 	}
 
 	var config MeshConfig
-	if err := json.Unmarshal(output, &config); err != nil {
-		return nil, err
+	if unmarshalErr := json.Unmarshal(output, &config); unmarshalErr != nil {
+		return nil, fmt.Errorf("unmarshal mesh config: %w", unmarshalErr)
 	}
 
 	return &config, nil
@@ -115,6 +118,7 @@ func (m *MeshConfig) String() string {
 	if err != nil {
 		return ""
 	}
+
 	return string(data)
 }
 
@@ -163,6 +167,7 @@ func formatBandwidth(down, up int) string {
 	if down == 0 && up == 0 {
 		return "0/0 kbit"
 	}
+
 	return formatKbit(down) + "/" + formatKbit(up)
 }
 
@@ -173,6 +178,7 @@ func formatKbit(kbit int) string {
 	} else if kbit >= 1000 {
 		return formatFloat(float64(kbit)/1000.0) + " mbit"
 	}
+
 	return formatFloat(float64(kbit)) + " kbit"
 }
 
@@ -181,6 +187,7 @@ func formatFloat(f float64) string {
 	if f == float64(int(f)) {
 		return formatInt(int(f))
 	}
+
 	return formatDecimal(f)
 }
 
@@ -195,5 +202,6 @@ func formatDecimal(f float64) string {
 	if f < 10 {
 		return string(rune(int(f*10)/10+'0')) + "." + string(rune(int(f*10)%10+'0'))
 	}
+
 	return string(rune(int(f) + '0'))
 }

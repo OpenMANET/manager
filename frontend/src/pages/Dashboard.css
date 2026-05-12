@@ -1,0 +1,38 @@
+/* =============================================================================
+ * Dashboard.css — page-specific glue only; primitives live in lattice.css.
+ * ============================================================================= */
+
+.dashboard-loading {
+  padding: 32px 20px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.dashboard-kpi-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+@media (max-width: 640px) {
+  .dashboard-kpi-row { grid-template-columns: 1fr; }
+}
+
+/* System resources two-column inner layout (pbars on left, kv on right). */
+.dashboard-resources {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.dashboard-resources-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+@media (max-width: 640px) {
+  .dashboard-resources { grid-template-columns: 1fr; gap: 12px; }
+}

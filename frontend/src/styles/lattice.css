@@ -1,0 +1,825 @@
+/* =============================================================================
+ * lattice.css — OpenMANET design tokens + primitive components
+ * =============================================================================
+ * Tactical C2 aesthetic: near-black surfaces, cyan accent with glow, monospace
+ * for data / sans-serif for prose, sharp corners, grid overlay.
+ *
+ * This file is the single source of truth for visual tokens. Page and
+ * component stylesheets should consume these variables rather than hard-code
+ * colors. Legacy variable names (--green, --red, --yellow, --orange, --blue,
+ * --radius) are kept for backwards compatibility during the Lattice rollout.
+ * ============================================================================= */
+
+:root {
+  /* Surfaces */
+  --bg: #05080a;
+  --bg-2: #07090c;
+  --surface: #0a0f13;
+  --surface-2: #0d1418;
+  --surface-hi: #111820;
+
+  /* Borders */
+  --border: rgba(0, 229, 255, 0.14);
+  --border-hi: rgba(0, 229, 255, 0.38);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+
+  /* Text */
+  --text: #d9e6ed;
+  --muted: #5c7682;
+  --dim: #3a4b55;
+
+  /* Accent + status */
+  --accent: #00e5ff;
+  --accent-2: #00b8cc;
+  --ok: #00e676;
+  --warn: #ffb300;
+  --crit: #ff3b4d;
+
+  /* Legacy aliases — retained so components not yet migrated keep working */
+  --green: var(--ok);
+  --red: var(--crit);
+  --yellow: var(--warn);
+  --orange: var(--warn);
+  --blue: var(--accent);
+
+  /* Typography */
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Geometry */
+  --radius: 0;
+}
+
+/* ------------------------------------------------------------------ body */
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  -webkit-user-select: none;
+  user-select: none;
+  min-height: 100vh;
+}
+
+/* Global grid overlay — applied inside authed layout, not on login. */
+.lat-grid-bg {
+  position: relative;
+}
+.lat-grid-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0, 229, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+  pointer-events: none;
+  z-index: 0;
+}
+.lat-grid-bg > * { position: relative; z-index: 1; }
+
+/* ------------------------------------------------------------------ panel */
+
+.lat-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+}
+.lat-panel.col-span-2 { grid-column: span 2; }
+.lat-panel.col-span-3 { grid-column: span 3; }
+.lat-panel.col-span-all { grid-column: 1 / -1; }
+
+.lat-panel .panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  gap: 8px;
+}
+.lat-panel h3 {
+  margin: 0;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+.lat-panel .panel-head .actions { display: flex; gap: 6px; }
+.lat-panel .panel-head .actions button {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  font: inherit;
+  font-size: 9px;
+  padding: 2px 6px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.lat-panel .panel-head .actions button:hover {
+  color: var(--accent);
+  border-color: var(--border-hi);
+}
+
+/* ------------------------------------------------------------------ chips */
+
+.lat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-hi);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+.lat-chip .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+.lat-chip.ok { color: var(--ok); border-color: rgba(0, 230, 118, 0.4); }
+.lat-chip.ok .dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.lat-chip.warn { color: var(--warn); border-color: rgba(255, 179, 0, 0.4); }
+.lat-chip.warn .dot { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+.lat-chip.crit { color: var(--crit); border-color: rgba(255, 59, 77, 0.4); }
+.lat-chip.crit .dot { background: var(--crit); box-shadow: 0 0 6px var(--crit); }
+
+/* ------------------------------------------------------------------ buttons */
+
+.lat-btn {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border-hi);
+  padding: 5px 12px;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  min-height: 32px;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.lat-btn:hover { background: rgba(0, 229, 255, 0.06); }
+.lat-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.lat-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.lat-btn.primary {
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+  border-color: var(--accent);
+}
+.lat-btn.primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+
+.lat-btn.ghost { color: var(--muted); border-color: var(--border); }
+.lat-btn.ghost:hover { color: var(--text); border-color: var(--border-hi); background: transparent; }
+
+.lat-btn.danger { color: var(--crit); border-color: rgba(255, 59, 77, 0.4); }
+.lat-btn.danger:hover { background: rgba(255, 59, 77, 0.08); }
+.lat-btn.danger.solid { background: rgba(255, 59, 77, 0.14); }
+.lat-btn.danger.solid:hover { background: rgba(255, 59, 77, 0.22); }
+
+/* Fully filled crit-red — reserved for the highest-stakes destructive
+   confirms (e.g. factory reset). Use .lat-btn.danger.solid for ordinary
+   destructive ops; .filled is the louder variant. */
+.lat-btn.danger.filled {
+  color: var(--text);
+  background: var(--crit);
+  border-color: var(--crit);
+}
+.lat-btn.danger.filled:hover {
+  background: color-mix(in srgb, var(--crit) 82%, black);
+  border-color: color-mix(in srgb, var(--crit) 82%, black);
+}
+
+/* Compact size modifier — for inline actions inside dense tables/rows. */
+.lat-btn.sm {
+  padding: 3px 9px;
+  font-size: 10px;
+}
+
+/* ------------------------------------------------------------------ toggle */
+
+.lat-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  user-select: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  align-self: flex-start;
+}
+.lat-toggle .track {
+  width: 40px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.lat-toggle .thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: var(--muted);
+  transition: left 0.15s, background 0.15s;
+}
+.lat-toggle.on .track { background: rgba(0, 229, 255, 0.22); border-color: var(--accent); }
+.lat-toggle.on .thumb { left: 22px; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.lat-toggle.on .label { color: var(--accent); }
+
+/* ------------------------------------------------------------------ check */
+
+/* Compact native checkbox + uppercase mono label, color-shifted for
+   confirmation severity. Pair with .warn-text or .crit-text on the label
+   to bump the typographic emphasis. */
+.lat-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  user-select: none;
+}
+.lat-check input { accent-color: var(--accent); }
+.lat-check.warn-text { color: var(--warn); }
+.lat-check.crit-text { color: var(--crit); }
+.lat-check input[disabled] { cursor: not-allowed; }
+
+/* ------------------------------------------------------------------ alerts */
+
+.lat-alert {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
+.lat-alert.ok { border-left-color: var(--ok); color: var(--ok); }
+.lat-alert.warn { border-left-color: var(--warn); color: var(--warn); }
+.lat-alert.crit { border-left-color: var(--crit); color: var(--crit); }
+
+/* ------------------------------------------------------------------ forms */
+
+.lat-input,
+.lat-textarea,
+.lat-select {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  width: 100%;
+  outline: none;
+  min-height: 36px;
+}
+.lat-input:focus,
+.lat-textarea:focus,
+.lat-select:focus,
+.lat-select:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* When .lat-select is the trigger button of LatSelect, lay it out as a row
+   with a caret on the right. The styling above already handles the box. */
+button.lat-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  appearance: none;
+}
+button.lat-select:hover:not(:disabled) { border-color: var(--border-hi); }
+button.lat-select:disabled { color: var(--dim); cursor: not-allowed; }
+
+.lat-select-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+.lat-select-wrap.open > button.lat-select {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.lat-select-value {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lat-select-caret {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0;
+  transition: transform 120ms ease;
+}
+.lat-select-wrap.open .lat-select-caret {
+  color: var(--accent);
+  transform: translateY(1px) scaleY(-1);
+}
+
+/* Popup. Sized to its content (max-content), capped so freakishly long
+   labels don't blow out the layout. min-width matches the trigger so the
+   popup never appears narrower than the closed control. */
+.lat-select-popup {
+  position: absolute;
+  top: calc(100% - 1px);
+  left: 0;
+  z-index: 100;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(480px, 100vw);
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono);
+}
+.lat-select-option {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  padding: 8px 12px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lat-select-option:last-child { border-bottom: 0; }
+.lat-select-option.highlight {
+  background: var(--surface-hi);
+  color: var(--accent);
+}
+.lat-select-option.selected {
+  color: var(--accent);
+}
+.lat-select-option.selected::before {
+  content: '✓';
+  display: inline-block;
+  width: 12px;
+  margin-right: 6px;
+  color: var(--accent);
+}
+.lat-select-option:not(.selected)::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  margin-right: 6px;
+}
+.lat-select-empty {
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lat-select-caret { transition: none !important; }
+}
+.lat-textarea {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.lat-field { display: flex; flex-direction: column; gap: 4px; }
+.lat-field label {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+}
+.lat-field .hint {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------------ kv */
+
+.kv {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  padding: 3px 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.04);
+  gap: 8px;
+}
+.kv:last-child { border-bottom: none; }
+.kv .k {
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.kv .v {
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+.kv .v.ok { color: var(--ok); }
+.kv .v.warn { color: var(--warn); }
+.kv .v.crit { color: var(--crit); }
+.kv .v.accent { color: var(--accent); }
+
+/* ------------------------------------------------------------------ metrics */
+
+.big-num {
+  font-family: var(--font-mono);
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+  line-height: 1;
+}
+.big-num .unit {
+  font-size: 12px;
+  color: var(--muted);
+  margin-left: 6px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.big-num.ok { color: var(--ok); }
+.big-num.warn { color: var(--warn); }
+.big-num.crit { color: var(--crit); }
+
+/* ------------------------------------------------------------------ progress bars */
+
+.pbar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.pbar-row .pbar-label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  flex: 0 0 70px;
+}
+.pbar-row .pbar-val {
+  color: var(--text);
+  flex: 0 0 54px;
+  text-align: right;
+}
+.pbar {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+.pbar > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+.pbar.warn > span { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+.pbar.crit > span { background: var(--crit); box-shadow: 0 0 6px var(--crit); }
+
+/* ------------------------------------------------------------------ slider */
+
+input[type="range"].lat-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  min-width: 0;
+}
+input[type="range"].lat-slider:focus { outline: none; }
+input[type="range"].lat-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+}
+input[type="range"].lat-slider::-moz-range-track {
+  height: 6px;
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+}
+input[type="range"].lat-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 6px;
+  height: 16px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  margin-top: -6px;
+  border: none;
+  border-radius: 0;
+}
+input[type="range"].lat-slider::-moz-range-thumb {
+  width: 6px;
+  height: 16px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  border: none;
+  border-radius: 0;
+}
+input[type="range"].lat-slider:focus-visible::-webkit-slider-thumb {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+input[type="range"].lat-slider:focus-visible::-moz-range-thumb {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+input[type="range"].lat-slider:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ sparkline */
+
+.spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 56px;
+  margin-top: 6px;
+}
+.spark > span {
+  flex: 1;
+  background: var(--accent);
+  opacity: 0.85;
+  box-shadow: 0 0 4px var(--accent);
+}
+.spark.warn > span { background: var(--warn); box-shadow: 0 0 4px var(--warn); }
+
+/* ------------------------------------------------------------------ signal bars */
+
+.sig-bars {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 14px;
+}
+.sig-bars > span { width: 3px; background: var(--dim); }
+.sig-bars > span:nth-child(1) { height: 4px; }
+.sig-bars > span:nth-child(2) { height: 6px; }
+.sig-bars > span:nth-child(3) { height: 8px; }
+.sig-bars > span:nth-child(4) { height: 11px; }
+.sig-bars > span:nth-child(5) { height: 14px; }
+.sig-bars > span.on { background: var(--ok); box-shadow: 0 0 4px var(--ok); }
+.sig-bars > span.warn { background: var(--warn); box-shadow: 0 0 4px var(--warn); }
+
+/* ------------------------------------------------------------------ meter */
+
+.meter-row {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  margin-top: 6px;
+}
+.meter-row > span { flex: 1; background: var(--dim); }
+.meter-row > span.on { background: var(--ok); }
+.meter-row > span.hot { background: var(--warn); }
+.meter-row > span.peak { background: var(--crit); }
+
+/* ------------------------------------------------------------------ tables */
+
+.lat-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+.lat-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 6px 8px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.lat-table td {
+  padding: 6px 8px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  white-space: nowrap;
+}
+.lat-table tbody tr:hover { background: rgba(0, 229, 255, 0.04); }
+.lat-table .badge-ok { color: var(--ok); }
+.lat-table .badge-warn { color: var(--warn); }
+.lat-table .badge-crit { color: var(--crit); }
+.lat-table .mono { font-family: var(--font-mono); color: var(--muted); }
+
+.table-scroll { overflow-x: auto; }
+
+/* ------------------------------------------------------------------ status dot */
+
+.dot-i {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background: var(--dim);
+}
+.dot-i.ok { background: var(--ok); box-shadow: 0 0 4px var(--ok); }
+.dot-i.warn { background: var(--warn); box-shadow: 0 0 4px var(--warn); }
+.dot-i.crit { background: var(--crit); box-shadow: 0 0 4px var(--crit); }
+
+/* ------------------------------------------------------------------ PTT */
+
+.ptt-ring {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  background: transparent;
+  box-shadow: 0 0 24px rgba(0, 229, 255, 0.2), inset 0 0 12px rgba(0, 229, 255, 0.08);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin: 8px auto 12px;
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+}
+.ptt-ring::before,
+.ptt-ring::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.ptt-ring::after { inset: -12px; border-color: rgba(0, 229, 255, 0.08); }
+.ptt-ring.tx {
+  background: rgba(0, 229, 255, 0.15);
+  box-shadow: 0 0 40px rgba(0, 229, 255, 0.5);
+}
+
+/* ------------------------------------------------------------------ channels */
+
+.channels {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.channel {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: var(--muted);
+  min-height: 48px;
+  user-select: none;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.channel:hover { border-color: var(--border-hi); color: var(--text); }
+.channel .name {
+  color: var(--text);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  margin-bottom: 4px;
+}
+.channel.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(0, 229, 255, 0.05);
+}
+.channel.active .name { color: var(--accent); }
+
+/* ------------------------------------------------------------------ transcript */
+
+.transcript { font-family: var(--font-mono); font-size: 11px; }
+.transcript .line {
+  padding: 4px 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.04);
+  display: grid;
+  grid-template-columns: 70px 80px 1fr;
+  gap: 10px;
+}
+.transcript .time { color: var(--dim); }
+.transcript .who {
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.transcript .msg { color: var(--text); }
+.transcript .line.warn .msg { color: var(--warn); }
+.transcript .line.crit .msg { color: var(--crit); }
+
+/* ------------------------------------------------------------------ log */
+
+.log {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.log .ts { color: var(--dim); }
+.log .lvl-INFO { color: var(--accent); }
+.log .lvl-WARN { color: var(--warn); }
+.log .lvl-ERROR { color: var(--crit); }
+.log .lvl-DEBUG { color: var(--dim); }
+
+/* ------------------------------------------------------------------ yaml */
+
+.yaml-preview {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.7;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 12px;
+  color: var(--muted);
+  max-height: 280px;
+  overflow-y: auto;
+  white-space: pre;
+}
+.yaml-preview .k { color: var(--accent); }
+.yaml-preview .s { color: var(--ok); }
+.yaml-preview .n { color: var(--warn); }
+.yaml-preview .c { color: var(--dim); font-style: italic; }
+
+/* ------------------------------------------------------------------ accessibility */
+
+@media (prefers-reduced-motion: reduce) {
+  .lat-chip .dot, .ptt-ring, .pbar > span, .spark > span, .sig-bars > span {
+    box-shadow: none !important;
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------ scrollbars */
+
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: var(--bg); }
+*::-webkit-scrollbar-thumb { background: var(--border); }
+*::-webkit-scrollbar-thumb:hover { background: var(--border-hi); }

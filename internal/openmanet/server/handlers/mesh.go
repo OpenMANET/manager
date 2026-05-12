@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
@@ -11,25 +12,45 @@ import (
 )
 
 type MeshService struct {
-	Log  zerolog.Logger
-	Wifi *mgmt.WirelessConfig
+	Log              zerolog.Logger
+	Wifi             mgmt.WirelessProvider
+	ParseBatHosts    func(string) (*batmanadv.BatHosts, error)
+	GetMeshNeighbors func() (*batmanadv.Neighbors, error)
+}
+
+func (m *MeshService) parseBatHosts(path string) (*batmanadv.BatHosts, error) {
+	if m.ParseBatHosts != nil {
+		return m.ParseBatHosts(path)
+	}
+
+	return batmanadv.ParseBatHostsFile(path)
+}
+
+func (m *MeshService) getMeshNeighbors() (*batmanadv.Neighbors, error) {
+	if m.GetMeshNeighbors != nil {
+		return m.GetMeshNeighbors()
+	}
+
+	return batmanadv.GetMeshNeighbors()
 }
 
 func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*serviceproto.ListMeshNeighborsResponse, error) {
 	var (
 		protoNeighbors []*serviceproto.MeshNeighbor
 	)
+
 	m.Log.Debug().Msg("ListMeshNeighbors Request Received")
 
 	// Get batman-adv hosts file
-	batHosts, err := batmanadv.ParseBatHostsFile(batmanadv.BatHostsFilePath)
+	batHosts, err := m.parseBatHosts(batmanadv.BatHostsFilePath)
 	if err != nil {
 		m.Log.Error().Err(err).Msg("Failed to parse batman-adv hosts file")
+
 		return nil, err
 	}
 
 	// Get batman-adv neighbors for last_seen and throughput
-	batNeighbors, err := batmanadv.GetMeshNeighbors()
+	batNeighbors, err := m.getMeshNeighbors()
 	if err != nil {
 		m.Log.Warn().Err(err).Msg("Failed to get batman-adv neighbors, last_seen and throughput will be unavailable")
 
@@ -40,6 +61,7 @@ func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*s
 	meshInterfaces, err := m.Wifi.GetMeshInterfaces()
 	if err != nil {
 		m.Log.Error().Err(err).Msg("Failed to list mesh neighbors")
+
 		return nil, err
 	}
 
@@ -48,7 +70,8 @@ func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*s
 		connectedStations, err := m.Wifi.StationInfo(meshInterface)
 		if err != nil {
 			m.Log.Error().Err(err).Msgf("Failed to get station info for interface: %s", meshInterface.Name)
-			return nil, err
+
+			return nil, fmt.Errorf("station info for %s: %w", meshInterface.Name, err)
 		}
 
 		// Map connected stations to batman-adv hosts to get hostnames

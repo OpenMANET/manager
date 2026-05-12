@@ -1,0 +1,102 @@
+/* =============================================================================
+ * WidgetGrid.css — Reusable widget layout with drag/resize support (Lattice)
+ * ============================================================================= */
+
+.widget-grid-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.widget-grid-header h2 {
+  margin: 0;
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.widget-lock-btn,
+.widget-reset-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  min-height: 30px;
+}
+.widget-lock-btn:hover,
+.widget-reset-btn:hover {
+  color: var(--accent);
+  border-color: var(--border-hi);
+}
+
+/* Flex container — widgets wrap and size by percentage */
+.widget-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 20px;
+}
+
+/* Widget wrapper */
+.widget-wrapper {
+  position: relative;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+  user-select: none;
+}
+
+.widget-wrapper.unlocked {
+  outline: 1px dashed var(--border);
+  outline-offset: 2px;
+}
+
+.widget-wrapper.dragging {
+  opacity: 0.4;
+  z-index: 10;
+}
+
+.widget-wrapper.drag-over {
+  outline-color: var(--accent);
+  outline-width: 2px;
+}
+
+/* Resize grip — bottom-right corner */
+.widget-resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 22px;
+  height: 22px;
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+  z-index: 5;
+}
+.widget-resize-handle::before {
+  content: '';
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  opacity: 0.5;
+}
+.widget-resize-handle:hover::before { opacity: 1; }
+
+@media (max-width: 640px) {
+  .widget-grid-header { padding: 12px 12px; }
+  .widget-grid { padding: 12px; gap: 10px; }
+}

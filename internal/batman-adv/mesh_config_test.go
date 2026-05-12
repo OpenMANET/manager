@@ -83,12 +83,15 @@ func TestGetMeshConfig_Unmarshal(t *testing.T) {
 	if config.Version != "2023.1" {
 		t.Errorf("Expected version '2023.1', got '%s'", config.Version)
 	}
+
 	if config.AlgoName != "BATMAN_IV" {
 		t.Errorf("Expected algo_name 'BATMAN_IV', got '%s'", config.AlgoName)
 	}
+
 	if config.MeshIfname != "bat0" {
 		t.Errorf("Expected mesh_ifname 'bat0', got '%s'", config.MeshIfname)
 	}
+
 	if config.GwMode != "server" {
 		t.Errorf("Expected gw_mode 'server', got '%s'", config.GwMode)
 	}
@@ -161,16 +164,16 @@ func TestIsOffMode(t *testing.T) {
 }
 
 func TestGetGatewayBandwidth(t *testing.T) {
-	tests := []struct {
+	tests := []struct { //nolint:govet
 		name string
 		down int
 		up   int
 		want string
 	}{
-		{"zero bandwidth", 0, 0, "0/0 kbit"},
-		{"kbit range", 500, 100, "5/1 kbit"},
-		{"mbit range", 10000, 2000, "1/2 mbit"},
-		{"gbit range", 1000000, 500000, "1/5 gbit"},
+		{name: "zero bandwidth", down: 0, up: 0, want: "0/0 kbit"},
+		{name: "kbit range", down: 500, up: 100, want: "5/1 kbit"},
+		{name: "mbit range", down: 10000, up: 2000, want: "1/2 mbit"},
+		{name: "gbit range", down: 1000000, up: 500000, want: "1/5 gbit"},
 	}
 
 	for _, tt := range tests {
@@ -304,6 +307,7 @@ func TestString(t *testing.T) {
 	if decoded["version"] != "2023.1" {
 		t.Errorf("String() missing or incorrect version field")
 	}
+
 	if decoded["algo_name"] != "BATMAN_IV" {
 		t.Errorf("String() missing or incorrect algo_name field")
 	}
@@ -461,6 +465,7 @@ func TestFormatBandwidth(t *testing.T) {
 			if result == "" {
 				t.Error("formatBandwidth returned empty string")
 			}
+
 			t.Logf("formatBandwidth(%d, %d) = %q", tt.down, tt.up, result)
 		})
 	}
@@ -530,33 +535,43 @@ func TestMeshConfig_AllFields(t *testing.T) {
 	if !config.IsGatewayMode() {
 		t.Error("IsGatewayMode() should be true")
 	}
+
 	if !config.IsBridged() {
 		t.Error("IsBridged() should be true")
 	}
+
 	if !config.HasIPv4Querier() {
 		t.Error("HasIPv4Querier() should be true")
 	}
+
 	if !config.HasIPv6Querier() {
 		t.Error("HasIPv6Querier() should be true")
 	}
+
 	if !config.WantsAllMulticast() {
 		t.Error("WantsAllMulticast() should be true")
 	}
+
 	if !config.IsFragmentationEnabled() {
 		t.Error("IsFragmentationEnabled() should be true")
 	}
+
 	if !config.IsBondingEnabled() {
 		t.Error("IsBondingEnabled() should be true")
 	}
+
 	if !config.IsBridgeLoopAvoidanceEnabled() {
 		t.Error("IsBridgeLoopAvoidanceEnabled() should be true")
 	}
+
 	if !config.IsDistributedArpTableEnabled() {
 		t.Error("IsDistributedArpTableEnabled() should be true")
 	}
+
 	if !config.IsAPIsolationEnabled() {
 		t.Error("IsAPIsolationEnabled() should be true")
 	}
+
 	if !config.IsMulticastForcefloodEnabled() {
 		t.Error("IsMulticastForcefloodEnabled() should be true")
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"fmt"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/openmanet/openmanetd/internal/database/models"
@@ -11,8 +12,8 @@ import (
 )
 
 //go:embed schema.sql
-var ddl string
-var sqlDB *sql.DB
+var ddl string    //nolint:gochecknoglobals
+var sqlDB *sql.DB //nolint:gochecknoglobals
 
 // NewConnection establishes a new SQLite database connection and returns a Queries instance.
 // It opens a connection to the SQLite database at the specified file path with foreign keys enabled,
@@ -29,12 +30,25 @@ var sqlDB *sql.DB
 func NewConnection(ctx context.Context, log zerolog.Logger, dbFilePath string) (*models.Queries, error) {
 	db, err := sql.Open("sqlite3", "file:"+dbFilePath+"?_foreign_keys=on")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open database: %w", err)
 	}
 
 	// Verify that the connection is valid
 	if err := db.PingContext(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ping database: %w", err)
+	}
+
+	// Apply SQLite pragmas before any other operations.
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA synchronous=NORMAL",
+	}
+
+	for _, p := range pragmas {
+		if _, err := db.ExecContext(ctx, p); err != nil {
+			return nil, fmt.Errorf("execute %s: %w", p, err)
+		}
 	}
 
 	// Configure connection pool settings for SQLite
@@ -47,7 +61,8 @@ func NewConnection(ctx context.Context, log zerolog.Logger, dbFilePath string) (
 
 	if _, err := db.ExecContext(ctx, ddl); err != nil {
 		log.Error().Err(err).Msg("Failed to execute DDL schema")
-		return nil, err
+
+		return nil, fmt.Errorf("execute DDL schema: %w", err)
 	}
 
 	sqlDB = db

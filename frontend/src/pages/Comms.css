@@ -1,0 +1,348 @@
+/* =============================================================================
+ * Comms.css — page-specific styles for the Lattice Comms layout.
+ * =============================================================================
+ * Tokens + primitives (.lat-topbar, .lat-panel, .lat-btn, .lat-chip, .ptt-ring,
+ * .kv, etc.) live in styles/lattice.css. This file holds only the two-column
+ * body grid, PTT label, 16-segment mic meter, RX waveform box, channel tiles,
+ * transcript rows, and the system-log tail. */
+
+/* ── Body grid ───────────────────────────────────────────────────────────── */
+.comms-body {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .comms-body { grid-template-columns: 1fr; }
+}
+
+.comms-left {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.comms-right {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* ── PTT panel ───────────────────────────────────────────────────────────── */
+.comms-ptt-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+.comms-ptt-panel .ptt-ring {
+  width: 120px;
+  height: 120px;
+  margin: 8px auto 0;
+  font-size: 12px;
+}
+.ptt-label {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 4px 0 4px;
+}
+.comms-ptt-panel .ptt-ring.tx + .ptt-label {
+  color: var(--accent);
+}
+
+/* ── 16-segment mic meter ────────────────────────────────────────────────── */
+.mic-meter-segments {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mic-meter-label {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.mic-meter-db { color: var(--dim); }
+.mic-meter-bar {
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: 2px;
+  height: 14px;
+}
+.mic-seg {
+  background: currentColor;
+  opacity: 0.18;
+  display: block;
+}
+.mic-seg.on { opacity: 1; }
+.mic-seg-ok { color: var(--ok); }
+.mic-seg-warn { color: var(--warn); }
+.mic-seg-crit { color: var(--crit); }
+
+/* ── RX waveform (lattice variant) ───────────────────────────────────────── */
+.rx-wave-lattice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rx-wave-label {
+  display: flex;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rx-wave-src { color: var(--accent); }
+.rx-wave-canvas {
+  height: 64px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  position: relative;
+}
+.rx-wave-canvas canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ── Channel tiles (preserves independent RX + TX toggles) ───────────────── */
+.ch-tiles-panel { display: flex; flex-direction: column; gap: 10px; }
+.ch-tiles-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.ch-tile {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s;
+}
+.ch-tile.active { border-color: var(--accent); }
+.ch-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.ch-tile-num { font-weight: 600; color: var(--text); }
+.ch-tile-alias { color: var(--muted); cursor: default; }
+.ch-tile-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dim);
+  transition: background 0.12s;
+}
+.ch-tile-dot.active { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
+.ch-tile-pills {
+  display: grid;
+  grid-template-columns: 1fr 1fr 36px;
+  gap: 4px;
+}
+.ch-pill {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 4px 0;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-align: center;
+  min-height: 26px;
+  transition: all 0.12s;
+}
+.ch-pill:hover:not(:disabled) { border-color: var(--border-hi); color: var(--text); }
+.ch-pill.rx-on {
+  background: rgba(0, 229, 255, 0.14);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: inset 0 0 6px rgba(0,229,255,0.12);
+}
+.ch-pill.tx-on {
+  background: rgba(255, 179, 0, 0.14);
+  border-color: var(--warn);
+  color: var(--warn);
+  box-shadow: inset 0 0 6px rgba(255,179,0,0.12);
+}
+.ch-pill.ghost {
+  color: var(--dim);
+}
+.ch-pill.ghost:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.ch-tile .ch-alias-input {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 4px;
+  width: 70px;
+  outline: none;
+  letter-spacing: 0.06em;
+}
+.ch-tiles-panel .ch-all-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+.ch-tiles-panel .ch-all-row .lat-btn {
+  font-size: 9px;
+  padding: 5px 0;
+}
+
+/* ── Audio panel ─────────────────────────────────────────────────────────── */
+.comms-audio-panel { display: flex; flex-direction: column; gap: 10px; }
+
+.audio-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.audio-vox-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.audio-vox-threshold {
+  flex: 1;
+  min-width: 140px;
+}
+
+.audio-file-tx {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.04);
+}
+.audio-file-tx-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.audio-file-tx-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.audio-file-tx-input {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  max-width: 180px;
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.audio-file-tx-input::file-selector-button {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border-hi);
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  margin-right: 8px;
+}
+.audio-file-tx-input::file-selector-button:hover {
+  background: rgba(0, 229, 255, 0.06);
+}
+.audio-file-tx-loop {
+  margin-left: auto;
+}
+.audio-file-tx-status {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ── Transcript panel ────────────────────────────────────────────────────── */
+.comms-transcript-panel { display: flex; flex-direction: column; gap: 8px; min-height: 260px; }
+.comms-transcript-panel .panel-note {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tr-empty {
+  padding: 20px 12px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+}
+.tr-box {
+  max-height: 320px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+}
+.tr-row {
+  display: grid;
+  grid-template-columns: 72px 64px 1fr;
+  gap: 10px;
+  padding: 3px 0;
+  border-bottom: 1px dashed rgba(255,255,255,0.04);
+}
+.tr-row .tr-ts { color: var(--dim); font-size: 10px; }
+.tr-row .tr-src { color: var(--accent); font-weight: 600; font-size: 10px; letter-spacing: 0.12em; }
+.tr-row .tr-text { color: var(--text); word-break: break-word; }
+.tr-row.warn .tr-text { color: var(--warn); }
+.tr-row.crit .tr-text { color: var(--crit); }
+
+/* ── System log panel ────────────────────────────────────────────────────── */
+.comms-log-panel { display: flex; flex-direction: column; gap: 8px; }
+.comms-log {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+  max-height: 160px;
+  overflow-y: auto;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.comms-log .rx { color: var(--ok); }
+.comms-log .tx { color: var(--warn); }
+.comms-log .err { color: var(--crit); }
+.comms-log .info { color: var(--accent); }

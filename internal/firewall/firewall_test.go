@@ -10,26 +10,26 @@ import (
 
 // mockConfigReader is a test double that returns predefined configuration values.
 type mockConfigReader struct {
-	data           map[string]map[string]map[string][]string
 	commitError    error
 	setTypeError   error
 	delSectionErr  error
 	addSectionErr  error
 	reloadError    error
 	delError       error
-	commitCalled   bool
-	reloadCalled   bool
-	setTypeCalls   []setTypeCall
+	data           map[string]map[string]map[string][]string
 	delSectionCall string
 	addSectionCall string
+	setTypeCalls   []setTypeCall
+	commitCalled   bool
+	reloadCalled   bool
 }
 
 type setTypeCall struct {
 	config  string
 	section string
 	option  string
-	typ     uci.OptionType
 	values  []string
+	typ     uci.OptionType
 }
 
 func (m *mockConfigReader) Get(config, section, option string) ([]string, bool) {
@@ -40,17 +40,20 @@ func (m *mockConfigReader) Get(config, section, option string) ([]string, bool) 
 			}
 		}
 	}
+
 	return nil, false
 }
 
 func (m *mockConfigReader) GetSections(config, secType string) ([]string, error) {
 	// For testing, return all sections in the config
 	var sections []string
+
 	if configData, ok := m.data[config]; ok {
 		for section := range configData {
 			sections = append(sections, section)
 		}
 	}
+
 	return sections, nil
 }
 
@@ -58,6 +61,7 @@ func (m *mockConfigReader) SetType(config, section, option string, typ uci.Optio
 	if m.setTypeError != nil {
 		return m.setTypeError
 	}
+
 	m.setTypeCalls = append(m.setTypeCalls, setTypeCall{
 		config:  config,
 		section: section,
@@ -69,10 +73,13 @@ func (m *mockConfigReader) SetType(config, section, option string, typ uci.Optio
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
 	}
+
 	if m.data[config][section] == nil {
 		m.data[config][section] = make(map[string][]string)
 	}
+
 	m.data[config][section][option] = values
+
 	return nil
 }
 
@@ -86,6 +93,7 @@ func (m *mockConfigReader) Del(config, section, option string) error {
 			delete(sectionData, option)
 		}
 	}
+
 	return nil
 }
 
@@ -93,7 +101,9 @@ func (m *mockConfigReader) AddSection(config, section, typ string) error {
 	if m.addSectionErr != nil {
 		return m.addSectionErr
 	}
+
 	m.addSectionCall = fmt.Sprintf("%s.%s.%s", config, section, typ)
+
 	return nil
 }
 
@@ -101,17 +111,21 @@ func (m *mockConfigReader) DelSection(config, section string) error {
 	if m.delSectionErr != nil {
 		return m.delSectionErr
 	}
+
 	m.delSectionCall = fmt.Sprintf("%s.%s", config, section)
+
 	return nil
 }
 
 func (m *mockConfigReader) Commit() error {
 	m.commitCalled = true
+
 	return m.commitError
 }
 
 func (m *mockConfigReader) ReloadConfig() error {
 	m.reloadCalled = true
+
 	return m.reloadError
 }
 
@@ -200,6 +214,7 @@ func containsHelper(s, substr string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -218,6 +233,7 @@ func TestGetFirewallDefaultsWithReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -236,6 +252,7 @@ func TestGetFirewallDefaultsWithReader_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -244,10 +261,10 @@ func TestGetFirewallDefaultsWithReader_Empty(t *testing.T) {
 // Tests for SetFirewallDefaultsWithReader
 func TestSetFirewallDefaultsWithReader(t *testing.T) {
 	tests := []struct {
-		name        string
 		config      *UCIFirewallDefaults
-		wantErr     bool
+		name        string
 		errContains string
+		wantErr     bool
 	}{
 		{
 			name: "set_complete_config",
@@ -290,6 +307,7 @@ func TestSetFirewallDefaultsWithReader(t *testing.T) {
 				} else if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
 					t.Errorf("expected error containing %q, got %q", tt.errContains, err.Error())
 				}
+
 				return
 			}
 
@@ -304,12 +322,15 @@ func TestSetFirewallDefaultsWithReader(t *testing.T) {
 			// Verify all non-empty fields were set
 			if tt.config.Input != "" {
 				found := false
+
 				for _, call := range reader.setTypeCalls {
 					if call.option == "input" && call.values[0] == tt.config.Input {
 						found = true
+
 						break
 					}
 				}
+
 				if !found {
 					t.Errorf("input not set correctly")
 				}
@@ -332,6 +353,7 @@ func TestSetFirewallDefaultsWithReader_SetTypeError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to set input") {
 		t.Errorf("expected error about input, got: %v", err)
 	}
@@ -351,6 +373,7 @@ func TestSetFirewallDefaultsWithReader_CommitError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to commit firewall config") {
 		t.Errorf("expected error about commit, got: %v", err)
 	}
@@ -374,6 +397,7 @@ func TestGetFirewallZoneWithReader_LAN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -394,6 +418,7 @@ func TestGetFirewallZoneWithReader_WAN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -414,6 +439,7 @@ func TestGetFirewallZoneWithReader_AHWLAN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -428,6 +454,7 @@ func TestGetFirewallZoneWithReader_NonExistent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -436,11 +463,11 @@ func TestGetFirewallZoneWithReader_NonExistent(t *testing.T) {
 // Tests for SetFirewallZoneWithReader
 func TestSetFirewallZoneWithReader(t *testing.T) {
 	tests := []struct {
+		config      *UCIFirewallZone
 		name        string
 		section     string
-		config      *UCIFirewallZone
-		wantErr     bool
 		errContains string
+		wantErr     bool
 	}{
 		{
 			name:    "set_complete_config",
@@ -499,6 +526,7 @@ func TestSetFirewallZoneWithReader(t *testing.T) {
 				} else if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
 					t.Errorf("expected error containing %q, got %q", tt.errContains, err.Error())
 				}
+
 				return
 			}
 
@@ -513,12 +541,15 @@ func TestSetFirewallZoneWithReader(t *testing.T) {
 			// Verify all non-empty fields were set
 			if tt.config.Name != "" {
 				found := false
+
 				for _, call := range reader.setTypeCalls {
 					if call.option == "name" && call.values[0] == tt.config.Name {
 						found = true
+
 						break
 					}
 				}
+
 				if !found {
 					t.Errorf("name not set correctly")
 				}
@@ -541,6 +572,7 @@ func TestSetFirewallZoneWithReader_SetTypeError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to set name") {
 		t.Errorf("expected error about name, got: %v", err)
 	}
@@ -560,6 +592,7 @@ func TestSetFirewallZoneWithReader_CommitError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to commit firewall config") {
 		t.Errorf("expected error about commit, got: %v", err)
 	}
@@ -600,6 +633,7 @@ func TestDeleteFirewallZoneWithReader(t *testing.T) {
 				if !reader.commitCalled {
 					t.Error("expected Commit to be called")
 				}
+
 				expectedCall := fmt.Sprintf("firewall.%s", tt.section)
 				if reader.delSectionCall != expectedCall {
 					t.Errorf("expected DelSection call %q, got %q", expectedCall, reader.delSectionCall)
@@ -619,6 +653,7 @@ func TestDeleteFirewallZoneWithReader_DelSectionError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to delete zone section") {
 		t.Errorf("expected error about delete zone section, got: %v", err)
 	}
@@ -634,6 +669,7 @@ func TestDeleteFirewallZoneWithReader_CommitError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to commit firewall config") {
 		t.Errorf("expected error about commit, got: %v", err)
 	}
@@ -642,9 +678,9 @@ func TestDeleteFirewallZoneWithReader_CommitError(t *testing.T) {
 // Tests for FirewallZoneExistsWithReader
 func TestFirewallZoneExistsWithReader(t *testing.T) {
 	tests := []struct {
+		data    map[string]map[string]map[string][]string
 		name    string
 		section string
-		data    map[string]map[string]map[string][]string
 		want    bool
 	}{
 		{
@@ -720,6 +756,7 @@ func TestGetFirewallForwardingWithReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -738,6 +775,7 @@ func TestGetFirewallForwardingWithReader_Disabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -752,6 +790,7 @@ func TestGetFirewallForwardingWithReader_NonExistent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -760,11 +799,11 @@ func TestGetFirewallForwardingWithReader_NonExistent(t *testing.T) {
 // Tests for SetFirewallForwardingWithReader
 func TestSetFirewallForwardingWithReader(t *testing.T) {
 	tests := []struct {
+		config      *UCIFirewallForwarding
 		name        string
 		section     string
-		config      *UCIFirewallForwarding
-		wantErr     bool
 		errContains string
+		wantErr     bool
 	}{
 		{
 			name:    "set_complete_config",
@@ -808,6 +847,7 @@ func TestSetFirewallForwardingWithReader(t *testing.T) {
 				} else if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
 					t.Errorf("expected error containing %q, got %q", tt.errContains, err.Error())
 				}
+
 				return
 			}
 
@@ -822,12 +862,15 @@ func TestSetFirewallForwardingWithReader(t *testing.T) {
 			// Verify all non-empty fields were set
 			if tt.config.Src != "" {
 				found := false
+
 				for _, call := range reader.setTypeCalls {
 					if call.option == "src" && call.values[0] == tt.config.Src {
 						found = true
+
 						break
 					}
 				}
+
 				if !found {
 					t.Errorf("src not set correctly")
 				}
@@ -851,6 +894,7 @@ func TestSetFirewallForwardingWithReader_SetTypeError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to set src") {
 		t.Errorf("expected error about src, got: %v", err)
 	}
@@ -871,6 +915,7 @@ func TestSetFirewallForwardingWithReader_CommitError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to commit firewall config") {
 		t.Errorf("expected error about commit, got: %v", err)
 	}
@@ -911,6 +956,7 @@ func TestDeleteFirewallForwardingWithReader(t *testing.T) {
 				if !reader.commitCalled {
 					t.Error("expected Commit to be called")
 				}
+
 				expectedCall := fmt.Sprintf("firewall.%s", tt.section)
 				if reader.delSectionCall != expectedCall {
 					t.Errorf("expected DelSection call %q, got %q", expectedCall, reader.delSectionCall)
@@ -930,6 +976,7 @@ func TestDeleteFirewallForwardingWithReader_DelSectionError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to delete forwarding section") {
 		t.Errorf("expected error about delete forwarding section, got: %v", err)
 	}
@@ -945,6 +992,7 @@ func TestDeleteFirewallForwardingWithReader_CommitError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to commit firewall config") {
 		t.Errorf("expected error about commit, got: %v", err)
 	}
@@ -953,9 +1001,9 @@ func TestDeleteFirewallForwardingWithReader_CommitError(t *testing.T) {
 // Tests for FirewallForwardingExistsWithReader
 func TestFirewallForwardingExistsWithReader(t *testing.T) {
 	tests := []struct {
+		data    map[string]map[string]map[string][]string
 		name    string
 		section string
-		data    map[string]map[string]map[string][]string
 		want    bool
 	}{
 		{
@@ -1022,6 +1070,7 @@ func TestGetFirewallRuleWithReader_Ping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -1043,6 +1092,7 @@ func TestGetFirewallRuleWithReader_DHCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -1065,6 +1115,7 @@ func TestGetFirewallRuleWithReader_ICMPv6(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -1079,6 +1130,7 @@ func TestGetFirewallRuleWithReader_NonExistent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -1087,11 +1139,11 @@ func TestGetFirewallRuleWithReader_NonExistent(t *testing.T) {
 // Tests for SetFirewallRuleWithReader
 func TestSetFirewallRuleWithReader(t *testing.T) {
 	tests := []struct {
+		config      *UCIFirewallRule
 		name        string
 		section     string
-		config      *UCIFirewallRule
-		wantErr     bool
 		errContains string
+		wantErr     bool
 	}{
 		{
 			name:    "set_complete_config",
@@ -1164,6 +1216,7 @@ func TestSetFirewallRuleWithReader(t *testing.T) {
 				} else if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
 					t.Errorf("expected error containing %q, got %q", tt.errContains, err.Error())
 				}
+
 				return
 			}
 
@@ -1178,12 +1231,15 @@ func TestSetFirewallRuleWithReader(t *testing.T) {
 			// Verify all non-empty fields were set
 			if tt.config.Name != "" {
 				found := false
+
 				for _, call := range reader.setTypeCalls {
 					if call.option == "name" && call.values[0] == tt.config.Name {
 						found = true
+
 						break
 					}
 				}
+
 				if !found {
 					t.Errorf("name not set correctly")
 				}
@@ -1206,6 +1262,7 @@ func TestSetFirewallRuleWithReader_SetTypeError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to set name") {
 		t.Errorf("expected error about name, got: %v", err)
 	}
@@ -1225,6 +1282,7 @@ func TestSetFirewallRuleWithReader_CommitError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to commit firewall config") {
 		t.Errorf("expected error about commit, got: %v", err)
 	}
@@ -1265,6 +1323,7 @@ func TestDeleteFirewallRuleWithReader(t *testing.T) {
 				if !reader.commitCalled {
 					t.Error("expected Commit to be called")
 				}
+
 				expectedCall := fmt.Sprintf("firewall.%s", tt.section)
 				if reader.delSectionCall != expectedCall {
 					t.Errorf("expected DelSection call %q, got %q", expectedCall, reader.delSectionCall)
@@ -1284,6 +1343,7 @@ func TestDeleteFirewallRuleWithReader_DelSectionError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to delete rule section") {
 		t.Errorf("expected error about delete rule section, got: %v", err)
 	}
@@ -1299,6 +1359,7 @@ func TestDeleteFirewallRuleWithReader_CommitError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to commit firewall config") {
 		t.Errorf("expected error about commit, got: %v", err)
 	}
@@ -1307,9 +1368,9 @@ func TestDeleteFirewallRuleWithReader_CommitError(t *testing.T) {
 // Tests for FirewallRuleExistsWithReader
 func TestFirewallRuleExistsWithReader(t *testing.T) {
 	tests := []struct {
+		data    map[string]map[string]map[string][]string
 		name    string
 		section string
-		data    map[string]map[string]map[string][]string
 		want    bool
 	}{
 		{
@@ -1362,13 +1423,13 @@ func TestFirewallRuleExistsWithReader(t *testing.T) {
 // Tests for AddNetworkToZoneWithReader
 func TestAddNetworkToZoneWithReader(t *testing.T) {
 	tests := []struct {
+		initialData map[string]map[string]map[string][]string
 		name        string
 		zone        string
 		network     string
-		initialData map[string]map[string]map[string][]string
-		wantErr     bool
 		errContains string
 		wantNetwork []string
+		wantErr     bool
 	}{
 		{
 			name:    "add_network_to_existing_zone",
@@ -1464,6 +1525,7 @@ func TestAddNetworkToZoneWithReader(t *testing.T) {
 				} else if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
 					t.Errorf("expected error containing %q, got %q", tt.errContains, err.Error())
 				}
+
 				return
 			}
 
@@ -1477,6 +1539,7 @@ func TestAddNetworkToZoneWithReader(t *testing.T) {
 				if !ok {
 					t.Error("expected network list to be set")
 				}
+
 				if !reflect.DeepEqual(gotNetwork, tt.wantNetwork) {
 					t.Errorf("got network list %v, want %v", gotNetwork, tt.wantNetwork)
 				}
@@ -1486,19 +1549,163 @@ func TestAddNetworkToZoneWithReader(t *testing.T) {
 			if !reader.commitCalled {
 				// Only check commit if network was actually added (not already present)
 				networkAlreadyPresent := false
+
 				if initialNet, ok := tt.initialData["firewall"][tt.zone]["network"]; ok {
 					for _, net := range initialNet {
 						if net == tt.network {
 							networkAlreadyPresent = true
+
 							break
 						}
 					}
 				}
+
 				if !networkAlreadyPresent {
 					t.Error("expected Commit to be called")
 				}
 			}
 		})
+	}
+}
+
+// TestSetFirewallRuleWithReader_WithSrcIP verifies that the SrcIP field is correctly
+// written when setting a firewall rule.
+func TestSetFirewallRuleWithReader_WithSrcIP(t *testing.T) {
+	reader := &mockConfigReader{
+		data: make(map[string]map[string]map[string][]string),
+	}
+
+	config := &UCIFirewallRule{
+		Name:   "Block-IP",
+		Src:    "wan",
+		Proto:  "tcp",
+		SrcIP:  "10.0.0.5",
+		Target: "DROP",
+		Family: "ipv4",
+	}
+
+	err := SetFirewallRuleWithReader("Block-IP", config, reader)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !reader.commitCalled {
+		t.Error("expected Commit to be called")
+	}
+
+	// Verify src_ip was set correctly
+	srcIPFound := false
+
+	for _, call := range reader.setTypeCalls {
+		if call.option == "src_ip" {
+			srcIPFound = true
+
+			if len(call.values) != 1 || call.values[0] != "10.0.0.5" {
+				t.Errorf("expected src_ip value [10.0.0.5], got %v", call.values)
+			}
+
+			if call.typ != uci.TypeOption {
+				t.Errorf("expected src_ip type TypeOption, got %v", call.typ)
+			}
+		}
+	}
+
+	if !srcIPFound {
+		t.Error("expected src_ip to be set in SetType calls")
+	}
+
+	// Verify the value is readable back from the mock data
+	values, ok := reader.Get(firewallConfigName, "Block-IP", "src_ip")
+	if !ok {
+		t.Error("expected src_ip to be readable from mock data")
+	}
+
+	if len(values) != 1 || values[0] != "10.0.0.5" {
+		t.Errorf("expected src_ip [10.0.0.5], got %v", values)
+	}
+}
+
+// TestAddNetworkToZoneWithReader_GetZoneError tests the error path when
+// GetFirewallZoneWithReader fails. This is triggered when the zone exists
+// (name option is present) but the reader returns unexpected data, exercising
+// the zone-does-not-exist guard in AddNetworkToZoneWithReader.
+func TestAddNetworkToZoneWithReader_GetZoneError(t *testing.T) {
+	// Zone does not exist (no "name" option) so FirewallZoneExistsWithReader returns false
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"firewall": {
+				"broken_zone": {
+					// No "name" option means FirewallZoneExistsWithReader returns false
+					"input": {"ACCEPT"},
+				},
+			},
+		},
+	}
+
+	err := AddNetworkToZoneWithReader("broken_zone", "test_net", reader)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !contains(err.Error(), "does not exist") {
+		t.Errorf("expected error about zone not existing, got: %v", err)
+	}
+
+	// Also test with completely empty data
+	reader2 := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{},
+	}
+
+	err = AddNetworkToZoneWithReader("missing_zone", "test_net", reader2)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !contains(err.Error(), "does not exist") {
+		t.Errorf("expected error about zone not existing, got: %v", err)
+	}
+}
+
+// TestGetFirewallZoneWithReader_EmptyNetworkList tests a zone that has no network option,
+// verifying that the Network field remains nil.
+func TestGetFirewallZoneWithReader_EmptyNetworkList(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"firewall": {
+				"isolated": {
+					"name":    {"isolated"},
+					"input":   {"DROP"},
+					"output":  {"DROP"},
+					"forward": {"DROP"},
+					// No "network" option
+				},
+			},
+		},
+	}
+
+	got, err := GetFirewallZoneWithReader("isolated", reader)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got.Name != "isolated" {
+		t.Errorf("expected name 'isolated', got %q", got.Name)
+	}
+
+	if got.Input != "DROP" {
+		t.Errorf("expected input 'DROP', got %q", got.Input)
+	}
+
+	if got.Network != nil {
+		t.Errorf("expected nil network list, got %v", got.Network)
+	}
+
+	if got.Masq != "" {
+		t.Errorf("expected empty masq, got %q", got.Masq)
+	}
+
+	if got.MtuFix != "" {
+		t.Errorf("expected empty mtu_fix, got %q", got.MtuFix)
 	}
 }
 
@@ -1519,6 +1726,7 @@ func TestAddNetworkToZoneWithReader_SetTypeError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to add network to zone") {
 		t.Errorf("expected error about adding network to zone, got: %v", err)
 	}
@@ -1541,6 +1749,7 @@ func TestAddNetworkToZoneWithReader_CommitError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+
 	if !contains(err.Error(), "failed to commit firewall config") {
 		t.Errorf("expected error about commit, got: %v", err)
 	}

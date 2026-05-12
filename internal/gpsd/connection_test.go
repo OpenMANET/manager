@@ -1,7 +1,6 @@
 package gpsd
 
 import (
-	"context"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -15,6 +14,7 @@ func TestNewGPSService(t *testing.T) {
 
 	// Create a mock server
 	mock := newMockGPSDServer(t)
+
 	mock.Start()
 	defer mock.Stop()
 
@@ -46,9 +46,9 @@ func TestGPSService_Reconnection(t *testing.T) {
 		reconnectDelay: 100 * time.Millisecond,
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	gps.ctx = ctx
-	gps.cancel = cancel
+	done := make(chan struct{})
+	gps.done = done
+	gps.cancel = func() { close(done) }
 
 	// Start connection handler in background
 	go gps.connectionHandler()
@@ -124,9 +124,9 @@ func TestGPSService_Close(t *testing.T) {
 		gps := &GPSService{
 			Log: log,
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		gps.ctx = ctx
-		gps.cancel = cancel
+		done := make(chan struct{})
+		gps.done = done
+		gps.cancel = func() { close(done) }
 
 		err := gps.Close()
 		if err != nil {
@@ -136,6 +136,7 @@ func TestGPSService_Close(t *testing.T) {
 
 	t.Run("Close with connection", func(t *testing.T) {
 		mock := newMockGPSDServer(t)
+
 		mock.Start()
 		defer mock.Stop()
 
@@ -159,19 +160,19 @@ func TestReconnectionLimit(t *testing.T) {
 	log := zerolog.Nop()
 
 	// Create a GPS service with an invalid address to trigger reconnection failures
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	stopCh := make(chan struct{})
 
 	gps := &GPSService{
 		Log:            log,
 		address:        "127.0.0.1:1", // Invalid port that should fail to connect
-		ctx:            ctx,
-		cancel:         cancel,
+		done:           stopCh,
+		cancel:         func() { close(stopCh) },
 		reconnectDelay: 10 * time.Millisecond, // Short delay for testing
 	}
 
 	// Start the connection handler in a goroutine
 	done := make(chan struct{})
+
 	go func() {
 		gps.connectionHandler()
 		close(done)
@@ -183,7 +184,7 @@ func TestReconnectionLimit(t *testing.T) {
 		// Good - the handler stopped
 	case <-time.After(2 * time.Second):
 		t.Error("Connection handler did not stop after max reconnection attempts")
-		cancel()
+		gps.cancel()
 	}
 
 	// Verify reconnectAttempts reached the limit
@@ -230,6 +231,7 @@ func TestProcessGPSDMessage_SKYReport(t *testing.T) {
 	if pos.SatellitesUsed != 7 {
 		t.Errorf("Expected 7 satellites, got %d", pos.SatellitesUsed)
 	}
+
 	if pos.HDOP != 1.5 {
 		t.Errorf("Expected HDOP 1.5, got %f", pos.HDOP)
 	}
@@ -268,6 +270,7 @@ func TestProcessGPSDMessage_TPVWithGeoidSep(t *testing.T) {
 	if pos.GeoidSeparation != -33.5 {
 		t.Errorf("Expected geoid separation -33.5, got %f", pos.GeoidSeparation)
 	}
+
 	if !pos.Valid {
 		t.Error("Expected valid position")
 	}
@@ -309,15 +312,19 @@ func TestProcessGPSDMessage_TPVWithAccuracyEstimates(t *testing.T) {
 	if pos.EPH != 5.2 {
 		t.Errorf("Expected EPH 5.2, got %f", pos.EPH)
 	}
+
 	if pos.EPX != 3.1 {
 		t.Errorf("Expected EPX 3.1, got %f", pos.EPX)
 	}
+
 	if pos.EPY != 4.3 {
 		t.Errorf("Expected EPY 4.3, got %f", pos.EPY)
 	}
+
 	if pos.EPV != 8.7 {
 		t.Errorf("Expected EPV 8.7, got %f", pos.EPV)
 	}
+
 	if !pos.Valid {
 		t.Error("Expected valid position")
 	}
@@ -357,9 +364,11 @@ func TestProcessGPSDMessage_TPVWithDGPS(t *testing.T) {
 	if pos.DGPSAge != 2.5 {
 		t.Errorf("Expected DGPS age 2.5, got %f", pos.DGPSAge)
 	}
+
 	if pos.DGPSStation != 120 {
 		t.Errorf("Expected DGPS station 120, got %d", pos.DGPSStation)
 	}
+
 	if !pos.Valid {
 		t.Error("Expected valid position")
 	}
@@ -436,6 +445,7 @@ func TestSKYReport_WithSatelliteDetails(t *testing.T) {
 	if pos.SatellitesUsed != 8 {
 		t.Errorf("Expected 8 satellites used, got %d", pos.SatellitesUsed)
 	}
+
 	if pos.HDOP != 1.2 {
 		t.Errorf("Expected HDOP 1.2, got %f", pos.HDOP)
 	}

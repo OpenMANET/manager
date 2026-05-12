@@ -1,0 +1,389 @@
+/* =============================================================================
+ * Topology.css — Mesh topology page layout + SVG renderer styles
+ * ============================================================================= */
+
+.topology-body {
+  grid-template-columns: 1fr 300px;
+  align-items: start;
+}
+.topology-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+@media (max-width: 900px) {
+  .topology-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── SVG canvas ─────────────────────────────────────────────────────────── */
+
+.topo-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 800px;
+  background:
+    linear-gradient(rgba(0, 229, 255, 0.05) 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(90deg, rgba(0, 229, 255, 0.05) 1px, transparent 1px) 0 0 / 32px 32px,
+    var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  touch-action: none; /* let d3-zoom drive pinch/pan */
+}
+.topo-canvas svg {
+  width: 100%;
+  height: 800px;
+  display: block;
+  cursor: grab;
+}
+.topo-canvas svg:active { cursor: grabbing; }
+.topo-canvas.compact { min-height: 300px; }
+.topo-canvas.compact svg { height: 300px; }
+
+/* ── Nodes ──────────────────────────────────────────────────────────────── */
+
+.topo-node { cursor: pointer; }
+.topo-node circle {
+  fill: var(--surface-2);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  transition: stroke-width 0.12s, filter 0.12s;
+}
+.topo-node text {
+  fill: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  user-select: none;
+}
+.topo-node .topo-host-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  fill: var(--muted);
+  dominant-baseline: hanging;
+  paint-order: stroke fill;
+  stroke: var(--bg);
+  stroke-width: 3px;
+}
+.topo-node.self .topo-host-label { fill: var(--ok); }
+
+.topo-node.self circle {
+  stroke: var(--ok);
+  fill: rgba(0, 230, 118, 0.12);
+  filter: drop-shadow(0 0 8px var(--ok));
+}
+.topo-node.self .halo {
+  fill: none;
+  stroke: var(--ok);
+  stroke-opacity: 0.3;
+  stroke-dasharray: 3 3;
+}
+.topo-node.self text { fill: var(--ok); }
+
+.topo-node.weak circle {
+  stroke: var(--warn);
+  fill: rgba(255, 179, 0, 0.10);
+}
+.topo-node.weak text { fill: var(--warn); }
+
+/* Remote-segment peers get an amber treatment so operators can tell
+   at a glance that a host is reached over BLOS, not local RF. Mirrors
+   the remote segment-box tint further down. */
+.topo-node.remote circle {
+  stroke: var(--warn);
+  fill: rgba(255, 179, 0, 0.08);
+}
+.topo-node.remote text { fill: var(--warn); }
+.topo-node.remote .topo-host-label { fill: var(--warn); }
+
+.topo-node.client circle {
+  stroke: var(--dim);
+  fill: var(--surface-2);
+  stroke-width: 1;
+}
+.topo-node.client text {
+  fill: var(--muted);
+  font-size: 7px;
+  letter-spacing: 0.04em;
+}
+
+.topo-node.selected circle {
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 10px currentColor);
+}
+
+/* ── Edges ──────────────────────────────────────────────────────────────── */
+
+.topo-edge {
+  stroke: var(--accent);
+  stroke-opacity: 0.5;
+  stroke-width: 1;
+  pointer-events: none;
+}
+.topo-edge.weak {
+  stroke: var(--warn);
+  stroke-opacity: 0.8;
+}
+.topo-edge.client {
+  stroke: var(--dim);
+  stroke-opacity: 0.6;
+  stroke-dasharray: 2 3;
+}
+.topo-edge.blos {
+  stroke: var(--warn);
+  stroke-opacity: 0.75;
+  stroke-dasharray: 6 4;
+}
+
+.topo-edge-label-text {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  paint-order: stroke fill;
+  stroke: var(--bg);
+  stroke-width: 3px;
+}
+
+/* My-paths overlay: when the toggle is on, my forwarding-tree edges
+   render bright with a drop-shadow; everything else dims to context. */
+.topo-edge.muted { stroke-opacity: 0.18; }
+.topo-edge.mypath {
+  stroke-opacity: 0.85;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+.topo-edge.blos.mypath { stroke-opacity: 0.95; }
+
+/* Link-quality coloring from gossip-provided edge metrics. q-unknown
+   keeps the default accent; strong/ok/weak let operators eyeball mesh
+   hot spots at a glance. BLOS edges keep their warn tint (set above)
+   — quality classes only win on the RF edge case. */
+.topo-edge.q-strong { stroke: var(--ok); }
+.topo-edge.q-ok     { stroke: var(--accent); }
+.topo-edge.q-weak   { stroke: var(--warn); stroke-opacity: 0.75; }
+.topo-edge.q-unknown { stroke: var(--dim); stroke-opacity: 0.4; stroke-dasharray: 3 3; }
+
+/* Stale gossip: the publisher hasn't refreshed its record within
+   StaleAge. Dim + desaturate the node so operators know its topology
+   data is aging (distinct from "offline" which gets handled by the
+   weak class above). */
+.topo-node.stale {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+
+/* Gossip coverage badge in the header row. Sized to match .lat-btn so
+   it lines up vertically with the LAYOUT / MY PATHS / FIT buttons next
+   to it. Faded when coverage is 100 % (quiet good-state), red when
+   coverage drops below 50 % so partial fleet participation draws
+   attention. */
+.topo-coverage {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.7;
+  padding: 5px 12px;
+  min-height: 32px;
+  border: 1px solid var(--dim);
+}
+.topo-coverage.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+  opacity: 1;
+}
+
+.topo-edge-count {
+  fill: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-anchor: middle;
+  pointer-events: none;
+  paint-order: stroke fill;
+  stroke: var(--bg);
+  stroke-width: 3px;
+}
+
+/* ── Interface badges ───────────────────────────────────────────────────── */
+
+.topo-iface-badge {
+  pointer-events: none;
+}
+.topo-iface-badge.rf {
+  fill: var(--accent);
+  stroke: none;
+}
+.topo-iface-badge.blos {
+  fill: none;
+  stroke: var(--warn);
+  stroke-width: 1.2;
+  stroke-dasharray: 2 1.5;
+}
+.topo-iface-overflow {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+/* ── Segment boxes ──────────────────────────────────────────────────────── */
+
+.topo-segment-box rect {
+  fill: rgba(0, 229, 255, 0.02);
+  stroke: var(--border);
+  stroke-width: 1;
+  pointer-events: none;
+}
+.topo-segment-label {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+/* Inline swatches used by the Legend panel to mirror the canvas colors
+   for each edge-quality tier. Kept small (22×2) so they sit beside the
+   tier label inside a normal `.kv` row. */
+.topology-side .swatch {
+  display: inline-block;
+  width: 22px;
+  height: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+  background: var(--accent);
+}
+.topology-side .swatch.ok    { background: var(--ok); }
+.topology-side .swatch.warn  { background: var(--warn); }
+.topology-side .swatch.dim   { background: var(--dim); opacity: 0.7; }
+.topology-side .swatch.dashed {
+  background: transparent;
+  border-top: 2px dashed var(--dim);
+  height: 0;
+}
+
+/* ── Empty states / selected panel ──────────────────────────────────────── */
+
+.topo-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 420px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.topo-empty-hint {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 8px 0;
+}
+
+
+/* ── Selected-panel: interfaces + links ─────────────────────────────────── */
+
+.topo-section-head {
+  margin-top: 14px;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+
+.topo-iface-row .k { display: inline-flex; align-items: center; gap: 6px; }
+.topo-iface-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.topo-iface-dot.rf  { background: var(--accent); }
+.topo-iface-dot.blos {
+  background: transparent;
+  border: 1px dashed var(--warn);
+}
+
+.topo-link-group {
+  padding: 6px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.topo-link-group:first-of-type { border-top: none; }
+.topo-link-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text);
+  letter-spacing: 0.08em;
+  margin-bottom: 3px;
+}
+.topo-link-metric { color: var(--accent); }
+.topo-link-group.blos .topo-link-header { color: var(--warn); }
+.topo-link-group.blos .topo-link-metric { color: var(--warn); }
+.topo-link-contrib {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  padding-left: 10px;
+}
+.topo-link-contrib .iface { color: var(--muted); }
+.topo-link-contrib .metric { color: var(--accent); }
+.topo-link-contrib .lastseen { color: var(--dim); }
+.topo-link-group.blos .topo-link-contrib .metric { color: var(--warn); }
+
+/* Remote-segment box gets a subtle amber tint so operators can tell at a
+   glance that hosts inside are reached over BLOS, not local RF. */
+.topo-segment-box.remote rect {
+  fill: rgba(255, 179, 0, 0.04);
+  stroke: rgba(255, 179, 0, 0.25);
+}
+.topo-segment-box.remote .topo-segment-label { fill: var(--warn); }
+
+/* ── Mobile responsiveness: stack segments + shrink canvas height ──────── */
+
+@media (max-width: 600px) {
+  .topo-canvas { min-height: 440px; }
+  .topo-canvas svg { height: 440px; }
+  .topo-segment-label { font-size: 9px; letter-spacing: 0.12em; }
+}
+
+/* ── Accessibility ──────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .topo-node.selected circle,
+  .topo-node.self circle {
+    filter: none;
+  }
+  .topo-node circle { transition: none; }
+}

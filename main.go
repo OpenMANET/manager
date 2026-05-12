@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 OpenMANET - Corey Wagehoft
+Copyright © 2026 OpenMANET
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -16,8 +16,19 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 package main
 
-import "github.com/openmanet/openmanetd/cmd"
+import (
+	"io/fs"
+
+	"github.com/openmanet/openmanetd/cmd"
+)
 
 func main() {
+	// Strip the "static" prefix so files are served at the root (/ → index.html).
+	staticSub, err := fs.Sub(StaticFS, "static")
+	if err != nil {
+		panic(err)
+	}
+
+	cmd.SetStaticFS(staticSub)
 	cmd.Execute()
 }

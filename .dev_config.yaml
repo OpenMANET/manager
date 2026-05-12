@@ -6,6 +6,8 @@ gnss:
   sendAsExternalGNSSSource:
     sendAsNMEA: false
     sendAsCoT: false
+batman:
+  multicastEnhancementsEnabled: false
 alfred:
   mode: primary
   batInterface: bat0
@@ -16,12 +18,20 @@ alfred:
     addressReservation: true
 blos:
   enable: false
-ptt:
+comms:
   enable: false
-  mcastAddr: 224.0.0.1
-  mcastPort: 5007
-  pttKey: any
+  protocol: rtp
+  # openvlm (default, Open Voice Link Module USB HID dongle GPIO3), evdev, or bluealsa_xevent
+  controlSource: openvlm
   debug: true
-  loopback: true
-  pttDevice: /dev/hidraw0/*
-  pttDeviceName: Generic AB13X USB Audio
+  loopback: false
+  trace: true
+  nanoPTT:
+    enable: false
+    devicePath: /dev/hidraw0/*
+    deviceName: Generic AB13X USB Audio
+  bluetoothPtt:
+    enable: false
+    audioDeviceHint: ""
+    inputDevice: ""
+    outputDevice: ""

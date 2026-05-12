@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 
 	"github.com/openmanet/openmanetd/internal/openmanet"
@@ -26,13 +27,18 @@ import (
 )
 
 var (
-	version string
+	cfgFile  string //nolint:gochecknoglobals
+	staticFS fs.FS  //nolint:gochecknoglobals
+	version  string
 )
 
-var cfgFile string
+// SetStaticFS sets the embedded filesystem used to serve static assets.
+func SetStaticFS(f fs.FS) {
+	staticFS = f
+}
 
 // rootCmd represents the base command when called without any subcommands
-var rootCmd = &cobra.Command{
+var rootCmd = &cobra.Command{ //nolint:gochecknoglobals
 	Use:   "openmanet",
 	Short: "A management process for OpenMANET nodes",
 	Long: `OpenMANET Manager is a management application for OpenMANET nodes.
@@ -41,7 +47,7 @@ It provides a way to configure and monitor OpenMANET networks.`,
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("OpenMANET Manager\nVersion: %s\n", version)
-		openmanet.Start()
+		openmanet.Start(staticFS)
 	},
 }
 
@@ -62,6 +68,8 @@ func init() {
 	// will be global for your application.
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is /etc/openmanetd/config.yml)")
+	rootCmd.PersistentFlags().Bool("alfred", true, "enable Alfred integration")
+	_ = viper.BindPFlag("alfred.enable", rootCmd.PersistentFlags().Lookup("alfred"))
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.

@@ -1,10 +1,12 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"net"
 	"os/exec"
+	"slices"
 	"time"
 
 	"github.com/digineo/go-uci/v2"
@@ -35,22 +37,29 @@ type UCINetwork struct {
 	IPV6Assignment string `uci:"option ip6assign"`
 	IPV6IfaceID    string `uci:"option ip6ifaceid"`
 	IPV6Class      string `uci:"list ip6class"`
+	// MulticastMode is the batman-adv batadv proto option that controls
+	// multicast forceflood behavior. "1" enables forceflood (broadcast
+	// every multicast frame), "0" uses batman-adv's optimized multicast
+	// delivery. Only meaningful on `proto batadv` interfaces.
+	MulticastMode string `uci:"option multicast_mode"`
 }
 
 // UCIDevice represents a UCI network device configuration (config device).
 // Devices can be physical interfaces, bridges, VLANs, or other virtual devices.
 type UCIDevice struct {
-	Name    string   `uci:"option name"`    // Device name (required)
-	Type    string   `uci:"option type"`    // Device type (e.g., bridge, vlan, macvlan, veth, vrf)
-	MacAddr string   `uci:"option macaddr"` // MAC address override
-	Ifname  string   `uci:"option ifname"`  // Base L2 device (required for macvlan type)
-	Ports   []string `uci:"list ports"`     // Bridge member ports (for bridge type)
-	RxPause string   `uci:"option rxpause"` // RX flow control (1 enables RX pause frames)
-	TxPause string   `uci:"option txpause"` // TX flow control (1 enables TX pause frames)
-	AutoNeg string   `uci:"option autoneg"` // Auto-negotiation (1 enables auto-negotiation)
-	Speed   string   `uci:"option speed"`   // Speed of the device
-	Duplex  string   `uci:"option duplex"`  // Duplex mode (1 = full duplex, 0 = half duplex)
-	Table   string   `uci:"option table"`   // Routing table name or number (for VRF type, default: 10)
+	Name             string   `uci:"option name"`
+	Type             string   `uci:"option type"`
+	MacAddr          string   `uci:"option macaddr"`
+	Ifname           string   `uci:"option ifname"`
+	RxPause          string   `uci:"option rxpause"`
+	TxPause          string   `uci:"option txpause"`
+	AutoNeg          string   `uci:"option autoneg"`
+	Speed            string   `uci:"option speed"`
+	Duplex           string   `uci:"option duplex"`
+	Table            string   `uci:"option table"`
+	IgmpSnooping     string   `uci:"option igmp_snooping"`
+	MulticastQuerier string   `uci:"option multicast_querier"`
+	Ports            []string `uci:"list ports"`
 }
 
 // RemovePort removes a port from the Ports list if it exists.
@@ -68,9 +77,11 @@ func (d *UCIDevice) RemovePort(port string) bool {
 		if p == port {
 			// Remove the port by creating a new slice
 			d.Ports = append(d.Ports[:i], d.Ports[i+1:]...)
+
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -155,30 +166,39 @@ func GetUCINetworkByNameWithReader(name string, reader ConfigReader) (*UCINetwor
 	if values, ok := reader.Get(networkConfigName, name, "proto"); ok && len(values) > 0 {
 		config.Proto = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "netmask"); ok && len(values) > 0 {
 		config.NetMask = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "ipaddr"); ok && len(values) > 0 {
 		config.IPAddr = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "gateway"); ok && len(values) > 0 {
 		config.Gateway = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "dns"); ok && len(values) > 0 {
 		config.DNS = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "device"); ok && len(values) > 0 {
 		config.Device = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "master"); ok && len(values) > 0 {
 		config.Master = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "ip6assign"); ok && len(values) > 0 {
 		config.IPV6Assignment = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "ip6ifaceid"); ok && len(values) > 0 {
 		config.IPV6IfaceID = values[0]
 	}
+
 	if values, ok := reader.Get(networkConfigName, name, "ip6class"); ok && len(values) > 0 {
 		config.IPV6Class = values[0]
 	}
@@ -209,7 +229,7 @@ func SetNetworkConfig(section string, config *UCINetwork) error {
 }
 
 // SetNetworkConfigWithReader creates or updates a network interface configuration using the provided reader.
-func SetNetworkConfigWithReader(section string, config *UCINetwork, reader ConfigReader) error {
+func SetNetworkConfigWithReader(section string, config *UCINetwork, reader ConfigReader) error { //nolint:gocognit
 	if config == nil {
 		return fmt.Errorf("config cannot be nil")
 	}
@@ -222,49 +242,64 @@ func SetNetworkConfigWithReader(section string, config *UCINetwork, reader Confi
 			return fmt.Errorf("failed to set proto: %w", err)
 		}
 	}
+
 	if config.NetMask != "" {
 		if err := reader.SetType(networkConfigName, section, "netmask", uci.TypeOption, config.NetMask); err != nil {
 			return fmt.Errorf("failed to set netmask: %w", err)
 		}
 	}
+
 	if config.IPAddr != "" {
 		if err := reader.SetType(networkConfigName, section, "ipaddr", uci.TypeOption, config.IPAddr); err != nil {
 			return fmt.Errorf("failed to set ipaddr: %w", err)
 		}
 	}
+
 	if config.Gateway != "" {
 		if err := reader.SetType(networkConfigName, section, "gateway", uci.TypeOption, config.Gateway); err != nil {
 			return fmt.Errorf("failed to set gateway: %w", err)
 		}
 	}
+
 	if config.DNS != "" {
 		if err := reader.SetType(networkConfigName, section, "dns", uci.TypeOption, config.DNS); err != nil {
 			return fmt.Errorf("failed to set dns: %w", err)
 		}
 	}
+
 	if config.Device != "" {
 		if err := reader.SetType(networkConfigName, section, "device", uci.TypeOption, config.Device); err != nil {
 			return fmt.Errorf("failed to set device: %w", err)
 		}
 	}
+
 	if config.Master != "" {
 		if err := reader.SetType(networkConfigName, section, "master", uci.TypeOption, config.Master); err != nil {
 			return fmt.Errorf("failed to set master: %w", err)
 		}
 	}
+
 	if config.IPV6Assignment != "" {
 		if err := reader.SetType(networkConfigName, section, "ip6assign", uci.TypeOption, config.IPV6Assignment); err != nil {
 			return fmt.Errorf("failed to set ip6assign: %w", err)
 		}
 	}
+
 	if config.IPV6IfaceID != "" {
 		if err := reader.SetType(networkConfigName, section, "ip6ifaceid", uci.TypeOption, config.IPV6IfaceID); err != nil {
 			return fmt.Errorf("failed to set ip6ifaceid: %w", err)
 		}
 	}
+
 	if config.IPV6Class != "" {
 		if err := reader.SetType(networkConfigName, section, "ip6class", uci.TypeList, config.IPV6Class); err != nil {
 			return fmt.Errorf("failed to set ip6class: %w", err)
+		}
+	}
+
+	if config.MulticastMode != "" {
+		if err := reader.SetType(networkConfigName, section, "multicast_mode", uci.TypeOption, config.MulticastMode); err != nil {
+			return fmt.Errorf("failed to set multicast_mode: %w", err)
 		}
 	}
 
@@ -329,6 +364,7 @@ func NetworkSectionExistsWithReader(section string, reader ConfigReader) bool {
 	// Try to get any option from the section to verify it exists
 	// We check for 'proto' as it's a common option in network sections
 	_, exists := reader.Get(networkConfigName, section, "proto")
+
 	return exists
 }
 
@@ -650,7 +686,7 @@ func SetNetworkIPV6ClassWithReader(section, ip6class string, reader ConfigReader
 //	    log.Fatalf("Failed to select IP: %v", err)
 //	}
 //	fmt.Printf("Selected IP: %s\n", ip)
-func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bool) (string, error) {
+func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bool) (string, error) { //nolint:gocognit
 	// Collect all reserved IP addresses
 	reservedIPs := make(map[string]bool)
 
@@ -660,12 +696,10 @@ func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bo
 		}
 	}
 
-	// Define the base network: 10.41.0.0/16
-	baseIP := net.ParseIP(DefaultNetworkAddress)
-	if baseIP == nil {
+	// Verify the base network address is valid
+	if net.ParseIP(DefaultNetworkAddress) == nil {
 		return "", fmt.Errorf("failed to parse base IP")
 	}
-	baseIP = baseIP.To4()
 
 	if gatewayMode {
 		// Gateway mode: only search in 10.41.0.0/24 range
@@ -681,6 +715,7 @@ func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bo
 			// IP is available, return it
 			return candidateIP, nil
 		}
+
 		return "", fmt.Errorf("no available IP addresses in 10.41.0.0/24 range")
 	}
 
@@ -761,6 +796,7 @@ func SelectAvailableStaticIPFromNodeData(nodes []models.MeshNode, gatewayMode bo
 //	fmt.Printf("Device type: %s\n", device.Type)
 func GetDeviceByName(name string) (*UCIDevice, error) {
 	reader := NewUCINetworkConfigReader()
+
 	return GetDeviceByNameWithReader(name, reader)
 }
 
@@ -835,6 +871,14 @@ func loadDeviceFromSection(section string, reader ConfigReader) (*UCIDevice, err
 		device.Table = values[0]
 	}
 
+	if values, ok := reader.Get(networkConfigName, section, "igmp_snooping"); ok && len(values) > 0 {
+		device.IgmpSnooping = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, section, "multicast_querier"); ok && len(values) > 0 {
+		device.MulticastQuerier = values[0]
+	}
+
 	return device, nil
 }
 
@@ -860,13 +904,15 @@ func loadDeviceFromSection(section string, reader ConfigReader) (*UCIDevice, err
 // Note: This operation requires appropriate privileges and commits the configuration.
 func SetDeviceConfig(name string, device *UCIDevice) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetDeviceConfigWithReader(name, device, reader)
 }
 
 // SetDeviceConfigWithReader creates or updates a device configuration using the provided reader.
-func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigReader) error {
+func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigReader) error { //nolint:gocognit,gocyclo
 	// Find existing device section by name
 	var section string
+
 	sections, err := reader.GetSections(networkConfigName, "device")
 	if err != nil {
 		return fmt.Errorf("failed to get device sections: %w", err)
@@ -877,6 +923,7 @@ func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigRead
 		if values, ok := reader.Get(networkConfigName, sec, "name"); ok && len(values) > 0 {
 			if values[0] == name {
 				section = sec
+
 				break
 			}
 		}
@@ -892,6 +939,7 @@ func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigRead
 		if err != nil {
 			return fmt.Errorf("failed to get device sections: %w", err)
 		}
+
 		if len(sections) > 0 {
 			section = sections[len(sections)-1] // Use the last one (newly created)
 		}
@@ -968,6 +1016,18 @@ func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigRead
 		}
 	}
 
+	if device.IgmpSnooping != "" {
+		if err := reader.SetType(networkConfigName, section, "igmp_snooping", uci.TypeOption, device.IgmpSnooping); err != nil {
+			return fmt.Errorf("failed to set device igmp_snooping: %w", err)
+		}
+	}
+
+	if device.MulticastQuerier != "" {
+		if err := reader.SetType(networkConfigName, section, "multicast_querier", uci.TypeOption, device.MulticastQuerier); err != nil {
+			return fmt.Errorf("failed to set device multicast_querier: %w", err)
+		}
+	}
+
 	if err := reader.Commit(); err != nil {
 		return fmt.Errorf("failed to commit device configuration: %w", err)
 	}
@@ -994,6 +1054,7 @@ func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigRead
 // Note: This operation requires appropriate privileges and commits the configuration.
 func DeleteDeviceConfig(name string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return DeleteDeviceConfigWithReader(name, reader)
 }
 
@@ -1006,10 +1067,12 @@ func DeleteDeviceConfigWithReader(name string, reader ConfigReader) error {
 	}
 
 	var sectionToDelete string
+
 	for _, section := range sections {
 		if values, ok := reader.Get(networkConfigName, section, "name"); ok && len(values) > 0 {
 			if values[0] == name {
 				sectionToDelete = section
+
 				break
 			}
 		}
@@ -1046,6 +1109,7 @@ func DeleteDeviceConfigWithReader(name string, reader ConfigReader) error {
 //	}
 func DeviceSectionExists(name string) bool {
 	reader := NewUCINetworkConfigReader()
+
 	return DeviceSectionExistsWithReader(name, reader)
 }
 
@@ -1072,6 +1136,7 @@ func DeviceSectionExistsWithReader(name string, reader ConfigReader) bool {
 // It returns a map of device names to UCIDevice configurations.
 func GetAllDevices() (map[string]*UCIDevice, error) {
 	reader := NewUCINetworkConfigReader()
+
 	return GetAllDevicesWithReader(reader)
 }
 
@@ -1104,8 +1169,9 @@ func GetAllDevicesWithReader(reader ConfigReader) (map[string]*UCIDevice, error)
 }
 
 // ForceReloadConfig forces a reload of the network configuration by executing the OpenWrt network init script.
-func ForceReloadConfig() error {
-	cmd := exec.Command("reload_config")
+func ForceReloadConfig(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "reload_config")
+
 	return cmd.Run()
 }
 
@@ -1114,8 +1180,9 @@ func ForceReloadConfig() error {
 // without restarting the entire network subsystem.
 //
 // Returns an error if the reload command fails to execute or returns a non-zero exit code.
-func ReloadNetwork() error {
-	cmd := exec.Command("/etc/init.d/network", "reload")
+func ReloadNetwork(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "/etc/init.d/network", "reload")
+
 	return cmd.Run()
 }
 
@@ -1126,7 +1193,519 @@ func ReloadNetwork() error {
 // Returns:
 //   - error: nil if the network restart command succeeds, otherwise returns the error
 //     from command execution
-func RestartNetwork() error {
-	cmd := exec.Command("/etc/init.d/network", "restart")
+func RestartNetwork(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "/etc/init.d/network", "restart")
+
 	return cmd.Run()
+}
+
+// ── Setup wizard helpers (mirror LuCI Morse wizard) ──────────────────────────
+
+const (
+	// BatmanDeviceName is the canonical batman-adv interface name the
+	// wizard always emits. Matches LuCI Morse `defaultBatmanIfaceName`
+	// behavior.
+	BatmanDeviceName string = "bat0"
+
+	// BatmanPrimaryIface is the primary batadv_hardif interface name.
+	BatmanPrimaryIface string = "batmesh0"
+
+	// BatmanSecondaryIface is the secondary batadv_hardif interface
+	// name (typically used for 2.4 GHz mesh).
+	BatmanSecondaryIface string = "batmesh1"
+
+	networkInterfaceType string = "interface"
+	networkDeviceType    string = "device"
+
+	bridgeTypeBridge string = "bridge"
+
+	batadvProto       string = "batadv"
+	batadvHardifProto string = "batadv_hardif"
+)
+
+// batmanDeviceOptions enumerates every batman-adv option set on a
+// `proto batadv` interface by SetupBatmanDeviceOnNetwork. Mirrors the
+// LuCI uci.js setupBatmanDeviceOnNetwork() exactly.
+var batmanDeviceOptions = []struct{ k, v string }{ //nolint:gochecknoglobals // package-level constant
+	{"proto", batadvProto},
+	{"routing_algo", "BATMAN_V"},
+	{"bridge_loop_avoidance", "1"},
+	{"hop_penalty", "30"},
+	{"bonding", "1"},
+	{"aggregated_ogms", "1"},
+	{"ap_isolation", "0"},
+	{"fragmentation", "1"},
+	{"orig_interval", "1000"},
+	{"distributed_arp_table", "1"},
+	{"multicast_mode", "1"},
+	{"network_coding", "1"},
+	{"isolation_mark", "0x00000000/0x00000000"},
+}
+
+// SetupBatmanDeviceOnNetwork creates (or updates) the batman-adv
+// device interface on the network config, mirroring LuCI's
+// setupBatmanDeviceOnNetwork() exactly. Use empty deviceName to
+// default to BatmanDeviceName ("bat0"); empty gwMode defaults to
+// "client".
+//
+// Does not commit.
+func SetupBatmanDeviceOnNetwork(reader ConfigReader, gwMode, deviceName string) error {
+	if deviceName == "" {
+		deviceName = BatmanDeviceName
+	}
+
+	if gwMode == "" {
+		gwMode = "client"
+	}
+
+	if !batmanInterfaceExists(reader, deviceName) {
+		if err := reader.AddSection(networkConfigName, deviceName, networkInterfaceType); err != nil {
+			return fmt.Errorf("creating batman device %s: %w", deviceName, err)
+		}
+	}
+
+	for _, kv := range batmanDeviceOptions {
+		if err := reader.SetType(networkConfigName, deviceName, kv.k, uci.TypeOption, kv.v); err != nil {
+			return fmt.Errorf("setting %s.%s.%s: %w",
+				networkConfigName, deviceName, kv.k, err)
+		}
+	}
+
+	if err := reader.SetType(networkConfigName, deviceName, "gw_mode", uci.TypeOption, gwMode); err != nil {
+		return fmt.Errorf("setting %s.%s.gw_mode: %w", networkConfigName, deviceName, err)
+	}
+
+	return nil
+}
+
+// batmanInterfaceExists checks whether a network interface section
+// with the given name exists. Used to make
+// SetupBatmanDeviceOnNetwork idempotent.
+func batmanInterfaceExists(reader ConfigReader, name string) bool {
+	sections, err := reader.GetSections(networkConfigName, networkInterfaceType)
+	if err != nil {
+		return false
+	}
+
+	for _, s := range sections {
+		if s == name {
+			return true
+		}
+	}
+
+	return false
+}
+
+// SetupBatmanInterfaceOnDevice creates the primary (batmesh0) and
+// secondary (batmesh1) batadv_hardif interfaces bound to the supplied
+// batman-adv device. Matches LuCI's setupBatmanInterfaceOnDevice()
+// behavior up to and including the secondary interface; the bridge-
+// port wiring (adding bat0 to br-ahwlan) is left to
+// CreateOrRemoveBridgeAsNeeded so this helper can be exercised without
+// a populated bridge fixture.
+//
+// Does not commit.
+func SetupBatmanInterfaceOnDevice(reader ConfigReader, deviceName string) error {
+	if deviceName == "" {
+		deviceName = BatmanDeviceName
+	}
+
+	for _, ifaceName := range []string{BatmanPrimaryIface, BatmanSecondaryIface} {
+		if !batmanInterfaceExists(reader, ifaceName) {
+			if err := reader.AddSection(networkConfigName, ifaceName, networkInterfaceType); err != nil {
+				return fmt.Errorf("creating %s: %w", ifaceName, err)
+			}
+		}
+
+		if err := reader.SetType(networkConfigName, ifaceName, "proto", uci.TypeOption, batadvHardifProto); err != nil {
+			return fmt.Errorf("setting %s.proto: %w", ifaceName, err)
+		}
+
+		if err := reader.SetType(networkConfigName, ifaceName, "master", uci.TypeOption, deviceName); err != nil {
+			return fmt.Errorf("setting %s.master: %w", ifaceName, err)
+		}
+	}
+
+	return nil
+}
+
+// RemoveAllBatadvInterfaces deletes every network interface whose
+// proto is `batadv` or `batadv_hardif`. Called by the reset phase so
+// stale batman state from a previous run cannot conflict with new
+// writes.
+//
+// Does not commit.
+func RemoveAllBatadvInterfaces(reader ConfigReader) error {
+	sections, err := reader.GetSections(networkConfigName, networkInterfaceType)
+	if err != nil {
+		return fmt.Errorf("listing network interfaces: %w", err)
+	}
+
+	for _, s := range sections {
+		proto, _ := reader.Get(networkConfigName, s, "proto")
+		if len(proto) == 0 {
+			continue
+		}
+
+		if proto[0] != batadvProto && proto[0] != batadvHardifProto {
+			continue
+		}
+
+		if err := reader.DelSection(networkConfigName, s); err != nil {
+			return fmt.Errorf("deleting %s: %w", s, err)
+		}
+	}
+
+	return nil
+}
+
+// RemoveAllBridgeDevices deletes every `device` section whose `type`
+// is `bridge`. Removes any leftover bridges (br-prpl, br-ahwlan, etc.)
+// before the wizard rebuilds them with fresh MAC addresses and
+// port lists. Mirrors the LuCI resetUciNetworkTopology() block.
+//
+// Does not commit.
+func RemoveAllBridgeDevices(reader ConfigReader) error {
+	sections, err := reader.GetSections(networkConfigName, networkDeviceType)
+	if err != nil {
+		return fmt.Errorf("listing network devices: %w", err)
+	}
+
+	for _, s := range sections {
+		typ, _ := reader.Get(networkConfigName, s, "type")
+		if len(typ) == 0 || typ[0] != bridgeTypeBridge {
+			continue
+		}
+
+		if err := reader.DelSection(networkConfigName, s); err != nil {
+			return fmt.Errorf("deleting %s: %w", s, err)
+		}
+	}
+
+	return nil
+}
+
+// UnsetGatewayAndDeviceOnInterfaces clears the `gateway` and `device`
+// options on every network interface section, except for the
+// loopback. Mirrors LuCI's resetUciNetworkTopology() — without this,
+// a leftover device binding from a previous run could persist after
+// the wizard re-wires interfaces.
+//
+// Does not commit.
+func UnsetGatewayAndDeviceOnInterfaces(reader ConfigReader) error {
+	sections, err := reader.GetSections(networkConfigName, networkInterfaceType)
+	if err != nil {
+		return fmt.Errorf("listing network interfaces: %w", err)
+	}
+
+	for _, s := range sections {
+		// Skip the loopback ("device 'lo'").
+		device, _ := reader.Get(networkConfigName, s, "device")
+		if len(device) > 0 && device[0] == "lo" {
+			continue
+		}
+
+		if err := reader.Del(networkConfigName, s, "gateway"); err != nil {
+			return fmt.Errorf("unsetting gateway on %s: %w", s, err)
+		}
+
+		if err := reader.Del(networkConfigName, s, "device"); err != nil {
+			return fmt.Errorf("unsetting device on %s: %w", s, err)
+		}
+	}
+
+	return nil
+}
+
+// SetNetworkDevices wires the supplied device list onto the named
+// network section, mirroring LuCI's setNetworkDevices(). The behavior
+// depends on the section's existing `device` option:
+//
+//   - If the section's device points at an existing bridge, the
+//     bridge's `ports` list is replaced with `devices`.
+//   - Otherwise, if exactly one device is supplied, the section's
+//     `device` is set to that single device.
+//   - Otherwise (multiple devices, no bridge), the caller should run
+//     CreateOrRemoveBridgeAsNeeded first; this helper falls back to
+//     just setting the first device when no bridge is in play.
+//
+// Does not commit.
+func SetNetworkDevices(reader ConfigReader, sectionID string, devices []string) error {
+	if sectionID == "" {
+		return fmt.Errorf("sectionID cannot be empty")
+	}
+
+	currentDeviceVals, _ := reader.Get(networkConfigName, sectionID, "device")
+	currentDevice := ""
+
+	if len(currentDeviceVals) > 0 {
+		currentDevice = currentDeviceVals[0]
+	}
+
+	if currentDevice != "" {
+		bridgeSection, err := findBridgeBySectionName(reader, currentDevice)
+		if err != nil {
+			return err
+		}
+
+		if bridgeSection != "" {
+			return reader.SetType(networkConfigName, bridgeSection, "ports", uci.TypeList, devices...)
+		}
+	}
+
+	switch len(devices) {
+	case 0:
+		// Nothing to do.
+		return nil
+	case 1:
+		return reader.SetType(networkConfigName, sectionID, "device", uci.TypeOption, devices[0])
+	default:
+		// Without a bridge, the caller should have invoked
+		// CreateOrRemoveBridgeAsNeeded; fall back to the first device
+		// so callers that haven't built bridge support yet still
+		// produce a defined network.
+		return reader.SetType(networkConfigName, sectionID, "device", uci.TypeOption, devices[0])
+	}
+}
+
+// findBridgeBySectionName returns the section name of a `device`
+// section whose `name` field equals the supplied bridge name, or "" if
+// no such bridge exists.
+func findBridgeBySectionName(reader ConfigReader, bridgeName string) (string, error) {
+	sections, err := reader.GetSections(networkConfigName, networkDeviceType)
+	if err != nil {
+		return "", fmt.Errorf("listing network devices: %w", err)
+	}
+
+	for _, s := range sections {
+		typ, _ := reader.Get(networkConfigName, s, "type")
+		if len(typ) == 0 || typ[0] != bridgeTypeBridge {
+			continue
+		}
+
+		name, _ := reader.Get(networkConfigName, s, "name")
+		if len(name) > 0 && name[0] == bridgeName {
+			return s, nil
+		}
+	}
+
+	return "", nil
+}
+
+// FindBridgeBySectionName is the exported wrapper around the package-
+// internal bridge lookup. The setup wizard handler uses it to discover
+// the section name of the br-ahwlan bridge after it has been created
+// in the base-network phase, so the batman-adv phase can append bat0
+// to its ports list.
+func FindBridgeBySectionName(reader ConfigReader, bridgeName string) (string, error) {
+	return findBridgeBySectionName(reader, bridgeName)
+}
+
+// SetupAhwlanInterface writes the standard set of options the LuCI
+// Morse wizard's setupNetworkWithDnsmasq() helper sets on the ahwlan
+// network section: proto=static, netmask=255.255.0.0, ip6assign=64,
+// ip6ifaceid=eui64, list ip6class 'local', device=br-ahwlan. When
+// ipaddr is non-empty, the function also sets it (mesh-point scenarios
+// pass a randomized address; mesh-gate scenarios omit it because
+// openmanetd assigns the gateway address at runtime via ip route).
+//
+// The section is created if it doesn't already exist. Does not commit.
+func SetupAhwlanInterface(reader ConfigReader, ipaddr string) error {
+	const (
+		section    = "ahwlan"
+		bridgeName = "br-ahwlan"
+	)
+
+	if !batmanInterfaceExists(reader, section) {
+		if err := reader.AddSection(networkConfigName, section, networkInterfaceType); err != nil {
+			return fmt.Errorf("creating ahwlan interface: %w", err)
+		}
+	}
+
+	writes := []struct {
+		k, v string
+	}{
+		{"proto", DefaultNetworkProto},
+		{"netmask", DefaultNetworkMask},
+		{"ip6assign", DefaultIPv6Assign},
+		{"ip6ifaceid", DefaultIPv6IfaceID},
+		{"device", bridgeName},
+	}
+
+	for _, w := range writes {
+		if err := reader.SetType(networkConfigName, section, w.k, uci.TypeOption, w.v); err != nil {
+			return fmt.Errorf("setting %s.%s.%s: %w", networkConfigName, section, w.k, err)
+		}
+	}
+
+	// ip6class is a list option. Setting just `local` matches the LuCI
+	// fixture; preserving any pre-existing values would be unsafe given
+	// the reset phase already ran.
+	if err := reader.SetType(networkConfigName, section, "ip6class", uci.TypeList, DefaultIPv6Class); err != nil {
+		return fmt.Errorf("setting %s.%s.ip6class: %w", networkConfigName, section, err)
+	}
+
+	if ipaddr != "" {
+		if err := reader.SetType(networkConfigName, section, "ipaddr", uci.TypeOption, ipaddr); err != nil {
+			return fmt.Errorf("setting %s.%s.ipaddr: %w", networkConfigName, section, err)
+		}
+
+		// Mesh-point ahwlan also gets a DNS server. LuCI's
+		// setupNetworkWithDnsmasq writes `1.1.1.1` here in the
+		// isMeshPoint branch — without it the mesh point can't
+		// resolve hostnames over its mesh address since nothing else
+		// populates this option. Mesh-gate scenarios skip this
+		// because the gateway's upstream provides DNS.
+		if err := reader.SetType(networkConfigName, section, "dns", uci.TypeOption, "1.1.1.1"); err != nil {
+			return fmt.Errorf("setting %s.%s.dns: %w", networkConfigName, section, err)
+		}
+	}
+
+	return nil
+}
+
+// CreateBridgeDevice writes a `config device` section of type=bridge
+// with the supplied name, port list, and macaddr. Mirrors LuCI's
+// setBridgeWithPorts() in morseuci.js. Idempotent — if a bridge with
+// the same name already exists, its options are overwritten with the
+// supplied values. The section name returned is the UCI section
+// identifier the caller can pass to AppendBridgePort.
+//
+// `name` is the bridge's UCI `name` field (e.g. "br-ahwlan"); the
+// section name itself is anonymous (`@device[N]` in UCI export form)
+// because LuCI emits anonymous device sections in its captures.
+//
+// Does not commit.
+func CreateBridgeDevice(reader ConfigReader, name string, ports []string, macaddr string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("bridge name cannot be empty")
+	}
+
+	// Reuse an existing bridge section if one already has this name —
+	// this keeps the helper idempotent across re-runs of the wizard
+	// (or partial runs followed by reset).
+	existing, err := findBridgeBySectionName(reader, name)
+	if err != nil {
+		return "", err
+	}
+
+	section := existing
+	if section == "" {
+		// Stable section name derived from the bridge name. Using a
+		// named section (rather than anonymous) lets later phases
+		// reliably look the bridge up by section ID without scanning
+		// for type=bridge by `name` field.
+		section = "wizard_bridge_" + sanitizeUCIName(name)
+
+		if err := reader.AddSection(networkConfigName, section, networkDeviceType); err != nil {
+			return "", fmt.Errorf("creating bridge device section: %w", err)
+		}
+	}
+
+	if err := reader.SetType(networkConfigName, section, "name", uci.TypeOption, name); err != nil {
+		return "", fmt.Errorf("setting bridge name: %w", err)
+	}
+
+	if err := reader.SetType(networkConfigName, section, "type", uci.TypeOption, bridgeTypeBridge); err != nil {
+		return "", fmt.Errorf("setting bridge type: %w", err)
+	}
+
+	if macaddr != "" {
+		if err := reader.SetType(networkConfigName, section, "macaddr", uci.TypeOption, macaddr); err != nil {
+			return "", fmt.Errorf("setting bridge macaddr: %w", err)
+		}
+	}
+
+	if len(ports) > 0 {
+		if err := reader.SetType(networkConfigName, section, "ports", uci.TypeList, ports...); err != nil {
+			return "", fmt.Errorf("setting bridge ports: %w", err)
+		}
+	}
+
+	return section, nil
+}
+
+// AppendBridgePort adds `port` to the bridge section's `ports` list,
+// preserving any existing ports. Idempotent: if the port is already
+// present, no write happens. The setup wizard's batman-adv phase uses
+// this to attach bat0 to br-ahwlan's port list AFTER the base network
+// phase has constructed the bridge with its physical-port list, so
+// the resulting ports order is `[<eth-ports...>, bat0]` matching the
+// captured fixtures.
+//
+// Does not commit.
+func AppendBridgePort(reader ConfigReader, bridgeSection, port string) error {
+	if bridgeSection == "" {
+		return fmt.Errorf("bridge section cannot be empty")
+	}
+
+	if port == "" {
+		return fmt.Errorf("port cannot be empty")
+	}
+
+	existing, _ := reader.Get(networkConfigName, bridgeSection, "ports")
+	if slices.Contains(existing, port) {
+		return nil
+	}
+
+	updated := append(append([]string(nil), existing...), port)
+
+	return reader.SetType(networkConfigName, bridgeSection, "ports", uci.TypeList, updated...)
+}
+
+// sanitizeUCIName replaces every character in s that isn't legal in a
+// UCI section identifier with an underscore. Section names must match
+// `[A-Za-z0-9_]+`.
+func sanitizeUCIName(s string) string {
+	out := make([]byte, 0, len(s))
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+
+		switch {
+		case c >= 'a' && c <= 'z',
+			c >= 'A' && c <= 'Z',
+			c >= '0' && c <= '9',
+			c == '_':
+			out = append(out, c)
+		default:
+			out = append(out, '_')
+		}
+	}
+
+	return string(out)
+}
+
+// SetInterfaceProtoWithReader updates the `proto` option on a network
+// interface section. Used by the wizard's base-network phase to flip
+// `lan.proto=dhcp` on gate-with-ethernet-uplink scenarios where the
+// upstream provides DHCP. Convenience wrapper that does not validate
+// the proto string against a known set.
+func SetInterfaceProtoWithReader(reader ConfigReader, section, proto string) error {
+	return reader.SetType(networkConfigName, section, "proto", uci.TypeOption, proto)
+}
+
+// SetInterfaceDNSWithReader updates the `dns` option on a network
+// interface section. Used by the wizard to set `lan.dns=1.1.1.1`
+// unconditionally (mirroring LuCI's setupBatmanInterfaceOnDevice).
+func SetInterfaceDNSWithReader(reader ConfigReader, section, dns string) error {
+	return reader.SetType(networkConfigName, section, "dns", uci.TypeOption, dns)
+}
+
+// EnsureWan6Interface creates the `wan6` interface section with
+// `proto=dhcpv6` if it does not already exist. The LuCI captures show
+// this is added on gate-with-ethernet scenarios so the device picks
+// up an IPv6 address from upstream.
+//
+// Does not commit.
+func EnsureWan6Interface(reader ConfigReader) error {
+	const section = "wan6"
+
+	if !batmanInterfaceExists(reader, section) {
+		if err := reader.AddSection(networkConfigName, section, networkInterfaceType); err != nil {
+			return fmt.Errorf("creating wan6: %w", err)
+		}
+	}
+
+	return reader.SetType(networkConfigName, section, "proto", uci.TypeOption, "dhcpv6")
 }

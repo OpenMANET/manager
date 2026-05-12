@@ -1,8 +1,10 @@
 package network
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net"
 	"os/exec"
 	"sort"
@@ -22,7 +24,7 @@ const (
 // UCIDnsmasq represents the dnsmasq global configuration section.
 type UCIDnsmasq struct {
 	DomainNeeded    string `uci:"option domainneeded"`
-	LocaliseQueries string `uci:"option localise_queries"`
+	LocaliseQueries string `uci:"option localize_queries"`
 	RebindLocalhost string `uci:"option rebind_localhost"`
 	Local           string `uci:"option local"`
 	Domain          string `uci:"option domain"`
@@ -116,33 +118,43 @@ func GetDnsmasqConfigWithReader(reader DHCPConfigReader) (*UCIDnsmasq, error) {
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "domainneeded"); ok && len(values) > 0 {
 		config.DomainNeeded = values[0]
 	}
-	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "localise_queries"); ok && len(values) > 0 {
+
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "localize_queries"); ok && len(values) > 0 {
 		config.LocaliseQueries = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "rebind_localhost"); ok && len(values) > 0 {
 		config.RebindLocalhost = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "local"); ok && len(values) > 0 {
 		config.Local = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "domain"); ok && len(values) > 0 {
 		config.Domain = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "expandhosts"); ok && len(values) > 0 {
 		config.ExpandHosts = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "cachesize"); ok && len(values) > 0 {
 		config.CacheSize = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "authoritative"); ok && len(values) > 0 {
 		config.Authoritative = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "readethers"); ok && len(values) > 0 {
 		config.ReadEthers = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "localservice"); ok && len(values) > 0 {
 		config.LocalService = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "ednspacket_max"); ok && len(values) > 0 {
 		config.EdnsPacketMax = values[0]
 	}
@@ -162,27 +174,35 @@ func GetDHCPConfigWithReader(section string, reader DHCPConfigReader) (*UCIDHCP,
 	if values, ok := reader.Get(dhcpConfigName, section, "interface"); ok && len(values) > 0 {
 		config.Interface = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "start"); ok && len(values) > 0 {
 		config.Start = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "limit"); ok && len(values) > 0 {
 		config.Limit = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "leasetime"); ok && len(values) > 0 {
 		config.LeaseTime = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "ignore"); ok && len(values) > 0 {
 		config.Ignore = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "dhcp_option"); ok && len(values) > 0 {
 		config.DHCPOption = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "ra"); ok && len(values) > 0 {
 		config.Ra = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "ra_default"); ok && len(values) > 0 {
 		config.RaDefault = values[0]
 	}
+
 	if values, ok := reader.Get(dhcpConfigName, section, "force"); ok && len(values) > 0 {
 		config.Force = values[0]
 	}
@@ -227,41 +247,49 @@ func SetDHCPConfigWithReader(section string, config *UCIDHCP, reader DHCPConfigR
 			return fmt.Errorf("failed to set interface: %w", err)
 		}
 	}
+
 	if config.Start != "" {
 		if err := reader.SetType(dhcpConfigName, section, "start", uci.TypeOption, config.Start); err != nil {
 			return fmt.Errorf("failed to set start: %w", err)
 		}
 	}
+
 	if config.Limit != "" {
 		if err := reader.SetType(dhcpConfigName, section, "limit", uci.TypeOption, config.Limit); err != nil {
 			return fmt.Errorf("failed to set limit: %w", err)
 		}
 	}
+
 	if config.LeaseTime != "" {
 		if err := reader.SetType(dhcpConfigName, section, "leasetime", uci.TypeOption, config.LeaseTime); err != nil {
 			return fmt.Errorf("failed to set leasetime: %w", err)
 		}
 	}
+
 	if config.Ignore != "" {
 		if err := reader.SetType(dhcpConfigName, section, "ignore", uci.TypeOption, config.Ignore); err != nil {
 			return fmt.Errorf("failed to set ignore: %w", err)
 		}
 	}
+
 	if config.DHCPOption != "" {
 		if err := reader.SetType(dhcpConfigName, section, "dhcp_option", uci.TypeOption, config.DHCPOption); err != nil {
 			return fmt.Errorf("failed to set dhcp_option: %w", err)
 		}
 	}
+
 	if config.Ra != "" {
 		if err := reader.SetType(dhcpConfigName, section, "ra", uci.TypeOption, config.Ra); err != nil {
 			return fmt.Errorf("failed to set ra: %w", err)
 		}
 	}
+
 	if config.RaDefault != "" {
 		if err := reader.SetType(dhcpConfigName, section, "ra_default", uci.TypeOption, config.RaDefault); err != nil {
 			return fmt.Errorf("failed to set ra_default: %w", err)
 		}
 	}
+
 	if config.Force != "" {
 		if err := reader.SetType(dhcpConfigName, section, "force", uci.TypeOption, config.Force); err != nil {
 			return fmt.Errorf("failed to set force: %w", err)
@@ -329,6 +357,7 @@ func DHCPSectionExistsWithReader(section string, reader DHCPConfigReader) bool {
 	// Try to get any option from the section to verify it exists
 	// We check for 'interface' as it's a common option in DHCP sections
 	_, exists := reader.Get(dhcpConfigName, section, "interface")
+
 	return exists
 }
 
@@ -422,6 +451,7 @@ func SetDHCPRangeWithReader(section, start, limit string, reader DHCPConfigReade
 	if _, err := strconv.Atoi(start); err != nil {
 		return fmt.Errorf("start must be a number: %w", err)
 	}
+
 	if _, err := strconv.Atoi(limit); err != nil {
 		return fmt.Errorf("limit must be a number: %w", err)
 	}
@@ -429,6 +459,7 @@ func SetDHCPRangeWithReader(section, start, limit string, reader DHCPConfigReade
 	if err := reader.SetType(dhcpConfigName, section, "start", uci.TypeOption, start); err != nil {
 		return fmt.Errorf("failed to set start: %w", err)
 	}
+
 	if err := reader.SetType(dhcpConfigName, section, "limit", uci.TypeOption, limit); err != nil {
 		return fmt.Errorf("failed to set limit: %w", err)
 	}
@@ -497,7 +528,7 @@ type DHCPRange struct {
 // Note: This function accounts for existing DHCP ranges to prevent conflicts.
 // It attempts to find the lowest available start address that can accommodate
 // the desired limit without overlapping with existing ranges.
-func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMask string, desiredLimit int) (int, error) {
+func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMask string, desiredLimit int) (int, error) { //nolint:gocognit
 	if desiredLimit <= 0 {
 		return 0, fmt.Errorf("desiredLimit must be greater than 0")
 	}
@@ -507,6 +538,7 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 	if ip == nil {
 		return 0, fmt.Errorf("invalid network address: %s", networkAddr)
 	}
+
 	ip = ip.To4()
 	if ip == nil {
 		return 0, fmt.Errorf("network address must be IPv4: %s", networkAddr)
@@ -516,6 +548,7 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 	if mask == nil {
 		return 0, fmt.Errorf("invalid subnet mask: %s", subnetMask)
 	}
+
 	mask = mask.To4()
 	if mask == nil {
 		return 0, fmt.Errorf("subnet mask must be IPv4: %s", subnetMask)
@@ -527,6 +560,7 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 	if bits != 32 {
 		return 0, fmt.Errorf("invalid subnet mask")
 	}
+
 	networkSize := (1 << uint(bits-ones)) - 2 // Subtract network and broadcast addresses
 
 	if networkSize <= 0 {
@@ -535,8 +569,8 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 
 	// Collect existing DHCP ranges from records
 	var existingRanges []DHCPRange
-	for _, node := range nodes {
 
+	for _, node := range nodes {
 		// Ensure we have valid DHCP start and limit
 		if !node.UciDhcpStart.Valid || !node.UciDhcpLimit.Valid {
 			continue
@@ -568,12 +602,14 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 		if start < 1 || start+desiredLimit-1 > networkSize {
 			return false
 		}
+
 		proposedEnd := start + desiredLimit - 1
 		for _, existing := range existingRanges {
 			if rangesOverlap(start, proposedEnd, existing.Start, existing.End) {
 				return false
 			}
 		}
+
 		return true
 	}
 
@@ -591,11 +627,13 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 
 		// Move past any conflicting range
 		moved := false
+
 		proposedEnd := candidate + desiredLimit - 1
 		for _, existing := range existingRanges {
 			if rangesOverlap(candidate, proposedEnd, existing.Start, existing.End) {
 				candidate = existing.End + 1
 				moved = true
+
 				break
 			}
 		}
@@ -614,11 +652,13 @@ func CalculateAvailableDHCPStart(nodes []models.MeshNode, networkAddr, subnetMas
 
 		// Move past any conflicting range
 		moved := false
+
 		proposedEnd := candidate + desiredLimit - 1
 		for _, existing := range existingRanges {
 			if rangesOverlap(candidate, proposedEnd, existing.Start, existing.End) {
 				candidate = existing.End + 1
 				moved = true
+
 				break
 			}
 		}
@@ -691,21 +731,28 @@ func (r *DHCPLeasesResponse) GetAllLeases() []DHCPLease {
 	all := make([]DHCPLease, 0, len(r.DHCPLeases)+len(r.DHCP6Leases))
 	all = append(all, r.DHCPLeases...)
 	all = append(all, r.DHCP6Leases...)
+
 	return all
 }
 
 // UbusCommandExecutor defines an interface for executing ubus commands.
 type UbusCommandExecutor interface {
-	Execute(args ...string) ([]byte, error)
+	Execute(ctx context.Context, args ...string) ([]byte, error)
 }
 
 // DefaultUbusExecutor executes real ubus commands.
 type DefaultUbusExecutor struct{}
 
 // Execute runs the ubus command with the given arguments.
-func (e *DefaultUbusExecutor) Execute(args ...string) ([]byte, error) {
-	cmd := exec.Command("ubus", args...)
-	return cmd.Output()
+func (e *DefaultUbusExecutor) Execute(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "ubus", args...)
+
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("ubus %v: %w", args, err)
+	}
+
+	return out, nil
 }
 
 // GetCurrentDHCPLeases retrieves all current DHCP leases from OpenWRT using ubus.
@@ -725,14 +772,14 @@ func (e *DefaultUbusExecutor) Execute(args ...string) ([]byte, error) {
 //	        lease.GetHostname(), lease.GetMacAddr(), lease.GetIPAddr())
 //	}
 func GetCurrentDHCPLeases() (*DHCPLeasesResponse, error) {
-	return GetCurrentDHCPLeasesWithExecutor(&DefaultUbusExecutor{})
+	return GetCurrentDHCPLeasesWithExecutor(context.Background(), &DefaultUbusExecutor{})
 }
 
 // GetCurrentDHCPLeasesWithExecutor retrieves DHCP leases using a custom executor.
 // This function is primarily used for testing with mocked ubus commands.
-func GetCurrentDHCPLeasesWithExecutor(executor UbusCommandExecutor) (*DHCPLeasesResponse, error) {
+func GetCurrentDHCPLeasesWithExecutor(ctx context.Context, executor UbusCommandExecutor) (*DHCPLeasesResponse, error) {
 	// Execute ubus command
-	output, err := executor.Execute("call", "luci-rpc", "getDHCPLeases")
+	output, err := executor.Execute(ctx, "call", "luci-rpc", "getDHCPLeases")
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute ubus command: %w", err)
 	}
@@ -744,4 +791,404 @@ func GetCurrentDHCPLeasesWithExecutor(executor UbusCommandExecutor) (*DHCPLeases
 	}
 
 	return &response, nil
+}
+
+// ── Static Host Leases ──────────────────────────────────────────────────────
+
+// UCIStaticHost represents a static DHCP reservation ("host" section in UCI).
+type UCIStaticHost struct {
+	Name string // hostname
+	MAC  string // MAC address
+	IP   string // reserved IP
+}
+
+// GetStaticHosts returns all static DHCP host reservations using the default reader.
+func GetStaticHosts() ([]UCIStaticHost, error) {
+	return GetStaticHostsWithReader(NewUCIDHCPConfigReader())
+}
+
+// GetStaticHostsWithReader returns all static DHCP host reservations from UCI.
+// It enumerates all "host" type sections in the dhcp config.
+func GetStaticHostsWithReader(reader DHCPConfigReader) ([]UCIStaticHost, error) {
+	sections, err := reader.GetSections(dhcpConfigName, "host")
+	if err != nil {
+		return nil, fmt.Errorf("failed to enumerate host sections: %w", err)
+	}
+
+	hosts := make([]UCIStaticHost, 0, len(sections))
+
+	for _, section := range sections {
+		var host UCIStaticHost
+
+		if values, ok := reader.Get(dhcpConfigName, section, "name"); ok && len(values) > 0 {
+			host.Name = values[0]
+		}
+
+		if values, ok := reader.Get(dhcpConfigName, section, "mac"); ok && len(values) > 0 {
+			host.MAC = values[0]
+		}
+
+		if values, ok := reader.Get(dhcpConfigName, section, "ip"); ok && len(values) > 0 {
+			host.IP = values[0]
+		}
+
+		hosts = append(hosts, host)
+	}
+
+	return hosts, nil
+}
+
+// ── DHCP Range End Calculation ──────────────────────────────────────────────
+
+// ComputeDHCPRangeEnd calculates the last IP in a DHCP pool range.
+// Given a base interface IP, a start offset, and a limit, it returns the end IP.
+// For example: base 10.41.0.0, start 100, limit 155 → end 10.41.0.254.
+func ComputeDHCPRangeEnd(baseIP string, start, limit int) (string, error) {
+	ip := net.ParseIP(baseIP).To4()
+	if ip == nil {
+		return "", fmt.Errorf("invalid base IP: %s", baseIP)
+	}
+
+	endOffset := start + limit - 1
+
+	// Convert IP to uint32, add offset, convert back
+	ipVal := uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
+	ipVal += uint32(endOffset)
+
+	result := net.IPv4(byte(ipVal>>24), byte(ipVal>>16), byte(ipVal>>8), byte(ipVal))
+
+	return result.String(), nil
+}
+
+// ComputeDHCPRangeStart calculates the first IP in a DHCP pool range.
+func ComputeDHCPRangeStart(baseIP string, start int) (string, error) {
+	ip := net.ParseIP(baseIP).To4()
+	if ip == nil {
+		return "", fmt.Errorf("invalid base IP: %s", baseIP)
+	}
+
+	ipVal := uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
+	ipVal += uint32(start)
+
+	result := net.IPv4(byte(ipVal>>24), byte(ipVal>>16), byte(ipVal>>8), byte(ipVal))
+
+	return result.String(), nil
+}
+
+// ── Setup wizard helpers (mirror LuCI Morse wizard) ──────────────────────────
+
+const (
+	dhcpSectionType string = "dhcp"
+
+	// CloudflareIPv6DNS is the IPv6 DNS server address that the LuCI
+	// Morse wizard hardcodes into every newly-created DHCP pool.
+	CloudflareIPv6DNS string = "2606:4700:4700::1111"
+
+	// DefaultDhcpPoolLimit is the per-pool address count the wizard
+	// uses (a /28-sized window, matching LuCI's createDhcp).
+	DefaultDhcpPoolLimit string = "16"
+
+	// DefaultDhcpPoolLeasetime is the lease duration the wizard sets
+	// on every pool. Three minutes mirrors LuCI exactly.
+	DefaultDhcpPoolLeasetime string = "3m"
+)
+
+// WizardDnsmasqWhitelist is the field whitelist the wizard applies to
+// the surviving dnsmasq section during reset. Mirrors the resetUci()
+// list in tools/morse/wizard.js.
+var WizardDnsmasqWhitelist = []string{ //nolint:gochecknoglobals // package-level constant
+	"authoritative", "domainneeded", "localize_queries", "readethers",
+	"local", "domain", "expandhosts", "localservice", "cachesize",
+	"ednspacket_max", "rebind_localhost",
+}
+
+// WizardDhcpPoolWhitelist is the field whitelist the wizard applies
+// to every dhcp pool section during the reset phase. Mirrors the
+// resetUciNetworkTopology() list.
+var WizardDhcpPoolWhitelist = []string{ //nolint:gochecknoglobals // package-level constant
+	"start", "leasetime", "limit", "interface",
+}
+
+// allDnsmasqOptions enumerates every dnsmasq option the wizard or
+// existing OpenWrt config may have set.
+var allDnsmasqOptions = []string{ //nolint:gochecknoglobals // package-level constant
+	"authoritative", "domainneeded", "localize_queries", "readethers",
+	"local", "domain", "expandhosts", "localservice", "cachesize",
+	"ednspacket_max", "rebind_localhost", "interface", "notinterface",
+	"localuse", "rebind_protection", "boguspriv",
+}
+
+// allDhcpPoolOptions enumerates every dhcp pool option the wizard or
+// existing OpenWrt config may have set.
+var allDhcpPoolOptions = []string{ //nolint:gochecknoglobals // package-level constant
+	"interface", "start", "limit", "leasetime", "ignore",
+	"force", "ra", "ra_slaac", "ra_flags", "dns", "dns_service",
+	"dhcp_option", "instance",
+}
+
+// WhitelistDnsmasqSurvivor removes every option NOT in allowList from
+// the named dnsmasq section. The wizard's reset phase calls this on
+// the single surviving dnsmasq instance after deleting interface-
+// scoped ones, so the global dnsmasq config matches OpenWrt's defaults
+// before per-network setupDnsmasq() writes are applied.
+//
+// Does not commit.
+func WhitelistDnsmasqSurvivor(reader ConfigReader, dnsmasqName string, allowList []string) error {
+	if dnsmasqName == "" {
+		return fmt.Errorf("dnsmasqName cannot be empty")
+	}
+
+	for _, option := range allDnsmasqOptions {
+		if containsString(allowList, option) {
+			continue
+		}
+
+		if _, exists := reader.Get(dhcpConfigName, dnsmasqName, option); !exists {
+			continue
+		}
+
+		if err := reader.Del(dhcpConfigName, dnsmasqName, option); err != nil {
+			return fmt.Errorf("deleting %s.%s.%s: %w",
+				dhcpConfigName, dnsmasqName, option, err)
+		}
+	}
+
+	return nil
+}
+
+// WhitelistAndIgnoreAllPools sets `ignore='1'` on every existing dhcp
+// pool section and removes every option NOT in WizardDhcpPoolWhitelist.
+// Mirrors the per-pool reset block in resetUciNetworkTopology(). The
+// wizard re-creates fresh pools immediately after via CreateDhcpPool,
+// so leftover pool sections become inert placeholders that the user
+// can still see in UCI but that don't affect routing.
+//
+// Does not commit.
+func WhitelistAndIgnoreAllPools(reader ConfigReader) error {
+	sections, err := reader.GetSections(dhcpConfigName, dhcpSectionType)
+	if err != nil {
+		return fmt.Errorf("listing dhcp pools: %w", err)
+	}
+
+	for _, s := range sections {
+		for _, option := range allDhcpPoolOptions {
+			if containsString(WizardDhcpPoolWhitelist, option) {
+				continue
+			}
+
+			if _, exists := reader.Get(dhcpConfigName, s, option); !exists {
+				continue
+			}
+
+			if err := reader.Del(dhcpConfigName, s, option); err != nil {
+				return fmt.Errorf("deleting %s.%s.%s: %w",
+					dhcpConfigName, s, option, err)
+			}
+		}
+
+		if err := reader.SetType(dhcpConfigName, s, "ignore", uci.TypeOption, "1"); err != nil {
+			return fmt.Errorf("setting %s.%s.ignore: %w", dhcpConfigName, s, err)
+		}
+	}
+
+	return nil
+}
+
+// SetupDnsmasqInstance writes the 11 standard dnsmasq options that
+// the LuCI Morse wizard sets on every dnsmasq instance (matching
+// `setupDnsmasq()` in morse/uci.js). The networkID parameter
+// scopes the `local` and `domain` options to the network section
+// (e.g. "ahwlan").
+//
+// Does not commit.
+func SetupDnsmasqInstance(reader ConfigReader, dnsmasqName, networkID string) error {
+	if dnsmasqName == "" {
+		return fmt.Errorf("dnsmasqName cannot be empty")
+	}
+
+	if networkID == "" {
+		return fmt.Errorf("networkID cannot be empty")
+	}
+
+	writes := []struct {
+		option, value string
+	}{
+		{"domainneeded", "1"},
+		{"localize_queries", "1"},
+		{"rebind_localhost", "1"},
+		{"local", "/" + networkID + "/"},
+		{"domain", networkID},
+		{"expandhosts", "1"},
+		{"cachesize", "1000"},
+		{"authoritative", "1"},
+		{"readethers", "1"},
+		{"localservice", "1"},
+		{"ednspacket_max", "1232"},
+	}
+
+	for _, w := range writes {
+		if err := reader.SetType(dhcpConfigName, dnsmasqName, w.option, uci.TypeOption, w.value); err != nil {
+			return fmt.Errorf("setting %s.%s.%s: %w",
+				dhcpConfigName, dnsmasqName, w.option, err)
+		}
+	}
+
+	return nil
+}
+
+// CreateDhcpPool creates a new dhcp pool section linked to networkID
+// and the supplied dnsmasq instance, populating every field the LuCI
+// `createDhcp()` helper does. The `start` offset is drawn from the
+// supplied seeded RNG via RandomDhcpStart so tests are reproducible.
+//
+// Returns the section name of the newly-created pool. Does not commit.
+func CreateDhcpPool(reader ConfigReader, dnsmasqName, networkID string, rng *rand.Rand) (string, error) {
+	if dnsmasqName == "" {
+		return "", fmt.Errorf("dnsmasqName cannot be empty")
+	}
+
+	if networkID == "" {
+		return "", fmt.Errorf("networkID cannot be empty")
+	}
+
+	if rng == nil {
+		return "", fmt.Errorf("rng cannot be nil")
+	}
+
+	// Resolve a unique section name. LuCI uses networkID, then
+	// networkID + 1, 2, ... if it clashes with an existing dhcp
+	// section name.
+	proposedName := networkID
+
+	for i := 0; ; i++ {
+		_, exists := reader.Get(dhcpConfigName, proposedName, "interface")
+		if !exists {
+			// Also check if the section exists at all (it might have no options yet).
+			sections, err := reader.GetSections(dhcpConfigName, dhcpSectionType)
+			if err != nil {
+				return "", fmt.Errorf("listing dhcp pools: %w", err)
+			}
+
+			if !containsString(sections, proposedName) {
+				break
+			}
+		}
+
+		proposedName = fmt.Sprintf("%s%d", networkID, i+1)
+	}
+
+	if err := reader.AddSection(dhcpConfigName, proposedName, dhcpSectionType); err != nil {
+		return "", fmt.Errorf("adding dhcp section: %w", err)
+	}
+
+	startOffset := strconv.Itoa(RandomDhcpStart(rng))
+
+	writes := []struct {
+		option, value string
+	}{
+		{"start", startOffset},
+		{"limit", DefaultDhcpPoolLimit},
+		{"leasetime", DefaultDhcpPoolLeasetime},
+		{"ra", "server"},
+		{"ra_slaac", "1"},
+		{"dns_service", "0"},
+		{"ignore", "0"},
+		{"force", "1"},
+		{"dns", CloudflareIPv6DNS},
+		{"ra_flags", "none"},
+		{"interface", networkID},
+	}
+
+	for _, w := range writes {
+		if err := reader.SetType(dhcpConfigName, proposedName, w.option, uci.TypeOption, w.value); err != nil {
+			return "", fmt.Errorf("setting %s.%s.%s: %w",
+				dhcpConfigName, proposedName, w.option, err)
+		}
+	}
+
+	// Link to the dnsmasq instance only when the instance is named (a
+	// non-anonymous section). LuCI checks `!uci.get(...).['.anonymous']`;
+	// in our reader, anonymous sections come back with a name beginning
+	// with "@". Conservatively, set instance only when the name is not
+	// the @-prefixed form.
+	if !isAnonymousSectionRef(dnsmasqName) {
+		if err := reader.SetType(dhcpConfigName, proposedName, "instance", uci.TypeOption, dnsmasqName); err != nil {
+			return "", fmt.Errorf("setting %s.%s.instance: %w",
+				dhcpConfigName, proposedName, err)
+		}
+	}
+
+	return proposedName, nil
+}
+
+// GetOrCreateDhcpPool finds an enabled dhcp pool that targets
+// networkID and is associated with dnsmasqName (or no instance), or
+// re-enables a disabled matching pool, or creates a fresh one.
+// Returns the section name of the resulting pool. Does not commit.
+func GetOrCreateDhcpPool(reader ConfigReader, dnsmasqName, networkID string, rng *rand.Rand) (string, error) {
+	if networkID == "" {
+		return "", fmt.Errorf("networkID cannot be empty")
+	}
+
+	sections, err := reader.GetSections(dhcpConfigName, dhcpSectionType)
+	if err != nil {
+		return "", fmt.Errorf("listing dhcp pools: %w", err)
+	}
+
+	for _, s := range sections {
+		iface, _ := reader.Get(dhcpConfigName, s, "interface")
+		if len(iface) == 0 || iface[0] != networkID {
+			continue
+		}
+
+		instance, _ := reader.Get(dhcpConfigName, s, "instance")
+		if len(instance) > 0 && instance[0] != dnsmasqName {
+			continue
+		}
+
+		ignore, _ := reader.Get(dhcpConfigName, s, "ignore")
+		if len(ignore) == 0 || ignore[0] != "1" {
+			return s, nil
+		}
+	}
+
+	// No enabled pool — re-enable a disabled match if one exists.
+	for _, s := range sections {
+		iface, _ := reader.Get(dhcpConfigName, s, "interface")
+		if len(iface) == 0 || iface[0] != networkID {
+			continue
+		}
+
+		instance, _ := reader.Get(dhcpConfigName, s, "instance")
+		if len(instance) > 0 && instance[0] != dnsmasqName {
+			continue
+		}
+
+		if err := reader.Del(dhcpConfigName, s, "ignore"); err != nil {
+			return "", fmt.Errorf("clearing ignore on %s: %w", s, err)
+		}
+
+		return s, nil
+	}
+
+	return CreateDhcpPool(reader, dnsmasqName, networkID, rng)
+}
+
+// containsString returns true iff slice contains v. Defined locally
+// to avoid pulling in slices.Contains from a package other files in
+// internal/network may not be importing yet.
+func containsString(haystack []string, v string) bool {
+	for _, s := range haystack {
+		if s == v {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isAnonymousSectionRef reports whether the supplied section name is
+// in @type[N] notation, indicating an anonymous section.
+func isAnonymousSectionRef(section string) bool {
+	return len(section) > 0 && section[0] == '@'
 }

@@ -17,6 +17,7 @@ import (
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	io "io"
 	math "math"
+	unsafe "unsafe"
 )
 
 const (
@@ -36,6 +37,7 @@ func (m *ServiceStatus) CloneVT() *ServiceStatus {
 	r.ActiveMeshInterfaces = m.ActiveMeshInterfaces
 	r.IsMeshGateway = m.IsMeshGateway
 	r.Position = m.Position.CloneVT()
+	r.SelectedGatewayMac = m.SelectedGatewayMac
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -67,11 +69,11 @@ func (m *Position) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
-func (m *ServiceStatusResponse) CloneVT() *ServiceStatusResponse {
+func (m *GetServiceStatusResponse) CloneVT() *GetServiceStatusResponse {
 	if m == nil {
-		return (*ServiceStatusResponse)(nil)
+		return (*GetServiceStatusResponse)(nil)
 	}
-	r := new(ServiceStatusResponse)
+	r := new(GetServiceStatusResponse)
 	r.Status = m.Status.CloneVT()
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
@@ -80,7 +82,7 @@ func (m *ServiceStatusResponse) CloneVT() *ServiceStatusResponse {
 	return r
 }
 
-func (m *ServiceStatusResponse) CloneMessageVT() proto.Message {
+func (m *GetServiceStatusResponse) CloneMessageVT() proto.Message {
 	return m.CloneVT()
 }
 
@@ -103,6 +105,9 @@ func (this *ServiceStatus) EqualVT(that *ServiceStatus) bool {
 		return false
 	}
 	if !this.Position.EqualVT(that.Position) {
+		return false
+	}
+	if this.SelectedGatewayMac != that.SelectedGatewayMac {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -143,7 +148,7 @@ func (this *Position) EqualMessageVT(thatMsg proto.Message) bool {
 	}
 	return this.EqualVT(that)
 }
-func (this *ServiceStatusResponse) EqualVT(that *ServiceStatusResponse) bool {
+func (this *GetServiceStatusResponse) EqualVT(that *GetServiceStatusResponse) bool {
 	if this == that {
 		return true
 	} else if this == nil || that == nil {
@@ -155,8 +160,8 @@ func (this *ServiceStatusResponse) EqualVT(that *ServiceStatusResponse) bool {
 	return string(this.unknownFields) == string(that.unknownFields)
 }
 
-func (this *ServiceStatusResponse) EqualMessageVT(thatMsg proto.Message) bool {
-	that, ok := thatMsg.(*ServiceStatusResponse)
+func (this *GetServiceStatusResponse) EqualMessageVT(thatMsg proto.Message) bool {
+	that, ok := thatMsg.(*GetServiceStatusResponse)
 	if !ok {
 		return false
 	}
@@ -173,7 +178,7 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type StatusServiceClient interface {
 	// Retrieves the current status of the OpenMANET service.
-	GetServiceStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ServiceStatusResponse, error)
+	GetServiceStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetServiceStatusResponse, error)
 }
 
 type statusServiceClient struct {
@@ -184,8 +189,8 @@ func NewStatusServiceClient(cc grpc.ClientConnInterface) StatusServiceClient {
 	return &statusServiceClient{cc}
 }
 
-func (c *statusServiceClient) GetServiceStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ServiceStatusResponse, error) {
-	out := new(ServiceStatusResponse)
+func (c *statusServiceClient) GetServiceStatus(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetServiceStatusResponse, error) {
+	out := new(GetServiceStatusResponse)
 	err := c.cc.Invoke(ctx, "/openmanet.service.v1.StatusService/GetServiceStatus", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -198,7 +203,7 @@ func (c *statusServiceClient) GetServiceStatus(ctx context.Context, in *emptypb.
 // for forward compatibility
 type StatusServiceServer interface {
 	// Retrieves the current status of the OpenMANET service.
-	GetServiceStatus(context.Context, *emptypb.Empty) (*ServiceStatusResponse, error)
+	GetServiceStatus(context.Context, *emptypb.Empty) (*GetServiceStatusResponse, error)
 	mustEmbedUnimplementedStatusServiceServer()
 }
 
@@ -206,7 +211,7 @@ type StatusServiceServer interface {
 type UnimplementedStatusServiceServer struct {
 }
 
-func (UnimplementedStatusServiceServer) GetServiceStatus(context.Context, *emptypb.Empty) (*ServiceStatusResponse, error) {
+func (UnimplementedStatusServiceServer) GetServiceStatus(context.Context, *emptypb.Empty) (*GetServiceStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetServiceStatus not implemented")
 }
 func (UnimplementedStatusServiceServer) mustEmbedUnimplementedStatusServiceServer() {}
@@ -285,6 +290,13 @@ func (m *ServiceStatus) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.SelectedGatewayMac) > 0 {
+		i -= len(m.SelectedGatewayMac)
+		copy(dAtA[i:], m.SelectedGatewayMac)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.SelectedGatewayMac)))
+		i--
+		dAtA[i] = 0x32
 	}
 	if m.Position != nil {
 		size, err := m.Position.MarshalToSizedBufferVT(dAtA[:i])
@@ -385,7 +397,7 @@ func (m *Position) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *ServiceStatusResponse) MarshalVT() (dAtA []byte, err error) {
+func (m *GetServiceStatusResponse) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -398,12 +410,12 @@ func (m *ServiceStatusResponse) MarshalVT() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ServiceStatusResponse) MarshalToVT(dAtA []byte) (int, error) {
+func (m *GetServiceStatusResponse) MarshalToVT(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVT(dAtA[:size])
 }
 
-func (m *ServiceStatusResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+func (m *GetServiceStatusResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -457,6 +469,13 @@ func (m *ServiceStatus) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.SelectedGatewayMac) > 0 {
+		i -= len(m.SelectedGatewayMac)
+		copy(dAtA[i:], m.SelectedGatewayMac)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.SelectedGatewayMac)))
+		i--
+		dAtA[i] = 0x32
 	}
 	if m.Position != nil {
 		size, err := m.Position.MarshalToSizedBufferVTStrict(dAtA[:i])
@@ -557,7 +576,7 @@ func (m *Position) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *ServiceStatusResponse) MarshalVTStrict() (dAtA []byte, err error) {
+func (m *GetServiceStatusResponse) MarshalVTStrict() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -570,12 +589,12 @@ func (m *ServiceStatusResponse) MarshalVTStrict() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ServiceStatusResponse) MarshalToVTStrict(dAtA []byte) (int, error) {
+func (m *GetServiceStatusResponse) MarshalToVTStrict(dAtA []byte) (int, error) {
 	size := m.SizeVT()
 	return m.MarshalToSizedBufferVTStrict(dAtA[:size])
 }
 
-func (m *ServiceStatusResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
+func (m *GetServiceStatusResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -622,6 +641,10 @@ func (m *ServiceStatus) SizeVT() (n int) {
 		l = m.Position.SizeVT()
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
+	l = len(m.SelectedGatewayMac)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -648,7 +671,7 @@ func (m *Position) SizeVT() (n int) {
 	return n
 }
 
-func (m *ServiceStatusResponse) SizeVT() (n int) {
+func (m *GetServiceStatusResponse) SizeVT() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -805,6 +828,38 @@ func (m *ServiceStatus) UnmarshalVT(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SelectedGatewayMac", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.SelectedGatewayMac = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -930,7 +985,7 @@ func (m *Position) UnmarshalVT(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ServiceStatusResponse) UnmarshalVT(dAtA []byte) error {
+func (m *GetServiceStatusResponse) UnmarshalVT(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -953,10 +1008,10 @@ func (m *ServiceStatusResponse) UnmarshalVT(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: ServiceStatusResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: GetServiceStatusResponse: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ServiceStatusResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: GetServiceStatusResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -1160,6 +1215,42 @@ func (m *ServiceStatus) UnmarshalVTUnsafe(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SelectedGatewayMac", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.SelectedGatewayMac = stringValue
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -1285,7 +1376,7 @@ func (m *Position) UnmarshalVTUnsafe(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ServiceStatusResponse) UnmarshalVTUnsafe(dAtA []byte) error {
+func (m *GetServiceStatusResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -1308,10 +1399,10 @@ func (m *ServiceStatusResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: ServiceStatusResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: GetServiceStatusResponse: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ServiceStatusResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: GetServiceStatusResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:

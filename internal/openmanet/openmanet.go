@@ -2,52 +2,63 @@ package openmanet
 
 import (
 	"context"
+	"io/fs"
+	"math/rand"
 	"net/http"
+	_ "net/http/pprof" //nolint:gosec
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/common-nighthawk/go-figure"
+	"github.com/openmanet/openmanetd/internal/auth"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/blos"
+	"github.com/openmanet/openmanetd/internal/comms"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database"
 	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/openmanet/openmanetd/internal/frontend"
 	"github.com/openmanet/openmanetd/internal/gpsd"
+	"github.com/openmanet/openmanetd/internal/instrumentation"
+	"github.com/openmanet/openmanetd/internal/logs"
 	"github.com/openmanet/openmanetd/internal/mgmt"
+	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server"
-	"github.com/openmanet/openmanetd/internal/ptt"
+	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
+	"github.com/openmanet/openmanetd/internal/system"
+	"github.com/openmanet/openmanetd/internal/sysupgrade"
+	"github.com/openmanet/openmanetd/internal/terminal"
+	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/openmanet/openmanetd/internal/util/logger"
 	"github.com/rs/zerolog"
 )
 
-func Start() {
+func Start(staticFS fs.FS) {
 	var (
-		ctx    = context.Background()
-		banner = figure.NewFigure("OpenMANET", "big", true)
-		c      = make(chan os.Signal, 1)
-		cfg    = config.New(nil)
-		log    = logger.InitLogging(ctx)
-		gps    *gpsd.GPSService
+		ctx, cancel = context.WithCancel(context.Background())
+		banner      = figure.NewFigure("OpenMANET", "big", true)
+		c           = make(chan os.Signal, 1)
+		cfg         = config.New(nil)
+		log         = logger.InitLogging(ctx)
+		gps         *gpsd.GPSService
+		manager     *mgmt.ManagementConfig
 	)
 
 	banner.Print()
+	applyRuntimeTuning(cfg, log)
 
-	ptt := ptt.NewPTT(ptt.PTTConfig{
-		Interupt:      c,
-		Log:           logger.GetLogger("ptt"),
-		Enable:        cfg.GetPTTEnable(),
-		Iface:         cfg.GetMeshNetInterface(),
-		McastAddr:     cfg.GetPTTMcastAddr(),
-		McastPort:     cfg.GetPTTMcastPort(),
-		PttKey:        cfg.GetPTTPttKey(),
-		Debug:         cfg.GetPTTDebug(),
-		Loopback:      cfg.GetPTTLoopback(),
-		PttDevice:     cfg.GetPTTPttDevice(),
-		PttDeviceName: cfg.GetPTTPttDeviceName(),
-	})
+	// Create Comms manager (always, so the API handler can use it even if comms is currently disabled)
+	commsManager := comms.NewCommsManager(cfg, logger.GetLogger("comms"))
 
-	ptt.Start()
+	if board.CommsSupported() && cfg.GetCommsEnable() {
+		if err := commsManager.Enable(); err != nil {
+			log.Error().Err(err).Msg("Failed to enable comms module")
+		}
+	} else if !board.CommsSupported() {
+		log.Warn().Msg("Current board does not support Comms features; skipping initialization of comms module")
+	}
 
 	// Establish database connection
 	db, err := database.NewConnection(ctx, logger.GetLogger("database"), cfg.GetDBFile())
@@ -62,7 +73,7 @@ func Start() {
 		}
 	}
 
-	if cfg.GetEnableGNSS() {
+	if cfg.GetEnableGNSS() && board.GNSSsupoorted() {
 		// Initialize and start GNSS module
 		gps, err = gpsd.NewGPSService(logger.GetLogger("gps"), cfg)
 		if err != nil {
@@ -71,23 +82,30 @@ func Start() {
 	}
 
 	// Initialize and start management module
-	mgmt := mgmt.NewManager(mgmt.ManagementConfig{
-		InteruptChan:               c,
-		Log:                        logger.GetLogger("mgmt"),
-		GPS:                        gps,
-		GatewayMode:                cfg.GetGatewayMode(),
-		AlfredMode:                 cfg.GetAlfredMode(),
-		IFace:                      cfg.GetMeshNetInterface(),
-		BatInterface:               cfg.GetAlfredBatInterface(),
-		SocketPath:                 cfg.GetAlfredSocketPath(),
-		GatewayDataType:            cfg.GetAlfredDataTypeGateway(),
-		NodeDataType:               cfg.GetAlfredDataTypeNode(),
-		PositionDataType:           cfg.GetAlfredDataTypePosition(),
-		AddressReservationDataType: cfg.GetAlfredDataTypeAddressReservation(),
-		DB:                         db,
-	})
+	if cfg.GetAlfredEnable() {
+		manager, err = mgmt.NewManager(mgmt.ManagementConfig{
+			Log:                        logger.GetLogger("mgmt"),
+			GPS:                        gps,
+			AlfredMode:                 cfg.GetAlfredMode(),
+			IFace:                      cfg.GetMeshNetInterface(),
+			BatInterface:               cfg.GetAlfredBatInterface(),
+			SocketPath:                 cfg.GetAlfredSocketPath(),
+			GatewayDataType:            cfg.GetAlfredDataTypeGateway(),
+			NodeDataType:               cfg.GetAlfredDataTypeNode(),
+			PositionDataType:           cfg.GetAlfredDataTypePosition(),
+			AddressReservationDataType: cfg.GetAlfredDataTypeAddressReservation(),
+			MeshNeighborsDataType:      cfg.GetAlfredDataTypeMeshNeighbors(),
+			BatmanMulticastForceflood:  cfg.GetBatmanMulticastForceflood(),
+			DB:                         db,
+		})
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to initialize management workers")
+		}
 
-	mgmt.Start()
+		manager.Start(ctx)
+	} else {
+		log.Info().Msg("Alfred integration disabled; skipping management workers")
+	}
 
 	// Clear the batman-adv hosts file on startup
 	// to remove any stale entries
@@ -98,20 +116,169 @@ func Start() {
 		log.Error().Err(err).Msg("Error clearing batman-adv hosts file on startup")
 	}
 
-	// Start API Server
-	api := server.NewAPIServer(server.APIServer{
-		Cfg:  cfg,
-		Wifi: mgmt.WirelessConfig,
-		Log:  logger.GetLogger("api"),
-		DB:   db,
-		GPS:  gps,
+	// Create BLOS manager (always, so the API handler can use it even if BLOS is currently disabled)
+	blosManager := blos.NewBLOSManager(cfg, logger.GetLogger("blos"))
+
+	// Construct the sysupgrade manager early so the instrumentation
+	// worker can register its snapshotter alongside comms/blos. The
+	// manager spawns no background goroutines on construction; the
+	// only goroutine it owns is the per-upgrade one created on
+	// StartUpgrade.
+	sysupgradeMgr := sysupgrade.NewManager(sysupgrade.Options{
+		Log:                 logger.GetLogger("sysupgrade"),
+		Repo:                "OpenMANET/firmware",
+		Board:               handlers.NewCachedBoardProvider(&handlers.DefaultBoardProvider{}),
+		Firmware:            handlers.NewCachedFirmwareProvider(&system.OpenWrtFirmwareProvider{}),
+		SysInfo:             &system.LinuxSysInfo{},
+		Capable:             &system.LinuxSysupgradeCapabilityProvider{},
+		Cache:               sysupgrade.NewDiskCache("/var/lib/openmanetd/sysupgrade-releases.json"),
+		Releases:            &sysupgrade.GitHubReleasesClient{Repo: "OpenMANET/firmware", Log: logger.GetLogger("sysupgrade-github")},
+		Runner:              &sysupgrade.ExecSysupgradeRunner{},
+		FactoryReset:        &sysupgrade.ExecFactoryResetRunner{},
+		FactoryResetCapable: &system.LinuxFactoryResetCapabilityProvider{},
+		DownloadDir:         "/tmp/openmanetd/sysupgrade",
+		PersistentLogDir:    "/etc/openmanetd/sysupgrade",
 	})
+
+	// Wire the instrumentation snapshot registry and conditionally spawn
+	// the periodic worker. The registry is always constructed (cheap) but
+	// the worker goroutine is only started when the config flag is true,
+	// so a disabled deployment pays nothing beyond the adapter structs.
+	startInstrumentationWorker(ctx, cfg, blosManager, sysupgradeMgr, log)
+
+	// BatctlSnapshotter owns one background goroutine that refreshes the
+	// outputs of batctl oj / nj / mj / gwj plus /tmp/bat-hosts every 5s.
+	// Every RPC handler that used to fork batctl per-request now reads
+	// from the shared cache via the snapshotter's typed accessors.
+	batctlSnapshotter := handlers.NewBatctlSnapshotter(
+		logger.GetLogger("batctl-snapshot"),
+		cfg.GetAlfredBatInterface(),
+		handlers.DefaultBatctlSnapshotInterval,
+	)
+	batctlSnapshotter.Start(ctx)
+
+	// SystemSnapshotter refreshes /proc/uptime, /proc/meminfo,
+	// /proc/loadavg, /overlay, and service PID files every 2s. Each
+	// Dashboard.GetDashboardStatus RPC used to re-open all of those
+	// synchronously; now they are read once per cycle and served from
+	// the cache to every concurrent caller.
+	sysSnapshotter := handlers.NewSystemSnapshotter(
+		logger.GetLogger("system-snapshot"),
+		&system.LinuxSysInfo{},
+		&system.InitDServiceChecker{},
+		system.DefaultMonitoredServices(),
+		handlers.DefaultSystemSnapshotInterval,
+	)
+	sysSnapshotter.Start(ctx)
+
+	// The topology provider enriches the cached originator list with
+	// bat-hosts + self-MAC + hop derivation for the RPC handler. Because
+	// the snapshotter implements OriginatorProvider, the `batctl oj` call
+	// is shared with every other handler.
+	meshOrigProvider := &batmanadv.BatctlOriginatorTopologyProvider{
+		Originators: batctlSnapshotter,
+	}
+
+	// Start the mesh-topology delta tracker. The tracker keeps a rolling
+	// snapshot ring so the MeshTopologyService.GetMeshTopologyDelta RPC
+	// can return churn metrics without re-shelling out per call. Exits
+	// on ctx cancellation.
+	meshDeltaTracker := handlers.NewDeltaTracker(
+		logger.GetLogger("mesh-delta"),
+		batctlSnapshotter,
+		batctlSnapshotter,
+		time.Duration(cfg.GetMeshTopologyDeltaSampleInterval())*time.Second,
+		cfg.GetMeshTopologyMaxDeltaSamples(),
+	)
+	meshDeltaTracker.Start(ctx)
+
+	// Mesh-neighbors gossip snapshotter: consumes MeshNeighbors records
+	// published by every node's mgmt.MeshNeighborsWorker and caches them
+	// for the topology handler's gossip-aware classifier. Shares the
+	// Alfred client opened by the management module so we don't open a
+	// second connection to the socket.
+	meshNeighborsSnap := startMeshNeighborsSnapshotter(ctx, cfg, manager)
+
+	// Set up session-based authentication when enabled.
+	var (
+		sessionStore  *auth.SessionStore
+		authenticator auth.Authenticator
+	)
+
+	if cfg.GetAuthEnable() {
+		sessionStore = auth.NewSessionStore(
+			time.Duration(cfg.GetAuthSessionMaxAgeSecs())*time.Second,
+			cfg.GetAuthSessionMaxSize(),
+		)
+		sessionStore.StartCleanup(ctx, 5*time.Minute)
+
+		authenticator = &auth.PAMAuthenticator{ServiceName: cfg.GetAuthPAMService()}
+		log.Info().Str("pamService", cfg.GetAuthPAMService()).Msg("authentication enabled")
+	}
+
+	// Start API Server
+	interfaceProvider := &network.NetlinkInterfaceProvider{}
+
+	// Setup wizard wiring: shared UCI reader (production wraps the
+	// default go-uci tree, so all six wizard configs are addressed
+	// through one reader). The snapshotter captures the raw file
+	// contents of /etc/config/{wireless,network,dhcp,firewall,system,
+	// mesh11sd} before phase 3 runs and restores them atomically on
+	// any failure between phases 3 and 12. The post-bricking
+	// restructure makes this load-bearing: without it, a phase-12
+	// commit failure leaves the device with a half-applied wizard
+	// state on disk that bricks the next boot.
+	setupReader := network.NewUCIWirelessConfigReader()
+	setupSnapshotter := newWizardSnapshotter(setupReader)
+	setupRNG := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	apiServer := server.APIServer{
+		Cfg:                   cfg,
+		Log:                   logger.GetLogger("api"),
+		DB:                    db,
+		GPS:                   gps,
+		BLOSManager:           blosManager,
+		Tailscale:             blosManager,
+		CommsManager:          commsManager,
+		MeshDeltaTracker:      meshDeltaTracker,
+		MeshOrigProvider:      meshOrigProvider,
+		MeshVisProvider:       batctlSnapshotter,
+		MeshNeighborsProvider: meshNeighborsSnap,
+		BatctlSnapshotter:     batctlSnapshotter,
+		SystemSnapshotter:     sysSnapshotter,
+		Logread:               &logs.LogreadProvider{},
+		Dmesg:                 &logs.DmesgProvider{},
+		Interfaces:            interfaceProvider,
+		DHCP: &network.UCIDHCPConfigProvider{
+			DHCPReader:    network.NewUCIDHCPConfigReader(),
+			NetworkReader: network.NewUCINetworkConfigReader(),
+		},
+		Leases: &network.UbusLeaseProvider{
+			Executor: &network.DefaultUbusExecutor{},
+		},
+		SessionStore:        sessionStore,
+		Authenticator:       authenticator,
+		Sysupgrade:          sysupgradeMgr,
+		AuthEnabled:         cfg.GetAuthEnable(),
+		SetupUCIReader:      setupReader,
+		SetupSnapshotter:    setupSnapshotter,
+		SetupPasswordSetter: &auth.ChpasswdSetter{},
+		SetupHostnameSetter: &handlers.DefaultHostnameSetter{Reader: setupReader},
+		SetupReloader:       &system.InitDReloader{},
+		SetupRNG:            setupRNG,
+	}
+
+	if manager != nil {
+		apiServer.Wifi = manager.WirelessConfig
+		interfaceProvider.WifiInterfaces = manager.WirelessConfig.Interfaces
+	}
+
+	api := server.NewAPIServer(apiServer)
+
 	log.Info().Msg("OpenMANETd API Server starting on port 8087")
 
-	if cfg.BLOSEnabled() {
-		// Initialize BLOS module
-		_, err := blos.NewBLOS(cfg, logger.GetLogger("blos"))
-		if err != nil {
+	if cfg.BLOSEnabled() && board.BLOSsupported() {
+		if err := blosManager.Enable(context.Background()); err != nil {
 			log.Fatal().Err(err).Msg("Failed to initialize BLOS module")
 		}
 	}
@@ -125,16 +292,165 @@ func Start() {
 			log.Fatal().Err(err).Msg("API Server failed")
 		}
 	}()
+
+	termMgr := buildTerminalManager(cfg, log)
+
+	frontendServer := frontend.NewFrontendServer(ctx, cfg, staticFS, sessionStore, cfg.GetAuthEnable(), termMgr)
+
+	go func() {
+		if err := frontendServer.Run(ctx); err != nil {
+			log.Error().Err(err).Msg("Frontend Server failed")
+		}
+	}()
+
+	// Block until we receive an interrupt signal, then gracefully shutdown.
 	<-c
 
-	api.Stop(ctx)
-	database.CloseConnection()
+	// Cancel context to signal all context-aware goroutines (mgmt workers, hub, etc.)
+	cancel()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+	_ = api.Stop(shutdownCtx)
+
+	shutdownCancel()
+
+	_ = database.CloseConnection()
+
+	commsManager.Disable()
+	blosManager.Disable()
+
 	if cfg.GetEnableGNSS() {
 		gps.Close()
 	}
 
 	log.Info().Msg("Exiting OpenMANETd")
 	os.Exit(0)
+}
+
+// startInstrumentationWorker constructs the instrumentation snapshot
+// registry, registers the comms and BLOS adapters, and starts the
+// periodic worker goroutine when the config flag is enabled. The
+// registry itself is cheap; only the worker has runtime cost. Errors
+// during setup are logged but never fatal — a misconfigured snapshot
+// subsystem must not prevent the daemon from serving traffic.
+func startInstrumentationWorker(ctx context.Context, cfg *config.Config, blosManager *blos.BLOSManager, sysupgradeMgr *sysupgrade.Manager, log zerolog.Logger) {
+	if !cfg.GetInstrumentationEnable() {
+		return
+	}
+
+	instrLog := logger.GetLogger("instrumentation")
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		instrLog.Warn().Err(err).Msg("instrumentation: failed to read hostname; leaving empty")
+
+		hostname = ""
+	}
+
+	reg := instrumentation.NewRegistry(instrumentation.Options{
+		Log:      instrLog,
+		Version:  "", // populated from build metadata when available
+		Hostname: hostname,
+	})
+
+	if err = reg.Register("comms", &comms.CommsSnapshotter{}); err != nil {
+		log.Error().Err(err).Msg("instrumentation: failed to register comms snapshotter")
+
+		return
+	}
+
+	if err = reg.Register("blos", &blos.BLOSSnapshotter{Manager: blosManager}); err != nil {
+		log.Error().Err(err).Msg("instrumentation: failed to register blos snapshotter")
+
+		return
+	}
+
+	if sysupgradeMgr != nil {
+		if err = reg.Register("sysupgrade", &sysupgrade.Snapshotter{Manager: sysupgradeMgr}); err != nil {
+			log.Error().Err(err).Msg("instrumentation: failed to register sysupgrade snapshotter")
+
+			return
+		}
+	}
+
+	worker, err := instrumentation.NewWorker(instrumentation.WorkerOptions{
+		Registry:       reg,
+		Interval:       time.Duration(cfg.GetInstrumentationIntervalSecs()) * time.Second,
+		OutputDir:      cfg.GetInstrumentationSnapshotDir(),
+		FilenamePrefix: "openmanetd-snapshot",
+		Log:            instrLog,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("instrumentation: failed to construct snapshot worker")
+
+		return
+	}
+
+	go worker.Run(ctx)
+}
+
+// buildTerminalManager constructs the web-terminal manager when the feature
+// is enabled in config, or returns nil when disabled. Returning nil signals
+// to the frontend handler that the route should answer 404.
+func buildTerminalManager(cfg *config.Config, log zerolog.Logger) *terminal.Manager {
+	if !cfg.GetTerminalEnable() {
+		return nil
+	}
+
+	if !cfg.GetAuthEnable() {
+		log.Warn().Msg("terminal: web terminal root shell is enabled while UI auth is disabled; anyone who can reach the UI has root")
+	}
+
+	tcfg := terminal.DefaultConfig()
+	tcfg.Shell = cfg.GetTerminalShell()
+
+	return terminal.New(log.With().Str("subsystem", "terminal").Logger(), tcfg)
+}
+
+// applyRuntimeTuning configures Go runtime parameters and optionally starts
+// the pprof debug endpoint based on the application configuration.
+func applyRuntimeTuning(cfg *config.Config, log zerolog.Logger) {
+	if cfg.GetDebugPprof() {
+		pprofAddr := cfg.GetDebugPprofAddress()
+
+		go func() {
+			log.Info().Str("addr", pprofAddr).Msg("pprof debug endpoint enabled")
+
+			if err := http.ListenAndServe(pprofAddr, nil); err != nil { //nolint:gosec
+				log.Error().Err(err).Msg("pprof server failed")
+			}
+		}()
+	}
+}
+
+// startMeshNeighborsSnapshotter constructs and starts the
+// MeshNeighborsSnapshotter when alfred is enabled and the manager has
+// produced a client. Returns a typed-nil-safe interface value (the
+// literal `nil`, not a typed nil pointer wrapped in an interface) so
+// the APIServer nil-check on the field behaves correctly.
+func startMeshNeighborsSnapshotter(
+	ctx context.Context,
+	cfg *config.Config,
+	manager *mgmt.ManagementConfig,
+) batmanadv.MeshNeighborsProvider {
+	if manager == nil || !cfg.GetAlfredDataTypeMeshNeighbors() {
+		return nil
+	}
+
+	alfredClient := manager.Client()
+	if alfredClient == nil {
+		return nil
+	}
+
+	snap := &batmanadv.MeshNeighborsSnapshotter{
+		Log:      logger.GetLogger("mesh-neighbors"),
+		Client:   alfredClient,
+		Interval: batmanadv.DefaultMeshNeighborsSnapshotInterval,
+	}
+	snap.Start(ctx)
+
+	return snap
 }
 
 func resetDBOnStart(ctx context.Context, db *models.Queries, log zerolog.Logger) error {

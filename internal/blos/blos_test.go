@@ -22,21 +22,20 @@ func TestBLOSWithStatusWorker(t *testing.T) {
 	logger := zerolog.Nop()
 
 	// Create mock status client
-	mockClient := &MockStatusClient{}
+	mockClient := &fakeStatusClient{}
 	mockStatus := createMockStatus()
 	mockClient.SetStatus(mockStatus)
 
 	// Create BLOS with a custom status worker for testing
 	r := &BLOS{
-		Config: cfg,
-		Logger: logger,
-		ctx:    context.Background(),
+		cfg:    cfg,
+		logger: logger,
 	}
 
 	// Initialize the status worker with our mock client
 	interval := time.Duration(cfg.GetBLOSStatusWorkerInterval()) * time.Second
 	r.statusWorker = NewStatusWorker(mockClient, interval, logger)
-	r.statusWorker.Start()
+	r.statusWorker.Start(context.Background())
 
 	// Give it time to fetch status
 	time.Sleep(100 * time.Millisecond)
@@ -65,6 +64,7 @@ func TestBLOSWithStatusWorker(t *testing.T) {
 	var testKey key.NodePublic
 	for k := range mockStatus.Peer {
 		testKey = k
+
 		break
 	}
 
@@ -72,6 +72,7 @@ func TestBLOSWithStatusWorker(t *testing.T) {
 	if !ok {
 		t.Error("Expected to find peer")
 	}
+
 	if peer == nil {
 		t.Error("Expected peer to be non-nil")
 	}
@@ -92,9 +93,8 @@ func TestBLOSGetPeersWhenWorkerIsNil(t *testing.T) {
 	logger := zerolog.Nop()
 
 	r := &BLOS{
-		Config:       cfg,
-		Logger:       logger,
-		ctx:          context.Background(),
+		cfg:          cfg,
+		logger:       logger,
 		statusWorker: nil, // Explicitly nil
 	}
 
@@ -109,6 +109,7 @@ func TestBLOSGetPeersWhenWorkerIsNil(t *testing.T) {
 	}
 
 	var testKey key.NodePublic
+
 	_, ok := r.GetPeer(testKey)
 	if ok {
 		t.Error("Expected GetPeer to return false when worker is nil")
@@ -148,10 +149,11 @@ func TestBLOSStatusWorkerInterval(t *testing.T) {
 			if tt.configInterval > 0 {
 				v.Set("BLOS.statusWorkerInterval", tt.configInterval)
 			}
+
 			cfg := config.New(v)
 			logger := zerolog.Nop()
 
-			mockClient := &MockStatusClient{}
+			mockClient := &fakeStatusClient{}
 			interval := time.Duration(cfg.GetBLOSStatusWorkerInterval()) * time.Second
 
 			if interval != tt.expectedInterval {
@@ -173,18 +175,18 @@ func TestBLOSConcurrentAccess(t *testing.T) {
 	cfg := config.New(v)
 	logger := zerolog.Nop()
 
-	mockClient := &MockStatusClient{}
+	mockClient := &fakeStatusClient{}
 	mockClient.SetStatus(createMockStatus())
 
 	r := &BLOS{
-		Config: cfg,
-		Logger: logger,
-		ctx:    context.Background(),
+		cfg:    cfg,
+		logger: logger,
 	}
 
 	interval := time.Duration(cfg.GetBLOSStatusWorkerInterval()) * time.Second
 	r.statusWorker = NewStatusWorker(mockClient, interval, logger)
-	r.statusWorker.Start()
+	r.statusWorker.Start(context.Background())
+
 	defer r.Stop()
 
 	// Wait for initial fetch
@@ -192,12 +194,14 @@ func TestBLOSConcurrentAccess(t *testing.T) {
 
 	// Spawn multiple goroutines accessing peer data
 	done := make(chan bool)
+
 	for i := 0; i < 10; i++ {
 		go func() {
 			for j := 0; j < 100; j++ {
 				_ = r.GetPeers()
 				_ = r.GetStatus()
 			}
+
 			done <- true
 		}()
 	}
@@ -206,6 +210,5 @@ func TestBLOSConcurrentAccess(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		<-done
 	}
-
 	// If we get here without panic, the test passes
 }

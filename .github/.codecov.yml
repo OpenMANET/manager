@@ -23,6 +23,7 @@ ignore:
   - "internal/alfred"
   - "cmd"
   - "main.go"
+  - "static.go"
 
 comment:
   layout: "diff, flags, files"

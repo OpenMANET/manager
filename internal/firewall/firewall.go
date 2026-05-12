@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 
@@ -27,9 +28,9 @@ type UCIFirewallZone struct {
 	Input   string   `uci:"option input"`
 	Output  string   `uci:"option output"`
 	Forward string   `uci:"option forward"`
-	Network []string `uci:"list network"`
 	Masq    string   `uci:"option masq"`
 	MtuFix  string   `uci:"option mtu_fix"`
+	Network []string `uci:"list network"`
 }
 
 // UCIFirewallForwarding represents a forwarding rule between zones.
@@ -49,9 +50,9 @@ type UCIFirewallRule struct {
 	SrcPort  string   `uci:"option src_port"`
 	Target   string   `uci:"option target"`
 	Family   string   `uci:"option family"`
-	IcmpType []string `uci:"list icmp_type"`
 	SrcIP    string   `uci:"option src_ip"`
 	Limit    string   `uci:"option limit"`
+	IcmpType []string `uci:"list icmp_type"`
 }
 
 // ConfigReader defines an interface for reading UCI configuration values.
@@ -128,23 +129,29 @@ func GetFirewallDefaults() (*UCIFirewallDefaults, error) {
 // GetFirewallDefaultsWithReader loads and returns the UCI firewall defaults using the provided reader.
 func GetFirewallDefaultsWithReader(reader ConfigReader) (*UCIFirewallDefaults, error) {
 	var config UCIFirewallDefaults
+
 	section := "defaults"
 
 	if values, ok := reader.Get(firewallConfigName, section, "input"); ok && len(values) > 0 {
 		config.Input = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, section, "output"); ok && len(values) > 0 {
 		config.Output = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, section, "forward"); ok && len(values) > 0 {
 		config.Forward = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, section, "synflood_protect"); ok && len(values) > 0 {
 		config.SynfloodProtect = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, section, "disable_ipv6"); ok && len(values) > 0 {
 		config.DisableIPV6 = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, section, "drop_invalid"); ok && len(values) > 0 {
 		config.DropInvalid = values[0]
 	}
@@ -188,26 +195,31 @@ func SetFirewallDefaultsWithReader(config *UCIFirewallDefaults, reader ConfigRea
 			return fmt.Errorf("failed to set input: %w", err)
 		}
 	}
+
 	if config.Output != "" {
 		if err := reader.SetType(firewallConfigName, section, "output", uci.TypeOption, config.Output); err != nil {
 			return fmt.Errorf("failed to set output: %w", err)
 		}
 	}
+
 	if config.Forward != "" {
 		if err := reader.SetType(firewallConfigName, section, "forward", uci.TypeOption, config.Forward); err != nil {
 			return fmt.Errorf("failed to set forward: %w", err)
 		}
 	}
+
 	if config.SynfloodProtect != "" {
 		if err := reader.SetType(firewallConfigName, section, "synflood_protect", uci.TypeOption, config.SynfloodProtect); err != nil {
 			return fmt.Errorf("failed to set synflood_protect: %w", err)
 		}
 	}
+
 	if config.DisableIPV6 != "" {
 		if err := reader.SetType(firewallConfigName, section, "disable_ipv6", uci.TypeOption, config.DisableIPV6); err != nil {
 			return fmt.Errorf("failed to set disable_ipv6: %w", err)
 		}
 	}
+
 	if config.DropInvalid != "" {
 		if err := reader.SetType(firewallConfigName, section, "drop_invalid", uci.TypeOption, config.DropInvalid); err != nil {
 			return fmt.Errorf("failed to set drop_invalid: %w", err)
@@ -246,21 +258,27 @@ func GetFirewallZoneWithReader(name string, reader ConfigReader) (*UCIFirewallZo
 	if values, ok := reader.Get(firewallConfigName, name, "name"); ok && len(values) > 0 {
 		config.Name = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "input"); ok && len(values) > 0 {
 		config.Input = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "output"); ok && len(values) > 0 {
 		config.Output = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "forward"); ok && len(values) > 0 {
 		config.Forward = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "network"); ok {
 		config.Network = values
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "masq"); ok && len(values) > 0 {
 		config.Masq = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "mtu_fix"); ok && len(values) > 0 {
 		config.MtuFix = values[0]
 	}
@@ -307,31 +325,37 @@ func SetFirewallZoneWithReader(section string, config *UCIFirewallZone, reader C
 			return fmt.Errorf("failed to set name: %w", err)
 		}
 	}
+
 	if config.Input != "" {
 		if err := reader.SetType(firewallConfigName, section, "input", uci.TypeOption, config.Input); err != nil {
 			return fmt.Errorf("failed to set input: %w", err)
 		}
 	}
+
 	if config.Output != "" {
 		if err := reader.SetType(firewallConfigName, section, "output", uci.TypeOption, config.Output); err != nil {
 			return fmt.Errorf("failed to set output: %w", err)
 		}
 	}
+
 	if config.Forward != "" {
 		if err := reader.SetType(firewallConfigName, section, "forward", uci.TypeOption, config.Forward); err != nil {
 			return fmt.Errorf("failed to set forward: %w", err)
 		}
 	}
+
 	if len(config.Network) > 0 {
 		if err := reader.SetType(firewallConfigName, section, "network", uci.TypeList, config.Network...); err != nil {
 			return fmt.Errorf("failed to set network: %w", err)
 		}
 	}
+
 	if config.Masq != "" {
 		if err := reader.SetType(firewallConfigName, section, "masq", uci.TypeOption, config.Masq); err != nil {
 			return fmt.Errorf("failed to set masq: %w", err)
 		}
 	}
+
 	if config.MtuFix != "" {
 		if err := reader.SetType(firewallConfigName, section, "mtu_fix", uci.TypeOption, config.MtuFix); err != nil {
 			return fmt.Errorf("failed to set mtu_fix: %w", err)
@@ -397,6 +421,7 @@ func FirewallZoneExists(section string) bool {
 // FirewallZoneExistsWithReader checks if a firewall zone exists using the provided reader.
 func FirewallZoneExistsWithReader(section string, reader ConfigReader) bool {
 	_, exists := reader.Get(firewallConfigName, section, "name")
+
 	return exists
 }
 
@@ -425,9 +450,11 @@ func GetFirewallForwardingWithReader(name string, reader ConfigReader) (*UCIFire
 	if values, ok := reader.Get(firewallConfigName, name, "src"); ok && len(values) > 0 {
 		config.Src = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "dest"); ok && len(values) > 0 {
 		config.Dest = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "enabled"); ok && len(values) > 0 {
 		config.Enabled = values[0]
 	}
@@ -470,11 +497,13 @@ func SetFirewallForwardingWithReader(section string, config *UCIFirewallForwardi
 			return fmt.Errorf("failed to set src: %w", err)
 		}
 	}
+
 	if config.Dest != "" {
 		if err := reader.SetType(firewallConfigName, section, "dest", uci.TypeOption, config.Dest); err != nil {
 			return fmt.Errorf("failed to set dest: %w", err)
 		}
 	}
+
 	if config.Enabled != "" {
 		if err := reader.SetType(firewallConfigName, section, "enabled", uci.TypeOption, config.Enabled); err != nil {
 			return fmt.Errorf("failed to set enabled: %w", err)
@@ -540,6 +569,7 @@ func FirewallForwardingExists(section string) bool {
 // FirewallForwardingExistsWithReader checks if a forwarding rule exists using the provided reader.
 func FirewallForwardingExistsWithReader(section string, reader ConfigReader) bool {
 	_, exists := reader.Get(firewallConfigName, section, "src")
+
 	return exists
 }
 
@@ -568,33 +598,43 @@ func GetFirewallRuleWithReader(name string, reader ConfigReader) (*UCIFirewallRu
 	if values, ok := reader.Get(firewallConfigName, name, "name"); ok && len(values) > 0 {
 		config.Name = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "src"); ok && len(values) > 0 {
 		config.Src = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "dest"); ok && len(values) > 0 {
 		config.Dest = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "proto"); ok && len(values) > 0 {
 		config.Proto = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "dest_port"); ok && len(values) > 0 {
 		config.DestPort = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "src_port"); ok && len(values) > 0 {
 		config.SrcPort = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "target"); ok && len(values) > 0 {
 		config.Target = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "family"); ok && len(values) > 0 {
 		config.Family = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "icmp_type"); ok {
 		config.IcmpType = values
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "src_ip"); ok && len(values) > 0 {
 		config.SrcIP = values[0]
 	}
+
 	if values, ok := reader.Get(firewallConfigName, name, "limit"); ok && len(values) > 0 {
 		config.Limit = values[0]
 	}
@@ -628,7 +668,7 @@ func SetFirewallRule(section string, config *UCIFirewallRule) error {
 }
 
 // SetFirewallRuleWithReader creates or updates a firewall rule using the provided reader.
-func SetFirewallRuleWithReader(section string, config *UCIFirewallRule, reader ConfigReader) error {
+func SetFirewallRuleWithReader(section string, config *UCIFirewallRule, reader ConfigReader) error { //nolint:gocognit
 	if config == nil {
 		return fmt.Errorf("config cannot be nil")
 	}
@@ -640,51 +680,61 @@ func SetFirewallRuleWithReader(section string, config *UCIFirewallRule, reader C
 			return fmt.Errorf("failed to set name: %w", err)
 		}
 	}
+
 	if config.Src != "" {
 		if err := reader.SetType(firewallConfigName, section, "src", uci.TypeOption, config.Src); err != nil {
 			return fmt.Errorf("failed to set src: %w", err)
 		}
 	}
+
 	if config.Dest != "" {
 		if err := reader.SetType(firewallConfigName, section, "dest", uci.TypeOption, config.Dest); err != nil {
 			return fmt.Errorf("failed to set dest: %w", err)
 		}
 	}
+
 	if config.Proto != "" {
 		if err := reader.SetType(firewallConfigName, section, "proto", uci.TypeOption, config.Proto); err != nil {
 			return fmt.Errorf("failed to set proto: %w", err)
 		}
 	}
+
 	if config.DestPort != "" {
 		if err := reader.SetType(firewallConfigName, section, "dest_port", uci.TypeOption, config.DestPort); err != nil {
 			return fmt.Errorf("failed to set dest_port: %w", err)
 		}
 	}
+
 	if config.SrcPort != "" {
 		if err := reader.SetType(firewallConfigName, section, "src_port", uci.TypeOption, config.SrcPort); err != nil {
 			return fmt.Errorf("failed to set src_port: %w", err)
 		}
 	}
+
 	if config.Target != "" {
 		if err := reader.SetType(firewallConfigName, section, "target", uci.TypeOption, config.Target); err != nil {
 			return fmt.Errorf("failed to set target: %w", err)
 		}
 	}
+
 	if config.Family != "" {
 		if err := reader.SetType(firewallConfigName, section, "family", uci.TypeOption, config.Family); err != nil {
 			return fmt.Errorf("failed to set family: %w", err)
 		}
 	}
+
 	if len(config.IcmpType) > 0 {
 		if err := reader.SetType(firewallConfigName, section, "icmp_type", uci.TypeList, config.IcmpType...); err != nil {
 			return fmt.Errorf("failed to set icmp_type: %w", err)
 		}
 	}
+
 	if config.SrcIP != "" {
 		if err := reader.SetType(firewallConfigName, section, "src_ip", uci.TypeOption, config.SrcIP); err != nil {
 			return fmt.Errorf("failed to set src_ip: %w", err)
 		}
 	}
+
 	if config.Limit != "" {
 		if err := reader.SetType(firewallConfigName, section, "limit", uci.TypeOption, config.Limit); err != nil {
 			return fmt.Errorf("failed to set limit: %w", err)
@@ -750,6 +800,7 @@ func FirewallRuleExists(section string) bool {
 // FirewallRuleExistsWithReader checks if a firewall rule exists using the provided reader.
 func FirewallRuleExistsWithReader(section string, reader ConfigReader) bool {
 	_, exists := reader.Get(firewallConfigName, section, "name")
+
 	return exists
 }
 
@@ -823,7 +874,8 @@ func AddNetworkToZoneWithReader(zone, network string, reader ConfigReader) error
 //	    log.Fatalf("Failed to reload firewall: %v", err)
 //	}
 func ReloadFirewall() error {
-	cmd := exec.Command("/etc/init.d/firewall", "reload")
+	cmd := exec.CommandContext(context.Background(), "/etc/init.d/firewall", "reload")
+
 	return cmd.Run()
 }
 
@@ -842,6 +894,7 @@ func ReloadFirewall() error {
 //	    log.Fatalf("Failed to restart firewall: %v", err)
 //	}
 func RestartFirewall() error {
-	cmd := exec.Command("/etc/init.d/firewall", "restart")
+	cmd := exec.CommandContext(context.Background(), "/etc/init.d/firewall", "restart")
+
 	return cmd.Run()
 }

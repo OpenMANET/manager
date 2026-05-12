@@ -589,7 +589,6 @@ func TestSendIfRequiredAsCoT_MultipleCallsNoDevices(t *testing.T) {
 	if lastTime.IsZero() {
 		t.Error("Expected at least one multicast send attempt")
 	}
-
 	// Verify we didn't send 5 times (due to rate limiting)
 	// The actual verification would require tracking send count
 	// This is a basic sanity check that the function executed

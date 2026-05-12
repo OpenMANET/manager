@@ -1,0 +1,1557 @@
+package handlers
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	"connectrpc.com/connect"
+	meshtopov1 "github.com/openmanet/openmanetd/internal/api/openmanet/mesh_topology/v1"
+	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
+	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+// ifaceSuffixRe matches a trailing "_<iface>" token whose first
+// character is a lowercase letter — the structural fingerprint of
+// every Linux network interface name OpenMANET nodes carry on the
+// wire (bat0, wlan0, eth0, vxlan0, phy2-mesh0, br-ahwlan,
+// wlan-10-04, mesh0, etc.). The character class allows letters,
+// digits, dashes, AND underscores so a hostname carrying a chain of
+// suffixes ("BCM2711-88ba_phy2-mesh0_bat0") is consumed in a single
+// match. Anything starting with a digit ("_27") or uppercase letter
+// ("_BACKUP") is preserved — that's the rule that keeps legitimate
+// underscored hostnames like "Gate_04_27" intact. Compiled once at
+// package level. Kept in lockstep with the duplicate in
+// internal/mgmt/mesh_neighbors.go — any change must update both.
+var ifaceSuffixRe = regexp.MustCompile(`_[a-z][a-z0-9_-]*$`)
+
+// blosIfname is the local hard_ifname that identifies a BLOS tunnel
+// route. Duplicated here (kept in lockstep with the frontend constant)
+// because the Go handler drives segment assignment and needs the literal.
+const blosIfname = "vxlan0"
+
+// Segment labels emitted on every MeshNode. Kept in lockstep with the
+// frontend's MeshNode.segment union ("local" | "remote").
+const (
+	segmentLocal  = "local"
+	segmentRemote = "remote"
+)
+
+// MeshTopologyService serves the mesh-wide topology built from
+// batadv-vis (primary) and overlays this node's best-route information
+// from its originator table.
+type MeshTopologyService struct {
+	Log               zerolog.Logger
+	VisProvider       batmanadv.VisProvider
+	OrigProvider      batmanadv.OriginatorTopologyProvider
+	NeighborsProvider batmanadv.MeshNeighborsProvider
+	DeltaTracker      *DeltaTracker
+	// Sibling handlers for GetMeshSnapshot. Each may be nil; a nil
+	// section yields an empty value and an error joined into the
+	// response.
+	StatusSvc     *StatusService
+	NodeSvc       *NodeService
+	MeshSvc       *MeshService
+	InterfaceSvc  *InterfaceService
+	ParseBatHosts func(string) (*batmanadv.BatHosts, error)
+	// GetMeshGateways returns the batman-adv gateway list (the peers
+	// announcing themselves with `gw_mode server`). Optional — a nil
+	// hook degrades to "no node is flagged as a gateway" without
+	// failing the RPC. Wired from server.go to BatctlSnapshotter.
+	GetMeshGateways func(string) (*batmanadv.Gateways, error)
+	Now             func() time.Time
+	BatHostsPath    string
+	// BatInterface is the bat0-style mesh aggregator name passed to
+	// GetMeshGateways. Defaults to "bat0" when empty.
+	BatInterface string
+}
+
+// GetMeshSnapshot bundles the four mesh-status reads into a single RPC.
+// Each section is independently populated; partial failures surface via
+// the joined error so callers can render a degraded UI.
+func (s *MeshTopologyService) GetMeshSnapshot(ctx context.Context, _ *emptypb.Empty) (*meshtopov1.GetMeshSnapshotResponse, error) {
+	s.Log.Debug().Msg("GetMeshSnapshot Request Received")
+
+	res := &meshtopov1.GetMeshSnapshotResponse{}
+
+	var errs []error
+
+	if s.StatusSvc != nil {
+		if resp, err := s.StatusSvc.GetServiceStatus(ctx, &emptypb.Empty{}); err != nil {
+			errs = append(errs, fmt.Errorf("status: %w", err))
+		} else {
+			res.Status = resp.Status
+		}
+	}
+
+	if s.NodeSvc != nil {
+		if resp, err := s.NodeSvc.ListNodes(ctx, &emptypb.Empty{}); err != nil {
+			errs = append(errs, fmt.Errorf("nodes: %w", err))
+		} else {
+			res.Nodes = resp.Nodes
+		}
+	}
+
+	if s.MeshSvc != nil {
+		if resp, err := s.MeshSvc.ListMeshNeighbors(ctx, &emptypb.Empty{}); err != nil {
+			errs = append(errs, fmt.Errorf("neighbors: %w", err))
+		} else {
+			res.Neighbors = resp.Neighbors
+		}
+	}
+
+	if s.InterfaceSvc != nil {
+		if resp, err := s.InterfaceSvc.ListWirelessInterfaces(ctx, &emptypb.Empty{}); err != nil {
+			errs = append(errs, fmt.Errorf("interfaces: %w", err))
+		} else {
+			res.Interfaces = resp.Interfaces
+		}
+	}
+
+	return res, errors.Join(errs...)
+}
+
+func (s *MeshTopologyService) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+
+	return time.Now()
+}
+
+// GetMeshTopology returns the current mesh-wide topology. Empty/unavailable
+// vis data yields an empty response (not an error) so the UI renders its
+// empty state without a banner.
+func (s *MeshTopologyService) GetMeshTopology(ctx context.Context, _ *emptypb.Empty) (*meshtopov1.GetMeshTopologyResponse, error) {
+	s.Log.Debug().Msg("GetMeshTopology Request Received")
+
+	if s.VisProvider == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("vis provider not configured"))
+	}
+
+	visDoc, err := s.VisProvider.GetMeshVis(ctx)
+	if err != nil {
+		if errors.Is(err, batmanadv.ErrVisUnavailable) {
+			return &meshtopov1.GetMeshTopologyResponse{
+				Topology: &meshtopov1.MeshTopology{CollectedAt: timestamppb.New(s.now())},
+			}, nil
+		}
+
+		s.Log.Error().Err(err).Msg("batadv-vis fetch failed")
+
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("batadv-vis: %w", err))
+	}
+
+	// Originator overlay is best-effort. If it fails we still render the
+	// mesh graph without hops / my_hard_ifname / on_my_path data.
+	origSnap, origErr := s.OrigProvider.GetOriginatorTopology()
+	if origErr != nil {
+		s.Log.Warn().Err(origErr).Msg("originator provider failed; rendering mesh graph without self-path overlay")
+
+		origSnap = &batmanadv.OriginatorTopology{}
+	}
+
+	// bat-hosts for nodes outside the originator table (hostname fallback).
+	var batHosts *batmanadv.BatHosts
+	if s.ParseBatHosts != nil {
+		batHosts, _ = s.ParseBatHosts(s.BatHostsPath)
+	}
+
+	// Best-effort: gateway-mode peers as reported by `batctl gwj`.
+	// A failure here just leaves every node un-flagged — the RPC
+	// stays useful.
+	var gatewayMacs map[string]struct{}
+
+	if s.GetMeshGateways != nil {
+		iface := s.BatInterface
+		if iface == "" {
+			iface = "bat0"
+		}
+
+		if gws, err := s.GetMeshGateways(iface); err == nil && gws != nil {
+			gatewayMacs = make(map[string]struct{}, len(*gws))
+			for _, gw := range *gws {
+				if mac := strings.ToLower(gw.OrigAddress); mac != "" {
+					gatewayMacs[mac] = struct{}{}
+				}
+			}
+		} else if err != nil {
+			s.Log.Debug().Err(err).Msg("mesh gateway lookup failed; topology rendered without gateway flags")
+		}
+	}
+
+	now := s.now()
+	merged := mergeMeshTopology(visDoc, origSnap, batHosts, s.NeighborsProvider, gatewayMacs, now)
+	merged.CollectedAt = timestamppb.New(now)
+
+	return &meshtopov1.GetMeshTopologyResponse{Topology: merged}, nil
+}
+
+// mergeMeshTopology transforms vis + originator + bat-hosts inputs into
+// the wire-shape MeshTopology. Factored out for test readability.
+//
+// Edges are always derived from the serving node's originator table so
+// the UI renders connectivity even when batadv-vis returns a bare node
+// list (alfred reachable, peer vis-servers silent). Vis-neighbor edges
+// are layered on top for links that don't touch the serving node.
+func mergeMeshTopology(
+	visDoc *batmanadv.VisDoc,
+	origSnap *batmanadv.OriginatorTopology,
+	batHosts *batmanadv.BatHosts,
+	neighborsProvider batmanadv.MeshNeighborsProvider,
+	gatewayMacs map[string]struct{},
+	now time.Time,
+) *meshtopov1.MeshTopology {
+	// 1. MAC → primary index for every vis node (primary + secondaries
+	//    all map to the same primary). Originator-only nodes that vis
+	//    hasn't heard about yet get added in buildMeshNodes.
+	visNodes := []batmanadv.VisNode(nil)
+	if visDoc != nil {
+		visNodes = visDoc.Vis
+	}
+
+	// secondaryOwners captures "MAC X is listed as a secondary of entry Y".
+	// When a different entry also exists with Primary=X, those two entries
+	// describe the same physical node (multi-radio host) and X's entry is
+	// the duplicate. Without this dedup, a node reported under both roles
+	// renders twice — the self-twice bug in practice.
+	secondaryOwners := make(map[string]string)
+
+	for _, v := range visNodes {
+		for _, sec := range v.Secondary {
+			secondaryOwners[sec] = v.Primary
+		}
+	}
+
+	primaryByMac := make(map[string]string, len(visNodes)*2)
+	for _, v := range visNodes {
+		canonical := v.Primary
+		if owner, ok := secondaryOwners[canonical]; ok && owner != "" {
+			canonical = owner
+		}
+
+		primaryByMac[v.Primary] = canonical
+		for _, sec := range v.Secondary {
+			primaryByMac[sec] = canonical
+		}
+	}
+
+	// Ensure every originator MAC resolves to some primary so segment
+	// classification captures peers that appear in our route table but
+	// haven't surfaced in vis yet.
+	selfMAC := strings.ToLower(origSnap.SelfMAC)
+	if selfMAC != "" && primaryByMac[selfMAC] == "" {
+		primaryByMac[selfMAC] = selfMAC
+	}
+
+	for _, o := range origSnap.Originators {
+		mac := strings.ToLower(o.OrigMAC)
+		if mac != "" && primaryByMac[mac] == "" {
+			primaryByMac[mac] = mac
+		}
+	}
+
+	// Originator lookup built early so the hostname dedup pass below can
+	// resolve OrigHostname without scanning the slice per-node.
+	origByMac := make(map[string]*batmanadv.OriginatorEntry, len(origSnap.Originators))
+	for i := range origSnap.Originators {
+		origByMac[strings.ToLower(origSnap.Originators[i].OrigMAC)] = &origSnap.Originators[i]
+	}
+
+	// Multi-radio dedup: fold vis entries sharing a base hostname into a
+	// single canonical primary. The `secondary[]` field alone can't catch
+	// this when a node publishes a separate vis entry per interface
+	// without cross-listing the sibling MACs.
+	foldHostnameAliases(visNodes, primaryByMac, origByMac, batHosts, selfMAC, origSnap.SelfHostname)
+
+	selfPrimary := primaryByMac[selfMAC]
+
+	// Pre-resolve each vis primary's display hostname so the gossip
+	// view can fall back to hostname matching when MAC-based Lookup
+	// fails. Needed on multi-mesh deployments where alfred gossip
+	// runs on a different batman-adv instance than vis — the envelope
+	// MAC and payload.primary_mac both reflect the gossip mesh while
+	// the handler queries by the vis mesh's primary. Hostname is the
+	// one identifier both meshes share.
+	hostnameByPrimary := buildHostnameIndex(visNodes, origByMac, batHosts, primaryByMac, selfMAC, origSnap.SelfHostname)
+
+	// 2. Build gossip view if a provider is wired. When gossip covers any
+	// primary its RF/BLOS neighbor sets drive segment assignment and
+	// gateway identification; primaries without coverage fall through to
+	// the heuristic classifier.
+	gossip := buildGossipView(neighborsProvider, visNodes, primaryByMac, hostnameByPrimary, now)
+
+	segmentByPrimary, gatewayByPrimary := classifyNodesWithGossip(
+		origSnap, primaryByMac, selfMAC, selfPrimary, gossip)
+	if selfPrimary != "" {
+		segmentByPrimary[selfPrimary] = segmentLocal // self is always local
+		delete(gatewayByPrimary, selfPrimary)
+	}
+
+	// 4. Build MeshNode list.
+	nodes := buildMeshNodes(visNodes, origByMac, batHosts, segmentByPrimary, gatewayByPrimary, selfPrimary, origSnap.SelfHostname, primaryByMac)
+
+	// 4a. Mark gossip state (staleness + age in seconds) on every non-self
+	// node so the UI can dim stale ones and surface freshness in the
+	// inspector.
+	applyGossipState(nodes, gossip)
+
+	// 4b. Mark BLOS gateways. Two evidence sources are merged so the
+	// flag survives partial gossip / partial gwj availability:
+	//
+	//   - batman-adv gateway announcements (`batctl gwj`) — peers
+	//     advertising themselves with gw_mode server, the canonical
+	//     "this node carries an out-of-mesh route" signal.
+	//   - gossip-derived: any local-segment node whose published
+	//     vxlan0 neighbors include at least one remote-segment peer
+	//     is bridging to that remote, regardless of whether it has
+	//     announced gw_mode.
+	//
+	// Both sets must be folded through primaryByMac because the
+	// `batctl gwj` output uses the peer's bat-iface MAC, which is
+	// not always the canonical primary MAC the topology renders
+	// nodes under (multi-radio dedup, vis-secondary aliasing, etc.).
+	canonicalGwMacs := canonicalizeMacSet(gatewayMacs, primaryByMac)
+	gossipGwMacs := gossipBlosGateways(gossip, segmentByPrimary)
+	applyGatewayFlag(nodes, canonicalGwMacs, gossipGwMacs)
+
+	// 4c. Compute the local-side BLOS gateway for each remote anchor
+	// so buildMeshEdges can redirect self↔remote-anchor BLOS edges
+	// when a real bridging node exists. Uses gossip's BLOS adjacency
+	// from BOTH sides so the path survives one-way gossip outages.
+	localBlosGwByRemote := localBlosGatewayByRemote(gossip, segmentByPrimary, canonicalGwMacs, gossipGwMacs, selfPrimary)
+
+	// 5. Build MeshEdge list — originator-derived first, then vis neighbors.
+	edges := buildMeshEdges(visDoc, origSnap.Originators, primaryByMac, segmentByPrimary, gatewayByPrimary, selfMAC, selfPrimary, gossip, renderedPrimaries(nodes), localBlosGwByRemote)
+
+	return &meshtopov1.MeshTopology{
+		SelfMac:        origSnap.SelfMAC,
+		SelfHostname:   origSnap.SelfHostname,
+		Algorithm:      origSnap.Algorithm, // always the batman-adv algorithm, never the vis header
+		Nodes:          nodes,
+		Edges:          edges,
+		GossipCoverage: gossipCoverage(gossip, nodes),
+	}
+}
+
+// canonicalizeMacSet rewrites every MAC in the input set through
+// primaryByMac so the returned set keys are the same canonical
+// primaries the topology renders nodes under. Inputs not in
+// primaryByMac round-trip unchanged. Returns nil when the input is
+// empty so callers can short-circuit.
+func canonicalizeMacSet(macs map[string]struct{}, primaryByMac map[string]string) map[string]struct{} {
+	if len(macs) == 0 {
+		return nil
+	}
+
+	out := make(map[string]struct{}, len(macs))
+	for mac := range macs {
+		canonical := resolvePrimary(primaryByMac, mac)
+		if canonical == "" {
+			continue
+		}
+
+		out[canonical] = struct{}{}
+	}
+
+	return out
+}
+
+// gossipBlosGateways returns the set of local-segment primaries whose
+// gossip-published vxlan0 neighbor list contains at least one
+// remote-segment peer. That's the operational definition of a BLOS
+// gateway in this codebase: a node sitting in the local component
+// that terminates a vxlan0 tunnel toward another component. Returns
+// an empty set when gossip is absent or covers nothing.
+func gossipBlosGateways(gossip *gossipView, segmentByPrimary map[string]string) map[string]struct{} {
+	out := make(map[string]struct{})
+
+	if gossip == nil {
+		return out
+	}
+
+	for primary, blosSet := range gossip.blosByPrimary {
+		if segmentOrDefault(segmentByPrimary, primary) != segmentLocal {
+			continue
+		}
+
+		for nb := range blosSet {
+			if segmentOrDefault(segmentByPrimary, nb) == segmentRemote {
+				out[primary] = struct{}{}
+
+				break
+			}
+		}
+	}
+
+	return out
+}
+
+// applyGatewayFlag sets MeshNode.IsGateway from the union of two
+// evidence sources: gatewayMacs (`batctl gwj`) and gossipGwMacs (the
+// derived "has remote vxlan0 neighbor" set). Either alone is
+// sufficient — relying on both lets the flag survive a partial
+// outage of either source.
+func applyGatewayFlag(nodes []*meshtopov1.MeshNode, gatewayMacs, gossipGwMacs map[string]struct{}) {
+	if len(gatewayMacs) == 0 && len(gossipGwMacs) == 0 {
+		return
+	}
+
+	for _, n := range nodes {
+		mac := strings.ToLower(n.GetMac())
+		if mac == "" {
+			continue
+		}
+
+		if _, ok := gatewayMacs[mac]; ok {
+			n.IsGateway = true
+
+			continue
+		}
+
+		if _, ok := gossipGwMacs[mac]; ok {
+			n.IsGateway = true
+		}
+	}
+}
+
+// localBlosGatewayByRemote builds a remote-primary → local-gateway
+// map so seedOriginatorEdges can redirect spurious self↔remote-anchor
+// BLOS edges through the actual bridging node. The mapping prefers
+// gossip evidence from BOTH sides: pair (L, R) is recorded when L is
+// local AND R is remote AND L has R in its blosByPrimary OR R has L
+// in its blosByPrimary. Picks the highest-throughput local gateway
+// when several local nodes claim BLOS connectivity to the same remote.
+//
+// Self is never used as the local gateway here — by construction the
+// topology view already routes self↔remote-anchor edges; this map's
+// purpose is to override that with a different local node when one
+// is genuinely the bridge.
+func localBlosGatewayByRemote(
+	gossip *gossipView,
+	segmentByPrimary map[string]string,
+	gwMacs, gossipGwMacs map[string]struct{},
+	selfPrimary string,
+) map[string]string {
+	out := make(map[string]string)
+
+	if gossip == nil {
+		return out
+	}
+
+	bestMetric := make(map[string]float64)
+
+	consider := func(local, remote string, metric float64) {
+		if local == "" || remote == "" || local == selfPrimary {
+			return
+		}
+
+		if segmentOrDefault(segmentByPrimary, local) != segmentLocal {
+			return
+		}
+
+		if segmentOrDefault(segmentByPrimary, remote) != segmentRemote {
+			return
+		}
+
+		if existing, ok := out[remote]; ok && existing == local {
+			if metric > bestMetric[remote] {
+				bestMetric[remote] = metric
+			}
+
+			return
+		}
+
+		if metric < bestMetric[remote] {
+			return
+		}
+
+		out[remote] = local
+		bestMetric[remote] = metric
+	}
+
+	// L published "I have R via vxlan0".
+	for local, blosSet := range gossip.blosByPrimary {
+		for remote, metric := range blosSet {
+			consider(local, remote, metric)
+		}
+	}
+
+	// R published "I have L via vxlan0" — same pair, opposite direction.
+	for remote, blosSet := range gossip.blosByPrimary {
+		for local, metric := range blosSet {
+			consider(local, remote, metric)
+		}
+	}
+
+	// Final filter: keep only local gateways that batman-adv or gossip
+	// actually flagged as gateways. Without this guard a randomly-
+	// vxlan0-aware peer would steal the redirect from the real
+	// bridge. Falls back to "any local with a BLOS-confirmed link"
+	// when neither evidence source agrees.
+	if len(gwMacs) == 0 && len(gossipGwMacs) == 0 {
+		return out
+	}
+
+	for remote, local := range out {
+		if _, ok := gwMacs[local]; ok {
+			continue
+		}
+
+		if _, ok := gossipGwMacs[local]; ok {
+			continue
+		}
+
+		delete(out, remote)
+	}
+
+	return out
+}
+
+// applyGossipState sets the GossipStale bool and GossipAgeSeconds on
+// every non-self MeshNode based on the pre-computed gossipView. A node
+// is Stale when its primary has no current gossip record in the cache —
+// alfred's own daemon-side TTL drops records whose publisher has gone
+// quiet, so a cache miss is the sole "stale" signal. Age is reported
+// from the payload's collected_at for UI display only; it no longer
+// feeds any staleness decision, because cross-mesh clock skew makes
+// publisher wall-clocks unreliable. Self is always current and gets
+// the zero-value defaults (GossipStale=false, GossipAgeSeconds=0).
+// Nodes without a tracked record get GossipAgeSeconds=ageMissing (-1).
+func applyGossipState(nodes []*meshtopov1.MeshNode, gossip *gossipView) {
+	if gossip == nil {
+		return
+	}
+
+	for _, n := range nodes {
+		if n.GetIsSelf() {
+			continue
+		}
+
+		primary := strings.ToLower(n.GetMac())
+		if gossip.staleByPrimary[primary] {
+			n.GossipStale = true
+		}
+
+		if age, ok := gossip.ageByPrimary[primary]; ok {
+			n.GossipAgeSeconds = age
+		} else {
+			n.GossipAgeSeconds = ageMissing
+		}
+	}
+}
+
+// gossipCoverage summarizes how many rendered non-self nodes have
+// fresh gossip records. Emitted into the MeshTopology response so the
+// frontend can render a "GOSSIP N/M" badge.
+//
+// A node is counted published only when buildGossipView actually
+// matched a record to its primary (presence in rfByPrimary is that
+// positive confirmation). Originator-synthesized nodes — primaries
+// that never reach buildGossipView because they aren't in visNodes —
+// don't get counted as published by accident, which was the
+// false-positive the previous accounting produced.
+func gossipCoverage(gossip *gossipView, nodes []*meshtopov1.MeshNode) *meshtopov1.GossipCoverage {
+	if gossip == nil {
+		return nil
+	}
+
+	published := 0
+	total := 0
+
+	for _, n := range nodes {
+		if n.GetIsSelf() {
+			continue
+		}
+
+		total++
+
+		primary := strings.ToLower(n.GetMac())
+		if _, ok := gossip.rfByPrimary[primary]; ok {
+			published++
+		}
+	}
+
+	return &meshtopov1.GossipCoverage{
+		Published: int32(published), //nolint:gosec // bounded by mesh size
+		Total:     int32(total),     //nolint:gosec // bounded by mesh size
+	}
+}
+
+// renderedPrimaries returns the set of primary MACs we emitted in the
+// node list so edge-building can drop references to MACs without a
+// rendered node (e.g. an originator's next hop that vis never mentioned
+// and that we also couldn't synthesize).
+func renderedPrimaries(nodes []*meshtopov1.MeshNode) map[string]struct{} {
+	out := make(map[string]struct{}, len(nodes))
+	for _, n := range nodes {
+		out[strings.ToLower(n.Mac)] = struct{}{}
+	}
+
+	return out
+}
+
+// foldHostnameAliases extends primaryByMac so that vis entries sharing a
+// base hostname collapse to one canonical primary. Handles multi-radio
+// nodes where each interface publishes its own vis entry without
+// cross-listing the sibling MACs as secondaries — without this, the
+// same physical node renders once per interface.
+//
+// Canonical selection prefers selfMAC when present in the group so the
+// IsSelf flag lands on the retained node; otherwise the lexicographically
+// smallest primary wins for determinism. Secondaries of any folded
+// primary are rewritten to point at the canonical as well, so edges
+// whose endpoints reference those secondaries still resolve correctly.
+func foldHostnameAliases(
+	visNodes []batmanadv.VisNode,
+	primaryByMac map[string]string,
+	origByMac map[string]*batmanadv.OriginatorEntry,
+	batHosts *batmanadv.BatHosts,
+	selfMAC, selfHostname string,
+) {
+	if len(visNodes) < 2 {
+		return
+	}
+
+	groups := groupPrimariesByHostname(visNodes, primaryByMac, origByMac, batHosts, selfMAC, selfHostname)
+
+	for _, group := range groups {
+		if len(group) < 2 {
+			continue
+		}
+
+		canonical := pickCanonicalPrimary(group, selfMAC)
+		applyCanonicalPrimary(visNodes, primaryByMac, group, canonical)
+	}
+}
+
+// groupPrimariesByHostname builds the base-hostname → primary-MAC groups
+// used by foldHostnameAliases. Entries already aliased by secondary-MAC
+// dedup are skipped so we don't re-group shadow primaries.
+func groupPrimariesByHostname(
+	visNodes []batmanadv.VisNode,
+	primaryByMac map[string]string,
+	origByMac map[string]*batmanadv.OriginatorEntry,
+	batHosts *batmanadv.BatHosts,
+	selfMAC, selfHostname string,
+) map[string][]string {
+	hostnameByPrimary := make(map[string]string, len(visNodes))
+
+	for _, v := range visNodes {
+		if c, ok := primaryByMac[v.Primary]; ok && c != v.Primary {
+			continue
+		}
+
+		name := lookupHostname(v, lookupOrigEntry(v, origByMac), batHosts)
+		if name != "" {
+			hostnameByPrimary[v.Primary] = name
+		}
+	}
+
+	if selfMAC != "" && selfHostname != "" {
+		hostnameByPrimary[selfMAC] = stripIfaceSuffix(selfHostname)
+	}
+
+	groups := make(map[string][]string)
+	for primary, hostname := range hostnameByPrimary {
+		groups[hostname] = append(groups[hostname], primary)
+	}
+
+	return groups
+}
+
+// pickCanonicalPrimary selects the MAC that survives hostname dedup:
+// selfMAC wins when present so IsSelf lands on the retained node;
+// otherwise the lexicographically smallest MAC wins for determinism.
+func pickCanonicalPrimary(group []string, selfMAC string) string {
+	canonical := group[0]
+
+	for _, p := range group {
+		switch {
+		case p == selfMAC:
+			return p
+		case canonical != selfMAC && p < canonical:
+			canonical = p
+		}
+	}
+
+	return canonical
+}
+
+// applyCanonicalPrimary rewrites primaryByMac so every non-canonical
+// primary in the group (and its declared secondaries) points at the
+// chosen canonical primary.
+func applyCanonicalPrimary(
+	visNodes []batmanadv.VisNode,
+	primaryByMac map[string]string,
+	group []string,
+	canonical string,
+) {
+	for _, p := range group {
+		if p == canonical {
+			continue
+		}
+
+		primaryByMac[p] = canonical
+
+		for _, v := range visNodes {
+			if v.Primary != p {
+				continue
+			}
+
+			for _, sec := range v.Secondary {
+				primaryByMac[sec] = canonical
+			}
+		}
+	}
+}
+
+// classifyNodesHeuristic assigns each primary to a segment and — for
+// remote-segment nodes — resolves the direct BLOS neighbor (the
+// "gateway") on the other end of the vxlan0 tunnel using only the
+// serving node's own originator table. This is the fallback
+// classifier: it runs for every primary when gossip is unavailable,
+// and for individual primaries whose gossip record is missing or
+// stale when gossip is partially available.
+//
+// Rule: any vxlan0 route → remote unless the same primary also has a
+// non-vxlan0 route (RF wins). Primaries absent from the originator table
+// default to local with no gateway.
+func classifyNodesHeuristic(
+	origSnap *batmanadv.OriginatorTopology,
+	primaryByMac map[string]string,
+	selfMAC string,
+) (map[string]string, map[string]string) {
+	// Collect hard_ifnames each primary is reachable over.
+	ifsByPrimary := make(map[string]map[string]struct{})
+	// Track each primary's vxlan0 originator entry (for gateway chain walk).
+	blosEntryByPrimary := make(map[string]batmanadv.OriginatorEntry)
+
+	for _, o := range origSnap.Originators {
+		primary := primaryByMac[strings.ToLower(o.OrigMAC)]
+		if primary == "" {
+			continue
+		}
+
+		ifs, ok := ifsByPrimary[primary]
+		if !ok {
+			ifs = make(map[string]struct{})
+			ifsByPrimary[primary] = ifs
+		}
+
+		ifs[o.HardIfname] = struct{}{}
+
+		if o.HardIfname == blosIfname {
+			blosEntryByPrimary[primary] = o
+		}
+	}
+
+	segments := make(map[string]string, len(ifsByPrimary))
+	gateways := make(map[string]string, len(blosEntryByPrimary))
+
+	for primary, ifs := range ifsByPrimary {
+		hasRF := false
+		_, hasBLOS := ifs[blosIfname]
+
+		for name := range ifs {
+			if name != "" && name != blosIfname {
+				hasRF = true
+
+				break
+			}
+		}
+
+		switch {
+		case hasRF:
+			segments[primary] = segmentLocal
+		case hasBLOS:
+			segments[primary] = segmentRemote
+
+			gw := resolveBLOSGateway(primary, blosEntryByPrimary, primaryByMac, selfMAC)
+			if gw != "" {
+				gateways[primary] = gw
+			}
+		default:
+			segments[primary] = segmentLocal
+		}
+	}
+
+	return segments, gateways
+}
+
+// resolveBLOSGateway walks a BLOS-reached primary's next-hop chain until
+// it hits a direct neighbor (hopsRemaining == 0 or nextHop == primary).
+// That direct neighbor's primary MAC identifies the remote mesh segment.
+// Cycle-safe, capped at hopsMaxWalk steps.
+func resolveBLOSGateway(
+	primary string,
+	blosByPrimary map[string]batmanadv.OriginatorEntry,
+	primaryByMac map[string]string,
+	selfMAC string,
+) string {
+	const hopsMaxWalk = 16
+
+	cursor := primary
+
+	for i := 0; i < hopsMaxWalk; i++ {
+		entry, ok := blosByPrimary[cursor]
+		if !ok {
+			return cursor
+		}
+
+		nextMAC := strings.ToLower(entry.NextHopMAC)
+		origMAC := strings.ToLower(entry.OrigMAC)
+
+		// Direct neighbor: we reach cursor in one hop via vxlan0. cursor
+		// itself is the gateway for its remote mesh segment.
+		if nextMAC == "" || nextMAC == origMAC || nextMAC == selfMAC {
+			return cursor
+		}
+
+		nextPrimary := primaryByMac[nextMAC]
+		if nextPrimary == "" || nextPrimary == cursor {
+			return cursor
+		}
+
+		cursor = nextPrimary
+	}
+
+	return cursor
+}
+
+// buildMeshNodes materializes MeshNode records from the vis payload, and
+// synthesizes nodes for originators vis hasn't surfaced yet so the UI has
+// a record for every peer we know how to route to. Overlay data comes
+// from the originator table; hostnames from bat-hosts.
+func buildMeshNodes(
+	visNodes []batmanadv.VisNode,
+	origByMac map[string]*batmanadv.OriginatorEntry,
+	batHosts *batmanadv.BatHosts,
+	segmentByPrimary map[string]string,
+	gatewayByPrimary map[string]string,
+	selfPrimary string,
+	selfHostname string,
+	primaryByMac map[string]string,
+) []*meshtopov1.MeshNode {
+	nodes := make([]*meshtopov1.MeshNode, 0, len(visNodes)+len(origByMac)+1)
+	seenPrimary := make(map[string]struct{}, len(visNodes))
+
+	for _, v := range visNodes {
+		// Skip vis entries whose canonical primary lives elsewhere.
+		// Happens when a multi-radio node is republished under a
+		// secondary MAC as its "primary" in a separate entry —
+		// without this guard the node renders twice (canonical +
+		// shadow). Neighbor info from the shadow entry still flows
+		// via layerVisEdges since it resolves MACs through
+		// primaryByMac.
+		if canonical, ok := primaryByMac[v.Primary]; ok && canonical != v.Primary {
+			continue
+		}
+
+		node := &meshtopov1.MeshNode{
+			Mac:           v.Primary,
+			SecondaryMacs: append([]string(nil), v.Secondary...),
+			IsSelf:        v.Primary == selfPrimary && selfPrimary != "",
+		}
+
+		applySegment(node, segmentByPrimary, gatewayByPrimary, v.Primary)
+		applyOverlay(node, lookupOrigEntry(v, origByMac))
+
+		if node.IsSelf {
+			node.Hostname = stripIfaceSuffix(selfHostname)
+		} else {
+			node.Hostname = lookupHostname(v, lookupOrigEntry(v, origByMac), batHosts)
+		}
+
+		nodes = append(nodes, node)
+		seenPrimary[v.Primary] = struct{}{}
+	}
+
+	// Synthesize nodes for originators vis didn't mention yet. Without
+	// this, the "vis returned a sparse doc" case drops peers we can still
+	// route to from the rendered graph.
+	for mac, entry := range origByMac {
+		primary := primaryByMac[mac]
+		if primary == "" {
+			primary = mac
+		}
+
+		if _, ok := seenPrimary[primary]; ok {
+			continue
+		}
+
+		node := &meshtopov1.MeshNode{
+			Mac:    primary,
+			IsSelf: primary == selfPrimary && selfPrimary != "",
+		}
+
+		applySegment(node, segmentByPrimary, gatewayByPrimary, primary)
+		applyOverlay(node, entry)
+		node.Hostname = stripIfaceSuffix(entry.OrigHostname)
+
+		nodes = append(nodes, node)
+		seenPrimary[primary] = struct{}{}
+	}
+
+	// Self may be absent from both vis and the originator table during
+	// cold-start; add a stub so the UI still has a node to root on.
+	if selfPrimary != "" {
+		if _, ok := seenPrimary[selfPrimary]; !ok {
+			nodes = append(nodes, &meshtopov1.MeshNode{
+				Mac:          selfPrimary,
+				Hostname:     stripIfaceSuffix(selfHostname),
+				Segment:      segmentLocal,
+				IsSelf:       true,
+				HopsFromSelf: 0,
+			})
+		}
+	}
+
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].IsSelf != nodes[j].IsSelf {
+			return nodes[i].IsSelf
+		}
+
+		if nodes[i].Hostname != nodes[j].Hostname {
+			if nodes[i].Hostname == "" {
+				return false
+			}
+
+			if nodes[j].Hostname == "" {
+				return true
+			}
+
+			return nodes[i].Hostname < nodes[j].Hostname
+		}
+
+		return nodes[i].Mac < nodes[j].Mac
+	})
+
+	return nodes
+}
+
+// applySegment copies segment + gateway fields onto a MeshNode.
+func applySegment(
+	node *meshtopov1.MeshNode,
+	segmentByPrimary map[string]string,
+	gatewayByPrimary map[string]string,
+	primary string,
+) {
+	if seg, ok := segmentByPrimary[primary]; ok {
+		node.Segment = seg
+	} else {
+		node.Segment = segmentLocal
+	}
+
+	if gw, ok := gatewayByPrimary[primary]; ok && node.Segment == segmentRemote {
+		node.RemoteGatewayMac = gw
+	}
+}
+
+// applyOverlay populates HopsFromSelf + MyHardIfname from an originator
+// entry, respecting the self-node short-circuit.
+func applyOverlay(node *meshtopov1.MeshNode, entry *batmanadv.OriginatorEntry) {
+	switch {
+	case node.IsSelf:
+		node.HopsFromSelf = 0
+	case entry != nil:
+		node.HopsFromSelf = int32(entry.Hops)
+		node.MyHardIfname = entry.HardIfname
+	default:
+		node.HopsFromSelf = hopsUnknown
+	}
+}
+
+// buildMeshEdges derives the edge list in two passes:
+//
+//  1. Seed from the serving node's originator table so every peer we
+//     route to is visually connected, even when batadv-vis returns a
+//     bare node list with no neighbor entries. These edges are all on
+//     my forwarding path by definition.
+//  2. Layer in vis-reported neighbor edges for links that don't touch
+//     the serving node (peer-to-peer connectivity we learn from other
+//     nodes' publications). Bidirectional reports dedupe by canonical
+//     MAC pair.
+//
+// Edges whose endpoints map to nodes we didn't render are dropped so
+// the frontend never receives dangling references.
+//
+// localBlosGwByRemote redirects self↔remote-anchor BLOS edges
+// through the actual bridging node when one is known: when the
+// serving node sees a remote anchor as a "direct vxlan0 neighbor"
+// only because of the broadcast overlay, the real path is through a
+// local-segment gateway, and the UI should reflect that.
+func buildMeshEdges(
+	visDoc *batmanadv.VisDoc,
+	origs []batmanadv.OriginatorEntry,
+	primaryByMac map[string]string,
+	segmentByPrimary map[string]string,
+	gatewayByPrimary map[string]string,
+	selfMAC string,
+	selfPrimary string,
+	gossip *gossipView,
+	knownPrimaries map[string]struct{},
+	localBlosGwByRemote map[string]string,
+) []*meshtopov1.MeshEdge {
+	edgeByKey := make(map[string]*meshtopov1.MeshEdge)
+
+	seedOriginatorEdges(edgeByKey, origs, primaryByMac, segmentByPrimary, gatewayByPrimary, knownPrimaries, selfMAC, selfPrimary, gossip, localBlosGwByRemote)
+	layerGossipEdges(edgeByKey, gossip, segmentByPrimary, knownPrimaries)
+	layerVisEdges(edgeByKey, visDoc, primaryByMac, segmentByPrimary, knownPrimaries)
+
+	edges := make([]*meshtopov1.MeshEdge, 0, len(edgeByKey))
+	for _, e := range edgeByKey {
+		edges = append(edges, e)
+	}
+
+	sort.Slice(edges, func(i, j int) bool {
+		if edges[i].Blos != edges[j].Blos {
+			return !edges[i].Blos
+		}
+
+		if edges[i].FromMac != edges[j].FromMac {
+			return edges[i].FromMac < edges[j].FromMac
+		}
+
+		return edges[i].ToMac < edges[j].ToMac
+	})
+
+	return edges
+}
+
+// seedOriginatorEdges populates edgeByKey with the serving node's
+// forwarding tree so every peer we route to gets at least one visual
+// edge, even when batadv-vis reports no neighbors.
+//
+// Direct self↔peer edges are suppressed when the peer lives behind a
+// different gateway AND that gateway's gossip record confirms the peer
+// as one of its RF neighbors. The vxlan0 broadcast overlay makes every
+// BLOS-reachable node look like a direct vxlan0 neighbor in batman-adv,
+// but the real tunnel terminates at the gateway; the non-gateway peers
+// render via the RF edges that layerGossipEdges derives from the
+// gateway's gossip payload. When gossip doesn't confirm the
+// gateway↔peer adjacency (mixed-fleet cold start, missing publisher)
+// we keep the direct edge so the peer still shows as connected.
+func seedOriginatorEdges(
+	edgeByKey map[string]*meshtopov1.MeshEdge,
+	origs []batmanadv.OriginatorEntry,
+	primaryByMac map[string]string,
+	segmentByPrimary map[string]string,
+	gatewayByPrimary map[string]string,
+	knownPrimaries map[string]struct{},
+	selfMAC string,
+	selfPrimary string,
+	gossip *gossipView,
+	localBlosGwByRemote map[string]string,
+) {
+	for _, o := range origs {
+		fromPrimary, toPrimary, ok := originatorEdgeEndpoints(o, primaryByMac, selfMAC)
+		if !ok {
+			continue
+		}
+
+		if shouldSuppressSelfPeerEdge(fromPrimary, toPrimary, selfPrimary, gatewayByPrimary, gossip) {
+			continue
+		}
+
+		// Redirect self↔remote-anchor BLOS edges through the local
+		// gateway that actually bridges to the remote, when one is
+		// known. Without this, the broadcast overlay makes every
+		// remote-segment node look like a direct vxlan0 neighbor of
+		// the serving node and the UI hides the real bridging hop.
+		fromPrimary, toPrimary = redirectThroughLocalGateway(fromPrimary, toPrimary, selfPrimary, localBlosGwByRemote)
+
+		addEdge(edgeByKey, fromPrimary, toPrimary, segmentByPrimary, knownPrimaries, 0, true)
+	}
+}
+
+// redirectThroughLocalGateway substitutes the serving node with the
+// actual local-segment BLOS gateway when an originator entry would
+// have produced a self↔remote-anchor edge. Pure no-op when neither
+// endpoint is self, when no local gateway is known for the remote
+// peer, or when the redirect would produce a self-loop.
+func redirectThroughLocalGateway(
+	from, to, selfPrimary string,
+	localBlosGwByRemote map[string]string,
+) (string, string) {
+	if selfPrimary == "" || len(localBlosGwByRemote) == 0 {
+		return from, to
+	}
+
+	switch {
+	case from == selfPrimary:
+		if gw, ok := localBlosGwByRemote[to]; ok && gw != "" && gw != to {
+			return gw, to
+		}
+	case to == selfPrimary:
+		if gw, ok := localBlosGwByRemote[from]; ok && gw != "" && gw != from {
+			return from, gw
+		}
+	}
+
+	return from, to
+}
+
+// shouldSuppressSelfPeerEdge returns true when (from, to) is a
+// self↔peer pair AND the peer lives behind a different gateway AND
+// the gateway's gossip confirms that peer is one of its RF neighbors.
+// In that case the gw↔peer edge will render via layerGossipEdges and
+// the direct self↔peer edge would be a spurious vxlan0 overlay
+// artifact. All other originator entries (multi-hop seeds that don't
+// touch self, the gateway itself, peers with no gossip confirmation)
+// are left alone.
+func shouldSuppressSelfPeerEdge(
+	from, to, selfPrimary string,
+	gatewayByPrimary map[string]string,
+	gossip *gossipView,
+) bool {
+	if selfPrimary == "" {
+		return false
+	}
+
+	var peer string
+
+	switch selfPrimary {
+	case from:
+		peer = to
+	case to:
+		peer = from
+	default:
+		return false
+	}
+
+	gw := gatewayByPrimary[peer]
+	if gw == "" || gw == peer {
+		// Peer is its own gateway (a direct BLOS tunnel endpoint) or
+		// unclassified — keep the direct edge.
+		return false
+	}
+
+	if gossip == nil {
+		return false
+	}
+
+	rf := gossip.rfByPrimary[gw]
+	if _, ok := rf[peer]; !ok {
+		// Gateway's gossip doesn't confirm this peer — stay on the
+		// direct edge rather than orphaning the peer in the UI.
+		return false
+	}
+
+	return true
+}
+
+// layerGossipEdges synthesizes RF edges between each gossip-publishing
+// primary and its declared RF neighbors. This is the authoritative
+// source for gateway↔peer adjacency when viewing a remote mesh from
+// outside: the serving node's originator table can't distinguish "peer
+// behind gateway X" from "peer reached by some other route" on the
+// vxlan0 broadcast overlay, so only the gateway's own gossip record
+// knows the real physical RF topology in its mesh.
+//
+// Only same-segment edges are emitted — a cross-segment RF edge would
+// be nonsensical. addEdge further drops pairs where either endpoint
+// isn't rendered.
+func layerGossipEdges(
+	edgeByKey map[string]*meshtopov1.MeshEdge,
+	gossip *gossipView,
+	segmentByPrimary map[string]string,
+	knownPrimaries map[string]struct{},
+) {
+	if gossip == nil {
+		return
+	}
+
+	for primary, rfSet := range gossip.rfByPrimary {
+		for neighbor, metric := range rfSet {
+			if segmentOrDefault(segmentByPrimary, primary) != segmentOrDefault(segmentByPrimary, neighbor) {
+				continue
+			}
+
+			addEdge(edgeByKey, primary, neighbor, segmentByPrimary, knownPrimaries, metric, false)
+		}
+	}
+
+	// BLOS edges get their metric upgraded — never created — from gossip.
+	// The serving node's originator table already seeds cross-segment
+	// BLOS edges with metric=0; publisher gossip is the only place the
+	// vxlan0 link throughput / TQ surfaces for upgrade. Creating new
+	// BLOS edges here would resurrect the vxlan0 broadcast-overlay
+	// artifacts that layerVisEdges is careful to drop.
+	for primary, blosSet := range gossip.blosByPrimary {
+		for neighbor, metric := range blosSet {
+			if metric <= 0 {
+				continue
+			}
+
+			upgradeEdgeMetric(edgeByKey, primary, neighbor, metric)
+		}
+	}
+}
+
+// upgradeEdgeMetric sets an existing edge's metric when the edge has
+// none, leaving non-zero metrics alone. Does nothing when the edge
+// isn't already in edgeByKey — we want metric enrichment, not edge
+// creation.
+func upgradeEdgeMetric(edgeByKey map[string]*meshtopov1.MeshEdge, a, b string, metric float64) {
+	if metric <= 0 {
+		return
+	}
+
+	existing, ok := edgeByKey[canonicalKey(a, b)]
+	if !ok {
+		return
+	}
+
+	if existing.Metric == 0 {
+		existing.Metric = metric
+	}
+}
+
+// originatorEdgeEndpoints projects an originator entry to a canonical
+// (from, to) primary pair. Direct neighbors anchor on selfMAC; multi-hop
+// entries anchor on the next-hop → origin leg. Returns ok=false when
+// the entry can't produce a valid edge (e.g. self-loop, missing data).
+func originatorEdgeEndpoints(
+	o batmanadv.OriginatorEntry,
+	primaryByMac map[string]string,
+	selfMAC string,
+) (string, string, bool) {
+	origMAC := strings.ToLower(o.OrigMAC)
+	if origMAC == "" {
+		return "", "", false
+	}
+
+	nextMAC := strings.ToLower(o.NextHopMAC)
+
+	var fromMAC, toMAC string
+
+	if nextMAC == "" || nextMAC == origMAC {
+		if selfMAC == "" || selfMAC == origMAC {
+			return "", "", false
+		}
+
+		fromMAC, toMAC = selfMAC, origMAC
+	} else {
+		fromMAC, toMAC = nextMAC, origMAC
+	}
+
+	return resolvePrimary(primaryByMac, fromMAC), resolvePrimary(primaryByMac, toMAC), true
+}
+
+// layerVisEdges merges vis-reported neighbor entries over the originator
+// seeds. Existing edges get their metric enriched; new pairs get added
+// as off-my-path edges.
+func layerVisEdges(
+	edgeByKey map[string]*meshtopov1.MeshEdge,
+	visDoc *batmanadv.VisDoc,
+	primaryByMac map[string]string,
+	segmentByPrimary map[string]string,
+	knownPrimaries map[string]struct{},
+) {
+	if visDoc == nil {
+		return
+	}
+
+	for _, v := range visDoc.Vis {
+		for _, n := range v.Neighbors {
+			applyVisNeighbor(edgeByKey, n, visDoc.Algorithm, primaryByMac, segmentByPrimary, knownPrimaries)
+		}
+	}
+}
+
+func applyVisNeighbor(
+	edgeByKey map[string]*meshtopov1.MeshEdge,
+	n batmanadv.VisNeighbor,
+	algorithm int,
+	primaryByMac map[string]string,
+	segmentByPrimary map[string]string,
+	knownPrimaries map[string]struct{},
+) {
+	aMAC := strings.ToLower(n.Router)
+
+	bMAC := strings.ToLower(n.Neighbor)
+	if aMAC == "" || bMAC == "" || aMAC == bMAC {
+		return
+	}
+
+	aPrimary := resolvePrimary(primaryByMac, aMAC)
+	bPrimary := resolvePrimary(primaryByMac, bMAC)
+
+	metric := batmanadv.ParseMetric(n.Metric)
+
+	if existing, ok := edgeByKey[canonicalKey(aPrimary, bPrimary)]; ok {
+		if isBetterMetric(metric, existing.Metric, algorithm) {
+			existing.Metric = metric
+		}
+
+		return
+	}
+
+	// Peer-reported cross-segment edges are artifacts of the vxlan0
+	// broadcast overlay: every BLOS-reachable node appears as a direct
+	// neighbor to every other BLOS-reachable node in peer vis entries,
+	// even when the actual path is peer → vxlan0 → serving-node → RF →
+	// target. Real BLOS tunnels originate at the serving node and are
+	// already seeded via seedOriginatorEdges, so any *new* cross-segment
+	// edge discovered here is an overlay artifact. Drop it — otherwise
+	// the UI draws spurious vxlan lines between local peers and remote
+	// gateways they don't actually tunnel to.
+	if segmentOrDefault(segmentByPrimary, aPrimary) != segmentOrDefault(segmentByPrimary, bPrimary) {
+		return
+	}
+
+	addEdge(edgeByKey, aPrimary, bPrimary, segmentByPrimary, knownPrimaries, metric, false)
+}
+
+// resolvePrimary looks up a MAC's primary, falling back to the MAC itself
+// when no mapping exists (keeps callers tidy vs inlining the check).
+func resolvePrimary(primaryByMac map[string]string, mac string) string {
+	if p, ok := primaryByMac[mac]; ok && p != "" {
+		return p
+	}
+
+	return mac
+}
+
+// canonicalKey returns a stable "from|to" key for an edge, ordered by
+// lowercase MAC so (a,b) == (b,a).
+func canonicalKey(a, b string) string {
+	la, lb := canonicalPair(a, b)
+
+	return la + "|" + lb
+}
+
+// addEdge inserts or upgrades an edge record keyed on the canonical MAC
+// pair. Drops edges whose endpoints aren't both in the rendered-node
+// set so the frontend never sees dangling endpoints.
+func addEdge(
+	edgeByKey map[string]*meshtopov1.MeshEdge,
+	a, b string,
+	segmentByPrimary map[string]string,
+	knownPrimaries map[string]struct{},
+	metric float64,
+	onMyPath bool,
+) {
+	la, lb := canonicalPair(a, b)
+	if la == lb {
+		return
+	}
+
+	if _, ok := knownPrimaries[la]; !ok {
+		return
+	}
+
+	if _, ok := knownPrimaries[lb]; !ok {
+		return
+	}
+
+	key := la + "|" + lb
+
+	if existing, ok := edgeByKey[key]; ok {
+		if onMyPath {
+			existing.OnMyPath = true
+		}
+
+		if metric != 0 && existing.Metric == 0 {
+			existing.Metric = metric
+		}
+
+		return
+	}
+
+	segA := segmentOrDefault(segmentByPrimary, la)
+	segB := segmentOrDefault(segmentByPrimary, lb)
+
+	edgeByKey[key] = &meshtopov1.MeshEdge{
+		FromMac:  la,
+		ToMac:    lb,
+		Metric:   metric,
+		Blos:     segA != segB,
+		OnMyPath: onMyPath,
+	}
+}
+
+// hopsUnknown mirrors the sentinel the frontend treats as "no route info".
+const hopsUnknown int32 = 99
+
+// canonicalPair returns (min, max) lowercased MAC pair so (a,b) == (b,a)
+// when used as a map key.
+func canonicalPair(a, b string) (string, string) {
+	la := strings.ToLower(a)
+	lb := strings.ToLower(b)
+
+	if la < lb {
+		return la, lb
+	}
+
+	return lb, la
+}
+
+// isBetterMetric decides whether a newly-seen metric should replace the
+// one currently recorded for an edge. batadv-vis emits inverse-TQ for IV
+// (lower is better) and throughput-derived for V (higher is better).
+func isBetterMetric(newMetric, oldMetric float64, algorithm int) bool {
+	if newMetric == 0 {
+		return false
+	}
+
+	if oldMetric == 0 {
+		return true
+	}
+
+	if algorithm == 15 { // BATMAN_V
+		return newMetric > oldMetric
+	}
+
+	return newMetric < oldMetric // BATMAN_IV (and default)
+}
+
+// lookupOrigEntry finds the originator entry whose OrigMAC matches the
+// node's primary or any of its secondaries.
+func lookupOrigEntry(
+	v batmanadv.VisNode,
+	origByMac map[string]*batmanadv.OriginatorEntry,
+) *batmanadv.OriginatorEntry {
+	if e, ok := origByMac[v.Primary]; ok {
+		return e
+	}
+
+	for _, s := range v.Secondary {
+		if e, ok := origByMac[s]; ok {
+			return e
+		}
+	}
+
+	return nil
+}
+
+// buildHostnameIndex precomputes each canonical primary's display
+// hostname so the gossip view can match records by hostname when the
+// MAC lookup fails. Mirrors the resolution order of lookupHostname and
+// buildMeshNodes so the index key matches whatever the UI will render.
+// Self is indexed separately from origSnap.SelfHostname because vis
+// sometimes lacks an entry for the serving node at cold start.
+func buildHostnameIndex(
+	visNodes []batmanadv.VisNode,
+	origByMac map[string]*batmanadv.OriginatorEntry,
+	batHosts *batmanadv.BatHosts,
+	primaryByMac map[string]string,
+	selfMAC string,
+	selfHostname string,
+) map[string]string {
+	out := make(map[string]string, len(visNodes)+1)
+
+	for _, v := range visNodes {
+		canonical := primaryByMac[v.Primary]
+		if canonical == "" {
+			canonical = v.Primary
+		}
+
+		// Don't overwrite an earlier-resolved name for the same canonical
+		// primary — multi-radio dedup folds several vis entries onto one
+		// canonical and the first resolve wins for determinism.
+		if _, seen := out[canonical]; seen {
+			continue
+		}
+
+		if name := lookupHostname(v, lookupOrigEntry(v, origByMac), batHosts); name != "" {
+			out[canonical] = name
+		}
+	}
+
+	if selfPrimary := primaryByMac[selfMAC]; selfPrimary != "" && out[selfPrimary] == "" && selfHostname != "" {
+		out[selfPrimary] = stripIfaceSuffix(selfHostname)
+	}
+
+	return out
+}
+
+// lookupHostname resolves a display hostname for a node using (in order):
+// the originator entry's bat-hosts hostname, a fresh bat-hosts lookup on
+// the primary and secondary MACs, or empty. The returned name has any
+// "_<iface>" suffix stripped so the UI renders the base hostname.
+func lookupHostname(
+	v batmanadv.VisNode,
+	entry *batmanadv.OriginatorEntry,
+	batHosts *batmanadv.BatHosts,
+) string {
+	if entry != nil && entry.OrigHostname != "" {
+		return stripIfaceSuffix(entry.OrigHostname)
+	}
+
+	if batHosts == nil {
+		return ""
+	}
+
+	if name := batHosts.GetHostByMAC(v.Primary); name != "" {
+		return stripIfaceSuffix(name)
+	}
+
+	for _, s := range v.Secondary {
+		if name := batHosts.GetHostByMAC(s); name != "" {
+			return stripIfaceSuffix(name)
+		}
+	}
+
+	return ""
+}
+
+// stripIfaceSuffix removes a trailing "_<iface>" token from a bat-hosts
+// name, e.g. "BCM2711-97d6_bat0" → "BCM2711-97d6". Only strips when the
+// suffix matches a recognized network interface name so legitimate
+// underscored hostnames like "Gate_04_27" are preserved verbatim.
+func stripIfaceSuffix(full string) string {
+	loc := ifaceSuffixRe.FindStringIndex(full)
+	if loc == nil || loc[0] == 0 {
+		return full
+	}
+
+	return full[:loc[0]]
+}
+
+// segmentOrDefault returns the segment label for a primary or "local"
+// when the primary is absent from the map. Unknown primaries default to
+// local because a vis node we can't classify still has to land somewhere.
+func segmentOrDefault(m map[string]string, primary string) string {
+	if primary == "" {
+		return segmentLocal
+	}
+
+	if seg, ok := m[primary]; ok {
+		return seg
+	}
+
+	return segmentLocal
+}
+
+// GetMeshTopologyDelta returns the aggregated churn metrics over the
+// requested look-back window.
+func (s *MeshTopologyService) GetMeshTopologyDelta(_ context.Context, req *meshtopov1.GetMeshTopologyDeltaRequest) (*meshtopov1.GetMeshTopologyDeltaResponse, error) {
+	if s.DeltaTracker == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("mesh topology delta tracker is not running"))
+	}
+
+	var window time.Duration
+
+	if req != nil && req.Window != nil {
+		window = req.Window.AsDuration()
+	}
+
+	result := s.DeltaTracker.Window(window)
+
+	return &meshtopov1.GetMeshTopologyDeltaResponse{
+		RoutesAdded:    result.RoutesAdded,
+		RoutesLost:     result.RoutesLost,
+		GatewayChanges: result.GatewayChanges,
+		Reconverge:     durationpb.New(result.Reconverge),
+		ActualWindow:   durationpb.New(result.ActualWindow),
+	}, nil
+}

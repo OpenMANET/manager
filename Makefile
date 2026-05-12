@@ -18,11 +18,6 @@ PACKAGE_NAME = $(shell awk '/^module / {print $$2}' go.mod)
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-GOLANG_CROSS_VERSION  ?= v1.19.5
-
-SYSROOT_DIR     ?= sysroots
-SYSROOT_ARCHIVE ?= sysroots.tar.bz2
-
 .PHONY: help
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
@@ -39,59 +34,97 @@ vet: ## Run go vet against code.
 alfred: ## Make Alfred for Go Bindings
 	make -C internal/alfred/alfred
 
+.PHONY: frontend
+frontend: ## Build the React frontend (outputs to static/).
+	@find static/ -mindepth 1 ! -path 'static/whisper' ! -path 'static/whisper/*' -delete 2>/dev/null || true
+	cd frontend && pnpm install && pnpm run build
+
 .PHONY: sqlc-gen
 sqlc-gen: ## Generate sqlc code
 	$(GOBIN)/sqlc generate
 
 .PHONY: build
-build: fmt vet sqlc-gen ## Build manager binary.
-	GOCACHE=$(pwd)/.gocache CGO_ENABLED=1 go build -o bin/openmanetd main.go
+build: fmt vet buf sqlc-gen frontend whisper-js ## Build manager binary.
+	GOCACHE=$(HOME)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
 
 .PHONY: run
-run: fmt vet sqlc-gen ## Run a controller from your host.
+run: fmt vet buf sqlc-gen ## Run a controller from your host.
 	go run ./main.go
 
 .PHONY: buf
 buf: ## Generate protobuf code
+	buf format -w proto
 	buf generate
 
 .PHONY: test
-test:
-	go test ./... -coverprofile=coverage.out -covermode=atomic
+test: fmt vet buf sqlc-gen ## Run tests.
+	go test ./internal/... -coverprofile=coverage.out -covermode=atomic
 
-.PHONY: sysroot-pack
-sysroot-pack:
-	@tar cf - $(SYSROOT_DIR) -P | pv -s $[$(du -sk $(SYSROOT_DIR) | awk '{print $1}') * 1024] | pbzip2 > $(SYSROOT_ARCHIVE)
+.PHONY: test-race
+test-race: fmt vet buf sqlc-gen ## Run tests with race detector.
+	go test -race -timeout 120s ./internal/... -coverprofile=coverage.out -covermode=atomic
 
-.PHONY: sysroot-unpack
-sysroot-unpack:
-	@pv $(SYSROOT_ARCHIVE) | pbzip2 -cd | tar -xf -
+.PHONY: integration-test
+integration-test: fmt vet ## Run integration tests (no hardware required).
+	go test -tags integration -timeout 60s ./internal/... -coverprofile=coverage.out -covermode=atomic
 
-.PHONY: release-dry-run
-release-dry-run:
-	@docker run \
-		--rm \
-		-e CGO_ENABLED=1 \
-		-v /var/run/docker.sock:/var/run/docker.sock \
-		-v `pwd`:/go/src/$(PACKAGE_NAME) \
-		-v `pwd`/sysroot:/sysroot \
-		-w /go/src/$(PACKAGE_NAME) \
-		ghcr.io/goreleaser/goreleaser-cross:${GOLANG_CROSS_VERSION} \
-		--clean --skip=validate --skip=publish
+.PHONY: test-frontend
+test-frontend: ## Run frontend tests.
+	pnpm -C frontend install && pnpm -C frontend run test:coverage
 
-.PHONY: release
-release:
-	@if [ ! -f ".release-env" ]; then \
-		echo "\033[91m.release-env is required for release\033[0m";\
-		exit 1;\
+.PHONY: lint-frontend
+lint-frontend: ## Lint the React frontend with ESLint.
+	pnpm -C frontend install && pnpm -C frontend run lint
+
+.PHONY: lint-go
+lint-go: ## Install golangci-lint if not present, then run it.
+	$(GOBIN)/golangci-lint run --fix --timeout 5m
+
+.PHONY: lint
+lint: lint-go lint-frontend ## Run linters.
+
+.PHONY: bench-comms
+bench-comms: ## Run performance benchmarks on the comms package.
+	go test ./internal/comms/ -bench=. -benchmem -count=3 -run=^$$ -timeout 120s
+
+.PHONY: fuzz
+fuzz: ## Run fuzz tests for 30 seconds each.
+	go test ./internal/security/... -fuzz=Fuzz -fuzztime=30s -run=^$$
+	go test ./internal/comms/... -fuzz=Fuzz -fuzztime=30s -run=^$$
+
+.PHONY: build-lite
+build-lite: fmt vet frontend ## Build lite binary without whisper WASM, UPX compressed (~5MB).
+	@if [ -d static/whisper ]; then cp -r static/whisper /tmp/openmanetd-whisper-bak && rm -rf static/whisper; fi
+	GOCACHE=$(HOME)/.gocache CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags="-s -w" -o bin/openmanetd .
+	@if [ -d /tmp/openmanetd-whisper-bak ]; then mv /tmp/openmanetd-whisper-bak static/whisper; fi
+	@if command -v upx >/dev/null 2>&1; then \
+		upx --lzma --best bin/openmanetd; \
+	else \
+		echo "WARNING: upx not found, skipping compression (install with: apt install upx-ucl)"; \
 	fi
-	docker run \
-		--rm \
-		-e CGO_ENABLED=1 \
-		--env-file .release-env \
-		-v /var/run/docker.sock:/var/run/docker.sock \
-		-v `pwd`:/go/src/$(PACKAGE_NAME) \
-		-v `pwd`/sysroot:/sysroot \
-		-w /go/src/$(PACKAGE_NAME) \
-		ghcr.io/goreleaser/goreleaser-cross:${GOLANG_CROSS_VERSION} \
-		release --clean
+	@echo "Built bin/openmanetd (lite, no whisper, UPX compressed)"
+
+.PHONY: whisper-js
+whisper-js: ## Download whisper WASM JS into static/ for embedding (model downloaded at runtime).
+	@mkdir -p static/whisper
+	@if [ ! -f static/whisper/whisper-main.js ]; then \
+		echo "Downloading whisper WASM JS..."; \
+		curl -fSL -o static/whisper/whisper-main.js \
+			"https://whisper.ggerganov.com/whisper-main.js"; \
+	fi
+	@echo "Whisper JS staged in static/whisper/ (model will be downloaded on-demand via WebUI)"
+
+.PHONY: whisper-embed
+whisper-embed: whisper-js ## Download whisper model into static/ for full embedding (dev/testing).
+	@if [ ! -f static/whisper/ggml-tiny.en.bin ]; then \
+		echo "Downloading whisper tiny.en model (75MB)..."; \
+		curl -fSL -o static/whisper/ggml-tiny.en.bin \
+			"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"; \
+	fi
+	@echo "Whisper model staged in static/whisper/ (fully embedded in binary)"
+
+
+.PHONY: clean
+clean: ## Remove build artifacts.
+	rm -rf bin/
+

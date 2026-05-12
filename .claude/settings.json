@@ -1,0 +1,143 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm --version)",
+      "Bash(make test:*)",
+      "Bash(make test-frontend:*)",
+      "Bash(find /workspaces/openmanetd -type f -name *.proto)",
+      "Bash(ls -la /workspaces/openmanetd/*.go)",
+      "Bash(go vet:*)",
+      "Bash(make lint:*)",
+      "Bash(make lint-go:*)",
+      "Bash(make build-lite:*)",
+      "Bash(go build:*)",
+      "Bash(go mod:*)",
+      "Bash(claude plugin:*)",
+      "Read(//go/pkg/mod/**)",
+      "Bash(go doc:*)",
+      "Bash(pnpm exec vitest:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(go test:*)",
+      "Bash(make buf:*)",
+      "Bash(make sqlc-gen:*)",
+      "Bash(pnpm run:*)",
+      "Bash(make lint-frontend:*)",
+      "Bash(make frontend:*)",
+      "Bash(pnpm -C frontend run test)",
+      "Bash(pnpm -C frontend run lint)",
+      "Bash(make integration-test:*)",
+      "Bash(wc -l /workspaces/openmanetd/internal/blos/*.go)",
+      "Bash(find /workspaces/openmanetd/internal/comms -name \"*test*.go\" -exec basename {} \\\\;)",
+      "Bash(make build:*)",
+      "Bash(grep -n \"type CommsRuntime struct\" /workspaces/openmanetd/internal/comms/*.go)",
+      "Bash(find /workspaces/openmanetd/internal/openmanet/server/handlers -name \"*.go\" -exec grep -l \"comms\" {} \\\\;)",
+      "Bash(wc -l /workspaces/openmanetd/internal/comms/control/*.go /workspaces/openmanetd/internal/comms/codec/*.go /workspaces/openmanetd/internal/comms/device/*.go /workspaces/openmanetd/internal/comms/audiopool/*.go /workspaces/openmanetd/internal/comms/rtp/*.go)",
+      "Bash(wc -l /workspaces/openmanetd/internal/comms/control/*.go /workspaces/openmanetd/internal/comms/codec/*.go /workspaces/openmanetd/internal/comms/rtp/*.go /workspaces/openmanetd/internal/comms/device/*.go /workspaces/openmanetd/internal/comms/audiopool/*.go)",
+      "Bash(grep -E \"^-.*\\\\.go$\")",
+      "Bash(wc -l /workspaces/openmanetd/internal/comms/*.go)",
+      "Bash(wc -l /workspaces/openmanetd/internal/comms/audio/*.go /workspaces/openmanetd/internal/comms/audiopool/*.go /workspaces/openmanetd/internal/comms/codec/*.go /workspaces/openmanetd/internal/comms/control/*.go /workspaces/openmanetd/internal/comms/device/*.go /workspaces/openmanetd/internal/comms/rtp/*.go /workspaces/openmanetd/internal/comms/webaudio/*.go)",
+      "Read(//usr/bin/**)",
+      "Bash(go get:*)",
+      "Read(//home/vscode/go/pkg/mod/github.com/**)",
+      "Bash(ls /workspaces/openmanetd/internal/comms/rtp/*test*.go)",
+      "Bash(/go/bin/benchstat:*)",
+      "Bash(make fmt *)",
+      "Bash(awk '{print $NF}')",
+      "mcp__context7__query-docs",
+      "Bash(grep -r \"TODO\\\\|FIXME\\\\|XXX\\\\|HACK\\\\|mock\\\\|placeholder\\\\|hardcoded\\\\|coming soon\\\\|not implemented\\\\|TBD\\\\|STUB\" /workspaces/openmanetd/frontend/src --include=\"*.jsx\" --include=\"*.js\" --include=\"*.ts\" --include=\"*.tsx\" ! -path \"*/gen/*\")",
+      "Bash(grep -r \"placeholder\\\\|hardcoded\\\\|coming soon\\\\|not implemented\\\\|TBD\\\\|STUB\\\\|em-dash\\\\|——\" /workspaces/openmanetd/frontend/src --include=\"*.jsx\" --include=\"*.js\" ! -path \"*/gen/*\")",
+      "Bash(grep -rn \"TODO\\\\|FIXME\\\\|XXX\\\\|HACK\" /workspaces/openmanetd/frontend/src --include=\"*.jsx\" --include=\"*.js\" ! -path \"*/gen/*\" ! -path \"*/__tests__/*\")",
+      "Bash(buf lint *)",
+      "Bash(make -C /workspaces/openmanetd frontend)",
+      "Bash(make -C /workspaces/openmanetd test-frontend)",
+      "Bash(make -C /workspaces/openmanetd buf)",
+      "Bash(grep -E \"\\\\.jsx?$\")",
+      "Bash(grep \"\\\\.go$\")",
+      "Bash(grep -E \"\\\\.\\(go\\)$\")",
+      "Read(//home/vscode/.claude/plans/**)",
+      "Bash(git -C /workspaces/openmanetd submodule status)",
+      "Bash(git -C /workspaces/openmanetd/proto status --short)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(gh repo *)"
+    ],
+    "additionalDirectories": [
+      "/workspaces/openmanetd/.claude/skills"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(internal/api/|frontend/src/gen/|internal/database/models/)'; then echo \"Do not edit generated files. Edit the proto source or SQL and run make buf / make sqlc-gen.\" >&2; exit 2; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CMD=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.command // empty'); if echo \"$CMD\" | grep -qE '\\bgo build\\b' && ! echo \"$CMD\" | grep -q 'make'; then if [ -z \"$(ls -A /workspaces/openmanetd/static 2>/dev/null)\" ]; then echo 'Warning: static/ is empty. Use make build instead of go build directly, or run make frontend first.' >&2; fi; fi; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); [ -n \"$FILE\" ] && [[ \"$FILE\" == *.go ]] && gofmt -w \"$FILE\" 2>/dev/null; exit 0"
+          },
+          {
+            "type": "command",
+            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -q '/proto/'; then echo 'Auto-running make buf...' >&2; make -C /workspaces/openmanetd buf >&2; fi; exit 0",
+            "statusMessage": "Running make buf..."
+          },
+          {
+            "type": "command",
+            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(schema|query)\\.sql$'; then echo 'Auto-running make sqlc-gen...' >&2; make -C /workspaces/openmanetd sqlc-gen >&2; fi; exit 0",
+            "statusMessage": "Running make sqlc-gen..."
+          },
+          {
+            "type": "command",
+            "command": "FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | jq -r '.file_path // empty'); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE 'frontend/src/.*\\.(js|jsx)$' && ! echo \"$FILE\" | grep -q 'src/gen/'; then pnpm -C /workspaces/openmanetd/frontend run lint:fix -- \"$FILE\" 2>/dev/null; fi; exit 0"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/react-app/quality-check.js"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "gopls-lsp@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "github@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "caveman": {
+      "source": {
+        "source": "github",
+        "repo": "JuliusBrussee/caveman"
+      }
+    }
+  }
+}

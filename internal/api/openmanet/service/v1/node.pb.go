@@ -166,7 +166,7 @@ var File_openmanet_service_v1_node_proto protoreflect.FileDescriptor
 
 const file_openmanet_service_v1_node_proto_rawDesc = "" +
 	"\n" +
-	"\x1fopenmanet/service/v1/node.proto\x12\x14openmanet.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fopenmanet/network/v1/node.proto\x1a\x1bgoogle/protobuf/empty.proto\"5\n" +
+	"\x1fopenmanet/service/v1/node.proto\x12\x14openmanet.service.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fopenmanet/network/v1/node.proto\"5\n" +
 	"\x0eGetNodeRequest\x12#\n" +
 	"\bhostname\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\bhostname\"A\n" +
 	"\x0fGetNodeResponse\x12.\n" +

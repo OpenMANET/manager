@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os/exec"
@@ -42,6 +43,7 @@ func GetInterfaceByName(name string) NetworkInterface {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		fmt.Println("Failed to get network interface information: ", err)
+
 		return NetworkInterface{}
 	}
 
@@ -66,12 +68,15 @@ func getInterfaceIPAddresses(iface net.Interface) []IPAddress {
 	addrs, err := iface.Addrs()
 	if err != nil {
 		fmt.Println("Failed to get IP addresses for interface: ", err)
+
 		return ipAddresses
 	}
 
 	for _, addr := range addrs {
 		var ip net.IP
+
 		var netmask net.IPMask
+
 		var broadcast net.IP
 
 		switch v := addr.(type) {
@@ -105,6 +110,7 @@ func calculateBroadcastAddress(ipNet *net.IPNet) net.IP {
 	for i := 0; i < len(ip); i++ {
 		broadcast[i] = ip[i] | ^ipNet.Mask[i]
 	}
+
 	return broadcast
 }
 
@@ -220,13 +226,14 @@ func GetNetworkCIDR(name string) (string, error) {
 	}
 
 	// Calculate the network address by ANDing IP with netmask
-	ip := addr.IPNet.IP.To4()
+	ip := addr.IP.To4()
 	if ip == nil {
 		return "", fmt.Errorf("not an IPv4 address on interface %s", name)
 	}
 
-	mask := addr.IPNet.Mask
+	mask := addr.Mask
 	networkIP := make(net.IP, len(ip))
+
 	for i := 0; i < len(ip); i++ {
 		networkIP[i] = ip[i] & mask[i]
 	}
@@ -244,8 +251,8 @@ func GetNetworkCIDR(name string) (string, error) {
 // It executes the "ifup" command with the provided interface name.
 // Returns an error if the command fails to execute or if the interface
 // cannot be brought up.
-func PerformIfUp(name string) error {
-	cmd := exec.Command("ifup", name)
+func PerformIfUp(ctx context.Context, name string) error {
+	cmd := exec.CommandContext(ctx, "ifup", name)
 
 	return cmd.Run()
 }
@@ -254,8 +261,8 @@ func PerformIfUp(name string) error {
 // It executes the "ifdown" command with the provided interface name.
 // Returns an error if the command fails to execute or if the interface
 // cannot be brought down.
-func PerformIfDown(name string) error {
-	cmd := exec.Command("ifdown", name)
+func PerformIfDown(ctx context.Context, name string) error {
+	cmd := exec.CommandContext(ctx, "ifdown", name)
 
 	return cmd.Run()
 }

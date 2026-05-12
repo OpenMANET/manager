@@ -24,7 +24,7 @@ type UCIVXLANConfig struct {
 	TOS            string `uci:"option tos"`            // Type of service for packets (optional)
 	DF             string `uci:"option df"`             // Don't Fragment flag (0/1)
 	FlowLabel      string `uci:"option flowlabel"`      // IPv6 flow label (optional)
-	Ageing         string `uci:"option ageing"`         // MAC address ageing timeout in seconds (default: 300)
+	Aging          string `uci:"option aging"`          // MAC address aging timeout in seconds (default: 300)
 	MaxAddress     string `uci:"option maxaddress"`     // Maximum number of FDB entries (optional)
 	Learning       string `uci:"option learning"`       // Enable MAC learning (0/1, default: 1)
 	RSC            string `uci:"option rsc"`            // Route short circuit (0/1)
@@ -72,11 +72,12 @@ const (
 //	fmt.Printf("VXLAN VNI: %s\n", config.VID)
 func GetVXLANByName(name string) (*UCIVXLANConfig, error) {
 	reader := NewUCINetworkConfigReader()
+
 	return GetVXLANByNameWithReader(name, reader)
 }
 
 // GetVXLANByNameWithReader loads and returns the UCI VXLAN interface configuration by name using the provided reader.
-func GetVXLANByNameWithReader(name string, reader ConfigReader) (*UCIVXLANConfig, error) {
+func GetVXLANByNameWithReader(name string, reader ConfigReader) (*UCIVXLANConfig, error) { //nolint:gocognit,gocyclo
 	config := &UCIVXLANConfig{}
 
 	if values, ok := reader.Get(networkConfigName, name, "proto"); ok && len(values) > 0 {
@@ -139,8 +140,8 @@ func GetVXLANByNameWithReader(name string, reader ConfigReader) (*UCIVXLANConfig
 		config.FlowLabel = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "ageing"); ok && len(values) > 0 {
-		config.Ageing = values[0]
+	if values, ok := reader.Get(networkConfigName, name, "aging"); ok && len(values) > 0 {
+		config.Aging = values[0]
 	}
 
 	if values, ok := reader.Get(networkConfigName, name, "maxaddress"); ok && len(values) > 0 {
@@ -207,11 +208,12 @@ func GetVXLANByNameWithReader(name string, reader ConfigReader) (*UCIVXLANConfig
 // Note: This operation requires appropriate privileges and commits the configuration.
 func SetVXLANConfig(section string, config *UCIVXLANConfig) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANConfigWithReader(section, config, reader)
 }
 
 // SetVXLANConfigWithReader creates or updates a VXLAN interface configuration using the provided reader.
-func SetVXLANConfigWithReader(section string, config *UCIVXLANConfig, reader ConfigReader) error {
+func SetVXLANConfigWithReader(section string, config *UCIVXLANConfig, reader ConfigReader) error { //nolint:gocognit,gocyclo
 	// Check if the section exists; if not, create it
 	if !NetworkSectionExistsWithReader(section, reader) {
 		if err := reader.AddSection(networkConfigName, section, "interface"); err != nil {
@@ -324,10 +326,10 @@ func SetVXLANConfigWithReader(section string, config *UCIVXLANConfig, reader Con
 		}
 	}
 
-	// Set ageing (optional)
-	if config.Ageing != "" {
-		if err := reader.SetType(networkConfigName, section, "ageing", uci.TypeOption, config.Ageing); err != nil {
-			return fmt.Errorf("failed to set VXLAN ageing: %w", err)
+	// Set aging (optional)
+	if config.Aging != "" {
+		if err := reader.SetType(networkConfigName, section, "aging", uci.TypeOption, config.Aging); err != nil {
+			return fmt.Errorf("failed to set VXLAN aging: %w", err)
 		}
 	}
 
@@ -426,6 +428,7 @@ func SetVXLANConfigWithReader(section string, config *UCIVXLANConfig, reader Con
 // Note: This operation requires appropriate privileges and commits the configuration.
 func DeleteVXLANConfig(section string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return DeleteVXLANConfigWithReader(section, reader)
 }
 
@@ -457,6 +460,7 @@ func DeleteVXLANConfigWithReader(section string, reader ConfigReader) error {
 //	}
 func VXLANSectionExists(section string) bool {
 	reader := NewUCINetworkConfigReader()
+
 	return VXLANSectionExistsWithReader(section, reader)
 }
 
@@ -475,6 +479,7 @@ func VXLANSectionExistsWithReader(section string, reader ConfigReader) bool {
 //	err := SetVXLANProto("vxlan0")
 func SetVXLANProto(section string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANProtoWithReader(section, reader)
 }
 
@@ -502,6 +507,7 @@ func SetVXLANProtoWithReader(section string, reader ConfigReader) error {
 //	err := SetVXLANTunlink("vxlan0", "eth0")
 func SetVXLANTunlink(section string, tunlink string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANTunlinkWithReader(section, tunlink, reader)
 }
 
@@ -529,6 +535,7 @@ func SetVXLANTunlinkWithReader(section string, tunlink string, reader ConfigRead
 //	err := SetVXLANPeerAddr("vxlan0", "192.168.1.100")
 func SetVXLANPeerAddr(section string, peeraddr string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANPeerAddrWithReader(section, peeraddr, reader)
 }
 
@@ -556,6 +563,7 @@ func SetVXLANPeerAddrWithReader(section string, peeraddr string, reader ConfigRe
 //	err := SetVXLANVID("vxlan0", "100")
 func SetVXLANVID(section string, vid string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANVIDWithReader(section, vid, reader)
 }
 
@@ -583,6 +591,7 @@ func SetVXLANVIDWithReader(section string, vid string, reader ConfigReader) erro
 //	err := SetVXLANPort("vxlan0", "4789")
 func SetVXLANPort(section string, port string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANPortWithReader(section, port, reader)
 }
 
@@ -610,6 +619,7 @@ func SetVXLANPortWithReader(section string, port string, reader ConfigReader) er
 //	err := SetVXLANMacAddr("vxlan0", "00:11:22:33:44:55")
 func SetVXLANMacAddr(section string, macaddr string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANMacAddrWithReader(section, macaddr, reader)
 }
 
@@ -637,6 +647,7 @@ func SetVXLANMacAddrWithReader(section string, macaddr string, reader ConfigRead
 //	err := SetVXLANRxCsum("vxlan0", "1")
 func SetVXLANRxCsum(section string, rxcsum string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANRxCsumWithReader(section, rxcsum, reader)
 }
 
@@ -664,6 +675,7 @@ func SetVXLANRxCsumWithReader(section string, rxcsum string, reader ConfigReader
 //	err := SetVXLANTxCsum("vxlan0", "1")
 func SetVXLANTxCsum(section string, txcsum string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANTxCsumWithReader(section, txcsum, reader)
 }
 
@@ -691,6 +703,7 @@ func SetVXLANTxCsumWithReader(section string, txcsum string, reader ConfigReader
 //	err := SetVXLANMTU("vxlan0", "1450")
 func SetVXLANMTU(section string, mtu string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANMTUWithReader(section, mtu, reader)
 }
 
@@ -718,6 +731,7 @@ func SetVXLANMTUWithReader(section string, mtu string, reader ConfigReader) erro
 //	err := SetVXLANTTL("vxlan0", "64")
 func SetVXLANTTL(section string, ttl string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANTTLWithReader(section, ttl, reader)
 }
 
@@ -745,6 +759,7 @@ func SetVXLANTTLWithReader(section string, ttl string, reader ConfigReader) erro
 //	err := SetVXLANTOS("vxlan0", "inherit")
 func SetVXLANTOS(section string, tos string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANTOSWithReader(section, tos, reader)
 }
 
@@ -772,6 +787,7 @@ func SetVXLANTOSWithReader(section string, tos string, reader ConfigReader) erro
 //	err := SetVXLANIPAddr("vxlan0", "192.168.1.1")
 func SetVXLANIPAddr(section string, ipaddr string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANIPAddrWithReader(section, ipaddr, reader)
 }
 
@@ -799,6 +815,7 @@ func SetVXLANIPAddrWithReader(section string, ipaddr string, reader ConfigReader
 //	err := SetVXLANSrcPort("vxlan0", "10000-20000")
 func SetVXLANSrcPort(section string, srcport string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANSrcPortWithReader(section, srcport, reader)
 }
 
@@ -826,6 +843,7 @@ func SetVXLANSrcPortWithReader(section string, srcport string, reader ConfigRead
 //	err := SetVXLANDF("vxlan0", "1")
 func SetVXLANDF(section string, df string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANDFWithReader(section, df, reader)
 }
 
@@ -853,6 +871,7 @@ func SetVXLANDFWithReader(section string, df string, reader ConfigReader) error 
 //	err := SetVXLANFlowLabel("vxlan0", "0x12345")
 func SetVXLANFlowLabel(section string, flowlabel string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANFlowLabelWithReader(section, flowlabel, reader)
 }
 
@@ -869,28 +888,29 @@ func SetVXLANFlowLabelWithReader(section string, flowlabel string, reader Config
 	return nil
 }
 
-// SetVXLANAgeing sets the MAC address ageing timeout for a VXLAN interface.
+// SetVXLANAgeing sets the MAC address aging timeout for a VXLAN interface.
 //
 // Parameters:
 //   - section: The UCI section name (e.g., "vxlan0", "vxlan1")
-//   - ageing: The ageing timeout in seconds (e.g., "300")
+//   - aging: The aging timeout in seconds (e.g., "300")
 //
 // Example:
 //
 //	err := SetVXLANAgeing("vxlan0", "600")
-func SetVXLANAgeing(section string, ageing string) error {
+func SetVXLANAgeing(section string, aging string) error {
 	reader := NewUCINetworkConfigReader()
-	return SetVXLANAgeingWithReader(section, ageing, reader)
+
+	return SetVXLANAgeingWithReader(section, aging, reader)
 }
 
-// SetVXLANAgeingWithReader sets the MAC ageing timeout using the provided reader.
-func SetVXLANAgeingWithReader(section string, ageing string, reader ConfigReader) error {
-	if err := reader.SetType(networkConfigName, section, "ageing", uci.TypeOption, ageing); err != nil {
-		return fmt.Errorf("failed to set VXLAN ageing: %w", err)
+// SetVXLANAgeingWithReader sets the MAC aging timeout using the provided reader.
+func SetVXLANAgeingWithReader(section string, aging string, reader ConfigReader) error {
+	if err := reader.SetType(networkConfigName, section, "aging", uci.TypeOption, aging); err != nil {
+		return fmt.Errorf("failed to set VXLAN aging: %w", err)
 	}
 
 	if err := reader.Commit(); err != nil {
-		return fmt.Errorf("failed to commit VXLAN ageing: %w", err)
+		return fmt.Errorf("failed to commit VXLAN aging: %w", err)
 	}
 
 	return nil
@@ -907,6 +927,7 @@ func SetVXLANAgeingWithReader(section string, ageing string, reader ConfigReader
 //	err := SetVXLANMaxAddress("vxlan0", "2048")
 func SetVXLANMaxAddress(section string, maxaddress string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANMaxAddressWithReader(section, maxaddress, reader)
 }
 
@@ -934,6 +955,7 @@ func SetVXLANMaxAddressWithReader(section string, maxaddress string, reader Conf
 //	err := SetVXLANLearning("vxlan0", "0")
 func SetVXLANLearning(section string, learning string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANLearningWithReader(section, learning, reader)
 }
 
@@ -961,6 +983,7 @@ func SetVXLANLearningWithReader(section string, learning string, reader ConfigRe
 //	err := SetVXLANRSC("vxlan0", "1")
 func SetVXLANRSC(section string, rsc string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANRSCWithReader(section, rsc, reader)
 }
 
@@ -988,6 +1011,7 @@ func SetVXLANRSCWithReader(section string, rsc string, reader ConfigReader) erro
 //	err := SetVXLANProxy("vxlan0", "1")
 func SetVXLANProxy(section string, proxy string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANProxyWithReader(section, proxy, reader)
 }
 
@@ -1015,6 +1039,7 @@ func SetVXLANProxyWithReader(section string, proxy string, reader ConfigReader) 
 //	err := SetVXLANL2Miss("vxlan0", "1")
 func SetVXLANL2Miss(section string, l2miss string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANL2MissWithReader(section, l2miss, reader)
 }
 
@@ -1042,6 +1067,7 @@ func SetVXLANL2MissWithReader(section string, l2miss string, reader ConfigReader
 //	err := SetVXLANL3Miss("vxlan0", "1")
 func SetVXLANL3Miss(section string, l3miss string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANL3MissWithReader(section, l3miss, reader)
 }
 
@@ -1069,6 +1095,7 @@ func SetVXLANL3MissWithReader(section string, l3miss string, reader ConfigReader
 //	err := SetVXLANUDPCsum("vxlan0", "1")
 func SetVXLANUDPCsum(section string, udpcsum string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANUDPCsumWithReader(section, udpcsum, reader)
 }
 
@@ -1096,6 +1123,7 @@ func SetVXLANUDPCsumWithReader(section string, udpcsum string, reader ConfigRead
 //	err := SetVXLANUDP6ZeroCsumTx("vxlan0", "1")
 func SetVXLANUDP6ZeroCsumTx(section string, udp6zerocsumtx string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANUDP6ZeroCsumTxWithReader(section, udp6zerocsumtx, reader)
 }
 
@@ -1123,6 +1151,7 @@ func SetVXLANUDP6ZeroCsumTxWithReader(section string, udp6zerocsumtx string, rea
 //	err := SetVXLANUDP6ZeroCsumRx("vxlan0", "1")
 func SetVXLANUDP6ZeroCsumRx(section string, udp6zerocsumrx string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANUDP6ZeroCsumRxWithReader(section, udp6zerocsumrx, reader)
 }
 
@@ -1150,6 +1179,7 @@ func SetVXLANUDP6ZeroCsumRxWithReader(section string, udp6zerocsumrx string, rea
 //	err := SetVXLANGBP("vxlan0", "1")
 func SetVXLANGBP(section string, gbp string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return SetVXLANGBPWithReader(section, gbp, reader)
 }
 
@@ -1187,6 +1217,7 @@ func SetVXLANGBPWithReader(section string, gbp string, reader ConfigReader) erro
 // Anonymous sections are created without a name, as per OpenWRT UCI conventions for vxlan_peer.
 func AddVXLANPeer(peer *UCIVXLANPeer) error {
 	reader := NewUCINetworkConfigReader()
+
 	return AddVXLANPeerWithReader(peer, reader)
 }
 
@@ -1207,6 +1238,7 @@ func AddVXLANPeer(peer *UCIVXLANPeer) error {
 //	err := BatchAddVXLANPeers(peers)
 func BatchAddVXLANPeers(peers []UCIVXLANPeer) error {
 	reader := NewUCINetworkConfigReader()
+
 	return BatchAddVXLANPeersWithReader(peers, reader)
 }
 
@@ -1297,7 +1329,7 @@ func AddVXLANPeerWithReader(peer *UCIVXLANPeer, reader ConfigReader) error {
 //   - reader: The ConfigReader to use for UCI operations
 //
 // Returns an error if any operation fails.
-func BatchAddVXLANPeersWithReader(peers []UCIVXLANPeer, reader ConfigReader) error {
+func BatchAddVXLANPeersWithReader(peers []UCIVXLANPeer, reader ConfigReader) error { //nolint:gocognit
 	if len(peers) == 0 {
 		return nil
 	}
@@ -1396,6 +1428,7 @@ func BatchAddVXLANPeersWithReader(peers []UCIVXLANPeer, reader ConfigReader) err
 // Returns the VXLAN peer configuration or an error if it cannot be read.
 func GetVXLANPeerByName(name string) (*UCIVXLANPeer, error) {
 	reader := NewUCINetworkConfigReader()
+
 	return GetVXLANPeerByNameWithReader(name, reader)
 }
 
@@ -1454,6 +1487,7 @@ func GetVXLANPeerByNameWithReader(name string, reader ConfigReader) (*UCIVXLANPe
 //	err := UpdateVXLANPeer("@vxlan_peer[0]", peerConfig)
 func UpdateVXLANPeer(section string, peer *UCIVXLANPeer) error {
 	reader := NewUCINetworkConfigReader()
+
 	return UpdateVXLANPeerWithReader(section, peer, reader)
 }
 
@@ -1535,6 +1569,7 @@ func UpdateVXLANPeerWithReader(section string, peer *UCIVXLANPeer, reader Config
 // Note: This operation requires appropriate privileges and commits the configuration.
 func DeleteVXLANPeerByName(section string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return DeleteVXLANPeerByNameWithReader(section, reader)
 }
 
@@ -1566,6 +1601,7 @@ func DeleteVXLANPeerByNameWithReader(section string, reader ConfigReader) error 
 //	}
 func VXLANPeerSectionExists(section string) bool {
 	reader := NewUCINetworkConfigReader()
+
 	return VXLANPeerSectionExistsWithReader(section, reader)
 }
 
@@ -1576,7 +1612,9 @@ func VXLANPeerSectionExistsWithReader(section string, reader ConfigReader) bool 
 	if vxlanExists {
 		return true
 	}
+
 	_, dstExists := reader.Get(networkConfigName, section, "dst")
+
 	return dstExists
 }
 
@@ -1597,6 +1635,7 @@ func VXLANPeerSectionExistsWithReader(section string, reader ConfigReader) bool 
 //	fmt.Printf("Found peer in section %s with VNI %s\n", section, peer.VNI)
 func GetVXLANPeerByDst(dst string) (*UCIVXLANPeer, string, error) {
 	reader := NewUCINetworkConfigReader()
+
 	return GetVXLANPeerByDstWithReader(dst, reader)
 }
 
@@ -1605,7 +1644,6 @@ func GetVXLANPeerByDstWithReader(dst string, reader ConfigReader) (*UCIVXLANPeer
 	// For the real UCI tree, we need to use the tree's sections list
 	// For now, we'll try common section patterns
 	// In practice, this would need to iterate through all vxlan_peer sections
-
 	// List of common peer section name patterns to search
 	peerSections := []string{
 		"peer_multicast",
@@ -1625,6 +1663,7 @@ func GetVXLANPeerByDstWithReader(dst string, reader ConfigReader) (*UCIVXLANPeer
 				if err != nil {
 					return nil, "", err
 				}
+
 				return peer, section, nil
 			}
 		}
@@ -1639,6 +1678,7 @@ func GetVXLANPeerByDstWithReader(dst string, reader ConfigReader) (*UCIVXLANPeer
 				if err != nil {
 					return nil, "", err
 				}
+
 				return peer, section, nil
 			}
 		}
@@ -1661,12 +1701,14 @@ func GetVXLANPeerByDstWithReader(dst string, reader ConfigReader) (*UCIVXLANPeer
 //	}
 func VXLANPeerExistsByDst(dst string) bool {
 	reader := NewUCINetworkConfigReader()
+
 	return VXLANPeerExistsByDstWithReader(dst, reader)
 }
 
 // VXLANPeerExistsByDstWithReader checks if a VXLAN peer with the specified destination address exists using the provided reader.
 func VXLANPeerExistsByDstWithReader(dst string, reader ConfigReader) bool {
 	_, _, err := GetVXLANPeerByDstWithReader(dst, reader)
+
 	return err == nil
 }
 
@@ -1688,6 +1730,7 @@ func VXLANPeerExistsByDstWithReader(dst string, reader ConfigReader) bool {
 // Note: This operation requires appropriate privileges and commits the configuration.
 func DeleteVXLANPeerByDst(dst string) error {
 	reader := NewUCINetworkConfigReader()
+
 	return DeleteVXLANPeerByDstWithReader(dst, reader)
 }
 
@@ -1715,6 +1758,7 @@ func DeleteVXLANPeerByDstWithReader(dst string, reader ConfigReader) error {
 // It returns a map of section names to UCIVXLANPeer configurations.
 func GetAllVXLANPeers() (map[string]*UCIVXLANPeer, error) {
 	reader := NewUCINetworkConfigReader()
+
 	return GetAllVXLANPeersWithReader(reader)
 }
 
@@ -1737,6 +1781,7 @@ func GetAllVXLANPeersWithReader(reader ConfigReader) (map[string]*UCIVXLANPeer, 
 			// Log but continue on error for individual peer
 			continue
 		}
+
 		peers[section] = peer
 	}
 

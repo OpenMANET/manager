@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	"github.com/openmanet/openmanetd/internal/mgmt"
@@ -11,7 +12,7 @@ import (
 
 type InterfaceService struct {
 	Log  zerolog.Logger
-	Wifi *mgmt.WirelessConfig
+	Wifi mgmt.WirelessProvider
 }
 
 func (w *InterfaceService) GetWirelessInterface(_ context.Context, req *serviceproto.GetWirelessInterfaceRequest) (*serviceproto.GetWirelessInterfaceResponse, error) {
@@ -20,15 +21,18 @@ func (w *InterfaceService) GetWirelessInterface(_ context.Context, req *servicep
 	wifiInterfaces, err := w.Wifi.Interfaces()
 	if err != nil {
 		w.Log.Error().Err(err).Msg("Failed to get interface")
-		return nil, err
+
+		return nil, fmt.Errorf("list wifi interfaces: %w", err)
 	}
 
 	var wifiInt *serviceproto.WirelessInterface
+
 	for _, iface := range wifiInterfaces {
 		// find the interface with the requested name
 		if req.Name != "" && iface.Name != req.Name {
 			continue
 		}
+
 		wifiInt = &serviceproto.WirelessInterface{
 			Index:           int32(iface.Index),
 			Name:            iface.Name,
@@ -52,6 +56,7 @@ func (w *InterfaceService) ListWirelessInterfaces(_ context.Context, _ *emptypb.
 	wifiInterfaces, err := w.Wifi.GetMeshInterfaces()
 	if err != nil {
 		w.Log.Error().Err(err).Msg("Failed to list interfaces")
+
 		return nil, err
 	}
 

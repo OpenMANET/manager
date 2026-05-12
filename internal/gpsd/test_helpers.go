@@ -1,6 +1,7 @@
 package gpsd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -18,7 +19,7 @@ type mockGPSDServer struct {
 }
 
 func newMockGPSDServer(t *testing.T) *mockGPSDServer {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Failed to create mock GPSD server: %v", err)
 	}
@@ -32,12 +33,14 @@ func newMockGPSDServer(t *testing.T) *mockGPSDServer {
 
 func (m *mockGPSDServer) Start() {
 	close(m.started)
+
 	go func() {
 		for {
 			conn, err := m.listener.Accept()
 			if err != nil {
 				return
 			}
+
 			go m.handleConnection(conn)
 		}
 	}()
@@ -48,6 +51,7 @@ func (m *mockGPSDServer) handleConnection(conn net.Conn) {
 
 	// Read the watch command
 	buf := make([]byte, 1024)
+
 	_, err := conn.Read(buf)
 	if err != nil {
 		return
@@ -59,6 +63,7 @@ func (m *mockGPSDServer) handleConnection(conn net.Conn) {
 		if err != nil {
 			return
 		}
+
 		time.Sleep(10 * time.Millisecond)
 	}
 
@@ -103,6 +108,26 @@ func (m *mockGPSDServer) AddSKYMessage(hdop float64, uSat int) {
 	m.messages = append(m.messages, string(data))
 }
 
+// AddSKYMessageWithSatellites adds a SKY message with individual satellite entries
+func (m *mockGPSDServer) AddSKYMessageWithSatellites(hdop float64, uSat int, satellites []SatelliteInfo) {
+	sky := SKYReport{
+		Class: "SKY",
+		Time:  time.Now().UTC().Format(time.RFC3339),
+		HDOP:  hdop,
+		VDOP:  hdop * 1.5,
+		PDOP:  hdop * 2.0,
+		NSat:  len(satellites),
+		USat:  uSat,
+	}
+
+	for _, s := range satellites {
+		sky.Satellites = append(sky.Satellites, SKYSatellite(s))
+	}
+
+	data, _ := json.Marshal(sky)
+	m.messages = append(m.messages, string(data))
+}
+
 // Helper function to verify NMEA checksum
 func verifyNMEAChecksum(nmea string) bool {
 	if !strings.HasPrefix(nmea, "$") || !strings.Contains(nmea, "*") {
@@ -118,7 +143,8 @@ func verifyNMEAChecksum(nmea string) bool {
 	expectedChecksum := calculateNMEAChecksum(sentence)
 
 	var actualChecksum byte
-	fmt.Sscanf(parts[1], "%02X", &actualChecksum)
+
+	_, _ = fmt.Sscanf(parts[1], "%02X", &actualChecksum)
 
 	return expectedChecksum == actualChecksum
 }

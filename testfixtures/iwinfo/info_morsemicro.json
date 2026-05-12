@@ -1,0 +1,43 @@
+{
+  "phy": "phy0",
+  "ssid": "halowmesh",
+  "bssid": "F4:AB:5C:DF:3E:91",
+  "country": "US",
+  "mode": "Mesh Point",
+  "channel": 42,
+  "center_chan1": 42,
+  "frequency": 923,
+  "frequency_offset": 0,
+  "txpower": 27,
+  "txpower_offset": 0,
+  "quality": 70,
+  "quality_max": 70,
+  "signal": -33,
+  "noise": -73,
+  "bitrate": 7500,
+  "encryption": {
+    "enabled": true,
+    "wpa": [
+      3
+    ],
+    "authentication": [
+      "sae"
+    ],
+    "ciphers": [
+      "ccmp"
+    ]
+  },
+  "htmodes": [
+    "HT20"
+  ],
+  "hwmodes": [
+    "ah"
+  ],
+  "hwmodes_text": "ah",
+  "hwmode": "ah",
+  "htmode": "HT20",
+  "hardware": {
+    "id": [],
+    "name": "Morse Micro SPI-MM601X"
+  }
+}

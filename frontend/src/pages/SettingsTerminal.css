@@ -1,0 +1,60 @@
+.settings-terminal {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-terminal-toolbar {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.settings-terminal-toolbar h3 {
+  margin: 0;
+}
+
+.settings-terminal-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-terminal-host {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.settings-terminal-host .lat-terminal {
+  position: absolute;
+  inset: 0;
+}
+
+.settings-terminal-banner {
+  margin: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: var(--text);
+}
+
+@media (max-width: 900px) {
+  .settings-terminal-banner { margin: 12px; padding: 12px; }
+}
+
+@media (max-width: 640px) {
+  .settings-terminal-toolbar { padding: 6px 8px; }
+  .settings-terminal-banner { margin: 8px; padding: 10px; }
+}

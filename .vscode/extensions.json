@@ -1,7 +1,6 @@
 {
   "recommendations": [
     "ms-vscode-remote.vscode-remote-extensionpack",
-    "ms-azuretools.vscode-docker",
     "shd101wyy.markdown-preview-enhanced",
     "redhat.vscode-yaml",
     "shardulm94.trailing-spaces",

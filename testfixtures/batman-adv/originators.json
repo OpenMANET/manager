@@ -1,0 +1,50 @@
+[
+  {
+    "orig_address": "9c:ef:d5:f9:9e:02",
+    "hard_ifname": "phy2-mesh0",
+    "best_next_hop": "9c:ef:d5:f9:9e:02",
+    "last_seen_msecs": 120,
+    "tq": 255,
+    "best": true
+  },
+  {
+    "orig_address": "9c:ef:d5:f9:9e:02",
+    "hard_ifname": "phy2-mesh0",
+    "best_next_hop": "9c:ef:d5:f9:9e:02",
+    "last_seen_msecs": 120,
+    "tq": 180,
+    "best": false
+  },
+  {
+    "orig_address": "00:0a:52:0b:7d:ae",
+    "hard_ifname": "phy2-mesh0",
+    "best_next_hop": "9c:ef:d5:f9:9e:02",
+    "last_seen_msecs": 240,
+    "tq": 210,
+    "best": true
+  },
+  {
+    "orig_address": "2c:cf:67:b8:88:bb",
+    "hard_ifname": "vxlan0",
+    "best_next_hop": "2c:cf:67:b8:88:bb",
+    "last_seen_msecs": 400,
+    "tq": 230,
+    "best": true
+  },
+  {
+    "orig_address": "aa:bb:cc:dd:01:01",
+    "hard_ifname": "vxlan0",
+    "best_next_hop": "2c:cf:67:b8:88:bb",
+    "last_seen_msecs": 450,
+    "tq": 190,
+    "best": true
+  },
+  {
+    "orig_address": "aa:bb:cc:dd:02:02",
+    "hard_ifname": "vxlan0",
+    "best_next_hop": "aa:bb:cc:dd:02:02",
+    "last_seen_msecs": 500,
+    "tq": 200,
+    "best": true
+  }
+]

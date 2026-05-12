@@ -1,0 +1,1786 @@
+package handlers_test
+
+import (
+	"context"
+	"errors"
+	"net"
+	"testing"
+	"time"
+
+	"connectrpc.com/connect"
+	"github.com/digineo/go-uci/v2"
+	"github.com/mdlayher/wifi"
+	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
+	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
+	"github.com/openmanet/openmanetd/internal/iwinfo"
+	"github.com/openmanet/openmanetd/internal/network"
+	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
+	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/types/known/emptypb"
+)
+
+// ── fake implementations ─────────────────────────────────────────────────────
+
+type fakeWirelessStatusProvider struct {
+	status map[string]*network.WirelessRadioStatus
+	err    error
+}
+
+func (f *fakeWirelessStatusProvider) GetWirelessStatus(_ context.Context) (map[string]*network.WirelessRadioStatus, error) {
+	return f.status, f.err
+}
+
+type fakeIwinfoProvider struct {
+	infoByDevice map[string]*iwinfo.InterfaceInfo
+	infoErr      error
+	devices      []string
+	devicesErr   error
+}
+
+func (f *fakeIwinfoProvider) GetDevices(_ context.Context) ([]string, error) {
+	return f.devices, f.devicesErr
+}
+
+func (f *fakeIwinfoProvider) GetInfo(_ context.Context, device string) (*iwinfo.InterfaceInfo, error) {
+	if f.infoErr != nil {
+		return nil, f.infoErr
+	}
+
+	info, ok := f.infoByDevice[device]
+	if !ok {
+		return nil, errors.New("device not found")
+	}
+
+	return info, nil
+}
+
+func (f *fakeIwinfoProvider) GetInfoForAll(_ context.Context) (map[string]*iwinfo.InterfaceInfo, error) {
+	return f.infoByDevice, f.infoErr
+}
+
+type fakeConfigReader struct {
+	data         map[string]map[string]map[string][]string
+	sectionTypes map[string]map[string]string
+	commitCalled bool
+	reloadCalled bool
+	commitError  error
+	reloadError  error
+	setTypeError error
+}
+
+func (f *fakeConfigReader) Get(config, section, option string) ([]string, bool) {
+	if configData, ok := f.data[config]; ok {
+		if sectionData, ok := configData[section]; ok {
+			if values, ok := sectionData[option]; ok {
+				return values, true
+			}
+		}
+	}
+
+	return nil, false
+}
+
+func (f *fakeConfigReader) GetSections(config, secType string) ([]string, error) {
+	var sections []string
+
+	if typeMap, ok := f.sectionTypes[config]; ok {
+		for section, stype := range typeMap {
+			if stype == secType {
+				sections = append(sections, section)
+			}
+		}
+	}
+
+	return sections, nil
+}
+
+func (f *fakeConfigReader) SetType(config, section, option string, _ uci.OptionType, values ...string) error {
+	if f.setTypeError != nil {
+		return f.setTypeError
+	}
+
+	if f.data[config] == nil {
+		f.data[config] = make(map[string]map[string][]string)
+	}
+
+	if f.data[config][section] == nil {
+		f.data[config][section] = make(map[string][]string)
+	}
+
+	f.data[config][section][option] = values
+
+	return nil
+}
+
+func (f *fakeConfigReader) Del(config, section, option string) error {
+	if f.data[config] == nil {
+		return nil
+	}
+
+	if f.data[config][section] == nil {
+		return nil
+	}
+
+	delete(f.data[config][section], option)
+
+	return nil
+}
+
+func (f *fakeConfigReader) AddSection(config, section, typ string) error {
+	if f.sectionTypes == nil {
+		f.sectionTypes = make(map[string]map[string]string)
+	}
+
+	if f.sectionTypes[config] == nil {
+		f.sectionTypes[config] = make(map[string]string)
+	}
+
+	f.sectionTypes[config][section] = typ
+
+	if f.data[config] == nil {
+		f.data[config] = make(map[string]map[string][]string)
+	}
+
+	if f.data[config][section] == nil {
+		f.data[config][section] = make(map[string][]string)
+	}
+
+	return nil
+}
+
+func (f *fakeConfigReader) DelSection(config, section string) error {
+	if f.sectionTypes[config] != nil {
+		delete(f.sectionTypes[config], section)
+	}
+
+	if f.data[config] != nil {
+		delete(f.data[config], section)
+	}
+
+	return nil
+}
+
+func (f *fakeConfigReader) Commit() error {
+	f.commitCalled = true
+
+	return f.commitError
+}
+
+func (f *fakeConfigReader) ReloadConfig() error {
+	f.reloadCalled = true
+
+	return f.reloadError
+}
+
+type fakeDHCPLeaseProvider struct {
+	leases *network.DHCPLeasesResponse
+	err    error
+}
+
+func (f *fakeDHCPLeaseProvider) GetCurrentDHCPLeases(_ context.Context) (*network.DHCPLeasesResponse, error) {
+	return f.leases, f.err
+}
+
+// ── helper constructors ──────────────────────────────────────────────────────
+
+func newTestWifiConfigService(t *testing.T) *handlers.WifiConfigService {
+	t.Helper()
+
+	return &handlers.WifiConfigService{
+		Log:            zerolog.Nop(),
+		IwinfoClient:   &fakeIwinfoProvider{infoByDevice: map[string]*iwinfo.InterfaceInfo{}},
+		Wifi:           &fakeWireless{},
+		WirelessStatus: &fakeWirelessStatusProvider{status: map[string]*network.WirelessRadioStatus{}},
+		ConfigReader:   newWifiConfigMockReader(),
+		DHCPLeases:     &fakeDHCPLeaseProvider{leases: &network.DHCPLeasesResponse{}},
+		GetMeshNeighbors: func() (*batmanadv.Neighbors, error) {
+			return &batmanadv.Neighbors{}, nil
+		},
+		ParseBatHosts: func(_ string) (*batmanadv.BatHosts, error) {
+			return &batmanadv.BatHosts{}, nil
+		},
+	}
+}
+
+func newWifiConfigMockReader() *fakeConfigReader {
+	return &fakeConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"wireless": {
+				"radio2": {
+					"type":    {"mac80211"},
+					"band":    {"2g"},
+					"channel": {"1"},
+					"htmode":  {"HT20"},
+					"country": {"US"},
+					"txpower": {"20"},
+					"path":    {"platform/soc/fe980000.usb/usb1/1-1"},
+				},
+				"radio3": {
+					"type":    {"morse"},
+					"band":    {"s1g"},
+					"channel": {"42"},
+					"hwmode":  {"11ah"},
+					"country": {"US"},
+					"txpower": {"14"},
+					"path":    {"platform/soc/fe204000.spi"},
+				},
+				"default_radio2": {
+					"device":     {"radio2"},
+					"network":    {"ahwlan"},
+					"mode":       {"ap"},
+					"ssid":       {"openmanet"},
+					"key":        {"testsecret"},
+					"encryption": {"psk2"},
+					"disabled":   {"0"},
+				},
+				"default_radio3": {
+					"device":     {"radio3"},
+					"network":    {"batmesh0"},
+					"mode":       {"mesh"},
+					"ssid":       {"openmanet"},
+					"key":        {"meshsecret"},
+					"mesh_id":    {"openmanet-mesh"},
+					"encryption": {"sae"},
+				},
+			},
+		},
+		sectionTypes: map[string]map[string]string{
+			"wireless": {
+				"radio2":         "wifi-device",
+				"radio3":         "wifi-device",
+				"default_radio2": "wifi-iface",
+				"default_radio3": "wifi-iface",
+			},
+		},
+	}
+}
+
+func newTestWirelessStatus() map[string]*network.WirelessRadioStatus {
+	return map[string]*network.WirelessRadioStatus{
+		"radio2": {
+			Up:       true,
+			Disabled: false,
+			Interfaces: []network.WirelessRadioInterface{
+				{Section: "default_radio2", Ifname: "phy0-ap0", Config: network.WirelessIfaceStatusConfig{Mode: "ap"}},
+			},
+		},
+		"radio3": {
+			Up:       true,
+			Disabled: false,
+			Interfaces: []network.WirelessRadioInterface{
+				{Section: "default_radio3", Ifname: "phy1-mesh0", Config: network.WirelessIfaceStatusConfig{Mode: "mesh"}},
+			},
+		},
+	}
+}
+
+func newTestIwinfoData() map[string]*iwinfo.InterfaceInfo {
+	return map[string]*iwinfo.InterfaceInfo{
+		"phy0-ap0": {
+			SSID:      "openmanet",
+			Mode:      "Master",
+			Channel:   1,
+			Frequency: 2412,
+			HTMode:    "HT20",
+			TxPower:   20,
+			Hardware:  iwinfo.HardwareInfo{Name: "MediaTek MT7603E"},
+			Encryption: iwinfo.EncryptionInfo{
+				Enabled:        true,
+				WPA:            []int{2},
+				Authentication: []string{"psk"},
+				Ciphers:        []string{"ccmp"},
+			},
+		},
+		"phy1-mesh0": {
+			SSID:      "openmanet",
+			Mode:      "Mesh Point",
+			Channel:   42,
+			Frequency: 923,
+			HTMode:    "",
+			TxPower:   14,
+			Hardware:  iwinfo.HardwareInfo{Name: "Morse Micro MM8108"},
+			Encryption: iwinfo.EncryptionInfo{
+				Enabled:        true,
+				WPA:            []int{3},
+				Authentication: []string{"sae"},
+				Ciphers:        []string{"ccmp"},
+			},
+		},
+	}
+}
+
+// ── ListRadios tests ─────────────────────────────────────────────────────────
+
+func TestListRadios_MultipleRadios(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+	svc.WirelessStatus = &fakeWirelessStatusProvider{status: newTestWirelessStatus()}
+	svc.IwinfoClient = &fakeIwinfoProvider{infoByDevice: newTestIwinfoData()}
+
+	resp, err := svc.ListRadios(context.Background(), &emptypb.Empty{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(resp.GetRadios()) != 2 {
+		t.Fatalf("expected 2 radios, got %d", len(resp.GetRadios()))
+	}
+
+	radioMap := map[string]*wificonfigv1.Radio{}
+	for _, r := range resp.GetRadios() {
+		radioMap[r.GetName()] = r
+	}
+
+	r2 := radioMap["radio2"]
+	if r2 == nil {
+		t.Fatal("expected radio2 in response")
+	}
+
+	if r2.GetBand() != wificonfigv1.WifiBand_WIFI_BAND_2G {
+		t.Errorf("radio2 band: got %v, want %v", r2.GetBand(), wificonfigv1.WifiBand_WIFI_BAND_2G)
+	}
+
+	if r2.GetHardwareName() != "MediaTek MT7603E" {
+		t.Errorf("radio2 hardware: got %q, want %q", r2.GetHardwareName(), "MediaTek MT7603E")
+	}
+
+	if r2.GetInterfaceName() != "default_radio2" {
+		t.Errorf("radio2 interface_name: got %q, want %q", r2.GetInterfaceName(), "default_radio2")
+	}
+
+	r3 := radioMap["radio3"]
+	if r3 == nil {
+		t.Fatal("expected radio3 in response")
+	}
+
+	if r3.GetBand() != wificonfigv1.WifiBand_WIFI_BAND_S1G {
+		t.Errorf("radio3 band: got %v, want %v", r3.GetBand(), wificonfigv1.WifiBand_WIFI_BAND_S1G)
+	}
+
+	if r3.GetHardwareName() != "Morse Micro MM8108" {
+		t.Errorf("radio3 hardware: got %q, want %q", r3.GetHardwareName(), "Morse Micro MM8108")
+	}
+}
+
+func TestListRadios_Empty(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = &fakeConfigReader{
+		data:         map[string]map[string]map[string][]string{},
+		sectionTypes: map[string]map[string]string{},
+	}
+
+	resp, err := svc.ListRadios(context.Background(), &emptypb.Empty{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(resp.GetRadios()) != 0 {
+		t.Errorf("expected 0 radios, got %d", len(resp.GetRadios()))
+	}
+}
+
+func TestListRadios_DisplayNameFormatting(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+	svc.WirelessStatus = &fakeWirelessStatusProvider{status: newTestWirelessStatus()}
+	svc.IwinfoClient = &fakeIwinfoProvider{infoByDevice: newTestIwinfoData()}
+
+	resp, err := svc.ListRadios(context.Background(), &emptypb.Empty{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	radioMap := map[string]*wificonfigv1.Radio{}
+	for _, r := range resp.GetRadios() {
+		radioMap[r.GetName()] = r
+	}
+
+	r2 := radioMap["radio2"]
+	if r2.GetDisplayName() != "2.4 GHz Radio (MediaTek MT7603E)" {
+		t.Errorf("radio2 display_name: got %q, want %q", r2.GetDisplayName(), "2.4 GHz Radio (MediaTek MT7603E)")
+	}
+
+	r3 := radioMap["radio3"]
+	if r3.GetDisplayName() != "HaLow Radio (Morse Micro MM8108)" {
+		t.Errorf("radio3 display_name: got %q, want %q", r3.GetDisplayName(), "HaLow Radio (Morse Micro MM8108)")
+	}
+}
+
+func TestListRadios_IwinfoFailure(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+	svc.IwinfoClient = &fakeIwinfoProvider{infoErr: errors.New("ubus timeout")}
+	svc.WirelessStatus = &fakeWirelessStatusProvider{status: newTestWirelessStatus()}
+
+	resp, err := svc.ListRadios(context.Background(), &emptypb.Empty{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should still return radios, just without hardware names.
+	if len(resp.GetRadios()) != 2 {
+		t.Fatalf("expected 2 radios despite iwinfo failure, got %d", len(resp.GetRadios()))
+	}
+
+	for _, r := range resp.GetRadios() {
+		if r.GetHardwareName() != "" {
+			t.Errorf("expected empty hardware_name on iwinfo failure, got %q", r.GetHardwareName())
+		}
+	}
+}
+
+// ── GetRadioStatus tests ─────────────────────────────────────────────────────
+
+func TestGetRadioStatus_APMode(t *testing.T) {
+	mac1, _ := net.ParseMAC("D4:6D:6D:1A:2B:3C")
+	mac2, _ := net.ParseMAC("F0:18:98:4D:5E:6F")
+
+	svc := newTestWifiConfigService(t)
+	svc.WirelessStatus = &fakeWirelessStatusProvider{status: newTestWirelessStatus()}
+	svc.IwinfoClient = &fakeIwinfoProvider{infoByDevice: newTestIwinfoData()}
+	svc.Wifi = &fakeWireless{
+		interfaces: []*wifi.Interface{
+			{Index: 1, Name: "phy0-ap0", HardwareAddr: mac1, Type: wifi.InterfaceTypeAPVLAN, Frequency: 2412, ChannelWidth: 20},
+		},
+		stationInfoByIface: map[string][]*wifi.StationInfo{
+			"phy0-ap0": {
+				{HardwareAddr: mac1, Signal: -52, TransmitBitrate: 65000000, ReceiveBitrate: 72000000, Connected: 3*time.Hour + 42*time.Minute},
+				{HardwareAddr: mac2, Signal: -68, TransmitBitrate: 48000000, ReceiveBitrate: 54000000, Connected: 1*time.Hour + 15*time.Minute},
+			},
+		},
+	}
+
+	resp, err := svc.GetRadioStatus(context.Background(), &wificonfigv1.GetRadioStatusRequest{RadioName: "radio2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	status := resp.GetStatus()
+	if !status.GetActive() {
+		t.Error("expected active status")
+	}
+
+	if status.GetSsid() != "openmanet" {
+		t.Errorf("ssid: got %q, want %q", status.GetSsid(), "openmanet")
+	}
+
+	if status.GetMode() != "Access Point" {
+		t.Errorf("mode: got %q, want %q", status.GetMode(), "Access Point")
+	}
+
+	if status.GetChannel() != 1 {
+		t.Errorf("channel: got %d, want %d", status.GetChannel(), 1)
+	}
+
+	if status.GetFrequency() != 2412 {
+		t.Errorf("frequency: got %d, want %d", status.GetFrequency(), 2412)
+	}
+
+	if status.GetBandwidth() != "20 MHz" {
+		t.Errorf("bandwidth: got %q, want %q", status.GetBandwidth(), "20 MHz")
+	}
+
+	if status.GetEncryption() != "WPA2-PSK (CCMP)" {
+		t.Errorf("encryption: got %q, want %q", status.GetEncryption(), "WPA2-PSK (CCMP)")
+	}
+
+	if status.GetTxPower() != 20 {
+		t.Errorf("tx_power: got %d, want %d", status.GetTxPower(), 20)
+	}
+
+	if status.GetConnectedClients() != 2 {
+		t.Errorf("connected_clients: got %d, want %d", status.GetConnectedClients(), 2)
+	}
+
+	if status.GetMeshPeers() != 0 {
+		t.Errorf("mesh_peers: got %d, want %d", status.GetMeshPeers(), 0)
+	}
+
+	if status.GetWifiMode() != wificonfigv1.WifiMode_WIFI_MODE_AP {
+		t.Errorf("wifi_mode: got %v, want %v", status.GetWifiMode(), wificonfigv1.WifiMode_WIFI_MODE_AP)
+	}
+}
+
+func TestGetRadioStatus_MeshMode(t *testing.T) {
+	mac1, _ := net.ParseMAC("C8:3E:1A:7B:00:A3")
+	mac2, _ := net.ParseMAC("C8:3E:1A:7B:00:D7")
+
+	svc := newTestWifiConfigService(t)
+	svc.WirelessStatus = &fakeWirelessStatusProvider{status: newTestWirelessStatus()}
+	svc.IwinfoClient = &fakeIwinfoProvider{infoByDevice: newTestIwinfoData()}
+	svc.Wifi = &fakeWireless{
+		interfaces: []*wifi.Interface{
+			{Index: 2, Name: "phy1-mesh0", HardwareAddr: mac1, Type: wifi.InterfaceTypeMeshPoint, Frequency: 923, ChannelWidth: 4},
+		},
+		stationInfoByIface: map[string][]*wifi.StationInfo{
+			"phy1-mesh0": {
+				{HardwareAddr: mac1, Signal: -61},
+				{HardwareAddr: mac2, Signal: -73},
+			},
+		},
+	}
+
+	resp, err := svc.GetRadioStatus(context.Background(), &wificonfigv1.GetRadioStatusRequest{RadioName: "radio3"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	status := resp.GetStatus()
+	if status.GetMode() != "Mesh Point (802.11s)" {
+		t.Errorf("mode: got %q, want %q", status.GetMode(), "Mesh Point (802.11s)")
+	}
+
+	if status.GetEncryption() != "WPA3-SAE" {
+		t.Errorf("encryption: got %q, want %q", status.GetEncryption(), "WPA3-SAE")
+	}
+
+	if status.GetMeshPeers() != 2 {
+		t.Errorf("mesh_peers: got %d, want %d", status.GetMeshPeers(), 2)
+	}
+
+	if status.GetConnectedClients() != 0 {
+		t.Errorf("connected_clients: got %d, want %d", status.GetConnectedClients(), 0)
+	}
+
+	if status.GetWifiMode() != wificonfigv1.WifiMode_WIFI_MODE_MESH {
+		t.Errorf("wifi_mode: got %v, want %v", status.GetWifiMode(), wificonfigv1.WifiMode_WIFI_MODE_MESH)
+	}
+}
+
+func TestGetRadioStatus_Inactive(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+	svc.WirelessStatus = &fakeWirelessStatusProvider{
+		status: map[string]*network.WirelessRadioStatus{
+			"radio2": {Up: false, Disabled: true, Interfaces: []network.WirelessRadioInterface{}},
+		},
+	}
+
+	resp, err := svc.GetRadioStatus(context.Background(), &wificonfigv1.GetRadioStatusRequest{RadioName: "radio2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.GetStatus().GetActive() {
+		t.Error("expected inactive status for disabled radio")
+	}
+}
+
+func TestGetRadioStatus_NotFound(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+
+	_, err := svc.GetRadioStatus(context.Background(), &wificonfigv1.GetRadioStatusRequest{RadioName: "radio99"})
+	if err == nil {
+		t.Fatal("expected error for nonexistent radio")
+	}
+}
+
+// ── GetRadioSettings tests ───────────────────────────────────────────────────
+
+func TestGetRadioSettings_APMode(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+
+	resp, err := svc.GetRadioSettings(context.Background(), &wificonfigv1.GetRadioSettingsRequest{RadioName: "radio2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	settings := resp.GetSettings()
+	if settings.GetSsid() != "openmanet" {
+		t.Errorf("ssid: got %q, want %q", settings.GetSsid(), "openmanet")
+	}
+
+	if settings.GetChannel() != "1" {
+		t.Errorf("channel: got %q, want %q", settings.GetChannel(), "1")
+	}
+
+	if settings.GetBandwidth() != wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT20 {
+		t.Errorf("bandwidth: got %v, want %v", settings.GetBandwidth(), wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT20)
+	}
+
+	if settings.GetTxPower() != 20 {
+		t.Errorf("tx_power: got %d, want %d", settings.GetTxPower(), 20)
+	}
+
+	if settings.GetEncryption() != wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK2 {
+		t.Errorf("encryption: got %v, want %v", settings.GetEncryption(), wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK2)
+	}
+
+	if settings.GetCountry() != "US" {
+		t.Errorf("country: got %q, want %q", settings.GetCountry(), "US")
+	}
+
+	// Password must NOT be returned.
+	if settings.Password != nil {
+		t.Error("password should not be returned in GetRadioSettings")
+	}
+
+	// MeshId should not be set for AP mode.
+	if settings.MeshId != nil {
+		t.Error("mesh_id should not be set for AP mode radio")
+	}
+
+	if settings.GetMode() != wificonfigv1.WifiMode_WIFI_MODE_AP {
+		t.Errorf("mode: got %v, want %v", settings.GetMode(), wificonfigv1.WifiMode_WIFI_MODE_AP)
+	}
+}
+
+func TestGetRadioSettings_MeshMode(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+
+	resp, err := svc.GetRadioSettings(context.Background(), &wificonfigv1.GetRadioSettingsRequest{RadioName: "radio3"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	settings := resp.GetSettings()
+	if settings.GetMeshId() != "openmanet-mesh" {
+		t.Errorf("mesh_id: got %q, want %q", settings.GetMeshId(), "openmanet-mesh")
+	}
+
+	if settings.GetEncryption() != wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE {
+		t.Errorf("encryption: got %v, want %v", settings.GetEncryption(), wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE)
+	}
+
+	if settings.GetCountry() != "US" {
+		t.Errorf("country: got %q, want %q", settings.GetCountry(), "US")
+	}
+
+	if settings.GetMode() != wificonfigv1.WifiMode_WIFI_MODE_MESH {
+		t.Errorf("mode: got %v, want %v", settings.GetMode(), wificonfigv1.WifiMode_WIFI_MODE_MESH)
+	}
+}
+
+func TestGetRadioSettings_AvailableOptionsPopulated(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+
+	resp, err := svc.GetRadioSettings(context.Background(), &wificonfigv1.GetRadioSettingsRequest{RadioName: "radio2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(resp.GetAvailableChannels()) == 0 {
+		t.Error("expected available_channels to be populated")
+	}
+
+	if len(resp.GetAvailableBandwidths()) == 0 {
+		t.Error("expected available_bandwidths to be populated")
+	}
+
+	if len(resp.GetAvailableEncryptions()) == 0 {
+		t.Error("expected available_encryptions to be populated")
+	}
+}
+
+func TestGetRadioSettings_NotFound(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+
+	_, err := svc.GetRadioSettings(context.Background(), &wificonfigv1.GetRadioSettingsRequest{RadioName: "radio99"})
+	if err == nil {
+		t.Fatal("expected error when no linked interface found")
+	}
+}
+
+// ── UpdateRadioSettings tests ────────────────────────────────────────────────
+
+func TestUpdateRadioSettings_Success(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:      "new-ssid",
+			Channel:   "6",
+			Bandwidth: wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT40,
+			TxPower:   15,
+			Country:   strPtr("US"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	if !reader.commitCalled {
+		t.Error("expected Commit to be called")
+	}
+
+	if !reader.reloadCalled {
+		t.Error("expected ReloadConfig to be called after commit")
+	}
+}
+
+func TestUpdateRadioSettings_PartialUpdate(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	pwd := "newpassword"
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:     "openmanet",
+			Channel:  "1",
+			Password: &pwd,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+}
+
+func TestUpdateRadioSettings_CommitFailure(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	reader.commitError = errors.New("disk full")
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "test",
+			Channel: "1",
+		},
+	})
+
+	// Commit error is from SetWirelessDeviceConfigWithReader, which is called first.
+	// It should result in a non-success response OR an error depending on how commit is wired.
+	if err != nil {
+		// If it propagates as a connect error that's fine too.
+		return
+	}
+
+	if resp.GetSuccess() {
+		t.Error("expected failure response when commit fails")
+	}
+}
+
+func TestUpdateRadioSettings_ReloadFailure(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	reader.reloadError = errors.New("reload failed")
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "test",
+			Channel: "1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp.GetSuccess() {
+		t.Error("expected failure when reload fails")
+	}
+
+	if resp.Message == nil {
+		t.Error("expected message explaining reload failure")
+	}
+}
+
+func TestUpdateRadioSettings_NilSettings(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+
+	_, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+	})
+	if err == nil {
+		t.Fatal("expected error for nil settings")
+	}
+}
+
+func TestUpdateRadioSettings_NoLinkedInterface(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = &fakeConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"wireless": {
+				"radio99": {"band": {"2g"}},
+			},
+		},
+		sectionTypes: map[string]map[string]string{
+			"wireless": {"radio99": "wifi-device"},
+		},
+	}
+
+	_, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio99",
+		Settings:  &wificonfigv1.RadioSettings{Ssid: "test", Channel: "1"},
+	})
+	if err == nil {
+		t.Fatal("expected error when no linked interface found")
+	}
+}
+
+// ── ListConnectedClients tests ───────────────────────────────────────────────
+
+func TestListConnectedClients_WithClients(t *testing.T) {
+	mac1, _ := net.ParseMAC("D4:6D:6D:1A:2B:3C")
+	mac2, _ := net.ParseMAC("F0:18:98:4D:5E:6F")
+
+	svc := newTestWifiConfigService(t)
+	svc.WirelessStatus = &fakeWirelessStatusProvider{status: newTestWirelessStatus()}
+	svc.Wifi = &fakeWireless{
+		interfaces: []*wifi.Interface{
+			{Index: 1, Name: "phy0-ap0", HardwareAddr: mac1},
+		},
+		stationInfoByIface: map[string][]*wifi.StationInfo{
+			"phy0-ap0": {
+				{
+					HardwareAddr:    mac1,
+					Signal:          -52,
+					ReceiveBitrate:  72000000,
+					TransmitBitrate: 65000000,
+					Connected:       3*time.Hour + 42*time.Minute,
+				},
+				{
+					HardwareAddr:    mac2,
+					Signal:          -68,
+					ReceiveBitrate:  54000000,
+					TransmitBitrate: 48000000,
+					Connected:       1*time.Hour + 15*time.Minute,
+				},
+			},
+		},
+	}
+	svc.DHCPLeases = &fakeDHCPLeaseProvider{
+		leases: &network.DHCPLeasesResponse{
+			DHCPLeases: []network.DHCPLease{
+				{Hostname: "laptop-bravo", MacAddr: "d4:6d:6d:1a:2b:3c", IPAddr: "10.41.0.101"},
+				{Hostname: "phone-alpha", MacAddr: "f0:18:98:4d:5e:6f", IPAddr: "10.41.0.102"},
+			},
+		},
+	}
+
+	resp, err := svc.ListConnectedClients(context.Background(), &wificonfigv1.ListConnectedClientsRequest{RadioName: "radio2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	clients := resp.GetClients()
+	if len(clients) != 2 {
+		t.Fatalf("expected 2 clients, got %d", len(clients))
+	}
+
+	c1 := clients[0]
+	if c1.GetHostname() != "laptop-bravo" {
+		t.Errorf("client 1 hostname: got %q, want %q", c1.GetHostname(), "laptop-bravo")
+	}
+
+	if c1.GetMacAddress() != "d4:6d:6d:1a:2b:3c" {
+		t.Errorf("client 1 mac: got %q, want %q", c1.GetMacAddress(), "d4:6d:6d:1a:2b:3c")
+	}
+
+	if c1.GetSignalDbm() != -52 {
+		t.Errorf("client 1 signal: got %d, want %d", c1.GetSignalDbm(), -52)
+	}
+
+	if c1.GetRxRateBps() != 72000000 {
+		t.Errorf("client 1 rx_rate: got %d, want %d", c1.GetRxRateBps(), 72000000)
+	}
+
+	if c1.GetTxRateBps() != 65000000 {
+		t.Errorf("client 1 tx_rate: got %d, want %d", c1.GetTxRateBps(), 65000000)
+	}
+}
+
+func TestListConnectedClients_Empty(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+	svc.WirelessStatus = &fakeWirelessStatusProvider{status: newTestWirelessStatus()}
+	svc.Wifi = &fakeWireless{
+		interfaces: []*wifi.Interface{
+			{Index: 1, Name: "phy0-ap0"},
+		},
+		stationInfoByIface: map[string][]*wifi.StationInfo{
+			"phy0-ap0": {},
+		},
+	}
+
+	resp, err := svc.ListConnectedClients(context.Background(), &wificonfigv1.ListConnectedClientsRequest{RadioName: "radio2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(resp.GetClients()) != 0 {
+		t.Errorf("expected 0 clients, got %d", len(resp.GetClients()))
+	}
+}
+
+func TestListConnectedClients_UnknownHostname(t *testing.T) {
+	mac, _ := net.ParseMAC("AA:BB:CC:DD:EE:FF")
+
+	svc := newTestWifiConfigService(t)
+	svc.WirelessStatus = &fakeWirelessStatusProvider{status: newTestWirelessStatus()}
+	svc.Wifi = &fakeWireless{
+		interfaces: []*wifi.Interface{
+			{Index: 1, Name: "phy0-ap0", HardwareAddr: mac},
+		},
+		stationInfoByIface: map[string][]*wifi.StationInfo{
+			"phy0-ap0": {
+				{HardwareAddr: mac, Signal: -70},
+			},
+		},
+	}
+	svc.DHCPLeases = &fakeDHCPLeaseProvider{
+		leases: &network.DHCPLeasesResponse{},
+	}
+
+	resp, err := svc.ListConnectedClients(context.Background(), &wificonfigv1.ListConnectedClientsRequest{RadioName: "radio2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(resp.GetClients()) != 1 {
+		t.Fatalf("expected 1 client, got %d", len(resp.GetClients()))
+	}
+
+	if resp.GetClients()[0].GetHostname() != "" {
+		t.Errorf("expected empty hostname for unknown client, got %q", resp.GetClients()[0].GetHostname())
+	}
+}
+
+func TestListConnectedClients_NotFound(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+
+	_, err := svc.ListConnectedClients(context.Background(), &wificonfigv1.ListConnectedClientsRequest{RadioName: "radio99"})
+	if err == nil {
+		t.Fatal("expected error for nonexistent radio")
+	}
+}
+
+// ── ListMeshPeers tests ──────────────────────────────────────────────────────
+
+func TestListMeshPeers_WithPeers(t *testing.T) {
+	mac1, _ := net.ParseMAC("C8:3E:1A:7B:00:A3")
+	mac2, _ := net.ParseMAC("C8:3E:1A:7B:00:D7")
+
+	svc := newTestWifiConfigService(t)
+	svc.WirelessStatus = &fakeWirelessStatusProvider{status: newTestWirelessStatus()}
+	svc.Wifi = &fakeWireless{
+		interfaces: []*wifi.Interface{
+			{Index: 2, Name: "phy1-mesh0", HardwareAddr: mac1},
+		},
+		stationInfoByIface: map[string][]*wifi.StationInfo{
+			"phy1-mesh0": {
+				{HardwareAddr: mac1, Signal: -61},
+				{HardwareAddr: mac2, Signal: -73},
+			},
+		},
+	}
+
+	batNeighbors := batmanadv.Neighbors{
+		{HardIfname: "phy1-mesh0", NeighAddress: "c8:3e:1a:7b:00:a3", Throughput: 42, LastSeenMsecs: 200},
+		{HardIfname: "phy1-mesh0", NeighAddress: "c8:3e:1a:7b:00:d7", Throughput: 28, LastSeenMsecs: 400},
+	}
+	svc.GetMeshNeighbors = func() (*batmanadv.Neighbors, error) {
+		return &batNeighbors, nil
+	}
+
+	svc.ParseBatHosts = func(_ string) (*batmanadv.BatHosts, error) {
+		return &batmanadv.BatHosts{
+			Nodes: []batmanadv.Node{
+				{
+					NodeMAC: "c8:3e:1a:7b:00:a3",
+					Hosts: []batmanadv.BatHost{
+						{MAC: "c8:3e:1a:7b:00:a3", Hostname: "HaLowLink2-a3b2"},
+					},
+				},
+				{
+					NodeMAC: "c8:3e:1a:7b:00:d7",
+					Hosts: []batmanadv.BatHost{
+						{MAC: "c8:3e:1a:7b:00:d7", Hostname: "HaLowLink2-d7e4"},
+					},
+				},
+			},
+		}, nil
+	}
+
+	resp, err := svc.ListMeshPeers(context.Background(), &wificonfigv1.ListMeshPeersRequest{RadioName: "radio3"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	peers := resp.GetPeers()
+	if len(peers) != 2 {
+		t.Fatalf("expected 2 peers, got %d", len(peers))
+	}
+
+	// Build a map keyed by MAC for deterministic checks.
+	peerMap := map[string]*wificonfigv1.MeshPeer{}
+	for _, p := range peers {
+		peerMap[p.GetMacAddress()] = p
+	}
+
+	p1 := peerMap["c8:3e:1a:7b:00:a3"]
+	if p1 == nil {
+		t.Fatal("expected peer c8:3e:1a:7b:00:a3")
+	}
+
+	if p1.GetHostname() != "HaLowLink2-a3b2" {
+		t.Errorf("peer 1 hostname: got %q, want %q", p1.GetHostname(), "HaLowLink2-a3b2")
+	}
+
+	if p1.GetSignalDbm() != -61 {
+		t.Errorf("peer 1 signal: got %d, want %d", p1.GetSignalDbm(), -61)
+	}
+
+	// Throughput: batman-adv reports in 100kbit/s units → /10 = Mbps
+	if p1.GetThroughputMbps() != 4.2 {
+		t.Errorf("peer 1 throughput: got %f, want %f", p1.GetThroughputMbps(), 4.2)
+	}
+
+	p2 := peerMap["c8:3e:1a:7b:00:d7"]
+	if p2 == nil {
+		t.Fatal("expected peer c8:3e:1a:7b:00:d7")
+	}
+
+	if p2.GetHostname() != "HaLowLink2-d7e4" {
+		t.Errorf("peer 2 hostname: got %q, want %q", p2.GetHostname(), "HaLowLink2-d7e4")
+	}
+
+	if p2.GetThroughputMbps() != 2.8 {
+		t.Errorf("peer 2 throughput: got %f, want %f", p2.GetThroughputMbps(), 2.8)
+	}
+}
+
+func TestListMeshPeers_Empty(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+	svc.WirelessStatus = &fakeWirelessStatusProvider{status: newTestWirelessStatus()}
+
+	resp, err := svc.ListMeshPeers(context.Background(), &wificonfigv1.ListMeshPeersRequest{RadioName: "radio3"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(resp.GetPeers()) != 0 {
+		t.Errorf("expected 0 peers, got %d", len(resp.GetPeers()))
+	}
+}
+
+func TestListMeshPeers_UnknownHostname(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+	svc.WirelessStatus = &fakeWirelessStatusProvider{status: newTestWirelessStatus()}
+	svc.Wifi = &fakeWireless{
+		interfaces: []*wifi.Interface{
+			{Index: 2, Name: "phy1-mesh0"},
+		},
+	}
+
+	batNeighbors := batmanadv.Neighbors{
+		{HardIfname: "phy1-mesh0", NeighAddress: "aa:bb:cc:dd:ee:ff", Throughput: 10, LastSeenMsecs: 100},
+	}
+	svc.GetMeshNeighbors = func() (*batmanadv.Neighbors, error) {
+		return &batNeighbors, nil
+	}
+
+	resp, err := svc.ListMeshPeers(context.Background(), &wificonfigv1.ListMeshPeersRequest{RadioName: "radio3"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(resp.GetPeers()) != 1 {
+		t.Fatalf("expected 1 peer, got %d", len(resp.GetPeers()))
+	}
+
+	if resp.GetPeers()[0].GetHostname() != "" {
+		t.Errorf("expected empty hostname, got %q", resp.GetPeers()[0].GetHostname())
+	}
+}
+
+func TestListMeshPeers_NotFound(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+
+	_, err := svc.ListMeshPeers(context.Background(), &wificonfigv1.ListMeshPeersRequest{RadioName: "radio99"})
+	if err == nil {
+		t.Fatal("expected error for nonexistent radio")
+	}
+}
+
+// ── formatting helper tests ──────────────────────────────────────────────────
+
+func TestFormatEncryptionDisplay(t *testing.T) {
+	tests := []struct {
+		name string
+		enc  iwinfo.EncryptionInfo
+		want string
+	}{
+		{
+			name: "WPA3-SAE",
+			enc:  iwinfo.EncryptionInfo{Enabled: true, WPA: []int{3}, Authentication: []string{"sae"}, Ciphers: []string{"ccmp"}},
+			want: "WPA3-SAE",
+		},
+		{
+			name: "WPA2-PSK (CCMP)",
+			enc:  iwinfo.EncryptionInfo{Enabled: true, WPA: []int{2}, Authentication: []string{"psk"}, Ciphers: []string{"ccmp"}},
+			want: "WPA2-PSK (CCMP)",
+		},
+		{
+			name: "Open",
+			enc:  iwinfo.EncryptionInfo{Enabled: false},
+			want: "Open",
+		},
+		{
+			name: "Encrypted no details",
+			enc:  iwinfo.EncryptionInfo{Enabled: true},
+			want: "Encrypted",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := handlers.FormatEncryptionDisplay(tt.enc)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatBandwidthDisplay(t *testing.T) {
+	tests := []struct {
+		htmode string
+		want   string
+	}{
+		{"HT20", "20 MHz"},
+		{"HT40", "40 MHz"},
+		{"VHT80", "80 MHz"},
+		{"HE160", "160 MHz"},
+		{"NOHT", "No HT"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.htmode, func(t *testing.T) {
+			got := handlers.FormatBandwidthDisplay(tt.htmode)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatModeDisplay(t *testing.T) {
+	tests := []struct {
+		mode string
+		want string
+	}{
+		{"Master", "Access Point"},
+		{"Mesh Point", "Mesh Point (802.11s)"},
+		{"Client", "Client"},
+		{"Unknown", "Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.mode, func(t *testing.T) {
+			got := handlers.FormatModeDisplay(tt.mode)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatBandDisplayName(t *testing.T) {
+	tests := []struct {
+		band wificonfigv1.WifiBand
+		want string
+	}{
+		{wificonfigv1.WifiBand_WIFI_BAND_2G, "2.4 GHz Radio"},
+		{wificonfigv1.WifiBand_WIFI_BAND_5G, "5 GHz Radio"},
+		{wificonfigv1.WifiBand_WIFI_BAND_6G, "6 GHz Radio"},
+		{wificonfigv1.WifiBand_WIFI_BAND_S1G, "HaLow Radio"},
+		{wificonfigv1.WifiBand_WIFI_BAND_60G, "60 GHz Radio"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.band.String(), func(t *testing.T) {
+			got := handlers.FormatBandDisplayName(tt.band)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+func strPtr(s string) *string {
+	return &s
+}
+
+// ── enum conversion tests ────────────────────────────────────────────────────
+
+func TestWifiBandToProto(t *testing.T) {
+	tests := []struct {
+		input string
+		want  wificonfigv1.WifiBand
+	}{
+		{"2g", wificonfigv1.WifiBand_WIFI_BAND_2G},
+		{"5g", wificonfigv1.WifiBand_WIFI_BAND_5G},
+		{"6g", wificonfigv1.WifiBand_WIFI_BAND_6G},
+		{"s1g", wificonfigv1.WifiBand_WIFI_BAND_S1G},
+		{"60g", wificonfigv1.WifiBand_WIFI_BAND_60G},
+		{"S1G", wificonfigv1.WifiBand_WIFI_BAND_S1G},
+		{"unknown", wificonfigv1.WifiBand_WIFI_BAND_UNSPECIFIED},
+		{"", wificonfigv1.WifiBand_WIFI_BAND_UNSPECIFIED},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := handlers.WifiBandToProto(tt.input)
+			if got != tt.want {
+				t.Errorf("WifiBandToProto(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWifiModeToProto(t *testing.T) {
+	tests := []struct {
+		input string
+		want  wificonfigv1.WifiMode
+	}{
+		{"ap", wificonfigv1.WifiMode_WIFI_MODE_AP},
+		{"master", wificonfigv1.WifiMode_WIFI_MODE_AP},
+		{"mesh", wificonfigv1.WifiMode_WIFI_MODE_MESH},
+		{"mesh point", wificonfigv1.WifiMode_WIFI_MODE_MESH},
+		{"sta", wificonfigv1.WifiMode_WIFI_MODE_STA},
+		{"client", wificonfigv1.WifiMode_WIFI_MODE_STA},
+		{"managed", wificonfigv1.WifiMode_WIFI_MODE_STA},
+		{"adhoc", wificonfigv1.WifiMode_WIFI_MODE_ADHOC},
+		{"ad-hoc", wificonfigv1.WifiMode_WIFI_MODE_ADHOC},
+		{"ibss", wificonfigv1.WifiMode_WIFI_MODE_ADHOC},
+		{"monitor", wificonfigv1.WifiMode_WIFI_MODE_MONITOR},
+		{"unknown", wificonfigv1.WifiMode_WIFI_MODE_UNSPECIFIED},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := handlers.WifiModeToProto(tt.input)
+			if got != tt.want {
+				t.Errorf("WifiModeToProto(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWifiEncryptionRoundTrip(t *testing.T) {
+	tests := []struct {
+		input string
+		enum  wificonfigv1.WifiEncryption
+	}{
+		{"sae", wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE},
+		{"psk2", wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK2},
+		{"psk", wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK},
+		{"psk-mixed", wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK_MIXED},
+		{"none", wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_NONE},
+		{"owe", wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_OWE},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			proto := handlers.WifiEncryptionToProto(tt.input)
+			if proto != tt.enum {
+				t.Errorf("WifiEncryptionToProto(%q) = %v, want %v", tt.input, proto, tt.enum)
+			}
+
+			back := handlers.ProtoToWifiEncryption(proto)
+			if back != tt.input {
+				t.Errorf("ProtoToWifiEncryption(%v) = %q, want %q", proto, back, tt.input)
+			}
+		})
+	}
+}
+
+func TestWifiHTModeRoundTrip(t *testing.T) {
+	tests := []struct {
+		input string
+		enum  wificonfigv1.WifiHTMode
+	}{
+		{"NOHT", wificonfigv1.WifiHTMode_WIFI_HT_MODE_NOHT},
+		{"HT20", wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT20},
+		{"HT40-", wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT40_MINUS},
+		{"HT40+", wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT40_PLUS},
+		{"HT40", wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT40},
+		{"VHT20", wificonfigv1.WifiHTMode_WIFI_HT_MODE_VHT20},
+		{"VHT40", wificonfigv1.WifiHTMode_WIFI_HT_MODE_VHT40},
+		{"VHT80", wificonfigv1.WifiHTMode_WIFI_HT_MODE_VHT80},
+		{"VHT160", wificonfigv1.WifiHTMode_WIFI_HT_MODE_VHT160},
+		{"HE20", wificonfigv1.WifiHTMode_WIFI_HT_MODE_HE20},
+		{"HE40", wificonfigv1.WifiHTMode_WIFI_HT_MODE_HE40},
+		{"HE80", wificonfigv1.WifiHTMode_WIFI_HT_MODE_HE80},
+		{"HE160", wificonfigv1.WifiHTMode_WIFI_HT_MODE_HE160},
+		{"1 MHz", wificonfigv1.WifiHTMode_WIFI_HT_MODE_S1G_1MHZ},
+		{"2 MHz", wificonfigv1.WifiHTMode_WIFI_HT_MODE_S1G_2MHZ},
+		{"4 MHz", wificonfigv1.WifiHTMode_WIFI_HT_MODE_S1G_4MHZ},
+		{"8 MHz", wificonfigv1.WifiHTMode_WIFI_HT_MODE_S1G_8MHZ},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			proto := handlers.WifiHTModeToProto(tt.input)
+			if proto != tt.enum {
+				t.Errorf("WifiHTModeToProto(%q) = %v, want %v", tt.input, proto, tt.enum)
+			}
+
+			back := handlers.ProtoToWifiHTMode(proto)
+			if back != tt.input {
+				t.Errorf("ProtoToWifiHTMode(%v) = %q, want %q", proto, back, tt.input)
+			}
+		})
+	}
+}
+
+func TestWifiEncryptionToProto_UnspecifiedReturnsEmpty(t *testing.T) {
+	got := handlers.ProtoToWifiEncryption(wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_UNSPECIFIED)
+	if got != "" {
+		t.Errorf("ProtoToWifiEncryption(UNSPECIFIED) = %q, want empty", got)
+	}
+}
+
+func TestWifiHTModeToProto_UnspecifiedReturnsEmpty(t *testing.T) {
+	got := handlers.ProtoToWifiHTMode(wificonfigv1.WifiHTMode_WIFI_HT_MODE_UNSPECIFIED)
+	if got != "" {
+		t.Errorf("ProtoToWifiHTMode(UNSPECIFIED) = %q, want empty", got)
+	}
+}
+
+func TestGetRadioSettings_AvailableOptionsAreEnumTypes(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+
+	resp, err := svc.GetRadioSettings(context.Background(), &wificonfigv1.GetRadioSettingsRequest{RadioName: "radio2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 2g band should return NOHT, HT20, HT40.
+	wantBW := []wificonfigv1.WifiHTMode{
+		wificonfigv1.WifiHTMode_WIFI_HT_MODE_NOHT,
+		wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT20,
+		wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT40,
+	}
+
+	if len(resp.GetAvailableBandwidths()) != len(wantBW) {
+		t.Fatalf("available_bandwidths: got %d, want %d", len(resp.GetAvailableBandwidths()), len(wantBW))
+	}
+
+	for i, got := range resp.GetAvailableBandwidths() {
+		if got != wantBW[i] {
+			t.Errorf("available_bandwidths[%d]: got %v, want %v", i, got, wantBW[i])
+		}
+	}
+
+	// Encryptions should always be SAE, PSK2, PSK, NONE.
+	wantEnc := []wificonfigv1.WifiEncryption{
+		wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE,
+		wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK2,
+		wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK,
+		wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_NONE,
+	}
+
+	if len(resp.GetAvailableEncryptions()) != len(wantEnc) {
+		t.Fatalf("available_encryptions: got %d, want %d", len(resp.GetAvailableEncryptions()), len(wantEnc))
+	}
+
+	for i, got := range resp.GetAvailableEncryptions() {
+		if got != wantEnc[i] {
+			t.Errorf("available_encryptions[%d]: got %v, want %v", i, got, wantEnc[i])
+		}
+	}
+}
+
+func TestUpdateRadioSettings_WithEncryptionEnum(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:       "test-ssid",
+			Channel:    "6",
+			Bandwidth:  wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT20,
+			TxPower:    20,
+			Encryption: wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	// Verify encryption was written as UCI string.
+	vals, ok := reader.Get("wireless", "default_radio2", "encryption")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected encryption to be set in UCI")
+	}
+
+	if vals[0] != "sae" {
+		t.Errorf("UCI encryption: got %q, want %q", vals[0], "sae")
+	}
+
+	// Verify htmode was written as UCI string.
+	vals, ok = reader.Get("wireless", "radio2", "htmode")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected htmode to be set in UCI")
+	}
+
+	if vals[0] != "HT20" {
+		t.Errorf("UCI htmode: got %q, want %q", vals[0], "HT20")
+	}
+}
+
+func TestUpdateRadioSettings_UnspecifiedEncryptionSkipped(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// Set initial encryption explicitly.
+	_ = reader.SetType("wireless", "default_radio2", "encryption", 0, "psk2")
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "test",
+			Channel: "1",
+			// Encryption and Bandwidth left as UNSPECIFIED (zero value) = don't change.
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	// Encryption should still be psk2 (not overwritten).
+	vals, ok := reader.Get("wireless", "default_radio2", "encryption")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected encryption to still be set")
+	}
+
+	if vals[0] != "psk2" {
+		t.Errorf("expected encryption unchanged at %q, got %q", "psk2", vals[0])
+	}
+}
+
+func TestUpdateRadioSettings_WithMode(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "test-ssid",
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	vals, ok := reader.Get("wireless", "default_radio2", "mode")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected mode to be set in UCI")
+	}
+
+	if vals[0] != "mesh" {
+		t.Errorf("UCI mode: got %q, want %q", vals[0], "mesh")
+	}
+}
+
+func TestUpdateRadioSettings_UnspecifiedModeSkipped(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// Set initial mode explicitly.
+	_ = reader.SetType("wireless", "default_radio2", "mode", 0, "ap")
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "test",
+			Channel: "1",
+			// Mode left as UNSPECIFIED (zero value) = don't change.
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	vals, ok := reader.Get("wireless", "default_radio2", "mode")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected mode to still be set")
+	}
+
+	if vals[0] != "ap" {
+		t.Errorf("expected mode unchanged at %q, got %q", "ap", vals[0])
+	}
+}
+
+func TestUpdateRadioSettings_MeshModeSetsMeshFwdingZero(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "test-mesh",
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	vals, ok := reader.Get("wireless", "default_radio2", "mesh_fwding")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected mesh_fwding to be set on the wifi-iface")
+	}
+
+	if vals[0] != "0" {
+		t.Errorf("mesh_fwding: got %q, want %q", vals[0], "0")
+	}
+}
+
+func TestUpdateRadioSettings_NonMeshModeLeavesMeshFwdingAlone(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "test-ap",
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_AP,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	if vals, ok := reader.Get("wireless", "default_radio2", "mesh_fwding"); ok {
+		t.Errorf("expected mesh_fwding not to be written for AP mode, got %v", vals)
+	}
+
+	// AP mode must rebind to ahwlan so the iface joins br-ahwlan.
+	vals, ok := reader.Get("wireless", "default_radio2", "network")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected network to be set on the wifi-iface")
+	}
+
+	if vals[0] != "ahwlan" {
+		t.Errorf("network: got %q, want %q", vals[0], "ahwlan")
+	}
+}
+
+func TestUpdateRadioSettings_MeshMode_BindsToUnusedBatmesh(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// Fixture: default_radio2 is on ahwlan; default_radio3 is on batmesh0.
+	// Switching radio2 to mesh should pick batmesh1 (the only free slot).
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "mesh-ssid",
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	vals, ok := reader.Get("wireless", "default_radio2", "network")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected network to be set on the wifi-iface")
+	}
+
+	if vals[0] != "batmesh1" {
+		t.Errorf("network: got %q, want %q", vals[0], "batmesh1")
+	}
+}
+
+func TestUpdateRadioSettings_MeshMode_AlreadyOnBatmesh_LeavesUnchanged(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// Fixture: default_radio3 is already on batmesh0 in mesh mode.
+	// A mesh update should not migrate it.
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio3",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "mesh-ssid",
+			Channel: "42",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	vals, ok := reader.Get("wireless", "default_radio3", "network")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected network to remain set on the wifi-iface")
+	}
+
+	if vals[0] != "batmesh0" {
+		t.Errorf("network: got %q, want %q (must not migrate when already on batmesh*)", vals[0], "batmesh0")
+	}
+}
+
+func TestUpdateRadioSettings_MeshMode_NoSlotReturnsFailedPrecondition(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// Take batmesh1 with an unrelated iface so both canonical slots are
+	// in use by ifaces other than the target. default_radio2 is on
+	// ahwlan; switching it to mesh must now fail.
+	if err := reader.AddSection("wireless", "extra_mesh", "wifi-iface"); err != nil {
+		t.Fatalf("AddSection: %v", err)
+	}
+
+	if err := reader.SetType("wireless", "extra_mesh", "network", uci.TypeOption, "batmesh1"); err != nil {
+		t.Fatalf("SetType network: %v", err)
+	}
+
+	if err := reader.SetType("wireless", "extra_mesh", "device", uci.TypeOption, "radioX"); err != nil {
+		t.Fatalf("SetType device: %v", err)
+	}
+
+	_, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "mesh-ssid",
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected an error when no batmesh slot is free")
+	}
+
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		t.Fatalf("expected *connect.Error, got %T: %v", err, err)
+	}
+
+	if connectErr.Code() != connect.CodeFailedPrecondition {
+		t.Errorf("code: got %v, want %v", connectErr.Code(), connect.CodeFailedPrecondition)
+	}
+
+	// Iface UCI must be unchanged.
+	vals, ok := reader.Get("wireless", "default_radio2", "network")
+	if !ok || len(vals) == 0 || vals[0] != "ahwlan" {
+		t.Errorf("network: expected unchanged %q, got %v (ok=%v)", "ahwlan", vals, ok)
+	}
+}
+
+func TestUpdateRadioSettings_NoModeChange_LeavesNetworkAlone(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// default_radio3 is on batmesh0. A txpower-only update must not
+	// touch the network binding.
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio3",
+		Settings: &wificonfigv1.RadioSettings{
+			TxPower: 12,
+			// Mode left as UNSPECIFIED.
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Errorf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	vals, ok := reader.Get("wireless", "default_radio3", "network")
+	if !ok || len(vals) == 0 {
+		t.Fatal("expected network to remain set")
+	}
+
+	if vals[0] != "batmesh0" {
+		t.Errorf("network: got %q, want %q (must not change when mode is UNSPECIFIED)", vals[0], "batmesh0")
+	}
+}
+
+func TestWifiModeRoundTrip(t *testing.T) {
+	tests := []struct {
+		uci  string
+		enum wificonfigv1.WifiMode
+	}{
+		{"ap", wificonfigv1.WifiMode_WIFI_MODE_AP},
+		{"mesh", wificonfigv1.WifiMode_WIFI_MODE_MESH},
+		{"sta", wificonfigv1.WifiMode_WIFI_MODE_STA},
+		{"adhoc", wificonfigv1.WifiMode_WIFI_MODE_ADHOC},
+		{"monitor", wificonfigv1.WifiMode_WIFI_MODE_MONITOR},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.uci, func(t *testing.T) {
+			proto := handlers.WifiModeToProto(tt.uci)
+			if proto != tt.enum {
+				t.Errorf("WifiModeToProto(%q) = %v, want %v", tt.uci, proto, tt.enum)
+			}
+
+			back := handlers.ProtoToWifiMode(proto)
+			if back != tt.uci {
+				t.Errorf("ProtoToWifiMode(%v) = %q, want %q", proto, back, tt.uci)
+			}
+		})
+	}
+
+	if got := handlers.ProtoToWifiMode(wificonfigv1.WifiMode_WIFI_MODE_UNSPECIFIED); got != "" {
+		t.Errorf("ProtoToWifiMode(UNSPECIFIED) = %q, want empty string", got)
+	}
+}

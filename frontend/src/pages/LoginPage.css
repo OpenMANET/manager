@@ -1,0 +1,111 @@
+/* =============================================================================
+ * LoginPage.css — Lattice authentication terminal (4-corner HUD)
+ * ============================================================================= */
+
+.login-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 20px;
+}
+.login-screen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0, 229, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+  pointer-events: none;
+}
+.login-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 25% 20%, rgba(0, 229, 255, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 75% 80%, rgba(0, 229, 255, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+/* ── Corner readouts ───────────────────────────────────────────────────── */
+.login-corner {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  z-index: 2;
+  line-height: 1.6;
+}
+.login-corner.tl { top: 24px; left: 28px; }
+.login-corner.tr { top: 24px; right: 28px; text-align: right; }
+.login-corner.bl { bottom: 24px; left: 28px; }
+.login-corner.br { bottom: 24px; right: 28px; text-align: right; }
+.login-corner .v { color: var(--accent); }
+
+/* ── Card ──────────────────────────────────────────────────────────────── */
+.login-card {
+  position: relative;
+  z-index: 3;
+  width: 440px;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  padding: 40px 36px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+}
+.login-logo {
+  display: block;
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 14px;
+  image-rendering: pixelated;
+}
+.login-mark {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 22px;
+  letter-spacing: 0.22em;
+  color: var(--accent);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.login-sub {
+  color: var(--muted);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  margin-bottom: 28px;
+}
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.login-submit {
+  width: 100%;
+  margin-top: 6px;
+  min-height: 46px;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+}
+
+/* ── Mobile ────────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .login-screen { padding: 16px; align-items: flex-start; padding-top: 72px; }
+  .login-corner { font-size: 9px; }
+  .login-corner.tl { top: 12px; left: 16px; }
+  .login-corner.tr { top: 12px; right: 16px; }
+  .login-corner.bl, .login-corner.br { display: none; }
+  .login-card { padding: 28px 24px; width: 100%; }
+  .login-logo { width: 72px; height: 72px; margin-bottom: 10px; }
+  .login-mark { font-size: 18px; }
+}

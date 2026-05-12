@@ -36,6 +36,7 @@ func mockNeighborsJSON() string {
 // createMockNeighbors creates a Neighbors slice from mock JSON
 func createMockNeighbors() *Neighbors {
 	var neighbors Neighbors
+
 	_ = json.Unmarshal([]byte(mockNeighborsJSON()), &neighbors)
 
 	return &neighbors
@@ -57,15 +58,19 @@ func TestGetMeshNeighbors_Unmarshal(t *testing.T) {
 	if neighbors[0].HardIfindex != 8 {
 		t.Errorf("Expected hard_ifindex 8, got %d", neighbors[0].HardIfindex)
 	}
+
 	if neighbors[0].HardIfname != "phy1-mesh0" {
 		t.Errorf("Expected hard_ifname 'phy1-mesh0', got '%s'", neighbors[0].HardIfname)
 	}
+
 	if neighbors[0].LastSeenMsecs != 150 {
 		t.Errorf("Expected last_seen_msecs 150, got %d", neighbors[0].LastSeenMsecs)
 	}
+
 	if neighbors[0].NeighAddress != "9c:ef:d5:f9:80:4d" {
 		t.Errorf("Expected neigh_address '9c:ef:d5:f9:80:4d', got '%s'", neighbors[0].NeighAddress)
 	}
+
 	if neighbors[0].Throughput != 2400 {
 		t.Errorf("Expected throughput 2400, got %d", neighbors[0].Throughput)
 	}
@@ -122,6 +127,7 @@ func TestFindByNeighAddress(t *testing.T) {
 				if got == nil {
 					t.Fatal("FindByNeighAddress() = nil, want non-nil")
 				}
+
 				if got.NeighAddress != "9c:ef:d5:f9:80:4d" {
 					t.Errorf("FindByNeighAddress().NeighAddress = %v, want 9c:ef:d5:f9:80:4d", got.NeighAddress)
 				}
@@ -171,6 +177,7 @@ func TestNeighbors_FilterByInterface(t *testing.T) {
 			if len(got) != tt.wantCount {
 				t.Errorf("FilterByInterface() returned %d neighbors, want %d", len(got), tt.wantCount)
 			}
+
 			for _, n := range got {
 				if n.HardIfname != tt.ifname {
 					t.Errorf("FilterByInterface() returned neighbor with ifname %s, want %s", n.HardIfname, tt.ifname)
@@ -331,6 +338,7 @@ func TestNeighbors_GetHighestThroughput(t *testing.T) {
 				if got == nil {
 					t.Fatal("GetHighestThroughput() = nil, want non-nil")
 				}
+
 				if got.Throughput != tt.wantThroughput {
 					t.Errorf("GetHighestThroughput().Throughput = %v, want %v", got.Throughput, tt.wantThroughput)
 				}
@@ -440,15 +448,19 @@ func TestNeighbor_AllFields(t *testing.T) {
 	if n.HardIfindex != 42 {
 		t.Errorf("HardIfindex = %d, want 42", n.HardIfindex)
 	}
+
 	if n.HardIfname != "test-iface" {
 		t.Errorf("HardIfname = %s, want test-iface", n.HardIfname)
 	}
+
 	if n.LastSeenMsecs != 500 {
 		t.Errorf("LastSeenMsecs = %d, want 500", n.LastSeenMsecs)
 	}
+
 	if n.NeighAddress != "aa:bb:cc:dd:ee:ff" {
 		t.Errorf("NeighAddress = %s, want aa:bb:cc:dd:ee:ff", n.NeighAddress)
 	}
+
 	if n.Throughput != 12345 {
 		t.Errorf("Throughput = %d, want 12345", n.Throughput)
 	}

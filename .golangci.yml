@@ -89,11 +89,13 @@ linters:
           - noctx
           - forcetypeassert
           - staticcheck
+          - unparam
         path: "_test\\.go$"
     paths:
       - third_party$
       - builtin$
       - examples$
+      - node_modules/
 formatters:
   exclusions:
     generated: lax
@@ -101,3 +103,4 @@ formatters:
       - third_party$
       - builtin$
       - examples$
+      - node_modules/

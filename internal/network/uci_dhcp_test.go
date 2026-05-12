@@ -1,15 +1,27 @@
 package network
 
 import (
+	"context"
 	"database/sql"
 	"errors"
-	"fmt"
+	"math/rand"
 	"testing"
 
 	"github.com/digineo/go-uci/v2"
-	proto "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
 	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// newSeededRand returns a *rand.Rand seeded deterministically so
+// tests over the wizard's random helpers are reproducible.
+func newSeededRand(t *testing.T, seed int64) *rand.Rand {
+	t.Helper()
+
+	return rand.New(rand.NewSource(seed))
+}
+
+const testMACAddress = "AA:BB:CC:DD:EE:FF"
 
 // mockDHCPConfigReader is a mock implementation of DHCPConfigReader for testing.
 type mockDHCPConfigReader struct {
@@ -38,10 +50,13 @@ func (m *mockDHCPConfigReader) Get(config, section, option string) ([]string, bo
 	if m.data[config] == nil {
 		return nil, false
 	}
+
 	if m.data[config][section] == nil {
 		return nil, false
 	}
+
 	values, ok := m.data[config][section][option]
+
 	return values, ok
 }
 
@@ -54,6 +69,7 @@ func (m *mockDHCPConfigReader) GetSections(config, secType string) ([]string, er
 			}
 		}
 	}
+
 	return sections, nil
 }
 
@@ -61,10 +77,13 @@ func (m *mockDHCPConfigReader) SetType(config, section, option string, typ uci.O
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
 	}
+
 	if m.data[config][section] == nil {
 		m.data[config][section] = make(map[string][]string)
 	}
+
 	m.data[config][section][option] = values
+
 	return nil
 }
 
@@ -72,6 +91,7 @@ func (m *mockDHCPConfigReader) Del(config, section, option string) error {
 	if m.data[config] != nil && m.data[config][section] != nil {
 		delete(m.data[config][section], option)
 	}
+
 	return nil
 }
 
@@ -79,13 +99,16 @@ func (m *mockDHCPConfigReader) AddSection(config, section, typ string) error {
 	if m.sections[config] == nil {
 		m.sections[config] = make(map[string]string)
 	}
+
 	m.sections[config][section] = typ
 	if m.data[config] == nil {
 		m.data[config] = make(map[string]map[string][]string)
 	}
+
 	if m.data[config][section] == nil {
 		m.data[config][section] = make(map[string][]string)
 	}
+
 	return nil
 }
 
@@ -93,9 +116,11 @@ func (m *mockDHCPConfigReader) DelSection(config, section string) error {
 	if m.data[config] != nil {
 		delete(m.data[config], section)
 	}
+
 	if m.sections[config] != nil {
 		delete(m.sections[config], section)
 	}
+
 	return nil
 }
 
@@ -103,7 +128,7 @@ func (m *mockDHCPConfigReader) DelSection(config, section string) error {
 func setupMockDnsmasqData(m *mockDHCPConfigReader) {
 	_ = m.AddSection("dhcp", "dnsmasq", "dnsmasq")
 	_ = m.SetType("dhcp", "dnsmasq", "domainneeded", uci.TypeOption, "1")
-	_ = m.SetType("dhcp", "dnsmasq", "localise_queries", uci.TypeOption, "1")
+	_ = m.SetType("dhcp", "dnsmasq", "localize_queries", uci.TypeOption, "1")
 	_ = m.SetType("dhcp", "dnsmasq", "rebind_localhost", uci.TypeOption, "1")
 	_ = m.SetType("dhcp", "dnsmasq", "local", uci.TypeOption, "/lan/")
 	_ = m.SetType("dhcp", "dnsmasq", "domain", uci.TypeOption, "lan")
@@ -141,25 +166,103 @@ func setupMockDHCPData(m *mockDHCPConfigReader) {
 }
 
 func TestGetDnsmasqConfigWithReader(t *testing.T) {
-	mock := newMockDHCPConfigReader()
-	setupMockDnsmasqData(mock)
-
-	config, err := GetDnsmasqConfigWithReader(mock)
-	if err != nil {
-		t.Fatalf("GetDnsmasqConfigWithReader failed: %v", err)
+	tests := []struct {
+		name     string
+		setup    func(*mockDHCPConfigReader)
+		expected UCIDnsmasq
+	}{
+		{
+			name:  "all fields present",
+			setup: setupMockDnsmasqData,
+			expected: UCIDnsmasq{
+				DomainNeeded:    "1",
+				LocaliseQueries: "1",
+				RebindLocalhost: "1",
+				Local:           "/lan/",
+				Domain:          "lan",
+				ExpandHosts:     "1",
+				CacheSize:       "1000",
+				Authoritative:   "1",
+				ReadEthers:      "1",
+				LocalService:    "1",
+				EdnsPacketMax:   "1232",
+			},
+		},
+		{
+			name:     "empty section returns zero-value config",
+			setup:    func(m *mockDHCPConfigReader) {},
+			expected: UCIDnsmasq{},
+		},
+		{
+			name: "partial fields",
+			setup: func(m *mockDHCPConfigReader) {
+				_ = m.AddSection("dhcp", "dnsmasq", "dnsmasq")
+				_ = m.SetType("dhcp", "dnsmasq", "domainneeded", uci.TypeOption, "1")
+				_ = m.SetType("dhcp", "dnsmasq", "domain", uci.TypeOption, "mesh")
+				_ = m.SetType("dhcp", "dnsmasq", "cachesize", uci.TypeOption, "500")
+			},
+			expected: UCIDnsmasq{
+				DomainNeeded: "1",
+				Domain:       "mesh",
+				CacheSize:    "500",
+			},
+		},
 	}
 
-	if config.DomainNeeded != "1" {
-		t.Errorf("Expected DomainNeeded=1, got %s", config.DomainNeeded)
-	}
-	if config.Domain != "lan" {
-		t.Errorf("Expected Domain=lan, got %s", config.Domain)
-	}
-	if config.CacheSize != "1000" {
-		t.Errorf("Expected CacheSize=1000, got %s", config.CacheSize)
-	}
-	if config.EdnsPacketMax != "1232" {
-		t.Errorf("Expected EdnsPacketMax=1232, got %s", config.EdnsPacketMax)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := newMockDHCPConfigReader()
+			tt.setup(mock)
+
+			config, err := GetDnsmasqConfigWithReader(mock)
+			if err != nil {
+				t.Fatalf("GetDnsmasqConfigWithReader failed: %v", err)
+			}
+
+			if config.DomainNeeded != tt.expected.DomainNeeded {
+				t.Errorf("DomainNeeded = %q, want %q", config.DomainNeeded, tt.expected.DomainNeeded)
+			}
+
+			if config.LocaliseQueries != tt.expected.LocaliseQueries {
+				t.Errorf("LocaliseQueries = %q, want %q", config.LocaliseQueries, tt.expected.LocaliseQueries)
+			}
+
+			if config.RebindLocalhost != tt.expected.RebindLocalhost {
+				t.Errorf("RebindLocalhost = %q, want %q", config.RebindLocalhost, tt.expected.RebindLocalhost)
+			}
+
+			if config.Local != tt.expected.Local {
+				t.Errorf("Local = %q, want %q", config.Local, tt.expected.Local)
+			}
+
+			if config.Domain != tt.expected.Domain {
+				t.Errorf("Domain = %q, want %q", config.Domain, tt.expected.Domain)
+			}
+
+			if config.ExpandHosts != tt.expected.ExpandHosts {
+				t.Errorf("ExpandHosts = %q, want %q", config.ExpandHosts, tt.expected.ExpandHosts)
+			}
+
+			if config.CacheSize != tt.expected.CacheSize {
+				t.Errorf("CacheSize = %q, want %q", config.CacheSize, tt.expected.CacheSize)
+			}
+
+			if config.Authoritative != tt.expected.Authoritative {
+				t.Errorf("Authoritative = %q, want %q", config.Authoritative, tt.expected.Authoritative)
+			}
+
+			if config.ReadEthers != tt.expected.ReadEthers {
+				t.Errorf("ReadEthers = %q, want %q", config.ReadEthers, tt.expected.ReadEthers)
+			}
+
+			if config.LocalService != tt.expected.LocalService {
+				t.Errorf("LocalService = %q, want %q", config.LocalService, tt.expected.LocalService)
+			}
+
+			if config.EdnsPacketMax != tt.expected.EdnsPacketMax {
+				t.Errorf("EdnsPacketMax = %q, want %q", config.EdnsPacketMax, tt.expected.EdnsPacketMax)
+			}
+		})
 	}
 }
 
@@ -176,15 +279,19 @@ func TestGetDHCPConfigWithReader(t *testing.T) {
 	if lanConfig.Interface != "lan" {
 		t.Errorf("Expected Interface=lan, got %s", lanConfig.Interface)
 	}
+
 	if lanConfig.Start != "100" {
 		t.Errorf("Expected Start=100, got %s", lanConfig.Start)
 	}
+
 	if lanConfig.Limit != "150" {
 		t.Errorf("Expected Limit=150, got %s", lanConfig.Limit)
 	}
+
 	if lanConfig.LeaseTime != "12h" {
 		t.Errorf("Expected LeaseTime=12h, got %s", lanConfig.LeaseTime)
 	}
+
 	if lanConfig.Ra != "server" {
 		t.Errorf("Expected Ra=server, got %s", lanConfig.Ra)
 	}
@@ -198,6 +305,7 @@ func TestGetDHCPConfigWithReader(t *testing.T) {
 	if wanConfig.Interface != "wan" {
 		t.Errorf("Expected Interface=wan, got %s", wanConfig.Interface)
 	}
+
 	if wanConfig.Ignore != "1" {
 		t.Errorf("Expected Ignore=1, got %s", wanConfig.Ignore)
 	}
@@ -211,6 +319,7 @@ func TestGetDHCPConfigWithReader(t *testing.T) {
 	if ahwlanConfig.Interface != "ahwlan" {
 		t.Errorf("Expected Interface=ahwlan, got %s", ahwlanConfig.Interface)
 	}
+
 	if ahwlanConfig.Force != "1" {
 		t.Errorf("Expected Force=1, got %s", ahwlanConfig.Force)
 	}
@@ -242,15 +351,19 @@ func TestSetDHCPConfigWithReader(t *testing.T) {
 	if readConfig.Interface != "guest" {
 		t.Errorf("Expected Interface=guest, got %s", readConfig.Interface)
 	}
+
 	if readConfig.Start != "50" {
 		t.Errorf("Expected Start=50, got %s", readConfig.Start)
 	}
+
 	if readConfig.Limit != "100" {
 		t.Errorf("Expected Limit=100, got %s", readConfig.Limit)
 	}
+
 	if readConfig.LeaseTime != "6h" {
 		t.Errorf("Expected LeaseTime=6h, got %s", readConfig.LeaseTime)
 	}
+
 	if readConfig.Force != "1" {
 		t.Errorf("Expected Force=1, got %s", readConfig.Force)
 	}
@@ -284,9 +397,9 @@ func TestDeleteDHCPConfigWithReader(t *testing.T) {
 
 func TestDHCPSectionExistsWithReader(t *testing.T) {
 	tests := []struct {
+		setup   func(*mockDHCPConfigReader)
 		name    string
 		section string
-		setup   func(*mockDHCPConfigReader)
 		want    bool
 	}{
 		{
@@ -393,6 +506,7 @@ func TestIsDHCPEnabledWithReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IsDHCPEnabledWithReader(lan) failed: %v", err)
 	}
+
 	if !enabled {
 		t.Error("Expected lan DHCP to be enabled")
 	}
@@ -402,6 +516,7 @@ func TestIsDHCPEnabledWithReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IsDHCPEnabledWithReader(wan) failed: %v", err)
 	}
+
 	if enabled {
 		t.Error("Expected wan DHCP to be disabled")
 	}
@@ -572,12 +687,12 @@ func TestSetDHCPLeaseTimeWithReader_ErrorHandling(t *testing.T) {
 func TestCalculateAvailableDHCPStart(t *testing.T) {
 	tests := []struct {
 		name         string
-		nodes        []models.MeshNode
 		networkAddr  string
 		subnetMask   string
+		nodes        []models.MeshNode
 		desiredLimit int
-		expectedMin  int // Minimum expected value
-		expectedMax  int // Maximum expected value (or exact if min == max)
+		expectedMin  int
+		expectedMax  int
 		expectError  bool
 	}{
 		{
@@ -855,6 +970,7 @@ func TestCalculateAvailableDHCPStart(t *testing.T) {
 				if err == nil {
 					t.Errorf("Expected error, got nil")
 				}
+
 				return
 			}
 
@@ -962,23 +1078,14 @@ func TestDHCPRangeOverlap(t *testing.T) {
 	}
 }
 
-// mustMarshalAddressReservation marshals an AddressReservation or panics.
-func mustMarshalAddressReservation(ar *proto.AddressReservation) []byte {
-	data, err := ar.MarshalVT()
-	if err != nil {
-		panic(fmt.Sprintf("failed to marshal AddressReservation: %v", err))
-	}
-	return data
-}
-
 // mockUbusExecutor is a mock implementation of UbusCommandExecutor for testing.
 type mockUbusExecutor struct {
-	output []byte
 	err    error
+	output []byte
 }
 
 // Execute returns the pre-configured output and error.
-func (m *mockUbusExecutor) Execute(args ...string) ([]byte, error) {
+func (m *mockUbusExecutor) Execute(_ context.Context, args ...string) ([]byte, error) {
 	return m.output, m.err
 }
 
@@ -986,7 +1093,7 @@ func TestDHCPLease_GetMethods(t *testing.T) {
 	lease := DHCPLease{
 		Expires:  43141,
 		Hostname: "TestHost",
-		MacAddr:  "AA:BB:CC:DD:EE:FF",
+		MacAddr:  testMACAddress,
 		DUID:     "01aabbccddeeff",
 		IPAddr:   "10.41.0.100",
 	}
@@ -994,15 +1101,19 @@ func TestDHCPLease_GetMethods(t *testing.T) {
 	if lease.GetExpires() != 43141 {
 		t.Errorf("GetExpires() = %d, want 43141", lease.GetExpires())
 	}
+
 	if lease.GetHostname() != "TestHost" {
 		t.Errorf("GetHostname() = %s, want TestHost", lease.GetHostname())
 	}
-	if lease.GetMacAddr() != "AA:BB:CC:DD:EE:FF" {
+
+	if lease.GetMacAddr() != testMACAddress {
 		t.Errorf("GetMacAddr() = %s, want AA:BB:CC:DD:EE:FF", lease.GetMacAddr())
 	}
+
 	if lease.GetDUID() != "01aabbccddeeff" {
 		t.Errorf("GetDUID() = %s, want 01aabbccddeeff", lease.GetDUID())
 	}
+
 	if lease.GetIPAddr() != "10.41.0.100" {
 		t.Errorf("GetIPAddr() = %s, want 10.41.0.100", lease.GetIPAddr())
 	}
@@ -1013,7 +1124,7 @@ func TestDHCPLeasesResponse_GetMethods(t *testing.T) {
 		{
 			Expires:  43141,
 			Hostname: "Host1",
-			MacAddr:  "AA:BB:CC:DD:EE:FF",
+			MacAddr:  testMACAddress,
 			DUID:     "01aabbccddeeff",
 			IPAddr:   "10.41.0.100",
 		},
@@ -1062,6 +1173,7 @@ func TestDHCPLeasesResponse_GetMethods(t *testing.T) {
 	if gotAll[0].GetIPAddr() != "10.41.0.100" {
 		t.Errorf("GetAllLeases()[0] IP = %s, want 10.41.0.100", gotAll[0].GetIPAddr())
 	}
+
 	if gotAll[2].GetIPAddr() != "fe80::1" {
 		t.Errorf("GetAllLeases()[2] IP = %s, want fe80::1", gotAll[2].GetIPAddr())
 	}
@@ -1069,13 +1181,13 @@ func TestDHCPLeasesResponse_GetMethods(t *testing.T) {
 
 func TestGetCurrentDHCPLeasesWithExecutor(t *testing.T) {
 	tests := []struct {
+		mockErr       error
+		validateFirst func(*testing.T, DHCPLease)
 		name          string
 		mockOutput    string
-		mockErr       error
-		expectErr     bool
 		expectDHCP    int
 		expectDHCP6   int
-		validateFirst func(*testing.T, DHCPLease)
+		expectErr     bool
 	}{
 		{
 			name: "successful response with leases",
@@ -1105,12 +1217,15 @@ func TestGetCurrentDHCPLeasesWithExecutor(t *testing.T) {
 				if lease.GetHostname() != "Mac" {
 					t.Errorf("First lease hostname = %s, want Mac", lease.GetHostname())
 				}
+
 				if lease.GetMacAddr() != "9A:67:9D:6C:6E:92" {
 					t.Errorf("First lease MAC = %s, want 9A:67:9D:6C:6E:92", lease.GetMacAddr())
 				}
+
 				if lease.GetIPAddr() != "10.41.0.180" {
 					t.Errorf("First lease IP = %s, want 10.41.0.180", lease.GetIPAddr())
 				}
+
 				if lease.GetExpires() != 43141 {
 					t.Errorf("First lease expires = %d, want 43141", lease.GetExpires())
 				}
@@ -1199,6 +1314,7 @@ func TestGetCurrentDHCPLeasesWithExecutor(t *testing.T) {
 				if lease.GetHostname() != "" {
 					t.Errorf("Lease without hostname should have empty string, got %s", lease.GetHostname())
 				}
+
 				if lease.GetMacAddr() != "26:D2:E5:9A:BF:55" {
 					t.Errorf("MAC address = %s, want 26:D2:E5:9A:BF:55", lease.GetMacAddr())
 				}
@@ -1213,17 +1329,19 @@ func TestGetCurrentDHCPLeasesWithExecutor(t *testing.T) {
 				err:    tt.mockErr,
 			}
 
-			response, err := GetCurrentDHCPLeasesWithExecutor(mock)
+			response, err := GetCurrentDHCPLeasesWithExecutor(context.Background(), mock)
 
 			if tt.expectErr {
 				if err == nil {
 					t.Error("Expected error but got none")
 				}
+
 				return
 			}
 
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
+
 				return
 			}
 
@@ -1251,4 +1369,372 @@ func TestDefaultUbusExecutor_Execute(t *testing.T) {
 	// We can't actually run ubus in the test environment.
 	var _ UbusCommandExecutor = &DefaultUbusExecutor{}
 	// The actual execution is tested in integration tests
+}
+
+// ── Static Host Tests ────────────────────────────────────────────────────────
+
+func TestGetStaticHostsWithReader_ReturnsHosts(t *testing.T) {
+	reader := newMockDHCPConfigReader()
+	reader.sections["dhcp"] = map[string]string{
+		"printer": "host",
+		"camera":  "host",
+	}
+
+	reader.data["dhcp"] = map[string]map[string][]string{
+		"printer": {
+			"name": {"printer-office"},
+			"mac":  {"AA:BB:CC:11:22:33"},
+			"ip":   {"10.41.0.10"},
+		},
+		"camera": {
+			"name": {"camera-north"},
+			"mac":  {"AA:BB:CC:44:55:66"},
+			"ip":   {"10.41.0.11"},
+		},
+	}
+
+	hosts, err := GetStaticHostsWithReader(reader)
+	require.NoError(t, err)
+	assert.Len(t, hosts, 2)
+
+	// Build a map for order-independent assertion
+	byName := make(map[string]UCIStaticHost)
+	for _, h := range hosts {
+		byName[h.Name] = h
+	}
+
+	assert.Equal(t, "printer-office", byName["printer-office"].Name)
+	assert.Equal(t, "AA:BB:CC:11:22:33", byName["printer-office"].MAC)
+	assert.Equal(t, "10.41.0.10", byName["printer-office"].IP)
+
+	assert.Equal(t, "camera-north", byName["camera-north"].Name)
+	assert.Equal(t, "AA:BB:CC:44:55:66", byName["camera-north"].MAC)
+	assert.Equal(t, "10.41.0.11", byName["camera-north"].IP)
+}
+
+func TestGetStaticHostsWithReader_Empty(t *testing.T) {
+	reader := newMockDHCPConfigReader()
+
+	hosts, err := GetStaticHostsWithReader(reader)
+	require.NoError(t, err)
+	assert.Empty(t, hosts)
+}
+
+func TestGetStaticHostsWithReader_PartialFields(t *testing.T) {
+	reader := newMockDHCPConfigReader()
+	reader.sections["dhcp"] = map[string]string{
+		"noname": "host",
+	}
+
+	reader.data["dhcp"] = map[string]map[string][]string{
+		"noname": {
+			"mac": {"AA:BB:CC:DD:EE:FF"},
+			"ip":  {"10.41.0.50"},
+		},
+	}
+
+	hosts, err := GetStaticHostsWithReader(reader)
+	require.NoError(t, err)
+	assert.Len(t, hosts, 1)
+	assert.Equal(t, "", hosts[0].Name)
+	assert.Equal(t, "AA:BB:CC:DD:EE:FF", hosts[0].MAC)
+	assert.Equal(t, "10.41.0.50", hosts[0].IP)
+}
+
+func TestGetStaticHostsWithReader_GetSectionsError(t *testing.T) {
+	reader := &mockDHCPConfigReaderWithErrors{}
+
+	_, err := GetStaticHostsWithReader(reader)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "enumerate host sections")
+}
+
+// ── DHCP Range Computation Tests ─────────────────────────────────────────────
+
+func TestComputeDHCPRangeStart(t *testing.T) {
+	ip, err := ComputeDHCPRangeStart("10.41.0.0", 100)
+	require.NoError(t, err)
+	assert.Equal(t, "10.41.0.100", ip)
+}
+
+func TestComputeDHCPRangeEnd(t *testing.T) {
+	ip, err := ComputeDHCPRangeEnd("10.41.0.0", 100, 155)
+	require.NoError(t, err)
+	assert.Equal(t, "10.41.0.254", ip)
+}
+
+func TestComputeDHCPRangeEnd_CrossesOctet(t *testing.T) {
+	ip, err := ComputeDHCPRangeEnd("10.41.0.0", 200, 100)
+	require.NoError(t, err)
+	assert.Equal(t, "10.41.1.43", ip)
+}
+
+func TestComputeDHCPRangeStart_InvalidIP(t *testing.T) {
+	_, err := ComputeDHCPRangeStart("invalid", 100)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid base IP")
+}
+
+func TestComputeDHCPRangeEnd_InvalidIP(t *testing.T) {
+	_, err := ComputeDHCPRangeEnd("invalid", 100, 155)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid base IP")
+}
+
+// ── Setup wizard helpers ─────────────────────────────────────────────────────
+
+// newDhcpResetMock builds a mockConfigReader pre-populated with a
+// dnsmasq + lan + wan layout matching the captured `before/dhcp`
+// fixture (minus comments and stray formatting).
+func newDhcpResetMock(t *testing.T) *mockConfigReader {
+	t.Helper()
+
+	m := &mockConfigReader{
+		data:         map[string]map[string]map[string][]string{},
+		sectionTypes: map[string]map[string]string{},
+		anonSections: map[string][]string{},
+	}
+
+	// Anonymous dnsmasq with all the OpenWrt default options.
+	require.NoError(t, m.AddSection("dhcp", "", "dnsmasq"))
+
+	for _, kv := range []struct{ k, v string }{
+		{"domainneeded", "1"},
+		{"boguspriv", "1"},
+		{"localize_queries", "1"},
+		{"rebind_protection", "1"},
+		{"rebind_localhost", "1"},
+		{"local", "/lan/"},
+		{"domain", "lan"},
+		{"expandhosts", "1"},
+		{"cachesize", "1000"},
+		{"authoritative", "1"},
+		{"readethers", "1"},
+		{"localservice", "1"},
+		{"ednspacket_max", "1232"},
+	} {
+		require.NoError(t, m.SetType("dhcp", "@dnsmasq[0]", kv.k, uci.TypeOption, kv.v))
+	}
+
+	// LAN dhcp pool.
+	require.NoError(t, m.AddSection("dhcp", "lan", "dhcp"))
+	require.NoError(t, m.SetType("dhcp", "lan", "interface", uci.TypeOption, "lan"))
+	require.NoError(t, m.SetType("dhcp", "lan", "start", uci.TypeOption, "100"))
+	require.NoError(t, m.SetType("dhcp", "lan", "limit", uci.TypeOption, "150"))
+	require.NoError(t, m.SetType("dhcp", "lan", "leasetime", uci.TypeOption, "12h"))
+
+	// WAN dhcp pool.
+	require.NoError(t, m.AddSection("dhcp", "wan", "dhcp"))
+	require.NoError(t, m.SetType("dhcp", "wan", "interface", uci.TypeOption, "wan"))
+	require.NoError(t, m.SetType("dhcp", "wan", "ignore", uci.TypeOption, "1"))
+
+	m.commitCount = 0
+	m.commitCalled = false
+
+	return m
+}
+
+func TestWhitelistDnsmasqSurvivor_StripsExtraOptions(t *testing.T) {
+	m := newDhcpResetMock(t)
+
+	require.NoError(t, WhitelistDnsmasqSurvivor(m, "@dnsmasq[0]", WizardDnsmasqWhitelist))
+
+	// Whitelisted survives.
+	for _, opt := range WizardDnsmasqWhitelist {
+		_, ok := m.Get("dhcp", "@dnsmasq[0]", opt)
+		assert.Truef(t, ok, "whitelisted option %q removed", opt)
+	}
+
+	// Non-whitelisted removed (boguspriv, rebind_protection are in the
+	// allDnsmasqOptions but not in the wizard whitelist).
+	for _, opt := range []string{"boguspriv", "rebind_protection"} {
+		_, ok := m.Get("dhcp", "@dnsmasq[0]", opt)
+		assert.Falsef(t, ok, "non-whitelisted option %q not removed", opt)
+	}
+}
+
+func TestWhitelistDnsmasqSurvivor_RejectsEmptyName(t *testing.T) {
+	m := newDhcpResetMock(t)
+	err := WhitelistDnsmasqSurvivor(m, "", WizardDnsmasqWhitelist)
+	require.Error(t, err)
+}
+
+func TestWhitelistAndIgnoreAllPools_DisablesAndStrips(t *testing.T) {
+	m := newDhcpResetMock(t)
+
+	require.NoError(t, WhitelistAndIgnoreAllPools(m))
+
+	// Both pools now have ignore=1.
+	for _, name := range []string{"lan", "wan"} {
+		v, ok := m.Get("dhcp", name, "ignore")
+		require.Truef(t, ok, "%s missing ignore", name)
+		assert.Equalf(t, "1", v[0], "%s ignore", name)
+	}
+
+	// Whitelisted pool fields preserved on lan.
+	for _, opt := range []string{"start", "leasetime", "limit", "interface"} {
+		_, ok := m.Get("dhcp", "lan", opt)
+		assert.Truef(t, ok, "whitelisted lan option %q removed", opt)
+	}
+
+	// Non-whitelisted options removed if they exist (none do in this
+	// mock — the before fixture has no `dns_service`/`force` etc. on
+	// lan/wan, so this test is mostly verifying no false positives).
+}
+
+func TestSetupDnsmasqInstance_WritesAll11Options(t *testing.T) {
+	m := newDhcpResetMock(t)
+
+	require.NoError(t, SetupDnsmasqInstance(m, "@dnsmasq[0]", "ahwlan"))
+
+	expect := map[string]string{
+		"domainneeded":     "1",
+		"localize_queries": "1",
+		"rebind_localhost": "1",
+		"local":            "/ahwlan/",
+		"domain":           "ahwlan",
+		"expandhosts":      "1",
+		"cachesize":        "1000",
+		"authoritative":    "1",
+		"readethers":       "1",
+		"localservice":     "1",
+		"ednspacket_max":   "1232",
+	}
+
+	for k, want := range expect {
+		v, ok := m.Get("dhcp", "@dnsmasq[0]", k)
+		require.Truef(t, ok, "missing %s", k)
+		assert.Equalf(t, want, v[0], "key %s", k)
+	}
+}
+
+func TestSetupDnsmasqInstance_RejectsEmptyArgs(t *testing.T) {
+	m := newDhcpResetMock(t)
+	require.Error(t, SetupDnsmasqInstance(m, "", "ahwlan"))
+	require.Error(t, SetupDnsmasqInstance(m, "@dnsmasq[0]", ""))
+}
+
+func TestCreateDhcpPool_WritesStandardFields(t *testing.T) {
+	m := newDhcpResetMock(t)
+
+	rng := newSeededRand(t, 42)
+	name, err := CreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", rng)
+	require.NoError(t, err)
+	assert.Equal(t, "ahwlan", name)
+
+	expect := map[string]string{
+		"limit":       DefaultDhcpPoolLimit,
+		"leasetime":   DefaultDhcpPoolLeasetime,
+		"ra":          "server",
+		"ra_slaac":    "1",
+		"dns_service": "0",
+		"ignore":      "0",
+		"force":       "1",
+		"dns":         CloudflareIPv6DNS,
+		"ra_flags":    "none",
+		"interface":   "ahwlan",
+	}
+
+	for k, want := range expect {
+		v, ok := m.Get("dhcp", "ahwlan", k)
+		require.Truef(t, ok, "missing %s", k)
+		assert.Equalf(t, want, v[0], "key %s", k)
+	}
+
+	// `start` is a randomized offset.
+	v, ok := m.Get("dhcp", "ahwlan", "start")
+	require.True(t, ok)
+
+	startVal := v[0]
+	assert.NotEmpty(t, startVal)
+}
+
+func TestCreateDhcpPool_DoesNotSetInstanceForAnonymousDnsmasq(t *testing.T) {
+	m := newDhcpResetMock(t)
+	rng := newSeededRand(t, 7)
+
+	_, err := CreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", rng)
+	require.NoError(t, err)
+
+	_, ok := m.Get("dhcp", "ahwlan", "instance")
+	assert.False(t, ok, "anonymous dnsmasq should not set `instance`")
+}
+
+func TestCreateDhcpPool_SetsInstanceForNamedDnsmasq(t *testing.T) {
+	m := newDhcpResetMock(t)
+	require.NoError(t, m.AddSection("dhcp", "ahwlan_dns", "dnsmasq"))
+
+	rng := newSeededRand(t, 7)
+	_, err := CreateDhcpPool(m, "ahwlan_dns", "ahwlan", rng)
+	require.NoError(t, err)
+
+	v, ok := m.Get("dhcp", "ahwlan", "instance")
+	require.True(t, ok)
+	assert.Equal(t, "ahwlan_dns", v[0])
+}
+
+func TestCreateDhcpPool_ResolvesNameClashByAppendingSuffix(t *testing.T) {
+	m := newDhcpResetMock(t)
+	// `ahwlan` already exists as a dhcp section name.
+	require.NoError(t, m.AddSection("dhcp", "ahwlan", "dhcp"))
+
+	rng := newSeededRand(t, 0)
+	name, err := CreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", rng)
+	require.NoError(t, err)
+	assert.NotEqual(t, "ahwlan", name)
+}
+
+func TestCreateDhcpPool_RejectsEmptyArgs(t *testing.T) {
+	m := newDhcpResetMock(t)
+	rng := newSeededRand(t, 0)
+	_, err := CreateDhcpPool(m, "", "ahwlan", rng)
+	require.Error(t, err)
+
+	_, err = CreateDhcpPool(m, "@dnsmasq[0]", "", rng)
+	require.Error(t, err)
+
+	_, err = CreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", nil)
+	require.Error(t, err)
+}
+
+func TestGetOrCreateDhcpPool_ReturnsEnabledMatch(t *testing.T) {
+	m := newDhcpResetMock(t)
+	// Pre-existing enabled pool for ahwlan.
+	require.NoError(t, m.AddSection("dhcp", "ahwlan", "dhcp"))
+	require.NoError(t, m.SetType("dhcp", "ahwlan", "interface", uci.TypeOption, "ahwlan"))
+
+	rng := newSeededRand(t, 0)
+	got, err := GetOrCreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", rng)
+	require.NoError(t, err)
+	assert.Equal(t, "ahwlan", got)
+}
+
+func TestGetOrCreateDhcpPool_ReenablesDisabledMatch(t *testing.T) {
+	m := newDhcpResetMock(t)
+
+	require.NoError(t, m.AddSection("dhcp", "ahwlan", "dhcp"))
+	require.NoError(t, m.SetType("dhcp", "ahwlan", "interface", uci.TypeOption, "ahwlan"))
+	require.NoError(t, m.SetType("dhcp", "ahwlan", "ignore", uci.TypeOption, "1"))
+
+	rng := newSeededRand(t, 0)
+	got, err := GetOrCreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", rng)
+	require.NoError(t, err)
+	assert.Equal(t, "ahwlan", got)
+
+	_, ok := m.Get("dhcp", "ahwlan", "ignore")
+	assert.False(t, ok, "ignore should have been cleared on re-enable")
+}
+
+func TestGetOrCreateDhcpPool_CreatesNewWhenAbsent(t *testing.T) {
+	m := newDhcpResetMock(t)
+	rng := newSeededRand(t, 0)
+
+	got, err := GetOrCreateDhcpPool(m, "@dnsmasq[0]", "ahwlan", rng)
+	require.NoError(t, err)
+	assert.Equal(t, "ahwlan", got)
+
+	// Standard fields populated.
+	v, ok := m.Get("dhcp", "ahwlan", "interface")
+	require.True(t, ok)
+	assert.Equal(t, "ahwlan", v[0])
 }

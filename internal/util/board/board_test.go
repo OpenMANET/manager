@@ -25,27 +25,35 @@ func TestNewBoard(t *testing.T) {
 	if board.Model.ID != "bcm2711,mm6108-spi" {
 		t.Errorf("Expected model ID 'bcm2711,mm6108-spi', got '%s'", board.Model.ID)
 	}
+
 	if board.Model.Name != "RPI RPI4-MM6108 (SPI)" {
 		t.Errorf("Expected model name 'RPI RPI4-MM6108 (SPI)', got '%s'", board.Model.Name)
 	}
+
 	if board.System.Hostname != "BCM2711-88ba" {
 		t.Errorf("Expected hostname 'BCM2711-88ba', got '%s'", board.System.Hostname)
 	}
+
 	if board.Network.Lan.Device != "eth0" {
 		t.Errorf("Expected LAN device 'eth0', got '%s'", board.Network.Lan.Device)
 	}
+
 	if board.Network.Lan.Ipaddr != "10.41.254.1" {
 		t.Errorf("Expected LAN IP '10.41.254.1', got '%s'", board.Network.Lan.Ipaddr)
 	}
+
 	if board.Wlan.Phy0.Path != "platform/soc/fe204000.spi/spi_master/spi0/spi0.0" {
 		t.Errorf("Expected phy0 path, got '%s'", board.Wlan.Phy0.Path)
 	}
+
 	if !board.Wlan.Phy0.Info.Bands.FiveG.Ht {
 		t.Error("Expected phy0 5G HT to be true")
 	}
+
 	if !board.Wlan.Phy0.Info.Bands.FiveG.Vht {
 		t.Error("Expected phy0 5G VHT to be true")
 	}
+
 	if board.Wlan.Phy0.Info.Bands.FiveG.MaxWidth != 160 {
 		t.Errorf("Expected phy0 5G max width 160, got %d", board.Wlan.Phy0.Info.Bands.FiveG.MaxWidth)
 	}
@@ -62,7 +70,9 @@ func TestNewBoard_FileNotFound(t *testing.T) {
 func TestNewBoard_InvalidJSON(t *testing.T) {
 	// Test with invalid JSON
 	invalidJSON := []byte(`{"model": invalid}`)
+
 	var board Board
+
 	err := json.Unmarshal(invalidJSON, &board)
 	if err == nil {
 		t.Error("Expected error with invalid JSON, got nil")

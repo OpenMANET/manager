@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>OpenMANET — Mesh Operator Terminal</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script type="module" crossorigin src="/assets/index-BjcvMXpI.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/vendor-react-1538Mdwn.js">
+  <link rel="modulepreload" crossorigin href="/assets/vendor-connect-C2CZa3VE.js">
+  <link rel="stylesheet" crossorigin href="/assets/index-BIALaGuo.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+  // Pre-declare Module for whisper WASM — must exist before whisper-main.js loads
+  // so the WASM module can attach its methods here.
+  // _whisperOutputHook is set by whisperService.js during transcription
+  // to intercept whisper.cpp output. This must be done HERE because
+  // Emscripten copies Module.print into a local var at init time —
+  // reassigning Module.print later has no effect on whisper output.
+  window._whisperOutputHook = null;
+  var Module = {
+    print: function(text) {
+      console.log('[whisper]', text);
+      if (window._whisperOutputHook) window._whisperOutputHook(text);
+    },
+    printErr: function(text) {
+      console.warn('[whisper]', text);
+      if (window._whisperOutputHook) window._whisperOutputHook(text);
+    },
+    setStatus: function(text) {},
+    monitorRunDependencies: function(left) {}
+  };
+  // Set up _runtimeReady AFTER Module is defined — the promise resolves when
+  // Emscripten calls onRuntimeInitialized after WASM compilation completes.
+  Module._runtimeReady = new Promise(function(resolve) {
+    Module.onRuntimeInitialized = function() { resolve(); };
+  });
+  // Load the Emscripten whisper bootstrap synchronously, but via document.write
+  // so Vite's HTML parser doesn't see a bare <script src> and try to bundle it
+  // (the Emscripten output isn't an ES module, so type="module" isn't an
+  // option). document.write during document parsing preserves the blocking
+  // load semantics so Module is fully populated before main.jsx runs. The
+  // script may 404 if whisper files aren't deployed, which is fine (CC stays
+  // disabled).
+  document.write('<script src="/whisper/whisper-main.js"><' + '/script>');
+  </script>
+</body>
+</html>

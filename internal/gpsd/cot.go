@@ -36,12 +36,14 @@ func (g *GPSService) SendIfRequiredAsCoT() {
 	// Check if we have a valid GPS position
 	if !g.IsValid() {
 		g.Log.Warn().Msg("No valid GPS position to send to EUDs")
+
 		return
 	}
 
 	leases, err := network.GetCurrentDHCPLeases()
 	if err != nil {
 		g.Log.Error().Err(err).Msg("Error getting DHCP leases for EUD location update")
+
 		return
 	}
 
@@ -67,8 +69,10 @@ func (g *GPSService) SendIfRequiredAsCoT() {
 		g.mu.Lock()
 		if time.Since(g.lastMulticastTime) < cotMulticastRateLimit {
 			g.mu.Unlock()
+
 			return // Rate limited, exit early
 		}
+
 		g.lastMulticastTime = time.Now()
 		g.mu.Unlock()
 
@@ -77,6 +81,7 @@ func (g *GPSService) SendIfRequiredAsCoT() {
 		}
 
 		g.Log.Debug().Msg("No reachable devices found, sending CoT to ATAK SA multicast address")
+
 		if err := g.sendCoTToMulticast(); err != nil {
 			g.Log.Error().Err(err).Msg("Failed to send CoT to multicast")
 		}
@@ -89,6 +94,7 @@ func (g *GPSService) checkDeviceActive(ipAddr string) bool {
 	ipAddrParsed, err := netip.ParseAddr(ipAddr)
 	if err != nil {
 		g.Log.Debug().Str("ip", ipAddr).Msg("Invalid IP address for ARP check")
+
 		return false
 	}
 
@@ -96,6 +102,7 @@ func (g *GPSService) checkDeviceActive(ipAddr string) bool {
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		g.Log.Debug().Err(err).Msg("Failed to get network interfaces for ARP check")
+
 		return false
 	}
 
@@ -131,14 +138,17 @@ func (g *GPSService) checkDeviceActive(ipAddr string) bool {
 				client, err := arp.Dial(&iface)
 				if err != nil {
 					g.Log.Debug().Err(err).Str("interface", iface.Name).Msg("Failed to create ARP client")
+
 					continue
 				}
 				defer client.Close()
 
 				// Set a short timeout for ARP request
-				if err := client.SetDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+				err = client.SetDeadline(time.Now().Add(500 * time.Millisecond))
+				if err != nil {
 					g.Log.Debug().Err(err).Msg("Failed to set ARP deadline")
 					client.Close()
+
 					continue
 				}
 
@@ -146,11 +156,7 @@ func (g *GPSService) checkDeviceActive(ipAddr string) bool {
 				_, err = client.Resolve(ipAddrParsed)
 				client.Close()
 
-				if err == nil {
-					return true
-				}
-
-				return false
+				return err == nil
 			}
 		}
 	}
@@ -186,6 +192,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 
 	// Get platform name, handle nil deviceInfo
 	platformName := "OpenMANET"
+
 	if deviceInfo != nil {
 		modelName := deviceInfo.Model.GetName()
 		if modelName != "" {
@@ -258,8 +265,8 @@ func (g *GPSService) sendCoTToMulticast() error {
 
 	// Set multicast TTL to 64
 	pconn := ipv4.NewPacketConn(conn)
-	if err := pconn.SetMulticastTTL(atakMulticastTTL); err != nil {
-		g.Log.Warn().Err(err).Msg("Failed to set multicast TTL")
+	if ttlErr := pconn.SetMulticastTTL(atakMulticastTTL); ttlErr != nil {
+		g.Log.Warn().Err(ttlErr).Msg("Failed to set multicast TTL")
 	}
 
 	_, err = pconn.WriteTo(data, nil, addr)
@@ -372,8 +379,8 @@ func (g *GPSService) sendCoTPing() error {
 
 	// Set multicast TTL to 64
 	pconn := ipv4.NewPacketConn(conn)
-	if err := pconn.SetMulticastTTL(atakMulticastTTL); err != nil {
-		g.Log.Warn().Err(err).Msg("Failed to set multicast TTL")
+	if ttlErr := pconn.SetMulticastTTL(atakMulticastTTL); ttlErr != nil {
+		g.Log.Warn().Err(ttlErr).Msg("Failed to set multicast TTL")
 	}
 
 	_, err = pconn.WriteTo(data, nil, addr)
