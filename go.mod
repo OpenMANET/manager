@@ -12,7 +12,7 @@ require (
 	github.com/digineo/go-uci/v2 v2.0.0-20231120164223-60c14814b8fe
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gen2brain/alsa v0.5.0
-	github.com/gen2brain/malgo v0.11.24
+	github.com/gen2brain/malgo v0.11.25
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/gvalkov/golang-evdev v0.0.0-20220815104727-7e27d6ce89b6
 	github.com/hraban/opus v0.0.0-20230925203106-0188a62cb302
