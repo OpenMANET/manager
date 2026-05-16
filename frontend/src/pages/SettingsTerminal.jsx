@@ -20,7 +20,7 @@ export default function SettingsTerminal() {
   const [closedEvent, setClosedEvent] = useState(null);
   const [reconnectKey, setReconnectKey] = useState(0);
 
-  const wsUrl = useMemo(buildWsUrl, []);
+  const wsUrl = useMemo(() => buildWsUrl(), []);
 
   const handleClose = useCallback((e) => {
     setClosedEvent({ code: e?.code, reason: e?.reason || '' });

@@ -371,6 +371,11 @@ export default function DashboardPage() {
   // ─ Derived ─
   const neighbors = useMemo(() => meshData?.neighbors ?? [], [meshData]);
   const peerRows = useMemo(
+    // neighborHistoryRef is a long-lived accumulator updated in the
+    // neighbors-tracking effect above; buildPeerRows reads .current to look
+    // up per-neighbor last-seen timestamps. The lint rule flags any ref
+    // access reachable from useMemo, but the read here is by-design.
+    // eslint-disable-next-line react-hooks/refs
     () => buildPeerRows(topology, neighbors, neighborHistoryRef, now),
     [topology, neighbors, now],
   );
@@ -399,6 +404,10 @@ export default function DashboardPage() {
       const name = (p.name || '').toUpperCase();
       if (name) present.add(name);
     }
+    // peerHistRef is updated by the effect immediately above; reading
+    // .current here surfaces the same set findLostPeers needs to compare
+    // against. The map is mutable on purpose, hence the ref.
+    // eslint-disable-next-line react-hooks/refs
     return findLostPeers(peerHistRef.current, present, now, PEER_LOST_MS, PEER_FORGET_MS);
   }, [peerRows, now]);
 
@@ -410,6 +419,7 @@ export default function DashboardPage() {
   // keyed by IP, not MAC, so cross-reference via the mesh neighbor list)
   // and finally to a short MAC suffix when no name is known. Self takes
   // precedence when this node itself is the elected gateway.
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const gatewayName = useMemo(() => {
     if (meshData?.status?.is_gateway) return (data?.deviceInfo?.hostname || 'SELF').toUpperCase();
     const mac = (meshData?.status?.selected_gateway_mac || '').toLowerCase();
@@ -468,6 +478,10 @@ export default function DashboardPage() {
   const [ackedAlerts, setAckedAlerts] = useState(() => new Set());
 
   useEffect(() => {
+    // Prune acked alerts whose underlying condition has cleared. The
+    // functional update short-circuits when the set is already empty or
+    // unchanged, so this is cheap on every alerts update.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAckedAlerts((prev) => {
       if (prev.size === 0) return prev;
       const live = new Set(alerts.map((a) => a.text));

@@ -17,7 +17,10 @@ afterEach(() => {
 });
 
 const waveData = new Float32Array(200);
-const defaultProps = { rxWaveData: waveData, writePos: 0 };
+const defaultProps = {
+  rxWaveDataRef: { current: waveData },
+  rxWaveWritePosRef: { current: 0 },
+};
 
 describe('TestRxWaveformRender', () => {
   it('renders canvas element', () => {

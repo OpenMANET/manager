@@ -129,7 +129,9 @@ export default function WidgetGrid({ pageId, title, widgets, renderWidget }) {
   }, []);
 
   // Keep dragOverRef in sync.
-  dragOverRef.current = dragOverId;
+  useEffect(() => {
+    dragOverRef.current = dragOverId;
+  }, [dragOverId]);
 
   // --- Drag reorder (whole card) ---
 

@@ -206,8 +206,16 @@ function RadioCard({ radio }) {
     if (p.status === 'fulfilled') setPeers(p.value.peers ?? []);
   }, [radio.name]);
 
-  useEffect(() => { loadCard(); }, [loadCard]);
-  useEffect(() => { if (expanded) loadConnected(); }, [expanded, loadConnected]);
+  useEffect(() => {
+    // Fetch-on-mount: load card details for this radio.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadCard();
+  }, [loadCard]);
+  useEffect(() => {
+    // Fetch-on-expand: load clients/peers when the card opens.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (expanded) loadConnected();
+  }, [expanded, loadConnected]);
 
   const update = (field, value) => {
     setDraft(prev => ({ ...prev, [field]: value }));
@@ -471,7 +479,11 @@ export default function SettingsWireless() {
     }
   }, []);
 
-  useEffect(() => { fetchRadios(); }, [fetchRadios]);
+  useEffect(() => {
+    // Fetch-on-mount: pull the radio list from the daemon.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchRadios();
+  }, [fetchRadios]);
 
   return (
     <div className="settings-wireless">

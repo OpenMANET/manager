@@ -95,10 +95,11 @@ export default function CommsPage() {
   const rxLastSourceRef = useRef(null); // { ch, ip, ts } most recent RX
   const [rxSource, setRxSource] = useState(null);
 
-  // RX waveform
+  // RX waveform — buffer + write position are refs so audio frames (~50/s)
+  // don't drive React re-renders. RxWaveform reads both refs inside its own
+  // rAF loop.
   const rxWaveDataRef = useRef(new Float32Array(RX_WAVE_HISTORY));
   const rxWaveWritePosRef = useRef(0);
-  const [rxWaveWritePos, setRxWaveWritePos] = useState(0);
 
   // Callback refs
   const pttActiveRef = useRef(false);
@@ -149,7 +150,6 @@ export default function CommsPage() {
         const wp = rxWaveWritePosRef.current;
         rxWaveDataRef.current[wp % RX_WAVE_HISTORY] = peak;
         rxWaveWritePosRef.current = wp + 1;
-        setRxWaveWritePos(wp + 1);
 
         rxLastTimeRef.current[ch] = Date.now();
         rxLastSourceRef.current = { ch, ip: srcIP, ts: Date.now() };
@@ -189,6 +189,9 @@ export default function CommsPage() {
       log: (msg, cls) => addLog(msg, cls),
     });
 
+    // Mount-time log line: addLog appends to the on-screen log, which is local
+    // React state. No external system applies here; an effect is the right home.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     addLog('Comms Bridge (API Mode) starting...', 'info');
     wsConnect();
 
@@ -719,8 +722,8 @@ export default function CommsPage() {
             <div className="ptt-label">{pttLabel}</div>
             <MicMeter level={micLevel} active={pttActive} voxEnabled={voxEnabled} segments={16} />
             <RxWaveform
-              rxWaveData={rxWaveDataRef.current}
-              writePos={rxWaveWritePos}
+              rxWaveDataRef={rxWaveDataRef}
+              rxWaveWritePosRef={rxWaveWritePosRef}
               sourceTag={rxSourceTag}
               lattice
             />
