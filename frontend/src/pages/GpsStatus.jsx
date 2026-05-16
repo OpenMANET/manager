@@ -240,12 +240,17 @@ function GlobePanel({ position, actionsRef }) {
   const alt = position?.altitude;
   const hasPos = lat != null && lon != null && (lat !== 0 || lon !== 0);
 
+  // Auto-center the globe on the first valid position fix. Subsequent fixes
+  // do not move the view (user pan/zoom is preserved); the centerView button
+  // is the explicit way to re-center.
   const centeredRef = useRef(false);
-  if (hasPos && !centeredRef.current) {
-    viewRef.current.lat = lat;
-    viewRef.current.lon = lon;
-    centeredRef.current = true;
-  }
+  useEffect(() => {
+    if (hasPos && !centeredRef.current) {
+      viewRef.current.lat = lat;
+      viewRef.current.lon = lon;
+      centeredRef.current = true;
+    }
+  }, [hasPos, lat, lon]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -335,7 +340,12 @@ function GlobePanel({ position, actionsRef }) {
     }
   }, [hasPos, lat, lon]);
 
-  if (actionsRef) actionsRef.current = { resetView, centerView };
+  // Expose the imperative reset/center actions to the parent through the
+  // optional actionsRef. Done in an effect so the parent reads the latest
+  // memoized callbacks rather than a stale closure.
+  useEffect(() => {
+    if (actionsRef) actionsRef.current = { resetView, centerView };
+  }, [actionsRef, resetView, centerView]);
 
   return (
     <div className="lat-panel gps-panel-globe">
@@ -637,6 +647,9 @@ export default function GpsStatusPage() {
   }, []);
 
   useEffect(() => {
+    // Fetch-on-mount: pull persisted GNSS config from the daemon to seed
+    // the form. No external system supports useSyncExternalStore here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchConfig();
   }, [fetchConfig]);
 
@@ -668,6 +681,9 @@ export default function GpsStatusPage() {
   );
 
   const fixRateHz = useMemo(
+    // fixTimesRef is the rolling window of fix timestamps maintained in an
+    // earlier effect; reading .current here gives the freshest sample set.
+    // eslint-disable-next-line react-hooks/refs
     () => computeFixRateHz(fixTimesRef.current),
     // Recompute on every status update so the chip stays fresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps

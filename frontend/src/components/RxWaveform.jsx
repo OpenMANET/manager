@@ -5,25 +5,26 @@
 // requestAnimationFrame for smooth rendering.
 //
 // Props:
-//   rxWaveData — Float32Array of peak amplitude history
-//   writePos   — current write position in the circular buffer
+//   rxWaveDataRef     — ref to a Float32Array of peak amplitude history
+//                       (parent owns the buffer; we read .current inside rAF
+//                       so audio updates don't drive re-renders)
+//   rxWaveWritePosRef — ref to the current write position (number)
 
 import React, { useRef, useEffect } from 'react';
 
 import { RX_WAVE_HISTORY } from '../constants.js';
 
-export default function RxWaveform({ rxWaveData, writePos, inline, sourceTag = null, lattice = false }) {
+export default function RxWaveform({
+  rxWaveDataRef,
+  rxWaveWritePosRef,
+  inline,
+  sourceTag = null,
+  lattice = false,
+}) {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
   const animRef = useRef(null);
   const ctxRef = useRef(null);
-
-  // Keep props in refs so the animation loop always reads the latest values
-  // without needing to restart the rAF loop on every update.
-  const rxWaveDataRef = useRef(rxWaveData);
-  const writePosRef = useRef(writePos);
-  rxWaveDataRef.current = rxWaveData;
-  writePosRef.current = writePos;
 
   useEffect(() => {
     function draw() {
@@ -51,7 +52,7 @@ export default function RxWaveform({ rxWaveData, writePos, inline, sourceTag = n
 
       const midY = H / 2;
       const currentData = rxWaveDataRef.current;
-      const currentPos = writePosRef.current;
+      const currentPos = rxWaveWritePosRef.current;
 
       // Draw amplitude bars from center line.
       ctx.beginPath();
@@ -84,6 +85,10 @@ export default function RxWaveform({ rxWaveData, writePos, inline, sourceTag = n
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
+    // The rAF loop reads .current on every frame, so depending on the refs
+    // themselves (which are stable) would just re-trigger the effect for no
+    // reason.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (lattice) {

@@ -146,6 +146,8 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
+    // Fetch-on-mount: pull persisted config from the daemon to seed the form.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchSettings();
   }, [fetchSettings]);
 

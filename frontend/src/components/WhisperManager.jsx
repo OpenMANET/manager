@@ -34,6 +34,9 @@ export default function WhisperManager() {
   }, []);
 
   useEffect(() => {
+    // Fetch-on-mount: server state must be pulled once on first render to seed
+    // local UI state. No external system supports useSyncExternalStore here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchStatus();
   }, [fetchStatus]);
 

@@ -132,14 +132,22 @@ export default function BLOSPage() {
   // user sees the error banner instead of being stuck on "Loading…".
   const loading = snapshot === null;
 
-  // Each new snapshot drives the sparkline buffers and the local toggle
-  // echo (matches pre-existing per-tick reset behavior).
+  // Each new snapshot drives the sparkline buffers. Sparklines are an
+  // external store (not React state), so writing them from an effect is the
+  // correct pattern.
   useEffect(() => {
     if (!status) return;
     const rx = Number(status?.counters?.rxBytesPerSec ?? 0);
     const tx = Number(status?.counters?.txBytesPerSec ?? 0);
     pushSparklineSample(RX_SERIES_KEY, rx, TRAFFIC_HISTORY_CAP);
     pushSparklineSample(TX_SERIES_KEY, tx, TRAFFIC_HISTORY_CAP);
+  }, [status]);
+
+  // Mirror the server-reported enable bit into the local toggle so the UI
+  // reflects the persisted state on first load and after external changes.
+  useEffect(() => {
+    if (!status) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setEnableBlos(status.blosEnabled ?? false);
   }, [status]);
 

@@ -44,6 +44,15 @@ export default function LatSelect({
     [onChange],
   );
 
+  // Opens the popup with the current value's index pre-highlighted (or 0).
+  // Computing the initial highlight at the event source avoids a render-then-
+  // effect-then-render cascade.
+  const openPopup = useCallback(() => {
+    const idx = options.findIndex(o => o.value === value);
+    setHighlighted(idx >= 0 ? idx : 0);
+    setOpen(true);
+  }, [options, value]);
+
   // Click outside closes the popup. Using mousedown so a click on a child
   // option (which fires onClick afterward) still gets handled before close.
   useEffect(() => {
@@ -56,14 +65,6 @@ export default function LatSelect({
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
-
-  // When opening, highlight the current value (or the first option) and
-  // scroll it into view so the popup feels native.
-  useEffect(() => {
-    if (!open) return;
-    const idx = options.findIndex(o => o.value === value);
-    setHighlighted(idx >= 0 ? idx : 0);
-  }, [open, value, options]);
 
   useEffect(() => {
     if (!open || highlighted < 0 || !popupRef.current) return;
@@ -78,7 +79,7 @@ export default function LatSelect({
     if (!open) {
       if (['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
         e.preventDefault();
-        setOpen(true);
+        openPopup();
       }
       return;
     }
@@ -133,7 +134,7 @@ export default function LatSelect({
         aria-disabled={disabled || undefined}
         aria-label={ariaLabel}
         disabled={disabled}
-        onClick={() => !disabled && setOpen(o => !o)}
+        onClick={() => !disabled && (open ? setOpen(false) : openPopup())}
         onKeyDown={onKeyDown}
       >
         <span className="lat-select-value">{displayLabel}</span>

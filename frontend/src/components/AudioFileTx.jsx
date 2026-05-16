@@ -10,7 +10,7 @@
 //   onPttSet   — function(active) to control PTT state during file playback
 //   txEnabled  — object {ch: boolean} to check if any TX channels are active
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 import { loadFile, startPlayback, stopPlayback, isPlaying } from '../services/audioFileTx.js';
 import { getAudioContext, getEncoder, resetTxTimestamp } from '../services/audioEngine.js';
@@ -67,7 +67,9 @@ export default function AudioFileTxPanel({ onLog, onPttSet, txEnabled }) {
   }, [onLog, onPttSet]);
 
   // Keep ref in sync so polling interval always calls the latest version.
-  handleStopRef.current = handleStop;
+  useEffect(() => {
+    handleStopRef.current = handleStop;
+  }, [handleStop]);
 
   // Start file playback.
   const handlePlay = useCallback(() => {

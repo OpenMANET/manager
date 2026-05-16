@@ -20,17 +20,17 @@ export default function MicMeter({ level, active, voxEnabled, segments = 0 }) {
   // without restarting the rAF loop on every update.
   const levelRef = useRef(level);
   const activeRef = useRef(active);
-  levelRef.current = level;
-  activeRef.current = active;
+  useEffect(() => {
+    levelRef.current = level;
+    activeRef.current = active;
+  });
 
   const showMeter = active || voxEnabled;
 
   useEffect(() => {
     if (!showMeter) {
       smoothRef.current = 0;
-      setDisplayPct(0);
-      setDisplayDb('');
-      return;
+      return undefined;
     }
 
     function update() {
@@ -61,8 +61,12 @@ export default function MicMeter({ level, active, voxEnabled, segments = 0 }) {
     };
   }, [showMeter]);
 
+  // When the meter is hidden, display zero/blank without an effect cycle.
+  const visiblePct = showMeter ? displayPct : 0;
+  const visibleDb = showMeter ? displayDb : '';
+
   if (segments > 0) {
-    const lit = Math.round((displayPct / 100) * segments);
+    const lit = Math.round((visiblePct / 100) * segments);
     const segs = [];
     for (let i = 0; i < segments; i++) {
       let tier = 'ok';
@@ -79,7 +83,7 @@ export default function MicMeter({ level, active, voxEnabled, segments = 0 }) {
       <div className="mic-meter-segments">
         <div className="mic-meter-label">
           <span>MIC</span>
-          <span className="mic-meter-db">{displayDb || '—'}</span>
+          <span className="mic-meter-db">{visibleDb || '—'}</span>
         </div>
         <div className="mic-meter-bar">{segs}</div>
       </div>
@@ -90,8 +94,8 @@ export default function MicMeter({ level, active, voxEnabled, segments = 0 }) {
     <div className="viz-row">
       <span className="viz-label">MIC</span>
       <div className="meter-wrap">
-        <div className="meter-bar" style={{ width: displayPct + '%' }} />
-        <div className="meter-db">{displayDb}</div>
+        <div className="meter-bar" style={{ width: visiblePct + '%' }} />
+        <div className="meter-db">{visibleDb}</div>
       </div>
     </div>
   );

@@ -145,7 +145,10 @@ export default function SettingsLogs() {
   }, [source.proto, source.label]);
 
   // Source change: reset bottom-lock and clear content so the user sees a
-  // clean slate instead of leftover lines from the other source.
+  // clean slate instead of leftover lines from the other source. Could be
+  // expressed via a `key` reset in the parent, but doing it locally keeps
+  // SettingsLogs.jsx self-contained.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     atBottomRef.current = true;
     setShowJumpChip(false);
@@ -155,6 +158,7 @@ export default function SettingsLogs() {
     setLoading(true);
     // fetchLogs runs via useVisibleInterval's mount-fire below.
   }, [sourceId]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Poll with visibility-pause. intervalMs=0 disables polling; we still
   // run an initial fetch manually so the view is populated on load.
@@ -163,7 +167,9 @@ export default function SettingsLogs() {
   useEffect(() => {
     if (intervalMs === 0) {
       // Polling is off; trigger an initial load on mount and whenever the
-      // source changes (fetchLogs identity captures source).
+      // source changes (fetchLogs identity captures source). fetchLogs sets
+      // local state with the response — an effect is the right home.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchLogs();
     }
   }, [intervalMs, fetchLogs]);

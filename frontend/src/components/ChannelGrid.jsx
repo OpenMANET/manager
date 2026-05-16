@@ -22,14 +22,29 @@ export default function ChannelGrid({
   replayAvailable,
   tiles = false,
 }) {
-  // Force re-render at 150ms interval to update RX dot activity state.
-  // Visibility-gated so a backgrounded tab does no work.
-  const [, setTick] = useState(0);
+  // Per-channel RX activity flag, recomputed every 150ms from the externally
+  // mutated rxLastTimeRef. Doing the read+Date.now() inside the interval
+  // callback (not during render) keeps the component pure and only triggers
+  // a re-render when a flag actually flips.
+  const [rxActive, setRxActive] = useState({});
   const [editingCh, setEditingCh] = useState(null);
   const inputRef = useRef(null);
 
-  const tickRxDots = useCallback(() => setTick((t) => t + 1), []);
-  useVisibleInterval(tickRxDots, 150);
+  const refreshRxActive = useCallback(() => {
+    const rxLast = rxLastTimeRef.current;
+    const now = Date.now();
+    setRxActive((prev) => {
+      let changed = false;
+      const next = {};
+      for (const c of channels) {
+        const flag = Boolean(rxLast[c.ch] && now - rxLast[c.ch] < 500);
+        next[c.ch] = flag;
+        if (flag !== Boolean(prev[c.ch])) changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [channels, rxLastTimeRef]);
+  useVisibleInterval(refreshRxActive, 150);
 
   useEffect(() => {
     if (editingCh !== null && inputRef.current) {
@@ -51,13 +66,11 @@ export default function ChannelGrid({
         <div className="panel-head"><h3>Channels</h3></div>
         <div className="ch-tiles-grid">
           {channels.map((c) => {
-            const rxLast = rxLastTimeRef.current;
-            const rxActive = rxLast[c.ch] && Date.now() - rxLast[c.ch] < 500;
             const active = rxEnabled[c.ch] || txEnabled[c.ch];
             return (
               <div key={c.ch} className={`ch-tile${active ? ' active' : ''}`}>
                 <div className="ch-tile-head">
-                  <span className={`ch-tile-dot${rxActive ? ' active' : ''}`} />
+                  <span className={`ch-tile-dot${rxActive[c.ch] ? ' active' : ''}`} />
                   <span className="ch-tile-num">CH {c.ch}</span>
                   {editingCh === c.ch ? (
                     <input
@@ -116,13 +129,11 @@ export default function ChannelGrid({
       <div className="card-title">Channels</div>
       <div className="ch-grid">
         {channels.map((c) => {
-          const rxLast = rxLastTimeRef.current;
-          const rxActive = rxLast[c.ch] && Date.now() - rxLast[c.ch] < 500;
           return (
             <React.Fragment key={c.ch}>
               {/* Channel label with RX activity dot — double-click to edit */}
               <div className="ch-label">
-                <span className={`ch-rx-dot${rxActive ? ' active' : ''}`} />
+                <span className={`ch-rx-dot${rxActive[c.ch] ? ' active' : ''}`} />
                 {editingCh === c.ch ? (
                   <input
                     ref={inputRef}

@@ -170,7 +170,12 @@ function DHCPPanel() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    // Fetch-on-mount: pull DHCP config + leases from the daemon to seed
+    // the form. No external system supports useSyncExternalStore here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, [load]);
 
   const activeColumns = [
     { key: 'hostname', label: 'Hostname', render: (r) => r.hostname || '—' },

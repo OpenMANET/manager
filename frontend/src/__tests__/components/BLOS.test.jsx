@@ -31,7 +31,6 @@ vi.mock('@connectrpc/connect', () => ({
     updateBLOSConfig: mockUpdateBLOSConfig,
     // Async-iterable stub for streamBLOSEvents — fires when blosEnabled=true.
     streamBLOSEvents: () => ({
-      // eslint-disable-next-line require-yield
       async *[Symbol.asyncIterator]() {},
     }),
   }),

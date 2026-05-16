@@ -82,8 +82,11 @@ function SetupWizardShell() {
     });
   }, [state.role]);
 
-  // Clamp currentIndex if the role flip removed the active step.
+  // Clamp currentIndex if the role flip removed the active step. This is a
+  // legitimate state-sync to derived data (steps changes mid-flow), so the
+  // setState call here is intentional.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (currentIndex >= steps.length) setCurrentIndex(steps.length - 1);
   }, [currentIndex, steps.length]);
 
