@@ -58,7 +58,8 @@
       "Bash(git -C /workspaces/openmanetd submodule status)",
       "Bash(git -C /workspaces/openmanetd/proto status --short)",
       "Bash(xargs -I {} basename {})",
-      "Bash(gh repo *)"
+      "Bash(gh repo *)",
+      "Bash(gh pr *)"
     ],
     "additionalDirectories": [
       "/workspaces/openmanetd/.claude/skills"
