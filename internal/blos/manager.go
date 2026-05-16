@@ -218,7 +218,7 @@ func (m *BLOSManager) waitForTailscaleReady(ctx context.Context) error {
 		} else {
 			lastState = status.BackendState
 
-			if lastState == "Running" {
+			if lastState == backendStateRunning {
 				return nil
 			}
 

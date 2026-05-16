@@ -17,4 +17,11 @@ const (
 	maxReconnectAttempts int           = 3
 	// cotMulticastRateLimit is the minimum interval between CoT multicast sends to avoid flooding
 	cotMulticastRateLimit time.Duration = 30 * time.Second // Minimum interval between CoT multicast sends
+
+	// gpsdClassTPV is the gpsd JSON "class" value for a Time-Position-Velocity report.
+	gpsdClassTPV string = "TPV"
+	// gpsdClassSKY is the gpsd JSON "class" value for a satellite-visibility report.
+	gpsdClassSKY string = "SKY"
+	// gnssSourceGPS labels NMEA sentences originating from the GPS constellation.
+	gnssSourceGPS string = "GPS"
 )

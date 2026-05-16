@@ -28,6 +28,11 @@ const stagedPartialFilename = stagedFilename + ".partial"
 // the tmpfs-backed download directory.
 const MaxStagedImageBytes int64 = 512 * 1024 * 1024
 
+// defaultUploadedImageName is the fallback display name used when the
+// uploader doesn't supply a usable filename. Kept identifiable so
+// operators can spot a bare upload in the staged-image slot.
+const defaultUploadedImageName = "uploaded-image.bin"
+
 // Sentinel errors for the staged-image lifecycle.
 var (
 	// ErrUploadInFlight is returned when StoreStagedImage is called
@@ -344,11 +349,11 @@ func (m *Manager) runLocalUpgrade(ctx context.Context, staged *StagedImage, opts
 
 // cleanUploadedFilename strips any path component the uploader may have
 // included and returns just the basename. Empty inputs yield
-// "uploaded-image.bin" so the slot always has a recognizable label.
+// defaultUploadedImageName so the slot always has a recognizable label.
 func cleanUploadedFilename(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return "uploaded-image.bin"
+		return defaultUploadedImageName
 	}
 
 	// Treat both "/" and "\" as separators so a Windows-supplied path
@@ -358,7 +363,7 @@ func cleanUploadedFilename(name string) string {
 	}
 
 	if name == "" {
-		return "uploaded-image.bin"
+		return defaultUploadedImageName
 	}
 
 	return name

@@ -34,6 +34,13 @@ const (
 	fwimageTrailerLen        = 16
 	fwimageMetaMaxLen        = 30 * 1024 // METADATA_MAXLEN in fwtool.c
 	fwimageWalkLimit         = 8         // defensive cap on chunk-walk iterations
+
+	// compatVersionV1 is the original `compat_version` value emitted by
+	// the OpenWrt image build for image-metadata.json. Newer images may
+	// carry a higher value, in which case `supported_devices` carries a
+	// warning string for old fwtool readers and the real list is in
+	// `new_supported_devices`.
+	compatVersionV1 = "1.0"
 )
 
 // ErrNoImageMetadata is returned by ParseImageMetadata when the file
@@ -73,7 +80,7 @@ func (m *ImageMetadata) EffectiveSupportedDevices() []string {
 		return nil
 	}
 
-	if m.CompatVersion != "" && m.CompatVersion != "1.0" && len(m.NewSupportedDevices) > 0 {
+	if m.CompatVersion != "" && m.CompatVersion != compatVersionV1 && len(m.NewSupportedDevices) > 0 {
 		return m.NewSupportedDevices
 	}
 

@@ -358,7 +358,7 @@ func newMockReader() *mockConfigReader {
 					"netmask": {"255.255.0.0"},
 					"ipaddr":  {"10.41.237.1"},
 					"dns":     {"1.1.1.1"},
-					"device":  {DefaultInterfaceName},
+					"device":  {DefaultBridgeInterfaceName},
 					"gateway": {"10.41.1.1"},
 				},
 				testMeshIfaceBat: {
@@ -435,7 +435,7 @@ func TestGetUCINetworkByNameWithReader_AHWLAN(t *testing.T) {
 		IPAddr:  "10.41.237.1",
 		Gateway: "10.41.1.1",
 		DNS:     "1.1.1.1",
-		Device:  DefaultInterfaceName,
+		Device:  DefaultBridgeInterfaceName,
 	}
 
 	got, err := GetUCINetworkByNameWithReader("ahwlan", reader)
@@ -1714,7 +1714,7 @@ func TestGetDeviceByNameWithReader(t *testing.T) {
 		data: map[string]map[string]map[string][]string{
 			"network": {
 				"__anon__1": {
-					"name":    {DefaultInterfaceName},
+					"name":    {DefaultBridgeInterfaceName},
 					"type":    {testBridgeType},
 					"macaddr": {"F2:2f:98:58:d4:98"},
 					"ports":   {testMeshIfaceBat, "eth1"},
@@ -1731,12 +1731,12 @@ func TestGetDeviceByNameWithReader(t *testing.T) {
 		},
 	}
 
-	device, err := GetDeviceByNameWithReader(DefaultInterfaceName, mock)
+	device, err := GetDeviceByNameWithReader(DefaultBridgeInterfaceName, mock)
 	if err != nil {
 		t.Fatalf("GetDeviceByNameWithReader failed: %v", err)
 	}
 
-	if device.Name != DefaultInterfaceName {
+	if device.Name != DefaultBridgeInterfaceName {
 		t.Errorf("Expected name=br-ahwlan, got %v", device.Name)
 	}
 
@@ -2132,11 +2132,11 @@ func TestDeviceSectionExistsWithReader(t *testing.T) {
 	}{
 		{
 			name:    "device exists",
-			devName: DefaultInterfaceName,
+			devName: DefaultBridgeInterfaceName,
 			data: map[string]map[string]map[string][]string{
 				"network": {
 					"__anon__1": {
-						"name": {DefaultInterfaceName},
+						"name": {DefaultBridgeInterfaceName},
 						"type": {testBridgeType},
 					},
 				},
@@ -2196,7 +2196,7 @@ func TestGetAllDevicesWithReader(t *testing.T) {
 		data: map[string]map[string]map[string][]string{
 			"network": {
 				"__anon__1": {
-					"name":    {DefaultInterfaceName},
+					"name":    {DefaultBridgeInterfaceName},
 					"type":    {testBridgeType},
 					"macaddr": {"AA:BB:CC:DD:EE:FF"},
 					"ports":   {testMeshIfaceBat},
@@ -2231,8 +2231,8 @@ func TestGetAllDevicesWithReader(t *testing.T) {
 	}
 
 	// Check br-ahwlan (keyed by device name now)
-	if device, ok := devices[DefaultInterfaceName]; ok {
-		if device.Name != DefaultInterfaceName {
+	if device, ok := devices[DefaultBridgeInterfaceName]; ok {
+		if device.Name != DefaultBridgeInterfaceName {
 			t.Errorf("br-ahwlan: expected name=br-ahwlan, got %v", device.Name)
 		}
 
@@ -2323,13 +2323,13 @@ func TestDeviceConfiguration_RealWorldExample(t *testing.T) {
 
 	// Create br-ahwlan bridge device
 	bridgeDevice := &UCIDevice{
-		Name:    DefaultInterfaceName,
+		Name:    DefaultBridgeInterfaceName,
 		Type:    testBridgeType,
 		MacAddr: "F2:2f:98:58:d4:98",
 		Ports:   []string{testMeshIfaceBat},
 	}
 
-	err := SetDeviceConfigWithReader(DefaultInterfaceName, bridgeDevice, mock)
+	err := SetDeviceConfigWithReader(DefaultBridgeInterfaceName, bridgeDevice, mock)
 	if err != nil {
 		t.Fatalf("Failed to set br-ahwlan: %v", err)
 	}
@@ -2355,7 +2355,7 @@ func TestDeviceConfiguration_RealWorldExample(t *testing.T) {
 	}
 
 	// Verify all devices exist
-	if !DeviceSectionExistsWithReader(DefaultInterfaceName, mock) {
+	if !DeviceSectionExistsWithReader(DefaultBridgeInterfaceName, mock) {
 		t.Error("br-ahwlan should exist")
 	}
 
@@ -2368,12 +2368,12 @@ func TestDeviceConfiguration_RealWorldExample(t *testing.T) {
 	}
 
 	// Read back and verify br-ahwlan
-	readBridge, err := GetDeviceByNameWithReader(DefaultInterfaceName, mock)
+	readBridge, err := GetDeviceByNameWithReader(DefaultBridgeInterfaceName, mock)
 	if err != nil {
 		t.Fatalf("Failed to read br-ahwlan: %v", err)
 	}
 
-	if readBridge.Name != DefaultInterfaceName {
+	if readBridge.Name != DefaultBridgeInterfaceName {
 		t.Errorf("Expected name=br-ahwlan, got %v", readBridge.Name)
 	}
 

@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// defaultShellPath is the POSIX shell used by the sysupgrade wrapper.
+const defaultShellPath = "/bin/sh"
+
 // SysupgradeRunner executes the sysupgrade(1) binary with a set of
 // options against an image. Implementations are expected to detach the
 // child via setsid + a SIGHUP-ignoring trap so the upgrade survives the
@@ -68,7 +71,7 @@ func (r *ExecSysupgradeRunner) shellPath() string {
 		return r.ShellPath
 	}
 
-	return "/bin/sh"
+	return defaultShellPath
 }
 
 // Run implements SysupgradeRunner.

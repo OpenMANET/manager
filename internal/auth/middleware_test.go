@@ -61,7 +61,7 @@ func TestAPIAuthMiddleware_ValidCookie(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/some.Service/Method", nil)
-	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token, HttpOnly: true, SameSite: http.SameSiteLaxMode}) //nolint:gosec // test fixture; production cookie security is verified separately
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -80,7 +80,7 @@ func TestAPIAuthMiddleware_InvalidCookie(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/some.Service/Method", nil)
-	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: "bad-token"})
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: "bad-token", HttpOnly: true, SameSite: http.SameSiteLaxMode}) //nolint:gosec // test fixture; production cookie security is verified separately
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -191,7 +191,7 @@ func TestFrontendAuthMiddleware_ValidCookie(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/system/info", nil)
-	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token, HttpOnly: true, SameSite: http.SameSiteLaxMode}) //nolint:gosec // test fixture; production cookie security is verified separately
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -268,7 +268,7 @@ func TestAPIAuthMiddleware_InvalidBearer(t *testing.T) {
 	// even though the cookie alone would have succeeded.
 	req := httptest.NewRequest(http.MethodPost, "/some.Service/Method", nil)
 	req.Header.Set("Authorization", "Bearer invalid-token")
-	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: validToken})
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: validToken, HttpOnly: true, SameSite: http.SameSiteLaxMode}) //nolint:gosec // test fixture; production cookie security is verified separately
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -294,8 +294,8 @@ func TestAPIAuthMiddleware_MalformedAuthorizationHeader_FallsBackToCookie(t *tes
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/some.Service/Method", nil)
-	req.Header.Set("Authorization", "Basic YWxpY2U6c2VjcmV0") // not Bearer
-	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+	req.Header.Set("Authorization", "Basic YWxpY2U6c2VjcmV0")                                                               // not Bearer
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token, HttpOnly: true, SameSite: http.SameSiteLaxMode}) //nolint:gosec // test fixture; production cookie security is verified separately
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)

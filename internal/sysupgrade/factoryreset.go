@@ -10,6 +10,11 @@ import (
 	"github.com/openmanet/openmanetd/internal/system"
 )
 
+// defaultFirstbootPath is the OpenWrt path to the firstboot helper
+// shell script. Centralized so production code, tests, and the
+// capability probe all reference the same string.
+const defaultFirstbootPath = "/sbin/firstboot"
+
 // Sentinel errors for the factory-reset flow. These are translated to
 // ConnectRPC error codes by the handler's mapManagerError; the same
 // strings round-trip back to the operator unchanged.
@@ -52,7 +57,7 @@ func (r *ExecFactoryResetRunner) binaryPath() string {
 		return r.BinaryPath
 	}
 
-	return "/sbin/firstboot"
+	return defaultFirstbootPath
 }
 
 // Run launches firstboot in fire-and-forget mode. The child will wipe

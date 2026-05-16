@@ -395,7 +395,7 @@ func (s *SetupService) ethernetPortsForAhwlan(profile *setupv1.MeshNodeProfile, 
 	all := s.collectEthernetPorts()
 
 	if len(all) == 0 {
-		all = []string{"eth0"}
+		all = []string{network.DefaultEthernetInterfaceName}
 	}
 
 	switch scenario {
@@ -523,12 +523,12 @@ func (s *SetupService) runWirelessMesh(_ context.Context, stream applySetupStrea
 			// every existing iface; we re-enable the mesh iface here.
 			ifaceName := "default_" + mesh.GetRadioName()
 			ifaceWrites := []optionWrite{
-				{"device", mesh.GetRadioName()},
-				{"mode", "mesh"},
-				{"network", "batmesh0"},
+				{wifiOptionDevice, mesh.GetRadioName()},
+				{wifiOptionMode, "mesh"},
+				{wifiOptionNetwork, "batmesh0"},
 				{"mesh_id", mesh.GetMeshId()},
-				{"key", mesh.GetPassphrase()},
-				{"encryption", ProtoToWifiEncryption(mesh.GetEncryption())},
+				{wifiOptionKey, mesh.GetPassphrase()},
+				{wifiOptionEncryption, ProtoToWifiEncryption(mesh.GetEncryption())},
 				{"beacon_int", "1000"},
 			}
 
@@ -577,12 +577,12 @@ func (s *SetupService) writeMeshAPOverlay(profile *setupv1.MeshNodeProfile, mesh
 	}
 
 	writes := []optionWrite{
-		{"device", meshRadio},
-		{"mode", "ap"},
-		{"network", "ahwlan"},
-		{"encryption", "sae"},
-		{"ssid", profile.GetHostname()},
-		{"key", network.RandomWifiKey(s.rng())},
+		{wifiOptionDevice, meshRadio},
+		{wifiOptionMode, "ap"},
+		{wifiOptionNetwork, wifiNetworkAhwlan},
+		{wifiOptionEncryption, wifiEncryptionSAE},
+		{wifiOptionSSID, profile.GetHostname()},
+		{wifiOptionKey, network.RandomWifiKey(s.rng())},
 		{"disabled", "1"},
 	}
 
@@ -690,9 +690,9 @@ func (s *SetupService) writeAPIface(ap *setupv1.RadioApProfile) error {
 	// `network` binding is unconditional. Even disabled APs are wired
 	// to ahwlan so a later toggle-to-enabled doesn't need to backfill it.
 	baseWrites := []optionWrite{
-		{"device", ap.GetRadioName()},
-		{"mode", "ap"},
-		{"network", "ahwlan"},
+		{wifiOptionDevice, ap.GetRadioName()},
+		{wifiOptionMode, "ap"},
+		{wifiOptionNetwork, wifiNetworkAhwlan},
 	}
 
 	for _, w := range baseWrites {
@@ -715,9 +715,9 @@ func (s *SetupService) writeAPIface(ap *setupv1.RadioApProfile) error {
 
 	// Enabled AP: write credentials + clear `disabled`.
 	credentialWrites := []optionWrite{
-		{"ssid", ap.GetSsid()},
-		{"key", ap.GetPassphrase()},
-		{"encryption", ProtoToWifiEncryption(ap.GetEncryption())},
+		{wifiOptionSSID, ap.GetSsid()},
+		{wifiOptionKey, ap.GetPassphrase()},
+		{wifiOptionEncryption, ProtoToWifiEncryption(ap.GetEncryption())},
 	}
 
 	for _, w := range credentialWrites {
@@ -749,12 +749,12 @@ func (s *SetupService) writeSTAIface(w *setupv1.WifiStaProfile) error {
 	}
 
 	writes := []optionWrite{
-		{"device", w.GetRadioName()},
-		{"mode", "sta"},
-		{"network", "lan"},
-		{"ssid", w.GetSsid()},
-		{"key", w.GetPassphrase()},
-		{"encryption", ProtoToWifiEncryption(w.GetEncryption())},
+		{wifiOptionDevice, w.GetRadioName()},
+		{wifiOptionMode, "sta"},
+		{wifiOptionNetwork, "lan"},
+		{wifiOptionSSID, w.GetSsid()},
+		{wifiOptionKey, w.GetPassphrase()},
+		{wifiOptionEncryption, ProtoToWifiEncryption(w.GetEncryption())},
 	}
 
 	for _, ow := range writes {
@@ -815,6 +815,20 @@ const (
 	scenarioMeshGateRouterWifiSta
 	scenarioMeshPointExtender
 	scenarioMeshPointNone
+)
+
+// UCI option keys and well-known values reused across phase 6/7/8 wifi
+// section writes. Centralized so goconst is satisfied and so a rename
+// is a single edit.
+const (
+	wifiOptionDevice     = "device"
+	wifiOptionMode       = "mode"
+	wifiOptionNetwork    = "network"
+	wifiOptionKey        = "key"
+	wifiOptionEncryption = "encryption"
+	wifiOptionSSID       = "ssid"
+	wifiEncryptionSAE    = "sae"
+	wifiNetworkAhwlan    = "ahwlan"
 )
 
 // classifyScenario folds (role × device_mode × uplink_type) into one

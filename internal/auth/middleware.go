@@ -163,5 +163,5 @@ func isFrontendProtectedPath(r *http.Request) bool {
 func writeUnauthorized(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+	_ = json.NewEncoder(w).Encode(map[string]string{errorKey: "unauthorized"})
 }

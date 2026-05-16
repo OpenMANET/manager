@@ -16,6 +16,10 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// statusKey is the JSON field name used in simple status responses
+// (e.g. {"status": "rebooting"}) emitted by the legacy HTTP control endpoints.
+const statusKey = "status"
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -336,7 +340,7 @@ func (s *Server) handleSystemReboot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.writeJSON(w, map[string]string{"status": "rebooting"})
+	s.writeJSON(w, map[string]string{statusKey: "rebooting"})
 
 	go func() {
 		time.Sleep(1 * time.Second)
@@ -378,7 +382,7 @@ func (s *Server) handleSystemRestartService(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	s.writeJSON(w, map[string]string{"status": "restarted", "service": req.Service})
+	s.writeJSON(w, map[string]string{statusKey: "restarted", "service": req.Service})
 }
 
 // ---------------------------------------------------------------------------
@@ -815,7 +819,7 @@ func (s *Server) handleSettingsConfigPost(w http.ResponseWriter, r *http.Request
 		}()
 	}
 
-	s.writeJSON(w, map[string]string{"status": "saved"})
+	s.writeJSON(w, map[string]string{statusKey: "saved"})
 }
 
 // deepMerge recursively merges src into dst. Values in src overwrite dst.

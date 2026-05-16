@@ -9,7 +9,8 @@ import (
 )
 
 const (
-	firewallConfigName string = "firewall"
+	firewallConfigName  string = "firewall"
+	firewallSectionType string = "defaults"
 )
 
 // UCIFirewallDefaults represents the global firewall defaults.
@@ -130,7 +131,7 @@ func GetFirewallDefaults() (*UCIFirewallDefaults, error) {
 func GetFirewallDefaultsWithReader(reader ConfigReader) (*UCIFirewallDefaults, error) {
 	var config UCIFirewallDefaults
 
-	section := "defaults"
+	section := firewallSectionType
 
 	if values, ok := reader.Get(firewallConfigName, section, "input"); ok && len(values) > 0 {
 		config.Input = values[0]
@@ -187,8 +188,8 @@ func SetFirewallDefaultsWithReader(config *UCIFirewallDefaults, reader ConfigRea
 		return fmt.Errorf("config cannot be nil")
 	}
 
-	section := "defaults"
-	_ = reader.AddSection(firewallConfigName, section, "defaults")
+	section := firewallSectionType
+	_ = reader.AddSection(firewallConfigName, section, firewallSectionType)
 
 	if config.Input != "" {
 		if err := reader.SetType(firewallConfigName, section, "input", uci.TypeOption, config.Input); err != nil {

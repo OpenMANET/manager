@@ -20,6 +20,30 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+// htmode constants and their formatted bandwidth strings used by both
+// FormatBandwidthDisplay and HTModeFromBandwidth. Centralized so a new
+// htmode value is a single edit and so goconst is satisfied.
+const (
+	htModeNoHT   = "NOHT"
+	htModeHT20   = "HT20"
+	htModeHT40   = "HT40"
+	htModeVHT20  = "VHT20"
+	htModeVHT40  = "VHT40"
+	htModeVHT80  = "VHT80"
+	htModeVHT160 = "VHT160"
+	htModeHE20   = "HE20"
+	htModeHE40   = "HE40"
+	htModeHE80   = "HE80"
+	htModeHE160  = "HE160"
+
+	bandwidth20MHz  = "20 MHz"
+	bandwidth40MHz  = "40 MHz"
+	bandwidth80MHz  = "80 MHz"
+	bandwidth160MHz = "160 MHz"
+
+	wifiAuthSAE = "sae"
+)
+
 // WifiConfigService implements the wifi_configv1connect.WifiConfigServiceHandler.
 type WifiConfigService struct {
 	Log            zerolog.Logger
@@ -316,7 +340,7 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 		case uciModeAP, uciModeSTA:
 			// Coming back from mesh (or any other state) — rebind to
 			// the AP bridge so the iface joins br-ahwlan.
-			ifaceCfg.Network = "ahwlan"
+			ifaceCfg.Network = wifiNetworkAhwlan
 		}
 	}
 
@@ -679,17 +703,17 @@ func FormatBandwidthDisplay(htmode string) string {
 	htmode = strings.ToUpper(htmode)
 
 	bandwidthMap := map[string]string{
-		"NOHT":   "No HT",
-		"HT20":   "20 MHz",
-		"HT40":   "40 MHz",
-		"VHT20":  "20 MHz",
-		"VHT40":  "40 MHz",
-		"VHT80":  "80 MHz",
-		"VHT160": "160 MHz",
-		"HE20":   "20 MHz",
-		"HE40":   "40 MHz",
-		"HE80":   "80 MHz",
-		"HE160":  "160 MHz",
+		htModeNoHT:   "No HT",
+		htModeHT20:   bandwidth20MHz,
+		htModeHT40:   bandwidth40MHz,
+		htModeVHT20:  bandwidth20MHz,
+		htModeVHT40:  bandwidth40MHz,
+		htModeVHT80:  bandwidth80MHz,
+		htModeVHT160: bandwidth160MHz,
+		htModeHE20:   bandwidth20MHz,
+		htModeHE40:   bandwidth40MHz,
+		htModeHE80:   bandwidth80MHz,
+		htModeHE160:  bandwidth160MHz,
 	}
 
 	if bw, ok := bandwidthMap[htmode]; ok {
@@ -873,7 +897,7 @@ func ProtoToWifiMode(m wificonfigv1.WifiMode) string {
 // WifiEncryptionToProto converts a UCI encryption string to the WifiEncryption enum.
 func WifiEncryptionToProto(s string) wificonfigv1.WifiEncryption {
 	switch strings.ToLower(s) {
-	case "sae":
+	case wifiAuthSAE:
 		return wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE
 	case "psk2":
 		return wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK2
@@ -894,7 +918,7 @@ func WifiEncryptionToProto(s string) wificonfigv1.WifiEncryption {
 func ProtoToWifiEncryption(e wificonfigv1.WifiEncryption) string {
 	switch e {
 	case wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE:
-		return "sae"
+		return wifiAuthSAE
 	case wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK2:
 		return "psk2"
 	case wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK:
@@ -913,31 +937,31 @@ func ProtoToWifiEncryption(e wificonfigv1.WifiEncryption) string {
 // WifiHTModeToProto converts a UCI htmode string to the WifiHTMode enum.
 func WifiHTModeToProto(s string) wificonfigv1.WifiHTMode {
 	switch strings.ToUpper(s) {
-	case "NOHT":
+	case htModeNoHT:
 		return wificonfigv1.WifiHTMode_WIFI_HT_MODE_NOHT
-	case "HT20":
+	case htModeHT20:
 		return wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT20
 	case "HT40-":
 		return wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT40_MINUS
 	case "HT40+":
 		return wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT40_PLUS
-	case "HT40":
+	case htModeHT40:
 		return wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT40
-	case "VHT20":
+	case htModeVHT20:
 		return wificonfigv1.WifiHTMode_WIFI_HT_MODE_VHT20
-	case "VHT40":
+	case htModeVHT40:
 		return wificonfigv1.WifiHTMode_WIFI_HT_MODE_VHT40
-	case "VHT80":
+	case htModeVHT80:
 		return wificonfigv1.WifiHTMode_WIFI_HT_MODE_VHT80
-	case "VHT160":
+	case htModeVHT160:
 		return wificonfigv1.WifiHTMode_WIFI_HT_MODE_VHT160
-	case "HE20":
+	case htModeHE20:
 		return wificonfigv1.WifiHTMode_WIFI_HT_MODE_HE20
-	case "HE40":
+	case htModeHE40:
 		return wificonfigv1.WifiHTMode_WIFI_HT_MODE_HE40
-	case "HE80":
+	case htModeHE80:
 		return wificonfigv1.WifiHTMode_WIFI_HT_MODE_HE80
-	case "HE160":
+	case htModeHE160:
 		return wificonfigv1.WifiHTMode_WIFI_HT_MODE_HE160
 	default:
 		// S1G bandwidth values use lowercase with spaces.
@@ -960,31 +984,31 @@ func WifiHTModeToProto(s string) wificonfigv1.WifiHTMode {
 func ProtoToWifiHTMode(h wificonfigv1.WifiHTMode) string {
 	switch h {
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_NOHT:
-		return "NOHT"
+		return htModeNoHT
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT20:
-		return "HT20"
+		return htModeHT20
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT40_MINUS:
 		return "HT40-"
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT40_PLUS:
 		return "HT40+"
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_HT40:
-		return "HT40"
+		return htModeHT40
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_VHT20:
-		return "VHT20"
+		return htModeVHT20
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_VHT40:
-		return "VHT40"
+		return htModeVHT40
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_VHT80:
-		return "VHT80"
+		return htModeVHT80
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_VHT160:
-		return "VHT160"
+		return htModeVHT160
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_HE20:
-		return "HE20"
+		return htModeHE20
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_HE40:
-		return "HE40"
+		return htModeHE40
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_HE80:
-		return "HE80"
+		return htModeHE80
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_HE160:
-		return "HE160"
+		return htModeHE160
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_S1G_1MHZ:
 		return "1 MHz"
 	case wificonfigv1.WifiHTMode_WIFI_HT_MODE_S1G_2MHZ:

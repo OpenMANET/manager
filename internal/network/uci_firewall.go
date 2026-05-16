@@ -36,6 +36,15 @@ const (
 	// IPv6LinkLocalCIDR is the link-local IPv6 prefix used as the
 	// source filter for the Allow-MLD rule.
 	IPv6LinkLocalCIDR string = "fe80::/10"
+
+	// Firewall rule field values reused across the default WAN rule set
+	// and the firewall_test fixture.
+	firewallTargetAccept string = "ACCEPT"
+	firewallProtoUDP     string = "udp"
+	firewallProtoICMP    string = "icmp"
+	firewallFamilyIPv4   string = "ipv4"
+	firewallFamilyIPv6   string = "ipv6"
+	firewallICMPEchoReq  string = "echo-request"
 )
 
 // UCIFirewallZone represents the editable subset of a firewall zone
@@ -127,7 +136,7 @@ type firewallRule struct {
 // canonicalization (list options) keeps byte-equivalence.
 func defaultWanFirewallRules(localZone string) []firewallRule {
 	icmpv6Common := []string{
-		"echo-request", "echo-reply", "destination-unreachable",
+		firewallICMPEchoReq, "echo-reply", "destination-unreachable",
 		"packet-too-big", "time-exceeded", "bad-header",
 		"unknown-header-type",
 	}
@@ -137,23 +146,23 @@ func defaultWanFirewallRules(localZone string) []firewallRule {
 	)
 
 	return []firewallRule{
-		{Name: "Allow-DHCP-Renew", Src: FirewallZoneWAN, Proto: "udp", DestPort: "68", Target: "ACCEPT", Family: "ipv4"},
-		{Name: "Allow-Ping", Src: FirewallZoneWAN, Proto: "icmp", IcmpType: []string{"echo-request"}, Family: "ipv4", Target: "ACCEPT"},
-		{Name: "Allow-IGMP", Src: FirewallZoneWAN, Proto: "igmp", Family: "ipv4", Target: "ACCEPT"},
-		{Name: "Allow-DHCPv6", Src: FirewallZoneWAN, Proto: "udp", DestPort: "546", Family: "ipv6", Target: "ACCEPT"},
-		{Name: "Allow-MLD", Src: FirewallZoneWAN, Proto: "icmp", SrcIP: IPv6LinkLocalCIDR,
+		{Name: "Allow-DHCP-Renew", Src: FirewallZoneWAN, Proto: firewallProtoUDP, DestPort: "68", Target: firewallTargetAccept, Family: firewallFamilyIPv4},
+		{Name: "Allow-Ping", Src: FirewallZoneWAN, Proto: firewallProtoICMP, IcmpType: []string{firewallICMPEchoReq}, Family: firewallFamilyIPv4, Target: firewallTargetAccept},
+		{Name: "Allow-IGMP", Src: FirewallZoneWAN, Proto: "igmp", Family: firewallFamilyIPv4, Target: firewallTargetAccept},
+		{Name: "Allow-DHCPv6", Src: FirewallZoneWAN, Proto: firewallProtoUDP, DestPort: "546", Family: firewallFamilyIPv6, Target: firewallTargetAccept},
+		{Name: "Allow-MLD", Src: FirewallZoneWAN, Proto: firewallProtoICMP, SrcIP: IPv6LinkLocalCIDR,
 			IcmpType: []string{"130/0", "131/0", "132/0", "143/0"},
-			Family:   "ipv6", Target: "ACCEPT"},
-		{Name: "Allow-ICMPv6-Input", Src: FirewallZoneWAN, Proto: "icmp", IcmpType: icmpv6InputExtra,
-			Limit: "1000/sec", Family: "ipv6", Target: "ACCEPT"},
-		{Name: "Allow-ICMPv6-Forward", Src: FirewallZoneWAN, Dest: "*", Proto: "icmp", IcmpType: icmpv6Common,
-			Limit: "1000/sec", Family: "ipv6", Target: "ACCEPT"},
-		{Name: "Allow-IPSec-ESP", Src: FirewallZoneWAN, Dest: "*", Proto: "esp", Target: "ACCEPT"},
-		{Name: "Allow-ISAKMP", Src: FirewallZoneWAN, Dest: "*", DestPort: "500", Proto: "udp", Target: "ACCEPT"},
-		{Name: "Allow Batman Mesh TCP 4242", Src: "*", Dest: "*", DestPort: BatmanMeshTCPPort, Proto: "tcp", Target: "ACCEPT"},
-		{Name: "Allow Incoming Comms", Src: "*", DestIP: CommsMulticastGroup, Dest: "*", DestPort: CommsRTPPortRange, Proto: "udp", Target: "ACCEPT"},
-		{Name: "Block-DHCP-Request-Out-" + localZone, Src: localZone, Dest: "*", Proto: "udp", DestPort: "67", Target: "DROP", Family: "ipv4"},
-		{Name: "Block-DHCP-Response-In-" + localZone, Src: "*", Dest: localZone, Proto: "udp", DestPort: "68", Target: "DROP", Family: "ipv4"},
+			Family:   firewallFamilyIPv6, Target: firewallTargetAccept},
+		{Name: "Allow-ICMPv6-Input", Src: FirewallZoneWAN, Proto: firewallProtoICMP, IcmpType: icmpv6InputExtra,
+			Limit: "1000/sec", Family: firewallFamilyIPv6, Target: firewallTargetAccept},
+		{Name: "Allow-ICMPv6-Forward", Src: FirewallZoneWAN, Dest: "*", Proto: firewallProtoICMP, IcmpType: icmpv6Common,
+			Limit: "1000/sec", Family: firewallFamilyIPv6, Target: firewallTargetAccept},
+		{Name: "Allow-IPSec-ESP", Src: FirewallZoneWAN, Dest: "*", Proto: "esp", Target: firewallTargetAccept},
+		{Name: "Allow-ISAKMP", Src: FirewallZoneWAN, Dest: "*", DestPort: "500", Proto: firewallProtoUDP, Target: firewallTargetAccept},
+		{Name: "Allow Batman Mesh TCP 4242", Src: "*", Dest: "*", DestPort: BatmanMeshTCPPort, Proto: "tcp", Target: firewallTargetAccept},
+		{Name: "Allow Incoming Comms", Src: "*", DestIP: CommsMulticastGroup, Dest: "*", DestPort: CommsRTPPortRange, Proto: firewallProtoUDP, Target: firewallTargetAccept},
+		{Name: "Block-DHCP-Request-Out-" + localZone, Src: localZone, Dest: "*", Proto: firewallProtoUDP, DestPort: "67", Target: "DROP", Family: firewallFamilyIPv4},
+		{Name: "Block-DHCP-Response-In-" + localZone, Src: "*", Dest: localZone, Proto: firewallProtoUDP, DestPort: "68", Target: "DROP", Family: firewallFamilyIPv4},
 	}
 }
 
