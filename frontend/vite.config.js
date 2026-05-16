@@ -23,13 +23,23 @@ export default defineConfig({
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-connect': [
-            '@connectrpc/connect',
-            '@connectrpc/connect-web',
-            '@bufbuild/protobuf',
-          ],
+        // Vite 8 uses Rolldown by default, which only accepts the function
+        // form of manualChunks; the object form is rejected at build time.
+        manualChunks: (id) => {
+          if (
+            id.includes('/node_modules/react/') ||
+            id.includes('/node_modules/react-dom/') ||
+            id.includes('/node_modules/react-router-dom/')
+          ) {
+            return 'vendor-react';
+          }
+          if (
+            id.includes('/node_modules/@connectrpc/connect/') ||
+            id.includes('/node_modules/@connectrpc/connect-web/') ||
+            id.includes('/node_modules/@bufbuild/protobuf/')
+          ) {
+            return 'vendor-connect';
+          }
         },
       },
     },

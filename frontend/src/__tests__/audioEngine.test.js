@@ -52,7 +52,7 @@ beforeEach(async () => {
   vi.resetModules();
 
   mockCtx = createMockAudioContext();
-  vi.stubGlobal('AudioContext', vi.fn(() => mockCtx));
+  vi.stubGlobal('AudioContext', vi.fn(function () { return mockCtx; }));
   vi.stubGlobal('webkitAudioContext', undefined);
 
   // AudioDecoder mock
