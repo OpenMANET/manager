@@ -77,7 +77,7 @@ func (m *mockGPSDServer) Stop() {
 
 func (m *mockGPSDServer) AddTPVMessage(lat, lon, alt, speed, track float64, mode int) {
 	tpv := TPVReport{
-		Class:  "TPV",
+		Class:  gpsdClassTPV,
 		Mode:   mode,
 		Time:   time.Now().UTC().Format(time.RFC3339),
 		Lat:    lat,
@@ -95,7 +95,7 @@ func (m *mockGPSDServer) AddTPVMessage(lat, lon, alt, speed, track float64, mode
 
 func (m *mockGPSDServer) AddSKYMessage(hdop float64, uSat int) {
 	sky := SKYReport{
-		Class: "SKY",
+		Class: gpsdClassSKY,
 		Time:  time.Now().UTC().Format(time.RFC3339),
 		HDOP:  hdop,
 		VDOP:  hdop * 1.5,
@@ -111,7 +111,7 @@ func (m *mockGPSDServer) AddSKYMessage(hdop float64, uSat int) {
 // AddSKYMessageWithSatellites adds a SKY message with individual satellite entries
 func (m *mockGPSDServer) AddSKYMessageWithSatellites(hdop float64, uSat int, satellites []SatelliteInfo) {
 	sky := SKYReport{
-		Class: "SKY",
+		Class: gpsdClassSKY,
 		Time:  time.Now().UTC().Format(time.RFC3339),
 		HDOP:  hdop,
 		VDOP:  hdop * 1.5,

@@ -163,11 +163,11 @@ func GetUCINetworkByName(name string) (*UCINetwork, error) {
 func GetUCINetworkByNameWithReader(name string, reader ConfigReader) (*UCINetwork, error) {
 	var config UCINetwork
 
-	if values, ok := reader.Get(networkConfigName, name, "proto"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, name, optionProto); ok && len(values) > 0 {
 		config.Proto = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "netmask"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, name, optionNetmask); ok && len(values) > 0 {
 		config.NetMask = values[0]
 	}
 
@@ -183,7 +183,7 @@ func GetUCINetworkByNameWithReader(name string, reader ConfigReader) (*UCINetwor
 		config.DNS = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "device"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, name, networkDeviceType); ok && len(values) > 0 {
 		config.Device = values[0]
 	}
 
@@ -191,11 +191,11 @@ func GetUCINetworkByNameWithReader(name string, reader ConfigReader) (*UCINetwor
 		config.Master = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "ip6assign"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, name, optionIP6Assign); ok && len(values) > 0 {
 		config.IPV6Assignment = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, "ip6ifaceid"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, name, optionIP6IfaceID); ok && len(values) > 0 {
 		config.IPV6IfaceID = values[0]
 	}
 
@@ -235,16 +235,16 @@ func SetNetworkConfigWithReader(section string, config *UCINetwork, reader Confi
 	}
 
 	// Add section if it doesn't exist (this will fail silently if it exists)
-	_ = reader.AddSection(networkConfigName, section, "interface")
+	_ = reader.AddSection(networkConfigName, section, networkInterfaceType)
 
 	if config.Proto != "" {
-		if err := reader.SetType(networkConfigName, section, "proto", uci.TypeOption, config.Proto); err != nil {
+		if err := reader.SetType(networkConfigName, section, optionProto, uci.TypeOption, config.Proto); err != nil {
 			return fmt.Errorf("failed to set proto: %w", err)
 		}
 	}
 
 	if config.NetMask != "" {
-		if err := reader.SetType(networkConfigName, section, "netmask", uci.TypeOption, config.NetMask); err != nil {
+		if err := reader.SetType(networkConfigName, section, optionNetmask, uci.TypeOption, config.NetMask); err != nil {
 			return fmt.Errorf("failed to set netmask: %w", err)
 		}
 	}
@@ -268,7 +268,7 @@ func SetNetworkConfigWithReader(section string, config *UCINetwork, reader Confi
 	}
 
 	if config.Device != "" {
-		if err := reader.SetType(networkConfigName, section, "device", uci.TypeOption, config.Device); err != nil {
+		if err := reader.SetType(networkConfigName, section, networkDeviceType, uci.TypeOption, config.Device); err != nil {
 			return fmt.Errorf("failed to set device: %w", err)
 		}
 	}
@@ -280,13 +280,13 @@ func SetNetworkConfigWithReader(section string, config *UCINetwork, reader Confi
 	}
 
 	if config.IPV6Assignment != "" {
-		if err := reader.SetType(networkConfigName, section, "ip6assign", uci.TypeOption, config.IPV6Assignment); err != nil {
+		if err := reader.SetType(networkConfigName, section, optionIP6Assign, uci.TypeOption, config.IPV6Assignment); err != nil {
 			return fmt.Errorf("failed to set ip6assign: %w", err)
 		}
 	}
 
 	if config.IPV6IfaceID != "" {
-		if err := reader.SetType(networkConfigName, section, "ip6ifaceid", uci.TypeOption, config.IPV6IfaceID); err != nil {
+		if err := reader.SetType(networkConfigName, section, optionIP6IfaceID, uci.TypeOption, config.IPV6IfaceID); err != nil {
 			return fmt.Errorf("failed to set ip6ifaceid: %w", err)
 		}
 	}
@@ -363,7 +363,7 @@ func NetworkSectionExists(section string) bool {
 func NetworkSectionExistsWithReader(section string, reader ConfigReader) bool {
 	// Try to get any option from the section to verify it exists
 	// We check for 'proto' as it's a common option in network sections
-	_, exists := reader.Get(networkConfigName, section, "proto")
+	_, exists := reader.Get(networkConfigName, section, optionProto)
 
 	return exists
 }
@@ -383,7 +383,7 @@ func SetNetworkProto(section, proto string) error {
 
 // SetNetworkProtoWithReader sets the protocol using the provided reader.
 func SetNetworkProtoWithReader(section, proto string, reader ConfigReader) error {
-	if err := reader.SetType(networkConfigName, section, "proto", uci.TypeOption, proto); err != nil {
+	if err := reader.SetType(networkConfigName, section, optionProto, uci.TypeOption, proto); err != nil {
 		return fmt.Errorf("failed to set proto: %w", err)
 	}
 
@@ -435,7 +435,7 @@ func SetNetworkNetmask(section, netmask string) error {
 
 // SetNetworkNetmaskWithReader sets the netmask using the provided reader.
 func SetNetworkNetmaskWithReader(section, netmask string, reader ConfigReader) error {
-	if err := reader.SetType(networkConfigName, section, "netmask", uci.TypeOption, netmask); err != nil {
+	if err := reader.SetType(networkConfigName, section, optionNetmask, uci.TypeOption, netmask); err != nil {
 		return fmt.Errorf("failed to set netmask: %w", err)
 	}
 
@@ -545,7 +545,7 @@ func SetNetworkDevice(section, device string) error {
 
 // SetNetworkDeviceWithReader sets the device using the provided reader.
 func SetNetworkDeviceWithReader(section, device string, reader ConfigReader) error {
-	if err := reader.SetType(networkConfigName, section, "device", uci.TypeOption, device); err != nil {
+	if err := reader.SetType(networkConfigName, section, networkDeviceType, uci.TypeOption, device); err != nil {
 		return fmt.Errorf("failed to set device: %w", err)
 	}
 
@@ -597,7 +597,7 @@ func SetNetworkIPV6Assignment(section, ip6assign string) error {
 
 // SetNetworkIPV6AssignmentWithReader sets the IPv6 assignment using the provided reader.
 func SetNetworkIPV6AssignmentWithReader(section, ip6assign string, reader ConfigReader) error {
-	if err := reader.SetType(networkConfigName, section, "ip6assign", uci.TypeOption, ip6assign); err != nil {
+	if err := reader.SetType(networkConfigName, section, optionIP6Assign, uci.TypeOption, ip6assign); err != nil {
 		return fmt.Errorf("failed to set ip6assign: %w", err)
 	}
 
@@ -623,7 +623,7 @@ func SetNetworkIPV6IfaceID(section, ip6ifaceid string) error {
 
 // SetNetworkIPV6IfaceIDWithReader sets the IPv6 interface ID using the provided reader.
 func SetNetworkIPV6IfaceIDWithReader(section, ip6ifaceid string, reader ConfigReader) error {
-	if err := reader.SetType(networkConfigName, section, "ip6ifaceid", uci.TypeOption, ip6ifaceid); err != nil {
+	if err := reader.SetType(networkConfigName, section, optionIP6IfaceID, uci.TypeOption, ip6ifaceid); err != nil {
 		return fmt.Errorf("failed to set ip6ifaceid: %w", err)
 	}
 
@@ -804,7 +804,7 @@ func GetDeviceByName(name string) (*UCIDevice, error) {
 // It searches through all anonymous device sections to find one with the matching name option.
 func GetDeviceByNameWithReader(name string, reader ConfigReader) (*UCIDevice, error) {
 	// Get all device sections (they are anonymous)
-	sections, err := reader.GetSections(networkConfigName, "device")
+	sections, err := reader.GetSections(networkConfigName, networkDeviceType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device sections: %w", err)
 	}
@@ -913,7 +913,7 @@ func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigRead
 	// Find existing device section by name
 	var section string
 
-	sections, err := reader.GetSections(networkConfigName, "device")
+	sections, err := reader.GetSections(networkConfigName, networkDeviceType)
 	if err != nil {
 		return fmt.Errorf("failed to get device sections: %w", err)
 	}
@@ -931,11 +931,11 @@ func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigRead
 
 	// If device doesn't exist, create a new anonymous section
 	if section == "" {
-		if err := reader.AddSection(networkConfigName, "", "device"); err != nil {
+		if err := reader.AddSection(networkConfigName, "", networkDeviceType); err != nil {
 			return fmt.Errorf("failed to add device section: %w", err)
 		}
 		// Get the newly created section reference
-		sections, err := reader.GetSections(networkConfigName, "device")
+		sections, err := reader.GetSections(networkConfigName, networkDeviceType)
 		if err != nil {
 			return fmt.Errorf("failed to get device sections: %w", err)
 		}
@@ -1061,7 +1061,7 @@ func DeleteDeviceConfig(name string) error {
 // DeleteDeviceConfigWithReader removes a device configuration section using the provided reader.
 func DeleteDeviceConfigWithReader(name string, reader ConfigReader) error {
 	// Find the device section by name
-	sections, err := reader.GetSections(networkConfigName, "device")
+	sections, err := reader.GetSections(networkConfigName, networkDeviceType)
 	if err != nil {
 		return fmt.Errorf("failed to get device sections: %w", err)
 	}
@@ -1116,7 +1116,7 @@ func DeviceSectionExists(name string) bool {
 // DeviceSectionExistsWithReader checks if a device section exists using the provided reader.
 func DeviceSectionExistsWithReader(name string, reader ConfigReader) bool {
 	// Get all device sections and search for the device by name
-	sections, err := reader.GetSections(networkConfigName, "device")
+	sections, err := reader.GetSections(networkConfigName, networkDeviceType)
 	if err != nil {
 		return false
 	}
@@ -1144,7 +1144,7 @@ func GetAllDevices() (map[string]*UCIDevice, error) {
 // It returns a map of device names to UCIDevice configurations.
 func GetAllDevicesWithReader(reader ConfigReader) (map[string]*UCIDevice, error) {
 	// Get all sections of type "device" (they are anonymous)
-	sections, err := reader.GetSections(networkConfigName, "device")
+	sections, err := reader.GetSections(networkConfigName, networkDeviceType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device sections: %w", err)
 	}
@@ -1221,13 +1221,21 @@ const (
 
 	batadvProto       string = "batadv"
 	batadvHardifProto string = "batadv_hardif"
+
+	// UCI option keys repeated across the network/dhcp/vxlan/wireless
+	// configs. Centralized so goconst is happy and so any rename is a
+	// single edit.
+	optionProto      string = "proto"
+	optionNetmask    string = "netmask"
+	optionIP6Assign  string = "ip6assign"
+	optionIP6IfaceID string = "ip6ifaceid"
 )
 
 // batmanDeviceOptions enumerates every batman-adv option set on a
 // `proto batadv` interface by SetupBatmanDeviceOnNetwork. Mirrors the
 // LuCI uci.js setupBatmanDeviceOnNetwork() exactly.
 var batmanDeviceOptions = []struct{ k, v string }{ //nolint:gochecknoglobals // package-level constant
-	{"proto", batadvProto},
+	{optionProto, batadvProto},
 	{"routing_algo", "BATMAN_V"},
 	{"bridge_loop_avoidance", "1"},
 	{"hop_penalty", "30"},
@@ -1317,7 +1325,7 @@ func SetupBatmanInterfaceOnDevice(reader ConfigReader, deviceName string) error 
 			}
 		}
 
-		if err := reader.SetType(networkConfigName, ifaceName, "proto", uci.TypeOption, batadvHardifProto); err != nil {
+		if err := reader.SetType(networkConfigName, ifaceName, optionProto, uci.TypeOption, batadvHardifProto); err != nil {
 			return fmt.Errorf("setting %s.proto: %w", ifaceName, err)
 		}
 
@@ -1342,7 +1350,7 @@ func RemoveAllBatadvInterfaces(reader ConfigReader) error {
 	}
 
 	for _, s := range sections {
-		proto, _ := reader.Get(networkConfigName, s, "proto")
+		proto, _ := reader.Get(networkConfigName, s, optionProto)
 		if len(proto) == 0 {
 			continue
 		}
@@ -1400,7 +1408,7 @@ func UnsetGatewayAndDeviceOnInterfaces(reader ConfigReader) error {
 
 	for _, s := range sections {
 		// Skip the loopback ("device 'lo'").
-		device, _ := reader.Get(networkConfigName, s, "device")
+		device, _ := reader.Get(networkConfigName, s, networkDeviceType)
 		if len(device) > 0 && device[0] == "lo" {
 			continue
 		}
@@ -1409,7 +1417,7 @@ func UnsetGatewayAndDeviceOnInterfaces(reader ConfigReader) error {
 			return fmt.Errorf("unsetting gateway on %s: %w", s, err)
 		}
 
-		if err := reader.Del(networkConfigName, s, "device"); err != nil {
+		if err := reader.Del(networkConfigName, s, networkDeviceType); err != nil {
 			return fmt.Errorf("unsetting device on %s: %w", s, err)
 		}
 	}
@@ -1435,7 +1443,7 @@ func SetNetworkDevices(reader ConfigReader, sectionID string, devices []string) 
 		return fmt.Errorf("sectionID cannot be empty")
 	}
 
-	currentDeviceVals, _ := reader.Get(networkConfigName, sectionID, "device")
+	currentDeviceVals, _ := reader.Get(networkConfigName, sectionID, networkDeviceType)
 	currentDevice := ""
 
 	if len(currentDeviceVals) > 0 {
@@ -1458,13 +1466,13 @@ func SetNetworkDevices(reader ConfigReader, sectionID string, devices []string) 
 		// Nothing to do.
 		return nil
 	case 1:
-		return reader.SetType(networkConfigName, sectionID, "device", uci.TypeOption, devices[0])
+		return reader.SetType(networkConfigName, sectionID, networkDeviceType, uci.TypeOption, devices[0])
 	default:
 		// Without a bridge, the caller should have invoked
 		// CreateOrRemoveBridgeAsNeeded; fall back to the first device
 		// so callers that haven't built bridge support yet still
 		// produce a defined network.
-		return reader.SetType(networkConfigName, sectionID, "device", uci.TypeOption, devices[0])
+		return reader.SetType(networkConfigName, sectionID, networkDeviceType, uci.TypeOption, devices[0])
 	}
 }
 
@@ -1525,11 +1533,11 @@ func SetupAhwlanInterface(reader ConfigReader, ipaddr string) error {
 	writes := []struct {
 		k, v string
 	}{
-		{"proto", DefaultNetworkProto},
-		{"netmask", DefaultNetworkMask},
-		{"ip6assign", DefaultIPv6Assign},
-		{"ip6ifaceid", DefaultIPv6IfaceID},
-		{"device", bridgeName},
+		{optionProto, DefaultNetworkProto},
+		{optionNetmask, DefaultNetworkMask},
+		{optionIP6Assign, DefaultIPv6Assign},
+		{optionIP6IfaceID, DefaultIPv6IfaceID},
+		{networkDeviceType, bridgeName},
 	}
 
 	for _, w := range writes {
@@ -1682,7 +1690,7 @@ func sanitizeUCIName(s string) string {
 // upstream provides DHCP. Convenience wrapper that does not validate
 // the proto string against a known set.
 func SetInterfaceProtoWithReader(reader ConfigReader, section, proto string) error {
-	return reader.SetType(networkConfigName, section, "proto", uci.TypeOption, proto)
+	return reader.SetType(networkConfigName, section, optionProto, uci.TypeOption, proto)
 }
 
 // SetInterfaceDNSWithReader updates the `dns` option on a network
@@ -1707,5 +1715,5 @@ func EnsureWan6Interface(reader ConfigReader) error {
 		}
 	}
 
-	return reader.SetType(networkConfigName, section, "proto", uci.TypeOption, "dhcpv6")
+	return reader.SetType(networkConfigName, section, optionProto, uci.TypeOption, "dhcpv6")
 }

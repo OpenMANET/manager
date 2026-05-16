@@ -10,6 +10,10 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// errorKey is the JSON field name used for error messages in HTTP responses
+// emitted by the auth handlers and middleware.
+const errorKey = "error"
+
 // AuthHandler implements the HTTP login, logout, change-password, and
 // session-check endpoints. These are registered on the API server's mux
 // alongside the ConnectRPC service handlers.
@@ -66,7 +70,7 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		_ = json.NewEncoder(w).Encode(map[string]string{errorKey: "invalid request body"})
 
 		return
 	}
@@ -76,7 +80,7 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if req.Username == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "username is required"})
+		_ = json.NewEncoder(w).Encode(map[string]string{errorKey: "username is required"})
 
 		return
 	}
@@ -85,7 +89,7 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		h.Log.Warn().Str("username", req.Username).Msg("authentication failed")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid credentials"})
+		_ = json.NewEncoder(w).Encode(map[string]string{errorKey: "invalid credentials"})
 
 		return
 	}
@@ -93,7 +97,10 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	token := h.Store.Create(req.Username)
 	h.Log.Info().Str("username", req.Username).Msg("user logged in")
 
-	http.SetCookie(w, &http.Cookie{
+	// Secure is intentionally omitted: the device serves both http:// and
+	// https:// on the local LAN; setting Secure would silently drop the
+	// session cookie over plain HTTP.
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // see comment above re: dual http/https LAN access
 		Name:     SessionCookieName,
 		Value:    token,
 		Path:     "/",
@@ -120,7 +127,9 @@ func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		h.Store.Delete(token)
 	}
 
-	http.SetCookie(w, &http.Cookie{
+	// Secure is intentionally omitted to match the login cookie set above
+	// (the LAN supports both http:// and https://).
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // mirrors HandleLogin; see comment there
 		Name:     SessionCookieName,
 		Value:    "",
 		Path:     "/",
@@ -191,7 +200,7 @@ func (h *AuthHandler) HandleChangePassword(w http.ResponseWriter, r *http.Reques
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		_ = json.NewEncoder(w).Encode(map[string]string{errorKey: "invalid request body"})
 
 		return
 	}
@@ -263,5 +272,5 @@ func HandleCheckDisabled(w http.ResponseWriter, r *http.Request) {
 func writeJSONError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+	_ = json.NewEncoder(w).Encode(map[string]string{errorKey: message})
 }

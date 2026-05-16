@@ -168,7 +168,7 @@ func TestHandleLogout_ClearsSession(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
-	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token, HttpOnly: true, SameSite: http.SameSiteLaxMode}) //nolint:gosec // test fixture; production cookie security is verified separately
 
 	rr := httptest.NewRecorder()
 	h.HandleLogout(rr, req)
@@ -207,7 +207,7 @@ func TestHandleCheck_Authenticated(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/check", nil)
-	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token, HttpOnly: true, SameSite: http.SameSiteLaxMode}) //nolint:gosec // test fixture; production cookie security is verified separately
 
 	rr := httptest.NewRecorder()
 	h.HandleCheck(rr, req)
@@ -253,7 +253,7 @@ func TestHandleCheck_ExpiredSession(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/check", nil)
-	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token, HttpOnly: true, SameSite: http.SameSiteLaxMode}) //nolint:gosec // test fixture; production cookie security is verified separately
 
 	rr := httptest.NewRecorder()
 	h.HandleCheck(rr, req)
@@ -277,7 +277,7 @@ func TestHandleCheck_Authenticated_AuthEnabledTrue(t *testing.T) {
 	h := &auth.AuthHandler{Log: zerolog.Nop(), Store: store}
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/check", nil)
-	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token, HttpOnly: true, SameSite: http.SameSiteLaxMode}) //nolint:gosec // test fixture; production cookie security is verified separately
 
 	rr := httptest.NewRecorder()
 	h.HandleCheck(rr, req)

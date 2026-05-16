@@ -73,7 +73,7 @@ func TestGetFactoryResetCapability_PopulatesHostname(t *testing.T) {
 			Reason:            "ok",
 			OverlayMountpoint: "overlayfs:/overlay /",
 			BackingFS:         "overlay",
-			FirstbootPath:     "/sbin/firstboot",
+			FirstbootPath:     defaultFirstbootPath,
 		},
 	}
 
@@ -97,7 +97,7 @@ func TestGetFactoryResetCapability_NilProvider(t *testing.T) {
 
 func TestPerformFactoryReset_HappyPath(t *testing.T) {
 	provider := &fakeFactoryResetCapabilityProvider{
-		cap: &system.FactoryResetCapability{Capable: true, Reason: "ok", FirstbootPath: "/sbin/firstboot"},
+		cap: &system.FactoryResetCapability{Capable: true, Reason: "ok", FirstbootPath: defaultFirstbootPath},
 	}
 	runner := &fakeFactoryResetRunner{}
 
@@ -111,7 +111,7 @@ func TestPerformFactoryReset_HostnameCaseInsensitive(t *testing.T) {
 	// Trim + lowercase comparison on both sides — the typed value can
 	// differ in case from the actual hostname.
 	provider := &fakeFactoryResetCapabilityProvider{
-		cap: &system.FactoryResetCapability{Capable: true, Reason: "ok", FirstbootPath: "/sbin/firstboot"},
+		cap: &system.FactoryResetCapability{Capable: true, Reason: "ok", FirstbootPath: defaultFirstbootPath},
 	}
 	runner := &fakeFactoryResetRunner{}
 
@@ -123,7 +123,7 @@ func TestPerformFactoryReset_HostnameCaseInsensitive(t *testing.T) {
 
 func TestPerformFactoryReset_HostnameMismatch(t *testing.T) {
 	provider := &fakeFactoryResetCapabilityProvider{
-		cap: &system.FactoryResetCapability{Capable: true, Reason: "ok", FirstbootPath: "/sbin/firstboot"},
+		cap: &system.FactoryResetCapability{Capable: true, Reason: "ok", FirstbootPath: defaultFirstbootPath},
 	}
 	runner := &fakeFactoryResetRunner{}
 
@@ -137,7 +137,7 @@ func TestPerformFactoryReset_HostnameMismatch(t *testing.T) {
 
 func TestPerformFactoryReset_EmptyHostnameOnDevice(t *testing.T) {
 	provider := &fakeFactoryResetCapabilityProvider{
-		cap: &system.FactoryResetCapability{Capable: true, Reason: "ok", FirstbootPath: "/sbin/firstboot"},
+		cap: &system.FactoryResetCapability{Capable: true, Reason: "ok", FirstbootPath: defaultFirstbootPath},
 	}
 	runner := &fakeFactoryResetRunner{}
 
@@ -168,7 +168,7 @@ func TestPerformFactoryReset_NotCapable(t *testing.T) {
 
 func TestPerformFactoryReset_RejectsConcurrentUpgrade(t *testing.T) {
 	provider := &fakeFactoryResetCapabilityProvider{
-		cap: &system.FactoryResetCapability{Capable: true, Reason: "ok", FirstbootPath: "/sbin/firstboot"},
+		cap: &system.FactoryResetCapability{Capable: true, Reason: "ok", FirstbootPath: defaultFirstbootPath},
 	}
 	runner := &fakeFactoryResetRunner{}
 
@@ -187,7 +187,7 @@ func TestPerformFactoryReset_RejectsConcurrentUpgrade(t *testing.T) {
 
 func TestPerformFactoryReset_RunnerError(t *testing.T) {
 	provider := &fakeFactoryResetCapabilityProvider{
-		cap: &system.FactoryResetCapability{Capable: true, Reason: "ok", FirstbootPath: "/sbin/firstboot"},
+		cap: &system.FactoryResetCapability{Capable: true, Reason: "ok", FirstbootPath: defaultFirstbootPath},
 	}
 	runner := &fakeFactoryResetRunner{returnEr: errors.New("boom")}
 
@@ -199,7 +199,7 @@ func TestPerformFactoryReset_RunnerError(t *testing.T) {
 }
 
 func TestExecFactoryResetRunner_LaunchesAndReleases(t *testing.T) {
-	// /bin/true is "/sbin/firstboot" for this test — it forks, exits 0
+	// /bin/true is defaultFirstbootPath for this test — it forks, exits 0
 	// immediately, and the runner Releases the Process handle. The
 	// goal is to verify that Start() is called and no error is
 	// returned; we don't assert on side effects (a real firstboot

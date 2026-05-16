@@ -7,6 +7,13 @@ import (
 	"os/exec"
 )
 
+// Gateway mode values reported by `batctl mj` and accepted by `batctl gw_mode`.
+const (
+	GwModeServer = "server"
+	GwModeClient = "client"
+	GwModeOff    = "off"
+)
+
 type MeshConfig struct {
 	Version                    string         `json:"version"`
 	AlgoName                   string         `json:"algo_name"`
@@ -74,17 +81,17 @@ func GetMeshConfig(iface string) (*MeshConfig, error) {
 
 // IsGatewayMode returns true if the mesh interface is configured as a gateway
 func (m *MeshConfig) IsGatewayMode() bool {
-	return m.GwMode == "server"
+	return m.GwMode == GwModeServer
 }
 
 // IsClientMode returns true if the mesh interface is configured as a gateway client
 func (m *MeshConfig) IsClientMode() bool {
-	return m.GwMode == "client"
+	return m.GwMode == GwModeClient
 }
 
 // IsOffMode returns true if gateway functionality is disabled
 func (m *MeshConfig) IsOffMode() bool {
-	return m.GwMode == "off"
+	return m.GwMode == GwModeOff
 }
 
 // GetGatewayBandwidth returns the configured gateway bandwidth in a human-readable format

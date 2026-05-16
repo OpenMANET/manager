@@ -24,6 +24,14 @@ const (
 
 	// ComponentFieldName is the key for the component field in the log
 	LogComponentFieldName string = "component"
+
+	// Accepted log-level strings. Mirror zerolog's level names so config
+	// values like "info" / "debug" map cleanly.
+	logLevelDebug = "debug"
+	logLevelInfo  = "info"
+	logLevelWarn  = "warn"
+	logLevelFatal = "fatal"
+	logLevelPanic = "panic"
 )
 
 // Shared console writer instance to reduce memory allocations
@@ -108,17 +116,17 @@ func setLogLevel(env string) {
 	switch env {
 	case "trace":
 		zerolog.SetGlobalLevel(zerolog.TraceLevel)
-	case "debug":
+	case logLevelDebug:
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	case "info":
+	case logLevelInfo:
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	case "warn":
+	case logLevelWarn:
 		zerolog.SetGlobalLevel(zerolog.WarnLevel)
-	case "error":
+	case errorFieldName:
 		zerolog.SetGlobalLevel(zerolog.ErrorLevel)
-	case "fatal":
+	case logLevelFatal:
 		zerolog.SetGlobalLevel(zerolog.FatalLevel)
-	case "panic":
+	case logLevelPanic:
 		zerolog.SetGlobalLevel(zerolog.PanicLevel)
 	default:
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)

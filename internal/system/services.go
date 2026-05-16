@@ -25,12 +25,20 @@ type ServiceStatus struct {
 	PID   int
 }
 
+// Service names monitored or reloaded by this package. Centralized so
+// tests and runtime code share the same identifiers (and so goconst is
+// happy).
+const (
+	ServiceOpenManetWebUI = "openmanet-webui"
+	ServiceDnsmasq        = "dnsmasq"
+)
+
 // defaultMonitoredServices is the set checked by default, matching the
 // dashboard screenshot.
 var defaultMonitoredServices = []string{ //nolint:gochecknoglobals // package-level config
 	"openmanetd",
-	"openmanet-webui",
-	"dnsmasq",
+	ServiceOpenManetWebUI,
+	ServiceDnsmasq,
 	"hostapd",
 	"gpsd",
 	"batadv-vis",

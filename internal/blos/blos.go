@@ -138,13 +138,13 @@ func (r *BLOS) configureInterfaces(ctx context.Context) error { //nolint:gocogni
 	}
 
 	switch tunnelStatus.BackendState {
-	case backendStateRunning, "Starting":
+	case backendStateRunning, backendStateStarting:
 		r.logger.Info().Msgf("Tunnel status: %s", tunnelStatus.BackendState)
-	case "Stopped":
+	case backendStateStopped:
 		r.logger.Info().Msg("Tunnel is stopped")
 
 		return errors.New("tunnel is stopped. Ensure Tailscale is running and authenticated, then restart openmanetd")
-	case "NeedsLogin", "NeedsMachineAuth":
+	case backendStateNeedsLogin, backendStateNeedsMachineAuth:
 		r.logger.Error().Msgf("Tunnel requires login or machine authentication: %s", tunnelStatus.BackendState)
 
 		return errors.New("tunnel needs to autheticate, or machine auth is broken. Fix the authentication and restart openmanetd")

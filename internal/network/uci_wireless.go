@@ -14,6 +14,32 @@ const (
 	defaultWirelessConfigPath string = "/etc/config/wireless"
 	wirelessConfigName        string = "wireless"
 	wifiIfaceSectionType      string = "wifi-iface"
+
+	// UCI option keys repeated across wifi-device and wifi-iface sections
+	// and their whitelists. Centralized so goconst is happy.
+	wirelessOptionBand                   string = "band"
+	wirelessOptionCellDensity            string = "cell_density"
+	wirelessOptionEnableDynamicPSOffload string = "enable_dynamic_ps_offload"
+	wirelessOptionEnableMcastRateCtrl    string = "enable_mcast_rate_control"
+	wirelessOptionEnableMcastWhitelist   string = "enable_mcast_whitelist"
+	wirelessOptionDisabled               string = "disabled"
+	wirelessOptionBeaconInt              string = "beacon_int"
+	wirelessOptionBCF                    string = "bcf"
+	wirelessOptionChannel                string = "channel"
+	wirelessOptionEnablePS               string = "enable_ps"
+	wirelessOptionKey                    string = "key"
+	wirelessOptionEncryption             string = "encryption"
+	wirelessOptionHTMode                 string = "htmode"
+	wirelessOptionCountry                string = "country"
+	wirelessOptionEnableTWT              string = "enable_twt"
+	wirelessOptionMeshID                 string = "mesh_id"
+	wirelessOptionSSID                   string = "ssid"
+	wirelessOptionHWMode                 string = "hwmode"
+	wirelessOptionTxPower                string = "txpower"
+	wirelessOptionMode                   string = "mode"
+	wirelessOptionPath                   string = "path"
+	wirelessOptionReconf                 string = "reconf"
+	wirelessOptionType                   string = "type"
 )
 
 // allWifiDeviceOptions enumerates every wifi-device option that
@@ -21,18 +47,18 @@ const (
 // list to decide which options to delete on a reset; expanding the
 // struct schema requires expanding this list as well.
 var allWifiDeviceOptions = []string{ //nolint:gochecknoglobals // package-level constant
-	"type", "path", "band", "hwmode", "htmode", "reconf", "bcf",
-	"country", "channel", "cell_density", "txpower",
-	"enable_ps", "enable_dynamic_ps_offload", "enable_twt",
-	"enable_mcast_whitelist", "enable_mcast_rate_control",
-	"disabled",
+	wirelessOptionType, wirelessOptionPath, wirelessOptionBand, wirelessOptionHWMode, wirelessOptionHTMode, wirelessOptionReconf, wirelessOptionBCF,
+	wirelessOptionCountry, wirelessOptionChannel, wirelessOptionCellDensity, wirelessOptionTxPower,
+	wirelessOptionEnablePS, wirelessOptionEnableDynamicPSOffload, wirelessOptionEnableTWT,
+	wirelessOptionEnableMcastWhitelist, wirelessOptionEnableMcastRateCtrl,
+	wirelessOptionDisabled,
 }
 
 // allWifiIfaceOptions enumerates every wifi-iface option that
 // UCIWirelessIface can persist.
 var allWifiIfaceOptions = []string{ //nolint:gochecknoglobals // package-level constant
-	"device", "network", "mode", "key", "mesh_id", "mesh_fwding",
-	"mesh_rssi_threshold", "encryption", "ssid", "beacon_int", "disabled",
+	networkDeviceType, networkConfigName, wirelessOptionMode, wirelessOptionKey, wirelessOptionMeshID, "mesh_fwding",
+	"mesh_rssi_threshold", wirelessOptionEncryption, wirelessOptionSSID, wirelessOptionBeaconInt, wirelessOptionDisabled,
 }
 
 // WizardWifiDeviceWhitelist is the field whitelist applied to every
@@ -40,9 +66,9 @@ var allWifiIfaceOptions = []string{ //nolint:gochecknoglobals // package-level c
 // this list is removed. Notably, "disabled" is omitted so the device
 // is implicitly re-enabled.
 var WizardWifiDeviceWhitelist = []string{ //nolint:gochecknoglobals // package-level constant
-	"type", "path", "band", "hwmode", "htmode", "reconf", "bcf",
-	"country", "channel", "cell_density", "txpower",
-	"enable_ps", "enable_dynamic_ps_offload", "enable_twt",
+	wirelessOptionType, wirelessOptionPath, wirelessOptionBand, wirelessOptionHWMode, wirelessOptionHTMode, wirelessOptionReconf, wirelessOptionBCF,
+	wirelessOptionCountry, wirelessOptionChannel, wirelessOptionCellDensity, wirelessOptionTxPower,
+	wirelessOptionEnablePS, wirelessOptionEnableDynamicPSOffload, wirelessOptionEnableTWT,
 }
 
 // WizardWifiIfaceWhitelist is the field whitelist applied to every
@@ -50,7 +76,7 @@ var WizardWifiDeviceWhitelist = []string{ //nolint:gochecknoglobals // package-l
 // this list is removed. The wizard re-applies "disabled" via
 // DisableAllInterfaces immediately after.
 var WizardWifiIfaceWhitelist = []string{ //nolint:gochecknoglobals // package-level constant
-	"network", "device", "key", "encryption", "mode", "ssid", "mesh_id",
+	networkConfigName, networkDeviceType, wirelessOptionKey, wirelessOptionEncryption, wirelessOptionMode, wirelessOptionSSID, wirelessOptionMeshID,
 }
 
 // UCIWirelessDevice represents a UCI wireless radio device (wifi-device section) configuration.
@@ -169,7 +195,7 @@ func GetWirelessMeshPassphraseFromPath(path string) (string, error) {
 	)
 
 	finalize := func(section *wirelessSection) (string, bool) {
-		if section == nil || section.typ != "wifi-iface" {
+		if section == nil || section.typ != wifiIfaceSectionType {
 			return "", false
 		}
 
@@ -360,7 +386,7 @@ func GetWirelessDeviceByNameWithReader(name string, reader ConfigReader) (*UCIWi
 		config.HWMode = values[0]
 	}
 
-	if values, ok := reader.Get(wirelessConfigName, name, "reconf"); ok && len(values) > 0 {
+	if values, ok := reader.Get(wirelessConfigName, name, wirelessOptionReconf); ok && len(values) > 0 {
 		config.Reconf = values[0]
 	}
 
@@ -549,7 +575,7 @@ func SetWirelessDeviceConfigWithReader(section string, config *UCIWirelessDevice
 	}
 
 	if config.Reconf != "" {
-		if err := reader.SetType(wirelessConfigName, section, "reconf", uci.TypeOption, config.Reconf); err != nil {
+		if err := reader.SetType(wirelessConfigName, section, wirelessOptionReconf, uci.TypeOption, config.Reconf); err != nil {
 			return fmt.Errorf("failed to set reconf: %w", err)
 		}
 	}

@@ -238,8 +238,8 @@ func (g *GPSService) sendCoTToMulticast() error {
 					Course: pos.Track,
 				},
 				PrecisionLocation: &cotproto.PrecisionLocation{
-					Geopointsrc: "GPS",
-					Altsrc:      "GPS",
+					Geopointsrc: gnssSourceGPS,
+					Altsrc:      gnssSourceGPS,
 				},
 			},
 		},
@@ -317,8 +317,8 @@ func (g *GPSService) sendCoTTAsExternalGPS(iPAddr string) error {
 				Course: pos.Track,
 			},
 			PrecisionLocation: &cotproto.PrecisionLocation{
-				Geopointsrc: "GPS",
-				Altsrc:      "GPS",
+				Geopointsrc: gnssSourceGPS,
+				Altsrc:      gnssSourceGPS,
 			},
 		},
 	}

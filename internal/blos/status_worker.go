@@ -28,9 +28,17 @@ const keepaliveInterval = 30 * time.Second
 // instrumentation snapshot and by the BLOSCounters RPC response.
 const rateWindow60s = 60 * time.Second
 
-// backendStateRunning is the BackendState string Tailscale reports once
-// the daemon is logged in and the WireGuard engine is carrying traffic.
-const backendStateRunning = "Running"
+// Tailscale BackendState strings used to classify the daemon's lifecycle.
+// backendStateRunning is reported once the daemon is logged in and the
+// WireGuard engine is carrying traffic. The other constants cover the
+// intermediate and terminal states we react to explicitly.
+const (
+	backendStateRunning          = "Running"
+	backendStateStarting         = "Starting"
+	backendStateStopped          = "Stopped"
+	backendStateNeedsLogin       = "NeedsLogin"
+	backendStateNeedsMachineAuth = "NeedsMachineAuth"
+)
 
 // EventKind categorizes BLOS state-change observations. Values mirror
 // the proto enum openmanet.blos.v1.BLOSEventKind one-to-one.

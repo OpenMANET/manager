@@ -20,6 +20,10 @@ const (
 	igmpSnoopingEnabled      = "1"
 	multicastQuerierEnabled  = "1"
 	multicastQuerierDisabled = "0"
+
+	// wifiModeMesh is the wifi-iface `mode` value used by 802.11s mesh
+	// interfaces (e.g. batmesh0/batmesh1).
+	wifiModeMesh = "mesh"
 )
 
 // setTransportInterfaceMTU sets the MTU (Maximum Transmission Unit) for all
@@ -69,9 +73,7 @@ func (m *ManagementConfig) setTransportInterfaceMTU() error {
 		}
 	}
 
-	if err := m.setEthernetInterfaceMTU(); err != nil {
-		m.Log.Error().Err(err).Msg("Failed to set MTU for Ethernet interfaces")
-	}
+	m.setEthernetInterfaceMTU()
 
 	return nil
 }
@@ -83,10 +85,7 @@ func (m *ManagementConfig) setTransportInterfaceMTU() error {
 // the MTU for an interface fails, the error is logged and the process continues
 // with the remaining interface. A successful MTU update is also logged at the
 // Info level.
-//
-// Returns nil even if individual interface MTU updates fail, as long as there
-// are no errors in retrieving the interfaces.
-func (m *ManagementConfig) setEthernetInterfaceMTU() error {
+func (m *ManagementConfig) setEthernetInterfaceMTU() {
 	ethernetInterfaces := []string{network.DefaultEthernetInterfaceName, network.DefaultSecondaryEthernetInterfaceName}
 
 	for _, ifaceName := range ethernetInterfaces {
@@ -105,8 +104,6 @@ func (m *ManagementConfig) setEthernetInterfaceMTU() error {
 			}
 		}
 	}
-
-	return nil
 }
 
 // setupBatMesh1Interface configures a new 2.4 GHz batman-adv batmesh1 wireless
@@ -192,7 +189,7 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 			continue
 		}
 
-		if iface.Mode == "mesh" {
+		if iface.Mode == wifiModeMesh {
 			meshID = iface.MeshID
 			meshKey = iface.Key
 
@@ -235,7 +232,7 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 	newIface := &network.UCIWirelessIface{
 		Device:     radioSection,
 		Network:    "batmesh1",
-		Mode:       "mesh",
+		Mode:       wifiModeMesh,
 		MeshID:     meshID,
 		Key:        meshKey,
 		MeshFwding: "0",

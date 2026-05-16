@@ -174,7 +174,7 @@ func (g *GPSService) processGPSDMessage(message string) {
 	}
 
 	switch baseMsg.Class {
-	case "TPV":
+	case gpsdClassTPV:
 		var report TPVReport
 
 		err := json.Unmarshal([]byte(message), &report)
@@ -184,7 +184,7 @@ func (g *GPSService) processGPSDMessage(message string) {
 
 		g.updatePosition(report)
 
-	case "SKY":
+	case gpsdClassSKY:
 		var skyReport SKYReport
 
 		err := json.Unmarshal([]byte(message), &skyReport)

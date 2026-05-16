@@ -99,7 +99,7 @@ func (s *Server) handleWhisperDownload(w http.ResponseWriter, r *http.Request) {
 
 	go s.downloadWhisperModel(dir)
 
-	s.writeJSON(w, map[string]string{"status": whisperStateDownloading})
+	s.writeJSON(w, map[string]string{statusKey: whisperStateDownloading})
 }
 
 // handleWhisperDownloadStatus returns the current download progress.
@@ -136,7 +136,7 @@ func (s *Server) handleWhisperRemove(w http.ResponseWriter, r *http.Request) {
 	whisperState.err = ""
 	whisperState.mu.Unlock()
 
-	s.writeJSON(w, map[string]string{"status": "removed"})
+	s.writeJSON(w, map[string]string{statusKey: "removed"})
 }
 
 // downloadWhisperModel downloads the whisper model to the given directory.

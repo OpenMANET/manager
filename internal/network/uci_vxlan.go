@@ -54,6 +54,10 @@ const (
 	DefaultVXLANProto  string = "vxlan"
 	DefaultVXLANRxCsum string = "1"
 	DefaultVXLANTxCsum string = "1"
+
+	// vxlanPeerMulticastSection is the conventional UCI section name for
+	// the multicast VXLAN peer entry used by the mesh overlay.
+	vxlanPeerMulticastSection string = "peer_multicast"
 )
 
 // GetVXLANByName loads and returns the UCI VXLAN interface configuration by name.
@@ -80,7 +84,7 @@ func GetVXLANByName(name string) (*UCIVXLANConfig, error) {
 func GetVXLANByNameWithReader(name string, reader ConfigReader) (*UCIVXLANConfig, error) { //nolint:gocognit,gocyclo
 	config := &UCIVXLANConfig{}
 
-	if values, ok := reader.Get(networkConfigName, name, "proto"); ok && len(values) > 0 {
+	if values, ok := reader.Get(networkConfigName, name, optionProto); ok && len(values) > 0 {
 		config.Proto = values[0]
 	}
 
@@ -216,14 +220,14 @@ func SetVXLANConfig(section string, config *UCIVXLANConfig) error {
 func SetVXLANConfigWithReader(section string, config *UCIVXLANConfig, reader ConfigReader) error { //nolint:gocognit,gocyclo
 	// Check if the section exists; if not, create it
 	if !NetworkSectionExistsWithReader(section, reader) {
-		if err := reader.AddSection(networkConfigName, section, "interface"); err != nil {
+		if err := reader.AddSection(networkConfigName, section, networkInterfaceType); err != nil {
 			return fmt.Errorf("failed to add VXLAN section %s: %w", section, err)
 		}
 	}
 
 	// Set protocol (required)
 	if config.Proto != "" {
-		if err := reader.SetType(networkConfigName, section, "proto", uci.TypeOption, config.Proto); err != nil {
+		if err := reader.SetType(networkConfigName, section, optionProto, uci.TypeOption, config.Proto); err != nil {
 			return fmt.Errorf("failed to set VXLAN proto: %w", err)
 		}
 	}
@@ -485,7 +489,7 @@ func SetVXLANProto(section string) error {
 
 // SetVXLANProtoWithReader sets the protocol using the provided reader.
 func SetVXLANProtoWithReader(section string, reader ConfigReader) error {
-	if err := reader.SetType(networkConfigName, section, "proto", uci.TypeOption, DefaultVXLANProto); err != nil {
+	if err := reader.SetType(networkConfigName, section, optionProto, uci.TypeOption, DefaultVXLANProto); err != nil {
 		return fmt.Errorf("failed to set VXLAN proto: %w", err)
 	}
 
@@ -1646,7 +1650,7 @@ func GetVXLANPeerByDstWithReader(dst string, reader ConfigReader) (*UCIVXLANPeer
 	// In practice, this would need to iterate through all vxlan_peer sections
 	// List of common peer section name patterns to search
 	peerSections := []string{
-		"peer_multicast",
+		vxlanPeerMulticastSection,
 		"peer_unicast",
 	}
 

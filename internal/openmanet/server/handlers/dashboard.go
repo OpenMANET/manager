@@ -19,6 +19,14 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// Interface names and human-readable strings reused across dashboard
+// summary builders. Centralized so goconst is satisfied and so a rename
+// is a single edit.
+const (
+	tailscaleInterfaceName = "tailscale0"
+	notConnectedDetail     = "Not connected"
+)
+
 // BoardProvider abstracts board configuration retrieval.
 type BoardProvider interface {
 	GetBoard() (*board.Board, error)
@@ -311,10 +319,10 @@ func (d *DashboardService) buildNetworkSummary() (*v1.NetworkSummary, error) {
 
 func (d *DashboardService) buildWANEntry(ifaces []network.NetworkInterfaceInfo) *v1.NetworkSummaryEntry {
 	for _, iface := range ifaces {
-		if iface.Name == "eth0" {
+		if iface.Name == network.DefaultEthernetInterfaceName {
 			entry := &v1.NetworkSummaryEntry{
 				InterfaceName: iface.Name,
-				DisplayName:   "WAN (eth0)",
+				DisplayName:   "WAN (" + network.DefaultEthernetInterfaceName + ")",
 				RxBytes:       iface.RxBytes,
 				TxBytes:       iface.TxBytes,
 			}
@@ -428,7 +436,7 @@ func (d *DashboardService) buildBatmanEntry(ifaces []network.NetworkInterfaceInf
 func (d *DashboardService) buildTailscaleEntry(ifaces []network.NetworkInterfaceInfo) *v1.NetworkSummaryEntry {
 	// Find tailscale interface
 	for _, iface := range ifaces {
-		if iface.Name == "tailscale0" {
+		if iface.Name == tailscaleInterfaceName {
 			entry := &v1.NetworkSummaryEntry{
 				InterfaceName: iface.Name,
 				DisplayName:   "Tailscale (tailscale0)",
@@ -441,7 +449,7 @@ func (d *DashboardService) buildTailscaleEntry(ifaces []network.NetworkInterface
 				entry.Detail = iface.IP
 			} else {
 				entry.State = v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_NOT_CONNECTED
-				entry.Detail = "Not connected"
+				entry.Detail = notConnectedDetail
 			}
 
 			return entry
@@ -451,10 +459,10 @@ func (d *DashboardService) buildTailscaleEntry(ifaces []network.NetworkInterface
 	// Even if no tailscale0 interface exists, we may still want to show the entry
 	if d.Tailscale != nil {
 		entry := &v1.NetworkSummaryEntry{
-			InterfaceName: "tailscale0",
+			InterfaceName: tailscaleInterfaceName,
 			DisplayName:   "Tailscale (tailscale0)",
 			State:         v1.NetworkInterfaceState_NETWORK_INTERFACE_STATE_NOT_CONNECTED,
-			Detail:        "Not connected",
+			Detail:        notConnectedDetail,
 		}
 
 		return entry

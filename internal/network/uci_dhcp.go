@@ -19,6 +19,35 @@ const (
 
 	DefaultDHCPAddressLimit int    = 16
 	DefaultDHCPLeaseTime    string = "12h"
+
+	// UCI option keys repeated across dnsmasq and dhcp pool sections.
+	// Centralized so goconst is happy and so any rename is a single edit.
+	optionAuthoritative    string = "authoritative"
+	optionCacheSize        string = "cachesize"
+	optionEdnsPacketMax    string = "ednspacket_max"
+	optionBogusPriv        string = "boguspriv"
+	optionIgnore           string = "ignore"
+	optionDNS              string = "dns"
+	optionDomainNeeded     string = "domainneeded"
+	optionDomain           string = "domain"
+	optionRebindLocalhost  string = "rebind_localhost"
+	optionLeaseTime        string = "leasetime"
+	optionRebindProtection string = "rebind_protection"
+	optionDNSService       string = "dns_service"
+	optionLocalizeQueries  string = "localize_queries"
+	optionExpandHosts      string = "expandhosts"
+	optionLimit            string = "limit"
+	optionForce            string = "force"
+	optionReadEthers       string = "readethers"
+	optionLocal            string = "local"
+	optionStart            string = "start"
+	optionRAFlags          string = "ra_flags"
+	optionLocalService     string = "localservice"
+	optionRASlaac          string = "ra_slaac"
+
+	// Values used by `option ra` / `option ra_flags` and routing tables.
+	raServerValue = "server"
+	raFlagsNone   = "none"
 )
 
 // UCIDnsmasq represents the dnsmasq global configuration section.
@@ -115,15 +144,15 @@ func GetDnsmasqConfig() (*UCIDnsmasq, error) {
 func GetDnsmasqConfigWithReader(reader DHCPConfigReader) (*UCIDnsmasq, error) {
 	var config UCIDnsmasq
 
-	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "domainneeded"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", optionDomainNeeded); ok && len(values) > 0 {
 		config.DomainNeeded = values[0]
 	}
 
-	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "localize_queries"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", optionLocalizeQueries); ok && len(values) > 0 {
 		config.LocaliseQueries = values[0]
 	}
 
-	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "rebind_localhost"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", optionRebindLocalhost); ok && len(values) > 0 {
 		config.RebindLocalhost = values[0]
 	}
 
@@ -131,11 +160,11 @@ func GetDnsmasqConfigWithReader(reader DHCPConfigReader) (*UCIDnsmasq, error) {
 		config.Local = values[0]
 	}
 
-	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "domain"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", optionDomain); ok && len(values) > 0 {
 		config.Domain = values[0]
 	}
 
-	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", "expandhosts"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, "dnsmasq", optionExpandHosts); ok && len(values) > 0 {
 		config.ExpandHosts = values[0]
 	}
 
@@ -179,11 +208,11 @@ func GetDHCPConfigWithReader(section string, reader DHCPConfigReader) (*UCIDHCP,
 		config.Start = values[0]
 	}
 
-	if values, ok := reader.Get(dhcpConfigName, section, "limit"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, section, optionLimit); ok && len(values) > 0 {
 		config.Limit = values[0]
 	}
 
-	if values, ok := reader.Get(dhcpConfigName, section, "leasetime"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, section, optionLeaseTime); ok && len(values) > 0 {
 		config.LeaseTime = values[0]
 	}
 
@@ -203,7 +232,7 @@ func GetDHCPConfigWithReader(section string, reader DHCPConfigReader) (*UCIDHCP,
 		config.RaDefault = values[0]
 	}
 
-	if values, ok := reader.Get(dhcpConfigName, section, "force"); ok && len(values) > 0 {
+	if values, ok := reader.Get(dhcpConfigName, section, optionForce); ok && len(values) > 0 {
 		config.Force = values[0]
 	}
 
@@ -255,13 +284,13 @@ func SetDHCPConfigWithReader(section string, config *UCIDHCP, reader DHCPConfigR
 	}
 
 	if config.Limit != "" {
-		if err := reader.SetType(dhcpConfigName, section, "limit", uci.TypeOption, config.Limit); err != nil {
+		if err := reader.SetType(dhcpConfigName, section, optionLimit, uci.TypeOption, config.Limit); err != nil {
 			return fmt.Errorf("failed to set limit: %w", err)
 		}
 	}
 
 	if config.LeaseTime != "" {
-		if err := reader.SetType(dhcpConfigName, section, "leasetime", uci.TypeOption, config.LeaseTime); err != nil {
+		if err := reader.SetType(dhcpConfigName, section, optionLeaseTime, uci.TypeOption, config.LeaseTime); err != nil {
 			return fmt.Errorf("failed to set leasetime: %w", err)
 		}
 	}
@@ -291,7 +320,7 @@ func SetDHCPConfigWithReader(section string, config *UCIDHCP, reader DHCPConfigR
 	}
 
 	if config.Force != "" {
-		if err := reader.SetType(dhcpConfigName, section, "force", uci.TypeOption, config.Force); err != nil {
+		if err := reader.SetType(dhcpConfigName, section, optionForce, uci.TypeOption, config.Force); err != nil {
 			return fmt.Errorf("failed to set force: %w", err)
 		}
 	}
@@ -460,7 +489,7 @@ func SetDHCPRangeWithReader(section, start, limit string, reader DHCPConfigReade
 		return fmt.Errorf("failed to set start: %w", err)
 	}
 
-	if err := reader.SetType(dhcpConfigName, section, "limit", uci.TypeOption, limit); err != nil {
+	if err := reader.SetType(dhcpConfigName, section, optionLimit, uci.TypeOption, limit); err != nil {
 		return fmt.Errorf("failed to set limit: %w", err)
 	}
 
@@ -486,7 +515,7 @@ func SetDHCPLeaseTime(section, leasetime string) error {
 
 // SetDHCPLeaseTimeWithReader sets the lease time using the provided reader.
 func SetDHCPLeaseTimeWithReader(section, leasetime string, reader DHCPConfigReader) error {
-	if err := reader.SetType(dhcpConfigName, section, "leasetime", uci.TypeOption, leasetime); err != nil {
+	if err := reader.SetType(dhcpConfigName, section, optionLeaseTime, uci.TypeOption, leasetime); err != nil {
 		return fmt.Errorf("failed to set leasetime: %w", err)
 	}
 
@@ -897,32 +926,32 @@ const (
 // the surviving dnsmasq section during reset. Mirrors the resetUci()
 // list in tools/morse/wizard.js.
 var WizardDnsmasqWhitelist = []string{ //nolint:gochecknoglobals // package-level constant
-	"authoritative", "domainneeded", "localize_queries", "readethers",
-	"local", "domain", "expandhosts", "localservice", "cachesize",
-	"ednspacket_max", "rebind_localhost",
+	optionAuthoritative, optionDomainNeeded, optionLocalizeQueries, optionReadEthers,
+	optionLocal, optionDomain, optionExpandHosts, optionLocalService, optionCacheSize,
+	optionEdnsPacketMax, optionRebindLocalhost,
 }
 
 // WizardDhcpPoolWhitelist is the field whitelist the wizard applies
 // to every dhcp pool section during the reset phase. Mirrors the
 // resetUciNetworkTopology() list.
 var WizardDhcpPoolWhitelist = []string{ //nolint:gochecknoglobals // package-level constant
-	"start", "leasetime", "limit", "interface",
+	optionStart, optionLeaseTime, optionLimit, networkInterfaceType,
 }
 
 // allDnsmasqOptions enumerates every dnsmasq option the wizard or
 // existing OpenWrt config may have set.
 var allDnsmasqOptions = []string{ //nolint:gochecknoglobals // package-level constant
-	"authoritative", "domainneeded", "localize_queries", "readethers",
-	"local", "domain", "expandhosts", "localservice", "cachesize",
-	"ednspacket_max", "rebind_localhost", "interface", "notinterface",
-	"localuse", "rebind_protection", "boguspriv",
+	optionAuthoritative, optionDomainNeeded, optionLocalizeQueries, optionReadEthers,
+	optionLocal, optionDomain, optionExpandHosts, optionLocalService, optionCacheSize,
+	optionEdnsPacketMax, optionRebindLocalhost, networkInterfaceType, "notinterface",
+	"localuse", optionRebindProtection, optionBogusPriv,
 }
 
 // allDhcpPoolOptions enumerates every dhcp pool option the wizard or
 // existing OpenWrt config may have set.
 var allDhcpPoolOptions = []string{ //nolint:gochecknoglobals // package-level constant
-	"interface", "start", "limit", "leasetime", "ignore",
-	"force", "ra", "ra_slaac", "ra_flags", "dns", "dns_service",
+	networkInterfaceType, optionStart, optionLimit, optionLeaseTime, optionIgnore,
+	optionForce, "ra", optionRASlaac, optionRAFlags, optionDNS, optionDNSService,
 	"dhcp_option", "instance",
 }
 
@@ -1013,17 +1042,17 @@ func SetupDnsmasqInstance(reader ConfigReader, dnsmasqName, networkID string) er
 	writes := []struct {
 		option, value string
 	}{
-		{"domainneeded", "1"},
-		{"localize_queries", "1"},
-		{"rebind_localhost", "1"},
-		{"local", "/" + networkID + "/"},
-		{"domain", networkID},
-		{"expandhosts", "1"},
-		{"cachesize", "1000"},
-		{"authoritative", "1"},
-		{"readethers", "1"},
-		{"localservice", "1"},
-		{"ednspacket_max", "1232"},
+		{optionDomainNeeded, "1"},
+		{optionLocalizeQueries, "1"},
+		{optionRebindLocalhost, "1"},
+		{optionLocal, "/" + networkID + "/"},
+		{optionDomain, networkID},
+		{optionExpandHosts, "1"},
+		{optionCacheSize, "1000"},
+		{optionAuthoritative, "1"},
+		{optionReadEthers, "1"},
+		{optionLocalService, "1"},
+		{optionEdnsPacketMax, "1232"},
 	}
 
 	for _, w := range writes {
@@ -1087,16 +1116,16 @@ func CreateDhcpPool(reader ConfigReader, dnsmasqName, networkID string, rng *ran
 		option, value string
 	}{
 		{"start", startOffset},
-		{"limit", DefaultDhcpPoolLimit},
-		{"leasetime", DefaultDhcpPoolLeasetime},
-		{"ra", "server"},
-		{"ra_slaac", "1"},
+		{optionLimit, DefaultDhcpPoolLimit},
+		{optionLeaseTime, DefaultDhcpPoolLeasetime},
+		{"ra", raServerValue},
+		{optionRASlaac, "1"},
 		{"dns_service", "0"},
-		{"ignore", "0"},
-		{"force", "1"},
-		{"dns", CloudflareIPv6DNS},
-		{"ra_flags", "none"},
-		{"interface", networkID},
+		{optionIgnore, "0"},
+		{optionForce, "1"},
+		{optionDNS, CloudflareIPv6DNS},
+		{"ra_flags", raFlagsNone},
+		{networkInterfaceType, networkID},
 	}
 
 	for _, w := range writes {

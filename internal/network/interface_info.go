@@ -120,14 +120,14 @@ func classifyLink(link netlink.Link, wifiTypes map[string]wifi.InterfaceType) In
 
 	// Check netlink link type first
 	switch link.Type() {
-	case "bridge":
+	case bridgeTypeBridge:
 		return LinkTypeBridge
-	case "vxlan":
+	case DefaultVXLANProto:
 		return LinkTypeVXLAN
 	}
 
 	// Check for batman-adv (kernel reports type "batadv" or name starts with "bat")
-	if link.Type() == "batadv" || strings.HasPrefix(name, "bat") {
+	if link.Type() == batadvProto || strings.HasPrefix(name, "bat") {
 		return LinkTypeBatman
 	}
 

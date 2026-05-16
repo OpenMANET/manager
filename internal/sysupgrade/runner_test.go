@@ -102,7 +102,7 @@ func TestShellQuote(t *testing.T) {
 		want string
 	}{
 		{in: "", want: "''"},
-		{in: "/bin/sh", want: "/bin/sh"},
+		{in: defaultShellPath, want: defaultShellPath},
 		{in: "hello world", want: "'hello world'"},
 		{in: "it's", want: `'it'\''s'`},
 		{in: "/tmp/log file.txt", want: "'/tmp/log file.txt'"},
