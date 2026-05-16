@@ -11,7 +11,12 @@ import (
 )
 
 const (
-	defaultMeshInterfaceMTU  = 1532
+	// Interface MTU for interfaces
+	defaultMeshInterfaceMTU     int = 1500
+	defaultBatmanInterfaceMTU   int = 1460
+	defaultAhwlanInterfaceMTU   int = 1460
+	defaultEthernetInterfaceMTU int = 1460
+
 	igmpSnoopingEnabled      = "1"
 	multicastQuerierEnabled  = "1"
 	multicastQuerierDisabled = "0"
@@ -32,11 +37,72 @@ func (m *ManagementConfig) setTransportInterfaceMTU() error {
 		return err
 	}
 
+	// Iterate over each wireless mesh interface and set its MTU.
 	for _, iface := range wirelessInterfaces {
 		if err := network.SetMTU(iface.Name, defaultMeshInterfaceMTU); err != nil {
 			m.Log.Error().Err(err).Str("interface", iface.Name).Msg("Failed to set MTU for mesh interface")
 		} else {
 			m.Log.Info().Str("interface", iface.Name).Int("mtu", defaultMeshInterfaceMTU).Msg("Set MTU for mesh interface")
+		}
+	}
+
+	// Additionally, set the MTU for the Batman interface and the main AHWLAN bridge interface.
+	bridgeInterface := network.GetInterfaceByName(network.DefaultBridgeInterfaceName)
+	if bridgeInterface.Name == "" {
+		m.Log.Warn().Str("interface", network.DefaultBridgeInterfaceName).Msg("Bridge interface not found, skipping MTU configuration")
+	} else if bridgeInterface.MTU != defaultAhwlanInterfaceMTU {
+		if err := network.SetMTU(network.DefaultBridgeInterfaceName, defaultAhwlanInterfaceMTU); err != nil {
+			m.Log.Error().Err(err).Str("interface", network.DefaultBridgeInterfaceName).Msg("Failed to set MTU for bridge interface")
+		} else {
+			m.Log.Info().Str("interface", network.DefaultBridgeInterfaceName).Int("mtu", defaultAhwlanInterfaceMTU).Msg("Set MTU for bridge interface")
+		}
+	}
+
+	batmanInterface := network.GetInterfaceByName(network.DefaultBatmanInterfaceName)
+	if batmanInterface.Name == "" {
+		m.Log.Warn().Str("interface", network.DefaultBatmanInterfaceName).Msg("Batman interface not found, skipping MTU configuration")
+	} else if batmanInterface.MTU != defaultBatmanInterfaceMTU {
+		if err := network.SetMTU(network.DefaultBatmanInterfaceName, defaultBatmanInterfaceMTU); err != nil {
+			m.Log.Error().Err(err).Str("interface", network.DefaultBatmanInterfaceName).Msg("Failed to set MTU for Batman interface")
+		} else {
+			m.Log.Info().Str("interface", network.DefaultBatmanInterfaceName).Int("mtu", defaultBatmanInterfaceMTU).Msg("Set MTU for Batman interface")
+		}
+	}
+
+	if err := m.setEthernetInterfaceMTU(); err != nil {
+		m.Log.Error().Err(err).Msg("Failed to set MTU for Ethernet interfaces")
+	}
+
+	return nil
+}
+
+// setEthernetInterfaceMTU sets the MTU (Maximum Transmission Unit) for the
+// primary and secondary Ethernet interfaces defined in the ManagementConfig.
+// It attempts to set the MTU for both DefaultEthernetInterfaceName and
+// DefaultSecondaryEthernetInterfaceName to defaultEthernetInterfaceMTU. If setting
+// the MTU for an interface fails, the error is logged and the process continues
+// with the remaining interface. A successful MTU update is also logged at the
+// Info level.
+//
+// Returns nil even if individual interface MTU updates fail, as long as there
+// are no errors in retrieving the interfaces.
+func (m *ManagementConfig) setEthernetInterfaceMTU() error {
+	ethernetInterfaces := []string{network.DefaultEthernetInterfaceName, network.DefaultSecondaryEthernetInterfaceName}
+
+	for _, ifaceName := range ethernetInterfaces {
+		iface := network.GetInterfaceByName(ifaceName)
+		if iface.Name == "" {
+			m.Log.Warn().Str("interface", ifaceName).Msg("Ethernet interface not found, skipping MTU configuration")
+
+			continue
+		}
+
+		if iface.MTU != defaultEthernetInterfaceMTU {
+			if err := network.SetMTU(ifaceName, defaultEthernetInterfaceMTU); err != nil {
+				m.Log.Error().Err(err).Str("interface", ifaceName).Msg("Failed to set MTU for Ethernet interface")
+			} else {
+				m.Log.Info().Str("interface", ifaceName).Int("mtu", defaultEthernetInterfaceMTU).Msg("Set MTU for Ethernet interface")
+			}
 		}
 	}
 

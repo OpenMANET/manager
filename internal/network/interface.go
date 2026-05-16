@@ -10,8 +10,11 @@ import (
 )
 
 const (
-	// Default Interface Name
-	DefaultInterfaceName = "br-ahwlan"
+	// Default Bridge Interface Name
+	DefaultBridgeInterfaceName            string = "br-ahwlan"
+	DefaultBatmanInterfaceName            string = "bat0"
+	DefaultEthernetInterfaceName          string = "eth0"
+	DefaultSecondaryEthernetInterfaceName string = "eth1"
 )
 
 type NetworkInterface struct {
