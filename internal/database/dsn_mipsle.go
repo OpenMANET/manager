@@ -2,14 +2,7 @@
 
 package database
 
-import (
-	"errors"
-	"io"
-	"io/fs"
-	"os"
-
-	"github.com/rs/zerolog"
-)
+import "github.com/rs/zerolog"
 
 // sqliteDSNSuffix forces SQLite onto the "unix-dotfile" VFS for ramips
 // targets (halowlink2 / mt7621, ht-hd01-v2 / mt76x8). The default unix
@@ -38,24 +31,20 @@ var sqliteSetupPragmas = []string{ //nolint:gochecknoglobals
 // directory" while it hunts for the missing WAL/SHM sidecars.
 //
 // The DB only holds rebuildable mesh-node state, so a one-time delete
-// is safe. Anything other than a clean WAL header is left alone.
+// is safe. Anything other than a clean WAL header is left alone. See
+// wal_migration.go for the helpers used here; they live in a
+// non-build-tagged file so their behavior can be tested on any host.
 func clearStaleWALDB(log zerolog.Logger, dbFilePath string) error {
-	f, err := os.Open(dbFilePath)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
+	hasWAL, err := hasWALHeader(dbFilePath)
 	if err != nil {
 		return err
 	}
-	var hdr [20]byte
-	n, _ := io.ReadFull(f, hdr[:])
-	_ = f.Close()
-	if n < 20 || hdr[18] != 2 || hdr[19] != 2 {
+
+	if !hasWAL {
 		return nil
 	}
-	log.Warn().Str("path", dbFilePath).Msg("Removing stale WAL-format database; will be recreated in rollback-journal mode")
-	_ = os.Remove(dbFilePath)
-	_ = os.Remove(dbFilePath + "-wal")
-	_ = os.Remove(dbFilePath + "-shm")
+
+	removeWALDBFiles(log, dbFilePath)
+
 	return nil
 }

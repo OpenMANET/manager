@@ -38,6 +38,7 @@ func NewConnection(ctx context.Context, log zerolog.Logger, dbFilePath string) (
 	if err := clearStaleWALDB(log, dbFilePath); err != nil {
 		return nil, fmt.Errorf("check legacy DB format: %w", err)
 	}
+
 	db, err := sql.Open("sqlite3", "file:"+dbFilePath+"?_foreign_keys=on"+sqliteDSNSuffix)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
