@@ -28,7 +28,17 @@ var sqlDB *sql.DB //nolint:gochecknoglobals
 //   - *models.Queries: A queries instance for database operations
 //   - error: An error if the connection fails, ping fails, or DDL execution fails
 func NewConnection(ctx context.Context, log zerolog.Logger, dbFilePath string) (*models.Queries, error) {
-	db, err := sql.Open("sqlite3", "file:"+dbFilePath+"?_foreign_keys=on")
+	// sqliteDSNSuffix, sqliteSetupPragmas and clearStaleWALDB are
+	// arch-conditional (see dsn_default.go / dsn_mipsle.go). On the
+	// ramips/mipsle targets (halowlink2, ht-hd01-v2) the rootfs is
+	// overlayfs over jffs2, where fcntl(F_SETLK) returns EINVAL — so
+	// those builds use the unix-dotfile VFS (no OS file locks) and skip
+	// WAL. clearStaleWALDB drops a pre-existing WAL-format DB on those
+	// boards so the new VFS can recreate it in rollback-journal mode.
+	if err := clearStaleWALDB(log, dbFilePath); err != nil {
+		return nil, fmt.Errorf("check legacy DB format: %w", err)
+	}
+	db, err := sql.Open("sqlite3", "file:"+dbFilePath+"?_foreign_keys=on"+sqliteDSNSuffix)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -39,11 +49,7 @@ func NewConnection(ctx context.Context, log zerolog.Logger, dbFilePath string) (
 	}
 
 	// Apply SQLite pragmas before any other operations.
-	pragmas := []string{
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA busy_timeout=5000",
-		"PRAGMA synchronous=NORMAL",
-	}
+	pragmas := sqliteSetupPragmas
 
 	for _, p := range pragmas {
 		if _, err := db.ExecContext(ctx, p); err != nil {
