@@ -2,6 +2,7 @@ package database
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -22,7 +23,7 @@ func hasWALHeader(path string) (bool, error) {
 	}
 
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("open %s: %w", path, err)
 	}
 
 	defer f.Close() //nolint:errcheck
@@ -31,7 +32,7 @@ func hasWALHeader(path string) (bool, error) {
 
 	n, err := io.ReadFull(f, hdr[:])
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-		return false, err
+		return false, fmt.Errorf("read %s header: %w", path, err)
 	}
 
 	if n < 20 {
