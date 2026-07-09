@@ -24,6 +24,7 @@ func TestGNSSsupoorted(t *testing.T) {
 		{name: "GW7500_2", modelID: GW7500_2, want: true},
 		{name: "GW7904", modelID: GW7904, want: true},
 		{name: "GW7905_2", modelID: GW7905_2, want: true},
+		{name: "BCM2711_RAVEN_USB", modelID: BCM2711_RAVEN_USB, want: true},
 		// Unsupported models
 		{name: "HalowLink2", modelID: HalowLink2, want: false},
 		{name: "HeltecHD01V2", modelID: HeltecHD01V2, want: false},
@@ -100,6 +101,7 @@ func TestBLOSsupported(t *testing.T) {
 		{name: "GW7904", modelID: GW7904, want: true},
 		{name: "GW7905_2", modelID: GW7905_2, want: true},
 		{name: "HalowLink2", modelID: HalowLink2, want: true},
+		{name: "BCM2711_RAVEN_USB", modelID: BCM2711_RAVEN_USB, want: true},
 		// Unsupported models
 		{name: "BCM2710_MM6108_SPI", modelID: BCM2710_MM6108_SPI, want: false},
 		{name: "BCM2710_MM6108_SDIO", modelID: BCM2710_MM6108_SDIO, want: false},
@@ -180,6 +182,7 @@ func TestCommsSupported(t *testing.T) {
 		{name: "GW7904", modelID: GW7904, want: true},
 		{name: "GW7905_0", modelID: GW7905_0, want: true},
 		{name: "GW7905_2", modelID: GW7905_2, want: true},
+		{name: "BCM2711_RAVEN_USB", modelID: BCM2711_RAVEN_USB, want: true},
 		// Unsupported models
 		{name: "HeltecHD01V2", modelID: HeltecHD01V2, want: false},
 	}

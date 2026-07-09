@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -453,6 +454,53 @@ func TestManager_Shutdown_WaitsForLocalUpgradeGoroutines(t *testing.T) {
 	default:
 		t.Fatal("runner did not observe ctx cancellation")
 	}
+}
+
+func TestManager_Shutdown_CancelsWatcherAfterChildLaunched(t *testing.T) {
+	// Regression: once the runner launches the detached child and the
+	// manager reaches PhaseUpgrading, the watcher must remain cancelable
+	// by Shutdown. A live child PID (the test process itself) means the
+	// watcher never self-exits, so Shutdown returning is the only proof
+	// its context cancellation reaches the watcher. Before the fix the
+	// watcher ran in its own goroutine that outlived upgradeCancel, and
+	// Shutdown blocked on wg.Wait until the watcher's 30-minute deadline.
+	runner := &fakeRunner{pid: os.Getpid()}
+	mgr := makeManager(t, &fakeReleasesFetcher{}, runner, "1.7.0")
+
+	ch, unsub := mgr.Subscribe(context.Background())
+	defer unsub()
+
+	_, err := mgr.StoreStagedImage(context.Background(), strings.NewReader("payload"), "x.img")
+	require.NoError(t, err)
+	require.NoError(t, mgr.StartLocalUpgrade(context.Background(), SysupgradeOptions{}, false, false))
+
+	// Wait until the watcher is actually running (PhaseUpgrading is
+	// published immediately before the manager enters the watch loop).
+	deadline := time.Now().Add(5 * time.Second)
+	sawUpgrading := false
+
+	for time.Now().Before(deadline) && !sawUpgrading {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				break
+			}
+
+			if ev.Phase == PhaseUpgrading {
+				sawUpgrading = true
+			}
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+
+	require.True(t, sawUpgrading, "expected to observe PhaseUpgrading")
+
+	// Shutdown must cancel the watcher and return well within the
+	// watcher's poll cadence / 30-minute deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	require.NoError(t, mgr.Shutdown(ctx))
 }
 
 // blockingRunner satisfies SysupgradeRunner, parking Run until ctx is

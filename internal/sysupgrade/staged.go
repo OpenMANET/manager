@@ -342,9 +342,11 @@ func (m *Manager) runLocalUpgrade(ctx context.Context, staged *StagedImage, opts
 		UpdatedAt: time.Now(),
 	})
 
-	m.wg.Go(func() {
-		m.watchSysupgradeChild(ctx, pid, logPath, staged.Filename)
-	})
+	// Run the watcher inline rather than in its own goroutine so it stays
+	// bound to upgradeCtx while upgradeCancel is still non-nil. See the
+	// matching note in runUpgrade: a separately spawned watcher outlived
+	// upgradeCancel and left Shutdown blocked on wg.Wait.
+	m.watchSysupgradeChild(ctx, pid, logPath, staged.Filename)
 }
 
 // cleanUploadedFilename strips any path component the uploader may have
