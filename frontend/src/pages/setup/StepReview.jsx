@@ -13,19 +13,19 @@
 //                                                          for 60s
 
 import { useEffect, useRef, useState } from 'react';
-import { Empty } from '@bufbuild/protobuf';
+import { create } from '@bufbuild/protobuf';
 import { setupClient } from '../../services/setupClient.js';
 import { useSetup } from '../../contexts/SetupContext.jsx';
 import {
-  ApplySetupRequest,
+  ApplySetupRequestSchema,
   ApplySetupResponse_Phase as Phase,
   ApplySetupResponse_Status as Status,
-  MeshNodeProfile,
-  MeshRadioConfig,
+  MeshNodeProfileSchema,
+  MeshRadioConfigSchema,
   MeshRole,
-  Uplink,
-  RadioApProfile,
-  WifiStaProfile,
+  UplinkSchema,
+  RadioApProfileSchema,
+  WifiStaProfileSchema,
   UplinkType,
 } from '../../gen/openmanet/setup/v1/setup_pb.js';
 import {
@@ -76,7 +76,7 @@ export default function StepReview() {
     setPhaseError(null);
     setTerminal(null);
 
-    const req = new ApplySetupRequest({ profile: profileToProto(state) });
+    const req = create(ApplySetupRequestSchema, { profile: profileToProto(state) });
     let sawTerminal = false;
 
     try {
@@ -232,11 +232,11 @@ function applyBlockers(state) {
 // MeshNodeProfile message for ApplySetup. Field names match the proto
 // `name` field, NOT the JS localName.
 function profileToProto(state) {
-  const profile = new MeshNodeProfile({
+  const profile = create(MeshNodeProfileSchema, {
     hostname:      state.hostname,
     adminPassword: state.adminPassword,
     role:          state.role,
-    mesh: new MeshRadioConfig({
+    mesh: create(MeshRadioConfigSchema, {
       radioName:    state.mesh.radioName,
       meshId:       state.mesh.meshId,
       passphrase:   state.mesh.passphrase,
@@ -245,7 +245,7 @@ function profileToProto(state) {
       channel:      state.mesh.channel,
       countryCode:  state.mesh.countryCode,
     }),
-    aps: state.aps.filter(a => a.enabled).map(a => new RadioApProfile({
+    aps: state.aps.filter(a => a.enabled).map(a => create(RadioApProfileSchema, {
       radioName:  a.radioName,
       enabled:    true,
       ssid:       a.ssid,
@@ -258,11 +258,11 @@ function profileToProto(state) {
     profile.deviceMode = { case: 'meshpointMode', value: state.meshpointMode };
   } else if (state.role === MeshRole.MESH_GATE) {
     profile.deviceMode = { case: 'meshgateMode',  value: state.meshgateMode  };
-    profile.uplink = new Uplink({
+    profile.uplink = create(UplinkSchema, {
       type:         state.uplink.type,
       ethernetPort: state.uplink.ethernetPort,
       wireless: state.uplink.type === UplinkType.WIRELESS_STA
-        ? new WifiStaProfile({
+        ? create(WifiStaProfileSchema, {
             radioName:  state.uplink.wireless.radioName,
             ssid:       state.uplink.wireless.ssid,
             passphrase: state.uplink.wireless.passphrase,
@@ -279,7 +279,7 @@ async function pollForCompletion({ onSuccess, onTimeout }) {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
     try {
-      const resp = await setupClient.getSetupStatus(new Empty());
+      const resp = await setupClient.getSetupStatus({});
       if (resp.isSetupComplete) { onSuccess(); return; }
     } catch {
       /* network errors are expected during reload; keep polling */

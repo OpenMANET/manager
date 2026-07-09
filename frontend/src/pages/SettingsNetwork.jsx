@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@connectrpc/connect';
 import { transport } from '../services/connectClient.js';
-import { NetworkInterfaceService } from '../gen/openmanet/network_interface/v1/network_interface_service_connect.js';
+import { NetworkInterfaceService } from '../gen/openmanet/network_interface/v1/network_interface_service_pb.js';
 import { useNetworkInterfaces, refreshNetworkInterfaces } from '../hooks/useNetworkInterfaces.js';
 import './SettingsNetwork.css';
 

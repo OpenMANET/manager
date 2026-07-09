@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@connectrpc/connect';
 import { transport } from '../services/connectClient.js';
-import { GNSSService } from '../gen/openmanet/gnss/v1/gnss_service_connect.js';
+import { GNSSService } from '../gen/openmanet/gnss/v1/gnss_service_pb.js';
 import { createPollStore } from '../services/pollStore.js';
 
 const gnssClient = createClient(GNSSService, transport);

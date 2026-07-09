@@ -19,7 +19,7 @@ import React, {
 import { createClient, Code, ConnectError } from '@connectrpc/connect';
 import { transport } from '../services/connectClient.js';
 import { useVisibleInterval } from '../hooks/useVisibleInterval.js';
-import { LogsService } from '../gen/openmanet/logs/v1/logs_service_connect.js';
+import { LogsService } from '../gen/openmanet/logs/v1/logs_service_pb.js';
 import { LogSource } from '../gen/openmanet/logs/v1/logs_service_pb.js';
 import LatSelect from '../components/LatSelect.jsx';
 import './SettingsLogs.css';
