@@ -25,9 +25,11 @@ plugins:
     out: internal/api
     opt:
       - paths=source_relative
-  - remote: buf.build/bufbuild/es:v1.10.0
+  # Protobuf-ES v2 generates message schemas and Connect service definitions
+  # in a single *_pb.js file; the separate connectrpc/es plugin is obsolete.
+  - remote: buf.build/bufbuild/es:v2.12.0
     out: frontend/src/gen
-    opt: target=js
-  - remote: buf.build/connectrpc/es:v1.6.1
-    out: frontend/src/gen
+    # include_imports emits descriptors for imported non-local files
+    # (buf/validate) that v2 generated code references at runtime.
+    include_imports: true
     opt: target=js

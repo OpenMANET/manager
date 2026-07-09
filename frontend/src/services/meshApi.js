@@ -17,11 +17,11 @@
 
 import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { transport } from "./connectClient.js";
-import { StatusService } from "../gen/openmanet/service/v1/status_connect.js";
-import { NodeService } from "../gen/openmanet/service/v1/node_connect.js";
-import { MeshNeighborService } from "../gen/openmanet/service/v1/mesh_connect.js";
-import { InterfaceService } from "../gen/openmanet/service/v1/interface_connect.js";
-import { MeshTopologyService } from "../gen/openmanet/mesh_topology/v1/mesh_topology_service_connect.js";
+import { StatusService } from "../gen/openmanet/service/v1/status_pb.js";
+import { NodeService } from "../gen/openmanet/service/v1/node_pb.js";
+import { MeshNeighborService } from "../gen/openmanet/service/v1/mesh_pb.js";
+import { InterfaceService } from "../gen/openmanet/service/v1/interface_pb.js";
+import { MeshTopologyService } from "../gen/openmanet/mesh_topology/v1/mesh_topology_service_pb.js";
 
 const statusClient = createClient(StatusService, transport);
 const nodeClient = createClient(NodeService, transport);

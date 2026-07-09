@@ -7,7 +7,7 @@
 
 import { createClient } from '@connectrpc/connect';
 import { transport } from './connectClient.js';
-import { CommsService } from '../gen/openmanet/comms/v1/comms_service_connect.js';
+import { CommsService } from '../gen/openmanet/comms/v1/comms_service_pb.js';
 
 const commsClient = createClient(CommsService, transport);
 

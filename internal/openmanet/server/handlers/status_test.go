@@ -164,6 +164,22 @@ func TestGetServiceStatus_Position(t *testing.T) {
 	assert.Equal(t, float64(0), pos.GetLongitude())
 }
 
+func TestGetServiceStatus_NilGPS(t *testing.T) {
+	// GNSS disabled in config (or unsupported board) leaves StatusService.GPS
+	// nil — the handler must return a zeroed position, not panic.
+	fw := &fakeWireless{meshInterfaces: nil}
+	svc := newStatusService(fw, stubMeshCfg(false))
+	svc.GPS = nil
+
+	resp, err := svc.GetServiceStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	pos := resp.GetStatus().GetPosition()
+	require.NotNil(t, pos)
+	assert.Equal(t, float64(0), pos.GetLatitude())
+	assert.Equal(t, float64(0), pos.GetLongitude())
+}
+
 func TestGetServiceStatus_MultipleInterfaces(t *testing.T) {
 	// All mesh interfaces report the same single station — total should be the
 	// sum across interfaces, not just the first.

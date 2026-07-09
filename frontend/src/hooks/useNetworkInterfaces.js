@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@connectrpc/connect';
 import { transport } from '../services/connectClient.js';
-import { NetworkInterfaceService } from '../gen/openmanet/network_interface/v1/network_interface_service_connect.js';
+import { NetworkInterfaceService } from '../gen/openmanet/network_interface/v1/network_interface_service_pb.js';
 import { createPollStore } from '../services/pollStore.js';
 
 const netClient = createClient(NetworkInterfaceService, transport);

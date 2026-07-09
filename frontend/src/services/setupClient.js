@@ -14,12 +14,12 @@
 // progress events.
 
 import { createConnectTransport } from '@connectrpc/connect-web';
-import { createPromiseClient } from '@connectrpc/connect';
-import { SetupService } from '../gen/openmanet/setup/v1/setup_service_connect.js';
+import { createClient } from '@connectrpc/connect';
+import { SetupService } from '../gen/openmanet/setup/v1/setup_service_pb.js';
 
 const setupTransport = createConnectTransport({
   baseUrl: '/rpc',
   // Intentionally no interceptors: the wizard pre-dates any session.
 });
 
-export const setupClient = createPromiseClient(SetupService, setupTransport);
+export const setupClient = createClient(SetupService, setupTransport);

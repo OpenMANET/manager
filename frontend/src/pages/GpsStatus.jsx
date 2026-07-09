@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useGnssStatus } from '../hooks/useGnssStatus.js';
 import { createClient } from '@connectrpc/connect';
 import { transport } from '../services/connectClient.js';
-import { GNSSService } from '../gen/openmanet/gnss/v1/gnss_service_connect.js';
+import { GNSSService } from '../gen/openmanet/gnss/v1/gnss_service_pb.js';
 import SkyPlot from '../components/SkyPlot.jsx';
 import { coastlines } from '../data/coastlines.js';
 import { latLonToMGRS } from '../utils/mgrs.js';
@@ -17,6 +17,7 @@ import {
   computeFixRateHz,
   dopSeverity,
   formatAgo,
+  timestampToDate,
 } from '../utils/gnss.js';
 import LatSelect from '../components/LatSelect.jsx';
 import './GpsStatus.css';
@@ -625,8 +626,8 @@ export default function GpsStatusPage() {
   useEffect(() => {
     const ts = status?.position?.lastUpdate;
     if (!ts) return;
-    const d = ts instanceof Date ? ts : new Date(ts);
-    if (isNaN(d.getTime())) return;
+    const d = timestampToDate(ts);
+    if (d == null || isNaN(d.getTime())) return;
     const arr = fixTimesRef.current;
     if (arr.length === 0 || arr[arr.length - 1].getTime() !== d.getTime()) {
       arr.push(d);

@@ -4,8 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRouterTransport } from '@connectrpc/connect';
-import { Timestamp } from '@bufbuild/protobuf';
-import { SysupgradeService } from '../gen/openmanet/sysupgrade/v1/sysupgrade_service_connect.js';
+import { timestampFromDate } from '@bufbuild/protobuf/wkt';
+import { SysupgradeService } from '../gen/openmanet/sysupgrade/v1/sysupgrade_service_pb.js';
 import { Phase } from '../gen/openmanet/sysupgrade/v1/sysupgrade_pb.js';
 
 vi.mock('../services/connectClient.js', () => ({ transport: {} }));
@@ -67,7 +67,7 @@ describe('TestFetchSystemInfo', () => {
 
 describe('TestListAvailableUpdates', () => {
   it('maps updates and fetchedAt timestamp', async () => {
-    const ts = Timestamp.fromDate(new Date('2026-04-22T12:00:00Z'));
+    const ts = timestampFromDate(new Date('2026-04-22T12:00:00Z'));
     const transport = createRouterTransport(({ service }) => {
       service(SysupgradeService, {
         listAvailableUpdates(req) {
@@ -232,7 +232,7 @@ describe('TestStreamUpgradeProgress', () => {
 
 describe('TestStagedImageRPCs', () => {
   it('GetStagedImage maps a populated response', async () => {
-    const ts = Timestamp.fromDate(new Date('2026-04-26T08:00:00Z'));
+    const ts = timestampFromDate(new Date('2026-04-26T08:00:00Z'));
     const transport = createRouterTransport(({ service }) => {
       service(SysupgradeService, {
         getStagedImage() {

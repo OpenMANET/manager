@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@connectrpc/connect';
 import { transport } from '../services/connectClient.js';
-import { BLOSService } from '../gen/openmanet/blos/v1/blos_service_connect.js';
+import { BLOSService } from '../gen/openmanet/blos/v1/blos_service_pb.js';
 import { createPollStore } from '../services/pollStore.js';
 
 const blosClient = createClient(BLOSService, transport);

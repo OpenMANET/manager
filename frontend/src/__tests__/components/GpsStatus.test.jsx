@@ -18,7 +18,7 @@ vi.mock('@connectrpc/connect', () => ({
   }),
 }));
 vi.mock('../../services/connectClient.js', () => ({ transport: {} }));
-vi.mock('../../gen/openmanet/gnss/v1/gnss_service_connect.js', () => ({
+vi.mock('../../gen/openmanet/gnss/v1/gnss_service_pb.js', () => ({
   GNSSService: {},
 }));
 

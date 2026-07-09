@@ -96,7 +96,12 @@ func (s *StatusService) GetServiceStatus(_ context.Context, _ *emptypb.Empty) (*
 		selectedGatewayMac = best.OrigAddress
 	}
 
-	position := s.GPS.GetPosition()
+	// GPS is nil when GNSS is disabled in config or unsupported by the board;
+	// report a zeroed position rather than failing the whole status call.
+	var position gpsd.PositionReport
+	if s.GPS != nil {
+		position = s.GPS.GetPosition()
+	}
 
 	return &serviceproto.GetServiceStatusResponse{
 		Status: &serviceproto.ServiceStatus{

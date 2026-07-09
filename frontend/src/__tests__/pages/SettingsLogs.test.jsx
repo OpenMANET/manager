@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import { createRouterTransport, Code, ConnectError } from '@connectrpc/connect';
-import { LogsService } from '../../gen/openmanet/logs/v1/logs_service_connect.js';
+import { LogsService } from '../../gen/openmanet/logs/v1/logs_service_pb.js';
 
 // Mock the connectClient module with a router transport that each test
 // can override via a module-level `nextResponses` object.

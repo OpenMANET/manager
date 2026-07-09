@@ -14,7 +14,6 @@
 // GetSetupStatus.
 
 import { useEffect, useMemo, useState } from 'react';
-import { Empty } from '@bufbuild/protobuf';
 import { setupClient } from '../services/setupClient.js';
 import {
   SetupProvider,
@@ -60,7 +59,7 @@ function SetupWizardShell() {
   // ethernet-port data available without re-fetching.
   useEffect(() => {
     let cancelled = false;
-    setupClient.getSetupStatus(new Empty())
+    setupClient.getSetupStatus({})
       .then((resp) => {
         if (cancelled) return;
         setStatus(resp);
