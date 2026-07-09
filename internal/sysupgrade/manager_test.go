@@ -499,6 +499,7 @@ func TestManager_Shutdown_CancelsWatcherAfterChildLaunched(t *testing.T) {
 	// watcher's poll cadence / 30-minute deadline.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+
 	require.NoError(t, mgr.Shutdown(ctx))
 }
 
