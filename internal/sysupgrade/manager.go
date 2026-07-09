@@ -137,7 +137,7 @@ type Manager struct {
 	nextSub            uint64
 	mu                 sync.Mutex
 	subsMu             sync.Mutex
-	wg                 sync.WaitGroup // tracks runUpgrade / runLocalUpgrade / watchSysupgradeChild goroutines
+	wg                 sync.WaitGroup // tracks runUpgrade / runLocalUpgrade goroutines (each runs its watcher inline)
 	upgradeStarted     bool
 	uploadInFlight     bool
 }
@@ -549,9 +549,13 @@ func (m *Manager) runUpgrade(ctx context.Context, rel Release, asset Asset, opts
 		UpdatedAt:  time.Now(),
 	})
 
-	m.wg.Go(func() {
-		m.watchSysupgradeChild(ctx, pid, logPath, asset.Name)
-	})
+	// Run the watcher inline rather than in its own goroutine so it stays
+	// bound to upgradeCtx while upgradeCancel is still non-nil. The
+	// deferred upgradeCancel = nil above only fires once this returns,
+	// which keeps Shutdown able to cancel the watcher; spawning it
+	// separately orphaned it once runUpgrade returned and left Shutdown
+	// blocked on wg.Wait until the watcher's own deadline.
+	m.watchSysupgradeChild(ctx, pid, logPath, asset.Name)
 }
 
 // downloadAndVerify performs the sums fetch + image stream + verify
