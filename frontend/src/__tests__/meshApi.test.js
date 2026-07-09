@@ -4,10 +4,10 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRouterTransport } from '@connectrpc/connect';
-import { StatusService } from '../gen/openmanet/service/v1/status_connect.js';
-import { NodeService } from '../gen/openmanet/service/v1/node_connect.js';
-import { MeshNeighborService } from '../gen/openmanet/service/v1/mesh_connect.js';
-import { InterfaceService } from '../gen/openmanet/service/v1/interface_connect.js';
+import { StatusService } from '../gen/openmanet/service/v1/status_pb.js';
+import { NodeService } from '../gen/openmanet/service/v1/node_pb.js';
+import { MeshNeighborService } from '../gen/openmanet/service/v1/mesh_pb.js';
+import { InterfaceService } from '../gen/openmanet/service/v1/interface_pb.js';
 
 // We mock the connectClient module so fetchMeshStatus uses our test transport.
 vi.mock('../services/connectClient.js', () => ({ transport: {} }));

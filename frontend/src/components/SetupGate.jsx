@@ -18,7 +18,6 @@
 
 import { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { Empty } from '@bufbuild/protobuf';
 import { setupClient } from '../services/setupClient.js';
 import StepNoHalowRadio from '../pages/setup/StepNoHalowRadio.jsx';
 
@@ -42,7 +41,7 @@ export default function SetupGate({ children }) {
   useEffect(() => {
     let cancelled = false;
 
-    setupClient.getSetupStatus(new Empty())
+    setupClient.getSetupStatus({})
       .then((resp) => {
         if (cancelled) return;
         setGate(gateStateFromStatus(resp));

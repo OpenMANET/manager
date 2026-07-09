@@ -16,7 +16,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from "@connectrpc/connect";
 import { transport } from "../services/connectClient.js";
-import { DashboardService } from "../gen/openmanet/dashboard/v1/dashboard_service_connect.js";
+import { DashboardService } from "../gen/openmanet/dashboard/v1/dashboard_service_pb.js";
 import { NetworkInterfaceState } from "../gen/openmanet/dashboard/v1/dashboard_pb.js";
 import {
   InterfaceType,

@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createClient } from '@connectrpc/connect';
-import { DashboardService } from '../gen/openmanet/dashboard/v1/dashboard_service_connect.js';
+import { DashboardService } from '../gen/openmanet/dashboard/v1/dashboard_service_pb.js';
 import { transport } from '../services/connectClient.js';
 import { useAuth } from '../contexts/useAuth.js';
 import openmanetMark from '../assets/openmanet-mark.svg';

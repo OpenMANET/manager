@@ -33,16 +33,16 @@ vi.mock('@connectrpc/connect', () => ({
   }),
 }));
 vi.mock('../../services/connectClient.js', () => ({ transport: {} }));
-vi.mock('../../gen/openmanet/dashboard/v1/dashboard_service_connect.js', () => ({
+vi.mock('../../gen/openmanet/dashboard/v1/dashboard_service_pb.js', () => ({
   DashboardService: {},
 }));
-vi.mock('../../gen/openmanet/gnss/v1/gnss_service_connect.js', () => ({
+vi.mock('../../gen/openmanet/gnss/v1/gnss_service_pb.js', () => ({
   GNSSService: {},
 }));
-vi.mock('../../gen/openmanet/blos/v1/blos_service_connect.js', () => ({
+vi.mock('../../gen/openmanet/blos/v1/blos_service_pb.js', () => ({
   BLOSService: {},
 }));
-vi.mock('../../gen/openmanet/network_interface/v1/network_interface_service_connect.js', () => ({
+vi.mock('../../gen/openmanet/network_interface/v1/network_interface_service_pb.js', () => ({
   NetworkInterfaceService: {},
 }));
 vi.mock('../../gen/openmanet/dashboard/v1/dashboard_pb.js', () => ({

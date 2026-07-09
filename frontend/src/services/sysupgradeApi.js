@@ -8,7 +8,7 @@
 
 import { createClient } from '@connectrpc/connect';
 import { transport } from './connectClient.js';
-import { SysupgradeService } from '../gen/openmanet/sysupgrade/v1/sysupgrade_service_connect.js';
+import { SysupgradeService } from '../gen/openmanet/sysupgrade/v1/sysupgrade_service_pb.js';
 
 const client = createClient(SysupgradeService, transport);
 
