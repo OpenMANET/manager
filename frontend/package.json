@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.12.0",
-    "@connectrpc/connect": "^2.1.1",
+    "@connectrpc/connect": "^2.1.2",
     "@connectrpc/connect-web": "^2.1.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
