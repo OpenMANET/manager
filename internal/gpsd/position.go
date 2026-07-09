@@ -51,6 +51,27 @@ func (g *GPSService) updatePosition(tpv TPVReport) {
 	}
 }
 
+// applyExternalPosition adopts a position reported by an external source
+// (currently, an EUD's CoT broadcast) as this node's own, following the
+// same shape as updatePosition but without any gpsd-specific fields
+// (DOP, DGPS, satellite counts) since those aren't meaningful for a
+// position that didn't come from a local receiver.
+func (g *GPSService) applyExternalPosition(pos cotPosition) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	g.position = PositionReport{
+		Timestamp: time.Now(),
+		Latitude:  pos.lat,
+		Longitude: pos.lon,
+		Altitude:  pos.hae,
+		Speed:     pos.speed,
+		Track:     pos.course,
+		Valid:     true,
+		Mode:      3, // externally-sourced fixes are treated as a 3D fix
+	}
+}
+
 // updateSatelliteInfo merges satellite and precision data from a SKY report
 // into the cached report.
 //

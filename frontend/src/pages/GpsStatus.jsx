@@ -7,6 +7,7 @@ import { useGnssStatus } from '../hooks/useGnssStatus.js';
 import { createClient } from '@connectrpc/connect';
 import { transport } from '../services/connectClient.js';
 import { GNSSService } from '../gen/openmanet/gnss/v1/gnss_service_pb.js';
+import { GNSSSource } from '../gen/openmanet/gnss/v1/gnss_pb.js';
 import SkyPlot from '../components/SkyPlot.jsx';
 import { coastlines } from '../data/coastlines.js';
 import { latLonToMGRS } from '../utils/mgrs.js';
@@ -374,6 +375,11 @@ function GlobePanel({ position, actionsRef }) {
 
 // ── Sky plot panel ──────────────────────────────────────────────────────────
 
+const SOURCE_OPTIONS = [
+  { value: GNSSSource.GNSS_SOURCE_INTERNAL, label: 'INTERNAL · LOCAL RECEIVER' },
+  { value: GNSSSource.GNSS_SOURCE_EXTERNAL_COT, label: 'EXTERNAL · EUD (ATAK) VIA COT' },
+];
+
 const BAND_OPTIONS = [
   { value: 'all', label: 'ALL BANDS' },
   { value: 'GPS', label: 'GPS' },
@@ -584,6 +590,15 @@ function OutputProtocolsPanel({ config, onConfigChange, onSave, saving }) {
         {toggle(output.sendAsNmea ?? false, 'NMEA Out', (v) => update('outputProtocols', 'sendAsNmea', v))}
         {toggle(output.sendAsCot ?? false, 'CoT Out', (v) => update('outputProtocols', 'sendAsCot', v))}
         <div className="lat-field">
+          <label>GNSS Source</label>
+          <LatSelect
+            ariaLabel="GNSS position source"
+            value={settings.source ?? GNSSSource.GNSS_SOURCE_INTERNAL}
+            onChange={(v) => update('settings', 'source', v)}
+            options={SOURCE_OPTIONS}
+          />
+        </div>
+        <div className="lat-field">
           <label>CoT UID</label>
           <input
             className="lat-input"
@@ -593,6 +608,12 @@ function OutputProtocolsPanel({ config, onConfigChange, onSave, saving }) {
           />
         </div>
       </div>
+      {settings.source === GNSSSource.GNSS_SOURCE_EXTERNAL_COT && (
+        <div className="lat-alert warn gps-output-source-hint">
+          Position is adopted from a directly-connected EUD&apos;s (e.g. ATAK) CoT broadcast
+          instead of a local receiver. No sky plot / satellite data is available in this mode.
+        </div>
+      )}
       <div className="gps-output-save">
         <button
           type="button"

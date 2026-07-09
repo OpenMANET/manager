@@ -207,7 +207,7 @@ func setCommsConfig(doc *yaml.Node, enable bool, controlSource string) error {
 // PersistGNSSConfig updates the GNSS configuration in the YAML config file
 // and refreshes the in-memory config state. It preserves comments and key
 // ordering in the YAML file by operating on the yaml.Node tree.
-func (c *Config) PersistGNSSConfig(enable, sendAsNMEA, sendAsCoT bool, cotUID string) error {
+func (c *Config) PersistGNSSConfig(enable, sendAsNMEA, sendAsCoT bool, cotUID, source string) error {
 	c.persistMu.Lock()
 	defer c.persistMu.Unlock()
 
@@ -228,7 +228,7 @@ func (c *Config) PersistGNSSConfig(enable, sendAsNMEA, sendAsCoT bool, cotUID st
 		return fmt.Errorf("parsing config file: %w", err)
 	}
 
-	if err = setGNSSConfig(&doc, enable, sendAsNMEA, sendAsCoT, cotUID); err != nil {
+	if err = setGNSSConfig(&doc, enable, sendAsNMEA, sendAsCoT, cotUID, source); err != nil {
 		return fmt.Errorf("updating gnss config: %w", err)
 	}
 
@@ -248,6 +248,7 @@ func (c *Config) PersistGNSSConfig(enable, sendAsNMEA, sendAsCoT bool, cotUID st
 	c.v.Set("gnss.sendAsExternalGNSSSource.sendAsNMEA", sendAsNMEA)
 	c.v.Set("gnss.sendAsExternalGNSSSource.sendAsCoT", sendAsCoT)
 	c.v.Set("gnss.sendAsExternalGNSSSource.cotUID", cotUID)
+	c.v.Set("gnss.source", source)
 	c.reload()
 
 	return nil
@@ -326,7 +327,7 @@ func setSetupAndAuth(doc *yaml.Node, setupComplete, authEnable bool) error {
 
 // setGNSSConfig finds or creates the gnss section in the YAML document and
 // sets all GNSS configuration keys.
-func setGNSSConfig(doc *yaml.Node, enable, sendAsNMEA, sendAsCoT bool, cotUID string) error {
+func setGNSSConfig(doc *yaml.Node, enable, sendAsNMEA, sendAsCoT bool, cotUID, source string) error {
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
 		return fmt.Errorf("unexpected YAML structure: expected document node")
 	}
@@ -338,6 +339,7 @@ func setGNSSConfig(doc *yaml.Node, enable, sendAsNMEA, sendAsCoT bool, cotUID st
 
 	gnssMapping := findOrCreateMapping(root, "gnss")
 	setScalarValue(gnssMapping, "enable", strconv.FormatBool(enable))
+	setScalarWithTag(gnssMapping, "source", source, "!!str")
 
 	sendMapping := findOrCreateMapping(gnssMapping, "sendAsExternalGNSSSource")
 	setScalarValue(sendMapping, "sendAsNMEA", strconv.FormatBool(sendAsNMEA))

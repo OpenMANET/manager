@@ -51,6 +51,7 @@ const (
 	DefaultGNSSSendAsNMEA                            bool    = false
 	DefaultGNSSSendAsCoT                             bool    = false
 	DefaultGNSSCoTUID                                string  = ""
+	DefaultGNSSSource                                string  = "internal"
 	DefaultEnableBLOS                                bool    = false
 	DefaultBLOSStatusWorkerInterval                  int     = 30 // seconds
 	// DefaultMeshTopologyDeltaSampleInterval is how often the mesh
@@ -187,6 +188,7 @@ type Config struct {
 	DebugPprofAddress                         string
 	AuthPAMService                            string
 	GNSSCoTUID                                string
+	GNSSSource                                string
 	InstrumentationSnapshotDir                string
 	BLOSAdvertisedMeshSubnet                  string
 	TerminalShell                             string
@@ -324,6 +326,12 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.GNSSCoTUID = val
 	} else {
 		c.GNSSCoTUID = DefaultGNSSCoTUID
+	}
+
+	if val := c.v.GetString("gnss.source"); val != "" {
+		c.GNSSSource = val
+	} else {
+		c.GNSSSource = DefaultGNSSSource
 	}
 
 	if c.v.IsSet("batman.multicastEnhancementsEnabled") {
@@ -1020,6 +1028,16 @@ func (c *Config) GetGNSSCoTUID() string {
 	defer c.mu.RUnlock()
 
 	return c.GNSSCoTUID
+}
+
+// GetGNSSSource returns which position provider feeds the GNSS subsystem:
+// "internal" (local gpsd receiver) or "external_cot" (a connected EUD's
+// Cursor-on-Target broadcast).
+func (c *Config) GetGNSSSource() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.GNSSSource
 }
 
 // BLOSEnabled returns whether BLOS (Beyond Line of Sight) is enabled.

@@ -82,6 +82,7 @@ func (g *GNSSService) GetGNSSConfig(_ context.Context, _ *emptypb.Empty) (*gnssv
 	return &gnssv1.GetGNSSConfigResponse{
 		Settings: &gnssv1.GNSSSettings{
 			EnableGps: g.Cfg.GetEnableGNSS(),
+			Source:    sourceStringToProto(g.Cfg.GetGNSSSource()),
 		},
 		OutputProtocols: &gnssv1.OutputProtocols{
 			SendAsNmea: g.Cfg.GetGNSSSendAsNMEA(),
@@ -101,6 +102,7 @@ func (g *GNSSService) UpdateGNSSConfig(_ context.Context, req *gnssv1.UpdateGNSS
 		output.GetSendAsNmea(),
 		output.GetSendAsCot(),
 		output.GetCotUid(),
+		sourceProtoToString(settings.GetSource()),
 	); err != nil {
 		g.Log.Error().Err(err).Msg("Failed to persist GNSS config")
 
@@ -113,6 +115,26 @@ func (g *GNSSService) UpdateGNSSConfig(_ context.Context, req *gnssv1.UpdateGNSS
 		Success: true,
 		Message: &message,
 	}, nil
+}
+
+// sourceStringToProto maps the persisted config string to the GNSSSource
+// enum. Unknown values fall back to GNSS_SOURCE_INTERNAL.
+func sourceStringToProto(source string) gnssv1.GNSSSource {
+	if source == "external_cot" {
+		return gnssv1.GNSSSource_GNSS_SOURCE_EXTERNAL_COT
+	}
+
+	return gnssv1.GNSSSource_GNSS_SOURCE_INTERNAL
+}
+
+// sourceProtoToString maps the GNSSSource enum to the string persisted in
+// the config file. GNSS_SOURCE_UNSPECIFIED is treated as internal.
+func sourceProtoToString(source gnssv1.GNSSSource) string {
+	if source == gnssv1.GNSSSource_GNSS_SOURCE_EXTERNAL_COT {
+		return "external_cot"
+	}
+
+	return "internal"
 }
 
 // modeToFixType maps GPSD mode values to the protobuf FixType enum.

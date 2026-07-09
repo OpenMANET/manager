@@ -4,9 +4,11 @@ import (
 	"context"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/openmanet/openmanetd/internal/config"
+	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/rs/zerolog"
 )
 
@@ -102,6 +104,10 @@ type GPSService struct {
 	Log               zerolog.Logger
 	lastMulticastTime time.Time
 	conn              net.Conn
+	// GetDHCPLeases overrides the DHCP lease lookup used to identify
+	// directly-connected EUDs (e.g. for CoT sender validation). Falls back
+	// to network.GetCurrentDHCPLeases when nil; tests set this to a fake.
+	GetDHCPLeases     func() (*network.DHCPLeasesResponse, error)
 	done              chan struct{}
 	Config            *config.Config
 	cancel            context.CancelFunc
@@ -111,4 +117,10 @@ type GPSService struct {
 	reconnectDelay    time.Duration
 	reconnectAttempts int
 	mu                sync.RWMutex
+	// reannouncing is a single-flight guard for the CoT re-announce kicked
+	// off when an external position is adopted. SendIfRequiredAsCoT does a
+	// ubus lease lookup plus an ARP probe per lease, which can outlast an
+	// EUD's ~1 Hz SA broadcast interval; without this, a fast broadcaster
+	// would stack up unbounded overlapping goroutines.
+	reannouncing atomic.Bool
 }

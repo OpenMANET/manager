@@ -415,7 +415,7 @@ gnss:
 		defer wg.Done()
 
 		for i := 0; i < 10; i++ {
-			_ = cfg.PersistGNSSConfig(true, true, true, "uid")
+			_ = cfg.PersistGNSSConfig(true, true, true, "uid", "internal")
 		}
 	}()
 

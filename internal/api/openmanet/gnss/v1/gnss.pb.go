@@ -153,6 +153,64 @@ func (Constellation) EnumDescriptor() ([]byte, []int) {
 	return file_openmanet_gnss_v1_gnss_proto_rawDescGZIP(), []int{1}
 }
 
+// GNSSSource identifies which position provider feeds the GNSS subsystem.
+type GNSSSource int32
+
+const (
+	// GNSS_SOURCE_UNSPECIFIED is treated as GNSS_SOURCE_INTERNAL.
+	GNSSSource_GNSS_SOURCE_UNSPECIFIED GNSSSource = 0
+	// GNSS_SOURCE_INTERNAL uses the position reported by the local GNSS
+	// receiver via gpsd (onboard or USB-attached hardware).
+	GNSSSource_GNSS_SOURCE_INTERNAL GNSSSource = 1
+	// GNSS_SOURCE_EXTERNAL_COT adopts the position broadcast by a connected
+	// end-user device (e.g. ATAK) as Cursor-on-Target over the SA multicast
+	// group, instead of reading a local receiver. Lets a node with no GNSS
+	// hardware still report its own position, using the EUD's (typically
+	// more accurate) fix.
+	GNSSSource_GNSS_SOURCE_EXTERNAL_COT GNSSSource = 2
+)
+
+// Enum value maps for GNSSSource.
+var (
+	GNSSSource_name = map[int32]string{
+		0: "GNSS_SOURCE_UNSPECIFIED",
+		1: "GNSS_SOURCE_INTERNAL",
+		2: "GNSS_SOURCE_EXTERNAL_COT",
+	}
+	GNSSSource_value = map[string]int32{
+		"GNSS_SOURCE_UNSPECIFIED":  0,
+		"GNSS_SOURCE_INTERNAL":     1,
+		"GNSS_SOURCE_EXTERNAL_COT": 2,
+	}
+)
+
+func (x GNSSSource) Enum() *GNSSSource {
+	p := new(GNSSSource)
+	*p = x
+	return p
+}
+
+func (x GNSSSource) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (GNSSSource) Descriptor() protoreflect.EnumDescriptor {
+	return file_openmanet_gnss_v1_gnss_proto_enumTypes[2].Descriptor()
+}
+
+func (GNSSSource) Type() protoreflect.EnumType {
+	return &file_openmanet_gnss_v1_gnss_proto_enumTypes[2]
+}
+
+func (x GNSSSource) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use GNSSSource.Descriptor instead.
+func (GNSSSource) EnumDescriptor() ([]byte, []int) {
+	return file_openmanet_gnss_v1_gnss_proto_rawDescGZIP(), []int{2}
+}
+
 // Position holds the current GPS position, motion vector, and accuracy
 // metrics as reported by the GNSS receiver.
 type Position struct {
@@ -465,12 +523,16 @@ func (x *SatelliteStatus) GetLastUpdate() *timestamppb.Timestamp {
 }
 
 // GNSSSettings holds the top-level GNSS receiver configuration that
-// controls whether the GPS subsystem is active.
+// controls whether the GPS subsystem is active and where its position
+// data comes from.
 type GNSSSettings struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// enable_gps controls whether the GNSS receiver subsystem is active.
 	// When false, no position data is collected or distributed.
-	EnableGps     bool `protobuf:"varint,1,opt,name=enable_gps,json=enableGps,proto3" json:"enable_gps,omitempty"`
+	EnableGps bool `protobuf:"varint,1,opt,name=enable_gps,json=enableGps,proto3" json:"enable_gps,omitempty"`
+	// source selects which position provider feeds the GNSS subsystem.
+	// GNSS_SOURCE_UNSPECIFIED is treated as GNSS_SOURCE_INTERNAL.
+	Source        GNSSSource `protobuf:"varint,2,opt,name=source,proto3,enum=openmanet.gnss.v1.GNSSSource" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -510,6 +572,13 @@ func (x *GNSSSettings) GetEnableGps() bool {
 		return x.EnableGps
 	}
 	return false
+}
+
+func (x *GNSSSettings) GetSource() GNSSSource {
+	if x != nil {
+		return x.Source
+	}
+	return GNSSSource_GNSS_SOURCE_UNSPECIFIED
 }
 
 // OutputProtocols configures how position data is distributed to external
@@ -840,10 +909,11 @@ const file_openmanet_gnss_v1_gnss_proto_rawDesc = "" +
 	"satellites\x18\x03 \x03(\v2\x1c.openmanet.gnss.v1.SatelliteR\n" +
 	"satellites\x12;\n" +
 	"\vlast_update\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"lastUpdate\"-\n" +
+	"lastUpdate\"d\n" +
 	"\fGNSSSettings\x12\x1d\n" +
 	"\n" +
-	"enable_gps\x18\x01 \x01(\bR\tenableGps\"l\n" +
+	"enable_gps\x18\x01 \x01(\bR\tenableGps\x125\n" +
+	"\x06source\x18\x02 \x01(\x0e2\x1d.openmanet.gnss.v1.GNSSSourceR\x06source\"l\n" +
 	"\x0fOutputProtocols\x12 \n" +
 	"\fsend_as_nmea\x18\x01 \x01(\bR\n" +
 	"sendAsNmea\x12\x1e\n" +
@@ -877,7 +947,12 @@ const file_openmanet_gnss_v1_gnss_proto_rawDesc = "" +
 	"\x12CONSTELLATION_IMES\x10\x05\x12\x16\n" +
 	"\x12CONSTELLATION_QZSS\x10\x06\x12\x19\n" +
 	"\x15CONSTELLATION_GLONASS\x10\a\x12\x17\n" +
-	"\x13CONSTELLATION_IRNSS\x10\bB\xcf\x01\n" +
+	"\x13CONSTELLATION_IRNSS\x10\b*a\n" +
+	"\n" +
+	"GNSSSource\x12\x1b\n" +
+	"\x17GNSS_SOURCE_UNSPECIFIED\x10\x00\x12\x18\n" +
+	"\x14GNSS_SOURCE_INTERNAL\x10\x01\x12\x1c\n" +
+	"\x18GNSS_SOURCE_EXTERNAL_COT\x10\x02B\xcf\x01\n" +
 	"\x15com.openmanet.gnss.v1B\tGnssProtoP\x01ZEgithub.com/openmanet/openmanetd/internal/api/openmanet/gnss/v1;gnssv1\xa2\x02\x03OGX\xaa\x02\x11Openmanet.Gnss.V1\xca\x02\x11Openmanet\\Gnss\\V1\xe2\x02\x1dOpenmanet\\Gnss\\V1\\GPBMetadata\xea\x02\x13Openmanet::Gnss::V1b\x06proto3"
 
 var (
@@ -892,39 +967,41 @@ func file_openmanet_gnss_v1_gnss_proto_rawDescGZIP() []byte {
 	return file_openmanet_gnss_v1_gnss_proto_rawDescData
 }
 
-var file_openmanet_gnss_v1_gnss_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_openmanet_gnss_v1_gnss_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_openmanet_gnss_v1_gnss_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_openmanet_gnss_v1_gnss_proto_goTypes = []any{
 	(FixType)(0),                     // 0: openmanet.gnss.v1.FixType
 	(Constellation)(0),               // 1: openmanet.gnss.v1.Constellation
-	(*Position)(nil),                 // 2: openmanet.gnss.v1.Position
-	(*Satellite)(nil),                // 3: openmanet.gnss.v1.Satellite
-	(*SatelliteStatus)(nil),          // 4: openmanet.gnss.v1.SatelliteStatus
-	(*GNSSSettings)(nil),             // 5: openmanet.gnss.v1.GNSSSettings
-	(*OutputProtocols)(nil),          // 6: openmanet.gnss.v1.OutputProtocols
-	(*GetGNSSStatusResponse)(nil),    // 7: openmanet.gnss.v1.GetGNSSStatusResponse
-	(*GetGNSSConfigResponse)(nil),    // 8: openmanet.gnss.v1.GetGNSSConfigResponse
-	(*UpdateGNSSConfigRequest)(nil),  // 9: openmanet.gnss.v1.UpdateGNSSConfigRequest
-	(*UpdateGNSSConfigResponse)(nil), // 10: openmanet.gnss.v1.UpdateGNSSConfigResponse
-	(*timestamppb.Timestamp)(nil),    // 11: google.protobuf.Timestamp
+	(GNSSSource)(0),                  // 2: openmanet.gnss.v1.GNSSSource
+	(*Position)(nil),                 // 3: openmanet.gnss.v1.Position
+	(*Satellite)(nil),                // 4: openmanet.gnss.v1.Satellite
+	(*SatelliteStatus)(nil),          // 5: openmanet.gnss.v1.SatelliteStatus
+	(*GNSSSettings)(nil),             // 6: openmanet.gnss.v1.GNSSSettings
+	(*OutputProtocols)(nil),          // 7: openmanet.gnss.v1.OutputProtocols
+	(*GetGNSSStatusResponse)(nil),    // 8: openmanet.gnss.v1.GetGNSSStatusResponse
+	(*GetGNSSConfigResponse)(nil),    // 9: openmanet.gnss.v1.GetGNSSConfigResponse
+	(*UpdateGNSSConfigRequest)(nil),  // 10: openmanet.gnss.v1.UpdateGNSSConfigRequest
+	(*UpdateGNSSConfigResponse)(nil), // 11: openmanet.gnss.v1.UpdateGNSSConfigResponse
+	(*timestamppb.Timestamp)(nil),    // 12: google.protobuf.Timestamp
 }
 var file_openmanet_gnss_v1_gnss_proto_depIdxs = []int32{
 	0,  // 0: openmanet.gnss.v1.Position.fix_type:type_name -> openmanet.gnss.v1.FixType
-	11, // 1: openmanet.gnss.v1.Position.last_update:type_name -> google.protobuf.Timestamp
+	12, // 1: openmanet.gnss.v1.Position.last_update:type_name -> google.protobuf.Timestamp
 	1,  // 2: openmanet.gnss.v1.Satellite.constellation:type_name -> openmanet.gnss.v1.Constellation
-	3,  // 3: openmanet.gnss.v1.SatelliteStatus.satellites:type_name -> openmanet.gnss.v1.Satellite
-	11, // 4: openmanet.gnss.v1.SatelliteStatus.last_update:type_name -> google.protobuf.Timestamp
-	2,  // 5: openmanet.gnss.v1.GetGNSSStatusResponse.position:type_name -> openmanet.gnss.v1.Position
-	4,  // 6: openmanet.gnss.v1.GetGNSSStatusResponse.satellite_status:type_name -> openmanet.gnss.v1.SatelliteStatus
-	5,  // 7: openmanet.gnss.v1.GetGNSSConfigResponse.settings:type_name -> openmanet.gnss.v1.GNSSSettings
-	6,  // 8: openmanet.gnss.v1.GetGNSSConfigResponse.output_protocols:type_name -> openmanet.gnss.v1.OutputProtocols
-	5,  // 9: openmanet.gnss.v1.UpdateGNSSConfigRequest.settings:type_name -> openmanet.gnss.v1.GNSSSettings
-	6,  // 10: openmanet.gnss.v1.UpdateGNSSConfigRequest.output_protocols:type_name -> openmanet.gnss.v1.OutputProtocols
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	4,  // 3: openmanet.gnss.v1.SatelliteStatus.satellites:type_name -> openmanet.gnss.v1.Satellite
+	12, // 4: openmanet.gnss.v1.SatelliteStatus.last_update:type_name -> google.protobuf.Timestamp
+	2,  // 5: openmanet.gnss.v1.GNSSSettings.source:type_name -> openmanet.gnss.v1.GNSSSource
+	3,  // 6: openmanet.gnss.v1.GetGNSSStatusResponse.position:type_name -> openmanet.gnss.v1.Position
+	5,  // 7: openmanet.gnss.v1.GetGNSSStatusResponse.satellite_status:type_name -> openmanet.gnss.v1.SatelliteStatus
+	6,  // 8: openmanet.gnss.v1.GetGNSSConfigResponse.settings:type_name -> openmanet.gnss.v1.GNSSSettings
+	7,  // 9: openmanet.gnss.v1.GetGNSSConfigResponse.output_protocols:type_name -> openmanet.gnss.v1.OutputProtocols
+	6,  // 10: openmanet.gnss.v1.UpdateGNSSConfigRequest.settings:type_name -> openmanet.gnss.v1.GNSSSettings
+	7,  // 11: openmanet.gnss.v1.UpdateGNSSConfigRequest.output_protocols:type_name -> openmanet.gnss.v1.OutputProtocols
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_openmanet_gnss_v1_gnss_proto_init() }
@@ -938,7 +1015,7 @@ func file_openmanet_gnss_v1_gnss_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_gnss_v1_gnss_proto_rawDesc), len(file_openmanet_gnss_v1_gnss_proto_rawDesc)),
-			NumEnums:      2,
+			NumEnums:      3,
 			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
