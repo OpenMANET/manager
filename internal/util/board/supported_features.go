@@ -21,6 +21,7 @@ var newBoardConfigInfoFn = NewBoardConfigInfo //nolint:gochecknoglobals // test 
 //   - GW7500_2
 //   - GW7904
 //   - GW7905_2
+//   - BCM2711_RAVEN_USB
 //
 // Returns false if the board configuration cannot be retrieved, if the board model
 // is known to not support GNSS (e.g. HalowLink2, HeltecHD01V2, GW7500_0, GW7905_0),
@@ -45,6 +46,8 @@ func GNSSsupoorted() bool {
 		return true
 	case GW7500_0, GW7905_0:
 		return false
+	case BCM2711_RAVEN_USB:
+		return true
 	default:
 		return false
 	}
@@ -64,6 +67,7 @@ func GNSSsupoorted() bool {
 //   - GW7400
 //   - GW7904
 //   - GW7905_2
+//   - BCM2711_RAVEN_USB
 //
 // Returns false if the board configuration cannot be retrieved, if the board model
 // is known to not support BLOS (e.g. BCM2710_MM6108_SPI, BCM2710_MM6108_SDIO, HeltecHD01V2),
@@ -87,6 +91,8 @@ func BLOSsupported() bool {
 		return false
 	case GW7100_2, GW7200_2, GW7300_2, GW7400,
 		GW7904, GW7905_2:
+		return true
+	case BCM2711_RAVEN_USB:
 		return true
 	default:
 		return false
@@ -113,6 +119,7 @@ func BLOSsupported() bool {
 //   - GW7904
 //   - GW7905_0
 //   - GW7905_2
+//   - BCM2711_RAVEN_USB
 //
 // Returns false if the board configuration cannot be retrieved, if the board model
 // is known to not support Comms (e.g. HeltecHD01V2), or if the board model is unknown.
@@ -130,7 +137,8 @@ func CommsSupported() bool {
 		BCM2710_MM6108_SDIO,
 		HalowLink2,
 		GW7100_2, GW7200_2, GW7300_2, GW7400,
-		GW7500_0, GW7500_2, GW7904, GW7905_0, GW7905_2:
+		GW7500_0, GW7500_2, GW7904, GW7905_0, GW7905_2,
+		BCM2711_RAVEN_USB:
 		return true
 
 	case HeltecHD01V2:

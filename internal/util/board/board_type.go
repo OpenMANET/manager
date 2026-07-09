@@ -24,6 +24,9 @@ const (
 	GW7904   string = "gateworks,imx8mm-gw7904"
 	GW7905_0 string = "gateworks,imx8mm-gw7905-0x"
 	GW7905_2 string = "gateworks,imx8mm-gw7905-2x"
+
+	// Raven
+	BCM2711_RAVEN_USB string = "bcm2711,raven"
 )
 
 type Board struct {
