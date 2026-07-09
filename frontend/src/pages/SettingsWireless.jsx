@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@connectrpc/connect';
 import { transport } from '../services/connectClient.js';
-import { WifiConfigService } from '../gen/openmanet/wifi_config/v1/wifi_config_service_connect.js';
+import { WifiConfigService } from '../gen/openmanet/wifi_config/v1/wifi_config_service_pb.js';
 import { WifiMode } from '../gen/openmanet/wifi_config/v1/wifi_config_pb.js';
 import { POWER_LEVELS, dBmToLevel, levelToDbm } from './SettingsWireless.power.js';
 import LatSelect from '../components/LatSelect.jsx';

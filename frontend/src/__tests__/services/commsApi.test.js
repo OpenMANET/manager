@@ -10,7 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRouterTransport } from '@connectrpc/connect';
-import { CommsService } from '../../gen/openmanet/comms/v1/comms_service_connect.js';
+import { CommsService } from '../../gen/openmanet/comms/v1/comms_service_pb.js';
 
 vi.mock('../../services/connectClient.js', () => ({ transport: {} }));
 

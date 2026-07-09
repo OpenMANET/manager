@@ -79,12 +79,28 @@ export function computeFixRateHz(timestamps) {
   return 1;
 }
 
+// Converts a timestamp-ish value to a Date. Accepts a Date, an ISO string,
+// or a google.protobuf.Timestamp message (plain { seconds, nanos } object
+// with bigint seconds under protobuf-es v2). Returns null when the input is
+// missing or unparseable.
+export function timestampToDate(ts) {
+  if (ts == null) return null;
+  if (ts instanceof Date) return ts;
+  if (typeof ts === 'object' && ts.seconds != null) {
+    const seconds = Number(ts.seconds);
+    if (!Number.isFinite(seconds)) return null;
+    return new Date(seconds * 1000 + Math.floor(Number(ts.nanos || 0) / 1e6));
+  }
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 // Compact "X ago" formatter for GNSS freshness indicators. Accepts a Date
 // or ISO-string / proto Timestamp value; returns null when the input is
 // missing or unparseable so callers can render a dash placeholder.
 export function formatAgo(ts, now = Date.now()) {
-  if (ts == null) return null;
-  const d = ts instanceof Date ? ts : new Date(ts);
+  const d = timestampToDate(ts);
+  if (d == null) return null;
   const t = d.getTime();
   if (Number.isNaN(t)) return null;
   const deltaMs = now - t;
