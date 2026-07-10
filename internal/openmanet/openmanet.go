@@ -8,6 +8,7 @@ import (
 	_ "net/http/pprof" //nolint:gosec
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -411,6 +412,18 @@ func buildTerminalManager(cfg *config.Config, log zerolog.Logger) *terminal.Mana
 // applyRuntimeTuning configures Go runtime parameters and optionally starts
 // the pprof debug endpoint based on the application configuration.
 func applyRuntimeTuning(cfg *config.Config, log zerolog.Logger) {
+	prof := board.CurrentExecutionProfile()
+	if n := resolveGOMAXPROCS(cfg.GetRuntimeGOMAXPROCS(), prof); n > 0 {
+		runtime.GOMAXPROCS(n)
+
+		source := "board"
+		if cfg.GetRuntimeGOMAXPROCS() > 0 {
+			source = "config"
+		}
+
+		log.Info().Int("gomaxprocs", n).Str("source", source).Msg("Applied GOMAXPROCS")
+	}
+
 	if cfg.GetDebugPprof() {
 		pprofAddr := cfg.GetDebugPprofAddress()
 
@@ -422,6 +435,18 @@ func applyRuntimeTuning(cfg *config.Config, log zerolog.Logger) {
 			}
 		}()
 	}
+}
+
+// resolveGOMAXPROCS returns the GOMAXPROCS value to apply, or 0 to leave Go's
+// runtime default (runtime.NumCPU()) untouched. An explicit config value
+// (> 0) takes precedence over the board's recommendation; otherwise the
+// board's ExecutionProfile value is used (which may itself be 0 = no override).
+func resolveGOMAXPROCS(cfgVal int, prof board.ExecutionProfile) int {
+	if cfgVal > 0 {
+		return cfgVal
+	}
+
+	return prof.GOMAXPROCS
 }
 
 // startMeshNeighborsSnapshotter constructs and starts the
