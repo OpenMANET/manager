@@ -413,11 +413,12 @@ func buildTerminalManager(cfg *config.Config, log zerolog.Logger) *terminal.Mana
 // the pprof debug endpoint based on the application configuration.
 func applyRuntimeTuning(cfg *config.Config, log zerolog.Logger) {
 	prof := board.CurrentExecutionProfile()
-	if n := resolveGOMAXPROCS(cfg.GetRuntimeGOMAXPROCS(), prof); n > 0 {
+	cfgGOMAXPROCS := cfg.GetRuntimeGOMAXPROCS()
+	if n := resolveGOMAXPROCS(cfgGOMAXPROCS, prof); n > 0 {
 		runtime.GOMAXPROCS(n)
 
 		source := "board"
-		if cfg.GetRuntimeGOMAXPROCS() > 0 {
+		if cfgGOMAXPROCS > 0 {
 			source = "config"
 		}
 
