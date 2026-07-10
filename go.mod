@@ -18,7 +18,7 @@ require (
 	github.com/hraban/opus v0.0.0-20230925203106-0188a62cb302
 	github.com/mattn/go-sqlite3 v1.14.47
 	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875
-	github.com/mdlayher/wifi v0.7.2
+	github.com/mdlayher/wifi v0.8.0
 	github.com/msteinert/pam/v2 v2.1.0
 	github.com/openmanet/go-alfred v0.0.0-20240429120015-8f3f3f4e2f4e
 	github.com/pion/interceptor v0.1.44
@@ -64,10 +64,10 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mdlayher/ethernet v0.0.0-20220221185849-529eae5b6118 // indirect
-	github.com/mdlayher/genetlink v1.3.2 // indirect
-	github.com/mdlayher/netlink v1.8.0 // indirect
+	github.com/mdlayher/genetlink v1.4.0 // indirect
+	github.com/mdlayher/netlink v1.11.2 // indirect
 	github.com/mdlayher/packet v1.1.2 // indirect
-	github.com/mdlayher/socket v0.5.1 // indirect
+	github.com/mdlayher/socket v0.6.0 // indirect
 	github.com/mitchellh/go-ps v1.0.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pion/logging v0.2.4 // indirect
