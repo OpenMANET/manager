@@ -44,3 +44,4 @@ frontend/coverage
 .pnpm-store
 bench
 .superpowers
+docs/superpowers
