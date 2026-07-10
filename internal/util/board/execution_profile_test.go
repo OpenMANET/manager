@@ -41,6 +41,7 @@ func TestCurrentExecutionProfile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			orig := newBoardConfigInfoFn
+
 			defer func() { newBoardConfigInfoFn = orig }()
 
 			newBoardConfigInfoFn = func() (*Board, error) {
@@ -57,6 +58,7 @@ func TestCurrentExecutionProfile(t *testing.T) {
 
 func TestCurrentExecutionProfile_BoardConfigError(t *testing.T) {
 	orig := newBoardConfigInfoFn
+
 	defer func() { newBoardConfigInfoFn = orig }()
 
 	newBoardConfigInfoFn = func() (*Board, error) {
