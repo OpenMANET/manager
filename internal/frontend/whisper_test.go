@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -31,6 +32,17 @@ func setTestWhisperDir(t *testing.T, dir string) {
 		whisperState.err = ""
 		whisperState.mu.Unlock()
 	})
+}
+
+// setTestWhisperModelURL overrides the package-level whisperModelURL so the
+// download goroutine hits a local mock server, restoring it on cleanup.
+func setTestWhisperModelURL(t *testing.T, url string) {
+	t.Helper()
+
+	orig := whisperModelURL
+	whisperModelURL = url
+
+	t.Cleanup(func() { whisperModelURL = orig })
 }
 
 // createTestModel creates a fake whisper model file in dir.
@@ -137,16 +149,24 @@ func TestHandleWhisperDownload_StartsDownload(t *testing.T) {
 	dir := t.TempDir()
 	setTestWhisperDir(t, dir)
 
-	// Create a mock HTTP server that serves a tiny fake model.
+	// Create a mock HTTP server that serves a tiny fake model, so the
+	// download goroutine never reaches out to the real CDN.
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Length", "10")
 		_, _ = w.Write([]byte("0123456789"))
 	}))
 	defer mockServer.Close()
 
-	// We can't easily override whisperModelURL for this test without
-	// refactoring, so just verify the handler accepts the POST and
-	// transitions state to "downloading".
+	setTestWhisperModelURL(t, mockServer.URL)
+
+	// Signal channel so we can wait for the background download goroutine to
+	// finish before the test returns; otherwise t.TempDir cleanup races the
+	// goroutine's writes into dir.
+	done := make(chan struct{})
+	whisperDownloadDone = func() { close(done) }
+
+	t.Cleanup(func() { whisperDownloadDone = nil })
+
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/whisper/download", nil)
 	srv.handleWhisperDownload(w, r)
@@ -160,6 +180,14 @@ func TestHandleWhisperDownload_StartsDownload(t *testing.T) {
 
 	if resp["status"] != "downloading" {
 		t.Errorf("status = %q, want downloading", resp["status"])
+	}
+
+	// Wait for the goroutine to finish writing the model before the test
+	// (and its t.TempDir cleanup) returns.
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("download goroutine did not finish within 10s")
 	}
 }
 

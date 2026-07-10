@@ -82,9 +82,13 @@ const (
 	DefaultOpenMANETCommsAPIAddress     string = "http://127.0.0.1:8087"
 	DefaultRuntimeMemLimit              string = "64MiB"
 	DefaultRuntimeGoGC                  int    = 50
-	DefaultDebugPprof                   bool   = false
-	DefaultDebugPprofAddress            string = "127.0.0.1:6060"
-	DefaultCommsEncoderComplexity       int    = 5
+	// DefaultRuntimeGOMAXPROCS of 0 means "auto": defer to the board's
+	// ExecutionProfile recommendation, and if the board has none, to Go's
+	// runtime default (runtime.NumCPU()).
+	DefaultRuntimeGOMAXPROCS      int    = 0
+	DefaultDebugPprof             bool   = false
+	DefaultDebugPprofAddress      string = "127.0.0.1:6060"
+	DefaultCommsEncoderComplexity int    = 5
 	// DefaultCommsPacketLossPerc is the Opus encoder's initial
 	// packet-loss-percentage hint, controlling how much LBRR (in-band
 	// FEC) the encoder allocates bits to. Operators can pin this via
@@ -198,6 +202,7 @@ type Config struct {
 	CommsCaptureLatencyMs                     int
 	CommsCaptureFramesPerBuffer               int
 	RuntimeGoGC                               int
+	RuntimeGOMAXPROCS                         int
 	AuthSessionMaxAgeSecs                     int
 	AuthSessionMaxSize                        int
 	mu                                        sync.RWMutex
@@ -571,6 +576,12 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.RuntimeGoGC = c.v.GetInt("runtime.gogc")
 	} else {
 		c.RuntimeGoGC = DefaultRuntimeGoGC
+	}
+
+	if c.v.IsSet("runtime.gomaxprocs") {
+		c.RuntimeGOMAXPROCS = c.v.GetInt("runtime.gomaxprocs")
+	} else {
+		c.RuntimeGOMAXPROCS = DefaultRuntimeGOMAXPROCS
 	}
 
 	// Load debug configuration
@@ -1163,6 +1174,18 @@ func (c *Config) GetRuntimeGoGC() int {
 	defer c.mu.RUnlock()
 
 	return c.RuntimeGoGC
+}
+
+// GetRuntimeGOMAXPROCS returns the configured maximum number of OS threads
+// that execute Go code (the runtime.gomaxprocs config key). A value of 0 means
+// "auto": the board's ExecutionProfile recommendation is used, falling back to
+// Go's runtime default (runtime.NumCPU()) when the board has no recommendation.
+// A value greater than 0 forces that many threads on any board.
+func (c *Config) GetRuntimeGOMAXPROCS() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.RuntimeGOMAXPROCS
 }
 
 // GetDebugPprof returns whether the pprof debug endpoint is enabled.
