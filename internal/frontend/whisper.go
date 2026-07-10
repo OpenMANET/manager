@@ -19,7 +19,15 @@ var whisperDir = "/tmp/whisper" //nolint:gochecknoglobals
 const whisperModelFile = "ggml-tiny.en.bin"
 
 // whisperModelURL is the default CDN URL for the whisper tiny.en model.
-const whisperModelURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
+// It is a package-level variable so tests can point it at a local mock
+// server instead of reaching out to the real CDN.
+var whisperModelURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin" //nolint:gochecknoglobals
+
+// whisperDownloadDone, if non-nil, is invoked when a background model
+// download goroutine finishes (whether it succeeds or errors). Tests set it
+// to await goroutine completion so t.TempDir cleanup does not race the
+// goroutine's writes. It is nil in production.
+var whisperDownloadDone func() //nolint:gochecknoglobals
 
 // Whisper download state machine values reported in the status JSON.
 const (
@@ -141,6 +149,10 @@ func (s *Server) handleWhisperRemove(w http.ResponseWriter, r *http.Request) {
 
 // downloadWhisperModel downloads the whisper model to the given directory.
 func (s *Server) downloadWhisperModel(dir string) {
+	if whisperDownloadDone != nil {
+		defer whisperDownloadDone()
+	}
+
 	setError := func(msg string) {
 		s.log.Error().Msg(msg)
 
