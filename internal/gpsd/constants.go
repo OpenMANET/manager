@@ -12,6 +12,8 @@ const (
 	// defaultSelfMarkerType string = "a-f-G-U-C" // SELF MARKER
 	// radioUnitType is the CoT type for a ground radio unit
 	radioUnitType string = "a-f-G-U-U-S-R" // Gnd/RADIO UNIT;RADIO UNIT
+	// cameraSensorType is the TAK CoT type for a point sensor at a known location.
+	cameraSensorType string = "b-m-p-s-p-loc"
 	// defaultStaleDuration is the default duration before a CoT message is considered stale
 	defaultStaleDuration time.Duration = 5 * time.Minute
 	maxReconnectAttempts int           = 3

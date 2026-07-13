@@ -207,10 +207,25 @@ func (g *GPSService) sendCoTToMulticast() error {
 		hae = pos.Altitude + pos.GeoidSeparation
 	}
 
+	eventType := radioUnitType
+	var cameraXMLDetail string
+
+	camera, cameraErr := discoverCameraStream()
+	if cameraErr != nil {
+		g.Log.Warn().Err(cameraErr).Msg("Unable to advertise detected camera in CoT")
+	} else if camera != nil {
+		cameraXMLDetail, cameraErr = cameraCoTXMLDetail(camera, hostname+"-video", hostname)
+		if cameraErr != nil {
+			g.Log.Warn().Err(cameraErr).Msg("Unable to build camera CoT detail")
+		} else {
+			eventType = cameraSensorType
+		}
+	}
+
 	// Create CoT Message
 	takMsg := &cotproto.TakMessage{
 		CotEvent: &cotproto.CotEvent{
-			Type:      radioUnitType,
+			Type:      eventType,
 			Uid:       hostname,
 			SendTime:  cot.TimeToMillis(time.Now()),
 			StartTime: cot.TimeToMillis(time.Now()),
@@ -222,6 +237,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 			Ce:        pos.EPH,
 			Le:        pos.EPV,
 			Detail: &cotproto.Detail{
+				XmlDetail: cameraXMLDetail,
 				Contact: &cotproto.Contact{
 					Callsign: hostname,
 				},
@@ -276,6 +292,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 
 	g.Log.Debug().
 		Str("callsign", hostname).
+		Str("type", eventType).
 		Float64("lat", pos.Latitude).
 		Float64("lon", pos.Longitude).
 		Float64("alt", pos.Altitude).
