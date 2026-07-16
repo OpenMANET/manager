@@ -24,7 +24,7 @@
     "d3-selection": "^3.0.0",
     "d3-zoom": "^3.0.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "react-dom": "^19.2.7",
     "react-router-dom": "^7.15.0"
   },
   "devDependencies": {
@@ -32,7 +32,7 @@
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9.0.0",
