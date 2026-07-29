@@ -24,16 +24,21 @@ var cameraListPattern = regexp.MustCompile(`(?m)^\s*\d+\s*:`)
 
 type cameraStream struct {
 	Address string
-	Port    int
 	Path    string
 	URL     string
+	Port    int
 }
 
 type commandOutputFunc func(context.Context, string, ...string) ([]byte, error)
 type interfaceAddrsFunc func(string) ([]net.Addr, error)
 
 func runCommandOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, name, args...).Output() //nolint:gosec // callers use fixed local command names
+	output, err := exec.CommandContext(ctx, name, args...).Output() //nolint:gosec // callers use fixed local command names
+	if err != nil {
+		return nil, fmt.Errorf("run %s: %w", name, err)
+	}
+
+	return output, nil
 }
 
 func discoverCameraStream() (*cameraStream, error) {
@@ -55,6 +60,7 @@ func discoverCameraStreamWith(
 
 	iface := uciValue(ctx, run, "camera-onvif-server.rpicamera.interface", defaultCameraInterface)
 	device := uciValue(ctx, run, "network."+iface+".device", iface)
+
 	address := firstIPv4Address(interfaceAddrs, device)
 	if address == "" {
 		address = strings.TrimSpace(uciValue(ctx, run, "network."+iface+".ipaddr", ""))
@@ -103,10 +109,15 @@ func uciValue(ctx context.Context, run commandOutputFunc, key, fallback string) 
 func interfaceAddresses(name string) ([]net.Addr, error) {
 	iface, err := net.InterfaceByName(name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("lookup interface %q: %w", name, err)
 	}
 
-	return iface.Addrs()
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return nil, fmt.Errorf("list addresses for %q: %w", name, err)
+	}
+
+	return addrs, nil
 }
 
 func firstIPv4Address(addrs interfaceAddrsFunc, iface string) string {
@@ -160,14 +171,14 @@ type videoConnectionXML struct {
 	UID               string `xml:"uid,attr"`
 	Alias             string `xml:"alias,attr"`
 	Address           string `xml:"address,attr"`
-	Port              int    `xml:"port,attr"`
 	Path              string `xml:"path,attr"`
 	Protocol          string `xml:"protocol,attr"`
+	Port              int    `xml:"port,attr"`
 	RoverPort         int    `xml:"roverPort,attr"`
 	RTSPReliable      int    `xml:"rtspReliable,attr"`
-	IgnoreEmbeddedKLV bool   `xml:"ignoreEmbeddedKLV,attr"`
 	NetworkTimeout    int    `xml:"networkTimeout,attr"`
 	BufferTime        int    `xml:"bufferTime,attr"`
+	IgnoreEmbeddedKLV bool   `xml:"ignoreEmbeddedKLV,attr"`
 }
 
 func cameraCoTXMLDetail(stream *cameraStream, uid, callsign string) (string, error) {

@@ -208,6 +208,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 	}
 
 	eventType := radioUnitType
+
 	var cameraXMLDetail string
 
 	camera, cameraErr := discoverCameraStream()

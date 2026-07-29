@@ -20,6 +20,7 @@ func TestDiscoverCameraStream(t *testing.T) {
 		if name == "cam" {
 			return []byte("Available cameras:\n1: 'imx219'\n"), nil
 		}
+
 		if name != "uci" || len(args) != 3 {
 			return nil, errors.New("unexpected command")
 		}
@@ -43,12 +44,15 @@ func TestDiscoverCameraStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discoverCameraStreamWith() error = %v", err)
 	}
+
 	if stream == nil {
 		t.Fatal("discoverCameraStreamWith() returned no stream")
 	}
+
 	if stream.URL != "rtsp://10.41.0.1:8554/camera/main" {
 		t.Errorf("URL = %q", stream.URL)
 	}
+
 	if stream.Address != "10.41.0.1" || stream.Port != 8554 || stream.Path != "/camera/main" {
 		t.Errorf("stream = %+v", stream)
 	}
@@ -63,6 +67,7 @@ func TestDiscoverCameraStreamNoCamera(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discoverCameraStreamWith() error = %v", err)
 	}
+
 	if stream != nil {
 		t.Errorf("stream = %+v, want nil", stream)
 	}
@@ -88,6 +93,7 @@ func TestDiscoverCameraStreamFallsBackToFirmwareDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discoverCameraStreamWith() error = %v", err)
 	}
+
 	if stream.URL != "rtsp://10.41.2.3:554/rpicamera" {
 		t.Errorf("URL = %q", stream.URL)
 	}
@@ -110,7 +116,9 @@ func TestCameraCoTXMLDetail(t *testing.T) {
 		`<sensor `,
 		`hideFov="true"`,
 		`<__video uid="node-1" url="rtsp://10.41.0.1:554/rpicamera">`,
-		`<ConnectionEntry uid="node-1" alias="CAM &amp; MANET"`,
+		`<ConnectionEntry `,
+		`uid="node-1"`,
+		`alias="CAM &amp; MANET"`,
 		`address="10.41.0.1"`,
 		`port="554"`,
 		`path="/rpicamera"`,
