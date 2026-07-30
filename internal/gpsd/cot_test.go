@@ -1,6 +1,7 @@
 package gpsd
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -208,6 +209,131 @@ func TestSendCoTToMulticast_HAE_Calculation(t *testing.T) {
 
 	if err != nil && strings.Contains(err.Error(), "no valid GPS position") {
 		t.Errorf("Should not get position error with valid position and zero geoid separation: %v", err)
+	}
+}
+
+func TestBuildMulticastTakMessage_CameraDetected(t *testing.T) {
+	gps := &GPSService{Log: zerolog.Nop()}
+	pos := PositionReport{
+		Latitude:  37.7749,
+		Longitude: -122.4194,
+		Altitude:  50.0,
+		Speed:     5.0,
+		Track:     90.0,
+		EPH:       3.2,
+		EPV:       6.4,
+		Valid:     true,
+	}
+
+	detail := `<sensor/><__video/>`
+	stream := &cameraStream{
+		Address: "10.41.0.10",
+		Port:    8554,
+		Path:    "/camera/main",
+		URL:     "rtsp://10.41.0.10:8554/camera/main",
+	}
+
+	msg, eventType := gps.buildMulticastTakMessage(
+		pos,
+		"node-7",
+		"Pi Zero 2 W",
+		func() (*cameraStream, error) {
+			return stream, nil
+		},
+		func(got *cameraStream, uid, callsign string) (string, error) {
+			if got != stream {
+				t.Fatalf("buildCameraDetail stream = %+v, want %+v", got, stream)
+			}
+
+			if uid != "node-7-MANET-video" {
+				t.Fatalf("uid = %q, want node-7-MANET-video", uid)
+			}
+
+			if callsign != "node-7-MANET" {
+				t.Fatalf("callsign = %q, want node-7-MANET", callsign)
+			}
+
+			return detail, nil
+		},
+	)
+
+	if eventType != cameraSensorType {
+		t.Fatalf("eventType = %q, want %q", eventType, cameraSensorType)
+	}
+
+	if msg.GetCotEvent().GetType() != cameraSensorType {
+		t.Fatalf("CotEvent.Type = %q, want %q", msg.GetCotEvent().GetType(), cameraSensorType)
+	}
+
+	if msg.GetCotEvent().GetUid() != "node-7-MANET" {
+		t.Fatalf("CotEvent.Uid = %q, want node-7-MANET", msg.GetCotEvent().GetUid())
+	}
+
+	if msg.GetCotEvent().GetDetail().GetXmlDetail() != detail {
+		t.Fatalf("XmlDetail = %q, want %q", msg.GetCotEvent().GetDetail().GetXmlDetail(), detail)
+	}
+
+	if msg.GetCotEvent().GetDetail().GetTakv().GetPlatform() != "Pi Zero 2 W (OpenMANET)" {
+		t.Fatalf("Platform = %q", msg.GetCotEvent().GetDetail().GetTakv().GetPlatform())
+	}
+}
+
+func TestBuildMulticastTakMessage_CameraDiscoveryErrorFallsBackToRadio(t *testing.T) {
+	gps := &GPSService{Log: zerolog.Nop()}
+	pos := PositionReport{Latitude: 1, Longitude: 2, Altitude: 3, Valid: true}
+
+	msg, eventType := gps.buildMulticastTakMessage(
+		pos,
+		"meshmanet-node",
+		"OpenMANET",
+		func() (*cameraStream, error) {
+			return nil, errors.New("camera probe failed")
+		},
+		func(*cameraStream, string, string) (string, error) {
+			t.Fatal("buildCameraDetail should not be called when discovery fails")
+			return "", nil
+		},
+	)
+
+	if eventType != radioUnitType {
+		t.Fatalf("eventType = %q, want %q", eventType, radioUnitType)
+	}
+
+	if msg.GetCotEvent().GetDetail().GetXmlDetail() != "" {
+		t.Fatalf("XmlDetail = %q, want empty string", msg.GetCotEvent().GetDetail().GetXmlDetail())
+	}
+
+	if msg.GetCotEvent().GetUid() != "meshmanet-node" {
+		t.Fatalf("CotEvent.Uid = %q, want meshmanet-node", msg.GetCotEvent().GetUid())
+	}
+}
+
+func TestBuildMulticastTakMessage_CameraDetailErrorFallsBackToRadio(t *testing.T) {
+	gps := &GPSService{Log: zerolog.Nop()}
+	pos := PositionReport{Latitude: 1, Longitude: 2, Altitude: 3, Valid: true}
+
+	msg, eventType := gps.buildMulticastTakMessage(
+		pos,
+		"node-8",
+		"OpenMANET",
+		func() (*cameraStream, error) {
+			return &cameraStream{Address: "10.41.0.11", Port: 554, Path: "/rpicamera", URL: "rtsp://10.41.0.11:554/rpicamera"}, nil
+		},
+		func(*cameraStream, string, string) (string, error) {
+			return "", errors.New("detail failed")
+		},
+	)
+
+	if eventType != radioUnitType {
+		t.Fatalf("eventType = %q, want %q", eventType, radioUnitType)
+	}
+
+	if msg.GetCotEvent().GetType() != radioUnitType {
+		t.Fatalf("CotEvent.Type = %q, want %q", msg.GetCotEvent().GetType(), radioUnitType)
+	}
+
+	if msg.GetCotEvent().GetDetail().GetXmlDetail() != "" {
+		t.Fatalf("XmlDetail = %q, want empty string", msg.GetCotEvent().GetDetail().GetXmlDetail())
 	}
 }
 

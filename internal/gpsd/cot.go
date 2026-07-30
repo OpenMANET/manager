@@ -200,6 +200,68 @@ func (g *GPSService) sendCoTToMulticast() error {
 		}
 	}
 
+	takMsg, eventType := g.buildMulticastTakMessage(
+		pos,
+		hostname,
+		platformName,
+		discoverCameraStream,
+		cameraCoTXMLDetail,
+	)
+
+	// Marshal to bytes to send as protobuf
+	data, err := cot.MakeProtoMeshPacketV1(takMsg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal CoT protobuf: %w", err)
+	}
+
+	// Send to multicast address
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", config.ATAKSAAddress, atakSAMulticastPort))
+	if err != nil {
+		return fmt.Errorf("failed to resolve multicast address: %w", err)
+	}
+
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		return fmt.Errorf("failed to dial multicast: %w", err)
+	}
+	defer conn.Close()
+
+	// Set multicast TTL to 64
+	pconn := ipv4.NewPacketConn(conn)
+	if ttlErr := pconn.SetMulticastTTL(atakMulticastTTL); ttlErr != nil {
+		g.Log.Warn().Err(ttlErr).Msg("Failed to set multicast TTL")
+	}
+
+	_, err = pconn.WriteTo(data, nil, addr)
+	if err != nil {
+		return fmt.Errorf("failed to send CoT message: %w", err)
+	}
+
+	g.Log.Debug().
+		Str("callsign", takMsg.GetCotEvent().GetUid()).
+		Str("type", eventType).
+		Float64("lat", pos.Latitude).
+		Float64("lon", pos.Longitude).
+		Float64("alt", pos.Altitude).
+		Str("address", fmt.Sprintf("%s:%s", config.ATAKSAAddress, atakSAMulticastPort)).
+		Msg("Sent CoT message to ATAK SA multicast")
+
+	return nil
+}
+
+func (g *GPSService) buildMulticastTakMessage(
+	pos PositionReport,
+	hostname string,
+	platformName string,
+	discover func() (*cameraStream, error),
+	buildCameraDetail func(*cameraStream, string, string) (string, error),
+) (*cotproto.TakMessage, string) {
+	// If hostname does not contain the string manet
+	// append -MANET to the callsign to make it clear these are MANET nodes in ATAK.
+	if !strings.Contains(hostname, "manet") {
+		hostname = fmt.Sprintf("%s-MANET", hostname)
+	}
+
 	// Calculate Height Above Ellipsoid (HAE)
 	// HAE = MSL altitude + Geoid Separation
 	hae := pos.Altitude
@@ -211,11 +273,11 @@ func (g *GPSService) sendCoTToMulticast() error {
 
 	var cameraXMLDetail string
 
-	camera, cameraErr := discoverCameraStream()
+	camera, cameraErr := discover()
 	if cameraErr != nil {
 		g.Log.Warn().Err(cameraErr).Msg("Unable to advertise detected camera in CoT")
 	} else if camera != nil {
-		cameraXMLDetail, cameraErr = cameraCoTXMLDetail(camera, hostname+"-video", hostname)
+		cameraXMLDetail, cameraErr = buildCameraDetail(camera, hostname+"-video", hostname)
 		if cameraErr != nil {
 			g.Log.Warn().Err(cameraErr).Msg("Unable to build camera CoT detail")
 		} else {
@@ -223,8 +285,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 		}
 	}
 
-	// Create CoT Message
-	takMsg := &cotproto.TakMessage{
+	return &cotproto.TakMessage{
 		CotEvent: &cotproto.CotEvent{
 			Type:      eventType,
 			Uid:       hostname,
@@ -260,47 +321,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 				},
 			},
 		},
-	}
-
-	// Marshal to bytes to send as protobuf
-	data, err := cot.MakeProtoMeshPacketV1(takMsg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal CoT protobuf: %w", err)
-	}
-
-	// Send to multicast address
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", config.ATAKSAAddress, atakSAMulticastPort))
-	if err != nil {
-		return fmt.Errorf("failed to resolve multicast address: %w", err)
-	}
-
-	conn, err := net.DialUDP("udp", nil, addr)
-	if err != nil {
-		return fmt.Errorf("failed to dial multicast: %w", err)
-	}
-	defer conn.Close()
-
-	// Set multicast TTL to 64
-	pconn := ipv4.NewPacketConn(conn)
-	if ttlErr := pconn.SetMulticastTTL(atakMulticastTTL); ttlErr != nil {
-		g.Log.Warn().Err(ttlErr).Msg("Failed to set multicast TTL")
-	}
-
-	_, err = pconn.WriteTo(data, nil, addr)
-	if err != nil {
-		return fmt.Errorf("failed to send CoT message: %w", err)
-	}
-
-	g.Log.Debug().
-		Str("callsign", hostname).
-		Str("type", eventType).
-		Float64("lat", pos.Latitude).
-		Float64("lon", pos.Longitude).
-		Float64("alt", pos.Altitude).
-		Str("address", fmt.Sprintf("%s:%s", config.ATAKSAAddress, atakSAMulticastPort)).
-		Msg("Sent CoT message to ATAK SA multicast")
-
-	return nil
+	}, eventType
 }
 
 // sendCoTAsExternalGPS creates and sends an ATAK CoT message to the EUD.
