@@ -102,6 +102,7 @@ type GPSService struct {
 	Log               zerolog.Logger
 	lastMulticastTime time.Time
 	conn              net.Conn
+	nmeaConn          net.Conn
 	done              chan struct{}
 	Config            *config.Config
 	cancel            context.CancelFunc
