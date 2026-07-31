@@ -1,12 +1,12 @@
 package gpsd
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"net"
 	"net/netip"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/coreywagehoft/go-tak/pkg/cot"
@@ -14,22 +14,22 @@ import (
 	"github.com/mdlayher/arp"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/network"
+	"github.com/openmanet/openmanetd/internal/tak"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"golang.org/x/net/ipv4"
 )
 
 // SendIfRequiredAsCoT sends the GPS position as a Cursor-on-Target (CoT) message to End User Devices (EUDs).
 // It first validates that a GPS position is available, then retrieves active DHCP leases to identify
-// potential EUD recipients. The method checks each leased device for activity and attempts to send
-// the CoT message to active devices. If no active devices are found, it falls back to sending a
-// CoT message to the ATAK Situational Awareness (SA) multicast address, subject to rate limiting
-// (once every 30 seconds) to prevent network flooding.
+// potential EUD recipients. The method checks each leased device for activity for diagnostics and
+// publishes the CoT message to the ATAK Situational Awareness (SA) multicast address, subject to
+// rate limiting (once every 30 seconds) to prevent network flooding. Publishing regardless of DHCP
+// lease state is necessary for ATAK clients to receive advertised node capabilities such as video.
 //
 // The method performs the following steps:
 //  1. Validates GPS position availability
-//  2. Retrieves current DHCP leases
-//  3. Checks each leased device for activity via ARP
-//  4. If no active devices are found, sends to multicast (rate-limited)
+//  2. Records reachable DHCP EUDs for diagnostics when lease data is available
+//  3. Sends to the SA multicast group (rate-limited)
 //
 // Errors are logged but do not halt execution; the method returns early on validation failures.
 func (g *GPSService) SendIfRequiredAsCoT() {
@@ -40,19 +40,15 @@ func (g *GPSService) SendIfRequiredAsCoT() {
 		return
 	}
 
-	leases, err := network.GetCurrentDHCPLeases()
-	if err != nil {
-		g.Log.Error().Err(err).Msg("Error getting DHCP leases for EUD location update")
-
-		return
-	}
-
-	// Track have ANY active device
+	// Track whether any EUD is active for diagnostics. CoT is still sent to the
+	// SA multicast group so connected ATAK clients receive node capabilities.
 	deviceActive := false
 
-	// Send CoT messages to each active EUD device if configured
-	// Send as CoT only if configured and NMEA sending is disabled
-	if len(leases.DHCPLeases) > 0 {
+	leases, err := network.GetCurrentDHCPLeases()
+	if err != nil {
+		g.Log.Debug().Err(err).Msg("Unable to inspect DHCP leases before CoT multicast")
+	} else if len(leases.DHCPLeases) > 0 {
+		// Check all DHCP leases for active EUDs.
 		// loop through leases.DHCPleases and send location to each EUD
 		for _, lease := range leases.DHCPLeases {
 			// Send an ARP request to verify the EUD is online
@@ -63,28 +59,25 @@ func (g *GPSService) SendIfRequiredAsCoT() {
 		}
 	}
 
-	// Only send to multicast if no devices received any messages
-	if !deviceActive {
-		// Rate limit: send multicast messages once every 30 seconds to avoid flooding the network
-		g.mu.Lock()
-		if time.Since(g.lastMulticastTime) < cotMulticastRateLimit {
-			g.mu.Unlock()
-
-			return // Rate limited, exit early
-		}
-
-		g.lastMulticastTime = time.Now()
+	// Rate limit: send multicast messages once every 30 seconds to avoid flooding the network.
+	g.mu.Lock()
+	if time.Since(g.lastMulticastTime) < cotMulticastRateLimit {
 		g.mu.Unlock()
 
-		if err := g.sendCoTPing(); err != nil {
-			g.Log.Error().Err(err).Msg("Failed to send CoT ping to multicast")
-		}
+		return
+	}
 
-		g.Log.Debug().Msg("No reachable devices found, sending CoT to ATAK SA multicast address")
+	g.lastMulticastTime = time.Now()
+	g.mu.Unlock()
 
-		if err := g.sendCoTToMulticast(); err != nil {
-			g.Log.Error().Err(err).Msg("Failed to send CoT to multicast")
-		}
+	if err := g.sendCoTPing(); err != nil {
+		g.Log.Error().Err(err).Msg("Failed to send CoT ping to multicast")
+	}
+
+	g.Log.Debug().Bool("active_eud", deviceActive).Msg("Sending CoT to ATAK SA multicast address")
+
+	if err := g.sendCoTToMulticast(); err != nil {
+		g.Log.Error().Err(err).Msg("Failed to send CoT to multicast")
 	}
 }
 
@@ -184,12 +177,6 @@ func (g *GPSService) sendCoTToMulticast() error {
 		hostname = "openmanet-node"
 	}
 
-	// If hostname does not contain the string manet
-	// append -MANET to the callsign to makeit clear these are MANET nodes in ATAK
-	if !strings.Contains(hostname, "manet") {
-		hostname = fmt.Sprintf("%s-MANET", hostname)
-	}
-
 	// Get platform name, handle nil deviceInfo
 	platformName := "OpenMANET"
 
@@ -200,55 +187,27 @@ func (g *GPSService) sendCoTToMulticast() error {
 		}
 	}
 
-	// Calculate Height Above Ellipsoid (HAE)
-	// HAE = MSL altitude + Geoid Separation
-	hae := pos.Altitude
-	if pos.GeoidSeparation != 0 {
-		hae = pos.Altitude + pos.GeoidSeparation
+	stream, streamErr := tak.DiscoverCameraStream(context.Background())
+	if streamErr != nil {
+		g.Log.Warn().Err(streamErr).Msg("Unable to advertise camera stream in ATAK")
 	}
 
-	// Create CoT Message
-	takMsg := &cotproto.TakMessage{
-		CotEvent: &cotproto.CotEvent{
-			Type:      radioUnitType,
-			Uid:       hostname,
-			SendTime:  cot.TimeToMillis(time.Now()),
-			StartTime: cot.TimeToMillis(time.Now()),
-			StaleTime: cot.TimeToMillis(time.Now().Add(defaultStaleDuration)),
-			How:       cot.HowDefault,
-			Lat:       pos.Latitude,
-			Lon:       pos.Longitude,
-			Hae:       hae,
-			Ce:        pos.EPH,
-			Le:        pos.EPV,
-			Detail: &cotproto.Detail{
-				Contact: &cotproto.Contact{
-					Callsign: hostname,
-				},
-				Group: &cotproto.Group{
-					Name: "Magenta",
-					Role: "MANET Radio",
-				},
-				Takv: &cotproto.Takv{
-					Device:   hostname,
-					Platform: fmt.Sprintf("%s (%s)", platformName, "OpenMANET"),
-				},
-				Track: &cotproto.Track{
-					Speed:  pos.Speed,
-					Course: pos.Track,
-				},
-				PrecisionLocation: &cotproto.PrecisionLocation{
-					Geopointsrc: gnssSourceGPS,
-					Altsrc:      gnssSourceGPS,
-				},
-			},
-		},
-	}
-
-	// Marshal to bytes to send as protobuf
-	data, err := cot.MakeProtoMeshPacketV1(takMsg)
+	messages, err := tak.BuildNodeMessages(time.Now(), tak.Position{
+		Altitude:        pos.Altitude,
+		Ce:              pos.EPH,
+		GeoidSeparation: pos.GeoidSeparation,
+		Lat:             pos.Latitude,
+		Le:              pos.EPV,
+		Lon:             pos.Longitude,
+		Speed:           pos.Speed,
+		Track:           pos.Track,
+	}, tak.Node{
+		Callsign: hostname,
+		Platform: platformName,
+		UID:      hostname,
+	}, stream)
 	if err != nil {
-		return fmt.Errorf("failed to marshal CoT protobuf: %w", err)
+		return fmt.Errorf("build ATAK CoT messages: %w", err)
 	}
 
 	// Send to multicast address
@@ -269,13 +228,20 @@ func (g *GPSService) sendCoTToMulticast() error {
 		g.Log.Warn().Err(ttlErr).Msg("Failed to set multicast TTL")
 	}
 
-	_, err = pconn.WriteTo(data, nil, addr)
-	if err != nil {
-		return fmt.Errorf("failed to send CoT message: %w", err)
+	for _, message := range messages {
+		data, marshalErr := cot.MakeProtoMeshPacketV1(message)
+		if marshalErr != nil {
+			return fmt.Errorf("marshal CoT protobuf: %w", marshalErr)
+		}
+
+		if _, writeErr := pconn.WriteTo(data, nil, addr); writeErr != nil {
+			return fmt.Errorf("send CoT message: %w", writeErr)
+		}
 	}
 
 	g.Log.Debug().
-		Str("callsign", hostname).
+		Str("callsign", messages[0].GetCotEvent().GetUid()).
+		Int("events", len(messages)).
 		Float64("lat", pos.Latitude).
 		Float64("lon", pos.Longitude).
 		Float64("alt", pos.Altitude).
