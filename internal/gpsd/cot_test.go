@@ -381,12 +381,13 @@ func TestSendIfRequiredAsCoT_InvalidPosition(t *testing.T) {
 	}
 }
 
-// TestSendIfRequiredAsCoT_DHCPLeaseError tests that the function returns early
-// when DHCP leases cannot be retrieved
+// TestSendIfRequiredAsCoT_DHCPLeaseError documents that lease lookup failures
+// do not suppress ATAK SA multicast. It remains skipped because it exercises
+// the production UDP path.
 func TestSendIfRequiredAsCoT_DHCPLeaseError(t *testing.T) {
 	// NOTE: This test is skipped because in a test environment without OpenWRT/ubus,
-	// GetCurrentDHCPLeases() will always fail. The function handles this by returning early.
-	// This behavior is tested implicitly - the function won't panic and won't attempt multicast.
+	// GetCurrentDHCPLeases() will always fail and this test would exercise the
+	// production UDP multicast path.
 	t.Skip("Skipping DHCP lease error test - requires OpenWRT environment with ubus")
 
 	log := zerolog.Nop()
@@ -405,16 +406,16 @@ func TestSendIfRequiredAsCoT_DHCPLeaseError(t *testing.T) {
 		Mode:      3,
 	}
 
-	// Call the function - should return early due to DHCP lease error
+	// Call the function - it must still attempt multicast despite the lease error.
 	gps.SendIfRequiredAsCoT()
 
-	// Verify multicast was not sent (time should be zero)
+	// Verify multicast was attempted (the timestamp is set before the network write).
 	gps.mu.RLock()
 	lastTime := gps.lastMulticastTime
 	gps.mu.RUnlock()
 
-	if !lastTime.IsZero() {
-		t.Error("Expected lastMulticastTime to remain zero when DHCP leases cannot be retrieved")
+	if lastTime.IsZero() {
+		t.Error("Expected lastMulticastTime to be set when DHCP leases cannot be retrieved")
 	}
 }
 
@@ -422,7 +423,7 @@ func TestSendIfRequiredAsCoT_DHCPLeaseError(t *testing.T) {
 // when no DHCP leases are found
 func TestSendIfRequiredAsCoT_NoDevicesFound(t *testing.T) {
 	// NOTE: This test is skipped because it requires a working OpenWRT environment with ubus.
-	// In a test environment, GetCurrentDHCPLeases() will fail, causing the function to return early.
+	// In a test environment, GetCurrentDHCPLeases() will fail but multicast is still attempted.
 	t.Skip("Skipping no devices test - requires OpenWRT environment with ubus")
 
 	log := zerolog.Nop()
@@ -515,14 +516,14 @@ func TestSendIfRequiredAsCoT_RateLimiting(t *testing.T) {
 	}
 }
 
-// TestSendIfRequiredAsCoT_ActiveDevicePresent tests that multicast is NOT sent
-// when at least one active device is detected
+// TestSendIfRequiredAsCoT_ActiveDevicePresent documents that multicast is sent
+// even when an active device is detected, so ATAK receives camera capabilities.
 func TestSendIfRequiredAsCoT_ActiveDevicePresent(t *testing.T) {
 	// NOTE: This test is skipped because it requires:
 	// 1. A working OpenWRT environment with ubus to get DHCP leases
 	// 2. An actual device on the network responding to ARP
-	// The logic is straightforward: if checkDeviceActive returns true for any lease,
-	// deviceActive becomes true and multicast is skipped.
+	// The logic is straightforward: the active-device state is diagnostic only;
+	// the multicast advertisement is still sent.
 	t.Skip("Skipping active device test - requires OpenWRT environment and network devices")
 
 	log := zerolog.Nop()
@@ -544,13 +545,13 @@ func TestSendIfRequiredAsCoT_ActiveDevicePresent(t *testing.T) {
 	// Call the function - assuming at least one device is active
 	gps.SendIfRequiredAsCoT()
 
-	// Verify multicast was NOT sent (time should remain zero)
+	// Verify multicast was sent (time should be non-zero)
 	gps.mu.RLock()
 	lastTime := gps.lastMulticastTime
 	gps.mu.RUnlock()
 
-	if !lastTime.IsZero() {
-		t.Error("Expected lastMulticastTime to remain zero when active devices are present")
+	if lastTime.IsZero() {
+		t.Error("Expected lastMulticastTime to be set when active devices are present")
 	}
 }
 
