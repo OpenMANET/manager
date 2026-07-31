@@ -509,23 +509,7 @@ func findUnusedBatmesh(reader network.ConfigReader, excludeIface string) (string
 // radio to its running Linux interface name, then matching that to iwinfo data.
 func resolveHardwareName(radioName string, wsStatus map[string]*network.WirelessRadioStatus,
 	iwinfoData map[string]*iwinfo.InterfaceInfo) string {
-	if wsStatus == nil || iwinfoData == nil {
-		return ""
-	}
-
-	rs, ok := wsStatus[radioName]
-	if !ok || len(rs.Interfaces) == 0 {
-		return ""
-	}
-
-	ifname := rs.Interfaces[0].Ifname
-
-	info, ok := iwinfoData[ifname]
-	if !ok || info == nil {
-		return ""
-	}
-
-	return info.GetHardwareName()
+	return network.GetWirelessRadioHardwareName(radioName, wsStatus, iwinfoData)
 }
 
 // resolveIfname maps a UCI radio name to the running Linux interface name.

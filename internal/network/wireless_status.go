@@ -22,6 +22,38 @@ type WirelessRadioInterface struct {
 	Config  WirelessIfaceStatusConfig `json:"config"`
 }
 
+// GetWirelessRadioHardwareName correlates a UCI radio section with its runtime
+// wireless interfaces and returns the first hardware name reported by iwinfo.
+// It returns an empty string when the radio has no active interface or iwinfo
+// has no information for any of those interfaces.
+func GetWirelessRadioHardwareName(
+	radioName string,
+	status map[string]*WirelessRadioStatus,
+	iwinfoData map[string]*iwinfo.InterfaceInfo,
+) string {
+	if status == nil || iwinfoData == nil {
+		return ""
+	}
+
+	radio, ok := status[radioName]
+	if !ok || radio == nil {
+		return ""
+	}
+
+	for _, iface := range radio.Interfaces {
+		info, ok := iwinfoData[iface.Ifname]
+		if !ok || info == nil {
+			continue
+		}
+
+		if hardwareName := info.GetHardwareName(); hardwareName != "" {
+			return hardwareName
+		}
+	}
+
+	return ""
+}
+
 // WirelessIfaceStatusConfig is the nested config block inside the ubus response.
 type WirelessIfaceStatusConfig struct {
 	Mode string `json:"mode"`

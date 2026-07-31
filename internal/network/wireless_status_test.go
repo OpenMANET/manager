@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/openmanet/openmanetd/internal/iwinfo"
 )
 
 type wsUbusExecutor struct {
@@ -13,6 +15,28 @@ type wsUbusExecutor struct {
 
 func (m *wsUbusExecutor) Execute(_ context.Context, _ ...string) ([]byte, error) {
 	return m.output, m.err
+}
+
+func TestGetWirelessRadioHardwareName(t *testing.T) {
+	status := map[string]*WirelessRadioStatus{
+		"radio2": {
+			Interfaces: []WirelessRadioInterface{
+				{Ifname: "missing"},
+				{Ifname: "phy0-ap0"},
+			},
+		},
+	}
+	iwinfoData := map[string]*iwinfo.InterfaceInfo{
+		"phy0-ap0": {Hardware: iwinfo.HardwareInfo{Name: "MediaTek MT7915AN"}},
+	}
+
+	if got, want := GetWirelessRadioHardwareName("radio2", status, iwinfoData), "MediaTek MT7915AN"; got != want {
+		t.Errorf("GetWirelessRadioHardwareName() = %q, want %q", got, want)
+	}
+
+	if got := GetWirelessRadioHardwareName("missing", status, iwinfoData); got != "" {
+		t.Errorf("GetWirelessRadioHardwareName() for missing radio = %q, want empty", got)
+	}
 }
 
 func TestGetWirelessStatus_MultipleRadios(t *testing.T) {

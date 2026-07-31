@@ -115,6 +115,8 @@ func (m *ManagementConfig) setupBatMesh1Interface(ctx context.Context) error {
 		m.uciOpenMANETConfig,
 		network.NewUCIWirelessConfigReader(),
 		iwinfo.NewClient(),
+		network.NewDefaultWirelessStatusProvider(),
+		network.ForceReloadConfig,
 	)
 }
 
@@ -122,8 +124,9 @@ func (m *ManagementConfig) setupBatMesh1Interface(ctx context.Context) error {
 // wireless interface. It is idempotent: if batmesh1configured is already set to
 // true the method returns immediately. The method:
 //
-//  1. Checks that at least one wireless interface uses a supported MediaTek
-//     chipset (MT7915 or MT7916) via iwinfo.
+//  1. Correlates each UCI 2.4 GHz radio to its runtime interface through
+//     network.wireless status, then checks that exact interface's hardware via
+//     iwinfo. It proceeds only for one uniquely identified MT7915/MT7916 radio.
 //  2. Locates an existing wifi-iface with mode=mesh and borrows its mesh_id and
 //     key values.
 //  3. Locates the wifi-device with band=2g and derives the new interface section
@@ -137,6 +140,8 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 	openmanetReader network.OpenMANETConfigReader,
 	wirelessReader network.ConfigReader,
 	iwinfoProvider iwinfo.IwinfoProvider,
+	wirelessStatus network.WirelessStatusProvider,
+	reloadFn func(context.Context) error,
 ) error {
 	// Step 1: guard — return early if already configured.
 	configured, err := network.IsBatMesh1ConfiguredWithReader(openmanetReader)
@@ -156,26 +161,44 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 		return fmt.Errorf("get iwinfo for all devices: %w", err)
 	}
 
-	var supportedHardwareFound bool
-
-	for _, info := range allInfo {
-		name := info.Hardware.GetName()
-		if strings.Contains(name, "MT7915") || strings.Contains(name, "MT7916") {
-			m.Log.Debug().Str("hardware", name).Msg("Found supported MediaTek chipset for batmesh1")
-
-			supportedHardwareFound = true
-
-			break
-		}
-	}
-
-	if !supportedHardwareFound {
-		m.Log.Debug().Msg("No supported MediaTek hardware (MT7915 or MT7916) found for batmesh1 configuration")
+	status, err := wirelessStatus.GetWirelessStatus(ctx)
+	if err != nil {
+		m.Log.Debug().Err(err).Msg("Wireless status unavailable; skipping batmesh1 auto-configuration")
 
 		return nil
 	}
 
-	// Step 3: find mesh credentials from an existing mesh wifi-iface.
+	// Step 3: identify the exact supported 2.4 GHz radio. Never fall back to
+	// the first band=2g section: the supported chipset may belong to another
+	// radio on multi-radio boards.
+	deviceSections, err := wirelessReader.GetSections("wireless", "wifi-device")
+	if err != nil {
+		return fmt.Errorf("get wifi-device sections: %w", err)
+	}
+
+	var supportedRadios []string
+
+	for _, section := range deviceSections {
+		dev, derr := network.GetWirelessDeviceByNameWithReader(section, wirelessReader)
+		if derr != nil || dev.Band != "2g" {
+			continue
+		}
+
+		hardwareName := network.GetWirelessRadioHardwareName(section, status, allInfo)
+		if strings.Contains(hardwareName, "MT7915") || strings.Contains(hardwareName, "MT7916") {
+			supportedRadios = append(supportedRadios, section)
+		}
+	}
+
+	if len(supportedRadios) != 1 {
+		m.Log.Debug().Int("matching_radios", len(supportedRadios)).Msg("Could not uniquely identify a supported 2g radio; skipping batmesh1 auto-configuration")
+
+		return nil
+	}
+
+	radioSection := supportedRadios[0]
+
+	// Step 4: find mesh credentials from an existing mesh wifi-iface.
 	ifaceSections, err := wirelessReader.GetSections("wireless", "wifi-iface")
 	if err != nil {
 		return fmt.Errorf("get wifi-iface sections: %w", err)
@@ -199,31 +222,6 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 
 	if meshID == "" {
 		return fmt.Errorf("no existing wifi-iface with mode=mesh found; cannot determine mesh credentials")
-	}
-
-	// Step 4: find the 2g radio.
-	deviceSections, err := wirelessReader.GetSections("wireless", "wifi-device")
-	if err != nil {
-		return fmt.Errorf("get wifi-device sections: %w", err)
-	}
-
-	var radioSection string
-
-	for _, section := range deviceSections {
-		dev, derr := network.GetWirelessDeviceByNameWithReader(section, wirelessReader)
-		if derr != nil {
-			continue
-		}
-
-		if dev.Band == "2g" {
-			radioSection = section
-
-			break
-		}
-	}
-
-	if radioSection == "" {
-		return fmt.Errorf("no wifi-device with band=2g found")
 	}
 
 	newIfaceSection := "default_" + radioSection
@@ -266,7 +264,9 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 	m.Log.Info().Msg("batmesh1 interface configuration complete")
 
 	// Reload the UCI config to apply changes and ensure the new interface is active.
-	_ = network.ForceReloadConfig(ctx)
+	if err := reloadFn(ctx); err != nil {
+		return fmt.Errorf("reload config after batmesh1 setup: %w", err)
+	}
 
 	return nil
 }
