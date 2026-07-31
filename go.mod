@@ -21,9 +21,9 @@ require (
 	github.com/mdlayher/wifi v0.8.0
 	github.com/msteinert/pam/v2 v2.1.0
 	github.com/openmanet/go-alfred v0.0.0-20240429120015-8f3f3f4e2f4e
-	github.com/pion/interceptor v0.1.44
+	github.com/pion/interceptor v0.1.47
 	github.com/pion/rtcp v1.2.17
-	github.com/pion/rtp v1.10.3
+	github.com/pion/rtp v1.10.5
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10
 	github.com/rs/cors v1.11.1
 	github.com/rs/zerolog v1.35.1
