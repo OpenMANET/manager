@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 )
 
 // Tests for cot.go functions:
@@ -14,6 +16,29 @@ import (
 // - checkDeviceActive
 // - sendCoTToMulticast
 // - sendCoTTAsExternalGPS
+
+func TestSendIfRequiredAsCoT_DisabledByConfig(t *testing.T) {
+	v := viper.New()
+	v.Set("gnss.sendAsExternalGNSSSource.sendAsCoT", false)
+
+	gps := &GPSService{
+		Log:    zerolog.Nop(),
+		Config: config.NewWithoutWatch(v),
+		position: PositionReport{
+			Valid: true,
+			Mode:  3,
+		},
+	}
+
+	gps.SendIfRequiredAsCoT()
+
+	gps.mu.RLock()
+	defer gps.mu.RUnlock()
+
+	if !gps.lastMulticastTime.IsZero() {
+		t.Error("disabled CoT publication must not update the multicast rate-limit timestamp")
+	}
+}
 
 func TestSendCoTToMulticast(t *testing.T) {
 	log := zerolog.Nop()

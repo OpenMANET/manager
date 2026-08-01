@@ -19,19 +19,28 @@ import (
 )
 
 // SendIfRequiredAsCoT sends the GPS position as a Cursor-on-Target (CoT) message to End User Devices (EUDs).
-// It first validates that a GPS position is available, then retrieves active DHCP leases to identify
+// It first checks whether CoT publication is enabled, validates that a GPS position is available, then retrieves active DHCP leases to identify
 // potential EUD recipients. The method checks each leased device for activity for diagnostics and
 // publishes the CoT message to the ATAK Situational Awareness (SA) multicast address, subject to
 // rate limiting (once every 30 seconds) to prevent network flooding. Publishing regardless of DHCP
 // lease state is necessary for ATAK clients to receive advertised node capabilities such as video.
 //
 // The method performs the following steps:
-//  1. Validates GPS position availability
-//  2. Records reachable DHCP EUDs for diagnostics when lease data is available
-//  3. Sends to the SA multicast group (rate-limited)
+//  1. Checks whether CoT publication is enabled in configuration
+//  2. Validates GPS position availability
+//  3. Records reachable DHCP EUDs for diagnostics when lease data is available
+//  4. Sends to the SA multicast group (rate-limited)
 //
 // Errors are logged but do not halt execution; the method returns early on validation failures.
 func (g *GPSService) SendIfRequiredAsCoT() {
+	// A nil Config is retained for backwards compatibility with callers that
+	// construct GPSService directly. Production services always have a config.
+	if g.Config != nil && !g.Config.GetGNSSSendAsCoT() {
+		g.Log.Debug().Msg("ATAK CoT multicast disabled by configuration")
+
+		return
+	}
+
 	// Check if we have a valid GPS position
 	if !g.IsValid() {
 		g.Log.Warn().Msg("No valid GPS position to send to EUDs")
