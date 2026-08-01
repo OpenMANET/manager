@@ -36,14 +36,15 @@ type Node struct {
 	UID      string
 }
 
-// BuildNodeMessages returns the node's ordinary radio event and, when stream
-// is present, a video-source event and a separately clickable camera sensor
-// event. The sensor refers to the video event by stable UID.
+// BuildNodeMessages returns the node's ordinary radio event when no camera
+// stream is available. When a stream is present, it returns a video-source
+// event and a separately clickable camera sensor event instead, so ATAK shows
+// one node marker rather than both a radio marker and a camera marker. The
+// sensor refers to the video event by stable UID.
 func BuildNodeMessages(now time.Time, position Position, node Node, stream *CameraStream) ([]*cotproto.TakMessage, error) {
 	node = normalizeNode(node)
-	messages := []*cotproto.TakMessage{buildRadioMessage(now, position, node)}
 	if stream == nil {
-		return messages, nil
+		return []*cotproto.TakMessage{buildRadioMessage(now, position, node)}, nil
 	}
 
 	video, err := buildVideoMessage(now, position, node, *stream)
@@ -55,7 +56,7 @@ func BuildNodeMessages(now time.Time, position Position, node Node, stream *Came
 		return nil, err
 	}
 
-	return append(messages, video, sensor), nil
+	return []*cotproto.TakMessage{video, sensor}, nil
 }
 
 func normalizeNode(node Node) Node {

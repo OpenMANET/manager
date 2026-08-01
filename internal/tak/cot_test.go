@@ -33,7 +33,7 @@ func TestBuildNodeMessagesWithoutCameraPreservesRadioMarker(t *testing.T) {
 	}
 }
 
-func TestBuildNodeMessagesCreatesLinkedCameraAndVideoEvents(t *testing.T) {
+func TestBuildNodeMessagesWithCameraReplacesRadioMarker(t *testing.T) {
 	t.Parallel()
 
 	stream := &CameraStream{Address: "10.41.0.1", Port: 8554, Path: "/rpicamera"}
@@ -41,14 +41,11 @@ func TestBuildNodeMessagesCreatesLinkedCameraAndVideoEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildNodeMessages() error = %v", err)
 	}
-	if len(messages) != 3 {
-		t.Fatalf("message count = %d, want 3", len(messages))
+	if len(messages) != 2 {
+		t.Fatalf("message count = %d, want 2", len(messages))
 	}
 
-	radio, video, sensor := messages[0].GetCotEvent(), messages[1].GetCotEvent(), messages[2].GetCotEvent()
-	if radio.GetType() != radioUnitType || radio.GetUid() != "node-1-MANET" {
-		t.Fatalf("radio = type %q uid %q", radio.GetType(), radio.GetUid())
-	}
+	video, sensor := messages[0].GetCotEvent(), messages[1].GetCotEvent()
 	if video.GetType() != videoSourceType || video.GetUid() != "node-1-MANET-video" {
 		t.Fatalf("video = type %q uid %q", video.GetType(), video.GetUid())
 	}
@@ -103,6 +100,10 @@ func TestBuildNodeMessagesRoundTripsAsMeshPackets(t *testing.T) {
 	messages, err := BuildNodeMessages(testTime(), testPosition(), Node{UID: "node-1", Callsign: "NODE-1"}, &CameraStream{Address: "10.41.0.1", Port: 554, Path: "/rpicamera"})
 	if err != nil {
 		t.Fatalf("BuildNodeMessages() error = %v", err)
+	}
+
+	if len(messages) != 2 {
+		t.Fatalf("message count = %d, want 2", len(messages))
 	}
 
 	for _, message := range messages {
