@@ -16,7 +16,6 @@ import (
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/tak"
 	"github.com/openmanet/openmanetd/internal/util/board"
-	"golang.org/x/net/ipv4"
 )
 
 // SendIfRequiredAsCoT sends the GPS position as a Cursor-on-Target (CoT) message to End User Devices (EUDs).
@@ -210,23 +209,11 @@ func (g *GPSService) sendCoTToMulticast() error {
 		return fmt.Errorf("build ATAK CoT messages: %w", err)
 	}
 
-	// Send to multicast address
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", config.ATAKSAAddress, atakSAMulticastPort))
+	sender, err := newATAKMulticastSender()
 	if err != nil {
-		return fmt.Errorf("failed to resolve multicast address: %w", err)
+		return err
 	}
-
-	conn, err := net.DialUDP("udp", nil, addr)
-	if err != nil {
-		return fmt.Errorf("failed to dial multicast: %w", err)
-	}
-	defer conn.Close()
-
-	// Set multicast TTL to 64
-	pconn := ipv4.NewPacketConn(conn)
-	if ttlErr := pconn.SetMulticastTTL(atakMulticastTTL); ttlErr != nil {
-		g.Log.Warn().Err(ttlErr).Msg("Failed to set multicast TTL")
-	}
+	defer sender.Close()
 
 	for _, message := range messages {
 		data, marshalErr := cot.MakeProtoMeshPacketV1(message)
@@ -234,8 +221,8 @@ func (g *GPSService) sendCoTToMulticast() error {
 			return fmt.Errorf("marshal CoT protobuf: %w", marshalErr)
 		}
 
-		if _, writeErr := pconn.WriteTo(data, nil, addr); writeErr != nil {
-			return fmt.Errorf("send CoT message: %w", writeErr)
+		if sendErr := sender.Send(data); sendErr != nil {
+			return sendErr
 		}
 	}
 
@@ -331,27 +318,14 @@ func (g *GPSService) sendCoTPing() error {
 		return fmt.Errorf("failed to marshal CoT protobuf: %w", err)
 	}
 
-	// Send to multicast address
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%s", config.ATAKSAAddress, atakSAMulticastPort))
+	sender, err := newATAKMulticastSender()
 	if err != nil {
-		return fmt.Errorf("failed to resolve multicast address: %w", err)
+		return err
 	}
+	defer sender.Close()
 
-	conn, err := net.DialUDP("udp", nil, addr)
-	if err != nil {
-		return fmt.Errorf("failed to dial multicast: %w", err)
-	}
-	defer conn.Close()
-
-	// Set multicast TTL to 64
-	pconn := ipv4.NewPacketConn(conn)
-	if ttlErr := pconn.SetMulticastTTL(atakMulticastTTL); ttlErr != nil {
-		g.Log.Warn().Err(ttlErr).Msg("Failed to set multicast TTL")
-	}
-
-	_, err = pconn.WriteTo(data, nil, addr)
-	if err != nil {
-		return fmt.Errorf("failed to send CoT message: %w", err)
+	if err := sender.Send(data); err != nil {
+		return err
 	}
 
 	return nil
