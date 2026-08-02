@@ -11,7 +11,9 @@ import (
 )
 
 const (
-	radioUnitType    = "a-f-G-U-U-S-R"
+	// DefaultCoTType is used for a node's radio marker unless the caller
+	// supplies an explicit Node.CoTType override.
+	DefaultCoTType   = "a-f-G-U-U-S-R"
 	cameraSensorType = "b-m-p-s-p-loc"
 	videoSourceType  = "b-i-v"
 	defaultStaleTime = 5 * time.Minute
@@ -32,6 +34,7 @@ type Position struct {
 // Node identifies the OpenMANET node whose events are being advertised.
 type Node struct {
 	Callsign string
+	CoTType  string
 	Platform string
 	UID      string
 }
@@ -75,11 +78,15 @@ func normalizeNode(node Node) Node {
 		node.Platform = "OpenMANET"
 	}
 
+	if node.CoTType == "" {
+		node.CoTType = DefaultCoTType
+	}
+
 	return node
 }
 
 func buildRadioMessage(now time.Time, position Position, node Node) *cotproto.TakMessage {
-	return message(now, position, radioUnitType, node.UID, node.Callsign, &cotproto.Detail{
+	return message(now, position, node.CoTType, node.UID, node.Callsign, &cotproto.Detail{
 		Contact: &cotproto.Contact{Callsign: node.Callsign},
 		Group:   &cotproto.Group{Name: "Magenta", Role: "MANET Radio"},
 		Takv: &cotproto.Takv{

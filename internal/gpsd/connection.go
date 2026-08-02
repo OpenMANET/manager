@@ -59,12 +59,10 @@ func (g *GPSService) Close() error {
 	}
 
 	g.mu.Lock()
-	conn := g.conn
-	g.conn = nil
-	g.mu.Unlock()
+	defer g.mu.Unlock()
 
-	if conn != nil {
-		return conn.Close()
+	if g.conn != nil {
+		return g.conn.Close()
 	}
 
 	return nil
@@ -112,41 +110,30 @@ func (g *GPSService) connectionHandler() {
 	}
 }
 
-// connect establishes the GPSD connection used for TPV/SKY and optional NMEA reports.
+// connect establishes a connection to GPSD and sends the watch command.
 func (g *GPSService) connect() error {
-	watchCommand := gpsdJSONWatchCommand
-	if g.nmeaForwardingEnabled() {
-		watchCommand = gpsdJSONNMEAWatchCommand
-	}
-
-	conn, err := g.connectWithWatch(watchCommand)
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", g.address)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to dial GPSD: %w", err)
 	}
 
 	g.mu.Lock()
 	g.conn = conn
 	g.mu.Unlock()
 
-	g.Log.Info().Str("address", g.address).Msg("Connected to GPSD")
-
-	return nil
-}
-
-func (g *GPSService) connectWithWatch(watchCommand string) (net.Conn, error) {
-	conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", g.address)
-	if err != nil {
-		return nil, fmt.Errorf("failed to dial GPSD: %w", err)
+	watchCommand := gpsdJSONWatchCommand
+	if g.nmeaForwardingEnabled() {
+		watchCommand = gpsdJSONNMEAWatchCommand
 	}
 
 	_, err = conn.Write([]byte(watchCommand))
 	if err != nil {
 		conn.Close()
 
-		return nil, fmt.Errorf("failed to send watch command: %w", err)
+		return fmt.Errorf("failed to send watch command: %w", err)
 	}
 
-	return conn, nil
+	return nil
 }
 
 // readGPSD reads and processes data from GPSD
@@ -154,10 +141,7 @@ func (g *GPSService) readGPSD() {
 	g.mu.RLock()
 	conn := g.conn
 	g.mu.RUnlock()
-	g.readGPSDConnection(conn, g.processGPSDMessage)
-}
 
-func (g *GPSService) readGPSDConnection(conn net.Conn, process func(string)) {
 	if conn == nil {
 		return
 	}
@@ -168,7 +152,7 @@ func (g *GPSService) readGPSDConnection(conn net.Conn, process func(string)) {
 		case <-g.done:
 			return
 		default:
-			process(scanner.Text())
+			g.processGPSDMessage(scanner.Text())
 		}
 	}
 

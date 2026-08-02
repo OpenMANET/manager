@@ -1,6 +1,6 @@
 module github.com/openmanet/openmanetd
 
-go 1.26.1
+go 1.26.3
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1
@@ -38,7 +38,7 @@ require (
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
-	tailscale.com v1.94.2
+	tailscale.com v1.98.2
 )
 
 require (

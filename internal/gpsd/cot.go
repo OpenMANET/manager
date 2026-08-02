@@ -23,7 +23,7 @@ import (
 // potential EUD recipients. The method checks each leased device for activity for diagnostics and
 // publishes the CoT message to the ATAK Situational Awareness (SA) multicast address, subject to
 // rate limiting (once every 30 seconds) to prevent network flooding. Publishing regardless of DHCP
-// lease state is necessary for ATAK clients to receive advertised node capabilities such as video.
+// lease state is necessary because an ATAK receiver may be reachable through another mesh radio.
 //
 // The method performs the following steps:
 //  1. Checks whether CoT publication is enabled in configuration
@@ -48,8 +48,8 @@ func (g *GPSService) SendIfRequiredAsCoT() {
 		return
 	}
 
-	// Track whether any EUD is active for diagnostics. CoT is still sent to the
-	// SA multicast group so connected ATAK clients receive node capabilities.
+	// Track whether any EUD is active for diagnostics only. Local DHCP and ARP
+	// cannot detect an ATAK receiver reached through another mesh radio.
 	deviceActive := false
 
 	leases, err := network.GetCurrentDHCPLeases()

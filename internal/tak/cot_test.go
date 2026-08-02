@@ -23,7 +23,7 @@ func TestBuildNodeMessagesWithoutCameraPreservesRadioMarker(t *testing.T) {
 	}
 
 	event := messages[0].GetCotEvent()
-	if event.GetType() != radioUnitType || event.GetUid() != "node-1-MANET" {
+	if event.GetType() != DefaultCoTType || event.GetUid() != "node-1-MANET" {
 		t.Fatalf("radio event = type %q uid %q", event.GetType(), event.GetUid())
 	}
 
@@ -33,6 +33,22 @@ func TestBuildNodeMessagesWithoutCameraPreservesRadioMarker(t *testing.T) {
 
 	if event.GetDetail().GetContact().GetCallsign() != "node-1-MANET" || event.GetDetail().GetTakv().GetPlatform() != "Raspberry Pi (OpenMANET)" {
 		t.Fatalf("radio detail = %+v", event.GetDetail())
+	}
+}
+
+func TestBuildNodeMessagesUsesCoTTypeOverride(t *testing.T) {
+	t.Parallel()
+
+	messages, err := BuildNodeMessages(testTime(), testPosition(), Node{
+		UID:     "node-1",
+		CoTType: "a-f-G-U-C",
+	}, nil)
+	if err != nil {
+		t.Fatalf("BuildNodeMessages() error = %v", err)
+	}
+
+	if got := messages[0].GetCotEvent().GetType(); got != "a-f-G-U-C" {
+		t.Fatalf("event type = %q, want override %q", got, "a-f-G-U-C")
 	}
 }
 
