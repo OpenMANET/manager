@@ -41,14 +41,14 @@ func TestNewGPSService(t *testing.T) {
 	}
 }
 
-func TestGPSService_UsesSeparateJSONAndNMEAWatchSessions(t *testing.T) {
+func TestGPSService_UsesCombinedJSONAndNMEAWatchSession(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer listener.Close()
 
-	commands := make(chan string, 2)
+	commands := make(chan string, 1)
 
 	release := make(chan struct{})
 	defer close(release)
@@ -88,27 +88,13 @@ func TestGPSService_UsesSeparateJSONAndNMEAWatchSessions(t *testing.T) {
 	}
 	defer gps.Close()
 
-	seenJSON := false
-	seenNMEA := false
-
-	for range 2 {
-		select {
-		case command := <-commands:
-			switch command {
-			case gpsdJSONWatchCommand:
-				seenJSON = true
-			case gpsdNMEAWatchCommand:
-				seenNMEA = true
-			default:
-				t.Fatalf("unexpected gpsd watch command: %q", command)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("did not receive both gpsd watch commands")
+	select {
+	case command := <-commands:
+		if command != gpsdJSONNMEAWatchCommand {
+			t.Fatalf("gpsd watch command = %q, want %q", command, gpsdJSONNMEAWatchCommand)
 		}
-	}
-
-	if !seenJSON || !seenNMEA {
-		t.Fatalf("expected separate JSON and NMEA watches, got json=%t nmea=%t", seenJSON, seenNMEA)
+	case <-time.After(time.Second):
+		t.Fatal("did not receive gpsd watch command")
 	}
 
 	deadline := time.Now().Add(time.Second)
@@ -117,7 +103,7 @@ func TestGPSService_UsesSeparateJSONAndNMEAWatchSessions(t *testing.T) {
 	}
 
 	if !gps.IsValid() {
-		t.Fatal("TPV from the JSON-only session did not produce a valid position")
+		t.Fatal("TPV from the combined JSON/NMEA session did not produce a valid position")
 	}
 }
 

@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	gpsdJSONWatchCommand = "?WATCH={\"enable\":true,\"json\":true}\n"
-	gpsdNMEAWatchCommand = "?WATCH={\"enable\":true,\"nmea\":true}\n"
+	gpsdJSONWatchCommand     = "?WATCH={\"enable\":true,\"json\":true}\n"
+	gpsdJSONNMEAWatchCommand = "?WATCH={\"enable\":true,\"json\":true,\"nmea\":true}\n"
 )
 
 // NewGPSService creates a new GPS service that connects to GPSD and monitors TPV reports.
@@ -23,9 +23,10 @@ func NewGPSService(log zerolog.Logger, cfg *config.Config) (*GPSService, error) 
 }
 
 // NewGPSServiceWithAddress creates a new GPS service with a custom GPSD address.
-// JSON/TPV reports and raw NMEA sentences use independent gpsd sessions. Some
-// gpsd versions do not emit TPV reports when JSON and NMEA are requested on the
-// same WATCH session.
+// The GPSD WATCH protocol controls JSON and NMEA output independently for this
+// subscriber. When NMEA forwarding is enabled, this service receives both on
+// its single connection and dispatches each message by format.
+// See https://gpsd.io/gpsd_json.html#_watch_object.
 func NewGPSServiceWithAddress(log zerolog.Logger, cfg *config.Config, address string) (*GPSService, error) {
 	done := make(chan struct{})
 	cancel := context.CancelFunc(func() {
@@ -48,10 +49,6 @@ func NewGPSServiceWithAddress(log zerolog.Logger, cfg *config.Config, address st
 	// Start the connection handler in a goroutine
 	go g.connectionHandler()
 
-	if g.nmeaForwardingEnabled() {
-		go g.nmeaConnectionHandler()
-	}
-
 	return g, nil
 }
 
@@ -62,24 +59,15 @@ func (g *GPSService) Close() error {
 	}
 
 	g.mu.Lock()
-	connections := []net.Conn{g.conn, g.nmeaConn}
+	conn := g.conn
 	g.conn = nil
-	g.nmeaConn = nil
 	g.mu.Unlock()
 
-	var firstErr error
-
-	for _, conn := range connections {
-		if conn == nil {
-			continue
-		}
-
-		if err := conn.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
+	if conn != nil {
+		return conn.Close()
 	}
 
-	return firstErr
+	return nil
 }
 
 // connectionHandler manages the connection to GPSD with automatic reconnection
@@ -124,32 +112,14 @@ func (g *GPSService) connectionHandler() {
 	}
 }
 
-// nmeaConnectionHandler manages the optional raw NMEA connection separately
-// from the JSON connection used for TPV/SKY and CoT generation.
-func (g *GPSService) nmeaConnectionHandler() {
-	for {
-		select {
-		case <-g.done:
-			return
-		default:
-			err := g.connectNMEA()
-			if err != nil {
-				g.Log.Error().Err(err).Msg("Failed to connect to GPSD for NMEA")
-				time.Sleep(g.reconnectDelay)
-
-				continue
-			}
-
-			g.readNMEA()
-			g.Log.Warn().Msg("NMEA connection to GPSD lost, reconnecting...")
-			time.Sleep(g.reconnectDelay)
-		}
-	}
-}
-
-// connect establishes the JSON-only GPSD connection used for TPV/SKY reports.
+// connect establishes the GPSD connection used for TPV/SKY and optional NMEA reports.
 func (g *GPSService) connect() error {
-	conn, err := g.connectWithWatch(gpsdJSONWatchCommand)
+	watchCommand := gpsdJSONWatchCommand
+	if g.nmeaForwardingEnabled() {
+		watchCommand = gpsdJSONNMEAWatchCommand
+	}
+
+	conn, err := g.connectWithWatch(watchCommand)
 	if err != nil {
 		return err
 	}
@@ -159,21 +129,6 @@ func (g *GPSService) connect() error {
 	g.mu.Unlock()
 
 	g.Log.Info().Str("address", g.address).Msg("Connected to GPSD")
-
-	return nil
-}
-
-func (g *GPSService) connectNMEA() error {
-	conn, err := g.connectWithWatch(gpsdNMEAWatchCommand)
-	if err != nil {
-		return err
-	}
-
-	g.mu.Lock()
-	g.nmeaConn = conn
-	g.mu.Unlock()
-
-	g.Log.Info().Str("address", g.address).Msg("Connected to GPSD for NMEA")
 
 	return nil
 }
@@ -200,14 +155,6 @@ func (g *GPSService) readGPSD() {
 	conn := g.conn
 	g.mu.RUnlock()
 	g.readGPSDConnection(conn, g.processGPSDMessage)
-}
-
-// readNMEA reads raw NMEA sentences from the NMEA-only gpsd session.
-func (g *GPSService) readNMEA() {
-	g.mu.RLock()
-	conn := g.nmeaConn
-	g.mu.RUnlock()
-	g.readGPSDConnection(conn, g.processNMEASentence)
 }
 
 func (g *GPSService) readGPSDConnection(conn net.Conn, process func(string)) {
