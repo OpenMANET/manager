@@ -416,6 +416,7 @@ func TestSetupBatMesh1Interface_HardwareMatch_MT7915(t *testing.T) {
 
 	wireless := newFakeWirelessReader()
 	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
+
 	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
 
 	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio("radio1", "wlan0"), noOpReload)
@@ -550,8 +551,8 @@ func TestSetupBatMesh1Interface_Success(t *testing.T) {
 		t.Errorf("Channel: got %q, want %q", radio.Channel, "8")
 	}
 
-	if radio.HTMode != "HE20" {
-		t.Errorf("HTMode: got %q, want %q", radio.HTMode, "HE20")
+	if radio.HTMode != batmesh1HTMode {
+		t.Errorf("HTMode: got %q, want %q", radio.HTMode, batmesh1HTMode)
 	}
 
 	// Verify band=2g is preserved (was set during seed).
@@ -588,6 +589,7 @@ func TestSetupBatMesh1Interface_SelectsMappedSupportedRadio(t *testing.T) {
 		"radio0": {Interfaces: []network.WirelessRadioInterface{{Ifname: "phy0-ap0"}}},
 		"radio1": {Interfaces: []network.WirelessRadioInterface{{Ifname: "phy1-mesh0"}}},
 	}}
+
 	var reloadCalls int
 
 	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, status, func(context.Context) error {
@@ -599,7 +601,7 @@ func TestSetupBatMesh1Interface_SelectsMappedSupportedRadio(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if _, err := network.GetWirelessIfaceByNameWithReader("default_radio0", wireless); err == nil {
+	if _, exists := wireless.Get("wireless", "default_radio0", "device"); exists {
 		t.Fatal("unexpected batmesh1 interface on unrelated radio0")
 	}
 
@@ -617,7 +619,7 @@ func TestSetupBatMesh1Interface_SelectsMappedSupportedRadio(t *testing.T) {
 		t.Fatalf("read matched radio1: %v", err)
 	}
 
-	if radio1.Channel != "8" || radio1.HTMode != "HE20" || radio1.Disabled != "0" {
+	if radio1.Channel != "8" || radio1.HTMode != batmesh1HTMode || radio1.Disabled != "0" {
 		t.Errorf("matched radio1 was not configured: %+v", radio1)
 	}
 
@@ -635,6 +637,7 @@ func TestSetupBatMesh1Interface_WirelessStatusUnavailableDoesNotWriteOrReload(t 
 	wireless.seedMeshIface("existing_mesh", "radio4", "halowmesh", "secretkey")
 	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
 	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
+
 	var reloadCalls int
 
 	err := m.setupBatMesh1InterfaceWithDeps(
@@ -671,6 +674,7 @@ func TestSetupBatMesh1Interface_AmbiguousSupportedRadiosDoesNotWriteOrReload(t *
 		"radio0": {Interfaces: []network.WirelessRadioInterface{{Ifname: "phy0-ap0"}}},
 		"radio1": {Interfaces: []network.WirelessRadioInterface{{Ifname: "phy1-mesh0"}}},
 	}}
+
 	var reloadCalls int
 
 	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, status, func(context.Context) error {
@@ -695,6 +699,7 @@ func TestSetupBatMesh1Interface_ReloadErrorReturned(t *testing.T) {
 	wireless := newFakeWirelessReader()
 	wireless.seedMeshIface("existing_mesh", "radio4", "halowmesh", "secretkey")
 	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
+
 	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
 
 	err := m.setupBatMesh1InterfaceWithDeps(

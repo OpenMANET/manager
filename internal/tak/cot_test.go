@@ -75,7 +75,7 @@ func TestBuildNodeMessagesWithCameraReplacesRadioMarker(t *testing.T) {
 		videoDetail.Video.Connection.Address != "10.41.0.1" ||
 		videoDetail.Video.Connection.Path != "/rpicamera" ||
 		videoDetail.Video.Connection.Port != 8554 ||
-		videoDetail.Video.Connection.Protocol != "rtsp" ||
+		videoDetail.Video.Connection.Protocol != rtspScheme ||
 		videoDetail.Video.Connection.Alias != "NODE & 1 Video" {
 		t.Fatalf("unexpected video detail: %+v", videoDetail.Video)
 	}

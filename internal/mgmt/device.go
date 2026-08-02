@@ -23,7 +23,8 @@ const (
 
 	// wifiModeMesh is the wifi-iface `mode` value used by 802.11s mesh
 	// interfaces (e.g. batmesh0/batmesh1).
-	wifiModeMesh = "mesh"
+	wifiModeMesh   = "mesh"
+	batmesh1HTMode = "HE20"
 )
 
 // setTransportInterfaceMTU sets the MTU (Maximum Transmission Unit) for all
@@ -246,7 +247,7 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 	// Step 6: update the 2g radio device.
 	radioUpdate := &network.UCIWirelessDevice{
 		Channel:  "8",
-		HTMode:   "HE20",
+		HTMode:   batmesh1HTMode,
 		Disabled: "0",
 	}
 
@@ -254,7 +255,7 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 		return fmt.Errorf("update wifi-device %s: %w", radioSection, err)
 	}
 
-	m.Log.Info().Str("section", radioSection).Str("channel", "8").Str("htmode", "HE20").Str("disabled", "0").Msg("Updated 2g radio for batmesh1")
+	m.Log.Info().Str("section", radioSection).Str("channel", "8").Str("htmode", batmesh1HTMode).Str("disabled", "0").Msg("Updated 2g radio for batmesh1")
 
 	// Step 7: mark batmesh1 as configured.
 	if err := network.SetBatMesh1ConfiguredWithReader(openmanetReader); err != nil {

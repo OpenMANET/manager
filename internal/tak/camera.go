@@ -21,6 +21,7 @@ const (
 	defaultCameraInterface = "ahwlan"
 	defaultRTSPPort        = 554
 	defaultRTSPPath        = "/rpicamera"
+	rtspScheme             = "rtsp"
 	cameraProbeTimeout     = 2 * time.Second
 )
 
@@ -36,7 +37,7 @@ type CameraStream struct {
 // URL returns the canonical RTSP URL for the stream.
 func (s CameraStream) URL() string {
 	return (&url.URL{
-		Scheme: "rtsp",
+		Scheme: rtspScheme,
 		Host:   net.JoinHostPort(s.Address, strconv.Itoa(s.Port)),
 		Path:   s.Path,
 	}).String()
@@ -76,6 +77,7 @@ func discoverCameraStreamWith(
 
 	iface := configValue(reader, "camera-onvif-server", "rpicamera", "interface", defaultCameraInterface)
 	device := configValue(reader, "network", iface, "device", iface)
+
 	address := firstIPv4Address(lookup(device))
 	if address == "" {
 		return nil, fmt.Errorf("camera interface %q (%s) has no live IPv4 address", iface, device)

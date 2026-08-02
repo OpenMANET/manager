@@ -64,9 +64,8 @@ func normalizeNode(node Node) Node {
 	if !strings.Contains(strings.ToLower(node.UID), "manet") {
 		node.UID += "-MANET"
 	}
-	if node.Callsign == "" {
-		node.Callsign = node.UID
-	} else if node.Callsign == originalUID {
+	switch node.Callsign {
+	case "", originalUID:
 		node.Callsign = node.UID
 	}
 	if node.Platform == "" {
@@ -89,6 +88,7 @@ func buildRadioMessage(now time.Time, position Position, node Node) *cotproto.Ta
 
 func buildVideoMessage(now time.Time, position Position, node Node, stream CameraStream) (*cotproto.TakMessage, error) {
 	videoUID := node.UID + "-video"
+
 	detail, err := videoDetail(stream, videoUID, node.Callsign+" Video")
 	if err != nil {
 		return nil, err
@@ -148,17 +148,18 @@ type videoXML struct {
 }
 
 type connectionEntryXML struct {
-	Address           string `xml:"address,attr"`
-	Alias             string `xml:"alias,attr"`
-	BufferTime        int    `xml:"bufferTime,attr"`
-	IgnoreEmbeddedKLV bool   `xml:"ignoreEmbeddedKLV,attr"`
-	NetworkTimeout    int    `xml:"networkTimeout,attr"`
-	Path              string `xml:"path,attr"`
-	Port              int    `xml:"port,attr"`
-	Protocol          string `xml:"protocol,attr"`
-	RoverPort         int    `xml:"roverPort,attr"`
-	RTSPReliable      int    `xml:"rtspReliable,attr"`
-	UID               string `xml:"uid,attr"`
+	Address  string `xml:"address,attr"`
+	Alias    string `xml:"alias,attr"`
+	Path     string `xml:"path,attr"`
+	Protocol string `xml:"protocol,attr"`
+	UID      string `xml:"uid,attr"`
+
+	BufferTime        int  `xml:"bufferTime,attr"`
+	NetworkTimeout    int  `xml:"networkTimeout,attr"`
+	Port              int  `xml:"port,attr"`
+	RoverPort         int  `xml:"roverPort,attr"`
+	RTSPReliable      int  `xml:"rtspReliable,attr"`
+	IgnoreEmbeddedKLV bool `xml:"ignoreEmbeddedKLV,attr"`
 }
 
 type sensorXML struct {
@@ -183,7 +184,7 @@ func videoDetail(stream CameraStream, uid, alias string) (string, error) {
 			NetworkTimeout:    12000,
 			Path:              stream.Path,
 			Port:              stream.Port,
-			Protocol:          "rtsp",
+			Protocol:          rtspScheme,
 			RoverPort:         -1,
 			RTSPReliable:      0,
 			UID:               uid,

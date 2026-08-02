@@ -47,6 +47,7 @@ func NewGPSServiceWithAddress(log zerolog.Logger, cfg *config.Config, address st
 
 	// Start the connection handler in a goroutine
 	go g.connectionHandler()
+
 	if g.nmeaForwardingEnabled() {
 		go g.nmeaConnectionHandler()
 	}
@@ -67,10 +68,12 @@ func (g *GPSService) Close() error {
 	g.mu.Unlock()
 
 	var firstErr error
+
 	for _, conn := range connections {
 		if conn == nil {
 			continue
 		}
+
 		if err := conn.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}

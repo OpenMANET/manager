@@ -49,6 +49,7 @@ func TestGPSService_UsesSeparateJSONAndNMEAWatchSessions(t *testing.T) {
 	defer listener.Close()
 
 	commands := make(chan string, 2)
+
 	release := make(chan struct{})
 	defer close(release)
 
@@ -61,14 +62,17 @@ func TestGPSService_UsesSeparateJSONAndNMEAWatchSessions(t *testing.T) {
 
 			go func(c net.Conn) {
 				defer c.Close()
+
 				command, readErr := bufio.NewReader(c).ReadString('\n')
 				if readErr != nil {
 					return
 				}
+
 				commands <- command
 				if strings.Contains(command, "\"json\":true") {
 					_, _ = c.Write([]byte(`{"class":"TPV","mode":3,"lat":38.8594,"lon":-104.8235,"alt":1869}` + "\n"))
 				}
+
 				<-release
 			}(conn)
 		}
@@ -76,6 +80,7 @@ func TestGPSService_UsesSeparateJSONAndNMEAWatchSessions(t *testing.T) {
 
 	v := viper.New()
 	v.Set("gnss.sendAsExternalGNSSSource.sendAsNMEA", true)
+
 	gps, err := NewGPSServiceWithAddress(zerolog.Nop(), config.NewWithoutWatch(v), listener.Addr().String())
 	if err != nil {
 		t.Fatal(err)
@@ -84,6 +89,7 @@ func TestGPSService_UsesSeparateJSONAndNMEAWatchSessions(t *testing.T) {
 
 	seenJSON := false
 	seenNMEA := false
+
 	for range 2 {
 		select {
 		case command := <-commands:
@@ -108,6 +114,7 @@ func TestGPSService_UsesSeparateJSONAndNMEAWatchSessions(t *testing.T) {
 	for !gps.IsValid() && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
+
 	if !gps.IsValid() {
 		t.Fatal("TPV from the JSON-only session did not produce a valid position")
 	}
