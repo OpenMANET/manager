@@ -89,9 +89,11 @@ func TestDiscoverCameraStreamWith(t *testing.T) {
 
 				return
 			}
+
 			if err != nil {
 				t.Fatalf("discoverCameraStreamWith() error = %v", err)
 			}
+
 			if test.want == nil {
 				if stream != nil {
 					t.Fatalf("discoverCameraStreamWith() = %+v, want nil", stream)
@@ -99,6 +101,7 @@ func TestDiscoverCameraStreamWith(t *testing.T) {
 
 				return
 			}
+
 			if *stream != *test.want {
 				t.Fatalf("discoverCameraStreamWith() = %+v, want %+v", stream, test.want)
 			}

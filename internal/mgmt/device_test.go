@@ -437,6 +437,7 @@ func TestSetupBatMesh1Interface_HardwareMatch_MT7916(t *testing.T) {
 
 	wireless := newFakeWirelessReader()
 	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
+
 	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7916AN")
 
 	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio("radio1", "wlan0"), noOpReload)
@@ -636,6 +637,7 @@ func TestSetupBatMesh1Interface_WirelessStatusUnavailableDoesNotWriteOrReload(t 
 	wireless := newFakeWirelessReader()
 	wireless.seedMeshIface("existing_mesh", "radio4", "halowmesh", "secretkey")
 	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
+
 	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
 
 	var reloadCalls int
@@ -666,6 +668,7 @@ func TestSetupBatMesh1Interface_AmbiguousSupportedRadiosDoesNotWriteOrReload(t *
 	wireless := newFakeWirelessReader()
 	wireless.seedWifiDevice("radio0", "2g", "1", "HT20")
 	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
+
 	iw := &fakeIwinfo{infoMap: map[string]*iwinfo.InterfaceInfo{
 		"phy0-ap0":   {Hardware: iwinfo.HardwareInfo{Name: "MediaTek MT7915AN"}},
 		"phy1-mesh0": {Hardware: iwinfo.HardwareInfo{Name: "MediaTek MT7916AN"}},

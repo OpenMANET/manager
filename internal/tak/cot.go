@@ -51,6 +51,7 @@ func BuildNodeMessages(now time.Time, position Position, node Node, stream *Came
 	if err != nil {
 		return nil, err
 	}
+
 	sensor, err := buildSensorMessage(now, position, node)
 	if err != nil {
 		return nil, err
@@ -64,10 +65,12 @@ func normalizeNode(node Node) Node {
 	if !strings.Contains(strings.ToLower(node.UID), "manet") {
 		node.UID += "-MANET"
 	}
+
 	switch node.Callsign {
 	case "", originalUID:
 		node.Callsign = node.UID
 	}
+
 	if node.Platform == "" {
 		node.Platform = "OpenMANET"
 	}
@@ -119,6 +122,7 @@ func message(now time.Time, position Position, eventType, uid, callsign string, 
 	}
 
 	detail.Track = &cotproto.Track{Speed: position.Speed, Course: position.Track}
+
 	detail.PrecisionLocation = &cotproto.PrecisionLocation{Geopointsrc: "GPS", Altsrc: "GPS"}
 	if detail.Contact == nil {
 		detail.Contact = &cotproto.Contact{Callsign: callsign}
@@ -202,6 +206,7 @@ func sensorDetail(videoUID string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal sensor detail: %w", err)
 	}
+
 	video, err := xml.Marshal(sensorVideoXML{UID: videoUID})
 	if err != nil {
 		return "", fmt.Errorf("marshal sensor video detail: %w", err)

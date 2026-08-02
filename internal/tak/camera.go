@@ -71,6 +71,7 @@ func discoverCameraStreamWith(
 	if err != nil {
 		return nil, fmt.Errorf("detect camera: %w", err)
 	}
+
 	if !present {
 		return nil, nil
 	}

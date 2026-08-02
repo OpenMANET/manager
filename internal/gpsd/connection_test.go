@@ -69,6 +69,7 @@ func TestGPSService_UsesSeparateJSONAndNMEAWatchSessions(t *testing.T) {
 				}
 
 				commands <- command
+
 				if strings.Contains(command, "\"json\":true") {
 					_, _ = c.Write([]byte(`{"class":"TPV","mode":3,"lat":38.8594,"lon":-104.8235,"alt":1869}` + "\n"))
 				}

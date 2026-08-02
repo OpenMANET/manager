@@ -17,6 +17,7 @@ func TestBuildNodeMessagesWithoutCameraPreservesRadioMarker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildNodeMessages() error = %v", err)
 	}
+
 	if len(messages) != 1 {
 		t.Fatalf("message count = %d, want 1", len(messages))
 	}
@@ -25,9 +26,11 @@ func TestBuildNodeMessagesWithoutCameraPreservesRadioMarker(t *testing.T) {
 	if event.GetType() != radioUnitType || event.GetUid() != "node-1-MANET" {
 		t.Fatalf("radio event = type %q uid %q", event.GetType(), event.GetUid())
 	}
+
 	if event.GetHae() != 65 || event.GetDetail().GetXmlDetail() != "" {
 		t.Fatalf("radio event HAE/detail = %v/%q", event.GetHae(), event.GetDetail().GetXmlDetail())
 	}
+
 	if event.GetDetail().GetContact().GetCallsign() != "node-1-MANET" || event.GetDetail().GetTakv().GetPlatform() != "Raspberry Pi (OpenMANET)" {
 		t.Fatalf("radio detail = %+v", event.GetDetail())
 	}
@@ -37,10 +40,12 @@ func TestBuildNodeMessagesWithCameraReplacesRadioMarker(t *testing.T) {
 	t.Parallel()
 
 	stream := &CameraStream{Address: "10.41.0.1", Port: 8554, Path: "/rpicamera"}
+
 	messages, err := BuildNodeMessages(testTime(), testPosition(), Node{UID: "node-1", Callsign: "NODE & 1"}, stream)
 	if err != nil {
 		t.Fatalf("BuildNodeMessages() error = %v", err)
 	}
+
 	if len(messages) != 2 {
 		t.Fatalf("message count = %d, want 2", len(messages))
 	}
@@ -49,6 +54,7 @@ func TestBuildNodeMessagesWithCameraReplacesRadioMarker(t *testing.T) {
 	if video.GetType() != videoSourceType || video.GetUid() != "node-1-MANET-video" {
 		t.Fatalf("video = type %q uid %q", video.GetType(), video.GetUid())
 	}
+
 	if sensor.GetType() != cameraSensorType || sensor.GetUid() != "node-1-MANET-camera" {
 		t.Fatalf("sensor = type %q uid %q", sensor.GetType(), sensor.GetUid())
 	}
@@ -68,9 +74,11 @@ func TestBuildNodeMessagesWithCameraReplacesRadioMarker(t *testing.T) {
 		} `xml:"__video"`
 	}
 	decodeDetail(t, video.GetDetail().GetXmlDetail(), &videoDetail)
+
 	if videoDetail.Video.UID != video.GetUid() || videoDetail.Video.Connection.UID != video.GetUid() {
 		t.Fatalf("video UIDs = %q/%q, want %q", videoDetail.Video.UID, videoDetail.Video.Connection.UID, video.GetUid())
 	}
+
 	if videoDetail.Video.URL != "rtsp://10.41.0.1:8554/rpicamera" ||
 		videoDetail.Video.Connection.Address != "10.41.0.1" ||
 		videoDetail.Video.Connection.Path != "/rpicamera" ||
@@ -89,6 +97,7 @@ func TestBuildNodeMessagesWithCameraReplacesRadioMarker(t *testing.T) {
 		} `xml:"__video"`
 	}
 	decodeDetail(t, sensor.GetDetail().GetXmlDetail(), &sensorDetail)
+
 	if !sensorDetail.Sensor.HideFOV || sensorDetail.Video.UID != video.GetUid() {
 		t.Fatalf("unexpected sensor detail: %+v", sensorDetail)
 	}
@@ -111,10 +120,12 @@ func TestBuildNodeMessagesRoundTripsAsMeshPackets(t *testing.T) {
 		if err != nil {
 			t.Fatalf("MakeProtoMeshPacketV1() error = %v", err)
 		}
+
 		decoded, version, err := cot.ReadProtoMesh(bufio.NewReader(bytes.NewReader(packet)))
 		if err != nil {
 			t.Fatalf("ReadProtoMesh() error = %v", err)
 		}
+
 		if version != cot.ProtoVersion1 || decoded.GetCotEvent().GetUid() != message.GetCotEvent().GetUid() || decoded.GetCotEvent().GetType() != message.GetCotEvent().GetType() {
 			t.Fatalf("decoded event = %+v, version = %d", decoded.GetCotEvent(), version)
 		}
@@ -123,6 +134,7 @@ func TestBuildNodeMessagesRoundTripsAsMeshPackets(t *testing.T) {
 
 func decodeDetail(t *testing.T, detail string, value any) {
 	t.Helper()
+
 	if err := xml.Unmarshal([]byte("<detail>"+detail+"</detail>"), value); err != nil {
 		t.Fatalf("decode detail %q: %v", detail, err)
 	}
