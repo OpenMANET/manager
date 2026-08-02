@@ -65,6 +65,15 @@ func TestConfigureATAKMulticast_ReturnsInterfaceError(t *testing.T) {
 	}
 }
 
+func TestConfigureATAKMulticast_ReturnsTTLError(t *testing.T) {
+	writer := &recordingMulticastWriter{ttlErr: errors.New("ttl unavailable")}
+	bridge := &net.Interface{Name: network.DefaultBridgeInterfaceName}
+
+	if err := configureATAKMulticast(writer, bridge); err == nil {
+		t.Fatal("configureATAKMulticast() error = nil, want TTL error")
+	}
+}
+
 func TestATAKMulticastSenderSend_WritesPacketToMulticastAddress(t *testing.T) {
 	writer := &recordingMulticastWriter{}
 	address := &net.UDPAddr{IP: net.ParseIP(config.ATAKSAAddress), Port: 6969}
@@ -81,5 +90,26 @@ func TestATAKMulticastSenderSend_WritesPacketToMulticastAddress(t *testing.T) {
 
 	if writer.address != address {
 		t.Errorf("written address = %v, want %v", writer.address, address)
+	}
+}
+
+func TestATAKMulticastSenderSend_ReturnsWriteError(t *testing.T) {
+	writer := &recordingMulticastWriter{writeErr: errors.New("write failed")}
+	sender := &atakMulticastSender{packet: writer, address: &net.UDPAddr{IP: net.ParseIP(config.ATAKSAAddress), Port: 6969}}
+
+	if err := sender.Send([]byte("CoT")); err == nil {
+		t.Fatal("Send() error = nil, want write error")
+	}
+}
+
+func TestATAKMulticastSenderClose(t *testing.T) {
+	conn, err := net.ListenUDP("udp4", nil)
+	if err != nil {
+		t.Fatalf("ListenUDP() error = %v", err)
+	}
+
+	sender := &atakMulticastSender{conn: conn}
+	if err := sender.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
 	}
 }

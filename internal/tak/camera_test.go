@@ -75,6 +75,18 @@ func TestDiscoverCameraStreamWith(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name:   "skips invalid and loopback addresses",
+			detect: func(context.Context) (bool, error) { return true, nil },
+			lookup: func(string) network.NetworkInterface {
+				return network.NetworkInterface{IP: []network.IPAddress{
+					{IP: net.ParseIP("not-an-ip")},
+					{IP: net.ParseIP("127.0.0.1")},
+					{IP: net.ParseIP("10.41.2.4")},
+				}}
+			},
+			want: &CameraStream{Address: "10.41.2.4", Port: defaultRTSPPort, Path: defaultRTSPPath},
+		},
 	}
 
 	for _, test := range tests {
