@@ -111,4 +111,5 @@ type GPSService struct {
 	reconnectDelay    time.Duration
 	reconnectAttempts int
 	mu                sync.RWMutex
+	cameraPresent     bool
 }

@@ -1,12 +1,14 @@
 package gpsd
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 )
 
 // Tests for cot.go functions:
@@ -14,6 +16,19 @@ import (
 // - checkDeviceActive
 // - sendCoTToMulticast
 // - sendCoTTAsExternalGPS
+
+func TestSendCameraCoTIfPresent_suppressesRadioMarker(t *testing.T) {
+	gps := &GPSService{
+		Log:               zerolog.Nop(),
+		cameraPresent:     true,
+		lastMulticastTime: time.Now(),
+	}
+
+	assert.True(t, gps.sendCameraCoTIfPresent(context.Background()), "camera update must suppress the radio marker")
+
+	gps.cameraPresent = false
+	assert.False(t, gps.sendCameraCoTIfPresent(context.Background()), "non-camera update must retain the radio path")
+}
 
 func TestSendCoTToMulticast(t *testing.T) {
 	log := zerolog.Nop()

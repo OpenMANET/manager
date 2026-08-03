@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/openmanet/openmanetd/internal/iwinfo"
+	"github.com/stretchr/testify/assert"
 )
 
 type wsUbusExecutor struct {
@@ -92,6 +95,23 @@ func TestGetWirelessStatus_MultipleRadios(t *testing.T) {
 	if r3.Interfaces[0].Config.Mode != "mesh" {
 		t.Errorf("expected mode mesh, got %s", r3.Interfaces[0].Config.Mode)
 	}
+}
+
+func TestResolveWirelessRadioHardwareName_interfaces(t *testing.T) {
+	t.Parallel()
+
+	status := map[string]*WirelessRadioStatus{
+		"radio2": {Interfaces: []WirelessRadioInterface{
+			{Ifname: "missing"},
+			{Ifname: "phy1-mesh0"},
+		}},
+	}
+	info := map[string]*iwinfo.InterfaceInfo{
+		"phy1-mesh0": {Hardware: iwinfo.HardwareInfo{Name: "MediaTek MT7915AN"}},
+	}
+
+	assert.Equal(t, "MediaTek MT7915AN", ResolveWirelessRadioHardwareName("radio2", status, info))
+	assert.Empty(t, ResolveWirelessRadioHardwareName("missing", status, info))
 }
 
 func TestGetWirelessStatus_DisabledRadio(t *testing.T) {

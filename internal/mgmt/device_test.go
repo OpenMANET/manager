@@ -11,6 +11,8 @@ import (
 	"github.com/openmanet/openmanetd/internal/iwinfo"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ── fakeOpenMANETReader ──────────────────────────────────────────────────────
@@ -339,7 +341,7 @@ func TestSetupBatMesh1Interface_AlreadyConfigured(t *testing.T) {
 	wireless := newFakeWirelessReader()
 	iw := &fakeIwinfo{} // no calls expected
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw)
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, nil)
 	if err != nil {
 		t.Fatalf("expected nil for already-configured, got %v", err)
 	}
@@ -360,7 +362,7 @@ func TestSetupBatMesh1Interface_OpenMANETCheckError(t *testing.T) {
 	wireless := newFakeWirelessReader()
 	iw := &fakeIwinfo{}
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw)
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, nil)
 	if err == nil {
 		t.Fatal("expected error from invalid batmesh1configured value")
 	}
@@ -378,7 +380,7 @@ func TestSetupBatMesh1Interface_IwinfoError(t *testing.T) {
 	wireless := newFakeWirelessReader()
 	iw := &fakeIwinfo{infoMapErr: errors.New("ubus not available")}
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw)
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, nil)
 	if err == nil {
 		t.Fatal("expected error when iwinfo fails")
 	}
@@ -394,10 +396,11 @@ func TestSetupBatMesh1Interface_HardwareMatch_MT7915(t *testing.T) {
 	openmanet.seedBatMesh1Configured("0")
 
 	wireless := newFakeWirelessReader()
+	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
 	// No mesh iface seeded — expect it to fail past the hardware check.
 	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw)
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
 	// Should fail at "no mesh iface", not at "no supported hardware".
 	if err == nil {
 		t.Fatal("expected error after hardware check (no mesh iface)")
@@ -414,9 +417,11 @@ func TestSetupBatMesh1Interface_HardwareMatch_MT7916(t *testing.T) {
 	openmanet.seedBatMesh1Configured("0")
 
 	wireless := newFakeWirelessReader()
+	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
+
 	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7916AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw)
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
 	// Should fail at "no mesh iface", not at "no supported hardware".
 	if err == nil {
 		t.Fatal("expected error after hardware check (no mesh iface)")
@@ -436,10 +441,11 @@ func TestSetupBatMesh1Interface_NoMeshIface(t *testing.T) {
 	// Seed only a non-mesh iface.
 	_ = wireless.AddSection("wireless", "default_radio0", "wifi-iface")
 	_ = wireless.SetType("wireless", "default_radio0", "mode", uci.TypeOption, "ap")
+	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
 
 	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw)
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
 	if err == nil {
 		t.Fatal("expected error when no mesh iface found")
 	}
@@ -461,13 +467,13 @@ func TestSetupBatMesh1Interface_No2gDevice(t *testing.T) {
 
 	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw)
-	if err == nil {
-		t.Fatal("expected error when no 2g device found")
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio4", "wlan0"))
+	if err != nil {
+		t.Fatalf("expected safe no-op when no supported 2.4 GHz radio exists, got %v", err)
 	}
 
-	if !strings.Contains(err.Error(), "no wifi-device with band=2g") {
-		t.Errorf("unexpected error message: %v", err)
+	if wireless.commitCalls != 0 || openmanet.commitCalls != 0 {
+		t.Fatal("unsupported radio configuration was modified")
 	}
 }
 
@@ -482,7 +488,7 @@ func TestSetupBatMesh1Interface_Success(t *testing.T) {
 
 	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw)
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -551,6 +557,41 @@ func TestSetupBatMesh1Interface_Success(t *testing.T) {
 	}
 }
 
+func TestSetupBatMesh1Interface_doesNotTouchUnrelated2gRadio(t *testing.T) {
+	m := newTestManagementConfig()
+	openmanet := newFakeOpenMANETReader()
+	openmanet.seedBatMesh1Configured("0")
+
+	wireless := newFakeWirelessReader()
+	wireless.seedMeshIface("existing_mesh0", "radio4", "halowmesh", "secretkey")
+	wireless.seedWifiDevice("radio0", "2g", "1", "HT20")
+	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
+
+	iw := &fakeIwinfo{infoMap: map[string]*iwinfo.InterfaceInfo{
+		"phy0-ap0":   {Hardware: iwinfo.HardwareInfo{Name: "Broadcom BCM43430"}},
+		"phy1-mesh0": {Hardware: iwinfo.HardwareInfo{Name: "MediaTek MT7915AN"}},
+	}}
+	status := &fakeWirelessStatusProvider{Status: map[string]*network.WirelessRadioStatus{
+		"radio0": {Interfaces: []network.WirelessRadioInterface{{Ifname: "phy0-ap0"}}},
+		"radio1": {Interfaces: []network.WirelessRadioInterface{{Ifname: "phy1-mesh0"}}},
+	}}
+
+	require.NoError(t, m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, status))
+
+	_, createdOnboardMesh := wireless.Get("wireless", "default_radio0", "device")
+	assert.False(t, createdOnboardMesh, "must not create batmesh1 on the unrelated onboard radio")
+
+	radio0, err := network.GetWirelessDeviceByNameWithReader("radio0", wireless)
+	require.NoError(t, err)
+	assert.Equal(t, "1", radio0.Channel)
+	assert.Equal(t, "HT20", radio0.HTMode)
+	assert.Empty(t, radio0.Disabled)
+
+	iface, err := network.GetWirelessIfaceByNameWithReader("default_radio1", wireless)
+	require.NoError(t, err)
+	assert.Equal(t, "radio1", iface.Device)
+}
+
 func TestSetupBatMesh1Interface_SetIfaceError(t *testing.T) {
 	m := newTestManagementConfig()
 	openmanet := newFakeOpenMANETReader()
@@ -563,7 +604,7 @@ func TestSetupBatMesh1Interface_SetIfaceError(t *testing.T) {
 
 	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw)
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
 	if err == nil {
 		t.Fatal("expected error when SetWirelessIface fails")
 	}
@@ -588,7 +629,7 @@ func TestSetupBatMesh1Interface_SetDeviceError(t *testing.T) {
 
 	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw)
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
 	if err == nil {
 		t.Fatal("expected error when Commit fails")
 	}
@@ -611,7 +652,7 @@ func TestSetupBatMesh1Interface_SetConfiguredError(t *testing.T) {
 
 	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw)
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
 	if err == nil {
 		t.Fatal("expected error when openmanet Commit fails")
 	}
@@ -632,7 +673,7 @@ func TestSetupBatMesh1Interface_IdempotentWhenAlreadyConfigured(t *testing.T) {
 
 	iw := &fakeIwinfo{infoMapErr: errors.New("should not be called")}
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw)
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, nil)
 	if err != nil {
 		t.Fatalf("expected nil for already-configured (idempotency check), got %v", err)
 	}

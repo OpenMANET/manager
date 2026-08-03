@@ -113,7 +113,7 @@ func (s *WifiConfigService) ListRadios(ctx context.Context, _ *emptypb.Empty) (*
 		ifaceName := findLinkedIface(devName, ifaceSections, s.ConfigReader)
 
 		// Determine hardware name from iwinfo by matching ifname.
-		hardwareName := resolveHardwareName(devName, wsStatus, iwinfoData)
+		hardwareName := network.ResolveWirelessRadioHardwareName(devName, wsStatus, iwinfoData)
 
 		displayName := FormatBandDisplayName(WifiBandToProto(dev.Band))
 		if hardwareName != "" {
@@ -503,29 +503,6 @@ func findUnusedBatmesh(reader network.ConfigReader, excludeIface string) (string
 	}
 
 	return "", fmt.Errorf("no available batmesh network (all in use)")
-}
-
-// resolveHardwareName looks up the hardware chip name by correlating the UCI
-// radio to its running Linux interface name, then matching that to iwinfo data.
-func resolveHardwareName(radioName string, wsStatus map[string]*network.WirelessRadioStatus,
-	iwinfoData map[string]*iwinfo.InterfaceInfo) string {
-	if wsStatus == nil || iwinfoData == nil {
-		return ""
-	}
-
-	rs, ok := wsStatus[radioName]
-	if !ok || len(rs.Interfaces) == 0 {
-		return ""
-	}
-
-	ifname := rs.Interfaces[0].Ifname
-
-	info, ok := iwinfoData[ifname]
-	if !ok || info == nil {
-		return ""
-	}
-
-	return info.GetHardwareName()
 }
 
 // resolveIfname maps a UCI radio name to the running Linux interface name.
