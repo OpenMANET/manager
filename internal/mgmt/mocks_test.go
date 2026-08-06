@@ -15,6 +15,21 @@ type fakeWirelessStatusProvider struct {
 	Err    error
 }
 
+type sectionErrorReader struct {
+	network.ConfigReader
+
+	sectionType string
+	err         error
+}
+
+func (r *sectionErrorReader) GetSections(config, sectionType string) ([]string, error) {
+	if sectionType == r.sectionType {
+		return nil, r.err
+	}
+
+	return r.ConfigReader.GetSections(config, sectionType)
+}
+
 func (f *fakeWirelessStatusProvider) GetWirelessStatus(_ context.Context) (map[string]*network.WirelessRadioStatus, error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()

@@ -390,6 +390,37 @@ func TestSetupBatMesh1Interface_IwinfoError(t *testing.T) {
 	}
 }
 
+func TestSetupBatMesh1Interface_WirelessStatusError(t *testing.T) {
+	m := newTestManagementConfig()
+	openmanet := newFakeOpenMANETReader()
+	openmanet.seedBatMesh1Configured("0")
+
+	wireless := newFakeWirelessReader()
+	status := &fakeWirelessStatusProvider{Err: errors.New("ubus unavailable")}
+
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, &fakeIwinfo{}, status)
+	require.NoError(t, err)
+	assert.Zero(t, wireless.commitCalls)
+	assert.Zero(t, openmanet.commitCalls)
+}
+
+func TestSetupBatMesh1Interface_DeviceSectionsError(t *testing.T) {
+	m := newTestManagementConfig()
+	openmanet := newFakeOpenMANETReader()
+	openmanet.seedBatMesh1Configured("0")
+
+	wireless := newFakeWirelessReader()
+	reader := &sectionErrorReader{
+		ConfigReader: wireless,
+		sectionType:  "wifi-device",
+		err:          errors.New("read devices"),
+	}
+
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, reader, &fakeIwinfo{}, &fakeWirelessStatusProvider{})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "get wifi-device sections")
+}
+
 func TestSetupBatMesh1Interface_HardwareMatch_MT7915(t *testing.T) {
 	m := newTestManagementConfig()
 	openmanet := newFakeOpenMANETReader()
@@ -453,6 +484,25 @@ func TestSetupBatMesh1Interface_NoMeshIface(t *testing.T) {
 	if !strings.Contains(err.Error(), "no existing wifi-iface with mode=mesh") {
 		t.Errorf("unexpected error message: %v", err)
 	}
+}
+
+func TestSetupBatMesh1Interface_IfaceSectionsError(t *testing.T) {
+	m := newTestManagementConfig()
+	openmanet := newFakeOpenMANETReader()
+	openmanet.seedBatMesh1Configured("0")
+
+	wireless := newFakeWirelessReader()
+	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
+	reader := &sectionErrorReader{
+		ConfigReader: wireless,
+		sectionType:  "wifi-iface",
+		err:          errors.New("read interfaces"),
+	}
+	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
+
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, reader, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "get wifi-iface sections")
 }
 
 func TestSetupBatMesh1Interface_No2gDevice(t *testing.T) {
@@ -590,6 +640,29 @@ func TestSetupBatMesh1Interface_doesNotTouchUnrelated2gRadio(t *testing.T) {
 	iface, err := network.GetWirelessIfaceByNameWithReader("default_radio1", wireless)
 	require.NoError(t, err)
 	assert.Equal(t, "radio1", iface.Device)
+}
+
+func TestSetupBatMesh1Interface_MultipleSupportedRadiosIsSafeNoOp(t *testing.T) {
+	m := newTestManagementConfig()
+	openmanet := newFakeOpenMANETReader()
+	openmanet.seedBatMesh1Configured("0")
+
+	wireless := newFakeWirelessReader()
+	wireless.seedWifiDevice("radio1", "2g", "1", "HT20")
+	wireless.seedWifiDevice("radio2", "2g", "6", "HT20")
+
+	iw := &fakeIwinfo{infoMap: map[string]*iwinfo.InterfaceInfo{
+		"phy1": {Hardware: iwinfo.HardwareInfo{Name: "MediaTek MT7915AN"}},
+		"phy2": {Hardware: iwinfo.HardwareInfo{Name: "MediaTek MT7916AN"}},
+	}}
+	status := &fakeWirelessStatusProvider{Status: map[string]*network.WirelessRadioStatus{
+		"radio1": {Interfaces: []network.WirelessRadioInterface{{Ifname: "phy1"}}},
+		"radio2": {Interfaces: []network.WirelessRadioInterface{{Ifname: "phy2"}}},
+	}}
+
+	require.NoError(t, m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, status))
+	assert.Zero(t, wireless.commitCalls)
+	assert.Zero(t, openmanet.commitCalls)
 }
 
 func TestSetupBatMesh1Interface_SetIfaceError(t *testing.T) {

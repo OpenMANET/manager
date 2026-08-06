@@ -1,6 +1,7 @@
 package camera
 
 import (
+	"context"
 	"net"
 	"sync"
 	"testing"
@@ -39,15 +40,22 @@ type fakeMulticastPacketWriter struct {
 	InterfaceErr error
 	TTLErr       error
 	WriteErr     error
+	WriteErrAt   int
+	Cancel       context.CancelFunc
 }
 
 func (w *fakeMulticastPacketWriter) SetMulticastInterface(bridge *net.Interface) error {
 	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	w.bridge = bridge
+	err := w.InterfaceErr
+	cancel := w.Cancel
+	w.mu.Unlock()
 
-	return w.InterfaceErr
+	if cancel != nil {
+		cancel()
+	}
+
+	return err
 }
 
 func (w *fakeMulticastPacketWriter) SetMulticastTTL(ttl int) error {
@@ -65,7 +73,11 @@ func (w *fakeMulticastPacketWriter) WriteTo([]byte, *ipv4.ControlMessage, net.Ad
 
 	w.writes++
 
-	return 1, w.WriteErr
+	if w.WriteErrAt == 0 || w.writes == w.WriteErrAt {
+		return 1, w.WriteErr
+	}
+
+	return 1, nil
 }
 
 func (w *fakeMulticastPacketWriter) state() (*net.Interface, int, int) {

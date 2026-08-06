@@ -3,6 +3,8 @@ package camera
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/openmanet/openmanetd/internal/network"
@@ -16,6 +18,23 @@ func TestDetect_missingBinary(t *testing.T) {
 	present, err := Detect(context.Background())
 	require.NoError(t, err)
 	assert.False(t, present)
+}
+
+func TestDetect_camera(t *testing.T) {
+	writeCamCommand(t, "#!/bin/sh\nprintf 'Available cameras:\\n1: imx219\\n'\n")
+
+	present, err := Detect(context.Background())
+	require.NoError(t, err)
+	assert.True(t, present)
+}
+
+func TestDetect_commandError(t *testing.T) {
+	writeCamCommand(t, "#!/bin/sh\nexit 1\n")
+
+	present, err := Detect(context.Background())
+	require.Error(t, err)
+	assert.False(t, present)
+	assert.ErrorContains(t, err, "list cameras")
 }
 
 func TestCameraListContainsSensor_output(t *testing.T) {
@@ -102,9 +121,39 @@ func TestResolveStream_canceledContext(t *testing.T) {
 	assert.False(t, lookupCalled)
 }
 
+func TestResolveStream_publicWrapperCanceledContext(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := ResolveStream(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestResolveStream_contextCanceledDuringLookup(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := resolveCameraStreamWith(ctx, newFakeConfigReader(t, nil), func(string) network.NetworkInterface {
+		cancel()
+
+		return network.NetworkInterface{IP: []network.IPAddress{{IP: net.ParseIP("10.41.2.3")}}}
+	})
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 func TestStream_URL(t *testing.T) {
 	t.Parallel()
 
 	stream := Stream{Address: "10.41.0.1", Path: "/rpicamera main", Port: 8554}
 	assert.Equal(t, "rtsp://10.41.0.1:8554/rpicamera%20main", stream.URL())
+}
+
+func writeCamCommand(t *testing.T, contents string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "cam"), []byte(contents), 0o755))
+	t.Setenv("PATH", dir)
 }

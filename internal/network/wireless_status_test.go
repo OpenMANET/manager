@@ -112,6 +112,7 @@ func TestResolveWirelessRadioHardwareName_interfaces(t *testing.T) {
 
 	assert.Equal(t, "MediaTek MT7915AN", ResolveWirelessRadioHardwareName("radio2", status, info))
 	assert.Empty(t, ResolveWirelessRadioHardwareName("missing", status, info))
+	assert.Empty(t, ResolveWirelessRadioHardwareName("radio2", status, nil))
 }
 
 func TestGetWirelessStatus_DisabledRadio(t *testing.T) {

@@ -86,6 +86,7 @@ func TestPublishCameraMessage_socketErrors(t *testing.T) {
 		{name: "TTL", writer: &fakeMulticastPacketWriter{TTLErr: errors.New("TTL failed")}, wantErr: "set ATAK multicast TTL"},
 		{name: "interface", writer: &fakeMulticastPacketWriter{InterfaceErr: errors.New("interface failed")}, wantErr: "set ATAK multicast interface"},
 		{name: "write", writer: &fakeMulticastPacketWriter{WriteErr: errors.New("write failed")}, wantErr: "write ATAK multicast packet"},
+		{name: "second write", writer: &fakeMulticastPacketWriter{WriteErr: errors.New("second write failed"), WriteErrAt: 2}, wantErr: "write ATAK multicast packet"},
 	}
 
 	for _, tc := range tests {
@@ -98,6 +99,32 @@ func TestPublishCameraMessage_socketErrors(t *testing.T) {
 			assert.ErrorContains(t, err, tc.wantErr)
 		})
 	}
+}
+
+func TestPublishCameraMessage_contextCanceledBeforeWrite(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	writer := &fakeMulticastPacketWriter{Cancel: cancel}
+	bridge := &net.Interface{Name: "br-ahwlan"}
+	destination := &net.UDPAddr{IP: net.ParseIP("239.2.3.1"), Port: cameraMulticastPort}
+	message := BuildMessage(testPosition(t), Node{Callsign: "NODE-MANET", UID: "NODE-MANET"}, testStream(t))
+
+	err := publishCameraMessage(ctx, writer, bridge, destination, message)
+	require.ErrorIs(t, err, context.Canceled)
+
+	_, _, writes := writer.state()
+	assert.Zero(t, writes)
+}
+
+func TestPublish_canceledContext(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := Publish(ctx, testPosition(t), Node{Callsign: "NODE-MANET", UID: "NODE-MANET"}, testStream(t))
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestPublishCameraMessage_canceledContext(t *testing.T) {
