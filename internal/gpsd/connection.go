@@ -8,6 +8,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/openmanet/openmanetd/internal/camera"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
 )
@@ -29,10 +30,16 @@ func NewGPSServiceWithAddress(log zerolog.Logger, cfg *config.Config, address st
 		}
 	})
 
+	cameraPresent, err := camera.Detect(context.Background())
+	if err != nil {
+		log.Debug().Err(err).Msg("Unable to detect camera for ATAK advertisement")
+	}
+
 	g := &GPSService{
 		Log:            log,
 		Config:         cfg,
 		address:        address,
+		cameraPresent:  cameraPresent,
 		done:           done,
 		cancel:         cancel,
 		reconnectDelay: 5 * time.Second,
