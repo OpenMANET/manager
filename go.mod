@@ -18,7 +18,7 @@ require (
 	github.com/hraban/opus v0.0.0-20230925203106-0188a62cb302
 	github.com/mattn/go-sqlite3 v1.14.49
 	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875
-	github.com/mdlayher/wifi v0.8.0
+	github.com/mdlayher/wifi v0.9.0
 	github.com/msteinert/pam/v2 v2.1.0
 	github.com/openmanet/go-alfred v0.0.0-20240429120015-8f3f3f4e2f4e
 	github.com/pion/interceptor v0.1.47
