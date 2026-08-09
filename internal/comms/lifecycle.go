@@ -96,6 +96,16 @@ const (
 	// attempts. Slow enough that a permanently absent dongle costs nothing
 	// measurable, fast enough that plugging one in feels immediate.
 	defaultAudioRecoveryInterval = 10 * time.Second
+
+	// recoveryDetectEveryNth bounds how often tryAudioRecovery re-runs ALSA
+	// card detection once the first attempt has already run it once. At
+	// the default 10s audioRecoveryInterval this is roughly once a minute.
+	// Detection itself logs a Warn on every miss (openvlm.go), so re-running
+	// it every tick on a permanently dongle-less device would flood logd;
+	// bounding the re-run rate keeps that noise in check without disabling
+	// detection outright (a dongle plugged in after startup still gets
+	// picked up within a minute).
+	recoveryDetectEveryNth = 6
 )
 
 // initAudioIO wires up the local audio path for cfg.ControlSource. In web
@@ -179,13 +189,25 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 }
 
 // tryAudioRecovery performs one in-run hardware audio init attempt. Called
-// only from the Run goroutine (ticker case). Re-runs ALSA card detection
-// first when ALSA_CARD is still unset — the OpenVLM may have been plugged
-// in after startup detection ran. Returns true when audio is up.
-func (cfg *CommsConfig) tryAudioRecovery(rt *CommsRuntime) bool {
+// only from the Run goroutine (ticker case) with a monotonically increasing
+// attempt counter local to that goroutine — never accessed concurrently, so
+// it needs no synchronization of its own.
+//
+// Re-runs ALSA card detection when ALSA_CARD is still unset — the OpenVLM
+// may have been plugged in after startup detection ran — but only on the
+// first attempt and every recoveryDetectEveryNth attempt thereafter (see
+// its doc comment): detection logs its own Warn on every miss, and running
+// it on every 10s tick forever on a dongle-less device floods logd.
+//
+// Failure logging is similarly throttled: the first failed attempt logs at
+// Warn (so the operator sees the daemon is degraded), every subsequent
+// consecutive failure logs at Debug so a permanently absent dongle doesn't
+// produce ~17k Warn lines/day. Returns true when audio is up.
+func (cfg *CommsConfig) tryAudioRecovery(rt *CommsRuntime, attempt int) bool {
 	if os.Getenv("ALSA_CARD") == "" &&
-		(cfg.ControlSource == defaultCtrlSrc || cfg.ControlSource == controlSourceROIP) {
-		control.DetectAndSetALSACard(cfg.Log)
+		(cfg.ControlSource == defaultCtrlSrc || cfg.ControlSource == controlSourceROIP) &&
+		(attempt == 1 || attempt%recoveryDetectEveryNth == 0) {
+		cfg.detectALSACard()
 	}
 
 	startHA := cfg.startHardwareAudioFn
@@ -195,7 +217,13 @@ func (cfg *CommsConfig) tryAudioRecovery(rt *CommsRuntime) bool {
 
 	cleanup, err := startHA(rt)
 	if err != nil {
-		cfg.Log.Warn().Err(err).
+		logEvent := cfg.Log.Debug()
+		if attempt == 1 {
+			logEvent = cfg.Log.Warn()
+		}
+
+		logEvent.Err(err).
+			Int("attempt", attempt).
 			Dur("retry_in", cfg.audioRecoveryInterval).
 			Msg("comms: audio recovery attempt failed")
 
@@ -207,6 +235,20 @@ func (cfg *CommsConfig) tryAudioRecovery(rt *CommsRuntime) bool {
 	cfg.Log.Info().Msg("comms: hardware audio recovered")
 
 	return true
+}
+
+// detectALSACard runs ALSA card auto-detection through cfg.detectALSACardFn
+// when set (test seam), falling back to the real
+// control.DetectAndSetALSACard otherwise. Follows the same override pattern
+// as startHardwareAudio/startHardwareAudioFn.
+func (cfg *CommsConfig) detectALSACard() {
+	if cfg.detectALSACardFn != nil {
+		cfg.detectALSACardFn()
+
+		return
+	}
+
+	control.DetectAndSetALSACard(cfg.Log)
 }
 
 // Start initializes all comms subsystems and blocks until ctx is canceled.

@@ -801,6 +801,12 @@ func (f *countingStartHA) callCount() int {
 // the Run loop re-attempts init on the recovery ticker and installs the
 // stream on success, without a daemon restart.
 func TestRun_AudioRecovery_RetriesUntilSuccess(t *testing.T) {
+	// Gate off real ALSA card detection: ControlSource is defaultCtrlSrc,
+	// which would otherwise make tryAudioRecovery walk /sys and
+	// /proc/asound and potentially os.Setenv("ALSA_CARD", ...) for real on
+	// a dev machine with a CM108-class device attached.
+	t.Setenv("ALSA_CARD", "0")
+
 	fake := &countingStartHA{failN: 2, succeeded: make(chan struct{})}
 
 	cfg := &CommsConfig{
@@ -837,6 +843,9 @@ func TestRun_AudioRecovery_RetriesUntilSuccess(t *testing.T) {
 // TestRun_AudioRecovery_StopsAfterSuccess verifies the ticker is disarmed
 // once audio is up: no further init attempts occur.
 func TestRun_AudioRecovery_StopsAfterSuccess(t *testing.T) {
+	// Gate off real ALSA card detection — see RetriesUntilSuccess above.
+	t.Setenv("ALSA_CARD", "0")
+
 	fake := &countingStartHA{failN: 0, succeeded: make(chan struct{})}
 
 	cfg := &CommsConfig{
@@ -938,4 +947,49 @@ func TestRun_AudioRecovery_DisabledInWebMode(t *testing.T) {
 
 	time.AfterFunc(50*time.Millisecond, cancel)
 	<-done
+}
+
+// TestTryAudioRecovery_DetectionGate verifies tryAudioRecovery invokes the
+// ALSA card detection seam only when ALSA_CARD is unset, and never when a
+// card is already pinned (detected at startup or set manually) — the gate
+// that keeps recovery from re-walking /sys and /proc/asound once a card is
+// known.
+func TestTryAudioRecovery_DetectionGate(t *testing.T) {
+	tests := []struct {
+		name       string
+		alsaCard   string
+		wantDetect bool
+	}{
+		{name: "unset triggers detection", alsaCard: "", wantDetect: true},
+		{name: "set skips detection", alsaCard: "2", wantDetect: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ALSA_CARD", tc.alsaCard)
+
+			detectCalls := 0
+			cfg := &CommsConfig{
+				Log:           zerolog.Nop(),
+				ControlSource: defaultCtrlSrc,
+				detectALSACardFn: func() {
+					detectCalls++
+				},
+				startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+					return nil, errors.New("simulated: no card available")
+				},
+			}
+
+			rt := &CommsRuntime{}
+
+			cfg.tryAudioRecovery(rt, 1)
+
+			wantCalls := 0
+			if tc.wantDetect {
+				wantCalls = 1
+			}
+
+			assert.Equal(t, wantCalls, detectCalls, "detection seam call count")
+		})
+	}
 }

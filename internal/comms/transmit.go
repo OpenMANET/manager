@@ -241,9 +241,13 @@ func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src control.E
 	// the zero value used by unit tests). recoverC stays nil when disabled;
 	// a receive from a nil channel blocks forever, so the extra case is
 	// inert. Single attempt per tick on this goroutine — bounded by design.
+	// Accepted tradeoff: tryAudioRecovery is not ctx-aware, so ctx
+	// cancellation during an in-flight ALSA open leaves shutdown waiting
+	// behind that one attempt before Run can return.
 	var (
-		recoverC    <-chan time.Time
-		recoverTick *time.Ticker
+		recoverC        <-chan time.Time
+		recoverTick     *time.Ticker
+		recoverAttempts int
 	)
 
 	if cfg.ControlSource != controlSourceWeb && cfg.audioRecoveryInterval > 0 && rt.Broadcast() == nil {
@@ -260,7 +264,9 @@ func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src control.E
 
 			return
 		case <-recoverC:
-			if cfg.tryAudioRecovery(rt) {
+			recoverAttempts++
+
+			if cfg.tryAudioRecovery(rt, recoverAttempts) {
 				recoverTick.Stop()
 
 				recoverC = nil

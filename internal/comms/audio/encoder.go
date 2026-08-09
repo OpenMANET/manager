@@ -139,7 +139,7 @@ type BroadcastEncoder struct {
 }
 
 // Compile-time assertion: BroadcastEncoder satisfies device.AudioStream so
-// the parent's CommsRuntime.BroadcastStream field accepts it directly.
+// it can be installed via the parent's CommsRuntime.SetBroadcast accessor.
 var _ device.AudioStream = (*BroadcastEncoder)(nil)
 
 // NewBroadcastEncoder constructs the wrapper, opens the capture stream

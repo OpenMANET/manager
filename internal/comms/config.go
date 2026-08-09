@@ -107,7 +107,10 @@ type CommsConfig struct {
 	AuxHandler           control.AuxEventHandler
 	Interrupt            chan os.Signal
 	startHardwareAudioFn func(rt *CommsRuntime) (func(), error)
-	audioInitRetryDelay  time.Duration
+	// detectALSACardFn overrides ALSA card auto-detection for tests. When
+	// nil, detectALSACard falls back to control.DetectAndSetALSACard(cfg.Log).
+	detectALSACardFn    func()
+	audioInitRetryDelay time.Duration
 	// audioRecoveryInterval is the Run-loop ticker period for re-attempting
 	// hardware audio init after startup failed (OpenVLM unplugged at boot,
 	// transient ALSA error). <= 0 disables in-run recovery; applyDefaults
