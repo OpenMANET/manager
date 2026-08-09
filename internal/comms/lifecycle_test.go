@@ -1,6 +1,7 @@
 package comms
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -189,4 +190,28 @@ func TestInitAudioIO_ContextCanceledStopsRetry(t *testing.T) {
 
 	assert.Nil(t, cleanup)
 	assert.Equal(t, 1, calls, "canceled context must stop after the first attempt")
+}
+
+// TestInitAudioIO_FailureLogIncludesALSACard verifies the operator-facing
+// failure log names the ALSA card the daemon targeted — without it, "audio
+// out=Default Audio Device" hides which card dmix actually resolved to.
+func TestInitAudioIO_FailureLogIncludesALSACard(t *testing.T) {
+	t.Setenv("ALSA_CARD", "1")
+
+	var buf bytes.Buffer
+
+	cfg := &CommsConfig{
+		Log:           zerolog.New(&buf),
+		ControlSource: defaultCtrlSrc,
+		startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+			return nil, errors.New("simulated: miniaudio: Broken pipe")
+		},
+	}
+
+	rt := &CommsRuntime{}
+
+	cleanup := cfg.initAudioIO(context.Background(), rt)
+
+	assert.Nil(t, cleanup)
+	assert.Contains(t, buf.String(), `"alsa_card":"1"`)
 }

@@ -49,7 +49,9 @@ func (in *Init) BuildAudio(slots []PortSlot) (*BroadcastEncoder, device.AudioDev
 		return nil, zeroIn, err
 	}
 
-	in.Log.Info().Msgf("comms: audio in=%s out=%s", inDev.Name, outDev.Name)
+	in.Log.Info().
+		Str("alsa_card", os.Getenv("ALSA_CARD")).
+		Msgf("comms: audio in=%s out=%s", inDev.Name, outDev.Name)
 
 	playbackPeriod := uint32(computePlaybackPeriodFrames(in.PlaybackLatencyMs))
 
