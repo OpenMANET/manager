@@ -74,6 +74,7 @@ type CommsConfig struct {
 	AuxHandler               control.AuxEventHandler
 	Interrupt                chan os.Signal
 	startHardwareAudioFn     func(rt *CommsRuntime) (func(), error)
+	audioInitRetryDelay      time.Duration
 	CommKey                  string
 	BluetoothInputDevice     string
 	Iface                    string
@@ -216,5 +217,9 @@ func (cfg *CommsConfig) applyDefaults() {
 		if cfg.BluetoothOutputDevice == "" {
 			cfg.BluetoothOutputDevice = cfg.BluetoothAudioDeviceHint
 		}
+	}
+
+	if cfg.audioInitRetryDelay == 0 {
+		cfg.audioInitRetryDelay = defaultAudioInitRetryDelay
 	}
 }

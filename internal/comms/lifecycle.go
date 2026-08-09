@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -78,18 +80,33 @@ func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) (cleanup func(), er
 	return cleanup, nil
 }
 
+const (
+	// audioInitAttempts bounds the startup hardware-audio init retries.
+	// The OpenVLM dongle can transiently fail its first dmix slave start
+	// while USB enumeration settles at boot (EPIPE from snd_pcm_start);
+	// a couple of spaced retries absorbs that without delaying startup
+	// noticeably.
+	audioInitAttempts = 3
+
+	// defaultAudioInitRetryDelay is the production wait between startup
+	// attempts; applyDefaults installs it when the field is zero.
+	defaultAudioInitRetryDelay = 750 * time.Millisecond
+)
+
 // initAudioIO wires up the local audio path for cfg.ControlSource. In web
 // mode it constructs a webaudio bridge; in non-web modes (openvlm, nanoptt,
-// roip) it tries to open the malgo capture/playback streams.
+// roip) it tries to open the malgo capture/playback streams, retrying up to
+// audioInitAttempts times with cfg.audioInitRetryDelay between attempts.
 //
 // A failure to bring up local audio is non-fatal: the comms subsystem stays
 // alive so RTP relay between mesh peers continues, and the WebUI's
 // per-channel RX/TX toggles still take effect. The TX/RX hot paths already
-// guard against the resulting nil BroadcastStream / PlaybackStream.
+// guard against the resulting nil BroadcastStream / PlaybackStream. The Run
+// loop's audio recovery ticker keeps re-attempting init in the background.
 //
 // Returns the malgo cleanup function (nil when there is nothing to clean
 // up) so Start can defer it.
-func (cfg *CommsConfig) initAudioIO(rt *CommsRuntime) func() {
+func (cfg *CommsConfig) initAudioIO(ctx context.Context, rt *CommsRuntime) func() {
 	if cfg.ControlSource == controlSourceWeb {
 		// Web mode: skip the malgo pipeline entirely; the browser provides audio I/O.
 		rt.WebBridge = webaudio.NewBridge(cfg.Log, func(payload []byte) {
@@ -104,14 +121,56 @@ func (cfg *CommsConfig) initAudioIO(rt *CommsRuntime) func() {
 		startHA = cfg.startHardwareAudio
 	}
 
-	cleanup, hwErr := startHA(rt)
-	if hwErr != nil {
-		cfg.Log.Error().Err(hwErr).Msg("comms: hardware audio init failed; continuing without local mic/speaker")
+	var lastErr error
 
-		return nil
+	for attempt := 1; attempt <= audioInitAttempts; attempt++ {
+		cleanup, hwErr := startHA(rt)
+		if hwErr == nil {
+			if attempt > 1 {
+				cfg.Log.Info().Int("attempt", attempt).Msg("comms: hardware audio init succeeded after retry")
+			}
+
+			return cleanup
+		}
+
+		lastErr = hwErr
+		cfg.Log.Warn().Err(hwErr).
+			Int("attempt", attempt).
+			Int("max_attempts", audioInitAttempts).
+			Msg("comms: hardware audio init attempt failed")
+
+		if attempt == audioInitAttempts {
+			break
+		}
+
+		if !sleepCtx(ctx, cfg.audioInitRetryDelay) {
+			return nil
+		}
 	}
 
-	return cleanup
+	cfg.Log.Error().Err(lastErr).
+		Str("alsa_card", os.Getenv("ALSA_CARD")).
+		Msg("comms: hardware audio init failed; continuing without local mic/speaker")
+
+	return nil
+}
+
+// sleepCtx waits for d or until ctx is canceled. Returns false when the
+// context ended the wait (or was already canceled).
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return ctx.Err() == nil
+	}
+
+	t := time.NewTimer(d)
+	defer t.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
 }
 
 // Start initializes all comms subsystems and blocks until ctx is canceled.
@@ -222,7 +281,7 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 	}
 
 	// ── audio I/O ─────────────────────────────────────────────────────────
-	if cleanup := cfg.initAudioIO(rt); cleanup != nil {
+	if cleanup := cfg.initAudioIO(ctx, rt); cleanup != nil {
 		defer cleanup()
 	}
 
