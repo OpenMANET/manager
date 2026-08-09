@@ -235,12 +235,36 @@ func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src control.E
 		go cfg.runAuxPump(ctx, aux)
 	}
 
+	// In-run audio recovery: when hardware audio failed at startup (or the
+	// dongle was absent), periodically re-attempt init. Disabled in web
+	// mode, when audio is already up, or when the interval is unset (<= 0,
+	// the zero value used by unit tests). recoverC stays nil when disabled;
+	// a receive from a nil channel blocks forever, so the extra case is
+	// inert. Single attempt per tick on this goroutine — bounded by design.
+	var (
+		recoverC    <-chan time.Time
+		recoverTick *time.Ticker
+	)
+
+	if cfg.ControlSource != controlSourceWeb && cfg.audioRecoveryInterval > 0 && rt.Broadcast() == nil {
+		recoverTick = time.NewTicker(cfg.audioRecoveryInterval)
+		defer recoverTick.Stop()
+
+		recoverC = recoverTick.C
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			cfg.Log.Info().Msg("comms context canceled; exiting run loop")
 
 			return
+		case <-recoverC:
+			if cfg.tryAudioRecovery(rt) {
+				recoverTick.Stop()
+
+				recoverC = nil
+			}
 		case ev, ok := <-events:
 			if !ok {
 				return

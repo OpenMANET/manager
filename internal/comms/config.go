@@ -66,6 +66,13 @@ type CommsRuntime struct {
 	// is not enough once recovery can install it mid-run.
 	mu              sync.RWMutex
 	broadcastStream BroadcastCapture
+
+	// audioCleanup is the malgo teardown produced by a successful hardware
+	// audio init. Written by Start (startup path) and by the Run loop's
+	// recovery path, read by Start's deferred teardown after Run returns.
+	// Run executes synchronously on the Start goroutine, so all accesses
+	// are sequential and no lock is needed.
+	audioCleanup func()
 }
 
 // Broadcast returns the live capture stream, or nil when hardware audio is
@@ -96,11 +103,16 @@ func (rt *CommsRuntime) SetBroadcast(bs BroadcastCapture) {
 // owned by *Service (returned by Start via SetDefault) so the static
 // config and the per-startup runtime have distinct lifetimes.
 type CommsConfig struct {
-	Log                      zerolog.Logger
-	AuxHandler               control.AuxEventHandler
-	Interrupt                chan os.Signal
-	startHardwareAudioFn     func(rt *CommsRuntime) (func(), error)
-	audioInitRetryDelay      time.Duration
+	Log                  zerolog.Logger
+	AuxHandler           control.AuxEventHandler
+	Interrupt            chan os.Signal
+	startHardwareAudioFn func(rt *CommsRuntime) (func(), error)
+	audioInitRetryDelay  time.Duration
+	// audioRecoveryInterval is the Run-loop ticker period for re-attempting
+	// hardware audio init after startup failed (OpenVLM unplugged at boot,
+	// transient ALSA error). <= 0 disables in-run recovery; applyDefaults
+	// sets the production value.
+	audioRecoveryInterval    time.Duration
 	CommKey                  string
 	BluetoothInputDevice     string
 	Iface                    string
@@ -247,5 +259,9 @@ func (cfg *CommsConfig) applyDefaults() {
 
 	if cfg.audioInitRetryDelay == 0 {
 		cfg.audioInitRetryDelay = defaultAudioInitRetryDelay
+	}
+
+	if cfg.audioRecoveryInterval == 0 {
+		cfg.audioRecoveryInterval = defaultAudioRecoveryInterval
 	}
 }

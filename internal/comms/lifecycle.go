@@ -91,6 +91,11 @@ const (
 	// defaultAudioInitRetryDelay is the production wait between startup
 	// attempts; applyDefaults installs it when the field is zero.
 	defaultAudioInitRetryDelay = 750 * time.Millisecond
+
+	// defaultAudioRecoveryInterval paces in-run hardware audio recovery
+	// attempts. Slow enough that a permanently absent dongle costs nothing
+	// measurable, fast enough that plugging one in feels immediate.
+	defaultAudioRecoveryInterval = 10 * time.Second
 )
 
 // initAudioIO wires up the local audio path for cfg.ControlSource. In web
@@ -171,6 +176,37 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	case <-t.C:
 		return true
 	}
+}
+
+// tryAudioRecovery performs one in-run hardware audio init attempt. Called
+// only from the Run goroutine (ticker case). Re-runs ALSA card detection
+// first when ALSA_CARD is still unset — the OpenVLM may have been plugged
+// in after startup detection ran. Returns true when audio is up.
+func (cfg *CommsConfig) tryAudioRecovery(rt *CommsRuntime) bool {
+	if os.Getenv("ALSA_CARD") == "" &&
+		(cfg.ControlSource == defaultCtrlSrc || cfg.ControlSource == controlSourceROIP) {
+		control.DetectAndSetALSACard(cfg.Log)
+	}
+
+	startHA := cfg.startHardwareAudioFn
+	if startHA == nil {
+		startHA = cfg.startHardwareAudio
+	}
+
+	cleanup, err := startHA(rt)
+	if err != nil {
+		cfg.Log.Warn().Err(err).
+			Dur("retry_in", cfg.audioRecoveryInterval).
+			Msg("comms: audio recovery attempt failed")
+
+		return false
+	}
+
+	rt.audioCleanup = cleanup
+
+	cfg.Log.Info().Msg("comms: hardware audio recovered")
+
+	return true
 }
 
 // Start initializes all comms subsystems and blocks until ctx is canceled.
@@ -281,9 +317,13 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 	}
 
 	// ── audio I/O ─────────────────────────────────────────────────────────
-	if cleanup := cfg.initAudioIO(ctx, rt); cleanup != nil {
-		defer cleanup()
-	}
+	rt.audioCleanup = cfg.initAudioIO(ctx, rt)
+
+	defer func() {
+		if rt.audioCleanup != nil {
+			rt.audioCleanup()
+		}
+	}()
 
 	// ── run loop ───────────────────────────────────────────────────────────
 	cfg.Run(ctx, rt, src)

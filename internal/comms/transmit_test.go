@@ -2,11 +2,13 @@ package comms
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
@@ -752,4 +754,188 @@ func TestBeginTransmission_WebMode_HalfDuplexStillWorks(t *testing.T) {
 	if cfg.isBroadcasting(rt) {
 		t.Error("should not be broadcasting while receiving remote audio, even in web mode")
 	}
+}
+
+// ─── In-run audio recovery ──────────────────────────────────────────────────
+
+// countingStartHA is a mutex-protected fake for startHardwareAudioFn that
+// fails failN times, then succeeds. Success installs a mockStream the same
+// way the real startHardwareAudio does and signals succeeded (once).
+type countingStartHA struct {
+	mu        sync.Mutex
+	calls     int
+	failN     int
+	cleanups  int
+	succeeded chan struct{}
+}
+
+func (f *countingStartHA) fn(rt *CommsRuntime) (func(), error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.calls++
+	if f.calls <= f.failN {
+		return nil, errors.New("simulated: miniaudio: Broken pipe")
+	}
+
+	rt.SetBroadcast(&mockStream{})
+
+	select {
+	case <-f.succeeded:
+	default:
+		close(f.succeeded)
+	}
+
+	return func() { f.mu.Lock(); f.cleanups++; f.mu.Unlock() }, nil
+}
+
+func (f *countingStartHA) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.calls
+}
+
+// TestRun_AudioRecovery_RetriesUntilSuccess verifies that when comms starts
+// without hardware audio (e.g. OpenVLM unplugged or dmix EPIPE at boot),
+// the Run loop re-attempts init on the recovery ticker and installs the
+// stream on success, without a daemon restart.
+func TestRun_AudioRecovery_RetriesUntilSuccess(t *testing.T) {
+	fake := &countingStartHA{failN: 2, succeeded: make(chan struct{})}
+
+	cfg := &CommsConfig{
+		Log:                   zerolog.Nop(),
+		ControlSource:         defaultCtrlSrc,
+		audioRecoveryInterval: 5 * time.Millisecond,
+		startHardwareAudioFn:  fake.fn,
+	}
+
+	rt := &CommsRuntime{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		cfg.Run(ctx, rt, &mockEventSource{ch: make(chan control.PTTEvent)})
+		close(done)
+	}()
+
+	select {
+	case <-fake.succeeded:
+	case <-time.After(2 * time.Second):
+		t.Fatal("recovery never succeeded")
+	}
+
+	cancel()
+	<-done
+
+	assert.Equal(t, 3, fake.callCount(), "two failures then one success")
+	assert.NotNil(t, rt.Broadcast(), "recovered stream must be installed")
+	assert.NotNil(t, rt.audioCleanup, "recovery must stash the cleanup for Start's defer")
+}
+
+// TestRun_AudioRecovery_StopsAfterSuccess verifies the ticker is disarmed
+// once audio is up: no further init attempts occur.
+func TestRun_AudioRecovery_StopsAfterSuccess(t *testing.T) {
+	fake := &countingStartHA{failN: 0, succeeded: make(chan struct{})}
+
+	cfg := &CommsConfig{
+		Log:                   zerolog.Nop(),
+		ControlSource:         defaultCtrlSrc,
+		audioRecoveryInterval: time.Millisecond,
+		startHardwareAudioFn:  fake.fn,
+	}
+
+	rt := &CommsRuntime{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		cfg.Run(ctx, rt, &mockEventSource{ch: make(chan control.PTTEvent)})
+		close(done)
+	}()
+
+	<-fake.succeeded
+
+	// Give the ticker room to misfire if the disarm were broken, without
+	// asserting on wall-clock behavior: poll until call count is stable
+	// across two observations 20 ticker-periods apart.
+	deadline := time.After(2 * time.Second)
+
+	for {
+		before := fake.callCount()
+
+		select {
+		case <-deadline:
+			t.Fatal("call count never stabilized")
+		case <-time.After(20 * time.Millisecond):
+		}
+
+		if fake.callCount() == before {
+			break
+		}
+	}
+
+	cancel()
+	<-done
+
+	assert.Equal(t, 1, fake.callCount(), "no attempts after success")
+}
+
+// TestRun_AudioRecovery_DisabledWhenHealthy verifies no recovery attempts
+// happen when startup already produced a stream.
+func TestRun_AudioRecovery_DisabledWhenHealthy(t *testing.T) {
+	cfg := &CommsConfig{
+		Log:                   zerolog.Nop(),
+		ControlSource:         defaultCtrlSrc,
+		audioRecoveryInterval: time.Millisecond,
+		startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+			t.Error("recovery must not run when audio is already up")
+
+			return nil, nil
+		},
+	}
+
+	rt := &CommsRuntime{}
+	rt.SetBroadcast(&mockStream{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		cfg.Run(ctx, rt, &mockEventSource{ch: make(chan control.PTTEvent)})
+		close(done)
+	}()
+
+	time.AfterFunc(50*time.Millisecond, cancel)
+	<-done
+}
+
+// TestRun_AudioRecovery_DisabledInWebMode verifies web mode never attempts
+// hardware recovery — the browser owns audio I/O.
+func TestRun_AudioRecovery_DisabledInWebMode(t *testing.T) {
+	cfg := &CommsConfig{
+		Log:                   zerolog.Nop(),
+		ControlSource:         controlSourceWeb,
+		audioRecoveryInterval: time.Millisecond,
+		startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+			t.Error("recovery must not run in web mode")
+
+			return nil, nil
+		},
+	}
+
+	rt := &CommsRuntime{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		cfg.Run(ctx, rt, &mockEventSource{ch: make(chan control.PTTEvent)})
+		close(done)
+	}()
+
+	time.AfterFunc(50*time.Millisecond, cancel)
+	<-done
 }
