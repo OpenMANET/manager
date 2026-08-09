@@ -34,7 +34,7 @@ afterEach(() => {
 
 const INTERFACES = [
   { name: 'eth0', type: 2, status: 1, ipAddress: '192.168.1.1', macAddress: 'aa:bb:cc:dd:ee:01', rxBytes: 1048576, txBytes: 524288, mtu: 1500 },
-  { name: 'wlan0', type: 4, status: 1, ipAddress: '10.41.1.1', macAddress: 'aa:bb:cc:dd:ee:02', rxBytes: 2097152, txBytes: 1048576, mtu: 1500 },
+  { name: 'wlh0', type: 4, status: 1, ipAddress: '10.41.1.1', macAddress: 'aa:bb:cc:dd:ee:02', rxBytes: 2097152, txBytes: 1048576, mtu: 1500 },
   { name: 'br-lan', type: 1, status: 2, ipAddress: '', macAddress: 'aa:bb:cc:dd:ee:03', rxBytes: 0, txBytes: 0, mtu: 1500 },
 ];
 
@@ -72,7 +72,7 @@ describe('TestNetworkInterfacesRender', () => {
     render(<SettingsNetworkPage />);
     await waitFor(() => {
       expect(screen.getByText('eth0')).toBeTruthy();
-      expect(screen.getByText('wlan0')).toBeTruthy();
+      expect(screen.getByText('wlh0')).toBeTruthy();
       expect(screen.getAllByText('br-lan').length).toBeGreaterThanOrEqual(1);
     });
     // Type labels
