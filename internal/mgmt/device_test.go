@@ -429,9 +429,9 @@ func TestSetupBatMesh1Interface_HardwareMatch_MT7915(t *testing.T) {
 	wireless := newFakeWirelessReader()
 	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
 	// No mesh iface seeded — expect it to fail past the hardware check.
-	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlh0"))
 	// Should fail at "no mesh iface", not at "no supported hardware".
 	if err == nil {
 		t.Fatal("expected error after hardware check (no mesh iface)")
@@ -450,9 +450,9 @@ func TestSetupBatMesh1Interface_HardwareMatch_MT7916(t *testing.T) {
 	wireless := newFakeWirelessReader()
 	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
 
-	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7916AN")
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7916AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlh0"))
 	// Should fail at "no mesh iface", not at "no supported hardware".
 	if err == nil {
 		t.Fatal("expected error after hardware check (no mesh iface)")
@@ -474,9 +474,9 @@ func TestSetupBatMesh1Interface_NoMeshIface(t *testing.T) {
 	_ = wireless.SetType("wireless", "default_radio0", "mode", uci.TypeOption, "ap")
 	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
 
-	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlh0"))
 	if err == nil {
 		t.Fatal("expected error when no mesh iface found")
 	}
@@ -498,9 +498,9 @@ func TestSetupBatMesh1Interface_IfaceSectionsError(t *testing.T) {
 		sectionType:  "wifi-iface",
 		err:          errors.New("read interfaces"),
 	}
-	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, reader, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, reader, iw, wirelessStatusForRadio(t, "radio1", "wlh0"))
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "get wifi-iface sections")
 }
@@ -515,9 +515,9 @@ func TestSetupBatMesh1Interface_No2gDevice(t *testing.T) {
 	// Only a non-2g device.
 	wireless.seedWifiDevice("radio4", "s1g", "42", "")
 
-	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio4", "wlan0"))
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio4", "wlh0"))
 	if err != nil {
 		t.Fatalf("expected safe no-op when no supported 2.4 GHz radio exists, got %v", err)
 	}
@@ -536,9 +536,9 @@ func TestSetupBatMesh1Interface_Success(t *testing.T) {
 	wireless.seedMeshIface("existing_mesh0", "radio4", "halowmesh", "secretkey999")
 	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
 
-	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlh0"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -675,9 +675,9 @@ func TestSetupBatMesh1Interface_SetIfaceError(t *testing.T) {
 	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
 	wireless.setTypeErr = errors.New("UCI write failure")
 
-	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlh0"))
 	if err == nil {
 		t.Fatal("expected error when SetWirelessIface fails")
 	}
@@ -700,9 +700,9 @@ func TestSetupBatMesh1Interface_SetDeviceError(t *testing.T) {
 	// device update commit fails.
 	wireless.commitErr = errors.New("commit failure")
 
-	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlh0"))
 	if err == nil {
 		t.Fatal("expected error when Commit fails")
 	}
@@ -723,9 +723,9 @@ func TestSetupBatMesh1Interface_SetConfiguredError(t *testing.T) {
 	wireless.seedMeshIface("existing_mesh0", "radio4", "halowmesh", "secretkey")
 	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
 
-	iw := makeIwinfoWithHardware("wlan0", "MediaTek MT7915AN")
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7915AN")
 
-	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlan0"))
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlh0"))
 	if err == nil {
 		t.Fatal("expected error when openmanet Commit fails")
 	}

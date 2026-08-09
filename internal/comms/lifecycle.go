@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -72,24 +74,54 @@ func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) (cleanup func(), er
 		return nil, hwErr
 	}
 
-	rt.BroadcastStream = broadcast
+	rt.SetBroadcast(broadcast)
 	rt.PlaybackOutputLatency = audioInit.PlaybackOutputLatency
 
 	return cleanup, nil
 }
 
+const (
+	// audioInitAttempts bounds the startup hardware-audio init retries.
+	// The OpenVLM dongle can transiently fail its first dmix slave start
+	// while USB enumeration settles at boot (EPIPE from snd_pcm_start);
+	// a couple of spaced retries absorbs that without delaying startup
+	// noticeably.
+	audioInitAttempts = 3
+
+	// defaultAudioInitRetryDelay is the production wait between startup
+	// attempts; applyDefaults installs it when the field is zero.
+	defaultAudioInitRetryDelay = 750 * time.Millisecond
+
+	// defaultAudioRecoveryInterval paces in-run hardware audio recovery
+	// attempts. Slow enough that a permanently absent dongle costs nothing
+	// measurable, fast enough that plugging one in feels immediate.
+	defaultAudioRecoveryInterval = 10 * time.Second
+
+	// recoveryDetectEveryNth bounds how often tryAudioRecovery re-runs ALSA
+	// card detection once the first attempt has already run it once. At
+	// the default 10s audioRecoveryInterval this is roughly once a minute.
+	// Detection itself logs a Warn on every miss (openvlm.go), so re-running
+	// it every tick on a permanently dongle-less device would flood logd;
+	// bounding the re-run rate keeps that noise in check without disabling
+	// detection outright (a dongle plugged in after startup still gets
+	// picked up within a minute).
+	recoveryDetectEveryNth = 6
+)
+
 // initAudioIO wires up the local audio path for cfg.ControlSource. In web
 // mode it constructs a webaudio bridge; in non-web modes (openvlm, nanoptt,
-// roip) it tries to open the malgo capture/playback streams.
+// roip) it tries to open the malgo capture/playback streams, retrying up to
+// audioInitAttempts times with cfg.audioInitRetryDelay between attempts.
 //
 // A failure to bring up local audio is non-fatal: the comms subsystem stays
 // alive so RTP relay between mesh peers continues, and the WebUI's
 // per-channel RX/TX toggles still take effect. The TX/RX hot paths already
-// guard against the resulting nil BroadcastStream / PlaybackStream.
+// guard against the resulting nil BroadcastStream / PlaybackStream. The Run
+// loop's audio recovery ticker keeps re-attempting init in the background.
 //
 // Returns the malgo cleanup function (nil when there is nothing to clean
 // up) so Start can defer it.
-func (cfg *CommsConfig) initAudioIO(rt *CommsRuntime) func() {
+func (cfg *CommsConfig) initAudioIO(ctx context.Context, rt *CommsRuntime) func() {
 	if cfg.ControlSource == controlSourceWeb {
 		// Web mode: skip the malgo pipeline entirely; the browser provides audio I/O.
 		rt.WebBridge = webaudio.NewBridge(cfg.Log, func(payload []byte) {
@@ -104,14 +136,119 @@ func (cfg *CommsConfig) initAudioIO(rt *CommsRuntime) func() {
 		startHA = cfg.startHardwareAudio
 	}
 
-	cleanup, hwErr := startHA(rt)
-	if hwErr != nil {
-		cfg.Log.Error().Err(hwErr).Msg("comms: hardware audio init failed; continuing without local mic/speaker")
+	var lastErr error
 
-		return nil
+	for attempt := 1; attempt <= audioInitAttempts; attempt++ {
+		cleanup, hwErr := startHA(rt)
+		if hwErr == nil {
+			if attempt > 1 {
+				cfg.Log.Info().Int("attempt", attempt).Msg("comms: hardware audio init succeeded after retry")
+			}
+
+			return cleanup
+		}
+
+		lastErr = hwErr
+		cfg.Log.Warn().Err(hwErr).
+			Int("attempt", attempt).
+			Int("max_attempts", audioInitAttempts).
+			Msg("comms: hardware audio init attempt failed")
+
+		if attempt == audioInitAttempts {
+			break
+		}
+
+		if !sleepCtx(ctx, cfg.audioInitRetryDelay) {
+			return nil
+		}
 	}
 
-	return cleanup
+	cfg.Log.Error().Err(lastErr).
+		Str("alsa_card", os.Getenv("ALSA_CARD")).
+		Msg("comms: hardware audio init failed; continuing without local mic/speaker")
+
+	return nil
+}
+
+// sleepCtx waits for d or until ctx is canceled. Returns false when the
+// context ended the wait (or was already canceled).
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return ctx.Err() == nil
+	}
+
+	t := time.NewTimer(d)
+	defer t.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+// tryAudioRecovery performs one in-run hardware audio init attempt. Called
+// only from the Run goroutine (ticker case) with a monotonically increasing
+// attempt counter local to that goroutine — never accessed concurrently, so
+// it needs no synchronization of its own.
+//
+// Re-runs ALSA card detection when ALSA_CARD is still unset — the OpenVLM
+// may have been plugged in after startup detection ran — but only on the
+// first attempt and every recoveryDetectEveryNth attempt thereafter (see
+// its doc comment): detection logs its own Warn on every miss, and running
+// it on every 10s tick forever on a dongle-less device floods logd.
+//
+// Failure logging is similarly throttled: the first failed attempt logs at
+// Warn (so the operator sees the daemon is degraded), every subsequent
+// consecutive failure logs at Debug so a permanently absent dongle doesn't
+// produce ~17k Warn lines/day. Returns true when audio is up.
+func (cfg *CommsConfig) tryAudioRecovery(rt *CommsRuntime, attempt int) bool {
+	if os.Getenv("ALSA_CARD") == "" &&
+		(cfg.ControlSource == defaultCtrlSrc || cfg.ControlSource == controlSourceROIP) &&
+		(attempt == 1 || attempt%recoveryDetectEveryNth == 0) {
+		cfg.detectALSACard()
+	}
+
+	startHA := cfg.startHardwareAudioFn
+	if startHA == nil {
+		startHA = cfg.startHardwareAudio
+	}
+
+	cleanup, err := startHA(rt)
+	if err != nil {
+		logEvent := cfg.Log.Debug()
+		if attempt == 1 {
+			logEvent = cfg.Log.Warn()
+		}
+
+		logEvent.Err(err).
+			Int("attempt", attempt).
+			Dur("retry_in", cfg.audioRecoveryInterval).
+			Msg("comms: audio recovery attempt failed")
+
+		return false
+	}
+
+	rt.audioCleanup = cleanup
+
+	cfg.Log.Info().Msg("comms: hardware audio recovered")
+
+	return true
+}
+
+// detectALSACard runs ALSA card auto-detection through cfg.detectALSACardFn
+// when set (test seam), falling back to the real
+// control.DetectAndSetALSACard otherwise. Follows the same override pattern
+// as startHardwareAudio/startHardwareAudioFn.
+func (cfg *CommsConfig) detectALSACard() {
+	if cfg.detectALSACardFn != nil {
+		cfg.detectALSACardFn()
+
+		return
+	}
+
+	control.DetectAndSetALSACard(cfg.Log)
 }
 
 // Start initializes all comms subsystems and blocks until ctx is canceled.
@@ -222,9 +359,13 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 	}
 
 	// ── audio I/O ─────────────────────────────────────────────────────────
-	if cleanup := cfg.initAudioIO(rt); cleanup != nil {
-		defer cleanup()
-	}
+	rt.audioCleanup = cfg.initAudioIO(ctx, rt)
+
+	defer func() {
+		if rt.audioCleanup != nil {
+			rt.audioCleanup()
+		}
+	}()
 
 	// ── run loop ───────────────────────────────────────────────────────────
 	cfg.Run(ctx, rt, src)

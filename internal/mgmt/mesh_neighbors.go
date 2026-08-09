@@ -21,8 +21,8 @@ import (
 // ifaceSuffixRe matches a trailing "_<iface>" token whose first
 // character is a lowercase letter — the structural fingerprint of
 // every Linux network interface name OpenMANET nodes carry on the
-// wire (bat0, wlan0, eth0, vxlan0, phy2-mesh0, br-ahwlan,
-// wlan-10-04, mesh0, etc.). The character class allows letters,
+// wire (bat0, wlh0, eth0, vxlan0, phy2-mesh0, br-ahwlan,
+// wlh-10-04, mesh0, etc.). The character class allows letters,
 // digits, dashes, AND underscores so a hostname carrying a chain of
 // suffixes ("BCM2711-88ba_phy2-mesh0_bat0") is consumed in a single
 // match. Anything starting with a digit ("_27") or uppercase letter
@@ -256,7 +256,7 @@ func mapOriginatorsBestOnly(getOrigs func() ([]batmanadv.Originator, error), log
 // stripIfaceSuffix removes a trailing "_<iface>" token from a bat-hosts
 // hostname, e.g. "BCM2711-97d6_bat0" → "BCM2711-97d6". Only strips
 // suffixes that match a recognized network interface name (bat0,
-// vxlan0, wlan0, eth0, etc.) so legitimate underscored hostnames like
+// vxlan0, wlh0, eth0, etc.) so legitimate underscored hostnames like
 // "Gate_04_27" are preserved verbatim. Duplicated from the
 // mesh_topology handler — keep the two in lockstep.
 func stripIfaceSuffix(name string) string {
@@ -270,7 +270,7 @@ func stripIfaceSuffix(name string) string {
 
 // listLocalInterfaceMacs returns the lowercased MACs of local layer-2
 // interfaces that participate (or could participate) in batman-adv
-// routing — bat0, vxlan0, wlan0, phy<N>-mesh<N>, eth*, etc. Filters
+// routing — bat0, vxlan0, wlh0, phy<N>-mesh<N>, eth*, etc. Filters
 // applied:
 //
 //   - skip loopback (no MAC anyway, but explicit)

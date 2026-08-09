@@ -288,7 +288,7 @@ func setDiff(curr, prev map[string]struct{}) (added, lost uint32) {
 // only. Non-best rows describe alternative neighbors we aren't forwarding
 // through and would produce spurious "route change" counts on re-election.
 //
-// Including the hard interface means a failover from wlan0 to phy2-mesh0
+// Including the hard interface means a failover from wlh0 to phy2-mesh0
 // (same next hop, new interface) still registers as a route change — which
 // is what operators care about. MAC fields are normalized to lower-case by
 // batmanadv.GetOriginators at ingestion, so set-diff results are stable

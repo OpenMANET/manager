@@ -1,8 +1,11 @@
 package comms
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -42,10 +45,10 @@ func TestInitAudioIO_HardwareFailureIsNonFatal(t *testing.T) {
 	rt.Ports[1].SendEnabled.Store(false)
 	rt.Ports[1].ReceiveEnabled.Store(false)
 
-	cleanup := cfg.initAudioIO(rt)
+	cleanup := cfg.initAudioIO(context.Background(), rt)
 
 	assert.Nil(t, cleanup, "audio failure must not return a cleanup func to defer")
-	assert.Nil(t, rt.BroadcastStream, "BroadcastStream must remain nil so transmit.go's nil guards engage")
+	assert.Nil(t, rt.Broadcast(), "BroadcastStream must remain nil so transmit.go's nil guards engage")
 	assert.Nil(t, rt.WebBridge, "WebBridge must stay nil for non-web control sources")
 
 	// Publish the service the same way Start does so Default()/handler paths see it.
@@ -79,7 +82,7 @@ func TestInitAudioIO_HardwareSuccessReturnsCleanup(t *testing.T) {
 
 	rt := &CommsRuntime{}
 
-	cleanup := cfg.initAudioIO(rt)
+	cleanup := cfg.initAudioIO(context.Background(), rt)
 	require.NotNil(t, cleanup)
 
 	cleanup()
@@ -103,8 +106,112 @@ func TestInitAudioIO_WebModeBuildsBridge(t *testing.T) {
 
 	rt := &CommsRuntime{}
 
-	cleanup := cfg.initAudioIO(rt)
+	cleanup := cfg.initAudioIO(context.Background(), rt)
 
 	assert.Nil(t, cleanup, "web mode has no malgo lifecycle to clean up")
 	assert.NotNil(t, rt.WebBridge, "web mode must construct a WebBridge")
+}
+
+// TestInitAudioIO_RetriesThenSucceeds verifies the bounded startup retry:
+// a transient ALSA failure (e.g. dmix EPIPE while USB settles at boot) on
+// the first attempts must not permanently disable local audio.
+func TestInitAudioIO_RetriesThenSucceeds(t *testing.T) {
+	calls := 0
+
+	cfg := &CommsConfig{
+		Log:           zerolog.Nop(),
+		ControlSource: defaultCtrlSrc,
+		startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+			calls++
+			if calls < 3 {
+				return nil, errors.New("simulated: miniaudio: Broken pipe")
+			}
+
+			return func() {}, nil
+		},
+	}
+
+	rt := &CommsRuntime{}
+
+	cleanup := cfg.initAudioIO(context.Background(), rt)
+
+	require.NotNil(t, cleanup, "third attempt succeeds; cleanup must be returned")
+	assert.Equal(t, 3, calls)
+}
+
+// TestInitAudioIO_AllAttemptsFail verifies the retry loop is bounded at
+// audioInitAttempts and that exhaustion preserves the existing non-fatal
+// contract (nil cleanup, nil broadcast stream).
+func TestInitAudioIO_AllAttemptsFail(t *testing.T) {
+	calls := 0
+
+	cfg := &CommsConfig{
+		Log:           zerolog.Nop(),
+		ControlSource: defaultCtrlSrc,
+		startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+			calls++
+
+			return nil, errors.New("simulated: persistent failure")
+		},
+	}
+
+	rt := &CommsRuntime{}
+
+	cleanup := cfg.initAudioIO(context.Background(), rt)
+
+	assert.Nil(t, cleanup)
+	assert.Equal(t, audioInitAttempts, calls)
+}
+
+// TestInitAudioIO_ContextCanceledStopsRetry verifies shutdown during the
+// inter-attempt delay aborts immediately instead of finishing the retry
+// budget. The delay is deliberately huge: if cancellation were broken the
+// test would hang and the suite timeout would catch it.
+func TestInitAudioIO_ContextCanceledStopsRetry(t *testing.T) {
+	calls := 0
+
+	cfg := &CommsConfig{
+		Log:                 zerolog.Nop(),
+		ControlSource:       defaultCtrlSrc,
+		audioInitRetryDelay: time.Hour,
+		startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+			calls++
+
+			return nil, errors.New("simulated: failure")
+		},
+	}
+
+	rt := &CommsRuntime{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cleanup := cfg.initAudioIO(ctx, rt)
+
+	assert.Nil(t, cleanup)
+	assert.Equal(t, 1, calls, "canceled context must stop after the first attempt")
+}
+
+// TestInitAudioIO_FailureLogIncludesALSACard verifies the operator-facing
+// failure log names the ALSA card the daemon targeted — without it, "audio
+// out=Default Audio Device" hides which card dmix actually resolved to.
+func TestInitAudioIO_FailureLogIncludesALSACard(t *testing.T) {
+	t.Setenv("ALSA_CARD", "1")
+
+	var buf bytes.Buffer
+
+	cfg := &CommsConfig{
+		Log:           zerolog.New(&buf),
+		ControlSource: defaultCtrlSrc,
+		startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+			return nil, errors.New("simulated: miniaudio: Broken pipe")
+		},
+	}
+
+	rt := &CommsRuntime{}
+
+	cleanup := cfg.initAudioIO(context.Background(), rt)
+
+	assert.Nil(t, cleanup)
+	assert.Contains(t, buf.String(), `"alsa_card":"1"`)
 }

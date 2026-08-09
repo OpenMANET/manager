@@ -105,9 +105,9 @@ func entry(orig, next, iface string) batmanadv.Originator {
 func TestDeltaTracker_WindowRoutesAddedAndLost(t *testing.T) {
 	orig := &fakeOrigScript{
 		snaps: [][]batmanadv.Originator{
-			mkSnap(entry("bb:01", "bb:01", "wlan0")),
-			mkSnap(entry("bb:01", "bb:01", "wlan0"), entry("bb:02", "bb:02", "wlan0")),
-			mkSnap(entry("bb:02", "bb:02", "wlan0")),
+			mkSnap(entry("bb:01", "bb:01", "wlh0")),
+			mkSnap(entry("bb:01", "bb:01", "wlh0"), entry("bb:02", "bb:02", "wlh0")),
+			mkSnap(entry("bb:02", "bb:02", "wlh0")),
 		},
 	}
 	gw := &fakeGateways{sets: []map[string]struct{}{{}, {}, {}}}
@@ -132,13 +132,13 @@ func TestDeltaTracker_WindowRoutesAddedAndLost(t *testing.T) {
 }
 
 // TestDeltaTracker_RouteChangeOnInterfaceFlip verifies that a failover from
-// wlan0 to phy2-mesh0 (same orig, same next hop, different iface) registers
+// wlh0 to phy2-mesh0 (same orig, same next hop, different iface) registers
 // as a route change — this was the whole point of including hardIfname in
 // the edge key.
 func TestDeltaTracker_RouteChangeOnInterfaceFlip(t *testing.T) {
 	orig := &fakeOrigScript{
 		snaps: [][]batmanadv.Originator{
-			mkSnap(entry("bb:01", "bb:01", "wlan0")),
+			mkSnap(entry("bb:01", "bb:01", "wlh0")),
 			mkSnap(entry("bb:01", "bb:01", "phy2-mesh0")),
 		},
 	}
@@ -188,9 +188,9 @@ func TestDeltaTracker_GatewayChanges(t *testing.T) {
 func TestDeltaTracker_ReconvergeZeroWhenStable(t *testing.T) {
 	orig := &fakeOrigScript{
 		snaps: [][]batmanadv.Originator{
-			mkSnap(entry("bb:01", "bb:01", "wlan0")),
-			mkSnap(entry("bb:01", "bb:01", "wlan0")),
-			mkSnap(entry("bb:01", "bb:01", "wlan0")),
+			mkSnap(entry("bb:01", "bb:01", "wlh0")),
+			mkSnap(entry("bb:01", "bb:01", "wlh0")),
+			mkSnap(entry("bb:01", "bb:01", "wlh0")),
 		},
 	}
 	gw := &fakeGateways{sets: []map[string]struct{}{{}, {}, {}}}
@@ -215,9 +215,9 @@ func TestDeltaTracker_ReconvergeZeroWhenStable(t *testing.T) {
 func TestDeltaTracker_ToleratesUnavailable(t *testing.T) {
 	orig := &fakeOrigScript{
 		snaps: [][]batmanadv.Originator{
-			mkSnap(entry("bb:01", "bb:01", "wlan0")),
+			mkSnap(entry("bb:01", "bb:01", "wlh0")),
 			nil,
-			mkSnap(entry("bb:01", "bb:01", "wlan0")),
+			mkSnap(entry("bb:01", "bb:01", "wlh0")),
 		},
 		errs: []error{nil, batmanadv.ErrOriginatorsUnavailable, nil},
 	}

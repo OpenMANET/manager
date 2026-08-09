@@ -41,7 +41,7 @@ type OriginatorEntry struct {
 	OrigHostname    string // from bat-hosts; empty if unknown
 	NextHopMAC      string
 	NextHopHostname string // from bat-hosts; empty if unknown
-	HardIfname      string // wlan0, phy2-mesh0, vxlan0, …
+	HardIfname      string // wlh0, phy2-mesh0, vxlan0, …
 	TQ              int
 	Throughput      float64
 	LastSeenMs      int

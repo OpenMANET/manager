@@ -58,7 +58,7 @@ func TestGetWirelessInterface_NoName_ReturnsLast(t *testing.T) {
 	// When Name is empty the handler iterates all interfaces and returns the
 	// last one it encounters (no early break in the current implementation).
 	ifaces := []*wifi.Interface{
-		makeInterface("wlan0", wifi.InterfaceTypeStation),
+		makeInterface("wlh0", wifi.InterfaceTypeStation),
 		makeInterface("mesh0", wifi.InterfaceTypeMeshPoint),
 	}
 	svc := newInterfaceService(&fakeWireless{interfaces: ifaces})
@@ -71,15 +71,15 @@ func TestGetWirelessInterface_NoName_ReturnsLast(t *testing.T) {
 
 func TestGetWirelessInterface_ByName(t *testing.T) {
 	ifaces := []*wifi.Interface{
-		makeInterface("wlan0", wifi.InterfaceTypeStation),
+		makeInterface("wlh0", wifi.InterfaceTypeStation),
 		makeInterface("mesh0", wifi.InterfaceTypeMeshPoint),
 	}
 	svc := newInterfaceService(&fakeWireless{interfaces: ifaces})
 
-	resp, err := svc.GetWirelessInterface(context.Background(), &serviceproto.GetWirelessInterfaceRequest{Name: "wlan0"})
+	resp, err := svc.GetWirelessInterface(context.Background(), &serviceproto.GetWirelessInterfaceRequest{Name: "wlh0"})
 	require.NoError(t, err)
 	require.NotNil(t, resp.GetInterface())
-	assert.Equal(t, "wlan0", resp.GetInterface().GetName())
+	assert.Equal(t, "wlh0", resp.GetInterface().GetName())
 }
 
 func TestGetWirelessInterface_NotFound(t *testing.T) {
@@ -95,7 +95,7 @@ func TestGetWirelessInterface_NotFound(t *testing.T) {
 func TestGetWirelessInterface_Error(t *testing.T) {
 	svc := newInterfaceService(&fakeWireless{interfacesErr: errors.New("iw failure")})
 
-	_, err := svc.GetWirelessInterface(context.Background(), &serviceproto.GetWirelessInterfaceRequest{Name: "wlan0"})
+	_, err := svc.GetWirelessInterface(context.Background(), &serviceproto.GetWirelessInterfaceRequest{Name: "wlh0"})
 	require.Error(t, err)
 }
 

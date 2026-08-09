@@ -36,7 +36,7 @@ func TestParseBatHostsFile(t *testing.T) {
 
 	// Verify a specific host entry
 	expectedMAC := "3c:22:7f:37:4c:0c"
-	expectedHostname := "BCM2711-97d6_wlan0"
+	expectedHostname := "BCM2711-97d6_wlh0"
 	found := false
 
 	for _, host := range node1.Hosts {
@@ -112,11 +112,11 @@ func TestGetHostByMAC(t *testing.T) {
 		mac      string
 		expected string
 	}{
-		{"3c:22:7f:37:4c:0c", "BCM2711-97d6_wlan0"},
+		{"3c:22:7f:37:4c:0c", "BCM2711-97d6_wlh0"},
 		{"9c:ef:d5:f9:80:4d", "BCM2711-97d6_phy2-mesh0"},
-		{"bc:2a:33:96:b1:84", "BCM2711-88ba_wlan0"},
+		{"bc:2a:33:96:b1:84", "BCM2711-88ba_wlh0"},
 		{"00:c0:ca:b6:5c:58", "HaLow-R-b65c57_mesh0"},
-		{"e4:5f:01:df:f8:fe", "BCM2711-f8fd_wlan-f8-fe"},
+		{"e4:5f:01:df:f8:fe", "BCM2711-f8fd_wlh-f8-fe"},
 		{"00:00:00:00:00:00", ""}, // Non-existent MAC
 	}
 
@@ -142,7 +142,7 @@ func TestGetHostByMAC_CaseInsensitive(t *testing.T) {
 	hostname1 := batHosts.GetHostByMAC("3c:22:7f:37:4c:0c")
 	hostname2 := batHosts.GetHostByMAC("3C:22:7F:37:4C:0C")
 
-	if hostname1 != hostname2 || hostname1 != "BCM2711-97d6_wlan0" {
+	if hostname1 != hostname2 || hostname1 != "BCM2711-97d6_wlh0" {
 		t.Errorf("Case insensitive lookup failed: %s vs %s", hostname1, hostname2)
 	}
 }

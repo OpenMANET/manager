@@ -625,6 +625,19 @@ malgo selects the correct sound card. If `ALSA_CARD` is already set, it
 is left unchanged. A fallback path scans `/proc/asound/card*/usbid` for
 `0d8c:0012` when sysfs discovery fails.
 
+### Audio init retry and in-run recovery
+
+Hardware audio init is retried up to 3 times at startup (750 ms apart,
+context-aware) to absorb transient ALSA/USB failures while the OpenVLM
+dongle settles after boot-time enumeration (observed as `miniaudio:
+Broken pipe` from the dmix slave start). If all startup attempts fail,
+comms stays up (RTP relay and WebUI toggles keep working) and the Run
+loop re-attempts init every 10 seconds — including re-running ALSA card
+detection when `ALSA_CARD` is still unset — so plugging the dongle in
+later brings local mic/speaker up without a daemon restart. Both log
+paths carry an `alsa_card` field naming the card index the `default`
+ALSA PCM resolves to.
+
 `PTTDown` → `beginTransmission`; `PTTUp` → `endTransmission`.
 
 ### `roip` backend

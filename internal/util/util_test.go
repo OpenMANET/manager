@@ -19,8 +19,8 @@ func TestInterfaceWithoutBridge(t *testing.T) {
 		},
 		{
 			name:      "bridge interface with br- prefix and multiple parts",
-			iface:     "br-wlan0",
-			want:      "wlan0",
+			iface:     "br-wlh0",
+			want:      "wlh0",
 			wantError: false,
 		},
 		{

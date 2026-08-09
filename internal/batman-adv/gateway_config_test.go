@@ -11,7 +11,7 @@ func mockGatewaysJSON() string {
 	return `[
   {
     "hard_ifindex": 3,
-    "hard_ifname": "wlan0",
+    "hard_ifname": "wlh0",
     "orig_address": "aa:bb:cc:dd:ee:01",
     "best": true,
     "throughput": 10000,
@@ -21,7 +21,7 @@ func mockGatewaysJSON() string {
   },
   {
     "hard_ifindex": 4,
-    "hard_ifname": "wlan1",
+    "hard_ifname": "wlh1",
     "orig_address": "aa:bb:cc:dd:ee:02",
     "best": false,
     "throughput": 5000,
@@ -31,7 +31,7 @@ func mockGatewaysJSON() string {
   },
   {
     "hard_ifindex": 3,
-    "hard_ifname": "wlan0",
+    "hard_ifname": "wlh0",
     "orig_address": "aa:bb:cc:dd:ee:03",
     "best": false,
     "throughput": 7500,
@@ -191,7 +191,7 @@ func TestFindByInterface(t *testing.T) {
 		{
 			name:     "found",
 			gateways: gateways,
-			ifname:   "wlan1",
+			ifname:   "wlh1",
 			wantNil:  false,
 		},
 		{
@@ -203,7 +203,7 @@ func TestFindByInterface(t *testing.T) {
 		{
 			name:     "nil gateways",
 			gateways: nil,
-			ifname:   "wlan0",
+			ifname:   "wlh0",
 			wantNil:  true,
 		},
 	}
@@ -240,13 +240,13 @@ func TestFilterByInterface(t *testing.T) {
 		{
 			name:      "multiple matches",
 			gateways:  gateways,
-			ifname:    "wlan0",
+			ifname:    "wlh0",
 			wantCount: 2,
 		},
 		{
 			name:      "single match",
 			gateways:  gateways,
-			ifname:    "wlan1",
+			ifname:    "wlh1",
 			wantCount: 1,
 		},
 		{
@@ -258,7 +258,7 @@ func TestFilterByInterface(t *testing.T) {
 		{
 			name:      "nil gateways",
 			gateways:  nil,
-			ifname:    "wlan0",
+			ifname:    "wlh0",
 			wantCount: 0,
 		},
 	}
@@ -505,7 +505,7 @@ func TestGetInterfaces(t *testing.T) {
 		t.Errorf("GetInterfaces() returned %d interfaces, want 2", len(interfaces))
 	}
 
-	expected := []string{"wlan0", "wlan1"}
+	expected := []string{"wlh0", "wlh1"}
 	if !reflect.DeepEqual(interfaces, expected) {
 		t.Errorf("GetInterfaces() = %v, want %v", interfaces, expected)
 	}

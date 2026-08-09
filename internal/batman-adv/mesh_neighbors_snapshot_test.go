@@ -61,7 +61,7 @@ func makePayloadWithHostname(t *testing.T, primary, hostname string, collected t
 		Algorithm:   15,
 		CollectedAt: timestamppb.New(collected),
 		Neighbors: []*netv1.MeshNeighbor{
-			{Mac: "aa:bb:cc:dd:ee:ff", HardIfname: "wlan0", Blos: false, ThroughputKbps: 50000},
+			{Mac: "aa:bb:cc:dd:ee:ff", HardIfname: "wlh0", Blos: false, ThroughputKbps: 50000},
 		},
 	}
 
@@ -575,7 +575,7 @@ func TestMeshNeighborsSnapshotter_SamePublisherDualChannelDoesNotWarn(t *testing
 
 	const (
 		sharedPrimary = "0a:d7:37:78:2d:3e" // BCM2711-97d6's bat0 MAC
-		ifaceMAC      = "3c:22:7f:37:4c:0c" // BCM2711-97d6's wlan0 MAC
+		ifaceMAC      = "3c:22:7f:37:4c:0c" // BCM2711-97d6's wlh0 MAC
 		// Two different alfred envelopes — one per batman-adv instance.
 		channelARFEnv  = "f2:f9:81:82:98:73"
 		channelBLOSEnv = "f2:48:e8:f5:70:f2"

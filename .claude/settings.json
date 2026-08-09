@@ -131,7 +131,8 @@
     "claude-md-management@claude-plugins-official": true,
     "github@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
-    "frontend-design@claude-plugins-official": true
+    "frontend-design@claude-plugins-official": true,
+    "caveman@caveman": true
   },
   "extraKnownMarketplaces": {
     "caveman": {

@@ -385,11 +385,11 @@ func TestBeginTransmission_BeepSentToAllPorts(t *testing.T) {
 
 	rt := &CommsRuntime{
 		Ports:           []*PortChannel{pc0, pc1},
-		BroadcastStream: &mockStream{},
 		BeepBufferStart: []int16{100, 200},
 		BeepBufferStop:  []int16{300, 400},
 		Decoder:         &mockDecoder{},
 	}
+	rt.SetBroadcast(&mockStream{})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	cfg.beginTransmission(rt)
