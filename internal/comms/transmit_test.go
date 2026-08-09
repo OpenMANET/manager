@@ -26,13 +26,15 @@ func newTestRuntime(stream BroadcastCapture) *CommsRuntime {
 	pc.ReceiveEnabled.Store(true)
 	pc.PlaybackBuffer = make(chan []int16, 16)
 
-	return &CommsRuntime{
+	rt := &CommsRuntime{
 		Ports:           []*PortChannel{pc},
 		BeepBufferStart: []int16{100, 200},
 		BeepBufferStop:  []int16{300, 400},
-		BroadcastStream: stream,
 		Decoder:         &mockDecoder{},
 	}
+	rt.SetBroadcast(stream)
+
+	return rt
 }
 
 func TestBeginTransmission_StartsStream(t *testing.T) {
@@ -652,9 +654,9 @@ func TestEndTransmission_QueuesStopBeepToAllPorts(t *testing.T) {
 		Ports:           []*PortChannel{pc0, pc1},
 		BeepBufferStart: []int16{100, 200},
 		BeepBufferStop:  []int16{300, 400},
-		BroadcastStream: &mockStream{},
 		Decoder:         &mockDecoder{},
 	}
+	rt.SetBroadcast(&mockStream{})
 
 	cfg := newSilentComms()
 

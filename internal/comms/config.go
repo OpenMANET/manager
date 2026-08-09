@@ -2,6 +2,7 @@ package comms
 
 import (
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -40,7 +41,6 @@ type BroadcastCapture interface {
 type CommsRuntime struct {
 	Decoder         codec.AudioDecoder
 	Encoder         codec.AudioEncoder
-	BroadcastStream BroadcastCapture
 	FECAdapter      *FECAdapter
 	WebBridge       *webaudio.Bridge
 	WebEvtSrc       *control.WebEventSource
@@ -58,6 +58,32 @@ type CommsRuntime struct {
 	PlaybackOutputLatency time.Duration
 	Broadcasting          atomic.Bool
 	RemoteRxActive        atomic.Bool
+
+	// mu protects broadcastStream. It is written at startup by
+	// initAudioIO/startHardwareAudio and again by the Run loop's audio
+	// recovery path; it is read from the Run goroutine (transmit paths)
+	// and from the instrumentation snapshot goroutine, so a plain field
+	// is not enough once recovery can install it mid-run.
+	mu              sync.RWMutex
+	broadcastStream BroadcastCapture
+}
+
+// Broadcast returns the live capture stream, or nil when hardware audio is
+// not (yet) up. Reads outnumber writes by orders of magnitude, hence RWMutex.
+func (rt *CommsRuntime) Broadcast() BroadcastCapture {
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+
+	return rt.broadcastStream
+}
+
+// SetBroadcast installs the capture stream produced by a successful
+// hardware audio init (startup or in-run recovery).
+func (rt *CommsRuntime) SetBroadcast(bs BroadcastCapture) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	rt.broadcastStream = bs
 }
 
 // ─── CommsConfig ──────────────────────────────────────────────────────────────

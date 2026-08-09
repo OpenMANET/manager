@@ -162,14 +162,15 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 		time.Sleep(d)
 	}
 
-	if rt.BroadcastStream == nil {
+	bs := rt.Broadcast()
+	if bs == nil {
 		cfg.Log.Error().Msg("BroadcastStream is nil; cannot begin transmission")
 		rt.Broadcasting.Store(false)
 
 		return
 	}
 
-	rt.BroadcastStream.SetTxEnabled(true)
+	bs.SetTxEnabled(true)
 
 	cfg.Log.Debug().Msg("TX gate opened")
 }
@@ -194,10 +195,10 @@ func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 
 	cfg.Log.Debug().Msg("End transmission: closing TX gate and playing stop tone")
 
-	if rt.BroadcastStream == nil {
+	if bs := rt.Broadcast(); bs == nil {
 		cfg.Log.Warn().Msg("BroadcastStream was nil during end transmission")
 	} else {
-		rt.BroadcastStream.SetTxEnabled(false)
+		bs.SetTxEnabled(false)
 	}
 
 	cfg.drainPlaybackBuffer(rt)

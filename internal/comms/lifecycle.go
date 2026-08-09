@@ -74,7 +74,7 @@ func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) (cleanup func(), er
 		return nil, hwErr
 	}
 
-	rt.BroadcastStream = broadcast
+	rt.SetBroadcast(broadcast)
 	rt.PlaybackOutputLatency = audioInit.PlaybackOutputLatency
 
 	return cleanup, nil

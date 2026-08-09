@@ -119,7 +119,7 @@ func (s *Service) Snapshot(dst *CommsSnapshot) {
 	// always a *audio.BroadcastEncoder; test fakes may substitute a
 	// minimal stub that does not carry counters. The type assertion falls
 	// back to a zero snapshot in that case.
-	if be, ok := rt.BroadcastStream.(*audio.BroadcastEncoder); ok {
+	if be, ok := rt.Broadcast().(*audio.BroadcastEncoder); ok {
 		be.Snapshot(&dst.BroadcastEncoder)
 	} else {
 		dst.BroadcastEncoder = audio.AudioEncoderSnapshot{}

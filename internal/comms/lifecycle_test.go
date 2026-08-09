@@ -47,7 +47,7 @@ func TestInitAudioIO_HardwareFailureIsNonFatal(t *testing.T) {
 	cleanup := cfg.initAudioIO(context.Background(), rt)
 
 	assert.Nil(t, cleanup, "audio failure must not return a cleanup func to defer")
-	assert.Nil(t, rt.BroadcastStream, "BroadcastStream must remain nil so transmit.go's nil guards engage")
+	assert.Nil(t, rt.Broadcast(), "BroadcastStream must remain nil so transmit.go's nil guards engage")
 	assert.Nil(t, rt.WebBridge, "WebBridge must stay nil for non-web control sources")
 
 	// Publish the service the same way Start does so Default()/handler paths see it.
