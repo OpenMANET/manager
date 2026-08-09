@@ -38,7 +38,7 @@ function directRF() {
       { mac: '00:00:00:00:00:00', hostname: 'BCM2711-me01', segment: 'local',
         hopsFromSelf: 0, isSelf: true, myHardIfname: '' },
       { mac: 'aa:aa:aa:aa:aa:01', hostname: 'BCM2711-alpha', segment: 'local',
-        hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
+        hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
     ],
     edges: [
       { fromMac: '00:00:00:00:00:00', toMac: 'aa:aa:aa:aa:aa:01',
@@ -56,7 +56,7 @@ function withBLOSGateway() {
       { mac: '00:00:00:00:00:00', hostname: 'BCM2711-me01', segment: 'local',
         hopsFromSelf: 0, isSelf: true, myHardIfname: '' },
       { mac: 'aa:aa:aa:aa:aa:01', hostname: 'BCM2711-alpha', segment: 'local',
-        hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
+        hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
       { mac: 'cc:cc:cc:cc:cc:01', hostname: 'BCM2711-gw1', segment: 'remote',
         hopsFromSelf: 1, isSelf: false, myHardIfname: 'vxlan0' },
     ],
@@ -199,10 +199,10 @@ function chainAndSingleton() {
     algorithm: 'BATMAN_V',
     nodes: [
       { mac: 'aa:aa:aa:aa:aa:00', hostname: 'gw',  segment: 'local', hopsFromSelf: 0, isSelf: true,  myHardIfname: '' },
-      { mac: 'bb:bb:bb:bb:bb:00', hostname: 'B',   segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
-      { mac: 'dd:dd:dd:dd:dd:00', hostname: 'D',   segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
-      { mac: 'cc:cc:cc:cc:cc:00', hostname: 'A',   segment: 'local', hopsFromSelf: 2, isSelf: false, myHardIfname: 'wlan0' },
-      { mac: 'ee:ee:ee:ee:ee:00', hostname: 'C',   segment: 'local', hopsFromSelf: 3, isSelf: false, myHardIfname: 'wlan0' },
+      { mac: 'bb:bb:bb:bb:bb:00', hostname: 'B',   segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
+      { mac: 'dd:dd:dd:dd:dd:00', hostname: 'D',   segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
+      { mac: 'cc:cc:cc:cc:cc:00', hostname: 'A',   segment: 'local', hopsFromSelf: 2, isSelf: false, myHardIfname: 'wlh0' },
+      { mac: 'ee:ee:ee:ee:ee:00', hostname: 'C',   segment: 'local', hopsFromSelf: 3, isSelf: false, myHardIfname: 'wlh0' },
     ],
     edges: [
       { fromMac: 'aa:aa:aa:aa:aa:00', toMac: 'bb:bb:bb:bb:bb:00', metric: 1.1, blos: false, onMyPath: true },
@@ -241,7 +241,7 @@ describe('TestTopologyMapTreeLayout', () => {
     const topology = chainAndSingleton();
     topology.nodes.push({
       mac: 'ff:ff:ff:ff:ff:00', hostname: 'Z', segment: 'local',
-      hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0',
+      hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0',
     });
     // No edges referencing Z — it should still land on the canvas.
 
@@ -268,10 +268,10 @@ function ringWithCrossEdge() {
     algorithm: 'BATMAN_V',
     nodes: [
       { mac: 'aa:aa:aa:aa:aa:00', hostname: 'gw', segment: 'local', hopsFromSelf: 0, isSelf: true,  myHardIfname: '' },
-      { mac: 'bb:bb:bb:bb:bb:00', hostname: 'A',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
-      { mac: 'cc:cc:cc:cc:cc:00', hostname: 'B',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
-      { mac: 'dd:dd:dd:dd:dd:00', hostname: 'C',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
-      { mac: 'ee:ee:ee:ee:ee:00', hostname: 'D',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
+      { mac: 'bb:bb:bb:bb:bb:00', hostname: 'A',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
+      { mac: 'cc:cc:cc:cc:cc:00', hostname: 'B',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
+      { mac: 'dd:dd:dd:dd:dd:00', hostname: 'C',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
+      { mac: 'ee:ee:ee:ee:ee:00', hostname: 'D',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
     ],
     edges: [
       { fromMac: 'aa:aa:aa:aa:aa:00', toMac: 'bb:bb:bb:bb:bb:00', metric: 15, blos: false, onMyPath: true },
@@ -327,10 +327,10 @@ describe('TestTopologyMapHybridLayout', () => {
       algorithm: 'BATMAN_V',
       nodes: [
         { mac: 'aa:aa:aa:aa:aa:00', hostname: 'gw', segment: 'local', hopsFromSelf: 0, isSelf: true,  myHardIfname: '' },
-        { mac: 'bb:bb:bb:bb:bb:00', hostname: 'A',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
-        { mac: 'cc:cc:cc:cc:cc:00', hostname: 'B',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
-        { mac: 'dd:dd:dd:dd:dd:00', hostname: 'C',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
-        { mac: 'ee:ee:ee:ee:ee:00', hostname: 'D',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
+        { mac: 'bb:bb:bb:bb:bb:00', hostname: 'A',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
+        { mac: 'cc:cc:cc:cc:cc:00', hostname: 'B',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
+        { mac: 'dd:dd:dd:dd:dd:00', hostname: 'C',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
+        { mac: 'ee:ee:ee:ee:ee:00', hostname: 'D',  segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
       ],
       // Tree edges from gw to every sibling PLUS every sibling-pair edge.
       edges: [
@@ -489,7 +489,7 @@ describe('TestTopologyMapSegmentSizing', () => {
   // can check that a segment box contains every node's rendered
   // footprint (circle + secondary label). Before the label-aware
   // bbox pass, a segment with many children could have its right-
-  // most host's "HOPS 1 · wlan0" text spilling past the box edge.
+  // most host's "HOPS 1 · wlh0" text spilling past the box edge.
   function localWithSiblings(n) {
     const nodes = [{
       mac: '00:00:00:00:00:00', hostname: 'self', segment: 'local',
@@ -505,7 +505,7 @@ describe('TestTopologyMapSegmentSizing', () => {
         hopsFromSelf: 1,
         isSelf: false,
         clientCount: 0,
-        myHardIfname: 'wlan0',
+        myHardIfname: 'wlh0',
       });
       edges.push({ fromMac: '00:00:00:00:00:00', toMac: mac, metric: 1.2, blos: false, onMyPath: true });
     }
@@ -541,8 +541,8 @@ describe('TestTopologyMapSegmentSizing', () => {
       algorithm: 'BATMAN_V',
       nodes: [
         { mac: '00:00:00:00:00:00', hostname: 'self', segment: 'local', hopsFromSelf: 0, isSelf: true, myHardIfname: '' },
-        { mac: 'aa:aa:aa:aa:aa:01', hostname: 'BCM2711-a', segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
-        { mac: 'aa:aa:aa:aa:aa:02', hostname: 'BCM2711-b', segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0' },
+        { mac: 'aa:aa:aa:aa:aa:01', hostname: 'BCM2711-a', segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
+        { mac: 'aa:aa:aa:aa:aa:02', hostname: 'BCM2711-b', segment: 'local', hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0' },
         { mac: 'cc:cc:cc:cc:cc:01', hostname: 'BCM2711-gw', segment: 'remote', hopsFromSelf: 1, isSelf: false, myHardIfname: 'vxlan0' },
         { mac: 'cc:cc:cc:cc:cc:02', hostname: 'BCM2711-rm1', segment: 'remote', hopsFromSelf: 2, isSelf: false, myHardIfname: 'vxlan0' },
         { mac: 'cc:cc:cc:cc:cc:03', hostname: 'BCM2711-rm2', segment: 'remote', hopsFromSelf: 2, isSelf: false, myHardIfname: 'vxlan0' },

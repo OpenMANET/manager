@@ -14,8 +14,8 @@ import (
 
 func TestParseOriginators_LowercasesMACs(t *testing.T) {
 	raw := []byte(`[
-		{"orig_address":"AA:BB:CC:DD:EE:01","best_next_hop":"AA:BB:CC:DD:EE:02","hard_ifname":"wlan0","tq":255,"best":true},
-		{"orig_address":"aa:BB:cc:DD:ee:03","best_next_hop":"AA:bb:CC:dd:EE:01","hard_ifname":"wlan0","tq":200,"best":false}
+		{"orig_address":"AA:BB:CC:DD:EE:01","best_next_hop":"AA:BB:CC:DD:EE:02","hard_ifname":"wlh0","tq":255,"best":true},
+		{"orig_address":"aa:BB:cc:DD:ee:03","best_next_hop":"AA:bb:CC:dd:EE:01","hard_ifname":"wlh0","tq":200,"best":false}
 	]`)
 
 	origs, err := parseOriginators(raw)
@@ -45,8 +45,8 @@ func TestParseOriginators_PreservesOtherFields(t *testing.T) {
 
 func TestParseGateways_LowercasesMACs(t *testing.T) {
 	raw := []byte(`[
-		{"orig_address":"AA:BB:CC:DD:EE:01","router":"AA:BB:CC:DD:EE:02","hard_ifname":"wlan0","best":true},
-		{"orig_address":"11:22:33:44:55:66","router":"77:88:99:AA:BB:CC","hard_ifname":"wlan0"}
+		{"orig_address":"AA:BB:CC:DD:EE:01","router":"AA:BB:CC:DD:EE:02","hard_ifname":"wlh0","best":true},
+		{"orig_address":"11:22:33:44:55:66","router":"77:88:99:AA:BB:CC","hard_ifname":"wlh0"}
 	]`)
 
 	gws, err := parseGateways(raw)
@@ -62,8 +62,8 @@ func TestParseGateways_LowercasesMACs(t *testing.T) {
 
 func TestParseNeighbors_LowercasesMACs(t *testing.T) {
 	raw := []byte(`[
-		{"neigh_address":"AA:BB:CC:DD:EE:01","hard_ifname":"wlan0","last_seen_msecs":100,"throughput":50},
-		{"neigh_address":"aa:BB:cc:DD:ee:02","hard_ifname":"wlan0","last_seen_msecs":200,"throughput":30}
+		{"neigh_address":"AA:BB:CC:DD:EE:01","hard_ifname":"wlh0","last_seen_msecs":100,"throughput":50},
+		{"neigh_address":"aa:BB:cc:DD:ee:02","hard_ifname":"wlh0","last_seen_msecs":200,"throughput":30}
 	]`)
 
 	neighs, err := parseNeighbors(raw)

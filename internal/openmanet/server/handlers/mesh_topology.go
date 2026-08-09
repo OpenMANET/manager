@@ -21,8 +21,8 @@ import (
 // ifaceSuffixRe matches a trailing "_<iface>" token whose first
 // character is a lowercase letter — the structural fingerprint of
 // every Linux network interface name OpenMANET nodes carry on the
-// wire (bat0, wlan0, eth0, vxlan0, phy2-mesh0, br-ahwlan,
-// wlan-10-04, mesh0, etc.). The character class allows letters,
+// wire (bat0, wlh0, eth0, vxlan0, phy2-mesh0, br-ahwlan,
+// wlh-10-04, mesh0, etc.). The character class allows letters,
 // digits, dashes, AND underscores so a hostname carrying a chain of
 // suffixes ("BCM2711-88ba_phy2-mesh0_bat0") is consumed in a single
 // match. Anything starting with a digit ("_27") or uppercase letter

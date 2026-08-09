@@ -31,8 +31,8 @@ func TestGetMeshNetInterface(t *testing.T) {
 	}{
 		{
 			name:     "returns configured value",
-			setValue: strPtr("wlan0"),
-			want:     "wlan0",
+			setValue: strPtr("wlh0"),
+			want:     "wlh0",
 		},
 		{
 			name:     "returns default when empty",
@@ -1081,14 +1081,14 @@ func TestConfigReload(t *testing.T) {
 	}
 
 	// Change configuration values
-	v.Set("meshNetInterface", "wlan0")
+	v.Set("meshNetInterface", "wlh0")
 
 	// Manually trigger reload (simulating config file change)
 	cfg.reload()
 
 	// Check updated values
-	if got := cfg.GetMeshNetInterface(); got != "wlan0" {
-		t.Errorf("After reload GetMeshNetInterface() = %v, want wlan0", got)
+	if got := cfg.GetMeshNetInterface(); got != "wlh0" {
+		t.Errorf("After reload GetMeshNetInterface() = %v, want wlh0", got)
 	}
 }
 
@@ -1108,7 +1108,7 @@ func TestConfigOnChangeCallback(t *testing.T) {
 	})
 
 	// Change config and trigger reload
-	v.Set("meshNetInterface", "wlan0")
+	v.Set("meshNetInterface", "wlh0")
 	cfg.reload()
 	cfg.notifyCallbacks()
 
@@ -1120,8 +1120,8 @@ func TestConfigOnChangeCallback(t *testing.T) {
 		t.Error("Callback did not receive the correct Config instance")
 	}
 
-	if got := receivedConfig.GetMeshNetInterface(); got != "wlan0" {
-		t.Errorf("Callback config GetMeshNetInterface() = %v, want wlan0", got)
+	if got := receivedConfig.GetMeshNetInterface(); got != "wlh0" {
+		t.Errorf("Callback config GetMeshNetInterface() = %v, want wlh0", got)
 	}
 }
 

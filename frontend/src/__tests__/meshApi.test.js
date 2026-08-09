@@ -61,7 +61,7 @@ describe('TestFetchMeshStatus', () => {
         listWirelessInterfaces() {
           return {
             interfaces: [{
-              name: 'wlan0',
+              name: 'wlh0',
               interfaceType: 'mesh',
               frequency: 5180,
               channelWidth: 80,
@@ -85,7 +85,7 @@ describe('TestFetchMeshStatus', () => {
       name: 'node2', mac: 'aa:bb:cc:dd:ee:ff', signal: -50, throughput: 100,
     }]);
     expect(result.interfaces).toEqual([{
-      name: 'wlan0', type: 'mesh', frequency: 5180, channel_width: 80,
+      name: 'wlh0', type: 'mesh', frequency: 5180, channel_width: 80,
     }]);
   });
 

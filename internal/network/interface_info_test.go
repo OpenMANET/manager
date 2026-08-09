@@ -71,9 +71,9 @@ func TestClassifyLink_NameHeuristics(t *testing.T) {
 
 func TestClassifyLink_WifiTypes(t *testing.T) {
 	wifiTypes := map[string]wifi.InterfaceType{
-		"wlan0":      wifi.InterfaceTypeMeshPoint,
+		"wlh0":       wifi.InterfaceTypeMeshPoint,
 		"phy0-mesh0": wifi.InterfaceTypeMeshPoint,
-		"wlan1":      wifi.InterfaceTypeAP,
+		"wlh1":       wifi.InterfaceTypeAP,
 	}
 
 	tests := []struct {
@@ -81,10 +81,10 @@ func TestClassifyLink_WifiTypes(t *testing.T) {
 		linkName string
 		want     InterfaceLinkType
 	}{
-		{"mesh point wlan0", "wlan0", LinkTypeHaLowMesh},
+		{"mesh point wlh0", "wlh0", LinkTypeHaLowMesh},
 		{"mesh point phy0-mesh0", "phy0-mesh0", LinkTypeHaLowMesh},
-		{"ap wlan1", "wlan1", LinkTypeWiFiAP},
-		{"unknown wifi not in map", "wlan9", LinkTypeUnknown},
+		{"ap wlh1", "wlh1", LinkTypeWiFiAP},
+		{"unknown wifi not in map", "wlh9", LinkTypeUnknown},
 	}
 
 	for _, tt := range tests {

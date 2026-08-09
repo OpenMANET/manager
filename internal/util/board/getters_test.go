@@ -118,14 +118,14 @@ func TestNetworkGetters(t *testing.T) {
 
 func TestLanGetters(t *testing.T) {
 	lan := Lan{
-		Device:   "wlan0",
+		Device:   "wlh0",
 		Protocol: "static",
 		Ipaddr:   "10.0.0.1",
 		Netmask:  "255.0.0.0",
 	}
 
-	if lan.GetDevice() != "wlan0" {
-		t.Errorf("Expected device 'wlan0', got '%s'", lan.GetDevice())
+	if lan.GetDevice() != "wlh0" {
+		t.Errorf("Expected device 'wlh0', got '%s'", lan.GetDevice())
 	}
 
 	if lan.GetProtocol() != "static" {

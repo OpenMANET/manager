@@ -21,7 +21,7 @@ var (
 // Fields:
 //   - Destination: The destination network in CIDR notation. nil represents a default route.
 //   - Gateway: The gateway IP address for the route. nil for directly connected networks.
-//   - Interface: The name of the network interface to use for this route (e.g., "eth0", "wlan0").
+//   - Interface: The name of the network interface to use for this route (e.g., "eth0", "wlh0").
 //   - Metric: The route priority/metric. Lower values have higher priority.
 //   - Table: The routing table ID (e.g., unix.RT_TABLE_MAIN for the main table).
 //   - Scope: The scope of the route (e.g., netlink.SCOPE_UNIVERSE for global routes).

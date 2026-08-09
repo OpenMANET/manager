@@ -485,8 +485,12 @@ func (s *Server) handleNetworkWifi(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fallback: enumerate wlan interfaces.
-	matches, _ := filepath.Glob("/sys/class/net/wlan*")
+	// Fallback: enumerate wireless interfaces (wlan*, wlh*).
+	wlanMatches, _ := filepath.Glob("/sys/class/net/wlan*")
+	wlhMatches, _ := filepath.Glob("/sys/class/net/wlh*")
+	matches := make([]string, 0, len(wlanMatches)+len(wlhMatches))
+	matches = append(matches, wlanMatches...)
+	matches = append(matches, wlhMatches...)
 	statuses := make([]wifiStatus, 0, len(matches))
 
 	for _, m := range matches {

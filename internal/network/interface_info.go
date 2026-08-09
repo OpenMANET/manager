@@ -16,7 +16,7 @@ const (
 	LinkTypeUnknown   InterfaceLinkType = iota
 	LinkTypeBridge                      // br-ahwlan, br-lan, etc.
 	LinkTypeEthernet                    // eth0, eth1, etc.
-	LinkTypeWiFiAP                      // wlan0 in AP mode
+	LinkTypeWiFiAP                      // wlh0 in AP mode
 	LinkTypeHaLowMesh                   // phy1-ap0 (HaLow mesh)
 	LinkTypeBatman                      // bat0 (batman-adv)
 	LinkTypeLoopback                    // lo

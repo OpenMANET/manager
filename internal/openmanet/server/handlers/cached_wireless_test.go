@@ -70,13 +70,13 @@ func (f *fakeWirelessInner) StationInfo(iface *wifi.Interface) ([]*wifi.StationI
 
 func TestCachedWirelessProvider_ServesFromCacheWithinTTL(t *testing.T) {
 	meshIface := &wifi.Interface{Name: "phy0-mesh0", Type: wifi.InterfaceTypeMeshPoint}
-	apIface := &wifi.Interface{Name: "wlan0", Type: wifi.InterfaceTypeAP}
+	apIface := &wifi.Interface{Name: "wlh0", Type: wifi.InterfaceTypeAP}
 
 	inner := &fakeWirelessInner{
 		ifaces: []*wifi.Interface{meshIface, apIface},
 		stationsBy: map[string][]*wifi.StationInfo{
 			"phy0-mesh0": {{}, {}},
-			"wlan0":      {{}, {}, {}},
+			"wlh0":       {{}, {}, {}},
 		},
 	}
 
@@ -108,8 +108,8 @@ func TestCachedWirelessProvider_ServesFromCacheWithinTTL(t *testing.T) {
 
 func TestCachedWirelessProvider_RefetchesAfterTTL(t *testing.T) {
 	inner := &fakeWirelessInner{
-		ifaces:     []*wifi.Interface{{Name: "wlan0"}},
-		stationsBy: map[string][]*wifi.StationInfo{"wlan0": {}},
+		ifaces:     []*wifi.Interface{{Name: "wlh0"}},
+		stationsBy: map[string][]*wifi.StationInfo{"wlh0": {}},
 	}
 
 	p := handlers.NewCachedWirelessProvider(inner, 20*time.Millisecond)
@@ -127,12 +127,12 @@ func TestCachedWirelessProvider_RefetchesAfterTTL(t *testing.T) {
 }
 
 func TestCachedWirelessProvider_StationInfoFallsThroughForUnknownIface(t *testing.T) {
-	known := &wifi.Interface{Name: "wlan0"}
+	known := &wifi.Interface{Name: "wlh0"}
 	unknown := &wifi.Interface{Name: "wlan-new"}
 
 	inner := &fakeWirelessInner{
 		ifaces:     []*wifi.Interface{known},
-		stationsBy: map[string][]*wifi.StationInfo{"wlan0": {{}}, "wlan-new": {{}, {}}},
+		stationsBy: map[string][]*wifi.StationInfo{"wlh0": {{}}, "wlan-new": {{}, {}}},
 	}
 
 	p := handlers.NewCachedWirelessProvider(inner, 5*time.Second)
@@ -144,7 +144,7 @@ func TestCachedWirelessProvider_StationInfoFallsThroughForUnknownIface(t *testin
 	// Reset the per-request counter so we can observe the fall-through.
 	inner.stationsCalls.Store(0)
 
-	// wlan0 is in the cache — served without hitting the inner.
+	// wlh0 is in the cache — served without hitting the inner.
 	got, err := p.StationInfo(known)
 	require.NoError(t, err)
 	assert.Len(t, got, 1)
@@ -175,17 +175,17 @@ func TestCachedWirelessProvider_InterfacesErrorIsNotCached(t *testing.T) {
 }
 
 func TestCachedWirelessProvider_PerStationErrorIsCached(t *testing.T) {
-	iface := &wifi.Interface{Name: "wlan0"}
+	iface := &wifi.Interface{Name: "wlh0"}
 	wantErr := errors.New("station dump failed")
 	inner := &fakeWirelessInner{
 		ifaces:      []*wifi.Interface{iface},
-		stationsErr: map[string]error{"wlan0": wantErr},
+		stationsErr: map[string]error{"wlh0": wantErr},
 	}
 
 	p := handlers.NewCachedWirelessProvider(inner, 5*time.Second)
 
 	// First StationInfo triggers refresh; inner is called twice
-	// (Interfaces + StationInfo once for wlan0).
+	// (Interfaces + StationInfo once for wlh0).
 	_, err := p.StationInfo(iface)
 	assert.ErrorIs(t, err, wantErr)
 
@@ -204,8 +204,8 @@ func TestCachedWirelessProvider_PerStationErrorIsCached(t *testing.T) {
 
 func TestCachedWirelessProvider_CoalescesConcurrentRefreshes(t *testing.T) {
 	inner := &fakeWirelessInner{
-		ifaces:     []*wifi.Interface{{Name: "wlan0"}},
-		stationsBy: map[string][]*wifi.StationInfo{"wlan0": {}},
+		ifaces:     []*wifi.Interface{{Name: "wlh0"}},
+		stationsBy: map[string][]*wifi.StationInfo{"wlh0": {}},
 		delay:      50 * time.Millisecond,
 	}
 

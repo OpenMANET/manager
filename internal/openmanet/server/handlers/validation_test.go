@@ -49,7 +49,7 @@ func TestValidation_GetWirelessInterfaceRequest_EmptyName(t *testing.T) {
 func TestValidation_GetWirelessInterfaceRequest_ValidName(t *testing.T) {
 	v := newValidator(t)
 
-	err := v.Validate(&serviceproto.GetWirelessInterfaceRequest{Name: "wlan0"})
+	err := v.Validate(&serviceproto.GetWirelessInterfaceRequest{Name: "wlh0"})
 	assert.NoError(t, err)
 }
 
