@@ -38,7 +38,7 @@ type BroadcastCapture interface {
 // packet from a send-enabled port (no false negatives at the start of an
 // incoming stream) and cleared by halfDuplexDecayLoop on a coarse 100 ms
 // ticker once every gate's window has expired.
-type CommsRuntime struct {
+type CommsRuntime struct { //nolint:govet // fieldalignment: mu must sit directly above the broadcastStream field it guards (.claude/rules/concurrency.md); the pointer-scan-optimal layout would separate them.
 	Decoder         codec.AudioDecoder
 	Encoder         codec.AudioEncoder
 	FECAdapter      *FECAdapter
@@ -109,13 +109,9 @@ type CommsConfig struct {
 	startHardwareAudioFn func(rt *CommsRuntime) (func(), error)
 	// detectALSACardFn overrides ALSA card auto-detection for tests. When
 	// nil, detectALSACard falls back to control.DetectAndSetALSACard(cfg.Log).
-	detectALSACardFn    func()
-	audioInitRetryDelay time.Duration
-	// audioRecoveryInterval is the Run-loop ticker period for re-attempting
-	// hardware audio init after startup failed (OpenVLM unplugged at boot,
-	// transient ALSA error). <= 0 disables in-run recovery; applyDefaults
-	// sets the production value.
-	audioRecoveryInterval    time.Duration
+	detectALSACardFn         func()
+	BluetoothOutputDevice    string
+	NanoPTTDevicePath        string
 	CommKey                  string
 	BluetoothInputDevice     string
 	Iface                    string
@@ -123,27 +119,31 @@ type CommsConfig struct {
 	ControlSource            string
 	NanoPTTDeviceName        string
 	RtpID                    string
-	NanoPTTDevicePath        string
-	BluetoothOutputDevice    string
 	McastPorts               []McastPortConfig
+	HalfDuplexThreshold      time.Duration
+	audioInitRetryDelay      time.Duration
 	ROIPMaxTXDuration        time.Duration
 	ROIPVOXHoldTime          time.Duration
 	EncoderComplexity        int
 	PttStartDelayMs          int
 	CaptureFramesPerBuffer   int
 	CaptureLatencyMs         int
-	PlaybackLatencyMs        int
 	PacketLossPerc           int
-	HalfDuplexThreshold      time.Duration
-	ROIPVOXThreshold         float32
-	MicGain                  float32
-	EnableNanoPTT            bool
-	EnableBluetoothPtt       bool
-	Enable                   bool
-	Trace                    bool
-	Loopback                 bool
-	Debug                    bool
-	ROIPCOSGPIOMask          byte
+	PlaybackLatencyMs        int
+	// audioRecoveryInterval is the Run-loop ticker period for re-attempting
+	// hardware audio init after startup failed (OpenVLM unplugged at boot,
+	// transient ALSA error). <= 0 disables in-run recovery; applyDefaults
+	// sets the production value.
+	audioRecoveryInterval time.Duration
+	ROIPVOXThreshold      float32
+	MicGain               float32
+	EnableNanoPTT         bool
+	EnableBluetoothPtt    bool
+	Enable                bool
+	Trace                 bool
+	Loopback              bool
+	Debug                 bool
+	ROIPCOSGPIOMask       byte
 }
 
 // NewComms copies cfg and returns a pointer ready for Start.
