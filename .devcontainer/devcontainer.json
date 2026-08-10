@@ -44,9 +44,7 @@
   "containerEnv": {
     "SOURCE_FILEPATH": "${localWorkspaceFolder}"
   },
-  "mounts": [
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.claude,target=/home/vscode/.claude,type=bind"
-  ],
+  "mounts": [],
   // The optional 'runArgs' property can be used to specify additional runtime arguments.
   "runArgs": [
     // Uncomment the next line if you will use a ptrace-based debugger like C++, Go, and Rust

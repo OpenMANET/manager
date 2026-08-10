@@ -45,7 +45,7 @@ func (n *Network) GetLan() Lan {
 
 // Lan getters
 
-// GetDevice returns the network device name (e.g., "eth0", "wlan0").
+// GetDevice returns the network device name (e.g., "eth0", "wlh0").
 func (l *Lan) GetDevice() string {
 	return l.Device
 }

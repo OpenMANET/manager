@@ -2,6 +2,7 @@ package comms
 
 import (
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -37,10 +38,9 @@ type BroadcastCapture interface {
 // packet from a send-enabled port (no false negatives at the start of an
 // incoming stream) and cleared by halfDuplexDecayLoop on a coarse 100 ms
 // ticker once every gate's window has expired.
-type CommsRuntime struct {
+type CommsRuntime struct { //nolint:govet // fieldalignment: mu must sit directly above the broadcastStream field it guards (.claude/rules/concurrency.md); the pointer-scan-optimal layout would separate them.
 	Decoder         codec.AudioDecoder
 	Encoder         codec.AudioEncoder
-	BroadcastStream BroadcastCapture
 	FECAdapter      *FECAdapter
 	WebBridge       *webaudio.Bridge
 	WebEvtSrc       *control.WebEventSource
@@ -58,6 +58,39 @@ type CommsRuntime struct {
 	PlaybackOutputLatency time.Duration
 	Broadcasting          atomic.Bool
 	RemoteRxActive        atomic.Bool
+
+	// mu protects broadcastStream. It is written at startup by
+	// initAudioIO/startHardwareAudio and again by the Run loop's audio
+	// recovery path; it is read from the Run goroutine (transmit paths)
+	// and from the instrumentation snapshot goroutine, so a plain field
+	// is not enough once recovery can install it mid-run.
+	mu              sync.RWMutex
+	broadcastStream BroadcastCapture
+
+	// audioCleanup is the malgo teardown produced by a successful hardware
+	// audio init. Written by Start (startup path) and by the Run loop's
+	// recovery path, read by Start's deferred teardown after Run returns.
+	// Run executes synchronously on the Start goroutine, so all accesses
+	// are sequential and no lock is needed.
+	audioCleanup func()
+}
+
+// Broadcast returns the live capture stream, or nil when hardware audio is
+// not (yet) up. Reads outnumber writes by orders of magnitude, hence RWMutex.
+func (rt *CommsRuntime) Broadcast() BroadcastCapture {
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+
+	return rt.broadcastStream
+}
+
+// SetBroadcast installs the capture stream produced by a successful
+// hardware audio init (startup or in-run recovery).
+func (rt *CommsRuntime) SetBroadcast(bs BroadcastCapture) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+
+	rt.broadcastStream = bs
 }
 
 // ─── CommsConfig ──────────────────────────────────────────────────────────────
@@ -70,10 +103,15 @@ type CommsRuntime struct {
 // owned by *Service (returned by Start via SetDefault) so the static
 // config and the per-startup runtime have distinct lifetimes.
 type CommsConfig struct {
-	Log                      zerolog.Logger
-	AuxHandler               control.AuxEventHandler
-	Interrupt                chan os.Signal
-	startHardwareAudioFn     func(rt *CommsRuntime) (func(), error)
+	Log                  zerolog.Logger
+	AuxHandler           control.AuxEventHandler
+	Interrupt            chan os.Signal
+	startHardwareAudioFn func(rt *CommsRuntime) (func(), error)
+	// detectALSACardFn overrides ALSA card auto-detection for tests. When
+	// nil, detectALSACard falls back to control.DetectAndSetALSACard(cfg.Log).
+	detectALSACardFn         func()
+	BluetoothOutputDevice    string
+	NanoPTTDevicePath        string
 	CommKey                  string
 	BluetoothInputDevice     string
 	Iface                    string
@@ -81,27 +119,31 @@ type CommsConfig struct {
 	ControlSource            string
 	NanoPTTDeviceName        string
 	RtpID                    string
-	NanoPTTDevicePath        string
-	BluetoothOutputDevice    string
 	McastPorts               []McastPortConfig
+	HalfDuplexThreshold      time.Duration
+	audioInitRetryDelay      time.Duration
 	ROIPMaxTXDuration        time.Duration
 	ROIPVOXHoldTime          time.Duration
 	EncoderComplexity        int
 	PttStartDelayMs          int
 	CaptureFramesPerBuffer   int
 	CaptureLatencyMs         int
-	PlaybackLatencyMs        int
 	PacketLossPerc           int
-	HalfDuplexThreshold      time.Duration
-	ROIPVOXThreshold         float32
-	MicGain                  float32
-	EnableNanoPTT            bool
-	EnableBluetoothPtt       bool
-	Enable                   bool
-	Trace                    bool
-	Loopback                 bool
-	Debug                    bool
-	ROIPCOSGPIOMask          byte
+	PlaybackLatencyMs        int
+	// audioRecoveryInterval is the Run-loop ticker period for re-attempting
+	// hardware audio init after startup failed (OpenVLM unplugged at boot,
+	// transient ALSA error). <= 0 disables in-run recovery; applyDefaults
+	// sets the production value.
+	audioRecoveryInterval time.Duration
+	ROIPVOXThreshold      float32
+	MicGain               float32
+	EnableNanoPTT         bool
+	EnableBluetoothPtt    bool
+	Enable                bool
+	Trace                 bool
+	Loopback              bool
+	Debug                 bool
+	ROIPCOSGPIOMask       byte
 }
 
 // NewComms copies cfg and returns a pointer ready for Start.
@@ -216,5 +258,13 @@ func (cfg *CommsConfig) applyDefaults() {
 		if cfg.BluetoothOutputDevice == "" {
 			cfg.BluetoothOutputDevice = cfg.BluetoothAudioDeviceHint
 		}
+	}
+
+	if cfg.audioInitRetryDelay == 0 {
+		cfg.audioInitRetryDelay = defaultAudioInitRetryDelay
+	}
+
+	if cfg.audioRecoveryInterval == 0 {
+		cfg.audioRecoveryInterval = defaultAudioRecoveryInterval
 	}
 }

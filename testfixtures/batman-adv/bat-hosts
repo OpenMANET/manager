@@ -2,21 +2,21 @@
 ### /!\ This file is overwritten every 5 minutes /!\
 ### (To keep manual changes, replace /etc/bat-hosts symlink with a static file)
 # Node 0a:d7:37:78:2d:3e
-3c:22:7f:37:4c:0c BCM2711-97d6_wlan0
+3c:22:7f:37:4c:0c BCM2711-97d6_wlh0
 9c:ef:d5:f9:80:4d BCM2711-97d6_phy2-mesh0
 2c:cf:67:6a:97:d6 BCM2711-97d6_eth0
 0a:d7:37:78:2d:3e BCM2711-97d6_bat0
-2c:cf:67:6a:97:d9 BCM2711-97d6_wlan-97-d9
+2c:cf:67:6a:97:d9 BCM2711-97d6_wlh-97-d9
 
 # Node 2c:cf:67:b8:88:ba
 2e:2e:16:62:15:66 BCM2711-88ba_bat0
 2c:cf:67:b8:88:ba BCM2711-88ba_br-ahwlan
-bc:2a:33:96:b1:84 BCM2711-88ba_wlan0
+bc:2a:33:96:b1:84 BCM2711-88ba_wlh0
 9c:ef:d5:f9:9e:02 BCM2711-88ba_phy2-mesh0
 
 # Node 2c:cf:67:bb:10:03
-f4:ab:5c:df:3e:91 BCM2711-1003_wlan0
-2c:cf:67:bb:10:04 BCM2711-1003_wlan-10-04
+f4:ab:5c:df:3e:91 BCM2711-1003_wlh0
+2c:cf:67:bb:10:04 BCM2711-1003_wlh-10-04
 32:0d:d8:c7:f0:82 BCM2711-1003_bat0
 2c:cf:67:bb:10:03 BCM2711-1003_br-ahwlan
 00:0a:52:0b:7d:ae BCM2711-1003_phy1-mesh0
@@ -28,8 +28,8 @@ f4:ab:5c:df:3e:91 BCM2711-1003_wlan0
 00:c0:ca:b6:5c:56 HaLow-R-b65c57_br-ahwlan
 
 # Node e4:5f:01:df:f8:fd
-e4:5f:01:df:f8:fe BCM2711-f8fd_wlan-f8-fe
-3c:22:7f:37:4d:e7 BCM2711-f8fd_wlan0
+e4:5f:01:df:f8:fe BCM2711-f8fd_wlh-f8-fe
+3c:22:7f:37:4d:e7 BCM2711-f8fd_wlh0
 92:bc:bf:c5:2b:97 BCM2711-f8fd_bat0
 00:0a:52:08:ae:80 BCM2711-f8fd_phy1-mesh0
 e4:5f:01:df:f8:fd BCM2711-f8fd_br-ahwlan

@@ -443,7 +443,7 @@ func (s *SetupService) collectEthernetPorts() []string {
 
 // isLikelyEthernetPort returns true for interface names that look
 // like physical ethernet ports. Conservative heuristic: starts with
-// "eth", "lan", "en", or matches "wan*". Excludes wireless (wlan*)
+// "eth", "lan", "en", or matches "wan*". Excludes wireless (wlan*, wlh*)
 // and bridges (br*) and batman (bat*, batmesh*).
 func isLikelyEthernetPort(name string) bool {
 	if name == "" {
@@ -452,6 +452,7 @@ func isLikelyEthernetPort(name string) bool {
 
 	switch {
 	case strings.HasPrefix(name, "wlan"),
+		strings.HasPrefix(name, "wlh"),
 		strings.HasPrefix(name, "br"),
 		strings.HasPrefix(name, "bat"),
 		strings.HasPrefix(name, "lo"),

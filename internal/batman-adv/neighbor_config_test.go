@@ -25,7 +25,7 @@ func mockNeighborsJSON() string {
   },
   {
     "hard_ifindex": 11,
-    "hard_ifname": "wlan0",
+    "hard_ifname": "wlh0",
     "last_seen_msecs": 70,
     "neigh_address": "bc:2a:33:96:b1:84",
     "throughput": 7100
@@ -76,8 +76,8 @@ func TestGetMeshNeighbors_Unmarshal(t *testing.T) {
 	}
 
 	// Verify third neighbor is on different interface
-	if neighbors[2].HardIfname != "wlan0" {
-		t.Errorf("Expected hard_ifname 'wlan0', got '%s'", neighbors[2].HardIfname)
+	if neighbors[2].HardIfname != "wlh0" {
+		t.Errorf("Expected hard_ifname 'wlh0', got '%s'", neighbors[2].HardIfname)
 	}
 }
 
@@ -154,7 +154,7 @@ func TestNeighbors_FilterByInterface(t *testing.T) {
 		{
 			name:      "single match",
 			neighbors: neighbors,
-			ifname:    "wlan0",
+			ifname:    "wlh0",
 			wantCount: 1,
 		},
 		{
@@ -281,7 +281,7 @@ func TestNeighbors_GetInterfaces(t *testing.T) {
 		t.Errorf("GetInterfaces() returned %d interfaces, want 2", len(interfaces))
 	}
 
-	expected := []string{"phy1-mesh0", "wlan0"}
+	expected := []string{"phy1-mesh0", "wlh0"}
 	if !reflect.DeepEqual(interfaces, expected) {
 		t.Errorf("GetInterfaces() = %v, want %v", interfaces, expected)
 	}

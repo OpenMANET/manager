@@ -32,7 +32,7 @@ func (f *fakeCachedInterfaceInner) ListAll() ([]network.NetworkInterfaceInfo, er
 
 func TestCachedInterfaceProvider_ServesFromCacheWithinTTL(t *testing.T) {
 	inner := &fakeCachedInterfaceInner{
-		infos: []network.NetworkInterfaceInfo{{Name: "eth0"}, {Name: "wlan0"}},
+		infos: []network.NetworkInterfaceInfo{{Name: "eth0"}, {Name: "wlh0"}},
 	}
 	p := handlers.NewCachedInterfaceProvider(inner, 500*time.Millisecond)
 

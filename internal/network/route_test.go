@@ -73,11 +73,11 @@ func TestRoute_String(t *testing.T) {
 			route: &Route{
 				Destination: createTestIPNet("10.0.0.0/8"),
 				Gateway:     net.ParseIP("192.168.1.1"),
-				Interface:   "wlan0",
+				Interface:   "wlh0",
 				Metric:      50,
 				Table:       255,
 			},
-			want: "10.0.0.0/8 via 192.168.1.1 dev wlan0 metric 50 table 255",
+			want: "10.0.0.0/8 via 192.168.1.1 dev wlh0 metric 50 table 255",
 		},
 		{
 			name: "route without gateway",

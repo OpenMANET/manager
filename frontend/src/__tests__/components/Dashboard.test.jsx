@@ -151,7 +151,7 @@ function makeNetworkInterfaceList() {
     interfaces: [
       makeNetworkInterface({ name: 'eth0', type: 2, status: 2, rxBytes: BigInt(1024), txBytes: BigInt(2048) }),
       makeNetworkInterface({ name: 'br-ahwlan', type: 1, status: 1, ipAddress: '10.41.25.72/16', rxBytes: BigInt(142300000), txBytes: BigInt(87600000) }),
-      makeNetworkInterface({ name: 'wlan0', type: 3, status: 1, ipAddress: '', rxBytes: BigInt(2048), txBytes: BigInt(4096) }),
+      makeNetworkInterface({ name: 'wlh0', type: 3, status: 1, ipAddress: '', rxBytes: BigInt(2048), txBytes: BigInt(4096) }),
       makeNetworkInterface({ name: 'phy1-ap0', type: 4, status: 1, rxBytes: BigInt(12345678), txBytes: BigInt(9876543) }),
       makeNetworkInterface({ name: 'bat0', type: 5, status: 1, rxBytes: BigInt(5_000_000_000), txBytes: BigInt(3_000_000_000) }),
       makeNetworkInterface({ name: 'tailscale0', type: 7, status: 2, rxBytes: BigInt(0), txBytes: BigInt(0) }),
@@ -325,7 +325,7 @@ describe('TestDashboardPanels', () => {
       expect(table.querySelectorAll('tbody tr').length).toBe(6);
     });
     expect(table.textContent).toContain('eth0');
-    expect(table.textContent).toContain('wlan0');
+    expect(table.textContent).toContain('wlh0');
     expect(table.textContent).toContain('bat0');
     expect(table.textContent).toContain('tailscale0');
     // Loopback is hidden from the operator-facing summary.

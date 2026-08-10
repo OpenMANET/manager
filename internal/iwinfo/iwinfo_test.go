@@ -74,7 +74,7 @@ func TestGetDevicesWithExecutor_Success(t *testing.T) {
 	devices, err := iwinfo.GetDevicesWithExecutor(context.Background(), mock)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"phy1-mesh0", "wlan-10-04", "wlan0"}, devices)
+	assert.Equal(t, []string{"phy1-mesh0", "wlh-10-04", "wlh0"}, devices)
 }
 
 func TestGetDevicesWithExecutor_EmptyList(t *testing.T) {
@@ -165,7 +165,7 @@ func TestGetInfoWithExecutor_MediaTek(t *testing.T) {
 func TestGetInfoWithExecutor_Cypress_AllUnknownFields(t *testing.T) {
 	mock := &mockUbusExecutor{output: readFixture(t, "info_cypress.json")}
 
-	info, err := iwinfo.GetInfoWithExecutor(context.Background(), mock, "wlan-10-04")
+	info, err := iwinfo.GetInfoWithExecutor(context.Background(), mock, "wlh-10-04")
 
 	require.NoError(t, err)
 	require.NotNil(t, info)
@@ -195,7 +195,7 @@ func TestGetInfoWithExecutor_Cypress_AllUnknownFields(t *testing.T) {
 func TestGetInfoWithExecutor_MorseMicro_HaLow(t *testing.T) {
 	mock := &mockUbusExecutor{output: readFixture(t, "info_morsemicro.json")}
 
-	info, err := iwinfo.GetInfoWithExecutor(context.Background(), mock, "wlan0")
+	info, err := iwinfo.GetInfoWithExecutor(context.Background(), mock, "wlh0")
 
 	require.NoError(t, err)
 	require.NotNil(t, info)
@@ -228,7 +228,7 @@ func TestGetInfoWithExecutor_MorseMicro_HaLow(t *testing.T) {
 func TestGetInfoWithExecutor_UbusError(t *testing.T) {
 	mock := &mockUbusExecutor{err: errors.New("no such device")}
 
-	_, err := iwinfo.GetInfoWithExecutor(context.Background(), mock, "wlan0")
+	_, err := iwinfo.GetInfoWithExecutor(context.Background(), mock, "wlh0")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no such device")
@@ -237,7 +237,7 @@ func TestGetInfoWithExecutor_UbusError(t *testing.T) {
 func TestGetInfoWithExecutor_MalformedJSON(t *testing.T) {
 	mock := &mockUbusExecutor{output: []byte(`{bad json`)}
 
-	_, err := iwinfo.GetInfoWithExecutor(context.Background(), mock, "wlan0")
+	_, err := iwinfo.GetInfoWithExecutor(context.Background(), mock, "wlh0")
 
 	require.Error(t, err)
 }
@@ -246,7 +246,7 @@ func TestGetInfoWithExecutor_EmptyObject(t *testing.T) {
 	// Empty JSON object: all struct fields take zero values — must not panic.
 	mock := &mockUbusExecutor{output: []byte(`{}`)}
 
-	info, err := iwinfo.GetInfoWithExecutor(context.Background(), mock, "wlan0")
+	info, err := iwinfo.GetInfoWithExecutor(context.Background(), mock, "wlh0")
 
 	require.NoError(t, err)
 	require.NotNil(t, info)
@@ -262,8 +262,8 @@ func TestGetInfoForAllWithExecutor_AllThreeDevices(t *testing.T) {
 		responses: map[string]mockResponse{
 			"devices":                 {output: readFixture(t, "devices.json")},
 			`{"device":"phy1-mesh0"}`: {output: readFixture(t, "info_mediatek.json")},
-			`{"device":"wlan-10-04"}`: {output: readFixture(t, "info_cypress.json")},
-			`{"device":"wlan0"}`:      {output: readFixture(t, "info_morsemicro.json")},
+			`{"device":"wlh-10-04"}`:  {output: readFixture(t, "info_cypress.json")},
+			`{"device":"wlh0"}`:       {output: readFixture(t, "info_morsemicro.json")},
 		},
 	}
 
@@ -272,8 +272,8 @@ func TestGetInfoForAllWithExecutor_AllThreeDevices(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result, 3)
 	assert.Equal(t, "MediaTek MT7916AN", result["phy1-mesh0"].Hardware.Name)
-	assert.Equal(t, "Cypress CYW43455", result["wlan-10-04"].Hardware.Name)
-	assert.Equal(t, "Morse Micro SPI-MM601X", result["wlan0"].Hardware.Name)
+	assert.Equal(t, "Cypress CYW43455", result["wlh-10-04"].Hardware.Name)
+	assert.Equal(t, "Morse Micro SPI-MM601X", result["wlh0"].Hardware.Name)
 }
 
 func TestGetInfoForAllWithExecutor_EmptyDeviceList(t *testing.T) {
@@ -300,8 +300,8 @@ func TestGetInfoForAllWithExecutor_OneDeviceFails(t *testing.T) {
 		responses: map[string]mockResponse{
 			"devices":                 {output: readFixture(t, "devices.json")},
 			`{"device":"phy1-mesh0"}`: {output: readFixture(t, "info_mediatek.json")},
-			`{"device":"wlan-10-04"}`: {err: errors.New("interface down")},
-			`{"device":"wlan0"}`:      {err: errors.New("interface down")},
+			`{"device":"wlh-10-04"}`:  {err: errors.New("interface down")},
+			`{"device":"wlh0"}`:       {err: errors.New("interface down")},
 		},
 	}
 
@@ -310,8 +310,8 @@ func TestGetInfoForAllWithExecutor_OneDeviceFails(t *testing.T) {
 	// Partial failure: error is reported but successful devices are still returned.
 	require.Error(t, err)
 	assert.Contains(t, result, "phy1-mesh0")
-	assert.NotContains(t, result, "wlan-10-04")
-	assert.NotContains(t, result, "wlan0")
+	assert.NotContains(t, result, "wlh-10-04")
+	assert.NotContains(t, result, "wlh0")
 	assert.Equal(t, "MediaTek MT7916AN", result["phy1-mesh0"].Hardware.Name)
 }
 
@@ -470,11 +470,11 @@ func TestUbusArgs_GetInfo(t *testing.T) {
 		fallback: mockResponse{output: []byte(`{}`)},
 	}
 
-	_, err := iwinfo.GetInfoWithExecutor(context.Background(), exec, "wlan0")
+	_, err := iwinfo.GetInfoWithExecutor(context.Background(), exec, "wlh0")
 
 	require.NoError(t, err)
 	require.Len(t, exec.calls, 1)
-	assert.Equal(t, []string{"call", "iwinfo", "info", `{"device":"wlan0"}`}, exec.calls[0])
+	assert.Equal(t, []string{"call", "iwinfo", "info", `{"device":"wlh0"}`}, exec.calls[0])
 }
 
 func TestUbusArgs_GetInfo_HyphenatedName(t *testing.T) {
@@ -492,8 +492,8 @@ func TestUbusArgs_GetInfo_HyphenatedName(t *testing.T) {
 func TestUbusArgs_GetInfoForAll_CallSequence(t *testing.T) {
 	exec := &dispatchUbusExecutor{
 		responses: map[string]mockResponse{
-			"devices":            {output: []byte(`{"devices":["wlan0"]}`)},
-			`{"device":"wlan0"}`: {output: readFixture(t, "info_morsemicro.json")},
+			"devices":           {output: []byte(`{"devices":["wlh0"]}`)},
+			`{"device":"wlh0"}`: {output: readFixture(t, "info_morsemicro.json")},
 		},
 	}
 
@@ -503,7 +503,7 @@ func TestUbusArgs_GetInfoForAll_CallSequence(t *testing.T) {
 	// First call: devices list; second call: per-device info.
 	require.Len(t, exec.calls, 2)
 	assert.Equal(t, []string{"call", "iwinfo", "devices"}, exec.calls[0])
-	assert.Equal(t, []string{"call", "iwinfo", "info", `{"device":"wlan0"}`}, exec.calls[1])
+	assert.Equal(t, []string{"call", "iwinfo", "info", `{"device":"wlh0"}`}, exec.calls[1])
 }
 
 // ── Client ────────────────────────────────────────────────────────────────────
@@ -538,8 +538,8 @@ func TestClient_GetInfoForAll(t *testing.T) {
 		responses: map[string]mockResponse{
 			"devices":                 {output: readFixture(t, "devices.json")},
 			`{"device":"phy1-mesh0"}`: {output: readFixture(t, "info_mediatek.json")},
-			`{"device":"wlan-10-04"}`: {output: readFixture(t, "info_cypress.json")},
-			`{"device":"wlan0"}`:      {output: readFixture(t, "info_morsemicro.json")},
+			`{"device":"wlh-10-04"}`:  {output: readFixture(t, "info_cypress.json")},
+			`{"device":"wlh0"}`:       {output: readFixture(t, "info_morsemicro.json")},
 		},
 	}
 	client := iwinfo.NewClientWithExecutor(exec)

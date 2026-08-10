@@ -28,12 +28,12 @@ function localTriangle() {
       },
       {
         mac: 'bb:bb:bb:bb:bb:00', hostname: 'alpha', segment: 'local',
-        hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0',
+        hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0',
         secondaryMacs: [],
       },
       {
         mac: 'cc:cc:cc:cc:cc:00', hostname: 'bravo', segment: 'local',
-        hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0',
+        hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0',
         secondaryMacs: [],
       },
     ],
@@ -56,7 +56,7 @@ function localAndRemote() {
     algorithm: 'BATMAN_V',
     nodes: [
       { mac: 'aa:aa:aa:aa:aa:00', hostname: 'me',     segment: 'local',  remoteGatewayMac: '',                     hopsFromSelf: 0, isSelf: true,  myHardIfname: '',       secondaryMacs: [] },
-      { mac: 'bb:bb:bb:bb:bb:00', hostname: 'alpha',  segment: 'local',  remoteGatewayMac: '',                     hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlan0',  secondaryMacs: [] },
+      { mac: 'bb:bb:bb:bb:bb:00', hostname: 'alpha',  segment: 'local',  remoteGatewayMac: '',                     hopsFromSelf: 1, isSelf: false, myHardIfname: 'wlh0',  secondaryMacs: [] },
       { mac: 'cc:cc:cc:cc:cc:00', hostname: 'gw1',    segment: 'remote', remoteGatewayMac: 'cc:cc:cc:cc:cc:00',    hopsFromSelf: 1, isSelf: false, myHardIfname: 'vxlan0', secondaryMacs: [] },
       { mac: 'dd:dd:dd:dd:dd:00', hostname: 'peer-e', segment: 'remote', remoteGatewayMac: 'cc:cc:cc:cc:cc:00',    hopsFromSelf: 2, isSelf: false, myHardIfname: 'vxlan0', secondaryMacs: [] },
       { mac: 'ee:ee:ee:ee:ee:00', hostname: 'peer-f', segment: 'remote', remoteGatewayMac: 'cc:cc:cc:cc:cc:00',    hopsFromSelf: 2, isSelf: false, myHardIfname: 'vxlan0', secondaryMacs: [] },
@@ -120,7 +120,7 @@ describe('TestHostRecords', () => {
   it('self.interfaces rolls up the set of my hard ifnames', () => {
     const v = buildTopologyView(localAndRemote());
     const names = v.self.interfaces.map((i) => i.name).sort();
-    expect(names).toEqual(['vxlan0', 'wlan0']);
+    expect(names).toEqual(['vxlan0', 'wlh0']);
     const vxlan = v.self.interfaces.find((i) => i.name === 'vxlan0');
     expect(vxlan.role).toBe('blos');
   });

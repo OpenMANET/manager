@@ -11,14 +11,14 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/digineo/go-uci/v2 v2.0.0-20231120164223-60c14814b8fe
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/gen2brain/alsa v0.5.0
+	github.com/gen2brain/alsa v0.6.0
 	github.com/gen2brain/malgo v0.11.25
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/gvalkov/golang-evdev v0.0.0-20220815104727-7e27d6ce89b6
 	github.com/hraban/opus v0.0.0-20230925203106-0188a62cb302
-	github.com/mattn/go-sqlite3 v1.14.48
+	github.com/mattn/go-sqlite3 v1.14.49
 	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875
-	github.com/mdlayher/wifi v0.8.0
+	github.com/mdlayher/wifi v0.9.0
 	github.com/msteinert/pam/v2 v2.1.0
 	github.com/openmanet/go-alfred v0.0.0-20240429120015-8f3f3f4e2f4e
 	github.com/pion/interceptor v0.1.47
@@ -83,7 +83,7 @@ require (
 	github.com/tailscale/go-winio v0.0.0-20231025203758-c4f33415bf55 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	go.yaml.in/yaml/v3 v3.0.4
+	go.yaml.in/yaml/v3 v3.0.5
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect

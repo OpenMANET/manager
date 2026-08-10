@@ -1,6 +1,7 @@
 package gpsd
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"github.com/coreywagehoft/go-tak/pkg/cot"
 	"github.com/coreywagehoft/go-tak/pkg/cotproto"
 	"github.com/mdlayher/arp"
+	"github.com/openmanet/openmanetd/internal/camera"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/util/board"
@@ -40,6 +42,10 @@ func (g *GPSService) SendIfRequiredAsCoT() {
 		return
 	}
 
+	if g.sendCameraCoTIfPresent(context.Background()) {
+		return
+	}
+
 	leases, err := network.GetCurrentDHCPLeases()
 	if err != nil {
 		g.Log.Error().Err(err).Msg("Error getting DHCP leases for EUD location update")
@@ -65,16 +71,9 @@ func (g *GPSService) SendIfRequiredAsCoT() {
 
 	// Only send to multicast if no devices received any messages
 	if !deviceActive {
-		// Rate limit: send multicast messages once every 30 seconds to avoid flooding the network
-		g.mu.Lock()
-		if time.Since(g.lastMulticastTime) < cotMulticastRateLimit {
-			g.mu.Unlock()
-
-			return // Rate limited, exit early
+		if !g.reserveCoTMulticastSend() {
+			return
 		}
-
-		g.lastMulticastTime = time.Now()
-		g.mu.Unlock()
 
 		if err := g.sendCoTPing(); err != nil {
 			g.Log.Error().Err(err).Msg("Failed to send CoT ping to multicast")
@@ -86,6 +85,66 @@ func (g *GPSService) SendIfRequiredAsCoT() {
 			g.Log.Error().Err(err).Msg("Failed to send CoT to multicast")
 		}
 	}
+}
+
+// sendCameraCoTIfPresent reports whether camera publication owns this update.
+// A true result always prevents the caller from emitting a normal radio marker,
+// including when the camera stream cannot currently be advertised.
+func (g *GPSService) sendCameraCoTIfPresent(ctx context.Context) bool {
+	if !g.cameraPresent {
+		return false
+	}
+
+	if !g.reserveCoTMulticastSend() {
+		return true
+	}
+
+	if err := g.sendCameraCoTToMulticast(ctx); err != nil {
+		g.Log.Error().Err(err).Msg("Failed to send camera CoT to multicast")
+	}
+
+	return true
+}
+
+func (g *GPSService) reserveCoTMulticastSend() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if time.Since(g.lastMulticastTime) < cotMulticastRateLimit {
+		return false
+	}
+
+	g.lastMulticastTime = time.Now()
+
+	return true
+}
+
+func (g *GPSService) sendCameraCoTToMulticast(ctx context.Context) error {
+	pos := g.GetPosition()
+	if !pos.Valid {
+		return fmt.Errorf("no valid GPS position")
+	}
+
+	stream, err := camera.ResolveStream(ctx)
+	if err != nil {
+		return fmt.Errorf("resolve camera stream: %w", err)
+	}
+
+	callsign := nodeCallsign()
+
+	return camera.Publish(ctx, camera.Position{
+		Altitude:        pos.Altitude,
+		CE:              pos.EPH,
+		GeoidSeparation: pos.GeoidSeparation,
+		Lat:             pos.Latitude,
+		LE:              pos.EPV,
+		Lon:             pos.Longitude,
+		Speed:           pos.Speed,
+		Track:           pos.Track,
+	}, camera.Node{
+		Callsign: callsign,
+		UID:      callsign,
+	}, stream)
 }
 
 // checkDeviceActive performs an ARP request to check if a device is active at the given IP address
@@ -178,17 +237,7 @@ func (g *GPSService) sendCoTToMulticast() error {
 		g.Log.Warn().Err(err).Msg("Failed to get board config info for CoT message")
 	}
 
-	// Get hostname for callsign
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "openmanet-node"
-	}
-
-	// If hostname does not contain the string manet
-	// append -MANET to the callsign to makeit clear these are MANET nodes in ATAK
-	if !strings.Contains(hostname, "manet") {
-		hostname = fmt.Sprintf("%s-MANET", hostname)
-	}
+	hostname := nodeCallsign()
 
 	// Get platform name, handle nil deviceInfo
 	platformName := "OpenMANET"
@@ -283,6 +332,20 @@ func (g *GPSService) sendCoTToMulticast() error {
 		Msg("Sent CoT message to ATAK SA multicast")
 
 	return nil
+}
+
+func nodeCallsign() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "openmanet-node"
+	}
+
+	// Preserve the existing MANET suffix used by normal radio markers.
+	if !strings.Contains(hostname, "manet") {
+		hostname = fmt.Sprintf("%s-MANET", hostname)
+	}
+
+	return hostname
 }
 
 // sendCoTAsExternalGPS creates and sends an ATAK CoT message to the EUD.

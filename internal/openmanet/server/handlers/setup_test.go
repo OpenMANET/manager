@@ -332,6 +332,7 @@ func TestGetSetupStatus_EthernetPortsFiltered(t *testing.T) {
 			{Name: "eth0"},
 			{Name: "eth1"},
 			{Name: "wlan0"},      // filtered
+			{Name: "wlh0"},       // filtered (Morse HaLow)
 			{Name: "br-lan"},     // filtered
 			{Name: "lo"},         // filtered
 			{Name: "tailscale0"}, // filtered

@@ -72,7 +72,7 @@ func TestGetMeshInterfaces_FiltersCorrectly(t *testing.T) {
 
 func TestGetMeshInterfaces_ReturnsMeshPointType(t *testing.T) {
 	ifaces := []*wifi.Interface{
-		{Type: wifi.InterfaceTypeStation, Name: "wlan0"},
+		{Type: wifi.InterfaceTypeStation, Name: "wlh0"},
 		{Type: wifi.InterfaceTypeMeshPoint, Name: "mesh0"},
 		{Type: wifi.InterfaceTypeAP, Name: "ap0"},
 		{Type: wifi.InterfaceTypeMeshPoint, Name: "mesh1"},

@@ -1,12 +1,16 @@
 package gpsd
 
 import (
+	"bytes"
+	"context"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Tests for cot.go functions:
@@ -14,6 +18,65 @@ import (
 // - checkDeviceActive
 // - sendCoTToMulticast
 // - sendCoTTAsExternalGPS
+
+func TestSendCameraCoTIfPresent_suppressesRadioMarker(t *testing.T) {
+	gps := &GPSService{
+		Log:               zerolog.Nop(),
+		cameraPresent:     true,
+		lastMulticastTime: time.Now(),
+	}
+
+	assert.True(t, gps.sendCameraCoTIfPresent(context.Background()), "camera update must suppress the radio marker")
+
+	gps.cameraPresent = false
+	assert.False(t, gps.sendCameraCoTIfPresent(context.Background()), "non-camera update must retain the radio path")
+}
+
+func TestSendIfRequiredAsCoT_cameraSuppressesNormalPath(t *testing.T) {
+	var logs bytes.Buffer
+
+	gps := &GPSService{
+		Log:               zerolog.New(&logs),
+		cameraPresent:     true,
+		lastMulticastTime: time.Now(),
+		position:          PositionReport{Valid: true},
+	}
+
+	gps.SendIfRequiredAsCoT()
+
+	assert.NotContains(t, logs.String(), "Error getting DHCP leases")
+}
+
+func TestSendCameraCoTIfPresent_publishErrorStillOwnsUpdate(t *testing.T) {
+	var logs bytes.Buffer
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	gps := &GPSService{
+		Log:           zerolog.New(&logs),
+		cameraPresent: true,
+		position:      PositionReport{Valid: true},
+	}
+
+	assert.True(t, gps.sendCameraCoTIfPresent(ctx))
+	assert.Contains(t, logs.String(), "Failed to send camera CoT to multicast")
+}
+
+func TestReserveCoTMulticastSend(t *testing.T) {
+	gps := &GPSService{}
+
+	assert.True(t, gps.reserveCoTMulticastSend())
+	assert.False(t, gps.reserveCoTMulticastSend())
+}
+
+func TestSendCameraCoTToMulticast_invalidPosition(t *testing.T) {
+	gps := &GPSService{}
+
+	err := gps.sendCameraCoTToMulticast(context.Background())
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "no valid GPS position")
+}
 
 func TestSendCoTToMulticast(t *testing.T) {
 	log := zerolog.Nop()

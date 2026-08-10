@@ -343,7 +343,7 @@ func TestLinkTypeMapping_AllTypes(t *testing.T) {
 			infos: []network.NetworkInterfaceInfo{
 				{Name: "br0", LinkType: network.LinkTypeBridge, State: network.OperStateUp},
 				{Name: "eth0", LinkType: network.LinkTypeEthernet, State: network.OperStateDown},
-				{Name: "wlan0", LinkType: network.LinkTypeWiFiAP, State: network.OperStateUp},
+				{Name: "wlh0", LinkType: network.LinkTypeWiFiAP, State: network.OperStateUp},
 				{Name: "phy1", LinkType: network.LinkTypeHaLowMesh},
 				{Name: "bat0", LinkType: network.LinkTypeBatman},
 				{Name: "lo", LinkType: network.LinkTypeLoopback},

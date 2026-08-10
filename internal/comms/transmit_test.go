@@ -2,11 +2,13 @@ package comms
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
@@ -26,13 +28,15 @@ func newTestRuntime(stream BroadcastCapture) *CommsRuntime {
 	pc.ReceiveEnabled.Store(true)
 	pc.PlaybackBuffer = make(chan []int16, 16)
 
-	return &CommsRuntime{
+	rt := &CommsRuntime{
 		Ports:           []*PortChannel{pc},
 		BeepBufferStart: []int16{100, 200},
 		BeepBufferStop:  []int16{300, 400},
-		BroadcastStream: stream,
 		Decoder:         &mockDecoder{},
 	}
+	rt.SetBroadcast(stream)
+
+	return rt
 }
 
 func TestBeginTransmission_StartsStream(t *testing.T) {
@@ -652,9 +656,9 @@ func TestEndTransmission_QueuesStopBeepToAllPorts(t *testing.T) {
 		Ports:           []*PortChannel{pc0, pc1},
 		BeepBufferStart: []int16{100, 200},
 		BeepBufferStop:  []int16{300, 400},
-		BroadcastStream: &mockStream{},
 		Decoder:         &mockDecoder{},
 	}
+	rt.SetBroadcast(&mockStream{})
 
 	cfg := newSilentComms()
 
@@ -749,5 +753,243 @@ func TestBeginTransmission_WebMode_HalfDuplexStillWorks(t *testing.T) {
 
 	if cfg.isBroadcasting(rt) {
 		t.Error("should not be broadcasting while receiving remote audio, even in web mode")
+	}
+}
+
+// ─── In-run audio recovery ──────────────────────────────────────────────────
+
+// countingStartHA is a mutex-protected fake for startHardwareAudioFn that
+// fails failN times, then succeeds. Success installs a mockStream the same
+// way the real startHardwareAudio does and signals succeeded (once).
+type countingStartHA struct {
+	mu        sync.Mutex
+	calls     int
+	failN     int
+	cleanups  int
+	succeeded chan struct{}
+}
+
+func (f *countingStartHA) fn(rt *CommsRuntime) (func(), error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.calls++
+	if f.calls <= f.failN {
+		return nil, errors.New("simulated: miniaudio: Broken pipe")
+	}
+
+	rt.SetBroadcast(&mockStream{})
+
+	select {
+	case <-f.succeeded:
+	default:
+		close(f.succeeded)
+	}
+
+	return func() { f.mu.Lock(); f.cleanups++; f.mu.Unlock() }, nil
+}
+
+func (f *countingStartHA) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.calls
+}
+
+// TestRun_AudioRecovery_RetriesUntilSuccess verifies that when comms starts
+// without hardware audio (e.g. OpenVLM unplugged or dmix EPIPE at boot),
+// the Run loop re-attempts init on the recovery ticker and installs the
+// stream on success, without a daemon restart.
+func TestRun_AudioRecovery_RetriesUntilSuccess(t *testing.T) {
+	// Gate off real ALSA card detection: ControlSource is defaultCtrlSrc,
+	// which would otherwise make tryAudioRecovery walk /sys and
+	// /proc/asound and potentially os.Setenv("ALSA_CARD", ...) for real on
+	// a dev machine with a CM108-class device attached.
+	t.Setenv("ALSA_CARD", "0")
+
+	fake := &countingStartHA{failN: 2, succeeded: make(chan struct{})}
+
+	cfg := &CommsConfig{
+		Log:                   zerolog.Nop(),
+		ControlSource:         defaultCtrlSrc,
+		audioRecoveryInterval: 5 * time.Millisecond,
+		startHardwareAudioFn:  fake.fn,
+	}
+
+	rt := &CommsRuntime{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		cfg.Run(ctx, rt, &mockEventSource{ch: make(chan control.PTTEvent)})
+		close(done)
+	}()
+
+	select {
+	case <-fake.succeeded:
+	case <-time.After(2 * time.Second):
+		t.Fatal("recovery never succeeded")
+	}
+
+	cancel()
+	<-done
+
+	assert.Equal(t, 3, fake.callCount(), "two failures then one success")
+	assert.NotNil(t, rt.Broadcast(), "recovered stream must be installed")
+	assert.NotNil(t, rt.audioCleanup, "recovery must stash the cleanup for Start's defer")
+}
+
+// TestRun_AudioRecovery_StopsAfterSuccess verifies the ticker is disarmed
+// once audio is up: no further init attempts occur.
+func TestRun_AudioRecovery_StopsAfterSuccess(t *testing.T) {
+	// Gate off real ALSA card detection — see RetriesUntilSuccess above.
+	t.Setenv("ALSA_CARD", "0")
+
+	fake := &countingStartHA{failN: 0, succeeded: make(chan struct{})}
+
+	cfg := &CommsConfig{
+		Log:                   zerolog.Nop(),
+		ControlSource:         defaultCtrlSrc,
+		audioRecoveryInterval: time.Millisecond,
+		startHardwareAudioFn:  fake.fn,
+	}
+
+	rt := &CommsRuntime{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		cfg.Run(ctx, rt, &mockEventSource{ch: make(chan control.PTTEvent)})
+		close(done)
+	}()
+
+	<-fake.succeeded
+
+	// Give the ticker room to misfire if the disarm were broken, without
+	// asserting on wall-clock behavior: poll until call count is stable
+	// across two observations 20 ticker-periods apart.
+	deadline := time.After(2 * time.Second)
+
+	for {
+		before := fake.callCount()
+
+		select {
+		case <-deadline:
+			t.Fatal("call count never stabilized")
+		case <-time.After(20 * time.Millisecond):
+		}
+
+		if fake.callCount() == before {
+			break
+		}
+	}
+
+	cancel()
+	<-done
+
+	assert.Equal(t, 1, fake.callCount(), "no attempts after success")
+}
+
+// TestRun_AudioRecovery_DisabledWhenHealthy verifies no recovery attempts
+// happen when startup already produced a stream.
+func TestRun_AudioRecovery_DisabledWhenHealthy(t *testing.T) {
+	cfg := &CommsConfig{
+		Log:                   zerolog.Nop(),
+		ControlSource:         defaultCtrlSrc,
+		audioRecoveryInterval: time.Millisecond,
+		startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+			t.Error("recovery must not run when audio is already up")
+
+			return nil, nil
+		},
+	}
+
+	rt := &CommsRuntime{}
+	rt.SetBroadcast(&mockStream{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		cfg.Run(ctx, rt, &mockEventSource{ch: make(chan control.PTTEvent)})
+		close(done)
+	}()
+
+	time.AfterFunc(50*time.Millisecond, cancel)
+	<-done
+}
+
+// TestRun_AudioRecovery_DisabledInWebMode verifies web mode never attempts
+// hardware recovery — the browser owns audio I/O.
+func TestRun_AudioRecovery_DisabledInWebMode(t *testing.T) {
+	cfg := &CommsConfig{
+		Log:                   zerolog.Nop(),
+		ControlSource:         controlSourceWeb,
+		audioRecoveryInterval: time.Millisecond,
+		startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+			t.Error("recovery must not run in web mode")
+
+			return nil, nil
+		},
+	}
+
+	rt := &CommsRuntime{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		cfg.Run(ctx, rt, &mockEventSource{ch: make(chan control.PTTEvent)})
+		close(done)
+	}()
+
+	time.AfterFunc(50*time.Millisecond, cancel)
+	<-done
+}
+
+// TestTryAudioRecovery_DetectionGate verifies tryAudioRecovery invokes the
+// ALSA card detection seam only when ALSA_CARD is unset, and never when a
+// card is already pinned (detected at startup or set manually) — the gate
+// that keeps recovery from re-walking /sys and /proc/asound once a card is
+// known.
+func TestTryAudioRecovery_DetectionGate(t *testing.T) {
+	tests := []struct {
+		name       string
+		alsaCard   string
+		wantDetect bool
+	}{
+		{name: "unset triggers detection", alsaCard: "", wantDetect: true},
+		{name: "set skips detection", alsaCard: "2", wantDetect: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ALSA_CARD", tc.alsaCard)
+
+			detectCalls := 0
+			cfg := &CommsConfig{
+				Log:           zerolog.Nop(),
+				ControlSource: defaultCtrlSrc,
+				detectALSACardFn: func() {
+					detectCalls++
+				},
+				startHardwareAudioFn: func(_ *CommsRuntime) (func(), error) {
+					return nil, errors.New("simulated: no card available")
+				},
+			}
+
+			rt := &CommsRuntime{}
+
+			cfg.tryAudioRecovery(rt, 1)
+
+			wantCalls := 0
+			if tc.wantDetect {
+				wantCalls = 1
+			}
+
+			assert.Equal(t, wantCalls, detectCalls, "detection seam call count")
+		})
 	}
 }

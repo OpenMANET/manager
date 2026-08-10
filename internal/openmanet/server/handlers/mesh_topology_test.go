@@ -118,9 +118,9 @@ func sampleOrigSnap() *batmanadv.OriginatorTopology {
 		Algorithm:    "BATMAN_V",
 		Originators: []batmanadv.OriginatorEntry{
 			{
-				OrigMAC: "bb:bb:bb:bb:bb:00", OrigHostname: "alpha_wlan0",
-				NextHopMAC: "bb:bb:bb:bb:bb:00", NextHopHostname: "alpha_wlan0",
-				HardIfname: "wlan0", Hops: 1,
+				OrigMAC: "bb:bb:bb:bb:bb:00", OrigHostname: "alpha_wlh0",
+				NextHopMAC: "bb:bb:bb:bb:bb:00", NextHopHostname: "alpha_wlh0",
+				HardIfname: "wlh0", Hops: 1,
 			},
 			{
 				OrigMAC: "cc:cc:cc:cc:cc:00", OrigHostname: "gw1_vxlan0",
@@ -185,7 +185,7 @@ func TestGetMeshTopology_MergesVisAndOriginators(t *testing.T) {
 	assert.False(t, alphaNode.GetIsSelf())
 	assert.Equal(t, "local", alphaNode.GetSegment())
 	assert.Equal(t, int32(1), alphaNode.GetHopsFromSelf())
-	assert.Equal(t, "wlan0", alphaNode.GetMyHardIfname())
+	assert.Equal(t, "wlh0", alphaNode.GetMyHardIfname())
 	assert.Equal(t, "alpha", alphaNode.GetHostname())
 
 	gw1Node := nodes[byMac["cc:cc:cc:cc:cc:00"]]
@@ -599,8 +599,8 @@ func TestGetMeshTopology_SynthesizesEdgesWhenVisEmpty(t *testing.T) {
 	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
 		SelfMAC: "aa:aa:aa:aa:aa:00",
 		Originators: []batmanadv.OriginatorEntry{
-			{OrigMAC: "bb:bb:bb:bb:bb:00", NextHopMAC: "bb:bb:bb:bb:bb:00", HardIfname: "wlan0", Hops: 1},
-			{OrigMAC: "cc:cc:cc:cc:cc:00", NextHopMAC: "bb:bb:bb:bb:bb:00", HardIfname: "wlan0", Hops: 2},
+			{OrigMAC: "bb:bb:bb:bb:bb:00", NextHopMAC: "bb:bb:bb:bb:bb:00", HardIfname: "wlh0", Hops: 1},
+			{OrigMAC: "cc:cc:cc:cc:cc:00", NextHopMAC: "bb:bb:bb:bb:bb:00", HardIfname: "wlh0", Hops: 2},
 		},
 	}}
 
@@ -714,7 +714,7 @@ func TestGetMeshTopology_DedupesSelfAcrossAliasedVisEntries(t *testing.T) {
 // with different primaries and no shared secondary list collapse to one
 // MeshNode when they resolve to the same base hostname. This is the
 // common multi-radio-node case: each interface publishes its own vis
-// entry (bat0, eth0, wlan0) carrying a distinct MAC, but all three
+// entry (bat0, eth0, wlh0) carrying a distinct MAC, but all three
 // belong to the same physical device identified by bat-hosts name
 // "BCM2711-1003".
 func TestGetMeshTopology_DedupesByHostname(t *testing.T) {
@@ -735,11 +735,11 @@ func TestGetMeshTopology_DedupesByHostname(t *testing.T) {
 		Originators: []batmanadv.OriginatorEntry{
 			{
 				OrigMAC: "bb:bb:bb:bb:bb:01", OrigHostname: "BCM2711-1003_bat0",
-				NextHopMAC: "bb:bb:bb:bb:bb:01", HardIfname: "wlan0", Hops: 1,
+				NextHopMAC: "bb:bb:bb:bb:bb:01", HardIfname: "wlh0", Hops: 1,
 			},
 			{
 				OrigMAC: "bb:bb:bb:bb:bb:02", OrigHostname: "BCM2711-1003_eth0",
-				NextHopMAC: "bb:bb:bb:bb:bb:02", HardIfname: "wlan0", Hops: 1,
+				NextHopMAC: "bb:bb:bb:bb:bb:02", HardIfname: "wlh0", Hops: 1,
 			},
 		},
 	}}
@@ -836,7 +836,7 @@ func (f *fakeNeighborsProvider) All() map[string]*batmanadv.MeshNeighborsRecord 
 // canonical regression test for the BCM2711-fc8e → BCM2711-fc96 bug:
 // fc8e is an RF peer of fc96 (the gateway), but without gossip the
 // handler would render fc8e as its own remote segment. With gossip,
-// fc96's record says fc8e is on wlan0 → fc8e lives in fc96's remote
+// fc96's record says fc8e is on wlh0 → fc8e lives in fc96's remote
 // mesh component and inherits fc96 as its gateway.
 func TestGetMeshTopology_GossipClassifiesNodeBehindRemoteGateway(t *testing.T) {
 	const (
@@ -865,18 +865,18 @@ func TestGetMeshTopology_GossipClassifiesNodeBehindRemoteGateway(t *testing.T) {
 		},
 	}}
 
-	// fc96 publishes gossip stating fc8e is an RF peer on wlan0.
+	// fc96 publishes gossip stating fc8e is an RF peer on wlh0.
 	gwPayload := &netv1.MeshNeighbors{
 		PrimaryMac: gwMAC,
 		Neighbors: []*netv1.MeshNeighbor{
-			{Mac: behMAC, HardIfname: "wlan0", Blos: false},
+			{Mac: behMAC, HardIfname: "wlh0", Blos: false},
 			{Mac: selfMAC, HardIfname: "vxlan0", Blos: true},
 		},
 	}
 	behPayload := &netv1.MeshNeighbors{
 		PrimaryMac: behMAC,
 		Neighbors: []*netv1.MeshNeighbor{
-			{Mac: gwMAC, HardIfname: "wlan0", Blos: false},
+			{Mac: gwMAC, HardIfname: "wlh0", Blos: false},
 		},
 	}
 
@@ -936,7 +936,7 @@ func TestGetMeshTopology_GossipCoverageReflectsPublishers(t *testing.T) {
 	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
 		SelfMAC: selfMAC,
 		Originators: []batmanadv.OriginatorEntry{
-			{OrigMAC: synthMAC, NextHopMAC: synthMAC, HardIfname: "wlan0", Hops: 1},
+			{OrigMAC: synthMAC, NextHopMAC: synthMAC, HardIfname: "wlh0", Hops: 1},
 		},
 	}}
 
@@ -1000,7 +1000,7 @@ func TestGetMeshTopology_GossipHostnameFallback(t *testing.T) {
 				Hostname:    sharedHost,
 				CollectedAt: timestamppb.New(collected),
 				Neighbors: []*netv1.MeshNeighbor{
-					{Mac: "some-rf-peer", HardIfname: "wlan0"},
+					{Mac: "some-rf-peer", HardIfname: "wlh0"},
 				},
 			},
 			SourceMac: "f2:20:f9:84:c3:67",
@@ -1054,15 +1054,15 @@ func TestGetMeshTopology_MarksBatctlGatewaysWithIsGateway(t *testing.T) {
 	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
 		SelfMAC: selfMAC,
 		Originators: []batmanadv.OriginatorEntry{
-			{OrigMAC: gwMAC, OrigHostname: "BCM2711-1003_bat0", NextHopMAC: gwMAC, HardIfname: "wlan0", Hops: 1},
-			{OrigMAC: peerMAC, OrigHostname: "BCM2711-88ba_phy2-mesh0", NextHopMAC: peerMAC, HardIfname: "wlan0", Hops: 1},
+			{OrigMAC: gwMAC, OrigHostname: "BCM2711-1003_bat0", NextHopMAC: gwMAC, HardIfname: "wlh0", Hops: 1},
+			{OrigMAC: peerMAC, OrigHostname: "BCM2711-88ba_phy2-mesh0", NextHopMAC: peerMAC, HardIfname: "wlh0", Hops: 1},
 		},
 	}}
 
 	svc := newMeshTopologyService(vis, orig, nil)
 	svc.GetMeshGateways = func(_ string) (*batmanadv.Gateways, error) {
 		return &batmanadv.Gateways{
-			{OrigAddress: gwMAC, HardIfname: "wlan0", Best: true, Throughput: 100000},
+			{OrigAddress: gwMAC, HardIfname: "wlh0", Best: true, Throughput: 100000},
 		}, nil
 	}
 
@@ -1100,7 +1100,7 @@ func TestGetMeshTopology_GossipDerivedGatewayFlag(t *testing.T) {
 	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
 		SelfMAC: selfMAC,
 		Originators: []batmanadv.OriginatorEntry{
-			{OrigMAC: gwMAC, NextHopMAC: gwMAC, HardIfname: "wlan0", Hops: 1},
+			{OrigMAC: gwMAC, NextHopMAC: gwMAC, HardIfname: "wlh0", Hops: 1},
 			{OrigMAC: remoteMAC, NextHopMAC: gwMAC, HardIfname: "vxlan0", Hops: 2},
 		},
 	}}
@@ -1115,7 +1115,7 @@ func TestGetMeshTopology_GossipDerivedGatewayFlag(t *testing.T) {
 		Hostname:    "gw",
 		CollectedAt: timestamppb.New(collected),
 		Neighbors: []*netv1.MeshNeighbor{
-			{Mac: selfMAC, HardIfname: "wlan0", ThroughputKbps: 50000},
+			{Mac: selfMAC, HardIfname: "wlh0", ThroughputKbps: 50000},
 			{Mac: remoteMAC, HardIfname: "vxlan0", Blos: true, ThroughputKbps: 20000},
 		},
 	}
@@ -1176,7 +1176,7 @@ func TestGetMeshTopology_RedirectsBlosEdgeThroughLocalGateway(t *testing.T) {
 	orig := &fakeOrigTopology{snap: &batmanadv.OriginatorTopology{
 		SelfMAC: selfMAC,
 		Originators: []batmanadv.OriginatorEntry{
-			{OrigMAC: gwMAC, NextHopMAC: gwMAC, HardIfname: "wlan0", Hops: 1},
+			{OrigMAC: gwMAC, NextHopMAC: gwMAC, HardIfname: "wlh0", Hops: 1},
 			{OrigMAC: remoteMAC, NextHopMAC: remoteMAC, HardIfname: "vxlan0", Hops: 1},
 		},
 	}}
@@ -1188,7 +1188,7 @@ func TestGetMeshTopology_RedirectsBlosEdgeThroughLocalGateway(t *testing.T) {
 		PrimaryMac:  gwMAC,
 		CollectedAt: timestamppb.New(collected),
 		Neighbors: []*netv1.MeshNeighbor{
-			{Mac: selfMAC, HardIfname: "wlan0", ThroughputKbps: 50000},
+			{Mac: selfMAC, HardIfname: "wlh0", ThroughputKbps: 50000},
 			{Mac: remoteMAC, HardIfname: "vxlan0", Blos: true, ThroughputKbps: 30000},
 		},
 	}
@@ -1242,7 +1242,7 @@ func TestGetMeshTopology_RedirectsBlosEdgeThroughLocalGateway(t *testing.T) {
 // happened when stripIfaceSuffix was made too narrow. The bat-hosts
 // fixture (testfixtures/batman-adv/bat-hosts) is the source of truth
 // for the suffix shapes that appear in the field — phy0-mesh0,
-// phy2-mesh0, br-ahwlan, wlan-10-04, mesh0, vxlan0, bat0. Every
+// phy2-mesh0, br-ahwlan, wlh-10-04, mesh0, vxlan0, bat0. Every
 // node.Hostname rendered by the handler must come out the way
 // `shortHostname` expects: base name only, no iface suffix.
 //
@@ -1368,7 +1368,7 @@ func TestGetMeshTopology_GossipInterfaceMacBridgesBLOSMultiMesh(t *testing.T) {
 				CollectedAt:   timestamppb.New(collected),
 				InterfaceMacs: []string{payloadPrimary, visPrimary, envelopeMAC},
 				Neighbors: []*netv1.MeshNeighbor{
-					{Mac: "11:11:11:11:11:11", HardIfname: "wlan0"},
+					{Mac: "11:11:11:11:11:11", HardIfname: "wlh0"},
 				},
 			},
 			SourceMac: envelopeMAC,
@@ -1551,12 +1551,12 @@ func TestGetMeshTopology_GossipMetricsPopulateEdges(t *testing.T) {
 			{Mac: gwMAC, HardIfname: "vxlan0", Blos: true, ThroughputKbps: 6000},
 		},
 	}
-	// Gateway sees behMAC over wlan0 at 48 Mbps.
+	// Gateway sees behMAC over wlh0 at 48 Mbps.
 	gwPayload := &netv1.MeshNeighbors{
 		PrimaryMac: gwMAC,
 		Algorithm:  15,
 		Neighbors: []*netv1.MeshNeighbor{
-			{Mac: behMAC, HardIfname: "wlan0", Blos: false, ThroughputKbps: 48000},
+			{Mac: behMAC, HardIfname: "wlh0", Blos: false, ThroughputKbps: 48000},
 			{Mac: selfMAC, HardIfname: "vxlan0", Blos: true, ThroughputKbps: 6200},
 		},
 	}
@@ -1564,7 +1564,7 @@ func TestGetMeshTopology_GossipMetricsPopulateEdges(t *testing.T) {
 		PrimaryMac: behMAC,
 		Algorithm:  15,
 		Neighbors: []*netv1.MeshNeighbor{
-			{Mac: gwMAC, HardIfname: "wlan0", Blos: false, ThroughputKbps: 47800},
+			{Mac: gwMAC, HardIfname: "wlh0", Blos: false, ThroughputKbps: 47800},
 		},
 	}
 
@@ -1637,14 +1637,14 @@ func TestGetMeshTopology_GossipMetricsBATMANIV(t *testing.T) {
 		PrimaryMac: selfMAC,
 		Algorithm:  4, // BATMAN_IV
 		Neighbors: []*netv1.MeshNeighbor{
-			{Mac: peerMAC, HardIfname: "wlan0", Blos: false, Tq: 255}, // perfect TQ → 255/255 = 1.0
+			{Mac: peerMAC, HardIfname: "wlh0", Blos: false, Tq: 255}, // perfect TQ → 255/255 = 1.0
 		},
 	}
 	peerPayload := &netv1.MeshNeighbors{
 		PrimaryMac: peerMAC,
 		Algorithm:  4,
 		Neighbors: []*netv1.MeshNeighbor{
-			{Mac: selfMAC, HardIfname: "wlan0", Blos: false, Tq: 200}, // 255/200 = 1.275
+			{Mac: selfMAC, HardIfname: "wlh0", Blos: false, Tq: 200}, // 255/200 = 1.275
 		},
 	}
 

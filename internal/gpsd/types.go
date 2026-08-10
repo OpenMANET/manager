@@ -117,6 +117,7 @@ type GPSService struct {
 	reconnectDelay    time.Duration
 	reconnectAttempts int
 	mu                sync.RWMutex
+	cameraPresent     bool
 	// reannouncing is a single-flight guard for the CoT re-announce kicked
 	// off when an external position is adopted. SendIfRequiredAsCoT does a
 	// ubus lease lookup plus an ARP probe per lease, which can outlast an

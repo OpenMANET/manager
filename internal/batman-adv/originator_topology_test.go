@@ -136,7 +136,7 @@ func TestGetOriginatorTopology_AlgorithmBATMANIV(t *testing.T) {
 // values are present (the BATMAN_V case operators see on newer kernels).
 func TestGetOriginatorTopology_AlgorithmBATMANV(t *testing.T) {
 	rows := []batmanadv.Originator{
-		{OrigAddress: "aa:bb:cc:dd:ee:01", HardIfname: "wlan0", BestNeigh: "aa:bb:cc:dd:ee:01", Throughput: 150000, Best: true},
+		{OrigAddress: "aa:bb:cc:dd:ee:01", HardIfname: "wlh0", BestNeigh: "aa:bb:cc:dd:ee:01", Throughput: 150000, Best: true},
 	}
 	p := newProvider(rows, "0a:d7:37:78:2d:3e")
 
@@ -209,8 +209,8 @@ func TestGetOriginatorTopology_ProviderError(t *testing.T) {
 // looping forever if the originator table ever reports a cycle.
 func TestGetOriginatorTopology_CycleSafety(t *testing.T) {
 	rows := []batmanadv.Originator{
-		{OrigAddress: "aa:01", HardIfname: "wlan0", BestNeigh: "aa:02", TQ: 200, Best: true},
-		{OrigAddress: "aa:02", HardIfname: "wlan0", BestNeigh: "aa:01", TQ: 200, Best: true},
+		{OrigAddress: "aa:01", HardIfname: "wlh0", BestNeigh: "aa:02", TQ: 200, Best: true},
+		{OrigAddress: "aa:02", HardIfname: "wlh0", BestNeigh: "aa:01", TQ: 200, Best: true},
 	}
 	p := newProvider(rows, "")
 

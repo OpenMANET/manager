@@ -49,7 +49,9 @@ func (in *Init) BuildAudio(slots []PortSlot) (*BroadcastEncoder, device.AudioDev
 		return nil, zeroIn, err
 	}
 
-	in.Log.Info().Msgf("comms: audio in=%s out=%s", inDev.Name, outDev.Name)
+	in.Log.Info().
+		Str("alsa_card", os.Getenv("ALSA_CARD")).
+		Msgf("comms: audio in=%s out=%s", inDev.Name, outDev.Name)
 
 	playbackPeriod := uint32(computePlaybackPeriodFrames(in.PlaybackLatencyMs))
 
@@ -304,7 +306,7 @@ func computePlaybackPeriodFrames(latencyMs int) int {
 // per-port playback streams, starts them (always-on capture + playback),
 // and returns a cleanup function that stops and closes them. The
 // returned BroadcastEncoder is the same instance the parent runtime
-// should treat as its CommsRuntime.BroadcastStream.
+// should install via CommsRuntime.SetBroadcast.
 func (in *Init) StartHardware(slots []PortSlot) (broadcast *BroadcastEncoder, cleanup func(), err error) {
 	logProc := func(message string) {
 		// miniaudio emits transient ALSA recovery noise during USB audio

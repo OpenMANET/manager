@@ -15,7 +15,7 @@ func mockBatctlOutput() string {
   "mesh_ifname": "bat0",
   "mesh_address": "02:00:00:00:00:01",
   "hard_ifindex": 3,
-  "hard_ifname": "wlan0",
+  "hard_ifname": "wlh0",
   "hard_address": "aa:bb:cc:dd:ee:ff",
   "tt_ttvn": 42,
   "bla_crc": 12345,

@@ -2445,7 +2445,7 @@ func TestRemovePort(t *testing.T) {
 		{
 			name:          "remove non-existent port",
 			initialPorts:  []string{"eth0", "eth1", "bat0"},
-			portToRemove:  "wlan0",
+			portToRemove:  "wlh0",
 			expectedPorts: []string{"eth0", "eth1", "bat0"},
 			expectedFound: false,
 		},

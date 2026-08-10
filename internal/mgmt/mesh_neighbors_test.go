@@ -21,15 +21,15 @@ func TestMeshNeighborsWorker_SendOncePublishesExpectedPayload(t *testing.T) {
 	fixedTime := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 
 	neighbors := batmanadv.Neighbors{
-		{HardIfname: "wlan0", NeighAddress: "AA:AA:AA:AA:AA:01", LastSeenMsecs: 200, Throughput: 54000},
+		{HardIfname: "wlh0", NeighAddress: "AA:AA:AA:AA:AA:01", LastSeenMsecs: 200, Throughput: 54000},
 		{HardIfname: "vxlan0", NeighAddress: "bb:bb:bb:bb:bb:01", LastSeenMsecs: 400, Throughput: 100000},
 		{HardIfname: "eth0", NeighAddress: "Cc:Cc:Cc:Cc:Cc:01", LastSeenMsecs: 50, Throughput: 1000000},
 	}
 
 	originators := []batmanadv.Originator{
-		{OrigAddress: "aa:aa:aa:aa:aa:01", BestNeigh: "aa:aa:aa:aa:aa:01", HardIfname: "wlan0", Throughput: 54000, TQ: 220, Best: true},
+		{OrigAddress: "aa:aa:aa:aa:aa:01", BestNeigh: "aa:aa:aa:aa:aa:01", HardIfname: "wlh0", Throughput: 54000, TQ: 220, Best: true},
 		// Non-best row — must be filtered out.
-		{OrigAddress: "aa:aa:aa:aa:aa:01", BestNeigh: "dd:dd:dd:dd:dd:01", HardIfname: "wlan0", Throughput: 20000, TQ: 120, Best: false},
+		{OrigAddress: "aa:aa:aa:aa:aa:01", BestNeigh: "dd:dd:dd:dd:dd:01", HardIfname: "wlh0", Throughput: 20000, TQ: 120, Best: false},
 		{OrigAddress: "bb:bb:bb:bb:bb:01", BestNeigh: "bb:bb:bb:bb:bb:01", HardIfname: "vxlan0", Throughput: 100000, TQ: 0, Best: true},
 	}
 
@@ -81,8 +81,8 @@ func TestMeshNeighborsWorker_SendOncePublishesExpectedPayload(t *testing.T) {
 
 	wlan, ok := byMac["aa:aa:aa:aa:aa:01"]
 	require.True(t, ok)
-	assert.Equal(t, "wlan0", wlan.GetHardIfname())
-	assert.False(t, wlan.GetBlos(), "wlan0 is not BLOS")
+	assert.Equal(t, "wlh0", wlan.GetHardIfname())
+	assert.False(t, wlan.GetBlos(), "wlh0 is not BLOS")
 	assert.Equal(t, int32(200), wlan.GetLastSeenMsecs())
 	assert.Equal(t, int64(54000), wlan.GetThroughputKbps())
 
@@ -104,7 +104,7 @@ func TestMeshNeighborsWorker_SendOncePublishesExpectedPayload(t *testing.T) {
 
 	require.Contains(t, origByMac, "aa:aa:aa:aa:aa:01")
 	assert.Equal(t, int32(220), origByMac["aa:aa:aa:aa:aa:01"].GetTq())
-	assert.Equal(t, "wlan0", origByMac["aa:aa:aa:aa:aa:01"].GetHardIfname())
+	assert.Equal(t, "wlh0", origByMac["aa:aa:aa:aa:aa:01"].GetHardIfname())
 
 	// InterfaceMacs include the bat0 primary plus every MAC the
 	// listMacs hook returned, deduped and lowercased. Receivers index
@@ -125,12 +125,12 @@ func TestStripIfaceSuffix(t *testing.T) {
 	}{
 		// Canonical iface suffixes from the production bat-hosts.
 		{"BCM2711-97d6_bat0", "BCM2711-97d6"},
-		{"BCM2711-97d6_wlan0", "BCM2711-97d6"},
+		{"BCM2711-97d6_wlh0", "BCM2711-97d6"},
 		{"BCM2711-97d6_phy2-mesh0", "BCM2711-97d6"},
 		{"BCM2711-97d6_eth0", "BCM2711-97d6"},
-		{"BCM2711-97d6_wlan-97-d9", "BCM2711-97d6"},
+		{"BCM2711-97d6_wlh-97-d9", "BCM2711-97d6"},
 		{"BCM2711-88ba_br-ahwlan", "BCM2711-88ba"},
-		{"BCM2711-1003_wlan-10-04", "BCM2711-1003"},
+		{"BCM2711-1003_wlh-10-04", "BCM2711-1003"},
 		{"BCM2711-1003_phy1-mesh0", "BCM2711-1003"},
 		{"HaLow-R-b65c57_phy0-mesh0", "HaLow-R-b65c57"},
 		{"HaLow-R-b65c57_mesh0", "HaLow-R-b65c57"},
@@ -201,7 +201,7 @@ func TestIsNonMeshInterfaceName(t *testing.T) {
 		// Mesh-relevant interfaces must NOT be filtered.
 		{"bat0", false},
 		{"vxlan0", false},
-		{"wlan0", false},
+		{"wlh0", false},
 		{"phy2-mesh0", false},
 		{"eth0", false},
 		{"br-ahwlan", false},
@@ -244,7 +244,7 @@ func TestCollectInterfaceMacs(t *testing.T) {
 // fails — neighbor data is useful on its own.
 func TestMeshNeighborsWorker_OriginatorFailureStillPublishesNeighbors(t *testing.T) {
 	neighbors := batmanadv.Neighbors{
-		{HardIfname: "wlan0", NeighAddress: "aa:aa:aa:aa:aa:01", LastSeenMsecs: 100, Throughput: 30000},
+		{HardIfname: "wlh0", NeighAddress: "aa:aa:aa:aa:aa:01", LastSeenMsecs: 100, Throughput: 30000},
 	}
 
 	fake := &fakeAlfredClient{}
