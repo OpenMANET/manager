@@ -1,6 +1,10 @@
 logLevel: info
 gnss:
   enable: true
+  # source selects which position provider feeds the GNSS subsystem:
+  # "internal" (local gpsd receiver, default) or "external_cot" (adopt the
+  # position broadcast by a connected EUD, e.g. ATAK, as Cursor-on-Target).
+  source: internal
 blos:
   enable: false
 comms:

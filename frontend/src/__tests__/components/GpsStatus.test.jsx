@@ -23,6 +23,7 @@ vi.mock('../../gen/openmanet/gnss/v1/gnss_service_pb.js', () => ({
 }));
 
 import GpsStatusPage from '../../pages/GpsStatus.jsx';
+import { GNSSSource } from '../../gen/openmanet/gnss/v1/gnss_pb.js';
 
 afterEach(() => {
   cleanup();
@@ -367,6 +368,61 @@ describe('TestGpsStatusCoTUIDInput', () => {
         }),
       );
     });
+  });
+});
+
+// ── GNSS source selection ───────────────────────────────────────────────────
+
+describe('TestGpsStatusGNSSSourceSelect', () => {
+  it('defaults to internal and hides the external-CoT hint', async () => {
+    mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
+    mockGetGNSSStatus.mockResolvedValue(STATUS_NO_FIX);
+
+    render(<GpsStatusPage />);
+    await waitFor(() => screen.getByText('SAVE GNSS CONFIG'));
+
+    expect(screen.getByLabelText('GNSS position source').textContent).toContain('INTERNAL');
+    expect(screen.queryByText(/No sky plot \/ satellite data is available/)).toBeNull();
+  });
+
+  it('selecting external CoT shows the hint and saves the new source', async () => {
+    mockGetGNSSConfig.mockResolvedValue(CONFIG_DISABLED);
+    mockGetGNSSStatus.mockResolvedValue(STATUS_NO_FIX);
+    mockUpdateGNSSConfig.mockResolvedValue({ success: true, message: 'saved' });
+
+    render(<GpsStatusPage />);
+    await waitFor(() => screen.getByText('SAVE GNSS CONFIG'));
+
+    fireEvent.click(screen.getByLabelText('GNSS position source'));
+    fireEvent.click(screen.getByRole('option', { name: /EXTERNAL/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/No sky plot \/ satellite data is available/)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('SAVE GNSS CONFIG'));
+
+    await waitFor(() => {
+      expect(mockUpdateGNSSConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          settings: expect.objectContaining({ source: GNSSSource.GNSS_SOURCE_EXTERNAL_COT }),
+        }),
+      );
+    });
+  });
+
+  it('renders the hint when config already reports external CoT', async () => {
+    mockGetGNSSConfig.mockResolvedValue({
+      ...CONFIG_ENABLED,
+      settings: { ...CONFIG_ENABLED.settings, source: GNSSSource.GNSS_SOURCE_EXTERNAL_COT },
+    });
+    mockGetGNSSStatus.mockResolvedValue(STATUS_3D_FIX);
+
+    render(<GpsStatusPage />);
+    await waitFor(() => screen.getByText('SAVE GNSS CONFIG'));
+
+    expect(screen.getByLabelText('GNSS position source').textContent).toContain('EXTERNAL');
+    expect(screen.getByText(/No sky plot \/ satellite data is available/)).toBeTruthy();
   });
 });
 

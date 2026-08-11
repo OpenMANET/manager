@@ -48,6 +48,12 @@ func NewGPSServiceWithAddress(log zerolog.Logger, cfg *config.Config, address st
 	// Start the connection handler in a goroutine
 	go g.connectionHandler()
 
+	// Start the CoT listener, which adopts a directly-connected EUD's
+	// broadcast position when gnss.source is set to external_cot. It is
+	// always running (cheap, idle otherwise) so toggling the setting at
+	// runtime takes effect immediately.
+	go g.startCoTListener()
+
 	return g, nil
 }
 
