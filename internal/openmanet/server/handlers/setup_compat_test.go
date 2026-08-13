@@ -501,13 +501,16 @@ func TestCompat_Mesh11sdGateAnnouncements_Point(t *testing.T) {
 		"mesh point must NOT announce itself as a gate")
 }
 
-// TestCompat_Mesh11sdFwdingDisabled asserts mesh_fwding=0 (batman-adv
-// owns forwarding when batman is in play, which it always is here).
-func TestCompat_Mesh11sdFwdingDisabled(t *testing.T) {
+// TestCompat_Mesh11sdForwardingDisabled asserts the required mesh11sd pair for
+// making batman-adv the exclusive owner of forwarding.
+func TestCompat_Mesh11sdForwardingDisabled(t *testing.T) {
 	tr := runScenarioApply(t, gateRouterEthProfile())
 	assert.Equal(t, "0",
 		tr.getOne("mesh11sd", "mesh_params", "mesh_fwding"),
 		"mesh11sd.mesh_fwding must be 0 — batman-adv handles forwarding")
+	assert.Equal(t, "1",
+		tr.getOne("mesh11sd", "mesh_params", "mesh_nolearn"),
+		"mesh11sd.mesh_nolearn must be 1 when mesh_fwding is disabled")
 }
 
 // TestCompat_HostnameWritten asserts the wizard invokes the

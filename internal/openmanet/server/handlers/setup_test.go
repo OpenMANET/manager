@@ -1095,6 +1095,7 @@ func newFullSetupReader() *fakeConfigReader {
 	r.data["mesh11sd"]["setup"] = map[string][]string{"enabled": {"0"}}
 	r.data["mesh11sd"]["mesh_params"] = map[string][]string{
 		"mesh_fwding":             {"1"},
+		"mesh_nolearn":            {"0"},
 		"mesh_gate_announcements": {"0"},
 	}
 

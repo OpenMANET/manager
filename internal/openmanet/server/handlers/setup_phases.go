@@ -1194,12 +1194,13 @@ func batmanGwModeForRole(role setupv1.MeshRole) string {
 
 // ── Phase 11: mesh11sd announcements ─────────────────────────────────────────
 
-// runMesh11sd writes mesh_fwding=0 (batman-adv handles forwarding)
-// and mesh_gate_announcements per the user's role choice.
+// runMesh11sd writes mesh_fwding=0 and mesh_nolearn=1 so batman-adv
+// exclusively handles forwarding, then configures mesh_gate_announcements
+// per the user's role choice.
 func (s *SetupService) runMesh11sd(_ context.Context, stream applySetupStream, profile *setupv1.MeshNodeProfile) error {
 	return s.runPhase(stream, setupv1.ApplySetupResponse_PHASE_MESH11SD,
 		"writing mesh11sd announcements", func() error {
-			if err := network.SetMeshFwding(s.UCI, "0"); err != nil {
+			if err := network.DisableMeshForwarding(s.UCI); err != nil {
 				return err
 			}
 

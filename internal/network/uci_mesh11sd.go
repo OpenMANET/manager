@@ -22,6 +22,9 @@ type UCIMesh11sdMeshParams struct {
 	// always the case in this codebase, since batman-adv is mandatory)
 	// and "1" if the device falls back to in-driver mesh forwarding.
 	MeshFwding string `uci:"option mesh_fwding"`
+	// MeshNoLearn is "1" when batman-adv owns forwarding so the kernel
+	// mesh does not learn forwarding state independently.
+	MeshNoLearn string `uci:"option mesh_nolearn"`
 }
 
 // UCIMesh11sdConfigReader wraps go-uci with the same shape as the
@@ -87,6 +90,10 @@ func GetMesh11sdMeshParamsWithReader(reader ConfigReader) (*UCIMesh11sdMeshParam
 		cfg.MeshFwding = v[0]
 	}
 
+	if v, ok := reader.Get(mesh11sdConfigName, mesh11sdMeshParamSection, "mesh_nolearn"); ok && len(v) > 0 {
+		cfg.MeshNoLearn = v[0]
+	}
+
 	return cfg, nil
 }
 
@@ -99,11 +106,16 @@ func SetMeshGateAnnouncements(reader ConfigReader, value string) error {
 	return setMesh11sdMeshParam(reader, "mesh_gate_announcements", value)
 }
 
-// SetMeshFwding writes mesh11sd.mesh_params.mesh_fwding. The setup
-// wizard always passes "0" because batman-adv is mandatory and
-// in-driver forwarding would create routing loops. Does not commit.
-func SetMeshFwding(reader ConfigReader, value string) error {
-	return setMesh11sdMeshParam(reader, "mesh_fwding", value)
+// DisableMeshForwarding configures mesh11sd so batman-adv exclusively owns
+// forwarding. mesh_fwding and mesh_nolearn must be written together to avoid
+// the kernel mesh learning forwarding state that belongs to batman-adv. Does
+// not commit.
+func DisableMeshForwarding(reader ConfigReader) error {
+	if err := setMesh11sdMeshParam(reader, "mesh_fwding", "0"); err != nil {
+		return err
+	}
+
+	return setMesh11sdMeshParam(reader, "mesh_nolearn", "1")
 }
 
 // SetMesh11sdSetupEnabled writes mesh11sd.setup.enabled. Required for

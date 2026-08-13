@@ -24,6 +24,7 @@ func newMesh11sdMock(t *testing.T) *mockConfigReader {
 	require.NoError(t, m.AddSection("mesh11sd", "mesh_params", "mesh11sd"))
 	require.NoError(t, m.SetType("mesh11sd", "setup", "enabled", uci.TypeOption, "0"))
 	require.NoError(t, m.SetType("mesh11sd", "mesh_params", "mesh_fwding", uci.TypeOption, "1"))
+	require.NoError(t, m.SetType("mesh11sd", "mesh_params", "mesh_nolearn", uci.TypeOption, "0"))
 	require.NoError(t, m.SetType("mesh11sd", "mesh_params", "mesh_gate_announcements", uci.TypeOption, "0"))
 
 	m.commitCalled = false
@@ -40,6 +41,7 @@ func TestGetMesh11sdMeshParamsWithReader(t *testing.T) {
 
 	assert.Equal(t, "0", got.MeshGateAnnouncements)
 	assert.Equal(t, "1", got.MeshFwding)
+	assert.Equal(t, "0", got.MeshNoLearn)
 }
 
 func TestSetMeshGateAnnouncements_FlipsToOne(t *testing.T) {
@@ -65,20 +67,21 @@ func TestSetMeshGateAnnouncements_RejectsInvalid(t *testing.T) {
 	}
 }
 
-func TestSetMeshFwding_FlipsToZero(t *testing.T) {
+func TestDisableMeshForwarding_WritesRequiredPair(t *testing.T) {
 	m := newMesh11sdMock(t)
 
-	require.NoError(t, SetMeshFwding(m, "0"))
+	require.NoError(t, DisableMeshForwarding(m))
 
-	v, ok := m.Get("mesh11sd", "mesh_params", "mesh_fwding")
+	fwding, ok := m.Get("mesh11sd", "mesh_params", "mesh_fwding")
 	require.True(t, ok)
-	require.Len(t, v, 1)
-	assert.Equal(t, "0", v[0])
-}
+	assert.Equal(t, []string{"0"}, fwding)
 
-func TestSetMeshFwding_RejectsInvalid(t *testing.T) {
-	m := newMesh11sdMock(t)
-	assert.Error(t, SetMeshFwding(m, "yes"))
+	noLearn, ok := m.Get("mesh11sd", "mesh_params", "mesh_nolearn")
+	require.True(t, ok)
+	assert.Equal(t, []string{"1"}, noLearn)
+
+	// Helper does not commit; the wizard handler batches.
+	assert.Equal(t, 0, m.commitCount)
 }
 
 func TestSetMesh11sdSetupEnabled_FlipsToOne(t *testing.T) {
@@ -105,7 +108,7 @@ func TestSetMesh11sdHelpers_PropagateSetError(t *testing.T) {
 		fn   func(*mockConfigReader) error
 	}{
 		{"MeshGateAnnouncements", func(m *mockConfigReader) error { return SetMeshGateAnnouncements(m, "1") }},
-		{"MeshFwding", func(m *mockConfigReader) error { return SetMeshFwding(m, "0") }},
+		{"MeshForwarding", func(m *mockConfigReader) error { return DisableMeshForwarding(m) }},
 		{"SetupEnabled", func(m *mockConfigReader) error { return SetMesh11sdSetupEnabled(m, "1") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
