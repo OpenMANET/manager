@@ -190,7 +190,7 @@ One entry per configured multicast talk group. The slice order mirrors
 | `rx_loopback` | count | Packets dropped by the loopback filter (own-IP suppression) before reaching the RTP parser. |
 | `rx_parse_errs` | count | Packets that failed `rtp.ParseIncoming`. Sustained nonzero deltas indicate a non-RTP sender aliasing the port. |
 | `rx_pushed` | count | Packets that `PushWithSSRC` accepted into the jitter buffer. In a healthy stream, `rx_pushed ≈ rx_pkts - rx_loopback - rx_parse_errs`. |
-| `rx_push_rejected` | count | Packets that `PushWithSSRC` rejected as stale-cursor, duplicate, or overflow. A sustained nonzero delta with `jitter.ssrc_resets` flat indicates a consumer-side cursor-advance bug or sender reordering. |
+| `rx_push_rejected` | count | Packets that `PushWithSSRC` rejected as stale-cursor, duplicate, overflow, or oversized (payload larger than the RFC 6716 1275-byte frame cap — a conforming Opus sender never produces these). A sustained nonzero delta with `jitter.ssrc_resets` flat indicates a consumer-side cursor-advance bug, sender reordering, or a non-Opus sender aliasing the port. |
 | `web_popped_skipped` | count | `webPlayoutLoop` observed the jitter buffer advancing past a missing sequence number (only happens when the buffer is half-full of out-of-order packets). Zero on the portaudio playout path. |
 | `jitter.overflows` | count | Incoming packets rejected because the jitter buffer was full. Sustained non-zero deltas across snapshots mean the receiver is behind the sender or the network is bursting. |
 | `jitter.ssrc_resets` | count | Mid-stream SSRC transitions the jitter buffer handled by resetting. High values (multiple per minute) suggest multiple talkers or sender restarts. |
@@ -199,7 +199,7 @@ One entry per configured multicast talk group. The slice order mirrors
 | `jitter.gap_runs_2_5` | count | Gap runs of 2–5 frames (40–100 ms). |
 | `jitter.gap_runs_6_10` | count | Gap runs of 6–10 frames (120–200 ms). |
 | `jitter.gap_runs_11_20` | count | Gap runs of 11–20 frames (220–400 ms). |
-| `jitter.gap_runs_21_50` | count | Gap runs of 21–50 frames (420 ms–1 s). Will only fire if `MaxDepth` is raised above 24. |
+| `jitter.gap_runs_21_50` | count | Gap runs of 21–50 frames (420 ms–1 s). Runs longer than 31 cannot occur at the current `MaxDepth` of 32. |
 | `jitter.gap_runs_over_50` | count | Gap runs of 51+ frames (>1 s). Will only fire if `MaxDepth` is raised above 50. |
 | `rx_gate.last_mark_unix_nano` | unix-nanoseconds | Timestamp of the most recent Mark call; 0 = never marked. |
 | `rx_gate.threshold_ns` | nanoseconds | Half-duplex receive window. Default is 400 ms. |

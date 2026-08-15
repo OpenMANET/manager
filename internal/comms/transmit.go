@@ -216,7 +216,16 @@ func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 // Receive-capable port plus a single halfDuplexDecayLoop that clears the
 // cached RemoteRxActive flag when every gate has gone quiet, then blocks
 // dispatching PTT events until ctx is canceled.
-func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src control.EventSource) {
+func (cfg *CommsConfig) Run(parentCtx context.Context, rt *CommsRuntime, src control.EventSource) {
+	// Run owns the loops it spawns: derive a context canceled when Run
+	// returns for any reason — parent cancellation or the event source
+	// closing its channel (e.g. the PTT device dying). Without this,
+	// Start's deferred teardown closes every receiver while the manager's
+	// context is still live and the receive loops retry against
+	// permanently dead sockets until Disable is called.
+	ctx, cancel := context.WithCancel(parentCtx)
+	defer cancel()
+
 	for _, pc := range rt.Ports {
 		if pc.Receiver != nil {
 			go cfg.receiveLoop(ctx, pc, rt)
@@ -232,7 +241,13 @@ func (cfg *CommsConfig) Run(ctx context.Context, rt *CommsRuntime, src control.E
 	events := src.Events(ctx)
 
 	if aux, ok := src.(control.AuxEventSource); ok && cfg.AuxHandler != nil {
-		go cfg.runAuxPump(ctx, aux)
+		// The aux pump deliberately runs on the parent context, not the
+		// Run-scoped one: it must drain aux events still queued when the
+		// PTT channel closes, and it has its own natural termination — the
+		// control source closes its aux channel when it dies, and Disable
+		// cancels the parent. Run-scoped cancellation would cut the drain
+		// short (pinned by TestRun_AuxEvents_DispatchedToHandler).
+		go cfg.runAuxPump(parentCtx, aux)
 	}
 
 	// In-run audio recovery: when hardware audio failed at startup (or the

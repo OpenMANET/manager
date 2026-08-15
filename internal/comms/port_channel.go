@@ -3,6 +3,7 @@ package comms
 import (
 	"sync/atomic"
 
+	"github.com/openmanet/openmanetd/internal/comms/codec"
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/device"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
@@ -60,6 +61,15 @@ type McastPortState struct {
 // drains it before falling through to playoutOneFrame so beeps preempt one
 // frame of jitter-buffered audio.
 type PortChannel struct {
+	// Decoder is this port's private Opus decoder, allocated by
+	// buildPortDecoders for every receive-capable port. It MUST NOT be
+	// shared between ports: each port's malgo playback callback runs on its
+	// own audio thread and any number of ports can be receive-enabled
+	// concurrently, so a shared decoder would be a C-level data race inside
+	// libopus — and even serialized, interleaving two RTP streams through
+	// one stateful decoder corrupts the prediction state of both. Per-port
+	// state also keeps PLC continuity correct per stream.
+	Decoder           codec.AudioDecoder
 	RTPSess           rtp.Sender
 	PlaybackStream    device.AudioStream
 	Sender            *rtp.SwappableSender

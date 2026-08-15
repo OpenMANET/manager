@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/openmanet/openmanetd/internal/comms/audiopool"
+	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 )
@@ -23,9 +24,9 @@ func newReceiveRuntime() (*CommsRuntime, *PortChannel) {
 	pc.SendEnabled.Store(true)
 	pc.ReceiveEnabled.Store(true)
 	pc.PlaybackBuffer = make(chan []int16, 4)
+	pc.Decoder = &mockDecoder{returnN: int(rtp.FrameSamples)}
 	rt := &CommsRuntime{
-		Ports:   []*PortChannel{pc},
-		Decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
+		Ports: []*PortChannel{pc},
 	}
 
 	return rt, pc
@@ -54,11 +55,47 @@ func driveOneFrame(cfg *CommsConfig, pc *PortChannel, rt *CommsRuntime, jb *rtp.
 	return out
 }
 
+func TestPlayoutOneFrame_UsesPerPortDecoder(t *testing.T) {
+	// Concurrent receive on multiple talk groups is a designed capability
+	// (any port can be receive-enabled at any time), and each playback
+	// callback runs on its own audio thread. Sharing one stateful Opus
+	// decoder across them is a CGO-level data race, so every port must own
+	// its own decoder instance.
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+	rt := &CommsRuntime{}
+
+	makePort := func(fill int16) (*PortChannel, *rtp.JitterBuffer) {
+		pc := &PortChannel{cfg: McastPortConfig{Receive: true}}
+		pc.ReceiveEnabled.Store(true)
+		pc.Decoder = &mockDecoder{fillValue: fill, returnN: audiopool.FrameSize}
+
+		jb := rtp.NewJitterBuffer(1, 16)
+		jb.Push(0, []byte{1})
+
+		return pc, jb
+	}
+
+	pcA, jbA := makePort(11)
+	pcB, jbB := makePort(22)
+	rt.Ports = []*PortChannel{pcA, pcB}
+
+	outA := driveOneFrame(cfg, pcA, rt, jbA)
+	outB := driveOneFrame(cfg, pcB, rt, jbB)
+
+	if outA[0] != 11 {
+		t.Errorf("port A must decode through its own decoder; got sample %d, want 11", outA[0])
+	}
+
+	if outB[0] != 22 {
+		t.Errorf("port B must decode through its own decoder; got sample %d, want 22", outB[0])
+	}
+}
+
 func TestPlayoutOneFrame_DecodesPayload(t *testing.T) {
 	rt, pc := newReceiveRuntime()
-	rt.Decoder = &mockDecoder{fillValue: 1234, returnN: audiopool.FrameSize}
+	pc.Decoder = &mockDecoder{fillValue: 1234, returnN: audiopool.FrameSize}
 
-	jb := rtp.NewJitterBuffer(1, 10) // prebuffer=1: first push triggers start
+	jb := rtp.NewJitterBuffer(1, 16) // prebuffer=1: first push triggers start
 	jb.Push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -80,7 +117,7 @@ func TestPlayoutOneFrame_PLCOnSkippedMissing(t *testing.T) {
 	// len >= maxDepth/2) so popOrConceal returns conceal=true → PLC must
 	// be invoked via the decoder with nil payload.
 	rt, pc := newReceiveRuntime()
-	rt.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
+	pc.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
 
 	jb := rtp.NewJitterBuffer(1, 4)
 
@@ -107,9 +144,9 @@ func TestPlayoutOneFrame_PLCOnConceal(t *testing.T) {
 	// The jitter buffer is then empty, so shouldConceal fires on the next
 	// playoutOneFrame call and the decoder is invoked with nil payload.
 	rt, pc := newReceiveRuntime()
-	rt.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
+	pc.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 
 	jb.Push(0, []byte{0})
 	jb.PopReady() // started=true, expected=1, lastPush set to now
@@ -131,9 +168,9 @@ func TestPlayoutOneFrame_SilenceAfterMaxPLC(t *testing.T) {
 	// silence rather than calling the (now degraded) decoder PLC.
 	rt, pc := newReceiveRuntime()
 	dec := &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
-	rt.Decoder = dec
+	pc.Decoder = dec
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0})
 	jb.PopReady() // started=true, lastPush set
 
@@ -160,7 +197,7 @@ func TestPlayoutOneFrame_SilenceWhenBroadcasting(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.Broadcasting.Store(true) // isBroadcasting will return true; pc.SendEnabled=true → suppress
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -175,7 +212,7 @@ func TestPlayoutOneFrame_SilenceWhenReceiveDisabled(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	pc.ReceiveEnabled.Store(false)
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0xAA})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -204,7 +241,7 @@ func TestPlayoutOneFrame_NoUnderrunOnIdleStream(t *testing.T) {
 	// Stream that has never started (no packets yet) should write silence
 	// without incrementing the underrun counter — silence != underrun.
 	rt, pc := newReceiveRuntime()
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
@@ -221,9 +258,9 @@ func TestPlayoutOneFrame_NoUnderrunOnIdleStream(t *testing.T) {
 func TestPlayoutOneFrame_UnderrunOnDecoderError(t *testing.T) {
 	// Decoder returning an error AND PLC also failing → silence + underrun++.
 	rt, pc := newReceiveRuntime()
-	rt.Decoder = &mockDecoder{decodeErr: errors.New("bad decode")}
+	pc.Decoder = &mockDecoder{decodeErr: errors.New("bad decode")}
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -242,14 +279,14 @@ func TestPlayoutOneFrame_DecoderErrorPLCFallback(t *testing.T) {
 	// Real decode fails but PLC succeeds → playoutOneFrame should emit the
 	// PLC samples, reset consecutivePLC, and NOT count an underrun.
 	rt, pc := newReceiveRuntime()
-	rt.Decoder = &mockDecoder{
+	pc.Decoder = &mockDecoder{
 		decodeErr: errors.New("bad decode"),
 		plcOK:     true,
 		returnN:   audiopool.FrameSize,
 		fillValue: 1234,
 	}
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -287,8 +324,7 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 	pc.ReceiveEnabled.Store(true)
 	pc.PlaybackBuffer = make(chan []int16, 16)
 	rt := &CommsRuntime{
-		Ports:   []*PortChannel{pc},
-		Decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
+		Ports: []*PortChannel{pc},
 	}
 	s := localIP.String()
 	rt.LocalIP.Store(&s)
@@ -343,8 +379,7 @@ func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 	pc.ReceiveEnabled.Store(true)
 	pc.PlaybackBuffer = make(chan []int16, 8)
 	rt := &CommsRuntime{
-		Ports:   []*PortChannel{pc},
-		Decoder: &mockDecoder{},
+		Ports: []*PortChannel{pc},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
@@ -510,8 +545,7 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 	pc.ReceiveEnabled.Store(true)
 	pc.PlaybackBuffer = make(chan []int16, 32)
 	rt := &CommsRuntime{
-		Ports:   []*PortChannel{pc},
-		Decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
+		Ports: []*PortChannel{pc},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -540,6 +574,86 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 	if pc.RxGate.LastUnixNano() == 0 {
 		t.Error("expected rxGate to be marked after receiving a remote packet")
 	}
+}
+
+// ─── receiveLoop failure-path tests ───────────────────────────────────────────
+
+func TestReceiveLoop_BacksOffOnPersistentReadErrors(t *testing.T) {
+	// A permanently failing receiver (e.g. a socket closed by Start's
+	// teardown while the loop's context is still live) must not busy-spin.
+	// After a few consecutive errors the loop backs off between attempts.
+	reader := &fakeErrReader{err: net.ErrClosed}
+	pc := &PortChannel{
+		cfg:      McastPortConfig{Receive: true},
+		Receiver: rtp.NewSwappableReceiver(reader),
+	}
+	pc.ReceiveEnabled.Store(true)
+
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		cfg.receiveLoop(ctx, pc, rt)
+	}()
+
+	// 100 ms of persistent errors must produce a bounded number of read
+	// attempts. With the consecutive-error threshold and backoff the loop
+	// makes on the order of a dozen attempts; a spinning loop makes
+	// hundreds of thousands.
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("receiveLoop did not exit after cancel")
+	}
+
+	if n := reader.reads.Load(); n > 100 {
+		t.Fatalf("receiveLoop busy-spun on persistent read errors: %d reads in 100 ms", n)
+	}
+}
+
+func TestRun_StopsReceiveLoopsWhenEventSourceCloses(t *testing.T) {
+	// When the control source dies (e.g. PTT dongle unplugged), its events
+	// channel closes and Run returns; Start's defers then close every
+	// receiver while the manager's context is still live. The goroutines
+	// Run spawned must terminate with it instead of erroring against
+	// permanently closed sockets forever.
+	reader := &fakeErrReader{err: net.ErrClosed}
+	pc := &PortChannel{
+		cfg:      McastPortConfig{Receive: true},
+		Receiver: rtp.NewSwappableReceiver(reader),
+	}
+	pc.ReceiveEnabled.Store(true)
+
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	src := &mockEventSource{ch: make(chan control.PTTEvent)}
+	close(src.ch)
+
+	cfg.Run(context.Background(), rt, src) // returns as soon as events closes
+
+	// After Run returns, the spawned receiveLoop must wind down: poll until
+	// the read count stops advancing.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		before := reader.reads.Load()
+
+		time.Sleep(50 * time.Millisecond)
+
+		if reader.reads.Load() == before {
+			return // loop has stopped
+		}
+	}
+
+	t.Fatal("receiveLoop still reading after Run returned; run-scoped cancellation missing")
 }
 
 // ─── receiveLoop socket-swap recovery tests ───────────────────────────────────
@@ -599,8 +713,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 	pc.PlaybackBuffer = make(chan []int16, 64)
 
 	rt := &CommsRuntime{
-		Ports:   []*PortChannel{pc},
-		Decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
+		Ports: []*PortChannel{pc},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -679,7 +792,7 @@ func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 	})
 	rt.WebBridge = bridge
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0xAA, 0xBB, 0xCC})
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -716,7 +829,7 @@ func TestWebPlayoutLoop_MultipleFrames(t *testing.T) {
 	})
 	rt.WebBridge = bridge
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	for i := 0; i < 5; i++ {
 		jb.Push(uint16(i), []byte{byte(i)})
 	}
@@ -751,7 +864,7 @@ func TestWebPlayoutLoop_DeliversWhileBroadcasting(t *testing.T) {
 	rt.WebBridge = bridge
 	rt.Broadcasting.Store(true)
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0x01})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -774,9 +887,9 @@ func TestPlayoutOneFrame_ConsecutivePLCLimit(t *testing.T) {
 	// but all subsequent frames are missing. playoutOneFrame should emit
 	// exactly maxConsecutivePLC PLC frames followed by silence.
 	rt, pc := newReceiveRuntime()
-	rt.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
+	pc.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0})
 	jb.PopReady() // started=true, expected=1, lastPush set
 
@@ -803,9 +916,9 @@ func TestPlayoutOneFrame_ConsecutivePLCResets(t *testing.T) {
 	// After a burst of PLC, decoding a real frame should reset the
 	// consecutivePLC counter so a subsequent gap produces PLC again.
 	rt, pc := newReceiveRuntime()
-	rt.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
+	pc.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0})
 	jb.PopReady() // started=true, expected=1, lastPush set
 

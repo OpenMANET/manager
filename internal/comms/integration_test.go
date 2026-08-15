@@ -78,10 +78,10 @@ func newIntegrationReceiver(t *testing.T) (*CommsConfig, *PortChannel, *CommsRun
 	}
 	pc.SendEnabled.Store(true)
 	pc.ReceiveEnabled.Store(true)
+	pc.Decoder = &mockDecoder{fillValue: 1234, returnN: int(rtp.FrameSamples)}
 
 	rt := &CommsRuntime{
-		Ports:   []*PortChannel{pc},
-		Decoder: &mockDecoder{fillValue: 1234, returnN: int(rtp.FrameSamples)},
+		Ports: []*PortChannel{pc},
 	}
 
 	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
