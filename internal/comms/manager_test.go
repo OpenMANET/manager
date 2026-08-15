@@ -290,14 +290,90 @@ func TestMixerStartupUpdate_BuildsPartialUpdate(t *testing.T) {
 	assert.False(t, *u.AGC)
 }
 
+// TestBuildCommsConfig_MixerStartupWiring verifies that the closure is
+// always wired whenever a hardware mixer is present, even when comms.audio
+// is unconfigured at build time — and that invoking it in that state is a
+// true no-op that never touches the hardware mixer. The gate now lives
+// entirely inside the closure (checked at invocation time), not at build
+// time, so a later USB-replug recovery can still pick up config written
+// after Enable() (see TestBuildCommsConfig_MixerStartupWiring_PicksUpLateConfig).
 func TestBuildCommsConfig_MixerStartupWiring(t *testing.T) {
+	var openerCalled bool
+
 	unconfigured := config.NewWithoutWatch(viper.New())
-	m := NewCommsManager(unconfigured, zerolog.Nop(), &alsa.Volume{Log: zerolog.Nop()})
-	assert.Nil(t, m.buildCommsConfig().AudioMixerStartup, "unconfigured: no closure wired")
+	mixer := &alsa.Volume{
+		Log: zerolog.Nop(),
+		Open: func(uint) (alsa.Mixer, error) {
+			openerCalled = true
+
+			t.Errorf("mixer opener must not be called when comms.audio is unconfigured")
+
+			return nil, errors.New("mixer opener must not be called")
+		},
+	}
+	m := NewCommsManager(unconfigured, zerolog.Nop(), mixer)
+
+	closure := m.buildCommsConfig().AudioMixerStartup
+	require.NotNil(t, closure, "closure must always be wired when a mixer is present")
+
+	closure()
+	assert.False(t, openerCalled, "unconfigured daemon must never touch the hardware mixer")
 
 	v := viper.New()
 	v.Set("comms.audio.speakerVolume", 80)
 	configured := config.NewWithoutWatch(v)
 	m2 := NewCommsManager(configured, zerolog.Nop(), &alsa.Volume{Log: zerolog.Nop()})
 	assert.NotNil(t, m2.buildCommsConfig().AudioMixerStartup, "configured: closure wired")
+}
+
+// TestBuildCommsConfig_MixerStartupWiring_PicksUpLateConfig is the
+// regression test for the build-time gate bug: a closure built while
+// comms.audio was unconfigured must still re-check the config at
+// invocation time and attempt the mixer once an operator persists a value
+// mid-run (e.g. via the CommsService audio-mixer RPCs, which call
+// Config.PersistCommsAudio).
+func TestBuildCommsConfig_MixerStartupWiring_PicksUpLateConfig(t *testing.T) {
+	t.Setenv("ALSA_CARD", "0")
+
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte("comms:\n  enable: true\n"), 0644))
+
+	v := viper.New()
+	v.SetConfigFile(cfgPath)
+	require.NoError(t, v.ReadInConfig())
+
+	cfg := config.NewWithoutWatch(v)
+
+	var openerCalled bool
+
+	mixer := &alsa.Volume{
+		Log: zerolog.Nop(),
+		Open: func(uint) (alsa.Mixer, error) {
+			openerCalled = true
+
+			return nil, errors.New("no real card in test")
+		},
+	}
+
+	m := NewCommsManager(cfg, zerolog.Nop(), mixer)
+
+	// The closure is built once, while comms.audio is still unconfigured.
+	closure := m.buildCommsConfig().AudioMixerStartup
+	require.NotNil(t, closure)
+
+	closure()
+	assert.False(t, openerCalled, "closure built while unconfigured must no-op until comms.audio is set")
+
+	// An operator persists a mixer value mid-run. This is the same
+	// v.Set + reload sequence Config.PersistCommsAudio performs when the
+	// CommsService handler applies an API-driven volume change.
+	speaker := 80
+	require.NoError(t, cfg.PersistCommsAudio(&speaker, nil, nil))
+
+	// The SAME closure, built before the config change, must now pick up
+	// the update on invocation — the whole point of re-checking config at
+	// invocation time instead of gating once at build time.
+	closure()
+	assert.True(t, openerCalled, "closure must re-check config at invocation time and attempt the mixer once comms.audio is configured")
 }

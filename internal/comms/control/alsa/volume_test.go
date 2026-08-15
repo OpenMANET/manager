@@ -230,6 +230,28 @@ func TestVolume_NameOverride_PinsControl(t *testing.T) {
 	assert.Equal(t, []int{10}, custom.snapshotValues(), "override must win over Master")
 }
 
+func TestVolume_InvertedRange_StateReportsAbsentApplyErrors(t *testing.T) {
+	withCard(t, "0")
+
+	// A control that reports RangeMin > RangeMax is malformed hardware
+	// state, not a "control is absent" condition — State must still
+	// degrade gracefully (percent read fails, reported as -1) while Apply
+	// must surface the failure rather than silently writing a bogus value.
+	speaker := newFakeCtl([]int{5}, 10, 0)
+	mx := &fakeMixer{ctls: map[string]alsa.Ctl{"Master": speaker}}
+	op := &fakeOpener{mixer: mx}
+	v := &alsa.Volume{Log: zerolog.Nop(), Open: op.opener()}
+
+	st, err := v.State(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, -1, st.SpeakerPct, "inverted range reads as absent, not an error")
+	assert.Empty(t, st.SpeakerControl)
+
+	pct := 50
+	_, err = v.Apply(context.Background(), alsa.Update{SpeakerPct: &pct})
+	require.Error(t, err, "writing to an inverted-range control must fail loudly")
+}
+
 func TestVolume_OpenError_Propagates(t *testing.T) {
 	withCard(t, "0")
 

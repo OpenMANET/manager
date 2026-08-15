@@ -109,15 +109,12 @@ func mixerStartupUpdate(cfg *config.Config) (alsa.Update, bool) {
 }
 
 // mixerStartup returns the startup mixer re-apply closure, or nil when no
-// comms.audio key is set (the daemon then never touches the hardware
-// mixer). The config is re-read at invocation time so API-persisted
-// values from the current run are picked up by later recoveries.
+// hardware mixer is available. The config is re-read at invocation time
+// (not captured here) so API-persisted values written after Enable() —
+// including values set after the daemon started with no comms.audio key
+// at all — are still picked up by later recoveries such as a USB replug.
 func (m *CommsManager) mixerStartup() func() {
 	if m.mixer == nil {
-		return nil
-	}
-
-	if _, ok := mixerStartupUpdate(m.cfg); !ok {
 		return nil
 	}
 
