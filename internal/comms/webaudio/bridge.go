@@ -30,13 +30,22 @@ type Bridge struct {
 	send     SendFn
 	rxFrames chan []byte
 
-	// Diagnostic counters for the RX side. Both are monotonic since
+	// consumers counts the RPC streams currently reading RxFrames. The
+	// producer side (webPlayoutLoop) checks HasConsumer before doing any
+	// per-frame work, so an idle web node (no browser tab attached) pays
+	// nothing for RX traffic beyond draining the jitter buffer.
+	consumers atomic.Int32
+
+	// Diagnostic counters for the RX side. All are monotonic since
 	// bridge construction; consumers compute deltas across reporting
 	// windows. RxPushIn counts every PushRxFrame call (frames offered
 	// by webPlayoutLoop); RxPushDrop counts the subset that the
 	// non-blocking channel send dropped because rxFrames was full.
-	RxPushIn   atomic.Int64
-	RxPushDrop atomic.Int64
+	// RxGatedNoConsumer counts frames the playout drain discarded
+	// without offering because no consumer was attached.
+	RxPushIn          atomic.Int64
+	RxPushDrop        atomic.Int64
+	RxGatedNoConsumer atomic.Int64
 }
 
 // NewBridge creates a bridge wired to the given send callback and logger.
@@ -59,6 +68,34 @@ func (b *Bridge) InjectTxFrame(opusData []byte) {
 	}
 
 	b.send(opusData)
+}
+
+// AddConsumer registers an RPC stream as a reader of RxFrames. The producer
+// side only does per-frame work while at least one consumer is registered.
+// Callers must pair every AddConsumer with exactly one RemoveConsumer
+// (typically via defer) when the stream ends.
+func (b *Bridge) AddConsumer() {
+	if b == nil {
+		return
+	}
+
+	b.consumers.Add(1)
+}
+
+// RemoveConsumer deregisters an RPC stream previously registered with
+// AddConsumer.
+func (b *Bridge) RemoveConsumer() {
+	if b == nil {
+		return
+	}
+
+	b.consumers.Add(-1)
+}
+
+// HasConsumer reports whether at least one RPC stream is currently reading
+// RxFrames.
+func (b *Bridge) HasConsumer() bool {
+	return b != nil && b.consumers.Load() > 0
 }
 
 // RxFrames returns a receive-only channel that delivers Opus frames from

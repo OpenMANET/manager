@@ -90,6 +90,46 @@ func TestBridge_PushRxFrame_DropsOnFull(t *testing.T) {
 	}
 }
 
+func TestBridge_ConsumerCount(t *testing.T) {
+	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
+
+	if bridge.HasConsumer() {
+		t.Error("fresh bridge must report no consumer")
+	}
+
+	bridge.AddConsumer()
+
+	if !bridge.HasConsumer() {
+		t.Error("HasConsumer should be true after AddConsumer")
+	}
+
+	// A second concurrent stream keeps the bridge active until both detach.
+	bridge.AddConsumer()
+	bridge.RemoveConsumer()
+
+	if !bridge.HasConsumer() {
+		t.Error("HasConsumer should stay true while one consumer remains")
+	}
+
+	bridge.RemoveConsumer()
+
+	if bridge.HasConsumer() {
+		t.Error("HasConsumer should be false after the last RemoveConsumer")
+	}
+}
+
+func TestBridge_ConsumerCount_NilBridge(t *testing.T) {
+	var bridge *Bridge
+
+	// All must be nil-safe no-ops, matching the rest of the Bridge API.
+	bridge.AddConsumer()
+	bridge.RemoveConsumer()
+
+	if bridge.HasConsumer() {
+		t.Error("nil bridge must report no consumer")
+	}
+}
+
 func TestBridge_RxFrames_ReturnsReadOnlyChannel(t *testing.T) {
 	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
 

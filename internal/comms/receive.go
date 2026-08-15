@@ -458,6 +458,17 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 
 			popped++
 
+			// No browser stream attached: still pop (the cursor must
+			// advance and the pooled payload must recycle) but skip the
+			// copy and the bridge hand-off entirely. This is web mode's
+			// common idle state — an unattended node receiving traffic.
+			if !rt.WebBridge.HasConsumer() {
+				rt.WebBridge.RxGatedNoConsumer.Add(1)
+				jitter.ReleasePayload(payload)
+
+				continue
+			}
+
 			cp := make([]byte, len(payload))
 			copy(cp, payload)
 			rt.WebBridge.PushRxFrame(cp)

@@ -847,6 +847,55 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 // Opus payloads from the jitter buffer to the WebAudioBridge for streaming
 // to the browser. The malgo playback stream is not opened and playoutOneFrame is not used.
 
+// TestWebPlayoutLoop_GatesWhenNoConsumer pins the idle-web-mode contract:
+// with no RPC stream attached to the bridge, the drain must still empty the
+// jitter buffer (so the cursor advances and pool buffers recycle) but must
+// not copy or offer frames to the bridge channel.
+func TestWebPlayoutLoop_GatesWhenNoConsumer(t *testing.T) {
+	cfg := newSilentComms()
+	rt, pc := newReceiveRuntime()
+
+	bridge := webaudio.NewBridge(zerolog.Nop(), func(payload []byte) {
+		cfg.sendToAllPorts(rt, payload)
+	})
+	rt.WebBridge = bridge
+	// Deliberately no AddConsumer: the browser tab is closed.
+
+	jb := rtp.NewJitterBuffer(1, 16)
+	for i := range uint16(5) {
+		jb.Push(i, []byte{byte(i)})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	go cfg.webPlayoutLoop(ctx, pc, jb, rt)
+
+	// Wait until the drain has consumed everything the jitter buffer holds.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if bridge.RxGatedNoConsumer.Load() == 5 {
+			break
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if got := bridge.RxGatedNoConsumer.Load(); got != 5 {
+		t.Fatalf("gated-frame counter: got %d, want 5", got)
+	}
+
+	if got := bridge.RxPushIn.Load(); got != 0 {
+		t.Errorf("no frame should be offered to the bridge without a consumer; RxPushIn=%d", got)
+	}
+
+	select {
+	case f := <-bridge.RxFrames():
+		t.Errorf("bridge channel should stay empty without a consumer; got frame %v", f)
+	default:
+	}
+}
+
 func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 	cfg := newSilentComms()
 	rt, pc := newReceiveRuntime()
@@ -855,6 +904,7 @@ func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 		cfg.sendToAllPorts(rt, payload)
 	})
 	rt.WebBridge = bridge
+	bridge.AddConsumer() // this test reads RxFrames directly
 
 	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0xAA, 0xBB, 0xCC})
@@ -892,6 +942,7 @@ func TestWebPlayoutLoop_MultipleFrames(t *testing.T) {
 		cfg.sendToAllPorts(rt, payload)
 	})
 	rt.WebBridge = bridge
+	bridge.AddConsumer() // this test reads RxFrames directly
 
 	jb := rtp.NewJitterBuffer(1, 16)
 	for i := 0; i < 5; i++ {
@@ -926,6 +977,7 @@ func TestWebPlayoutLoop_DeliversWhileBroadcasting(t *testing.T) {
 		cfg.sendToAllPorts(rt, payload)
 	})
 	rt.WebBridge = bridge
+	bridge.AddConsumer() // this test reads RxFrames directly
 	rt.Broadcasting.Store(true)
 
 	jb := rtp.NewJitterBuffer(1, 16)
@@ -1066,6 +1118,7 @@ func TestWebPlayoutLoop_DoesNotAdvanceCursorOnSafetyPoll(t *testing.T) {
 		cfg.sendToAllPorts(rt, payload)
 	})
 	rt.WebBridge = bridge
+	bridge.AddConsumer() // this test reads RxFrames directly
 
 	jb := rtp.NewJitterBuffer(1, 16)
 

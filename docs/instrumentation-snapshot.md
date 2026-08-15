@@ -151,8 +151,10 @@ audio bridge that ships them to browser clients.
 
 | Field | Unit | Meaning |
 |---|---|---|
-| `rx_push_in` | count | Monotonic count of frames offered to the bridge (every `PushRxFrame` invocation). |
+| `rx_push_in` | count | Monotonic count of frames offered to the bridge (every `PushRxFrame` invocation). Frames only reach the bridge while at least one consumer is attached — see `rx_gated_no_consumer`. |
 | `rx_push_drop` | count | Monotonic count of frames dropped because the bridge's internal channel was full. Compute `rx_push_drop / rx_push_in` — sustained ratios above ~1% mean the browser client is not draining RX fast enough. |
+| `rx_gated_no_consumer` | count | Monotonic count of frames the playout drain discarded without offering to the bridge because no RPC stream was attached. Rising while `consumers` is 0 is normal idle web mode (an unattended node receiving traffic), not loss. |
+| `consumers` | gauge | Number of `StreamAudioRx` RPC streams currently attached. When 0, `rx_push_in` stops advancing by design and `rx_gated_no_consumer` advances instead. |
 
 #### `comms.fec_adapter`
 
