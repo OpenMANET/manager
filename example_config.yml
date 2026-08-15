@@ -11,6 +11,12 @@ comms:
   enable: false
   debug: false
   controlSource: openvlm
+  # DSCP marking for outgoing voice (RTP/RTCP). 46 = EF (default): voice
+  # rides the elevated WMM video class end-to-end on the mesh. 48 = CS6:
+  # full WMM voice class (validate the radio's EDCA behavior on-air
+  # first). 0 = unmarked best-effort (pre-1.4 behavior). Out-of-range
+  # values clamp into [0, 63].
+  # dscp: 46
 # Periodic instrumentation snapshot. When enable is true the daemon writes a
 # JSON snapshot of every runtime counter/metric to snapshotDir every
 # intervalSecs. See docs/instrumentation-snapshot.md for the field reference.

@@ -103,6 +103,16 @@ const (
 	// CommsPacketLossPercMax is the upper clamp for comms.packetLossPerc.
 	// Above 40, primary-frame quality degrades noticeably.
 	CommsPacketLossPercMax int = 40
+	// DefaultCommsDSCP is the DSCP applied to outgoing RTP/RTCP voice
+	// sockets (comms.dscp). 46 (EF, RFC 4594 telephony) maps to skb
+	// priority 261 → WMM AC_VI on every mesh hop under Linux's
+	// precedence-derived classification. 48 (CS6) maps to priority 262 →
+	// AC_VO — flip only after the radio's EDCA behavior is validated
+	// on-air. 0 disables marking entirely (today's best-effort behavior).
+	DefaultCommsDSCP int = 46
+	// CommsDSCPMax is the upper clamp for comms.dscp: DSCP is a 6-bit
+	// field, so 63 is the largest encodable value.
+	CommsDSCPMax int = 63
 	// DefaultCommsPlaybackLatencyMs is the playback-side device buffer depth
 	// suggested to PortAudio. The Go-side jitter buffer cannot save the
 	// audio thread from OS scheduling stalls — only the device buffer can.
@@ -200,6 +210,7 @@ type Config struct {
 	OpenMANETWebsocketPort                    int
 	CommsEncoderComplexity                    int
 	CommsPacketLossPerc                       int
+	CommsDSCP                                 int
 	CommsPlaybackLatencyMs                    int
 	CommsCaptureLatencyMs                     int
 	CommsCaptureFramesPerBuffer               int
@@ -627,6 +638,23 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		}
 	} else {
 		c.CommsPacketLossPerc = DefaultCommsPacketLossPerc
+	}
+
+	// Load comms DSCP marking for RTP/RTCP voice egress. IsSet-guarded so
+	// an explicit `dscp: 0` (marking off) is distinguishable from an
+	// absent key (default EF): the zero value is meaningful here, unlike
+	// the latency knobs above. Out-of-range values clamp into [0, 63].
+	if c.v.IsSet("comms.dscp") {
+		switch val := c.v.GetInt("comms.dscp"); {
+		case val < 0:
+			c.CommsDSCP = 0
+		case val > CommsDSCPMax:
+			c.CommsDSCP = CommsDSCPMax
+		default:
+			c.CommsDSCP = val
+		}
+	} else {
+		c.CommsDSCP = DefaultCommsDSCP
 	}
 
 	// Load comms playback latency. Suggested to PortAudio as the playback
@@ -1240,6 +1268,16 @@ func (c *Config) GetCommsPacketLossPerc() int {
 	defer c.mu.RUnlock()
 
 	return c.CommsPacketLossPerc
+}
+
+// GetCommsDSCP returns the DSCP for outgoing RTP/RTCP voice sockets,
+// clamped to [0, 63] by the loader. 0 means marking is disabled. See
+// DefaultCommsDSCP for the value-to-access-class mapping.
+func (c *Config) GetCommsDSCP() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsDSCP
 }
 
 // GetCommsPlaybackLatencyMs returns the playback device buffer depth

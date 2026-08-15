@@ -43,7 +43,7 @@ Every snapshot is a single JSON object with this shape:
 
 ```json
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "captured_at_start": "2026-04-09T12:34:56.789012345Z",
   "captured_at_end":   "2026-04-09T12:34:56.789013101Z",
   "daemon": { ... },
@@ -58,7 +58,7 @@ Every snapshot is a single JSON object with this shape:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `schema_version` | string | Semver of the envelope schema. Bump minor for additive fields, major for breaking changes. The current value is `1.2.0`. |
+| `schema_version` | string | Semver of the envelope schema. Bump minor for additive fields, major for breaking changes. The current value is `1.3.0`. |
 | `captured_at_start` | RFC3339 timestamp | Wall-clock time when the capture loop began reading counters. |
 | `captured_at_end` | RFC3339 timestamp | Wall-clock time when the capture loop finished. The difference `captured_at_end - captured_at_start` bounds the counter-read skew window; in practice this is microseconds. |
 | `daemon.version` | string | openmanetd build version. Empty until the build system populates it. |
@@ -185,6 +185,8 @@ One entry per configured multicast talk group. The slice order mirrors
 |---|---|---|
 | `address` | string | Multicast group address (e.g. `239.0.0.1`). |
 | `port` | int | UDP port. |
+| `qos_dscp` | int (0-63) | DSCP the kernel actually holds on this port's RTP sender socket, read back once at socket build time (RTCP carries the same marking). 46 = EF (default, WMM AC_VI on the mesh), 48 = CS6 (AC_VO). 0 = unmarked: `comms.dscp: 0`, a receive-only port, or a marking failure — see the QoS heuristic below. |
+| `qos_so_priority` | int | Kernel `SO_PRIORITY` read-back for the same socket. `256 + qos_dscp>>3` (e.g. 261 for EF) when fully applied — the 802.1d passthrough range that pins the WMM access class on the first hop. A value of 0-6 with a nonzero `qos_dscp` means the `SO_PRIORITY` setsockopt failed (missing CAP_NET_ADMIN) and the socket runs TOS-only; batman-adv still derives the class from the IP header on every hop. |
 | `send_enabled` | bool | Runtime toggle — if `false`, the TX path skips this talk group. |
 | `receive_enabled` | bool | Runtime toggle — if `false`, incoming RTP is not pushed into the jitter buffer. |
 | `playback_underruns` | count | Number of playback-side decode failures that had to recover via PLC (packet loss concealment). |
@@ -354,6 +356,20 @@ thumb in order and flag anything that fits.
    tight). Cross-reference `sysupgrade.capable` and
    `sysupgrade.capable_reason` to confirm the device should ever
    have been able to flash in the first place.
+14. **Voice QoS marking state.** For every Send-enabled port,
+   `comms.ports[*].qos_dscp` should equal the configured `comms.dscp`
+   (default 46) and `qos_so_priority` should equal `256 + qos_dscp>>3`
+   (261 at the default). `qos_dscp == 0` on a Send-enabled port while
+   `comms.dscp` is nonzero means the marking setsockopt failed at
+   startup — voice is riding best-effort; check daemon logs for
+   "QoS marking". A nonzero `qos_dscp` with `qos_so_priority` in 0-6
+   means TOS-only marking (`SO_PRIORITY` was refused, typically missing
+   CAP_NET_ADMIN): batman-adv hops still classify correctly from the IP
+   header, but a socket egressing a wlan directly would not. If voice
+   latency under load is the complaint and these fields read 0, fix
+   marking before tuning anything else — an unmarked voice stream
+   queues behind bulk traffic in the WMM best-effort class on every
+   hop.
 
 ## Skew note
 

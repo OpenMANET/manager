@@ -32,6 +32,16 @@ type PortSnapshot struct {
 	RxGate control.HalfDuplexGateSnapshot `json:"rx_gate"`
 	// Port is the multicast UDP port.
 	Port int `json:"port"`
+	// QoSDSCP is the DSCP the kernel actually holds on this port's RTP
+	// sender socket (read back at socket build time; RTCP carries the same
+	// marking). 0 means unmarked: comms.dscp 0, a receive-only port, or a
+	// marking failure.
+	QoSDSCP int `json:"qos_dscp"`
+	// QoSSOPriority is the kernel's SO_PRIORITY read-back for the same
+	// socket. 256 + QoSDSCP>>3 when fully applied; a legacy TC_PRIO value
+	// (0-6, derived by the kernel from IP_TOS) when the SO_PRIORITY
+	// setsockopt failed and the socket is running TOS-only.
+	QoSSOPriority int `json:"qos_so_priority"`
 	// PlaybackUnderruns counts playback-side decode failures that the
 	// port audio callback had to recover from via PLC.
 	PlaybackUnderruns int64 `json:"playback_underruns"`
@@ -149,6 +159,8 @@ func (pc *PortChannel) Snapshot(dst *PortSnapshot) {
 
 	dst.Address = pc.cfg.Address
 	dst.Port = pc.cfg.Port
+	dst.QoSDSCP = int(pc.QoSDSCP.Load())
+	dst.QoSSOPriority = int(pc.QoSSOPriority.Load())
 	dst.SendEnabled = pc.SendEnabled.Load()
 	dst.ReceiveEnabled = pc.ReceiveEnabled.Load()
 	dst.PlaybackUnderruns = pc.PlaybackUnderruns.Load()
