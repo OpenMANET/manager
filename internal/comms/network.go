@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/rs/zerolog"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/sys/unix"
 
@@ -74,6 +75,68 @@ func setMulticastTTL(conn *net.UDPConn, ttl int) error {
 	}
 
 	return nil
+}
+
+// setQoSMarking applies voice QoS marking to an egress UDP socket and
+// returns the kernel's resulting TOS byte and SO_PRIORITY value (both 0
+// when dscp is 0 or the socket cannot be inspected).
+//
+// IP_TOS carries the DSCP on the wire — the only part relay hops can see:
+// batman-adv re-derives skb->priority from the inner IP precedence
+// (256 + dscp>>3) when forwarding a frame. SO_PRIORITY is set to that same
+// derived value in the 256–263 802.1d passthrough range so the first hop
+// classifies without payload inspection and any direct-wlan egress is
+// covered. Deriving both from one DSCP keeps every hop in the same WMM
+// access class.
+//
+// Marking failures are logged, never fatal: unmarked voice still flows.
+// SO_PRIORITY above 6 needs CAP_NET_ADMIN (held under procd, where the
+// daemon runs as root); on EPERM the socket continues TOS-only, which
+// batman-adv still classifies from at every hop.
+func setQoSMarking(conn *net.UDPConn, dscp int, log zerolog.Logger) (tos, prio int) {
+	if dscp == 0 {
+		return 0, 0
+	}
+
+	raw, err := conn.SyscallConn()
+	if err != nil {
+		log.Warn().Err(err).Msg("comms: QoS marking: syscall conn")
+
+		return 0, 0
+	}
+
+	if controlErr := raw.Control(func(fd uintptr) {
+		// Order matters: the kernel rewrites sk_priority to a legacy
+		// TC_PRIO_* value as a side effect of IP_TOS (rt_tos2priority), so
+		// SO_PRIORITY must be applied after IP_TOS or it would be clobbered.
+		if tosErr := unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_TOS, dscp<<2); tosErr != nil {
+			log.Warn().Err(tosErr).Int("dscp", dscp).Msg("comms: QoS marking: set IP_TOS")
+		}
+
+		if prioErr := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_PRIORITY, 256+(dscp>>3)); prioErr != nil {
+			log.Warn().Err(prioErr).Int("dscp", dscp).
+				Msg("comms: QoS marking: set SO_PRIORITY, continuing TOS-only")
+		}
+
+		// Read back what the kernel actually holds (mirroring the rx-buffer
+		// requested-vs-actual pattern) so the debug log and the port
+		// snapshot report applied state, not requested state. Read-back
+		// errors leave the zero value in place — same signal as "not set".
+		tos, _ = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_TOS)
+		prio, _ = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_PRIORITY)
+	}); controlErr != nil {
+		log.Warn().Err(controlErr).Msg("comms: QoS marking: control")
+
+		return 0, 0
+	}
+
+	log.Debug().
+		Int("dscp", dscp).
+		Int("tos", tos).
+		Int("so_priority", prio).
+		Msg("comms: QoS marking applied")
+
+	return tos, prio
 }
 
 // readUDPDrops resolves the kernel-drop scan through the test seam,
@@ -265,6 +328,13 @@ func (cfg *CommsConfig) buildSinglePortChannel(
 			return
 		}
 
+		// The RTP sender's read-back is authoritative for the port
+		// snapshot; the TOS byte is stored as its DSCP so the snapshot
+		// matches the comms.dscp knob.
+		tos, prio := setQoSMarking(sendConn, cfg.DSCP, cfg.Log)
+		pc.QoSDSCP.Store(int32(tos >> 2))
+		pc.QoSSOPriority.Store(int32(prio))
+
 		// ── RTCP sender ────────────────────────────────────────────────
 		rtcpDst := &net.UDPAddr{IP: net.ParseIP(mpc.Address), Port: mpc.Port + 1}
 		rtcpSrc := &net.UDPAddr{IP: net.ParseIP(localIP), Port: 0}
@@ -283,6 +353,11 @@ func (cfg *CommsConfig) buildSinglePortChannel(
 
 			return
 		}
+
+		// RTCP rides the same class as RTP: it is ~1 packet per 5 s, and
+		// keeping the pair together avoids reorder-across-classes
+		// surprises. The snapshot already records the RTP read-back.
+		setQoSMarking(rtcpConn, cfg.DSCP, cfg.Log)
 
 		sess, sessErr := rtp.NewSession(ssrc, pc.Sender, pc.RTCPSend, cfg.Log)
 		if sessErr != nil {

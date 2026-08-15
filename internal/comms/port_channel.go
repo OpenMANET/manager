@@ -107,8 +107,16 @@ type PortChannel struct { //nolint:govet // fieldalignment: playbackMu must sit 
 	RxPushed          atomic.Int64
 	RxPushRejected    atomic.Int64
 	WebPoppedSkipped  atomic.Int64
-	SendEnabled       atomic.Bool
-	ReceiveEnabled    atomic.Bool
+	// QoSDSCP and QoSSOPriority record the QoS marking the kernel actually
+	// holds on this port's RTP sender socket (read back after
+	// setQoSMarking at build time; RTCP carries identical marking). Both
+	// are 0 for unmarked ports (comms.dscp 0, Send=false, or marking
+	// failure). Set once before the runtime is published; atomics keep the
+	// instrumentation contract (snapshot reads are atomic-load-only).
+	QoSDSCP        atomic.Int32
+	QoSSOPriority  atomic.Int32
+	SendEnabled    atomic.Bool
+	ReceiveEnabled atomic.Bool
 }
 
 // ─── Playback stream lifecycle ───────────────────────────────────────────────

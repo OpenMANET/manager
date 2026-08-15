@@ -2647,3 +2647,69 @@ func TestGetSetupComplete(t *testing.T) {
 		})
 	}
 }
+
+func TestGetCommsDSCP(t *testing.T) {
+	tests := []struct {
+		name     string
+		isSet    bool
+		setValue int
+		want     int
+	}{
+		{
+			name:  "returns default 46 when not set",
+			isSet: false,
+			want:  DefaultCommsDSCP,
+		},
+		{
+			name:     "explicit zero disables marking",
+			isSet:    true,
+			setValue: 0,
+			want:     0,
+		},
+		{
+			name:     "returns configured EF value",
+			isSet:    true,
+			setValue: 46,
+			want:     46,
+		},
+		{
+			name:     "returns configured CS6 value",
+			isSet:    true,
+			setValue: 48,
+			want:     48,
+		},
+		{
+			name:     "accepts upper bound 63",
+			isSet:    true,
+			setValue: 63,
+			want:     63,
+		},
+		{
+			name:     "clamps negative to 0",
+			isSet:    true,
+			setValue: -5,
+			want:     0,
+		},
+		{
+			name:     "clamps above 63 to max",
+			isSet:    true,
+			setValue: 64,
+			want:     CommsDSCPMax,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.isSet {
+				v.Set("comms.dscp", tt.setValue)
+			}
+
+			cfg := NewWithoutWatch(v)
+
+			if got := cfg.GetCommsDSCP(); got != tt.want {
+				t.Errorf("GetCommsDSCP() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

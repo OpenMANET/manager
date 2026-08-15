@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -225,4 +226,42 @@ func TestCommsManager_EnableRejectsUnknownControlSource(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown ControlSource")
 	assert.False(t, m.IsRunning(), "manager must not be running after Validate failure")
 	assert.False(t, startCalled.Load(), "start function must not be invoked when Validate fails")
+}
+
+func TestCommsManager_BuildConfigCarriesDSCP(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want int
+	}{
+		{
+			name: "default EF when key absent",
+			yaml: "comms:\n  enable: true\n",
+			want: config.DefaultCommsDSCP,
+		},
+		{
+			name: "explicit zero survives to comms config",
+			yaml: "comms:\n  enable: true\n  dscp: 0\n",
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			v.SetConfigType("yaml")
+			require.NoError(t, v.ReadConfig(strings.NewReader(tt.yaml)))
+
+			m := NewCommsManager(config.NewWithoutWatch(v), zerolog.Nop())
+
+			cc := m.buildFn()
+			assert.Equal(t, tt.want, cc.DSCP)
+
+			// The operator's `dscp: 0` kill switch must survive
+			// applyDefaults: absent-vs-zero is resolved at the config
+			// layer only, never re-defaulted here.
+			cc.applyDefaults()
+			assert.Equal(t, tt.want, cc.DSCP)
+		})
+	}
 }

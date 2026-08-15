@@ -131,7 +131,13 @@ type CommsConfig struct {
 	CaptureFramesPerBuffer   int
 	CaptureLatencyMs         int
 	PacketLossPerc           int
-	PlaybackLatencyMs        int
+	// DSCP is applied to both sender sockets of every Send-enabled port
+	// at build time (IP_TOS = DSCP<<2, SO_PRIORITY = 256 + DSCP>>3). The
+	// config layer resolves absent-vs-zero before this struct is built:
+	// 0 always means "marking off" here and applyDefaults must not
+	// overwrite it, or the operator's `dscp: 0` kill switch would break.
+	DSCP              int
+	PlaybackLatencyMs int
 	// audioRecoveryInterval is the Run-loop ticker period for re-attempting
 	// hardware audio init after startup failed (OpenVLM unplugged at boot,
 	// transient ALSA error). <= 0 disables in-run recovery; applyDefaults
@@ -183,6 +189,7 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		HalfDuplexThreshold:      cfg.HalfDuplexThreshold,
 		EncoderComplexity:        cfg.EncoderComplexity,
 		PacketLossPerc:           cfg.PacketLossPerc,
+		DSCP:                     cfg.DSCP,
 		PlaybackLatencyMs:        cfg.PlaybackLatencyMs,
 		CaptureLatencyMs:         cfg.CaptureLatencyMs,
 		CaptureFramesPerBuffer:   cfg.CaptureFramesPerBuffer,
