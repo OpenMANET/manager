@@ -217,7 +217,7 @@ func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 // cached RemoteRxActive flag when every gate has gone quiet, then blocks
 // dispatching PTT events until ctx is canceled.
 func (cfg *CommsConfig) Run(parentCtx context.Context, rt *CommsRuntime, src control.EventSource) {
-	// Run owns the loops it spawns: derive a context cancelled when Run
+	// Run owns the loops it spawns: derive a context canceled when Run
 	// returns for any reason — parent cancellation or the event source
 	// closing its channel (e.g. the PTT device dying). Without this,
 	// Start's deferred teardown closes every receiver while the manager's

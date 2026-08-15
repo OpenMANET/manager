@@ -645,6 +645,7 @@ func TestRun_StopsReceiveLoopsWhenEventSourceCloses(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		before := reader.reads.Load()
+
 		time.Sleep(50 * time.Millisecond)
 
 		if reader.reads.Load() == before {
