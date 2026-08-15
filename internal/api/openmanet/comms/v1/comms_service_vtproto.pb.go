@@ -48,6 +48,12 @@ type CommsServiceClient interface {
 	// StreamAudioRx is a server-streaming RPC: the server streams
 	// Opus-encoded audio frames received from the mesh back to the web client.
 	StreamAudioRx(ctx context.Context, in *StreamAudioRxRequest, opts ...grpc.CallOption) (CommsService_StreamAudioRxClient, error)
+	// Reads the device's hardware audio mixer state. Never fails on a
+	// missing sound card — available=false is the "no card" signal.
+	GetAudioMixer(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetAudioMixerResponse, error)
+	// Applies the provided fields to the hardware mixer and persists
+	// volumes and AGC so the levels survive a reboot.
+	UpdateAudioMixer(ctx context.Context, in *UpdateAudioMixerRequest, opts ...grpc.CallOption) (*UpdateAudioMixerResponse, error)
 }
 
 type commsServiceClient struct {
@@ -178,6 +184,24 @@ func (x *commsServiceStreamAudioRxClient) Recv() (*StreamAudioRxResponse, error)
 	return m, nil
 }
 
+func (c *commsServiceClient) GetAudioMixer(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetAudioMixerResponse, error) {
+	out := new(GetAudioMixerResponse)
+	err := c.cc.Invoke(ctx, "/openmanet.comms.v1.CommsService/GetAudioMixer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *commsServiceClient) UpdateAudioMixer(ctx context.Context, in *UpdateAudioMixerRequest, opts ...grpc.CallOption) (*UpdateAudioMixerResponse, error) {
+	out := new(UpdateAudioMixerResponse)
+	err := c.cc.Invoke(ctx, "/openmanet.comms.v1.CommsService/UpdateAudioMixer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CommsServiceServer is the server API for CommsService service.
 // All implementations must embed UnimplementedCommsServiceServer
 // for forward compatibility
@@ -201,6 +225,12 @@ type CommsServiceServer interface {
 	// StreamAudioRx is a server-streaming RPC: the server streams
 	// Opus-encoded audio frames received from the mesh back to the web client.
 	StreamAudioRx(*StreamAudioRxRequest, CommsService_StreamAudioRxServer) error
+	// Reads the device's hardware audio mixer state. Never fails on a
+	// missing sound card — available=false is the "no card" signal.
+	GetAudioMixer(context.Context, *emptypb.Empty) (*GetAudioMixerResponse, error)
+	// Applies the provided fields to the hardware mixer and persists
+	// volumes and AGC so the levels survive a reboot.
+	UpdateAudioMixer(context.Context, *UpdateAudioMixerRequest) (*UpdateAudioMixerResponse, error)
 	mustEmbedUnimplementedCommsServiceServer()
 }
 
@@ -231,6 +261,12 @@ func (UnimplementedCommsServiceServer) StreamAudioTx(CommsService_StreamAudioTxS
 }
 func (UnimplementedCommsServiceServer) StreamAudioRx(*StreamAudioRxRequest, CommsService_StreamAudioRxServer) error {
 	return status.Errorf(codes.Unimplemented, "method StreamAudioRx not implemented")
+}
+func (UnimplementedCommsServiceServer) GetAudioMixer(context.Context, *emptypb.Empty) (*GetAudioMixerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAudioMixer not implemented")
+}
+func (UnimplementedCommsServiceServer) UpdateAudioMixer(context.Context, *UpdateAudioMixerRequest) (*UpdateAudioMixerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateAudioMixer not implemented")
 }
 func (UnimplementedCommsServiceServer) mustEmbedUnimplementedCommsServiceServer() {}
 
@@ -400,6 +436,42 @@ func (x *commsServiceStreamAudioRxServer) Send(m *StreamAudioRxResponse) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _CommsService_GetAudioMixer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CommsServiceServer).GetAudioMixer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/openmanet.comms.v1.CommsService/GetAudioMixer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CommsServiceServer).GetAudioMixer(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CommsService_UpdateAudioMixer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateAudioMixerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CommsServiceServer).UpdateAudioMixer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/openmanet.comms.v1.CommsService/UpdateAudioMixer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CommsServiceServer).UpdateAudioMixer(ctx, req.(*UpdateAudioMixerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CommsService_ServiceDesc is the grpc.ServiceDesc for CommsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -430,6 +502,14 @@ var CommsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendPTTEvent",
 			Handler:    _CommsService_SendPTTEvent_Handler,
+		},
+		{
+			MethodName: "GetAudioMixer",
+			Handler:    _CommsService_GetAudioMixer_Handler,
+		},
+		{
+			MethodName: "UpdateAudioMixer",
+			Handler:    _CommsService_UpdateAudioMixer_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

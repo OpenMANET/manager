@@ -58,6 +58,12 @@ const (
 	// CommsServiceStreamAudioRxProcedure is the fully-qualified name of the CommsService's
 	// StreamAudioRx RPC.
 	CommsServiceStreamAudioRxProcedure = "/openmanet.comms.v1.CommsService/StreamAudioRx"
+	// CommsServiceGetAudioMixerProcedure is the fully-qualified name of the CommsService's
+	// GetAudioMixer RPC.
+	CommsServiceGetAudioMixerProcedure = "/openmanet.comms.v1.CommsService/GetAudioMixer"
+	// CommsServiceUpdateAudioMixerProcedure is the fully-qualified name of the CommsService's
+	// UpdateAudioMixer RPC.
+	CommsServiceUpdateAudioMixerProcedure = "/openmanet.comms.v1.CommsService/UpdateAudioMixer"
 )
 
 // CommsServiceClient is a client for the openmanet.comms.v1.CommsService service.
@@ -81,6 +87,12 @@ type CommsServiceClient interface {
 	// StreamAudioRx is a server-streaming RPC: the server streams
 	// Opus-encoded audio frames received from the mesh back to the web client.
 	StreamAudioRx(context.Context, *v1.StreamAudioRxRequest) (*connect.ServerStreamForClient[v1.StreamAudioRxResponse], error)
+	// Reads the device's hardware audio mixer state. Never fails on a
+	// missing sound card — available=false is the "no card" signal.
+	GetAudioMixer(context.Context, *emptypb.Empty) (*v1.GetAudioMixerResponse, error)
+	// Applies the provided fields to the hardware mixer and persists
+	// volumes and AGC so the levels survive a reboot.
+	UpdateAudioMixer(context.Context, *v1.UpdateAudioMixerRequest) (*v1.UpdateAudioMixerResponse, error)
 }
 
 // NewCommsServiceClient constructs a client for the openmanet.comms.v1.CommsService service. By
@@ -142,6 +154,18 @@ func NewCommsServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(commsServiceMethods.ByName("StreamAudioRx")),
 			connect.WithClientOptions(opts...),
 		),
+		getAudioMixer: connect.NewClient[emptypb.Empty, v1.GetAudioMixerResponse](
+			httpClient,
+			baseURL+CommsServiceGetAudioMixerProcedure,
+			connect.WithSchema(commsServiceMethods.ByName("GetAudioMixer")),
+			connect.WithClientOptions(opts...),
+		),
+		updateAudioMixer: connect.NewClient[v1.UpdateAudioMixerRequest, v1.UpdateAudioMixerResponse](
+			httpClient,
+			baseURL+CommsServiceUpdateAudioMixerProcedure,
+			connect.WithSchema(commsServiceMethods.ByName("UpdateAudioMixer")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -155,6 +179,8 @@ type commsServiceClient struct {
 	sendPTTEvent        *connect.Client[v1.SendPTTEventRequest, v1.SendPTTEventResponse]
 	streamAudioTx       *connect.Client[v1.StreamAudioTxRequest, v1.StreamAudioTxResponse]
 	streamAudioRx       *connect.Client[v1.StreamAudioRxRequest, v1.StreamAudioRxResponse]
+	getAudioMixer       *connect.Client[emptypb.Empty, v1.GetAudioMixerResponse]
+	updateAudioMixer    *connect.Client[v1.UpdateAudioMixerRequest, v1.UpdateAudioMixerResponse]
 }
 
 // GetCommsConfig calls openmanet.comms.v1.CommsService.GetCommsConfig.
@@ -221,6 +247,24 @@ func (c *commsServiceClient) StreamAudioRx(ctx context.Context, req *v1.StreamAu
 	return c.streamAudioRx.CallServerStream(ctx, connect.NewRequest(req))
 }
 
+// GetAudioMixer calls openmanet.comms.v1.CommsService.GetAudioMixer.
+func (c *commsServiceClient) GetAudioMixer(ctx context.Context, req *emptypb.Empty) (*v1.GetAudioMixerResponse, error) {
+	response, err := c.getAudioMixer.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// UpdateAudioMixer calls openmanet.comms.v1.CommsService.UpdateAudioMixer.
+func (c *commsServiceClient) UpdateAudioMixer(ctx context.Context, req *v1.UpdateAudioMixerRequest) (*v1.UpdateAudioMixerResponse, error) {
+	response, err := c.updateAudioMixer.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
 // CommsServiceHandler is an implementation of the openmanet.comms.v1.CommsService service.
 type CommsServiceHandler interface {
 	// Retrieves the current communications settings
@@ -242,6 +286,12 @@ type CommsServiceHandler interface {
 	// StreamAudioRx is a server-streaming RPC: the server streams
 	// Opus-encoded audio frames received from the mesh back to the web client.
 	StreamAudioRx(context.Context, *v1.StreamAudioRxRequest, *connect.ServerStream[v1.StreamAudioRxResponse]) error
+	// Reads the device's hardware audio mixer state. Never fails on a
+	// missing sound card — available=false is the "no card" signal.
+	GetAudioMixer(context.Context, *emptypb.Empty) (*v1.GetAudioMixerResponse, error)
+	// Applies the provided fields to the hardware mixer and persists
+	// volumes and AGC so the levels survive a reboot.
+	UpdateAudioMixer(context.Context, *v1.UpdateAudioMixerRequest) (*v1.UpdateAudioMixerResponse, error)
 }
 
 // NewCommsServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -299,6 +349,18 @@ func NewCommsServiceHandler(svc CommsServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(commsServiceMethods.ByName("StreamAudioRx")),
 		connect.WithHandlerOptions(opts...),
 	)
+	commsServiceGetAudioMixerHandler := connect.NewUnaryHandlerSimple(
+		CommsServiceGetAudioMixerProcedure,
+		svc.GetAudioMixer,
+		connect.WithSchema(commsServiceMethods.ByName("GetAudioMixer")),
+		connect.WithHandlerOptions(opts...),
+	)
+	commsServiceUpdateAudioMixerHandler := connect.NewUnaryHandlerSimple(
+		CommsServiceUpdateAudioMixerProcedure,
+		svc.UpdateAudioMixer,
+		connect.WithSchema(commsServiceMethods.ByName("UpdateAudioMixer")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/openmanet.comms.v1.CommsService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CommsServiceGetCommsConfigProcedure:
@@ -317,6 +379,10 @@ func NewCommsServiceHandler(svc CommsServiceHandler, opts ...connect.HandlerOpti
 			commsServiceStreamAudioTxHandler.ServeHTTP(w, r)
 		case CommsServiceStreamAudioRxProcedure:
 			commsServiceStreamAudioRxHandler.ServeHTTP(w, r)
+		case CommsServiceGetAudioMixerProcedure:
+			commsServiceGetAudioMixerHandler.ServeHTTP(w, r)
+		case CommsServiceUpdateAudioMixerProcedure:
+			commsServiceUpdateAudioMixerHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -356,4 +422,12 @@ func (UnimplementedCommsServiceHandler) StreamAudioTx(context.Context, *connect.
 
 func (UnimplementedCommsServiceHandler) StreamAudioRx(context.Context, *v1.StreamAudioRxRequest, *connect.ServerStream[v1.StreamAudioRxResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.comms.v1.CommsService.StreamAudioRx is not implemented"))
+}
+
+func (UnimplementedCommsServiceHandler) GetAudioMixer(context.Context, *emptypb.Empty) (*v1.GetAudioMixerResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.comms.v1.CommsService.GetAudioMixer is not implemented"))
+}
+
+func (UnimplementedCommsServiceHandler) UpdateAudioMixer(context.Context, *v1.UpdateAudioMixerRequest) (*v1.UpdateAudioMixerResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.comms.v1.CommsService.UpdateAudioMixer is not implemented"))
 }
