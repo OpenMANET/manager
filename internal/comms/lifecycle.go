@@ -64,20 +64,68 @@ func (cfg *CommsConfig) startHardwareAudio(rt *CommsRuntime) (cleanup func(), er
 			HasReceiver:  true,
 			Port:         pc.cfg.Port,
 			BeepBuf:      pc.PlaybackBuffer,
-			SetStream:    func(s device.AudioStream) { pcRef.PlaybackStream = s },
+			SetStream:    func(s device.AudioStream) { pcRef.setPlaybackStream(s) },
 			PlayoutFrame: func(out []int16) { cfg.playoutOneFrame(pcRef, rt, pcRef.Jitter, out) },
 		})
 	}
 
 	broadcast, cleanup, hwErr := audioInit.StartHardware(slots)
 	if hwErr != nil {
+		// The SetStream hooks may have stored streams that StartHardware's
+		// unwind already closed; detach them so a later toggle or beep can
+		// never call into a freed malgo device.
+		for _, pc := range rt.Ports {
+			pc.clearPlaybackStream()
+		}
+
 		return nil, hwErr
 	}
 
 	rt.SetBroadcast(broadcast)
 	rt.PlaybackOutputLatency = audioInit.PlaybackOutputLatency
 
-	return cleanup, nil
+	// StartHardware started every playback stream; record that, then
+	// re-sleep the streams of ports that are not receive-enabled (P4: an
+	// idle port must not keep a malgo RT thread waking every 20 ms).
+	cfg.markAndSyncPlayback(rt)
+
+	// Detach the per-port streams before the hardware cleanup closes
+	// them, for the same freed-device reason as the failure path above.
+	wrapped := func() {
+		for _, pc := range rt.Ports {
+			pc.clearPlaybackStream()
+		}
+
+		cleanup()
+	}
+
+	return wrapped, nil
+}
+
+// markAndSyncPlayback records that StartHardware started every installed
+// playback stream, then stops the streams of receive-disabled ports so
+// only enabled ports keep a running malgo device. Called after every
+// successful hardware init (boot and in-run recovery), so a recovery
+// honors toggles made while audio was down.
+func (cfg *CommsConfig) markAndSyncPlayback(rt *CommsRuntime) {
+	for _, pc := range rt.Ports {
+		if !pc.playbackStreamInstalled() {
+			continue
+		}
+
+		pc.markPlaybackRunning()
+
+		if pc.ReceiveEnabled.Load() {
+			continue
+		}
+
+		if err := pc.stopPlayback(); err != nil {
+			// Non-fatal: the stream keeps running, which is the pre-P4
+			// status quo for a disabled port, not a correctness problem.
+			cfg.Log.Warn().Err(err).Int("port", pc.cfg.Port).
+				Msg("comms: failed to sleep playback stream for disabled port")
+		}
+	}
 }
 
 const (

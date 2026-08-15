@@ -370,9 +370,11 @@ func TestDrainPlaybackBuffer_MultiPort(t *testing.T) {
 	}
 }
 
-// TestBeginTransmission_BeepSentToAllPorts verifies that beginTransmission
-// queues the start-beep to every configured port's playback buffer.
-func TestBeginTransmission_BeepSentToAllPorts(t *testing.T) {
+// TestBeginTransmission_BeepSentToOnePort verifies the single-beep
+// contract: beginTransmission queues the start-beep to exactly one port —
+// the pre-P4 fan-out played N overlapping copies of the tone through dmix
+// into the same physical output device.
+func TestBeginTransmission_BeepSentToOnePort(t *testing.T) {
 	pc0 := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
 	pc0.SendEnabled.Store(true)
 	pc0.ReceiveEnabled.Store(true)
@@ -393,12 +395,12 @@ func TestBeginTransmission_BeepSentToAllPorts(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	cfg.beginTransmission(rt)
 
-	if len(pc0.PlaybackBuffer) == 0 {
-		t.Error("port 0: expected start beep in playback buffer")
+	if len(pc0.PlaybackBuffer) != 1 {
+		t.Errorf("port 0: beeps queued = %d, want 1", len(pc0.PlaybackBuffer))
 	}
 
-	if len(pc1.PlaybackBuffer) == 0 {
-		t.Error("port 1: expected start beep in playback buffer")
+	if len(pc1.PlaybackBuffer) != 0 {
+		t.Errorf("port 1: beeps queued = %d, want 0 (single-beep contract)", len(pc1.PlaybackBuffer))
 	}
 }
 

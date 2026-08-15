@@ -93,7 +93,12 @@ func (s *Service) EnableTalkGroupSend(portIdx int, enabled bool) error {
 	return nil
 }
 
-// EnableTalkGroupReceive toggles RTP reception on the port at portIdx.
+// EnableTalkGroupReceive toggles RTP reception on the port at portIdx and
+// starts or stops the port's playback stream to match (P4: only enabled
+// ports keep a running malgo device). A device-level stream failure is
+// logged, not returned: the RTP-side enable must still take effect — web
+// mode and audio-failed mode have no stream at all, and device failures
+// are owned by the audio recovery machinery.
 func (s *Service) EnableTalkGroupReceive(portIdx int, enabled bool) error {
 	if s == nil || s.Rt == nil {
 		return ErrNotRunning
@@ -103,7 +108,35 @@ func (s *Service) EnableTalkGroupReceive(portIdx int, enabled bool) error {
 		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(s.Rt.Ports))
 	}
 
-	s.Rt.Ports[portIdx].ReceiveEnabled.Store(enabled)
+	pc := s.Rt.Ports[portIdx]
+	pc.ReceiveEnabled.Store(enabled)
+
+	if !enabled {
+		if err := pc.stopPlayback(); err != nil {
+			s.Cfg.Log.Warn().Err(err).Int("port", pc.cfg.Port).
+				Msg("comms: failed to sleep playback stream on RX disable")
+		}
+
+		return nil
+	}
+
+	// Discard beeps queued while the stream was asleep — a stale start
+	// tone from minutes ago must not play the moment the port wakes.
+	if pc.PlaybackBuffer != nil {
+	drain:
+		for {
+			select {
+			case <-pc.PlaybackBuffer:
+			default:
+				break drain
+			}
+		}
+	}
+
+	if err := pc.startPlayback(); err != nil {
+		s.Cfg.Log.Warn().Err(err).Int("port", pc.cfg.Port).
+			Msg("comms: failed to wake playback stream on RX enable")
+	}
 
 	return nil
 }

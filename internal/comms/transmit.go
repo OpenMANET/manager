@@ -82,6 +82,71 @@ func (cfg *CommsConfig) transmitSettleWait(rt *CommsRuntime) time.Duration {
 	return max(cfg.pttStartDelay(), beepSettle)
 }
 
+// beepWakeWindow is how long a playback stream woken solely to make a PTT
+// beep audible keeps running before it is re-slept. Sized to cover the
+// worst-case beep emergence path (ALSA ring latency + one frame + settle
+// margin, ≈150 ms on USB audio class hardware) with generous slack; the
+// timer is Reset on every beep, so a stop-beep queued late in a start-beep's
+// window always gets a full window of its own.
+const beepWakeWindow = 500 * time.Millisecond
+
+// queueBeep queues one beep frame into exactly one audible playback stream.
+// Preference order:
+//
+//  1. The first port whose stream is running (an RX-enabled port) — one
+//     clean copy of the tone. The pre-P4 code fanned the beep out to every
+//     receive-capable port, which played N overlapping copies through dmix
+//     into the same physical output.
+//  2. No stream running (zero receive-enabled ports): wake the first
+//     startable stream, queue the beep, and arm its re-sleep timer —
+//     PTT feedback must stay audible even with all monitors off.
+//  3. No streams at all (web mode, audio-failed mode): queue to the first
+//     port's buffer, matching the legacy harmless-with-no-consumer path.
+//
+// Callers must drain the playback buffers first (drainPlaybackBuffer), so
+// the buffered channel send below cannot block.
+func (cfg *CommsConfig) queueBeep(rt *CommsRuntime, beep []int16) {
+	for _, pc := range rt.Ports {
+		if pc.PlaybackBuffer != nil && pc.playbackIsRunning() {
+			pc.PlaybackBuffer <- beep
+
+			return
+		}
+	}
+
+	for _, pc := range rt.Ports {
+		if pc.PlaybackBuffer == nil {
+			continue
+		}
+
+		if err := pc.startPlayback(); err != nil {
+			cfg.Log.Warn().Err(err).Int("port", pc.cfg.Port).
+				Msg("comms: failed to wake playback stream for beep")
+
+			continue
+		}
+
+		if !pc.playbackIsRunning() {
+			// No stream installed on this port; try the next.
+			continue
+		}
+
+		pc.PlaybackBuffer <- beep
+
+		pc.armBeepSleep(beepWakeWindow)
+
+		return
+	}
+
+	for _, pc := range rt.Ports {
+		if pc.PlaybackBuffer != nil {
+			pc.PlaybackBuffer <- beep
+
+			return
+		}
+	}
+}
+
 // ─── Transmission state ───────────────────────────────────────────────────────
 
 func (cfg *CommsConfig) isBroadcasting(rt *CommsRuntime) bool {
@@ -144,12 +209,7 @@ func (cfg *CommsConfig) beginTransmission(rt *CommsRuntime) {
 
 	cfg.Log.Debug().Msg("Begin transmission: playing start tone and opening TX gate")
 	cfg.drainPlaybackBuffer(rt)
-
-	for _, pc := range rt.Ports {
-		if pc.PlaybackBuffer != nil {
-			pc.PlaybackBuffer <- rt.BeepBufferStart
-		}
-	}
+	cfg.queueBeep(rt, rt.BeepBufferStart)
 
 	// Settle window before the TX gate opens. Holds the gate closed
 	// until the start-tone beep has fully emerged from the speaker —
@@ -202,12 +262,7 @@ func (cfg *CommsConfig) endTransmission(rt *CommsRuntime) {
 	}
 
 	cfg.drainPlaybackBuffer(rt)
-
-	for _, pc := range rt.Ports {
-		if pc.PlaybackBuffer != nil {
-			pc.PlaybackBuffer <- rt.BeepBufferStop
-		}
-	}
+	cfg.queueBeep(rt, rt.BeepBufferStop)
 
 	rt.Broadcasting.Store(false)
 }
