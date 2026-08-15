@@ -917,9 +917,11 @@ func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 	// The raw Opus bytes should arrive on the bridge's RX channel.
 	select {
 	case frame := <-bridge.RxFrames():
-		if len(frame) != 3 || frame[0] != 0xAA || frame[1] != 0xBB || frame[2] != 0xCC {
-			t.Errorf("unexpected frame data: %v", frame)
+		if d := frame.Data(); len(d) != 3 || d[0] != 0xAA || d[1] != 0xBB || d[2] != 0xCC {
+			t.Errorf("unexpected frame data: %v", d)
 		}
+
+		frame.Release()
 	case <-time.After(500 * time.Millisecond):
 		t.Error("timed out waiting for raw Opus frame on web bridge")
 	}
@@ -957,9 +959,11 @@ func TestWebPlayoutLoop_MultipleFrames(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		select {
 		case frame := <-bridge.RxFrames():
-			if len(frame) != 1 || frame[0] != byte(i) {
-				t.Errorf("frame %d: got %v, want [%d]", i, frame, i)
+			if d := frame.Data(); len(d) != 1 || d[0] != byte(i) {
+				t.Errorf("frame %d: got %v, want [%d]", i, d, i)
 			}
+
+			frame.Release()
 		case <-time.After(500 * time.Millisecond):
 			t.Fatalf("timed out waiting for frame %d", i)
 		}
@@ -1156,9 +1160,11 @@ func TestWebPlayoutLoop_DoesNotAdvanceCursorOnSafetyPoll(t *testing.T) {
 
 	select {
 	case frame := <-bridge.RxFrames():
-		if len(frame) != 1 || frame[0] != 0xBB {
-			t.Errorf("unexpected frame bytes: %v", frame)
+		if d := frame.Data(); len(d) != 1 || d[0] != 0xBB {
+			t.Errorf("unexpected frame bytes: %v", d)
 		}
+
+		frame.Release()
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("seq=101 frame never reached bridge (regression)")
 	}

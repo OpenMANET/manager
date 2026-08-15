@@ -469,9 +469,10 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 				continue
 			}
 
-			cp := make([]byte, len(payload))
-			copy(cp, payload)
-			rt.WebBridge.PushRxFrame(cp)
+			// PushRxFrame copies into a bridge-pooled buffer, so the
+			// jitter payload can be released immediately — the whole
+			// hand-off is allocation-free.
+			rt.WebBridge.PushRxFrame(payload)
 			jitter.ReleasePayload(payload)
 		}
 	}

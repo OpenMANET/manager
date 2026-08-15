@@ -59,19 +59,43 @@ func TestBridge_PushRxFrame_Delivered(t *testing.T) {
 
 	select {
 	case got := <-bridge.RxFrames():
-		if len(got) != 2 || got[0] != 0xCA || got[1] != 0xFE {
-			t.Errorf("unexpected frame data: %v", got)
+		if d := got.Data(); len(d) != 2 || d[0] != 0xCA || d[1] != 0xFE {
+			t.Errorf("unexpected frame data: %v", d)
 		}
+
+		got.Release()
 	case <-time.After(200 * time.Millisecond):
 		t.Error("timed out waiting for RX frame")
+	}
+}
+
+// TestBridge_PushRxFrame_CopiesPayload pins the ownership contract: the
+// caller's payload may be reused (it aliases a jitter-pool buffer) the
+// moment PushRxFrame returns, so the frame in the channel must hold its
+// own copy.
+func TestBridge_PushRxFrame_CopiesPayload(t *testing.T) {
+	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
+
+	data := []byte{0x11, 0x22}
+	bridge.PushRxFrame(data)
+
+	// Caller reuses its buffer immediately.
+	data[0] = 0xEE
+	data[1] = 0xFF
+
+	got := <-bridge.RxFrames()
+	defer got.Release()
+
+	if d := got.Data(); d[0] != 0x11 || d[1] != 0x22 {
+		t.Errorf("frame must not alias the caller's buffer; got %v", d)
 	}
 }
 
 func TestBridge_PushRxFrame_DropsOnFull(t *testing.T) {
 	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
 
-	// Fill the channel (cap = 50).
-	for range 50 {
+	// Fill the channel.
+	for range cap(bridge.rxFrames) {
 		bridge.PushRxFrame([]byte{0x00})
 	}
 
@@ -87,6 +111,63 @@ func TestBridge_PushRxFrame_DropsOnFull(t *testing.T) {
 	case <-done:
 	case <-time.After(200 * time.Millisecond):
 		t.Error("PushRxFrame blocked on full channel")
+	}
+}
+
+// TestBridge_PushRxFrame_ZeroAlloc pins the pooled hand-off: a full
+// push→receive→release cycle must not allocate once the pool is warm.
+func TestBridge_PushRxFrame_ZeroAlloc(t *testing.T) {
+	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
+
+	data := make([]byte, 100)
+
+	// Warm the pool.
+	bridge.PushRxFrame(data)
+	f := <-bridge.RxFrames()
+	f.Release()
+
+	allocs := testing.AllocsPerRun(100, func() {
+		bridge.PushRxFrame(data)
+
+		got := <-bridge.RxFrames()
+		got.Release()
+	})
+
+	if allocs != 0 {
+		t.Errorf("push/receive/release cycle allocated %.1f/op; want 0", allocs)
+	}
+}
+
+// TestBridge_PushRxFrame_DropRecyclesBuffer pins the drop branch's pool
+// hygiene: a frame dropped because the channel is full must return its
+// pooled buffer, so sustained drops do not allocate either.
+func TestBridge_PushRxFrame_DropRecyclesBuffer(t *testing.T) {
+	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
+
+	data := make([]byte, 100)
+
+	for range cap(bridge.rxFrames) {
+		bridge.PushRxFrame(data)
+	}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		bridge.PushRxFrame(data)
+	})
+
+	if allocs != 0 {
+		t.Errorf("drop path allocated %.1f/op; want 0 (buffer must return to the pool)", allocs)
+	}
+}
+
+// TestFrame_ZeroValueReleaseIsNoop keeps Release safe on the zero Frame,
+// matching the nil-safety of the rest of the Bridge API.
+func TestFrame_ZeroValueReleaseIsNoop(t *testing.T) {
+	var f Frame
+
+	f.Release()
+
+	if d := f.Data(); len(d) != 0 {
+		t.Errorf("zero Frame Data should be empty; got %v", d)
 	}
 }
 
@@ -139,5 +220,5 @@ func TestBridge_RxFrames_ReturnsReadOnlyChannel(t *testing.T) {
 	}
 
 	// Verify it is a receive-only channel (compile-time check via type).
-	var _ <-chan []byte = ch
+	var _ <-chan Frame = ch
 }
