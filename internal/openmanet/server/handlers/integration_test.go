@@ -32,6 +32,7 @@ import (
 	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/blos"
+	"github.com/openmanet/openmanetd/internal/comms/control/alsa"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/logs"
@@ -102,6 +103,15 @@ func newTestServer(t *testing.T) *httptest.Server {
 	mux.Handle(commsconnect.NewCommsServiceHandler(&handlers.CommsService{
 		Cfg: &config.Config{CommsEnable: false},
 		Log: zerolog.Nop(),
+		Mixer: &fakeAudioMixer{state: alsa.State{
+			Available:      true,
+			SpeakerPct:     70,
+			MicPct:         55,
+			AGCPresent:     true,
+			SpeakerControl: "Master",
+			MicControl:     "Mic Capture Volume",
+			AGCControl:     "Auto Gain Control",
+		}},
 	}, handlerOpt))
 
 	mux.Handle(blosconnect.NewBLOSServiceHandler(&handlers.BLOSService{
@@ -527,6 +537,28 @@ func TestIntegration_Validation_SetReceiveTalkGroup_ValidTalkgroup(t *testing.T)
 				"valid talkgroup %d must not be rejected by the validator", tg)
 		})
 	}
+}
+
+// ── AudioMixer ────────────────────────────────────────────────────────────
+
+func TestIntegration_AudioMixer_GetAndValidation(t *testing.T) {
+	srv := newTestServer(t)
+	client := commsconnect.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	resp, err := client.GetAudioMixer(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+	assert.True(t, resp.GetState().GetAvailable())
+	assert.Equal(t, int32(70), resp.GetState().GetSpeakerVolume())
+
+	bad := int32(101)
+	_, err = client.UpdateAudioMixer(context.Background(), &commsv1.UpdateAudioMixerRequest{
+		SpeakerVolume: &bad,
+	})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code(), "validate interceptor must reject out-of-range volume")
 }
 
 // ── SendPTTEvent / StreamAudio (via unified CommsService) ─────────────────

@@ -104,3 +104,37 @@ func TestValidation_SetReceiveTalkGroupRequest_ValidTalkgroups(t *testing.T) {
 		})
 	}
 }
+
+// ── UpdateAudioMixerRequest ───────────────────────────────────────────────────
+
+func TestUpdateAudioMixerRequest_Validation(t *testing.T) {
+	validator := newValidator(t)
+
+	mk := func(v int32) *commsv1.UpdateAudioMixerRequest {
+		return &commsv1.UpdateAudioMixerRequest{SpeakerVolume: &v}
+	}
+
+	tests := []struct {
+		name    string
+		msg     *commsv1.UpdateAudioMixerRequest
+		wantErr bool
+	}{
+		{name: "empty request valid", msg: &commsv1.UpdateAudioMixerRequest{}},
+		{name: "zero valid", msg: mk(0)},
+		{name: "hundred valid", msg: mk(100)},
+		{name: "negative invalid", msg: mk(-1), wantErr: true},
+		{name: "over hundred invalid", msg: mk(101), wantErr: true},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			err := validator.Validate(tc.msg)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

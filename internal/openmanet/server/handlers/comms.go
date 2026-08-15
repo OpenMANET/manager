@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"connectrpc.com/connect"
 	"github.com/rs/zerolog"
@@ -13,8 +14,16 @@ import (
 	commsv1 "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1"
 	"github.com/openmanet/openmanetd/internal/comms"
 	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/control/alsa"
 	"github.com/openmanet/openmanetd/internal/config"
 )
+
+// AudioMixer is the hardware mixer surface the comms handler needs.
+// Production wiring passes *alsa.Volume; tests supply fakeAudioMixer.
+type AudioMixer interface {
+	State(ctx context.Context) (alsa.State, error)
+	Apply(ctx context.Context, u alsa.Update) (alsa.State, error)
+}
 
 // CommsService implements the commsv1connect.CommsServiceHandler interface,
 // combining configuration, status, talkgroup control, PTT events, and audio
@@ -31,6 +40,11 @@ type CommsService struct {
 	Log          zerolog.Logger
 	CommsManager comms.CommsLifecycle
 	Service      func() *comms.Service
+	Mixer        AudioMixer
+
+	// mu serializes UpdateAudioMixer: the hardware write and the config
+	// persist must not interleave between concurrent requests.
+	mu sync.Mutex
 }
 
 // commsService returns the live *comms.Service via the injected accessor,
@@ -373,4 +387,116 @@ func (c *CommsService) StreamAudioRx(ctx context.Context, _ *commsv1.StreamAudio
 			c.Log.Trace().Uint32("seq", seq).Msg("Sent audio frame to web client")
 		}
 	}
+}
+
+// audioMixerStateToProto maps an alsa.State onto the wire message.
+// Optional fields are set only when the backing control exists.
+func audioMixerStateToProto(st alsa.State) *commsv1.AudioMixerState {
+	out := &commsv1.AudioMixerState{
+		Available:      st.Available,
+		SpeakerControl: st.SpeakerControl,
+		MicControl:     st.MicControl,
+		AgcControl:     st.AGCControl,
+	}
+
+	if st.SpeakerPct >= 0 {
+		v := int32(st.SpeakerPct)
+		out.SpeakerVolume = &v
+	}
+
+	if st.MicPct >= 0 {
+		v := int32(st.MicPct)
+		out.MicVolume = &v
+	}
+
+	if st.AGCPresent {
+		v := st.AGCEnabled
+		out.AgcEnabled = &v
+	}
+
+	return out
+}
+
+// GetAudioMixer reads the device's hardware mixer state. A missing sound
+// card is reported as available=false, not as an error, so the UI can
+// render a disabled panel.
+func (c *CommsService) GetAudioMixer(ctx context.Context, _ *emptypb.Empty) (*commsv1.GetAudioMixerResponse, error) {
+	if c.Mixer == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("audio mixer not available"))
+	}
+
+	st, err := c.Mixer.State(ctx)
+	if err != nil {
+		if errors.Is(err, alsa.ErrNoCard) {
+			return &commsv1.GetAudioMixerResponse{State: &commsv1.AudioMixerState{}}, nil
+		}
+
+		c.Log.Error().Err(err).Msg("Failed to read audio mixer state")
+
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("read mixer state: %w", err))
+	}
+
+	return &commsv1.GetAudioMixerResponse{State: audioMixerStateToProto(st)}, nil
+}
+
+// UpdateAudioMixer applies the provided fields to hardware first, then
+// persists volumes and AGC to the config file. Hardware-before-persist
+// ordering means a failed persist can never leave config claiming a level
+// the hardware rejected.
+func (c *CommsService) UpdateAudioMixer(ctx context.Context, req *commsv1.UpdateAudioMixerRequest) (*commsv1.UpdateAudioMixerResponse, error) {
+	if c.Mixer == nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("audio mixer not available"))
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var (
+		u       alsa.Update
+		speaker *int
+		mic     *int
+		agc     *bool
+	)
+
+	if req.SpeakerVolume != nil {
+		v := int(req.GetSpeakerVolume())
+		u.SpeakerPct = &v
+		speaker = &v
+	}
+
+	if req.MicVolume != nil {
+		v := int(req.GetMicVolume())
+		u.MicPct = &v
+		mic = &v
+	}
+
+	if req.AgcEnabled != nil {
+		v := req.GetAgcEnabled()
+		u.AGC = &v
+		agc = &v
+	}
+
+	st, err := c.Mixer.Apply(ctx, u)
+	if err != nil {
+		if errors.Is(err, alsa.ErrNoCard) || errors.Is(err, alsa.ErrControlNotFound) {
+			c.Log.Warn().Err(err).Msg("Audio mixer update rejected")
+
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
+
+		c.Log.Error().Err(err).Msg("Failed to apply audio mixer update")
+
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("apply mixer update: %w", err))
+	}
+
+	if speaker != nil || mic != nil || agc != nil {
+		if pErr := c.Cfg.PersistCommsAudio(speaker, mic, agc); pErr != nil {
+			c.Log.Error().Err(pErr).Msg("Failed to persist comms audio config")
+
+			return nil, connect.NewError(connect.CodeInternal,
+				fmt.Errorf("mixer applied to hardware but persisting failed: %w", pErr))
+		}
+	}
+
+	return &commsv1.UpdateAudioMixerResponse{State: audioMixerStateToProto(st)}, nil
 }

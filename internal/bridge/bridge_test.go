@@ -66,6 +66,14 @@ func (m *mockCommsClient) StreamAudioRx(_ context.Context, _ *commsv1.StreamAudi
 	return nil, nil
 }
 
+func (m *mockCommsClient) GetAudioMixer(_ context.Context, _ *emptypb.Empty) (*commsv1.GetAudioMixerResponse, error) {
+	return &commsv1.GetAudioMixerResponse{}, nil
+}
+
+func (m *mockCommsClient) UpdateAudioMixer(_ context.Context, _ *commsv1.UpdateAudioMixerRequest) (*commsv1.UpdateAudioMixerResponse, error) {
+	return &commsv1.UpdateAudioMixerResponse{}, nil
+}
+
 func newTestBridge() (*Bridge, *mockCommsClient) {
 	comms := &mockCommsClient{}
 	hub := websocket.NewHub(nil)

@@ -48,6 +48,7 @@ type APIServer struct {
 	GPS                   *gpsd.GPSService
 	BLOSManager           blos.BLOSLifecycle
 	CommsManager          comms.CommsLifecycle
+	Mixer                 handlers.AudioMixer
 	Interfaces            handlers.InterfaceProvider
 	DHCP                  handlers.DHCPConfigProvider
 	Leases                handlers.LeaseProvider
@@ -146,6 +147,7 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		Log:          cfg.Log,
 		CommsManager: cfg.CommsManager,
 		Service:      comms.Default,
+		Mixer:        cfg.Mixer,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(blosconnect.NewBLOSServiceHandler(&handlers.BLOSService{

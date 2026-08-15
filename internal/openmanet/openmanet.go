@@ -250,6 +250,7 @@ func Start(staticFS fs.FS) {
 		BLOSManager:           blosManager,
 		Tailscale:             blosManager,
 		CommsManager:          commsManager,
+		Mixer:                 mixerVol,
 		MeshDeltaTracker:      meshDeltaTracker,
 		MeshOrigProvider:      meshOrigProvider,
 		MeshVisProvider:       batctlSnapshotter,
