@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openmanet/openmanetd/internal/comms/control/alsa"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
@@ -143,7 +144,7 @@ func TestCommsManager_DisableEnablePicksUpConfigChange(t *testing.T) {
 	// Track the CommsConfig received by startFn on each Enable() call.
 	var lastControlSource atomic.Value
 
-	m := NewCommsManager(cfg, zerolog.Nop())
+	m := NewCommsManager(cfg, zerolog.Nop(), nil)
 	m.startFn = func(cc *CommsConfig) startFunc {
 		return func(ctx context.Context) error {
 			lastControlSource.Store(cc.ControlSource)
@@ -252,7 +253,7 @@ func TestCommsManager_BuildConfigCarriesDSCP(t *testing.T) {
 			v.SetConfigType("yaml")
 			require.NoError(t, v.ReadConfig(strings.NewReader(tt.yaml)))
 
-			m := NewCommsManager(config.NewWithoutWatch(v), zerolog.Nop())
+			m := NewCommsManager(config.NewWithoutWatch(v), zerolog.Nop(), nil)
 
 			cc := m.buildFn()
 			assert.Equal(t, tt.want, cc.DSCP)
@@ -264,4 +265,39 @@ func TestCommsManager_BuildConfigCarriesDSCP(t *testing.T) {
 			assert.Equal(t, tt.want, cc.DSCP)
 		})
 	}
+}
+
+func TestMixerStartupUpdate_Unconfigured(t *testing.T) {
+	v := viper.New()
+	cfg := config.NewWithoutWatch(v)
+
+	_, ok := mixerStartupUpdate(cfg)
+	assert.False(t, ok, "no comms.audio key set: no startup apply")
+}
+
+func TestMixerStartupUpdate_BuildsPartialUpdate(t *testing.T) {
+	v := viper.New()
+	v.Set("comms.audio.speakerVolume", 80)
+	v.Set("comms.audio.agc", false)
+	cfg := config.NewWithoutWatch(v)
+
+	u, ok := mixerStartupUpdate(cfg)
+	require.True(t, ok)
+	require.NotNil(t, u.SpeakerPct)
+	assert.Equal(t, 80, *u.SpeakerPct)
+	assert.Nil(t, u.MicPct, "unset micVolume must stay nil")
+	require.NotNil(t, u.AGC)
+	assert.False(t, *u.AGC)
+}
+
+func TestBuildCommsConfig_MixerStartupWiring(t *testing.T) {
+	unconfigured := config.NewWithoutWatch(viper.New())
+	m := NewCommsManager(unconfigured, zerolog.Nop(), &alsa.Volume{Log: zerolog.Nop()})
+	assert.Nil(t, m.buildCommsConfig().AudioMixerStartup, "unconfigured: no closure wired")
+
+	v := viper.New()
+	v.Set("comms.audio.speakerVolume", 80)
+	configured := config.NewWithoutWatch(v)
+	m2 := NewCommsManager(configured, zerolog.Nop(), &alsa.Volume{Log: zerolog.Nop()})
+	assert.NotNil(t, m2.buildCommsConfig().AudioMixerStartup, "configured: closure wired")
 }

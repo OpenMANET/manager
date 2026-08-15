@@ -332,3 +332,74 @@ func writeBool(ctl Ctl, b bool) error {
 
 	return nil
 }
+
+// ApplyStartup re-applies persisted mixer levels after ALSA card
+// detection (comms startup and in-run audio recovery — a USB replug
+// resets the card's mixer state). Beyond Apply, it applies each field
+// independently so one missing control cannot block the others, forces
+// every resolvable playback/capture switch on — with no mute in the API,
+// this is the only recovery from an out-of-band alsamixer mute — and logs
+// the card's control list at Debug for name-variance diagnosis. All
+// errors are logged and swallowed: a mixer failure must never block
+// audio startup.
+func (v *Volume) ApplyStartup(ctx context.Context, u Update) {
+	parts := []Update{
+		{SpeakerPct: u.SpeakerPct},
+		{MicPct: u.MicPct},
+		{AGC: u.AGC},
+	}
+
+	for _, part := range parts {
+		if part.SpeakerPct == nil && part.MicPct == nil && part.AGC == nil {
+			continue
+		}
+
+		if _, err := v.Apply(ctx, part); err != nil {
+			v.Log.Warn().Err(err).Msg("alsa-vol: startup mixer apply failed")
+		}
+	}
+
+	v.unmuteSwitches()
+	v.logControlNames()
+}
+
+// unmuteSwitches sets every resolvable playback/capture switch control to
+// on. Failures are logged and swallowed.
+func (v *Volume) unmuteSwitches() {
+	m, err := v.openMixer()
+	if err != nil {
+		return
+	}
+
+	defer v.closeMixer(m)
+
+	n := v.names()
+
+	for _, role := range [][]string{n.PlaybackSwitch, n.CaptureSwitch} {
+		ctl, name, rErr := ResolveCtl(m, role)
+		if rErr != nil || !ctl.IsBool() {
+			continue
+		}
+
+		if wErr := writeBool(ctl, true); wErr != nil {
+			v.Log.Warn().Err(wErr).Str("control", name).Msg("alsa-vol: startup unmute failed")
+
+			continue
+		}
+
+		v.Log.Debug().Str("control", name).Msg("alsa-vol: startup unmute applied")
+	}
+}
+
+// logControlNames logs the card's full mixer control enumeration once at
+// Debug — the field diagnostic for control-name variance.
+func (v *Volume) logControlNames() {
+	m, err := v.openMixer()
+	if err != nil {
+		return
+	}
+
+	defer v.closeMixer(m)
+
+	v.Log.Debug().Strs("controls", m.ControlNames()).Msg("alsa-vol: card mixer controls")
+}

@@ -280,9 +280,18 @@ func (cfg *CommsConfig) tryAudioRecovery(rt *CommsRuntime, attempt int) bool {
 
 	rt.audioCleanup = cleanup
 
+	cfg.applyMixerStartup()
+
 	cfg.Log.Info().Msg("comms: hardware audio recovered")
 
 	return true
+}
+
+// applyMixerStartup invokes the wired startup mixer re-apply, if any.
+func (cfg *CommsConfig) applyMixerStartup() {
+	if cfg.AudioMixerStartup != nil {
+		cfg.AudioMixerStartup()
+	}
 }
 
 // detectALSACard runs ALSA card auto-detection through cfg.detectALSACardFn
@@ -316,6 +325,8 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 			control.DetectAndSetALSACard(cfg.Log)
 		}
 	}
+
+	cfg.applyMixerStartup()
 
 	switch {
 	case cfg.Trace:

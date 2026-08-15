@@ -17,6 +17,7 @@ import (
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/blos"
 	"github.com/openmanet/openmanetd/internal/comms"
+	"github.com/openmanet/openmanetd/internal/comms/control/alsa"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database"
 	"github.com/openmanet/openmanetd/internal/database/models"
@@ -51,7 +52,15 @@ func Start(staticFS fs.FS) {
 	applyRuntimeTuning(cfg, log)
 
 	// Create Comms manager (always, so the API handler can use it even if comms is currently disabled)
-	commsManager := comms.NewCommsManager(cfg, logger.GetLogger("comms"))
+	mixerVol := &alsa.Volume{
+		Log: logger.GetLogger("alsa-mixer"),
+		Names: alsa.NamesFromOverrides(
+			cfg.GetCommsAudioSpeakerControl(),
+			cfg.GetCommsAudioMicControl(),
+			cfg.GetCommsAudioAGCControl(),
+		),
+	}
+	commsManager := comms.NewCommsManager(cfg, logger.GetLogger("comms"), mixerVol)
 
 	if board.CommsSupported() && cfg.GetCommsEnable() {
 		if err := commsManager.Enable(); err != nil {

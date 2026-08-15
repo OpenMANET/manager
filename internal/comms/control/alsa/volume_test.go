@@ -240,3 +240,63 @@ func TestVolume_OpenError_Propagates(t *testing.T) {
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, alsa.ErrNoCard, "I/O failure is not a missing-card condition")
 }
+
+func TestVolume_ApplyStartup_AppliesEachFieldIndependently(t *testing.T) {
+	withCard(t, "0")
+
+	// Card with a speaker but NO capture control: the mic apply fails,
+	// but the speaker and AGC applies must still land.
+	speaker := newFakeCtl([]int{0}, 0, 38)
+	agc := newFakeCtl([]int{1}, 0, 1)
+	agc.isBool = true
+	mx := &fakeMixer{ctls: map[string]alsa.Ctl{
+		"Master":            speaker,
+		"Auto Gain Control": agc,
+	}}
+	op := &fakeOpener{mixer: mx}
+	v := &alsa.Volume{Log: zerolog.Nop(), Open: op.opener()}
+
+	sp, mic := 100, 50
+	off := false
+	v.ApplyStartup(context.Background(), alsa.Update{SpeakerPct: &sp, MicPct: &mic, AGC: &off})
+
+	assert.Equal(t, []int{38}, speaker.snapshotValues(), "speaker applied despite missing mic control")
+	assert.Equal(t, []int{0}, agc.snapshotValues(), "agc applied despite missing mic control")
+}
+
+func TestVolume_ApplyStartup_UnmutesSwitches(t *testing.T) {
+	withCard(t, "0")
+
+	pbSwitch := newFakeCtl([]int{0}, 0, 1)
+	pbSwitch.isBool = true
+	capSwitch := newFakeCtl([]int{0}, 0, 1)
+	capSwitch.isBool = true
+	mx := &fakeMixer{ctls: map[string]alsa.Ctl{
+		"Speaker Playback Switch": pbSwitch,
+		"Mic Capture Switch":      capSwitch,
+	}}
+	op := &fakeOpener{mixer: mx}
+	v := &alsa.Volume{Log: zerolog.Nop(), Open: op.opener()}
+
+	v.ApplyStartup(context.Background(), alsa.Update{})
+
+	assert.Equal(t, []int{1}, pbSwitch.snapshotValues(), "playback switch forced on")
+	assert.Equal(t, []int{1}, capSwitch.snapshotValues(), "capture switch forced on")
+}
+
+func TestVolume_ApplyStartup_NoCard_DoesNotPanic(t *testing.T) {
+	t.Cleanup(func() { _ = os.Unsetenv("ALSA_CARD") })
+	require.NoError(t, os.Unsetenv("ALSA_CARD"))
+
+	op := &fakeOpener{mixer: &fakeMixer{}}
+	v := &alsa.Volume{
+		Log:        zerolog.Nop(),
+		Open:       op.opener(),
+		DetectCard: func(zerolog.Logger) {},
+	}
+
+	sp := 50
+	v.ApplyStartup(context.Background(), alsa.Update{SpeakerPct: &sp})
+
+	assert.Equal(t, 0, op.calls(), "no card: nothing opened, nothing panics")
+}

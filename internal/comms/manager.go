@@ -26,6 +26,7 @@ type startFunc func(ctx context.Context) error
 type CommsManager struct {
 	cfg     *config.Config
 	logger  zerolog.Logger
+	mixer   *alsa.Volume
 	buildFn func() *CommsConfig
 	startFn func(*CommsConfig) startFunc
 	cancel  context.CancelFunc
@@ -34,12 +35,15 @@ type CommsManager struct {
 	running bool
 }
 
-// NewCommsManager creates a new CommsManager. The manager is created at startup
-// regardless of whether comms is enabled, so the API handler always has it.
-func NewCommsManager(cfg *config.Config, logger zerolog.Logger) *CommsManager {
+// NewCommsManager creates a new CommsManager. The manager is created at
+// startup regardless of whether comms is enabled, so the API handler
+// always has it. mixer is the shared hardware mixer accessor (also used
+// by the CommsService audio-mixer RPCs); it may be nil in tests.
+func NewCommsManager(cfg *config.Config, logger zerolog.Logger, mixer *alsa.Volume) *CommsManager {
 	m := &CommsManager{
 		cfg:    cfg,
 		logger: logger,
+		mixer:  mixer,
 		startFn: func(cc *CommsConfig) startFunc {
 			return cc.Start
 		},
@@ -76,7 +80,58 @@ func (m *CommsManager) buildCommsConfig() *CommsConfig {
 		AuxHandler: &alsa.Controller{
 			Log: m.logger.With().Str("subsystem", "alsa-vol").Logger(),
 		},
+		AudioMixerStartup: m.mixerStartup(),
 	})
+}
+
+// mixerStartupUpdate translates persisted comms.audio values into an
+// alsa.Update. ok is false when no comms.audio key is set.
+func mixerStartupUpdate(cfg *config.Config) (alsa.Update, bool) {
+	if !cfg.HasCommsAudioSettings() {
+		return alsa.Update{}, false
+	}
+
+	var u alsa.Update
+
+	if v := cfg.GetCommsAudioSpeakerVolume(); v >= 0 {
+		u.SpeakerPct = &v
+	}
+
+	if v := cfg.GetCommsAudioMicVolume(); v >= 0 {
+		u.MicPct = &v
+	}
+
+	if enabled, set := cfg.GetCommsAudioAGC(); set {
+		u.AGC = &enabled
+	}
+
+	return u, true
+}
+
+// mixerStartup returns the startup mixer re-apply closure, or nil when no
+// comms.audio key is set (the daemon then never touches the hardware
+// mixer). The config is re-read at invocation time so API-persisted
+// values from the current run are picked up by later recoveries.
+func (m *CommsManager) mixerStartup() func() {
+	if m.mixer == nil {
+		return nil
+	}
+
+	if _, ok := mixerStartupUpdate(m.cfg); !ok {
+		return nil
+	}
+
+	cfg := m.cfg
+	mixer := m.mixer
+
+	return func() {
+		u, ok := mixerStartupUpdate(cfg)
+		if !ok {
+			return
+		}
+
+		mixer.ApplyStartup(context.Background(), u)
+	}
 }
 
 // Enable starts the comms subsystem. It is idempotent: if comms is already
