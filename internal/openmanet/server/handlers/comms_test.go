@@ -644,6 +644,28 @@ func TestUpdateAudioMixer_NoCard_FailedPrecondition(t *testing.T) {
 	assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
 }
 
+func TestUpdateAudioMixer_ApplyIOError_Internal(t *testing.T) {
+	fake := &fakeAudioMixer{applyErr: fmt.Errorf("ioctl failed")}
+	svc := &handlers.CommsService{
+		Cfg:   &config.Config{},
+		Log:   zerolog.Nop(),
+		Mixer: fake,
+	}
+
+	speaker := int32(50)
+	_, err := svc.UpdateAudioMixer(context.Background(), &commsv1.UpdateAudioMixerRequest{SpeakerVolume: &speaker})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeInternal, connectErr.Code())
+
+	// A bare Cfg{} has a nil viper instance: if PersistCommsAudio were
+	// reached despite the Apply failure, it would panic. Reaching this
+	// assertion without panicking confirms persist was never attempted.
+	assert.Len(t, fake.getApplyCalls(), 1)
+}
+
 func TestUpdateAudioMixer_PersistFailure_Internal(t *testing.T) {
 	// No config file backing this Config: hardware apply succeeds, but the
 	// subsequent persist has nowhere to write and must fail internally
