@@ -135,6 +135,112 @@ func TestPionRTPSession_SequenceIncrement(t *testing.T) {
 	}
 }
 
+// TestPionRTPSession_WireFormat pins the full on-wire header contract of
+// Send so the packetization internals can change without breaking
+// interoperability with deployed nodes: RTP version 2, marker bit set (one
+// Opus frame per packet), timestamp advancing by exactly FrameSamples per
+// frame, and the payload delivered byte-for-byte.
+func TestPionRTPSession_WireFormat(t *testing.T) {
+	rtpW := &mockWriter{}
+
+	sess, err := NewSession(0x1234, rtpW, &mockWriter{}, zerolog.Nop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close() //nolint:errcheck
+
+	payloads := [][]byte{{0xA1, 0xA2, 0xA3}, {0xB1}, {0xC1, 0xC2}}
+	for _, p := range payloads {
+		if err := sess.Send(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if len(rtpW.Packets) != len(payloads) {
+		t.Fatalf("expected %d packets; got %d", len(payloads), len(rtpW.Packets))
+	}
+
+	var prev pionrtp.Packet
+
+	for i, raw := range rtpW.Packets {
+		var pkt pionrtp.Packet
+		if err := pkt.Unmarshal(raw); err != nil {
+			t.Fatalf("packet %d invalid: %v", i, err)
+		}
+
+		if pkt.Version != 2 {
+			t.Errorf("packet %d: version got %d, want 2", i, pkt.Version)
+		}
+
+		if !pkt.Marker {
+			t.Errorf("packet %d: marker bit not set", i)
+		}
+
+		if pkt.Padding || pkt.Extension {
+			t.Errorf("packet %d: unexpected padding/extension flags", i)
+		}
+
+		if string(pkt.Payload) != string(payloads[i]) {
+			t.Errorf("packet %d: payload got %v, want %v", i, pkt.Payload, payloads[i])
+		}
+
+		if i > 0 {
+			if got := pkt.Timestamp - prev.Timestamp; got != FrameSamples {
+				t.Errorf("packet %d: timestamp stride got %d, want %d", i, got, FrameSamples)
+			}
+
+			if got := pkt.SequenceNumber - prev.SequenceNumber; got != 1 {
+				t.Errorf("packet %d: seq stride got %d, want 1", i, got)
+			}
+		}
+
+		prev = pkt
+	}
+}
+
+// TestPionRTPSession_EmptyPayload pins the empty-frame contract: nothing is
+// written to the wire, but the timestamp still advances by FrameSamples so a
+// receiver sees the gap in media time (RFC 3550 semantics preserved from
+// pion's Packetize/SkipSamples behavior).
+func TestPionRTPSession_EmptyPayload(t *testing.T) {
+	rtpW := &mockWriter{}
+
+	sess, err := NewSession(1, rtpW, &mockWriter{}, zerolog.Nop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close() //nolint:errcheck
+
+	if err := sess.Send([]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sess.Send(nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sess.Send([]byte{2}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rtpW.Packets) != 2 {
+		t.Fatalf("expected 2 packets (empty frame skipped); got %d", len(rtpW.Packets))
+	}
+
+	var first, second pionrtp.Packet
+	if err := first.Unmarshal(rtpW.Packets[0]); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := second.Unmarshal(rtpW.Packets[1]); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := second.Timestamp - first.Timestamp; got != 2*FrameSamples {
+		t.Errorf("timestamp stride across skipped frame: got %d, want %d", got, 2*FrameSamples)
+	}
+}
+
 func TestPionRTPSession_Close(t *testing.T) {
 	sess, err := NewSession(1, &mockWriter{}, &mockWriter{}, zerolog.Nop())
 	if err != nil {
