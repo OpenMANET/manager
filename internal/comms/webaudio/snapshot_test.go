@@ -35,6 +35,25 @@ func TestBridge_Snapshot_ReadsCounters(t *testing.T) {
 	assert.Equal(t, int64(0), dst.RxPushDrop)
 }
 
+func TestBridge_Snapshot_ConsumerFields(t *testing.T) {
+	t.Parallel()
+
+	b := webaudio.NewBridge(zerolog.Nop(), nil)
+	b.AddConsumer()
+	b.RxGatedNoConsumer.Add(7)
+
+	var dst webaudio.BridgeSnapshot
+
+	b.Snapshot(&dst)
+
+	assert.Equal(t, int32(1), dst.Consumers)
+	assert.Equal(t, int64(7), dst.RxGatedNoConsumer)
+
+	b.RemoveConsumer()
+	b.Snapshot(&dst)
+	assert.Equal(t, int32(0), dst.Consumers)
+}
+
 func TestBridge_Snapshot_ZeroAlloc(t *testing.T) {
 	b := webaudio.NewBridge(zerolog.Nop(), nil)
 	b.PushRxFrame([]byte{0x01})

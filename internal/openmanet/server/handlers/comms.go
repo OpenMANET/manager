@@ -337,23 +337,36 @@ func (c *CommsService) StreamAudioRx(ctx context.Context, _ *commsv1.StreamAudio
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("web audio bridge not active"))
 	}
 
+	// Register as a consumer so the comms-side playout drain starts doing
+	// per-frame work; with no stream attached it discards frames without
+	// copying or touching the channel.
+	bridge.AddConsumer()
+	defer bridge.RemoveConsumer()
+
 	var seq uint32
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case opusData, ok := <-bridge.RxFrames():
+		case frame, ok := <-bridge.RxFrames():
 			if !ok {
 				return nil
 			}
 
 			seq++
 
-			if err := stream.Send(&commsv1.StreamAudioRxResponse{
-				OpusData: opusData,
+			// Release after Send: the proto marshal copies the payload
+			// into the wire buffer synchronously, so the pooled frame
+			// buffer is free to recycle once Send returns.
+			err := stream.Send(&commsv1.StreamAudioRxResponse{
+				OpusData: frame.Data(),
 				Sequence: seq,
-			}); err != nil {
+			})
+
+			frame.Release()
+
+			if err != nil {
 				return err
 			}
 
