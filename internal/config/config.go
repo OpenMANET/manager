@@ -204,6 +204,9 @@ type Config struct {
 	InstrumentationSnapshotDir                string
 	BLOSAdvertisedMeshSubnet                  string
 	TerminalShell                             string
+	CommsAudioSpeakerControl                  string
+	CommsAudioMicControl                      string
+	CommsAudioAGCControl                      string
 	onChangeCallbacks                         []func(*Config)
 	BLOSStatusWorkerInterval                  int
 	MeshTopologyDeltaSampleInterval           int
@@ -216,6 +219,8 @@ type Config struct {
 	CommsPlaybackLatencyMs                    int
 	CommsCaptureLatencyMs                     int
 	CommsCaptureFramesPerBuffer               int
+	CommsAudioSpeakerVolume                   int
+	CommsAudioMicVolume                       int
 	RuntimeGoGC                               int
 	RuntimeGOMAXPROCS                         int
 	AuthSessionMaxAgeSecs                     int
@@ -232,6 +237,8 @@ type Config struct {
 	CommsTrace                                bool
 	CommsNanoPTTEnable                        bool
 	CommsBluetoothPttEnable                   bool
+	CommsAudioAGC                             bool
+	CommsAudioAGCSet                          bool
 	ResetDBOnStart                            bool
 	EnableGNSS                                bool
 	GNSSSendAsNMEA                            bool
@@ -704,6 +711,28 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsCaptureFramesPerBuffer = DefaultCommsCaptureFramesPerBuffer
 	}
 
+	// Load comms hardware audio mixer levels. All keys are IsSet-guarded
+	// with no defaults: an absent key means the daemon never touches that
+	// hardware control at startup (preserving card defaults and manual
+	// alsamixer state). -1 is the "unset" sentinel for the volume fields.
+	// Out-of-range values are silently clamped to [0, 100].
+	c.CommsAudioSpeakerVolume = -1
+	if c.v.IsSet("comms.audio.speakerVolume") {
+		c.CommsAudioSpeakerVolume = clampPct(c.v.GetInt("comms.audio.speakerVolume"))
+	}
+
+	c.CommsAudioMicVolume = -1
+	if c.v.IsSet("comms.audio.micVolume") {
+		c.CommsAudioMicVolume = clampPct(c.v.GetInt("comms.audio.micVolume"))
+	}
+
+	c.CommsAudioAGCSet = c.v.IsSet("comms.audio.agc")
+	c.CommsAudioAGC = c.v.GetBool("comms.audio.agc")
+
+	c.CommsAudioSpeakerControl = c.v.GetString("comms.audio.speakerControl")
+	c.CommsAudioMicControl = c.v.GetString("comms.audio.micControl")
+	c.CommsAudioAGCControl = c.v.GetString("comms.audio.agcControl")
+
 	// Load auth configuration
 	if c.v.IsSet("auth.enable") {
 		c.AuthEnable = c.v.GetBool("auth.enable")
@@ -775,6 +804,19 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 	} else {
 		c.TerminalEnable = DefaultTerminalEnable
 	}
+}
+
+// clampPct clamps v into the [0, 100] percent range.
+func clampPct(v int) int {
+	if v < 0 {
+		return 0
+	}
+
+	if v > 100 {
+		return 100
+	}
+
+	return v
 }
 
 // OnConfigChange registers a callback function to be called when the configuration changes.
@@ -1325,6 +1367,69 @@ func (c *Config) GetCommsCaptureFramesPerBuffer() int {
 	defer c.mu.RUnlock()
 
 	return c.CommsCaptureFramesPerBuffer
+}
+
+// GetCommsAudioSpeakerVolume returns the persisted hardware speaker volume
+// percent, or -1 when comms.audio.speakerVolume is not set.
+func (c *Config) GetCommsAudioSpeakerVolume() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsAudioSpeakerVolume
+}
+
+// GetCommsAudioMicVolume returns the persisted hardware mic capture volume
+// percent, or -1 when comms.audio.micVolume is not set.
+func (c *Config) GetCommsAudioMicVolume() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsAudioMicVolume
+}
+
+// GetCommsAudioAGC returns the persisted Auto Gain Control state and
+// whether comms.audio.agc is set at all.
+func (c *Config) GetCommsAudioAGC() (enabled, set bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsAudioAGC, c.CommsAudioAGCSet
+}
+
+// GetCommsAudioSpeakerControl returns the raw ALSA element-name override
+// for the playback volume control, or "" to use the built-in candidates.
+func (c *Config) GetCommsAudioSpeakerControl() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsAudioSpeakerControl
+}
+
+// GetCommsAudioMicControl returns the raw ALSA element-name override for
+// the capture volume control, or "" to use the built-in candidates.
+func (c *Config) GetCommsAudioMicControl() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsAudioMicControl
+}
+
+// GetCommsAudioAGCControl returns the raw ALSA element-name override for
+// the AGC switch, or "" to use the built-in candidates.
+func (c *Config) GetCommsAudioAGCControl() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsAudioAGCControl
+}
+
+// HasCommsAudioSettings reports whether any comms.audio level key is set —
+// the gate for the startup mixer re-apply.
+func (c *Config) HasCommsAudioSettings() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsAudioSpeakerVolume >= 0 || c.CommsAudioMicVolume >= 0 || c.CommsAudioAGCSet
 }
 
 // GetAuthEnable returns whether HTTP authentication is enabled.
