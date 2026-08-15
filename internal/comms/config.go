@@ -109,7 +109,11 @@ type CommsConfig struct {
 	// levels (speaker/mic volume, AGC) and clears mute switches. Invoked
 	// after ALSA card detection in Start and again after every successful
 	// in-run audio recovery — a USB replug resets the card's mixer state.
-	// Wired by the manager; nil when no comms.audio key is set.
+	// The manager wires it whenever a hardware mixer accessor exists; the
+	// closure re-reads config at every invocation and no-ops when no
+	// comms.audio key is set, so levels first persisted mid-run still
+	// reach later recoveries. Nil only when no mixer is wired (tests,
+	// frontend-only mode).
 	AudioMixerStartup    func()
 	startHardwareAudioFn func(rt *CommsRuntime) (func(), error)
 	// detectALSACardFn overrides ALSA card auto-detection for tests. When
