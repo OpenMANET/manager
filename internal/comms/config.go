@@ -102,9 +102,19 @@ func (rt *CommsRuntime) SetBroadcast(bs BroadcastCapture) {
 // owned by *Service (returned by Start via SetDefault) so the static
 // config and the per-startup runtime have distinct lifetimes.
 type CommsConfig struct {
-	Log                  zerolog.Logger
-	AuxHandler           control.AuxEventHandler
-	Interrupt            chan os.Signal
+	Log        zerolog.Logger
+	AuxHandler control.AuxEventHandler
+	Interrupt  chan os.Signal
+	// AudioMixerStartup, when non-nil, re-applies persisted hardware mixer
+	// levels (speaker/mic volume, AGC) and clears mute switches. Invoked
+	// after ALSA card detection in Start and again after every successful
+	// in-run audio recovery — a USB replug resets the card's mixer state.
+	// The manager wires it whenever a hardware mixer accessor exists; the
+	// closure re-reads config at every invocation and no-ops when no
+	// comms.audio key is set, so levels first persisted mid-run still
+	// reach later recoveries. Nil only when no mixer is wired (tests,
+	// frontend-only mode).
+	AudioMixerStartup    func()
 	startHardwareAudioFn func(rt *CommsRuntime) (func(), error)
 	// detectALSACardFn overrides ALSA card auto-detection for tests. When
 	// nil, detectALSACard falls back to control.DetectAndSetALSACard(cfg.Log).
@@ -195,6 +205,7 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		CaptureFramesPerBuffer:   cfg.CaptureFramesPerBuffer,
 		PttStartDelayMs:          cfg.PttStartDelayMs,
 		AuxHandler:               cfg.AuxHandler,
+		AudioMixerStartup:        cfg.AudioMixerStartup,
 	}
 }
 

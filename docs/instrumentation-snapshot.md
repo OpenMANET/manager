@@ -43,22 +43,23 @@ Every snapshot is a single JSON object with this shape:
 
 ```json
 {
-  "schema_version": "1.3.0",
+  "schema_version": "1.4.0",
   "captured_at_start": "2026-04-09T12:34:56.789012345Z",
   "captured_at_end":   "2026-04-09T12:34:56.789013101Z",
   "daemon": { ... },
   "runtime": { ... },
   "sections": [
-    { "name": "comms",      "data": { ... } },
-    { "name": "blos",       "data": { ... } },
-    { "name": "sysupgrade", "data": { ... } }
+    { "name": "comms",       "data": { ... } },
+    { "name": "blos",        "data": { ... } },
+    { "name": "sysupgrade",  "data": { ... } },
+    { "name": "audio_mixer", "data": { ... } }
   ]
 }
 ```
 
 | Field | Type | Meaning |
 |---|---|---|
-| `schema_version` | string | Semver of the envelope schema. Bump minor for additive fields, major for breaking changes. The current value is `1.3.0`. |
+| `schema_version` | string | Semver of the envelope schema. Bump minor for additive fields, major for breaking changes. The current value is `1.4.0`. |
 | `captured_at_start` | RFC3339 timestamp | Wall-clock time when the capture loop began reading counters. |
 | `captured_at_end` | RFC3339 timestamp | Wall-clock time when the capture loop finished. The difference `captured_at_end - captured_at_start` bounds the counter-read skew window; in practice this is microseconds. |
 | `daemon.version` | string | openmanetd build version. Empty until the build system populates it. |
@@ -269,6 +270,21 @@ One entry per configured multicast talk group. The slice order mirrors
 | `in_progress` | bool | — | True while a per-upgrade goroutine or detached sysupgrade child is alive. Useful as a one-field check before deciding whether `phase` is meaningful. |
 | `capable` | bool | — | True when all sysupgrade preconditions are satisfied (binary present, squashfs root, /overlay mounted). |
 
+### `audio_mixer` — hardware mixer cache
+
+Last daemon-side reading of the sound card's ALSA mixer (speaker/mic
+volume, AGC), cached atomically on every startup apply, `GetAudioMixer`,
+and `UpdateAudioMixer`. This is a cache, not live hardware: changes made
+out-of-band (alsamixer, VOL+/VOL− buttons) appear only after the next API
+read.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `speaker_volume_pct` | int | Last known playback volume percent (0–100). -1 = never read or control absent. |
+| `mic_volume_pct` | int | Last known capture volume percent (0–100). -1 = never read or control absent. |
+| `agc_known` | bool | Whether the Auto Gain Control switch has been observed at all. When false, `agc_enabled` is meaningless. |
+| `agc_enabled` | bool | Last known Auto Gain Control state. When true, the CM108B adjusts capture gain itself and manual mic volume changes may appear ineffective. |
+
 ## Interpretation heuristics for LLM triage
 
 When a snapshot is provided for analysis, apply the following rules of
@@ -370,6 +386,14 @@ thumb in order and flag anything that fits.
    marking before tuning anything else — an unmarked voice stream
    queues behind bulk traffic in the WMM best-effort class on every
    hop.
+15. **"No audio heard" triage order.** Before suspecting the jitter
+   buffer or playback path, check `audio_mixer.speaker_volume_pct` — a
+   value at or near 0 means the hardware mixer is turned down. -1 means
+   the daemon has never touched the mixer (no `comms.audio` config and
+   no API call), so the hardware may be at any level.
+16. **"Mic too quiet / too hot" with `agc_enabled: true`.** The CM108B's
+   AGC overrides manual capture gain; toggle AGC off via
+   `UpdateAudioMixer` before tuning `mic_volume_pct`.
 
 ## Skew note
 

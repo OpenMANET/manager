@@ -1221,6 +1221,27 @@ Run(ctx, rt, src)
   }
 ```
 
+### Aux events and the hardware mixer
+
+`AuxEvent` (`VolumeUpPressed`/`VolumeUpReleased`/`VolumeDownPressed`/
+`VolumeDownReleased`) is `control`'s non-PTT counterpart to `PTTEvent`.
+Any `EventSource` that also implements `control.AuxEventSource` exposes
+an `AuxEvents()` channel; when `cfg.AuxHandler` is set, `Run` spawns
+`runAuxPump` on the *parent* context (not the `Run`-scoped one, so it
+keeps draining aux events already queued when the PTT channel closes)
+to forward each event to `cfg.AuxHandler.Handle`. Production wiring sets
+`AuxHandler` to a fresh `control/alsa.Controller`, which nudges a raw
+ALSA mixer control by a relative step per VOL+/VOL− press and swallows
+every error — a bad card can never take down the aux pump goroutine. A
+parallel absolute-control path lives beside it: `control/alsa.Volume`
+backs the `GetAudioMixer`/`UpdateAudioMixer` RPCs and
+`CommsConfig.AudioMixerStartup`, the closure the manager wires to
+re-apply persisted `comms.audio.*` levels after ALSA card detection
+(step 3 in §4) and after every successful in-run audio recovery. See
+[README.md § Volume control via ALSA](README.md#volume-control-via-alsa)
+for the full candidate-list resolution, persistence, and
+startup-behavior detail.
+
 ---
 
 ## 10. Interface Reference

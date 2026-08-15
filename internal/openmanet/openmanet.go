@@ -17,6 +17,7 @@ import (
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/blos"
 	"github.com/openmanet/openmanetd/internal/comms"
+	"github.com/openmanet/openmanetd/internal/comms/control/alsa"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/database"
 	"github.com/openmanet/openmanetd/internal/database/models"
@@ -51,7 +52,15 @@ func Start(staticFS fs.FS) {
 	applyRuntimeTuning(cfg, log)
 
 	// Create Comms manager (always, so the API handler can use it even if comms is currently disabled)
-	commsManager := comms.NewCommsManager(cfg, logger.GetLogger("comms"))
+	mixerVol := &alsa.Volume{
+		Log: logger.GetLogger("alsa-mixer"),
+		Names: alsa.NamesFromOverrides(
+			cfg.GetCommsAudioSpeakerControl(),
+			cfg.GetCommsAudioMicControl(),
+			cfg.GetCommsAudioAGCControl(),
+		),
+	}
+	commsManager := comms.NewCommsManager(cfg, logger.GetLogger("comms"), mixerVol)
 
 	if board.CommsSupported() && cfg.GetCommsEnable() {
 		if err := commsManager.Enable(); err != nil {
@@ -145,7 +154,7 @@ func Start(staticFS fs.FS) {
 	// the periodic worker. The registry is always constructed (cheap) but
 	// the worker goroutine is only started when the config flag is true,
 	// so a disabled deployment pays nothing beyond the adapter structs.
-	startInstrumentationWorker(ctx, cfg, blosManager, sysupgradeMgr, log)
+	startInstrumentationWorker(ctx, cfg, blosManager, sysupgradeMgr, mixerVol, log)
 
 	// BatctlSnapshotter owns one background goroutine that refreshes the
 	// outputs of batctl oj / nj / mj / gwj plus /tmp/bat-hosts every 5s.
@@ -241,6 +250,7 @@ func Start(staticFS fs.FS) {
 		BLOSManager:           blosManager,
 		Tailscale:             blosManager,
 		CommsManager:          commsManager,
+		Mixer:                 mixerVol,
 		MeshDeltaTracker:      meshDeltaTracker,
 		MeshOrigProvider:      meshOrigProvider,
 		MeshVisProvider:       batctlSnapshotter,
@@ -335,7 +345,7 @@ func Start(staticFS fs.FS) {
 // registry itself is cheap; only the worker has runtime cost. Errors
 // during setup are logged but never fatal — a misconfigured snapshot
 // subsystem must not prevent the daemon from serving traffic.
-func startInstrumentationWorker(ctx context.Context, cfg *config.Config, blosManager *blos.BLOSManager, sysupgradeMgr *sysupgrade.Manager, log zerolog.Logger) {
+func startInstrumentationWorker(ctx context.Context, cfg *config.Config, blosManager *blos.BLOSManager, sysupgradeMgr *sysupgrade.Manager, mixerVol *alsa.Volume, log zerolog.Logger) {
 	if !cfg.GetInstrumentationEnable() {
 		return
 	}
@@ -357,6 +367,12 @@ func startInstrumentationWorker(ctx context.Context, cfg *config.Config, blosMan
 
 	if err = reg.Register("comms", &comms.CommsSnapshotter{}); err != nil {
 		log.Error().Err(err).Msg("instrumentation: failed to register comms snapshotter")
+
+		return
+	}
+
+	if err = reg.Register("audio_mixer", &alsa.MixerSnapshotter{V: mixerVol}); err != nil {
+		log.Error().Err(err).Msg("instrumentation: failed to register audio mixer snapshotter")
 
 		return
 	}

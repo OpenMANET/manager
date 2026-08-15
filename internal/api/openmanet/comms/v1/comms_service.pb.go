@@ -25,7 +25,7 @@ var File_openmanet_comms_v1_comms_service_proto protoreflect.FileDescriptor
 
 const file_openmanet_comms_v1_comms_service_proto_rawDesc = "" +
 	"\n" +
-	"&openmanet/comms/v1/comms_service.proto\x12\x12openmanet.comms.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1eopenmanet/comms/v1/comms.proto\x1a\x1fopenmanet/comms/v1/config.proto\x1a\x1fopenmanet/comms/v1/status.proto\x1a\"openmanet/comms/v1/talkgroup.proto2\xc6\x06\n" +
+	"&openmanet/comms/v1/comms_service.proto\x12\x12openmanet.comms.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1eopenmanet/comms/v1/comms.proto\x1a\x1fopenmanet/comms/v1/config.proto\x1a\x1fopenmanet/comms/v1/status.proto\x1a\"openmanet/comms/v1/talkgroup.proto2\x89\b\n" +
 	"\fCommsService\x12T\n" +
 	"\x0eGetCommsConfig\x12\x16.google.protobuf.Empty\x1a*.openmanet.comms.v1.GetCommsConfigResponse\x12p\n" +
 	"\x11UpdateCommsConfig\x12,.openmanet.comms.v1.UpdateCommsConfigRequest\x1a-.openmanet.comms.v1.UpdateCommsConfigResponse\x12T\n" +
@@ -34,7 +34,9 @@ const file_openmanet_comms_v1_comms_service_proto_rawDesc = "" +
 	"\x13SetReceiveTalkGroup\x12..openmanet.comms.v1.SetReceiveTalkGroupRequest\x1a/.openmanet.comms.v1.SetReceiveTalkGroupResponse\x12a\n" +
 	"\fSendPTTEvent\x12'.openmanet.comms.v1.SendPTTEventRequest\x1a(.openmanet.comms.v1.SendPTTEventResponse\x12f\n" +
 	"\rStreamAudioTx\x12(.openmanet.comms.v1.StreamAudioTxRequest\x1a).openmanet.comms.v1.StreamAudioTxResponse(\x01\x12f\n" +
-	"\rStreamAudioRx\x12(.openmanet.comms.v1.StreamAudioRxRequest\x1a).openmanet.comms.v1.StreamAudioRxResponse0\x01B\xde\x01\n" +
+	"\rStreamAudioRx\x12(.openmanet.comms.v1.StreamAudioRxRequest\x1a).openmanet.comms.v1.StreamAudioRxResponse0\x01\x12R\n" +
+	"\rGetAudioMixer\x12\x16.google.protobuf.Empty\x1a).openmanet.comms.v1.GetAudioMixerResponse\x12m\n" +
+	"\x10UpdateAudioMixer\x12+.openmanet.comms.v1.UpdateAudioMixerRequest\x1a,.openmanet.comms.v1.UpdateAudioMixerResponseB\xde\x01\n" +
 	"\x16com.openmanet.comms.v1B\x11CommsServiceProtoP\x01ZGgithub.com/openmanet/openmanetd/internal/api/openmanet/comms/v1;commsv1\xa2\x02\x03OCX\xaa\x02\x12Openmanet.Comms.V1\xca\x02\x12Openmanet\\Comms\\V1\xe2\x02\x1eOpenmanet\\Comms\\V1\\GPBMetadata\xea\x02\x14Openmanet::Comms::V1b\x06proto3"
 
 var file_openmanet_comms_v1_comms_service_proto_goTypes = []any{
@@ -45,14 +47,17 @@ var file_openmanet_comms_v1_comms_service_proto_goTypes = []any{
 	(*SendPTTEventRequest)(nil),         // 4: openmanet.comms.v1.SendPTTEventRequest
 	(*StreamAudioTxRequest)(nil),        // 5: openmanet.comms.v1.StreamAudioTxRequest
 	(*StreamAudioRxRequest)(nil),        // 6: openmanet.comms.v1.StreamAudioRxRequest
-	(*GetCommsConfigResponse)(nil),      // 7: openmanet.comms.v1.GetCommsConfigResponse
-	(*UpdateCommsConfigResponse)(nil),   // 8: openmanet.comms.v1.UpdateCommsConfigResponse
-	(*GetCommsStatusResponse)(nil),      // 9: openmanet.comms.v1.GetCommsStatusResponse
-	(*SetSendTalkGroupResponse)(nil),    // 10: openmanet.comms.v1.SetSendTalkGroupResponse
-	(*SetReceiveTalkGroupResponse)(nil), // 11: openmanet.comms.v1.SetReceiveTalkGroupResponse
-	(*SendPTTEventResponse)(nil),        // 12: openmanet.comms.v1.SendPTTEventResponse
-	(*StreamAudioTxResponse)(nil),       // 13: openmanet.comms.v1.StreamAudioTxResponse
-	(*StreamAudioRxResponse)(nil),       // 14: openmanet.comms.v1.StreamAudioRxResponse
+	(*UpdateAudioMixerRequest)(nil),     // 7: openmanet.comms.v1.UpdateAudioMixerRequest
+	(*GetCommsConfigResponse)(nil),      // 8: openmanet.comms.v1.GetCommsConfigResponse
+	(*UpdateCommsConfigResponse)(nil),   // 9: openmanet.comms.v1.UpdateCommsConfigResponse
+	(*GetCommsStatusResponse)(nil),      // 10: openmanet.comms.v1.GetCommsStatusResponse
+	(*SetSendTalkGroupResponse)(nil),    // 11: openmanet.comms.v1.SetSendTalkGroupResponse
+	(*SetReceiveTalkGroupResponse)(nil), // 12: openmanet.comms.v1.SetReceiveTalkGroupResponse
+	(*SendPTTEventResponse)(nil),        // 13: openmanet.comms.v1.SendPTTEventResponse
+	(*StreamAudioTxResponse)(nil),       // 14: openmanet.comms.v1.StreamAudioTxResponse
+	(*StreamAudioRxResponse)(nil),       // 15: openmanet.comms.v1.StreamAudioRxResponse
+	(*GetAudioMixerResponse)(nil),       // 16: openmanet.comms.v1.GetAudioMixerResponse
+	(*UpdateAudioMixerResponse)(nil),    // 17: openmanet.comms.v1.UpdateAudioMixerResponse
 }
 var file_openmanet_comms_v1_comms_service_proto_depIdxs = []int32{
 	0,  // 0: openmanet.comms.v1.CommsService.GetCommsConfig:input_type -> google.protobuf.Empty
@@ -63,16 +68,20 @@ var file_openmanet_comms_v1_comms_service_proto_depIdxs = []int32{
 	4,  // 5: openmanet.comms.v1.CommsService.SendPTTEvent:input_type -> openmanet.comms.v1.SendPTTEventRequest
 	5,  // 6: openmanet.comms.v1.CommsService.StreamAudioTx:input_type -> openmanet.comms.v1.StreamAudioTxRequest
 	6,  // 7: openmanet.comms.v1.CommsService.StreamAudioRx:input_type -> openmanet.comms.v1.StreamAudioRxRequest
-	7,  // 8: openmanet.comms.v1.CommsService.GetCommsConfig:output_type -> openmanet.comms.v1.GetCommsConfigResponse
-	8,  // 9: openmanet.comms.v1.CommsService.UpdateCommsConfig:output_type -> openmanet.comms.v1.UpdateCommsConfigResponse
-	9,  // 10: openmanet.comms.v1.CommsService.GetCommsStatus:output_type -> openmanet.comms.v1.GetCommsStatusResponse
-	10, // 11: openmanet.comms.v1.CommsService.SetSendTalkGroup:output_type -> openmanet.comms.v1.SetSendTalkGroupResponse
-	11, // 12: openmanet.comms.v1.CommsService.SetReceiveTalkGroup:output_type -> openmanet.comms.v1.SetReceiveTalkGroupResponse
-	12, // 13: openmanet.comms.v1.CommsService.SendPTTEvent:output_type -> openmanet.comms.v1.SendPTTEventResponse
-	13, // 14: openmanet.comms.v1.CommsService.StreamAudioTx:output_type -> openmanet.comms.v1.StreamAudioTxResponse
-	14, // 15: openmanet.comms.v1.CommsService.StreamAudioRx:output_type -> openmanet.comms.v1.StreamAudioRxResponse
-	8,  // [8:16] is the sub-list for method output_type
-	0,  // [0:8] is the sub-list for method input_type
+	0,  // 8: openmanet.comms.v1.CommsService.GetAudioMixer:input_type -> google.protobuf.Empty
+	7,  // 9: openmanet.comms.v1.CommsService.UpdateAudioMixer:input_type -> openmanet.comms.v1.UpdateAudioMixerRequest
+	8,  // 10: openmanet.comms.v1.CommsService.GetCommsConfig:output_type -> openmanet.comms.v1.GetCommsConfigResponse
+	9,  // 11: openmanet.comms.v1.CommsService.UpdateCommsConfig:output_type -> openmanet.comms.v1.UpdateCommsConfigResponse
+	10, // 12: openmanet.comms.v1.CommsService.GetCommsStatus:output_type -> openmanet.comms.v1.GetCommsStatusResponse
+	11, // 13: openmanet.comms.v1.CommsService.SetSendTalkGroup:output_type -> openmanet.comms.v1.SetSendTalkGroupResponse
+	12, // 14: openmanet.comms.v1.CommsService.SetReceiveTalkGroup:output_type -> openmanet.comms.v1.SetReceiveTalkGroupResponse
+	13, // 15: openmanet.comms.v1.CommsService.SendPTTEvent:output_type -> openmanet.comms.v1.SendPTTEventResponse
+	14, // 16: openmanet.comms.v1.CommsService.StreamAudioTx:output_type -> openmanet.comms.v1.StreamAudioTxResponse
+	15, // 17: openmanet.comms.v1.CommsService.StreamAudioRx:output_type -> openmanet.comms.v1.StreamAudioRxResponse
+	16, // 18: openmanet.comms.v1.CommsService.GetAudioMixer:output_type -> openmanet.comms.v1.GetAudioMixerResponse
+	17, // 19: openmanet.comms.v1.CommsService.UpdateAudioMixer:output_type -> openmanet.comms.v1.UpdateAudioMixerResponse
+	10, // [10:20] is the sub-list for method output_type
+	0,  // [0:10] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name

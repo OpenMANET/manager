@@ -3,12 +3,13 @@
 /* eslint-disable */
 
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import { file_buf_validate_validate } from "../../../buf/validate/validate_pb";
 
 /**
  * Describes the file openmanet/comms/v1/comms.proto.
  */
 export const file_openmanet_comms_v1_comms = /*@__PURE__*/
-  fileDesc("Ch5vcGVubWFuZXQvY29tbXMvdjEvY29tbXMucHJvdG8SEm9wZW5tYW5ldC5jb21tcy52MSIkChNTZW5kUFRURXZlbnRSZXF1ZXN0Eg0KBWV2ZW50GAEgASgFIicKFFNlbmRQVFRFdmVudFJlc3BvbnNlEg8KB3N1Y2Nlc3MYASABKAgiOwoUU3RyZWFtQXVkaW9UeFJlcXVlc3QSEQoJb3B1c19kYXRhGAEgASgMEhAKCHNlcXVlbmNlGAIgASgNIk4KFVN0cmVhbUF1ZGlvUnhSZXNwb25zZRIRCglvcHVzX2RhdGEYASABKAwSEAoIc2VxdWVuY2UYAiABKA0SEAoIY2FsbHNpZ24YAyABKAkiMAoVU3RyZWFtQXVkaW9UeFJlc3BvbnNlEhcKD2ZyYW1lc19yZWNlaXZlZBgBIAEoDSIWChRTdHJlYW1BdWRpb1J4UmVxdWVzdELXAQoWY29tLm9wZW5tYW5ldC5jb21tcy52MUIKQ29tbXNQcm90b1ABWkdnaXRodWIuY29tL29wZW5tYW5ldC9vcGVubWFuZXRkL2ludGVybmFsL2FwaS9vcGVubWFuZXQvY29tbXMvdjE7Y29tbXN2MaICA09DWKoCEk9wZW5tYW5ldC5Db21tcy5WMcoCEk9wZW5tYW5ldFxDb21tc1xWMeICHk9wZW5tYW5ldFxDb21tc1xWMVxHUEJNZXRhZGF0YeoCFE9wZW5tYW5ldDo6Q29tbXM6OlYxYgZwcm90bzM");
+  fileDesc("Ch5vcGVubWFuZXQvY29tbXMvdjEvY29tbXMucHJvdG8SEm9wZW5tYW5ldC5jb21tcy52MSIkChNTZW5kUFRURXZlbnRSZXF1ZXN0Eg0KBWV2ZW50GAEgASgFIicKFFNlbmRQVFRFdmVudFJlc3BvbnNlEg8KB3N1Y2Nlc3MYASABKAgiOwoUU3RyZWFtQXVkaW9UeFJlcXVlc3QSEQoJb3B1c19kYXRhGAEgASgMEhAKCHNlcXVlbmNlGAIgASgNIk4KFVN0cmVhbUF1ZGlvUnhSZXNwb25zZRIRCglvcHVzX2RhdGEYASABKAwSEAoIc2VxdWVuY2UYAiABKA0SEAoIY2FsbHNpZ24YAyABKAkiMAoVU3RyZWFtQXVkaW9UeFJlc3BvbnNlEhcKD2ZyYW1lc19yZWNlaXZlZBgBIAEoDSIWChRTdHJlYW1BdWRpb1J4UmVxdWVzdCLpAQoPQXVkaW9NaXhlclN0YXRlEhEKCWF2YWlsYWJsZRgBIAEoCBIbCg5zcGVha2VyX3ZvbHVtZRgCIAEoBUgAiAEBEhcKCm1pY192b2x1bWUYAyABKAVIAYgBARIYCgthZ2NfZW5hYmxlZBgEIAEoCEgCiAEBEhcKD3NwZWFrZXJfY29udHJvbBgFIAEoCRITCgttaWNfY29udHJvbBgGIAEoCRITCgthZ2NfY29udHJvbBgHIAEoCUIRCg9fc3BlYWtlcl92b2x1bWVCDQoLX21pY192b2x1bWVCDgoMX2FnY19lbmFibGVkIksKFUdldEF1ZGlvTWl4ZXJSZXNwb25zZRIyCgVzdGF0ZRgBIAEoCzIjLm9wZW5tYW5ldC5jb21tcy52MS5BdWRpb01peGVyU3RhdGUisQEKF1VwZGF0ZUF1ZGlvTWl4ZXJSZXF1ZXN0EiYKDnNwZWFrZXJfdm9sdW1lGAEgASgFQgm6SAYaBBhkKABIAIgBARIiCgptaWNfdm9sdW1lGAIgASgFQgm6SAYaBBhkKABIAYgBARIYCgthZ2NfZW5hYmxlZBgDIAEoCEgCiAEBQhEKD19zcGVha2VyX3ZvbHVtZUINCgtfbWljX3ZvbHVtZUIOCgxfYWdjX2VuYWJsZWQiTgoYVXBkYXRlQXVkaW9NaXhlclJlc3BvbnNlEjIKBXN0YXRlGAEgASgLMiMub3Blbm1hbmV0LmNvbW1zLnYxLkF1ZGlvTWl4ZXJTdGF0ZULXAQoWY29tLm9wZW5tYW5ldC5jb21tcy52MUIKQ29tbXNQcm90b1ABWkdnaXRodWIuY29tL29wZW5tYW5ldC9vcGVubWFuZXRkL2ludGVybmFsL2FwaS9vcGVubWFuZXQvY29tbXMvdjE7Y29tbXN2MaICA09DWKoCEk9wZW5tYW5ldC5Db21tcy5WMcoCEk9wZW5tYW5ldFxDb21tc1xWMeICHk9wZW5tYW5ldFxDb21tc1xWMVxHUEJNZXRhZGF0YeoCFE9wZW5tYW5ldDo6Q29tbXM6OlYxYgZwcm90bzM", [file_buf_validate_validate]);
 
 /**
  * Describes the message openmanet.comms.v1.SendPTTEventRequest.
@@ -51,4 +52,32 @@ export const StreamAudioTxResponseSchema = /*@__PURE__*/
  */
 export const StreamAudioRxRequestSchema = /*@__PURE__*/
   messageDesc(file_openmanet_comms_v1_comms, 5);
+
+/**
+ * Describes the message openmanet.comms.v1.AudioMixerState.
+ * Use `create(AudioMixerStateSchema)` to create a new message.
+ */
+export const AudioMixerStateSchema = /*@__PURE__*/
+  messageDesc(file_openmanet_comms_v1_comms, 6);
+
+/**
+ * Describes the message openmanet.comms.v1.GetAudioMixerResponse.
+ * Use `create(GetAudioMixerResponseSchema)` to create a new message.
+ */
+export const GetAudioMixerResponseSchema = /*@__PURE__*/
+  messageDesc(file_openmanet_comms_v1_comms, 7);
+
+/**
+ * Describes the message openmanet.comms.v1.UpdateAudioMixerRequest.
+ * Use `create(UpdateAudioMixerRequestSchema)` to create a new message.
+ */
+export const UpdateAudioMixerRequestSchema = /*@__PURE__*/
+  messageDesc(file_openmanet_comms_v1_comms, 8);
+
+/**
+ * Describes the message openmanet.comms.v1.UpdateAudioMixerResponse.
+ * Use `create(UpdateAudioMixerResponseSchema)` to create a new message.
+ */
+export const UpdateAudioMixerResponseSchema = /*@__PURE__*/
+  messageDesc(file_openmanet_comms_v1_comms, 9);
 

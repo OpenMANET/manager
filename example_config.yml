@@ -30,6 +30,19 @@ comms:
   # equivalent to the 3-period floor. Raise above 60 only if a slow
   # device drops capture samples. Default 60.
   # captureLatencyMs: 60
+  # Hardware audio mixer levels applied to the OpenVLM sound card at comms
+  # startup and adjustable at runtime via the CommsService audio-mixer API.
+  # Every key is optional: when a key is absent the daemon never touches
+  # that hardware control. Values set through the API are persisted here.
+  # audio:
+  #   speakerVolume: 80     # playback volume percent [0-100]
+  #   micVolume: 60         # capture volume percent [0-100]
+  #   agc: false            # CM108B Auto Gain Control; when on, the chip
+  #                         # adjusts capture gain itself and manual
+  #                         # micVolume changes may appear ineffective
+  #   speakerControl: ""    # raw ALSA element-name overrides; leave unset
+  #   micControl: ""        # to use the built-in candidate lists
+  #   agcControl: ""
 # Periodic instrumentation snapshot. When enable is true the daemon writes a
 # JSON snapshot of every runtime counter/metric to snapshotDir every
 # intervalSecs. See docs/instrumentation-snapshot.md for the field reference.
