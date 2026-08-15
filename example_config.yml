@@ -17,6 +17,19 @@ comms:
   # first). 0 = unmarked best-effort (pre-1.4 behavior). Out-of-range
   # values clamp into [0, 63].
   # dscp: 46
+  # Playback device buffer depth in ms. The value becomes the ALSA period
+  # size; the playback ring holds 3 periods, so device latency scales at
+  # roughly 3x this value (USB audio devices round each period up to the
+  # next power of two). Smaller values cut receive latency and PTT settle
+  # time but shrink the margin against scheduling stalls before an
+  # audible underrun. Default 60.
+  # playbackLatencyMs: 60
+  # Capture ring headroom in ms. The capture period is fixed at 20 ms
+  # (one Opus frame); this value only sets the ring depth in periods
+  # (ceil(value/20), clamped to 3..16), so 60 and below are all
+  # equivalent to the 3-period floor. Raise above 60 only if a slow
+  # device drops capture samples. Default 60.
+  # captureLatencyMs: 60
 # Periodic instrumentation snapshot. When enable is true the daemon writes a
 # JSON snapshot of every runtime counter/metric to snapshotDir every
 # intervalSecs. See docs/instrumentation-snapshot.md for the field reference.

@@ -113,33 +113,35 @@ const (
 	// CommsDSCPMax is the upper clamp for comms.dscp: DSCP is a 6-bit
 	// field, so 63 is the largest encodable value.
 	CommsDSCPMax int = 63
-	// DefaultCommsPlaybackLatencyMs is the playback-side device buffer depth
-	// suggested to PortAudio. The Go-side jitter buffer cannot save the
-	// audio thread from OS scheduling stalls — only the device buffer can.
-	// 60 ms = three 20 ms callback periods, giving the audio thread two
-	// full periods of slack before the DAC underruns. Some hardware reports
-	// a higher DefaultHighOutputLatency than this; in that case the floor
-	// in buildAudio uses the device value instead so we never go below
-	// what the host API itself recommends.
+	// DefaultCommsPlaybackLatencyMs is the playback-side ALSA period size
+	// expressed in milliseconds. computePlaybackPeriodFrames converts it
+	// to malgo's DeviceConfig.PeriodSizeInFrames, and the LowLatency
+	// profile queues three periods in the playback ring, so worst-case
+	// device latency is ~3x this value (USB audio class devices round the
+	// period up to the next power of two on top of that). The ring is the
+	// audio thread's only protection against OS scheduling stalls — the
+	// Go-side jitter buffer cannot help once samples are due at the DAC.
+	// The PTT settle wait (transmitSettleWait) also anchors on the modeled
+	// ring, so lowering this value shortens PTT start latency too.
 	DefaultCommsPlaybackLatencyMs int = 60
-	// DefaultCommsCaptureLatencyMs is the capture-side device buffer depth
-	// suggested to PortAudio. Mirrors DefaultCommsPlaybackLatencyMs: a
-	// preempted capture audio thread silently drops samples (the ADC device
-	// buffer overruns), which remote listeners hear as a gap in the RTP
-	// stream. 60 ms = three 20 ms callback periods, giving the audio thread
-	// two full periods of slack before sample loss. Floored at the device's
-	// DefaultHighInputLatency in openBroadcastStreamOn so we never undercut
-	// the host API's recommendation.
+	// DefaultCommsCaptureLatencyMs is the capture-side ALSA ring headroom
+	// in milliseconds. Unlike playback, the capture period is pinned at
+	// one Opus frame (960 frames = 20 ms) so the callback fires once per
+	// frame; this value only selects the ring depth in periods via
+	// buildCapturePeriods (ceil(ms/20), clamped into [3, 16]). Values of
+	// 60 or below all hit the 3-period floor and are equivalent. A
+	// preempted capture audio thread silently drops samples (the ADC ring
+	// overruns), which remote listeners hear as a gap in the RTP stream —
+	// raise this above 60 to buy more headroom on devices that drop.
 	DefaultCommsCaptureLatencyMs int = 60
 	// DefaultCommsCaptureFramesPerBuffer is the per-callback frame count
-	// suggested to malgo (DeviceConfig.PeriodSizeInFrames). 0 means
-	// "derive from comms.captureLatencyMs" — a 60 ms latency at 48 kHz
-	// gives a 2880-frame period, which leaves ALSA enough headroom on
-	// USB audio class devices to avoid poll() failures and capture gaps.
-	// The captureChunker re-aligns whatever ALSA actually delivers onto
-	// 960-sample (20 ms) Opus frames, so the encoder pipeline never sees
-	// the discrepancy. Operators can override with a positive value to
-	// pin the period explicitly, or with -1 to let miniaudio pick.
+	// handed to malgo (DeviceConfig.PeriodSizeInFrames). 0 means
+	// audiopool.FrameSize (960 = 20 ms @ 48 kHz), keeping one callback
+	// per Opus frame; a negative value lets miniaudio pick a period
+	// aligned with the native ALSA period; a positive value is passed
+	// through verbatim. The captureChunker re-aligns whatever ALSA
+	// actually delivers onto 960-sample (20 ms) Opus frames, so the
+	// encoder pipeline never sees the discrepancy.
 	DefaultCommsCaptureFramesPerBuffer int  = 0
 	DefaultAuthEnable                  bool = true
 	// DefaultSetupEnabled is the default value for setup.enabled — the
@@ -657,24 +659,27 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsDSCP = DefaultCommsDSCP
 	}
 
-	// Load comms playback latency. Suggested to PortAudio as the playback
-	// device buffer depth (StreamDeviceParameters.Latency). Values <= 0
-	// fall back to the default; the actual depth granted by the host API
-	// is logged at Debug level when the playback stream is opened.
+	// Load comms playback latency. The value becomes the ALSA period size
+	// for every playback device (malgo DeviceConfig.PeriodSizeInFrames
+	// after ms→frames conversion); the ring holds three periods, so device
+	// latency scales at ~3x this value. Values <= 0 fall back to the
+	// default; the requested and effective period plus the modeled ring
+	// latency are logged when each playback stream is opened.
 	if val := c.v.GetInt("comms.playbackLatencyMs"); val > 0 {
 		c.CommsPlaybackLatencyMs = val
 	} else {
 		c.CommsPlaybackLatencyMs = DefaultCommsPlaybackLatencyMs
 	}
 
-	// Load comms capture latency. Suggested to PortAudio as the mic capture
-	// device buffer depth (StreamDeviceParameters.Latency on the Input
-	// params). Symmetric to comms.playbackLatencyMs: protects the capture
-	// audio thread against OS preemption that would otherwise cause the
-	// ADC device buffer to overrun and silently drop samples (heard as
-	// stutter by remote listeners). Values <= 0 fall back to the default;
-	// the actual depth granted by the host API is logged at Debug level
-	// when the broadcast stream is opened.
+	// Load comms capture latency. Sets the capture-side ALSA ring depth:
+	// the period is pinned at one Opus frame (960 frames = 20 ms) and this
+	// value picks how many periods deep the ring is (ceil(ms/20), clamped
+	// into [3, 16]), so values of 60 or below all hit the 3-period floor.
+	// The headroom protects the capture audio thread against OS preemption
+	// that would otherwise overrun the ADC ring and silently drop samples
+	// (heard as stutter by remote listeners). Values <= 0 fall back to the
+	// default; the derived period and ring depth are logged when the
+	// broadcast stream is opened.
 	if val := c.v.GetInt("comms.captureLatencyMs"); val > 0 {
 		c.CommsCaptureLatencyMs = val
 	} else {
@@ -682,13 +687,17 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 	}
 
 	// Load comms capture frames-per-buffer override. This is the per-
-	// callback frame count suggested to PortAudio. Unlike most numeric
-	// config knobs we use viper.IsSet here so that an explicit value of 0
-	// in YAML (paFramesPerBufferUnspecified — let PortAudio choose) can be
-	// distinguished from "not set in YAML" (fall back to the default of
-	// 960). The escape hatch is only useful on hardware where PortAudio's
-	// native callback pacing is jittery; see the audio/init.go stream
-	// open log for the granted latency and derived period frames.
+	// callback frame count handed to malgo as
+	// DeviceConfig.PeriodSizeInFrames. 0 — also the fallback when the key
+	// is absent — means audiopool.FrameSize (960 = 20 ms @ 48 kHz) so ALSA
+	// wakes the callback once per Opus frame; a negative value lets
+	// miniaudio pick a period aligned with the native ALSA period; a
+	// positive value is passed through verbatim. The IsSet guard predates
+	// the malgo migration (0 and absent now behave identically) and is
+	// kept for config-shape stability. The escape hatch is only useful on
+	// hardware where the fixed 20 ms period paces badly; see the
+	// audio/init.go stream-open log for the requested period and derived
+	// ring depth.
 	if c.v.IsSet("comms.captureFramesPerBuffer") {
 		c.CommsCaptureFramesPerBuffer = c.v.GetInt("comms.captureFramesPerBuffer")
 	} else {
@@ -1280,10 +1289,12 @@ func (c *Config) GetCommsDSCP() int {
 	return c.CommsDSCP
 }
 
-// GetCommsPlaybackLatencyMs returns the playback device buffer depth
-// suggested to PortAudio, in milliseconds. The actual depth granted by the
-// host API may be smaller; the playback stream open log records the granted
-// value at Debug level for verification.
+// GetCommsPlaybackLatencyMs returns the playback ALSA period size in
+// milliseconds. malgo queues three periods in the playback ring, so
+// worst-case device latency is ~3x this value (USB audio class devices
+// round the period up to the next power of two on top of that). The
+// playback stream-open log records the requested and effective period
+// for verification.
 func (c *Config) GetCommsPlaybackLatencyMs() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -1291,10 +1302,11 @@ func (c *Config) GetCommsPlaybackLatencyMs() int {
 	return c.CommsPlaybackLatencyMs
 }
 
-// GetCommsCaptureLatencyMs returns the mic capture device buffer depth
-// suggested to PortAudio, in milliseconds. The actual depth granted by the
-// host API may be smaller; the broadcast stream open log records the granted
-// value at Debug level for verification.
+// GetCommsCaptureLatencyMs returns the capture-side ALSA ring headroom in
+// milliseconds. The capture period is fixed at one Opus frame (20 ms);
+// this value only selects the ring depth in periods (ceil(ms/20), clamped
+// into [3, 16]), so values of 60 or below are equivalent. The broadcast
+// stream-open log records the derived period and ring depth.
 func (c *Config) GetCommsCaptureLatencyMs() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -1303,12 +1315,11 @@ func (c *Config) GetCommsCaptureLatencyMs() int {
 }
 
 // GetCommsCaptureFramesPerBuffer returns the frame count per capture
-// callback suggested to PortAudio. A value of 0 means
-// paFramesPerBufferUnspecified — the host API picks a frame count aligned
-// with the native ALSA period. Any positive value is passed through
-// verbatim. The default is 960 (20 ms @ 48 kHz mono), which matches the
-// Opus encoder frame size so each callback produces exactly one RTP
-// packet.
+// callback handed to malgo. A value of 0 means audiopool.FrameSize
+// (960 = 20 ms @ 48 kHz mono), matching the Opus encoder frame so each
+// callback produces exactly one RTP packet; a negative value lets
+// miniaudio pick a period aligned with the native ALSA period; any
+// positive value is passed through verbatim.
 func (c *Config) GetCommsCaptureFramesPerBuffer() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
