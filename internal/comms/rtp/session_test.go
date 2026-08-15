@@ -50,6 +50,84 @@ func TestParseIncomingRTP_Valid(t *testing.T) {
 	}
 }
 
+func TestParseIncomingInto_Valid(t *testing.T) {
+	orig := &pionrtp.Packet{
+		Header:  pionrtp.Header{Version: 2, PayloadType: PayloadTypeOpus, SequenceNumber: 42, Timestamp: 1000, SSRC: 0xDEADBEEF},
+		Payload: []byte{1, 2, 3, 4},
+	}
+
+	raw, err := orig.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var pkt pionrtp.Packet
+	if err := ParseIncomingInto(raw, &pkt); err != nil {
+		t.Fatal(err)
+	}
+
+	if pkt.SequenceNumber != 42 {
+		t.Errorf("seq: got %d, want 42", pkt.SequenceNumber)
+	}
+
+	if pkt.SSRC != 0xDEADBEEF {
+		t.Errorf("ssrc: got 0x%X", pkt.SSRC)
+	}
+
+	if string(pkt.Payload) != string(orig.Payload) {
+		t.Errorf("payload: got %v, want %v", pkt.Payload, orig.Payload)
+	}
+}
+
+// TestParseIncomingInto_Reuse exercises the receiveLoop pattern: one Packet
+// struct reused across parses. The second parse must fully overwrite the
+// first — no stale header fields or payload bytes may survive.
+func TestParseIncomingInto_Reuse(t *testing.T) {
+	first := &pionrtp.Packet{
+		Header:  pionrtp.Header{Version: 2, PayloadType: PayloadTypeOpus, SequenceNumber: 1, Timestamp: 100, SSRC: 0xAAAA},
+		Payload: []byte{9, 9, 9, 9, 9, 9},
+	}
+
+	second := &pionrtp.Packet{
+		Header:  pionrtp.Header{Version: 2, PayloadType: PayloadTypeOpus, SequenceNumber: 2, Timestamp: 200, SSRC: 0xBBBB},
+		Payload: []byte{7},
+	}
+
+	rawFirst, err := first.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rawSecond, err := second.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var pkt pionrtp.Packet
+	if err := ParseIncomingInto(rawFirst, &pkt); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ParseIncomingInto(rawSecond, &pkt); err != nil {
+		t.Fatal(err)
+	}
+
+	if pkt.SequenceNumber != 2 || pkt.Timestamp != 200 || pkt.SSRC != 0xBBBB {
+		t.Errorf("stale header after reuse: seq=%d ts=%d ssrc=0x%X", pkt.SequenceNumber, pkt.Timestamp, pkt.SSRC)
+	}
+
+	if len(pkt.Payload) != 1 || pkt.Payload[0] != 7 {
+		t.Errorf("stale payload after reuse: %v", pkt.Payload)
+	}
+}
+
+func TestParseIncomingInto_Invalid(t *testing.T) {
+	var pkt pionrtp.Packet
+	if err := ParseIncomingInto([]byte{0xFF, 0x00, 0x01}, &pkt); err == nil {
+		t.Error("expected error for invalid bytes")
+	}
+}
+
 func TestParseIncomingRTP_Invalid(t *testing.T) {
 	_, err := ParseIncoming([]byte{0xFF, 0x00, 0x01})
 	if err == nil {

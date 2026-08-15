@@ -248,11 +248,14 @@ func BenchmarkParseIncomingRTP(b *testing.B) {
 		b.Fatal(err)
 	}
 
+	// Mirror the receiveLoop hot path: one Packet reused across parses.
+	var pkt pionrtp.Packet
+
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for b.Loop() {
-		if _, err := rtp.ParseIncoming(raw); err != nil {
+		if err := rtp.ParseIncomingInto(raw, &pkt); err != nil {
 			b.Fatal(err)
 		}
 	}

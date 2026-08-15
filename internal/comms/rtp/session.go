@@ -243,11 +243,27 @@ func (s *Session) Close() error {
 
 // ParseIncoming parses a raw UDP datagram into a pion RTP Packet.
 // Returns an error if the bytes are not a valid RTP packet.
+//
+// The returned Packet escapes to the heap; hot paths should use
+// ParseIncomingInto with a caller-owned reused Packet instead.
 func ParseIncoming(raw []byte) (*pionrtp.Packet, error) {
 	var pkt pionrtp.Packet
-	if err := pkt.Unmarshal(raw); err != nil {
-		return nil, fmt.Errorf("rtp.Packet.Unmarshal: %w", err)
+	if err := ParseIncomingInto(raw, &pkt); err != nil {
+		return nil, err
 	}
 
 	return &pkt, nil
+}
+
+// ParseIncomingInto parses a raw UDP datagram into pkt, which may be reused
+// across calls: pion's Header.Unmarshal reuses CSRC capacity and resets
+// Extensions, so every field is overwritten on each parse. pkt.Payload
+// aliases raw — the caller must copy it before raw is reused (the jitter
+// buffer's push already does).
+func ParseIncomingInto(raw []byte, pkt *pionrtp.Packet) error {
+	if err := pkt.Unmarshal(raw); err != nil {
+		return fmt.Errorf("rtp.Packet.Unmarshal: %w", err)
+	}
+
+	return nil
 }

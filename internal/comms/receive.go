@@ -6,6 +6,8 @@ import (
 	"net"
 	"time"
 
+	pionrtp "github.com/pion/rtp"
+
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
 )
@@ -153,6 +155,11 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 	// busy-spin this goroutine.
 	errStreak := 0
 
+	// pkt is reused across iterations so the parsed packet does not escape
+	// to the heap once per datagram (ParseIncomingInto overwrites every
+	// field; the payload is copied by the jitter push before buf is reused).
+	var pkt pionrtp.Packet
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -217,8 +224,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 		}
 
 		// Parse using pion/rtp for proper header validation.
-		pkt, parseErr := rtp.ParseIncoming(buf[:n])
-		if parseErr != nil {
+		if parseErr := rtp.ParseIncomingInto(buf[:n], &pkt); parseErr != nil {
 			pc.RxParseErrs.Add(1)
 			cfg.Log.Debug().Err(parseErr).Int("bytes", n).Msg("comms: dropping non-RTP datagram")
 
