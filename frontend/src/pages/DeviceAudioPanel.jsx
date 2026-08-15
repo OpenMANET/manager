@@ -19,6 +19,24 @@ import { useVisibleInterval } from '../hooks/useVisibleInterval.js';
 
 const POLL_MS = 5000;
 
+// Keys that actually change a range input's value. onKeyUp fires for any
+// key released while the slider has focus — including Tab, which merely
+// moves focus onto the slider and must never commit the displayed value.
+const SLIDER_COMMIT_KEYS = new Set([
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+]);
+
+function isSliderCommitKey(key) {
+  return SLIDER_COMMIT_KEYS.has(key);
+}
+
 export default function DeviceAudioPanel() {
   const [mixer, setMixer] = useState(null);     // last known AudioMixerState
   const [pending, setPending] = useState({});   // { speaker?, mic?, agc? } — optimistic per-control overrides
@@ -84,6 +102,12 @@ export default function DeviceAudioPanel() {
 
   const commitSpeaker = () => commit('speaker', { speakerVolume: speakerVal });
   const commitMic = () => commit('mic', { micVolume: micVal });
+  const onSpeakerKeyUp = (e) => {
+    if (isSliderCommitKey(e.key)) commitSpeaker();
+  };
+  const onMicKeyUp = (e) => {
+    if (isSliderCommitKey(e.key)) commitMic();
+  };
   const toggleAgc = () => {
     const next = !agcOn;
     setPending((p) => ({ ...p, agc: next }));
@@ -115,7 +139,7 @@ export default function DeviceAudioPanel() {
                 value={speakerVal}
                 onChange={(e) => onSpeakerDrag(Number(e.target.value))}
                 onPointerUp={commitSpeaker}
-                onKeyUp={commitSpeaker}
+                onKeyUp={onSpeakerKeyUp}
                 aria-label="Device speaker volume"
               />
               <span className="pbar-val">{speakerVal}</span>
@@ -133,7 +157,7 @@ export default function DeviceAudioPanel() {
                 value={micVal}
                 onChange={(e) => onMicDrag(Number(e.target.value))}
                 onPointerUp={commitMic}
-                onKeyUp={commitMic}
+                onKeyUp={onMicKeyUp}
                 aria-label="Device mic volume"
               />
               <span className="pbar-val">{micVal}</span>

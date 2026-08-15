@@ -132,6 +132,34 @@ describe('TestDeviceAudioPanel', () => {
     expect(micSlider).toHaveValue('10');
   });
 
+  it('does not commit on a Tab key-up landing focus on the slider', async () => {
+    fetchAudioMixer.mockResolvedValue(fullState);
+
+    render(<DeviceAudioPanel />);
+    const slider = await screen.findByLabelText('Device speaker volume');
+
+    await act(async () => {
+      fireEvent.keyUp(slider, { key: 'Tab' });
+    });
+
+    expect(updateAudioMixer).not.toHaveBeenCalled();
+  });
+
+  it('commits on a value-changing key-up such as ArrowUp', async () => {
+    fetchAudioMixer.mockResolvedValue(fullState);
+    updateAudioMixer.mockResolvedValue({ ...fullState, speakerVolume: 71 });
+
+    render(<DeviceAudioPanel />);
+    const slider = await screen.findByLabelText('Device speaker volume');
+
+    fireEvent.change(slider, { target: { value: '71' } });
+    await act(async () => {
+      fireEvent.keyUp(slider, { key: 'ArrowUp' });
+    });
+
+    expect(updateAudioMixer).toHaveBeenCalledWith({ speakerVolume: 71 });
+  });
+
   it('renders the AGC toggle optimistically before the update RPC resolves', async () => {
     fetchAudioMixer.mockResolvedValue(fullState);
     let resolveUpdate;

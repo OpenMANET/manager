@@ -49,9 +49,10 @@ Every snapshot is a single JSON object with this shape:
   "daemon": { ... },
   "runtime": { ... },
   "sections": [
-    { "name": "comms",      "data": { ... } },
-    { "name": "blos",       "data": { ... } },
-    { "name": "sysupgrade", "data": { ... } }
+    { "name": "comms",       "data": { ... } },
+    { "name": "blos",        "data": { ... } },
+    { "name": "sysupgrade",  "data": { ... } },
+    { "name": "audio_mixer", "data": { ... } }
   ]
 }
 ```

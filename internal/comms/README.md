@@ -838,7 +838,11 @@ production wiring (`CommsManager.buildCommsConfig`) never sets it from
 config, so pinning `comms.audio.speakerControl` has no effect on button
 behavior — only on what `GetAudioMixer`/`UpdateAudioMixer` read and
 write. The switch-name lists have no config override at all; they only
-matter for the defensive startup unmute described below.
+matter for the defensive startup unmute described below. The three
+override keys are read once when `alsa.Volume.Names` is built in
+`Start()` — changing `comms.audio.speakerControl`, `comms.audio.micControl`,
+or `comms.audio.agcControl` requires a daemon restart to take effect; a
+comms disable/re-enable cycle alone will not pick up the new value.
 
 ### Persistence semantics
 
