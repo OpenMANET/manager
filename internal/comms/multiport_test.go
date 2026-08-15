@@ -305,9 +305,9 @@ func TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled(t *testing.T) {
 	pc.ReceiveEnabled.Store(false) // ← disabled
 	pc.PlaybackBuffer = make(chan []int16, 8)
 
+	pc.Decoder = &mockDecoder{returnN: int(rtp.FrameSamples)}
 	rt := &CommsRuntime{
-		Ports:   []*PortChannel{pc},
-		Decoder: &mockDecoder{returnN: int(rtp.FrameSamples)},
+		Ports: []*PortChannel{pc},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -387,7 +387,6 @@ func TestBeginTransmission_BeepSentToAllPorts(t *testing.T) {
 		Ports:           []*PortChannel{pc0, pc1},
 		BeepBufferStart: []int16{100, 200},
 		BeepBufferStop:  []int16{300, 400},
-		Decoder:         &mockDecoder{},
 	}
 	rt.SetBroadcast(&mockStream{})
 
@@ -434,9 +433,9 @@ func TestPlayoutOneFrame_ReceiveOnlyPortNotSuppressedDuringBroadcast(t *testing.
 	pc.SendEnabled.Store(false)
 	pc.ReceiveEnabled.Store(true)
 
+	pc.Decoder = &mockDecoder{fillValue: 42, returnN: audiopool.FrameSize}
 	rt := &CommsRuntime{
-		Ports:   []*PortChannel{pc},
-		Decoder: &mockDecoder{fillValue: 42, returnN: audiopool.FrameSize},
+		Ports: []*PortChannel{pc},
 	}
 	rt.Broadcasting.Store(true) // simulate active broadcast on another port
 

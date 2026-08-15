@@ -32,7 +32,6 @@ func newTestRuntime(stream BroadcastCapture) *CommsRuntime {
 		Ports:           []*PortChannel{pc},
 		BeepBufferStart: []int16{100, 200},
 		BeepBufferStop:  []int16{300, 400},
-		Decoder:         &mockDecoder{},
 	}
 	rt.SetBroadcast(stream)
 
@@ -656,7 +655,6 @@ func TestEndTransmission_QueuesStopBeepToAllPorts(t *testing.T) {
 		Ports:           []*PortChannel{pc0, pc1},
 		BeepBufferStart: []int16{100, 200},
 		BeepBufferStop:  []int16{300, 400},
-		Decoder:         &mockDecoder{},
 	}
 	rt.SetBroadcast(&mockStream{})
 

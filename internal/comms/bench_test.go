@@ -298,9 +298,8 @@ func BenchmarkPlayoutOneFrame_Mock(b *testing.B) {
 	pc.SendEnabled.Store(true)
 	pc.ReceiveEnabled.Store(true)
 
-	rt := &CommsRuntime{
-		Decoder: &mockDecoder{returnN: audiopool.FrameSize},
-	}
+	pc.Decoder = &mockDecoder{returnN: audiopool.FrameSize}
+	rt := &CommsRuntime{}
 
 	jb := rtp.NewJitterBuffer(1, rtp.MaxDepth)
 	payload := make([]byte, 100)
@@ -349,8 +348,9 @@ func BenchmarkPlayoutOneFrame_Real(b *testing.B) {
 	pc := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
 	pc.SendEnabled.Store(true)
 	pc.ReceiveEnabled.Store(true)
+	pc.Decoder = dec
 
-	rt := &CommsRuntime{Decoder: dec}
+	rt := &CommsRuntime{}
 
 	jb := rtp.NewJitterBuffer(1, rtp.MaxDepth)
 	out := make([]int16, audiopool.FrameSize)
@@ -403,8 +403,9 @@ func BenchmarkPlayoutOneFrame_PLC(b *testing.B) {
 	pc := &PortChannel{cfg: McastPortConfig{Send: true, Receive: true}}
 	pc.SendEnabled.Store(true)
 	pc.ReceiveEnabled.Store(true)
+	pc.Decoder = dec
 
-	rt := &CommsRuntime{Decoder: dec}
+	rt := &CommsRuntime{}
 
 	// Prime the jitter buffer with a single push+pop so started=true and
 	// lastPush is recent; subsequent playoutOneFrame calls will hit conceal.

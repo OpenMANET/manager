@@ -283,9 +283,9 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 	)
 
 	// ── codec ──────────────────────────────────────────────────────────────
-	enc, dec, err := cfg.buildCodec()
+	enc, err := cfg.buildEncoder()
 	if err != nil {
-		return fmt.Errorf("comms: failed to build Opus codec: %w", err)
+		return fmt.Errorf("comms: failed to build Opus encoder: %w", err)
 	}
 
 	// ── beep tones ─────────────────────────────────────────────────────────
@@ -308,10 +308,19 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 		return fmt.Errorf("comms: failed to set up network: %w", netErr)
 	}
 
+	// Per-port decoders: allocated after buildNetwork so every
+	// receive-capable port (Receiver != nil) gets its own instance.
+	if decErr := buildPortDecoders(ports); decErr != nil {
+		for _, pc := range ports {
+			pc.closePartial()
+		}
+
+		return fmt.Errorf("comms: failed to build Opus decoders: %w", decErr)
+	}
+
 	// ── assemble runtime ───────────────────────────────────────────────────
 	rt := &CommsRuntime{
 		Encoder:         enc,
-		Decoder:         dec,
 		Ports:           ports,
 		BeepBufferStart: beepStart,
 		BeepBufferStop:  beepStop,

@@ -271,7 +271,7 @@ func (cfg *CommsConfig) playoutOneFrame(pc *PortChannel, rt *CommsRuntime, jitte
 		return
 	}
 
-	if jitter == nil {
+	if jitter == nil || pc.Decoder == nil {
 		zeroInt16(out)
 
 		return
@@ -279,14 +279,14 @@ func (cfg *CommsConfig) playoutOneFrame(pc *PortChannel, rt *CommsRuntime, jitte
 
 	payload, conceal := jitter.PopOrConceal(concealRecentWindow)
 	if payload != nil {
-		n, err := rt.Decoder.DecodeS16(payload, out)
+		n, err := pc.Decoder.DecodeS16(payload, out)
 		jitter.ReleasePayload(payload)
 
 		if err != nil {
 			cfg.Log.Debug().Err(err).Msg("comms: opus decode error; falling back to PLC")
 
 			// Try PLC into the same buffer.
-			n, err = rt.Decoder.DecodeS16(nil, out)
+			n, err = pc.Decoder.DecodeS16(nil, out)
 			if err != nil || n != len(out) {
 				zeroInt16(out)
 				pc.PlaybackUnderruns.Add(1)
@@ -321,7 +321,7 @@ func (cfg *CommsConfig) playoutOneFrame(pc *PortChannel, rt *CommsRuntime, jitte
 				cfg.Log.Trace().Int("consecutive_plc", pc.ConsecutivePLC).Msg("comms: jitter buffer gap → PLC")
 			}
 
-			n, err := rt.Decoder.DecodeS16(nil, out)
+			n, err := pc.Decoder.DecodeS16(nil, out)
 			if err != nil || n != len(out) {
 				zeroInt16(out)
 			}

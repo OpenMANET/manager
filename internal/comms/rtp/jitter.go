@@ -84,20 +84,20 @@ type JitterBuffer struct {
 	GapRuns11to20 atomic.Int64
 	GapRuns21to50 atomic.Int64
 	GapRunsOver50 atomic.Int64
-	count     int
-	prebuffer int
-	maxDepth  int
+	count         int
+	prebuffer     int
+	maxDepth      int
 	// depthMask is maxDepth-1, valid because maxDepth is a power of two.
 	// Slot indexing uses seq & depthMask so the mapping is continuous
 	// across the uint16 sequence wrap (and avoids a hardware divide on
 	// mipsle, where modulo by a non-power-of-two constant is a real DIV).
-	depthMask     int
-	mu            sync.Mutex
-	ssrc          uint32
-	expected      uint16
-	init          bool
-	started       bool
-	haveSSRC      bool
+	depthMask int
+	mu        sync.Mutex
+	ssrc      uint32
+	expected  uint16
+	init      bool
+	started   bool
+	haveSSRC  bool
 	// inGap is true when the consumer is currently walking through a
 	// contiguous missing-sequence run. Cleared on every successful pop
 	// and on reset. Used to ensure each run is bucketed exactly once.

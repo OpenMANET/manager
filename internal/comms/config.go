@@ -39,7 +39,6 @@ type BroadcastCapture interface {
 // incoming stream) and cleared by halfDuplexDecayLoop on a coarse 100 ms
 // ticker once every gate's window has expired.
 type CommsRuntime struct { //nolint:govet // fieldalignment: mu must sit directly above the broadcastStream field it guards (.claude/rules/concurrency.md); the pointer-scan-optimal layout would separate them.
-	Decoder         codec.AudioDecoder
 	Encoder         codec.AudioEncoder
 	FECAdapter      *FECAdapter
 	WebBridge       *webaudio.Bridge
