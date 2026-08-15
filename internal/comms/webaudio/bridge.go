@@ -23,6 +23,14 @@ type SendFn func(opusData []byte)
 // anything larger, so every payload reaching PushRxFrame fits.
 const maxFrameBytes = 1275
 
+// rxFrameDepth bounds the RX channel at ~200 ms of slack (10 frames at
+// 50 fps), matching the pipeline's latency budget. Depth beyond that only
+// adds staleness: the jitter buffer upstream already owns ordering and
+// depth, and PushRxFrame evicts the oldest frame when full, so a stalled
+// browser consumer resumes at most 200 ms behind live audio instead of
+// pinned a full second back.
+const rxFrameDepth = 10
+
 // Frame carries one Opus payload from the mesh through the bridge to an
 // RPC consumer. The backing buffer is pooled: the consumer must call
 // Release exactly once when done with Data (after stream.Send has
@@ -90,12 +98,11 @@ type Bridge struct {
 }
 
 // NewBridge creates a bridge wired to the given send callback and logger.
-// The rxFrames channel is sized for ~1 second of slack at 50 fps.
 func NewBridge(log zerolog.Logger, send SendFn) *Bridge {
 	b := &Bridge{
 		log:      log,
 		send:     send,
-		rxFrames: make(chan Frame, 50),
+		rxFrames: make(chan Frame, rxFrameDepth),
 	}
 
 	b.framePool.New = func() any {
@@ -123,12 +130,32 @@ func (b *Bridge) InjectTxFrame(opusData []byte) {
 // side only does per-frame work while at least one consumer is registered.
 // Callers must pair every AddConsumer with exactly one RemoveConsumer
 // (typically via defer) when the stream ends.
+//
+// The first consumer to attach (0 → 1 transition) flushes any frames still
+// queued from before it attached: those were pushed while the previous
+// consumer was detaching and may be arbitrarily old, and a new browser
+// session must start on live audio. A frame a concurrent producer pushes
+// during the flush may be discarded with them — one frame, indistinguishable
+// from an eviction. Non-first consumers never flush, so an active stream is
+// not robbed of frames it is about to read.
 func (b *Bridge) AddConsumer() {
 	if b == nil {
 		return
 	}
 
-	b.consumers.Add(1)
+	if b.consumers.Add(1) != 1 {
+		return
+	}
+
+	for {
+		select {
+		case f := <-b.rxFrames:
+			b.RxPushDrop.Add(1)
+			f.Release()
+		default:
+			return
+		}
+	}
 }
 
 // RemoveConsumer deregisters an RPC stream previously registered with
@@ -186,8 +213,27 @@ func (b *Bridge) PushRxFrame(opusData []byte) {
 	select {
 	case b.rxFrames <- f:
 	default:
-		b.RxPushDrop.Add(1)
-		b.framePool.Put(bufPtr)
-		b.log.Debug().Msg("web: RX frame channel full; dropping")
+		// Full: evict the oldest frame (drop-oldest) so the consumer
+		// resumes on the freshest audio — for PTT voice, fresh beats
+		// stale — then retry the send once.
+		select {
+		case old := <-b.rxFrames:
+			b.RxPushDrop.Add(1)
+			old.Release()
+		default:
+			// A consumer drained the channel between our two selects;
+			// nothing to evict.
+		}
+
+		select {
+		case b.rxFrames <- f:
+		default:
+			// Concurrent producers refilled the channel first; drop the
+			// new frame rather than looping.
+			b.RxPushDrop.Add(1)
+			b.framePool.Put(bufPtr)
+		}
+
+		b.log.Debug().Msg("web: RX frame channel full; dropped oldest")
 	}
 }

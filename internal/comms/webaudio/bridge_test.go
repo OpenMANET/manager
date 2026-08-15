@@ -114,6 +114,88 @@ func TestBridge_PushRxFrame_DropsOnFull(t *testing.T) {
 	}
 }
 
+// TestBridge_ChannelDepth pins the RX buffer at ~200 ms of slack (10
+// frames at 50 fps). The previous 1-second depth meant a stalled browser
+// consumer resumed a full second behind live audio and stayed there for
+// the rest of a continuous stream.
+func TestBridge_ChannelDepth(t *testing.T) {
+	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
+
+	if got := cap(bridge.rxFrames); got != 10 {
+		t.Errorf("rxFrames depth: got %d, want 10 (~200 ms at 50 fps)", got)
+	}
+}
+
+// TestBridge_PushRxFrame_DropsOldestOnFull pins the drop-oldest policy:
+// when the channel is full the oldest frame is evicted so a stalled-then-
+// resumed consumer hears the freshest audio, not second-old backlog. For
+// PTT voice, fresh beats stale.
+func TestBridge_PushRxFrame_DropsOldestOnFull(t *testing.T) {
+	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
+
+	depth := cap(bridge.rxFrames)
+
+	// Frames 0..depth fill the channel and then force one eviction.
+	for i := range depth + 1 {
+		bridge.PushRxFrame([]byte{byte(i)})
+	}
+
+	if got := bridge.RxPushDrop.Load(); got != 1 {
+		t.Errorf("RxPushDrop: got %d, want 1 (the evicted oldest frame)", got)
+	}
+
+	// The survivor set must be frames 1..depth: oldest evicted, newest kept.
+	for i := 1; i <= depth; i++ {
+		select {
+		case f := <-bridge.rxFrames:
+			if d := f.Data(); len(d) != 1 || d[0] != byte(i) {
+				t.Errorf("position %d: got frame %v, want [%d]", i, d, i)
+			}
+
+			f.Release()
+		default:
+			t.Fatalf("channel exhausted at position %d; want %d frames", i, depth)
+		}
+	}
+}
+
+// TestBridge_AddConsumer_FlushesStaleFrames pins the attach-time flush:
+// frames queued when the last consumer detached (possibly hours ago) must
+// not play to a newly attached browser. The 0→1 consumer transition
+// discards and recycles whatever is queued.
+func TestBridge_AddConsumer_FlushesStaleFrames(t *testing.T) {
+	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
+
+	bridge.AddConsumer()
+	bridge.PushRxFrame([]byte{0x01})
+	bridge.PushRxFrame([]byte{0x02})
+	bridge.RemoveConsumer() // consumer detached with frames still queued
+
+	bridge.AddConsumer() // hours later, a new browser attaches
+
+	select {
+	case f := <-bridge.rxFrames:
+		t.Errorf("stale frame survived consumer attach: %v", f.Data())
+	default:
+	}
+
+	// A second consumer attaching while the first is still active must NOT
+	// flush frames the active consumer is about to read.
+	bridge.PushRxFrame([]byte{0x03})
+	bridge.AddConsumer()
+
+	select {
+	case f := <-bridge.rxFrames:
+		if d := f.Data(); len(d) != 1 || d[0] != 0x03 {
+			t.Errorf("unexpected frame after second attach: %v", d)
+		}
+
+		f.Release()
+	default:
+		t.Error("frame flushed by a non-first consumer attach")
+	}
+}
+
 // TestBridge_PushRxFrame_ZeroAlloc pins the pooled hand-off: a full
 // push→receive→release cycle must not allocate once the pool is warm.
 func TestBridge_PushRxFrame_ZeroAlloc(t *testing.T) {
