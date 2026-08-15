@@ -58,7 +58,7 @@ func TestPlayoutOneFrame_DecodesPayload(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.Decoder = &mockDecoder{fillValue: 1234, returnN: audiopool.FrameSize}
 
-	jb := rtp.NewJitterBuffer(1, 10) // prebuffer=1: first push triggers start
+	jb := rtp.NewJitterBuffer(1, 16) // prebuffer=1: first push triggers start
 	jb.Push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -109,7 +109,7 @@ func TestPlayoutOneFrame_PLCOnConceal(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 
 	jb.Push(0, []byte{0})
 	jb.PopReady() // started=true, expected=1, lastPush set to now
@@ -133,7 +133,7 @@ func TestPlayoutOneFrame_SilenceAfterMaxPLC(t *testing.T) {
 	dec := &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
 	rt.Decoder = dec
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0})
 	jb.PopReady() // started=true, lastPush set
 
@@ -160,7 +160,7 @@ func TestPlayoutOneFrame_SilenceWhenBroadcasting(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.Broadcasting.Store(true) // isBroadcasting will return true; pc.SendEnabled=true → suppress
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -175,7 +175,7 @@ func TestPlayoutOneFrame_SilenceWhenReceiveDisabled(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	pc.ReceiveEnabled.Store(false)
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0xAA})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -204,7 +204,7 @@ func TestPlayoutOneFrame_NoUnderrunOnIdleStream(t *testing.T) {
 	// Stream that has never started (no packets yet) should write silence
 	// without incrementing the underrun counter — silence != underrun.
 	rt, pc := newReceiveRuntime()
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 
@@ -223,7 +223,7 @@ func TestPlayoutOneFrame_UnderrunOnDecoderError(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.Decoder = &mockDecoder{decodeErr: errors.New("bad decode")}
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -249,7 +249,7 @@ func TestPlayoutOneFrame_DecoderErrorPLCFallback(t *testing.T) {
 		fillValue: 1234,
 	}
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0xAA, 0xBB})
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}
@@ -679,7 +679,7 @@ func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 	})
 	rt.WebBridge = bridge
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0xAA, 0xBB, 0xCC})
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -716,7 +716,7 @@ func TestWebPlayoutLoop_MultipleFrames(t *testing.T) {
 	})
 	rt.WebBridge = bridge
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	for i := 0; i < 5; i++ {
 		jb.Push(uint16(i), []byte{byte(i)})
 	}
@@ -751,7 +751,7 @@ func TestWebPlayoutLoop_DeliversWhileBroadcasting(t *testing.T) {
 	rt.WebBridge = bridge
 	rt.Broadcasting.Store(true)
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0x01})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -776,7 +776,7 @@ func TestPlayoutOneFrame_ConsecutivePLCLimit(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0})
 	jb.PopReady() // started=true, expected=1, lastPush set
 
@@ -805,7 +805,7 @@ func TestPlayoutOneFrame_ConsecutivePLCResets(t *testing.T) {
 	rt, pc := newReceiveRuntime()
 	rt.Decoder = &mockDecoder{fillValue: 99, returnN: audiopool.FrameSize}
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0})
 	jb.PopReady() // started=true, expected=1, lastPush set
 

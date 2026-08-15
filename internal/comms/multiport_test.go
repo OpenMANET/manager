@@ -440,7 +440,7 @@ func TestPlayoutOneFrame_ReceiveOnlyPortNotSuppressedDuringBroadcast(t *testing.
 	}
 	rt.Broadcasting.Store(true) // simulate active broadcast on another port
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0xAA, 0xBB}) // prebuffer=1: immediately ready
 
 	cfg := &CommsConfig{Log: zerolog.Nop()}

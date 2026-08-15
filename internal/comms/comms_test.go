@@ -139,7 +139,7 @@ func TestPlayoutOneFrame_SuppressedDuringBroadcastOnSendPort(t *testing.T) {
 	}
 	rt.Broadcasting.Store(true)
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0xAA, 0xBB})
 
 	out := make([]int16, audiopool.FrameSize)
@@ -166,7 +166,7 @@ func TestPlayoutOneFrame_DecodesPayloadIntoOut(t *testing.T) {
 	dec := &mockDecoder{fillValue: 42, returnN: audiopool.FrameSize}
 	rt := &CommsRuntime{Decoder: dec}
 
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{1, 2, 3})
 
 	out := make([]int16, audiopool.FrameSize)
@@ -199,7 +199,7 @@ func TestPlayoutOneFrame_PLCFillsOut(t *testing.T) {
 	// Push and pop to set started=true and a recent lastPush; the next
 	// playoutOneFrame call will hit the conceal branch and call the decoder
 	// with a nil payload (PLC).
-	jb := rtp.NewJitterBuffer(1, 10)
+	jb := rtp.NewJitterBuffer(1, 16)
 	jb.Push(0, []byte{0})
 	jb.PopReady()
 
