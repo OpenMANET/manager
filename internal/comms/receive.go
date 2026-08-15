@@ -8,6 +8,7 @@ import (
 	"time"
 
 	pionrtp "github.com/pion/rtp"
+	"github.com/rs/zerolog"
 
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
@@ -29,6 +30,10 @@ const maxConsecutivePLC = 10
 // popOrConceal would hand back genuine silence even though playoutOneFrame
 // is still willing to PLC.
 const concealRecentWindow = 200 * time.Millisecond
+
+// webStatDefaultInterval is the webPlayoutLoop stat-reporting period.
+// Overridable per-config for tests via CommsConfig.webStatInterval.
+const webStatDefaultInterval = 2 * time.Second
 
 const (
 	// receiveErrStreakThreshold is the number of consecutive ReadFromUDP
@@ -237,6 +242,15 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 			continue
 		}
 
+		// Muted port: the packet is discarded regardless of content, so
+		// skip the RTP unmarshal (and its parse-error accounting)
+		// entirely. RxPkts and RxLoopback above still count while muted;
+		// MarkRemoteRx below must not run for muted ports (unchanged —
+		// it already sat below this check before the hoist).
+		if !pc.ReceiveEnabled.Load() {
+			continue
+		}
+
 		// Parse using pion/rtp for proper header validation.
 		if parseErr := rtp.ParseIncomingInto(buf[:n], &pkt); parseErr != nil {
 			pc.RxParseErrs.Add(1)
@@ -253,11 +267,6 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 				Uint32("ssrc", pkt.Header.SSRC).
 				Int("payload_bytes", len(pkt.Payload)).
 				Msg("comms: RTP packet received")
-		}
-
-		// Skip payload delivery when receive is disabled at runtime.
-		if !pc.ReceiveEnabled.Load() {
-			continue
 		}
 
 		// Record the arrival time for half-duplex enforcement and prime the
@@ -417,7 +426,12 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 	// they localize where RX frames are being lost on the server side.
 	var popped, poppedSkipped int64
 
-	statTicker := time.NewTicker(2 * time.Second)
+	statInterval := webStatDefaultInterval
+	if cfg.webStatInterval > 0 {
+		statInterval = cfg.webStatInterval
+	}
+
+	statTicker := time.NewTicker(statInterval)
 	defer statTicker.Stop()
 
 	var (
@@ -498,15 +512,6 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 			rxPushed := pc.RxPushed.Load()
 			rxPushRejected := pc.RxPushRejected.Load()
 
-			// kernel_drops is the per-socket drop counter from /proc/net/udp.
-			// readUDPSocketDrops returns -1 with no error when no row matches
-			// (e.g. on a non-Linux test host) — treat that as zero so the
-			// delta arithmetic stays sane.
-			kernelDrops, _ := readUDPSocketDrops(pc.cfg.Port)
-			if kernelDrops < 0 {
-				kernelDrops = 0
-			}
-
 			gap1 := jitter.GapRuns1.Load()
 			gap2to5 := jitter.GapRuns2to5.Load()
 			gap6to10 := jitter.GapRuns6to10.Load()
@@ -533,12 +538,31 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 			dRxParseErrs := rxParseErrs - lastRxParseErrs
 			dRxPushed := rxPushed - lastRxPushed
 			dRxPushRejected := rxPushRejected - lastRxPushRejected
-			dKernelDrops := kernelDrops - lastKernelDrops
 
-			// Suppress idle ports: only emit a line when this port had any
-			// RX activity in the last window. Eliminates the 5-port spam
-			// where 4 inactive ports each printed an all-zero line.
-			if dRxPkts > 0 || dPopped > 0 || dPoppedSkipped > 0 || dKernelDrops > 0 {
+			// The /proc/net/udp kernel-drop scan and the stat line are
+			// debug-only telemetry, so both are gated: on RX activity in
+			// this window (per in-process counters — an idle port skips
+			// everything, eliminating the 5-port all-zero spam), and on
+			// Debug logging actually being enabled (the log line is the
+			// scan's only consumer, so scanning with Debug off is pure
+			// waste). The one signal this can miss: a port whose ONLY
+			// activity is kernel-side drops with zero successful reads —
+			// that means the receive goroutine is stalled outright, which
+			// surfaces far louder elsewhere (PLC, jitter underruns).
+			active := dRxPkts > 0 || dPopped > 0 || dPoppedSkipped > 0
+			if active && cfg.Log.GetLevel() <= zerolog.DebugLevel {
+				// kernel_drops is the per-socket drop counter from
+				// /proc/net/udp. readUDPDrops returns -1 with no error
+				// when no row matches (e.g. on a non-Linux test host) —
+				// treat that as zero so the delta arithmetic stays sane.
+				kernelDrops, _ := cfg.readUDPDrops(pc.cfg.Port)
+				if kernelDrops < 0 {
+					kernelDrops = 0
+				}
+
+				dKernelDrops := kernelDrops - lastKernelDrops
+				lastKernelDrops = kernelDrops
+
 				cfg.Log.Debug().
 					Int("port", pc.cfg.Port).
 					Int64("pkt_rx", dRxPkts).
@@ -575,7 +599,6 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 			lastRxParseErrs = rxParseErrs
 			lastRxPushed = rxPushed
 			lastRxPushRejected = rxPushRejected
-			lastKernelDrops = kernelDrops
 			lastGap1 = gap1
 			lastGap2to5 = gap2to5
 			lastGap6to10 = gap6to10

@@ -430,6 +430,67 @@ func TestReceiveLoop_DropsOwn4in6Packets(t *testing.T) {
 	}
 }
 
+// TestReceiveLoop_SkipsParseWhenReceiveDisabled pins the muted-port fast
+// path: a receive-disabled port must not pay the RTP unmarshal for packets
+// it will discard anyway, so parse errors are not counted while muted.
+// RxPkts still advances (the read happened) and re-enabling resumes
+// parsing.
+func TestReceiveLoop_SkipsParseWhenReceiveDisabled(t *testing.T) {
+	// Garbage packets that would fail RTP parsing if parsed.
+	garbage := []byte{0xFF, 0x00, 0x01}
+
+	var pkts []mockPacket
+	for range 3 {
+		pkts = append(pkts, mockPacket{data: garbage, src: netip.MustParseAddrPort("1.2.3.4:5004")})
+	}
+
+	reader := newMockReader(pkts...)
+	pc := &PortChannel{
+		cfg:      McastPortConfig{Send: true, Receive: true},
+		Receiver: rtp.NewSwappableReceiver(reader),
+	}
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(false) // muted
+	pc.PlaybackBuffer = make(chan []int16, 8)
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
+
+	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		cfg.receiveLoop(ctx, pc, rt)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if reader.remaining() == 0 {
+			break
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	cancel()
+	pc.Receiver.Close()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("receiveLoop did not exit")
+	}
+
+	if got := pc.RxPkts.Load(); got != 3 {
+		t.Errorf("RxPkts: got %d, want 3 (reads still counted while muted)", got)
+	}
+
+	if got := pc.RxParseErrs.Load(); got != 0 {
+		t.Errorf("RxParseErrs: got %d, want 0 (muted ports must not parse)", got)
+	}
+}
+
 func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 	// First packet is garbage; receiveLoop should log and continue rather than crash.
 	garbled := mockPacket{data: []byte{0xFF, 0x00, 0x01}, src: netip.MustParseAddrPort("1.2.3.4:5004")}
