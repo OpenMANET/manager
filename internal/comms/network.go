@@ -1,6 +1,8 @@
 package comms
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -74,6 +76,16 @@ func setMulticastTTL(conn *net.UDPConn, ttl int) error {
 	return nil
 }
 
+// readUDPDrops resolves the kernel-drop scan through the test seam,
+// falling back to the real /proc/net/udp reader when unset.
+func (cfg *CommsConfig) readUDPDrops(localPort int) (int64, error) {
+	if cfg.readUDPDropsFn != nil {
+		return cfg.readUDPDropsFn(localPort)
+	}
+
+	return readUDPSocketDrops(localPort)
+}
+
 // readUDPSocketDrops returns the kernel's per-socket drop counter for the
 // UDP socket bound to localPort, parsed out of /proc/net/udp and
 // /proc/net/udp6. Returns -1 with no error if no matching row is found
@@ -106,25 +118,43 @@ func readUDPSocketDrops(localPort int) (int64, error) {
 // whose local_address ends with ":<localPort>" (port in big-endian hex)
 // and returns the drops column. Returns -1 with no error when the row is
 // missing — the caller falls through to the next file.
+//
+// The file is streamed line-by-line rather than slurped, and a cheap
+// substring pre-filter skips the per-field split for the vast majority of
+// rows — a busy host's table has dozens of sockets and exactly one can
+// match. The pre-filter can false-positive when the port's hex pattern
+// appears in another column (remote address, inode); the authoritative
+// HasSuffix check on the local_address field runs after the split, so a
+// decoy row is never matched.
 func scanUDPDropsFile(path string, localPort int) (int64, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return -1, nil
 		}
 
-		return -1, fmt.Errorf("read %s: %w", path, err)
+		return -1, fmt.Errorf("open %s: %w", path, err)
 	}
+	defer f.Close() //nolint:errcheck // read-only file
 
 	wantSuffix := fmt.Sprintf(":%04X", localPort)
+	needle := []byte(wantSuffix)
 
-	lines := strings.Split(string(data), "\n")
-	for i, line := range lines {
-		if i == 0 {
-			continue // header
+	scanner := bufio.NewScanner(f)
+	first := true
+
+	for scanner.Scan() {
+		if first {
+			first = false // header row
+
+			continue
 		}
 
-		fields := strings.Fields(line)
+		if !bytes.Contains(scanner.Bytes(), needle) {
+			continue
+		}
+
+		fields := strings.Fields(scanner.Text())
 		if len(fields) < 13 {
 			continue
 		}
@@ -140,6 +170,10 @@ func scanUDPDropsFile(path string, localPort int) (int64, error) {
 		}
 
 		return drops, nil
+	}
+
+	if scanErr := scanner.Err(); scanErr != nil {
+		return -1, fmt.Errorf("scan %s: %w", path, scanErr)
 	}
 
 	return -1, nil

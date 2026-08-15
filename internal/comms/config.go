@@ -108,7 +108,10 @@ type CommsConfig struct {
 	startHardwareAudioFn func(rt *CommsRuntime) (func(), error)
 	// detectALSACardFn overrides ALSA card auto-detection for tests. When
 	// nil, detectALSACard falls back to control.DetectAndSetALSACard(cfg.Log).
-	detectALSACardFn         func()
+	detectALSACardFn func()
+	// readUDPDropsFn overrides the /proc/net/udp kernel-drop scan for
+	// tests. When nil, readUDPDrops falls back to readUDPSocketDrops.
+	readUDPDropsFn           func(localPort int) (int64, error)
 	BluetoothOutputDevice    string
 	NanoPTTDevicePath        string
 	CommKey                  string
@@ -134,6 +137,9 @@ type CommsConfig struct {
 	// transient ALSA error). <= 0 disables in-run recovery; applyDefaults
 	// sets the production value.
 	audioRecoveryInterval time.Duration
+	// webStatInterval overrides the webPlayoutLoop stat-reporting ticker
+	// period for tests. <= 0 (production) uses webStatDefaultInterval.
+	webStatInterval time.Duration
 	ROIPVOXThreshold      float32
 	MicGain               float32
 	EnableNanoPTT         bool
