@@ -190,7 +190,7 @@ One entry per configured multicast talk group. The slice order mirrors
 | `playback_underruns` | count | Number of playback-side decode failures that had to recover via PLC (packet loss concealment). |
 | `rx_pkts` | count | Monotonic count of successful `ReadFromUDP` returns on this port's receive socket (packets the kernel handed userspace). |
 | `rx_loopback` | count | Packets dropped by the loopback filter (own-IP suppression) before reaching the RTP parser. |
-| `rx_parse_errs` | count | Packets that failed `rtp.ParseIncoming`. Sustained nonzero deltas indicate a non-RTP sender aliasing the port. |
+| `rx_parse_errs` | count | Packets that failed `rtp.ParseIncoming`. Sustained nonzero deltas indicate a non-RTP sender aliasing the port. Only counted while the port is receive-enabled — muted ports discard packets before parsing, so a muted port always shows a zero delta here regardless of traffic. |
 | `rx_pushed` | count | Packets that `PushWithSSRC` accepted into the jitter buffer. In a healthy stream, `rx_pushed ≈ rx_pkts - rx_loopback - rx_parse_errs`. |
 | `rx_push_rejected` | count | Packets that `PushWithSSRC` rejected as stale-cursor, duplicate, overflow, or oversized (payload larger than the RFC 6716 1275-byte frame cap — a conforming Opus sender never produces these). A sustained nonzero delta with `jitter.ssrc_resets` flat indicates a consumer-side cursor-advance bug, sender reordering, or a non-Opus sender aliasing the port. |
 | `web_popped_skipped` | count | `webPlayoutLoop` observed the jitter buffer advancing past a missing sequence number (only happens when the buffer is half-full of out-of-order packets). Zero on the portaudio playout path. |

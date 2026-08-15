@@ -237,6 +237,15 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 			continue
 		}
 
+		// Muted port: the packet is discarded regardless of content, so
+		// skip the RTP unmarshal (and its parse-error accounting)
+		// entirely. RxPkts and RxLoopback above still count while muted;
+		// MarkRemoteRx below must not run for muted ports (unchanged —
+		// it already sat below this check before the hoist).
+		if !pc.ReceiveEnabled.Load() {
+			continue
+		}
+
 		// Parse using pion/rtp for proper header validation.
 		if parseErr := rtp.ParseIncomingInto(buf[:n], &pkt); parseErr != nil {
 			pc.RxParseErrs.Add(1)
@@ -253,11 +262,6 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 				Uint32("ssrc", pkt.Header.SSRC).
 				Int("payload_bytes", len(pkt.Payload)).
 				Msg("comms: RTP packet received")
-		}
-
-		// Skip payload delivery when receive is disabled at runtime.
-		if !pc.ReceiveEnabled.Load() {
-			continue
 		}
 
 		// Record the arrival time for half-duplex enforcement and prime the
