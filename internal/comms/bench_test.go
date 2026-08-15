@@ -2,6 +2,7 @@ package comms
 
 import (
 	"math"
+	"net"
 	"testing"
 	"time"
 
@@ -252,6 +253,45 @@ func BenchmarkParseIncomingRTP(b *testing.B) {
 
 	for b.Loop() {
 		if _, err := rtp.ParseIncoming(raw); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkReceiverRead measures the per-packet cost of the receive socket
+// read exactly as receiveLoop performs it: through the PacketReader interface
+// with a SwappableReceiver wrapping a real *net.UDPConn on loopback. The
+// sender write inside the loop is the same single sendto(2) both before and
+// after any read-path change, so alloc deltas isolate the read side.
+func BenchmarkReceiverRead(b *testing.B) {
+	recvConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.Cleanup(func() { _ = recvConn.Close() })
+
+	sendConn, err := net.DialUDP("udp4", nil, recvConn.LocalAddr().(*net.UDPAddr))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.Cleanup(func() { _ = sendConn.Close() })
+
+	var r rtp.PacketReader = rtp.NewSwappableReceiver(recvConn)
+
+	buf := make([]byte, 1500)
+	msg := make([]byte, 160) // typical Opus 20ms frame + RTP header
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		if _, err := sendConn.Write(msg); err != nil {
+			b.Fatal(err)
+		}
+
+		if _, _, err := r.ReadFromUDP(buf); err != nil {
 			b.Fatal(err)
 		}
 	}
