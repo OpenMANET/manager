@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -305,8 +306,8 @@ func TestPlayoutOneFrame_DecoderErrorPLCFallback(t *testing.T) {
 
 func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 	// All packets arrive from the local IP → all should be dropped.
-	localIP := net.IPv4(192, 168, 1, 1)
-	localAddr := &net.UDPAddr{IP: localIP}
+	localIP := netip.MustParseAddr("192.168.1.1")
+	localAddr := netip.AddrPortFrom(localIP, 5004)
 
 	var pkts []mockPacket
 
@@ -366,9 +367,72 @@ func TestReceiveLoop_DropsOwnPackets(t *testing.T) {
 	}
 }
 
+// TestReceiveLoop_DropsOwn4in6Packets pins the Unmap in the loopback filter:
+// a source address in 4-in-6 form (::ffff:a.b.c.d) must still match the
+// cached v4 local address. Production sockets bind udp4 and return plain v4
+// addresses, but the filter must not silently break if the socket family
+// ever changes to dual-stack.
+func TestReceiveLoop_DropsOwn4in6Packets(t *testing.T) {
+	localIP := "192.168.1.1"
+	mappedSrc := netip.AddrPortFrom(netip.MustParseAddr("::ffff:192.168.1.1"), 5004)
+
+	var pkts []mockPacket
+
+	for i := 0; i < rtp.PrebufferPackets+1; i++ {
+		raw := makeRTPBytes(t, uint16(i))
+		pkts = append(pkts, mockPacket{data: raw, src: mappedSrc})
+	}
+
+	reader := newMockReader(pkts...)
+	pc := &PortChannel{
+		cfg:      McastPortConfig{Send: true, Receive: true},
+		Receiver: rtp.NewSwappableReceiver(reader),
+	}
+	pc.SendEnabled.Store(true)
+	pc.ReceiveEnabled.Store(true)
+	pc.PlaybackBuffer = make(chan []int16, 16)
+	rt := &CommsRuntime{
+		Ports: []*PortChannel{pc},
+	}
+	rt.LocalIP.Store(&localIP)
+
+	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: false}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		cfg.receiveLoop(ctx, pc, rt)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if reader.remaining() == 0 {
+			break
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	cancel()
+	pc.Receiver.Close()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("receiveLoop did not exit")
+	}
+
+	if got := pc.RxLoopback.Load(); got != int64(rtp.PrebufferPackets+1) {
+		t.Errorf("4-in-6 own packets should all be dropped as loopback; RxLoopback=%d, want %d",
+			got, rtp.PrebufferPackets+1)
+	}
+}
+
 func TestReceiveLoop_DropsMalformedRTP(t *testing.T) {
 	// First packet is garbage; receiveLoop should log and continue rather than crash.
-	garbled := mockPacket{data: []byte{0xFF, 0x00, 0x01}, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}}
+	garbled := mockPacket{data: []byte{0xFF, 0x00, 0x01}, src: netip.MustParseAddrPort("1.2.3.4:5004")}
 	reader := newMockReader(garbled)
 
 	pc := &PortChannel{
@@ -536,7 +600,7 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop(), Loopback: true}
 
 	raw := makeRTPBytes(t, 0)
-	reader := newMockReader(mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
+	reader := newMockReader(mockPacket{data: raw, src: netip.MustParseAddrPort("1.2.3.4:5004")})
 	pc := &PortChannel{
 		cfg:      McastPortConfig{Send: true, Receive: true},
 		Receiver: rtp.NewSwappableReceiver(reader),
@@ -659,17 +723,17 @@ func TestRun_StopsReceiveLoopsWhenEventSourceCloses(t *testing.T) {
 // ─── receiveLoop socket-swap recovery tests ───────────────────────────────────
 
 // netErrClosedReader wraps a mockReader and translates any read error to
-// net.ErrClosed, matching the error that real *net.UDPConn.ReadFromUDP returns
+// net.ErrClosed, matching the error that a real *net.UDPConn read returns
 // after the connection is closed. This allows receiveLoop's socket-swap path
 // (errors.Is(err, net.ErrClosed) → jitter.Reset()) to be exercised in tests.
 type netErrClosedReader struct {
 	*mockReader
 }
 
-func (r *netErrClosedReader) ReadFromUDP(b []byte) (int, *net.UDPAddr, error) {
-	n, addr, err := r.mockReader.ReadFromUDP(b)
+func (r *netErrClosedReader) ReadFromUDPAddrPort(b []byte) (int, netip.AddrPort, error) {
+	n, addr, err := r.mockReader.ReadFromUDPAddrPort(b)
 	if err != nil {
-		return 0, nil, net.ErrClosed
+		return 0, netip.AddrPort{}, net.ErrClosed
 	}
 
 	return n, addr, nil
@@ -689,7 +753,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 
 	for i := 0; i < rtp.PrebufferPackets+2; i++ {
 		raw := makeRTPBytes(t, uint16(i))
-		pkts1 = append(pkts1, mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
+		pkts1 = append(pkts1, mockPacket{data: raw, src: netip.MustParseAddrPort("1.2.3.4:5004")})
 	}
 
 	reader1 := &netErrClosedReader{newMockReader(pkts1...)}
@@ -699,7 +763,7 @@ func TestReceiveLoop_SocketSwapResetsJitter(t *testing.T) {
 
 	for i := 0; i < rtp.PrebufferPackets+2; i++ {
 		raw := makeRTPBytes(t, uint16(i))
-		pkts2 = append(pkts2, mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
+		pkts2 = append(pkts2, mockPacket{data: raw, src: netip.MustParseAddrPort("1.2.3.4:5004")})
 	}
 
 	reader2 := newMockReader(pkts2...)

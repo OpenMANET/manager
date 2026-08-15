@@ -294,7 +294,7 @@ func BenchmarkReceiverRead(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		if _, _, err := r.ReadFromUDP(buf); err != nil {
+		if _, _, err := r.ReadFromUDPAddrPort(buf); err != nil {
 			b.Fatal(err)
 		}
 	}

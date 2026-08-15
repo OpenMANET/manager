@@ -3,6 +3,7 @@ package comms
 import (
 	"context"
 	"net"
+	"net/netip"
 	"os"
 	"testing"
 	"time"
@@ -76,7 +77,7 @@ func TestReceiveLoop_IngestsPackets(t *testing.T) {
 
 	for i := 0; i < rtp.PrebufferPackets+2; i++ {
 		raw := makeRTPBytes(t, uint16(i))
-		pkts = append(pkts, mockPacket{data: raw, src: &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4)}})
+		pkts = append(pkts, mockPacket{data: raw, src: netip.MustParseAddrPort("1.2.3.4:5004")})
 	}
 
 	reader := newMockReader(pkts...)

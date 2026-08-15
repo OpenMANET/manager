@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"time"
 
 	pionrtp "github.com/pion/rtp"
@@ -140,13 +141,14 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 		go cfg.webPlayoutLoop(ctx, pc, jitter, rt)
 	}
 
-	// cachedLocalIP caches the parsed form of rt.LocalIP so that the loopback
-	// filter can use a byte-level net.IP.Equal comparison instead of calling
-	// src.IP.String() (which allocates) on every received packet. The cached
-	// value is refreshed only when the string changes (i.e. on endpoint swap).
+	// cachedLocalIP caches the parsed form of rt.LocalIP so the loopback
+	// filter is a value comparison on every received packet. The cached
+	// value is refreshed only when the string changes (i.e. on endpoint
+	// swap). Stored unmapped so it compares equal to an unmapped source
+	// address regardless of 4-in-6 representation.
 	var (
 		cachedLocalIPStr string
-		cachedLocalIP    net.IP
+		cachedLocalIP    netip.Addr
 	)
 
 	// errStreak counts consecutive read failures. A handful of instant
@@ -167,7 +169,7 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 		default:
 		}
 
-		n, src, err := pc.Receiver.ReadFromUDP(buf)
+		n, src, err := pc.Receiver.ReadFromUDPAddrPort(buf)
 		if err == nil {
 			pc.RxPkts.Add(1)
 
@@ -207,11 +209,23 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 		if p := rt.LocalIP.Load(); p != nil {
 			if s := *p; s != cachedLocalIPStr {
 				cachedLocalIPStr = s
-				cachedLocalIP = net.ParseIP(s)
+
+				// A parse failure leaves the zero Addr, which compares
+				// unequal to every source — the own-IP filter simply
+				// stays inert until a valid LocalIP is published.
+				addr, parseErr := netip.ParseAddr(s)
+				if parseErr != nil {
+					addr = netip.Addr{}
+				}
+
+				cachedLocalIP = addr.Unmap()
 			}
 		}
 
-		loopbackDrop := !cfg.Loopback && (src.IP.IsLoopback() || src.IP.Equal(cachedLocalIP))
+		// Unmap so a 4-in-6 source (::ffff:a.b.c.d) matches both the
+		// loopback check and the cached v4 local address.
+		srcAddr := src.Addr().Unmap()
+		loopbackDrop := !cfg.Loopback && (srcAddr.IsLoopback() || srcAddr == cachedLocalIP)
 
 		if loopbackDrop {
 			pc.RxLoopback.Add(1)
@@ -559,6 +573,3 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 		}
 	}
 }
-
-// Ensure net is used (ReadFromUDP returns *net.UDPAddr).
-var _ *net.UDPAddr
