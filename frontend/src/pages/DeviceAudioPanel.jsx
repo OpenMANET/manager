@@ -8,6 +8,10 @@
 // State is polled so VOL+/VOL− hardware-button changes converge into the
 // UI; slider writes commit on release, not per tick, to avoid hammering
 // the config persist path.
+//
+// `pending` and `draggingRef` are keyed per control ('speaker' | 'mic' |
+// 'agc') so that releasing one control never clobbers another control's
+// in-flight drag or commit — see commit() below.
 
 import React, { useState, useRef, useCallback } from 'react';
 import { fetchAudioMixer, updateAudioMixer } from '../services/commsApi.js';
@@ -17,13 +21,13 @@ const POLL_MS = 5000;
 
 export default function DeviceAudioPanel() {
   const [mixer, setMixer] = useState(null);     // last known AudioMixerState
-  const [pending, setPending] = useState({});   // { speaker?, mic? } during drag
+  const [pending, setPending] = useState({});   // { speaker?, mic?, agc? } — optimistic per-control overrides
   const [error, setError] = useState(false);
-  const draggingRef = useRef(false);
+  const draggingRef = useRef(new Set());        // control keys currently mid-drag (sliders only)
 
   const poll = useCallback(async () => {
     const state = await fetchAudioMixer();
-    if (draggingRef.current) return; // never fight an active drag
+    if (draggingRef.current.size > 0) return; // never fight an active slider drag
     if (state === null) {
       setError(true);
       return;
@@ -34,10 +38,19 @@ export default function DeviceAudioPanel() {
 
   useVisibleInterval(poll, POLL_MS);
 
-  const commit = useCallback(async (fields) => {
-    draggingRef.current = false;
+  // Commits fields for a single control. Only that control's drag flag and
+  // pending override are cleared — a concurrent drag/commit on another
+  // control (e.g. releasing the speaker slider while the mic slider is
+  // still being dragged) must be left untouched.
+  const commit = useCallback(async (key, fields) => {
+    draggingRef.current.delete(key);
     const state = await updateAudioMixer(fields);
-    setPending({});
+    setPending((p) => {
+      if (!(key in p)) return p;
+      const next = { ...p };
+      delete next[key];
+      return next;
+    });
     if (state === null) {
       setError(true);
       return;
@@ -47,11 +60,11 @@ export default function DeviceAudioPanel() {
   }, []);
 
   const onSpeakerDrag = (v) => {
-    draggingRef.current = true;
+    draggingRef.current.add('speaker');
     setPending((p) => ({ ...p, speaker: v }));
   };
   const onMicDrag = (v) => {
-    draggingRef.current = true;
+    draggingRef.current.add('mic');
     setPending((p) => ({ ...p, mic: v }));
   };
 
@@ -63,11 +76,19 @@ export default function DeviceAudioPanel() {
   const hasSpeaker = mixer?.speakerVolume !== undefined;
   const hasMic = mixer?.micVolume !== undefined;
   const hasAgc = mixer?.agcEnabled !== undefined;
-  const agcOn = mixer?.agcEnabled === true;
+  // AGC is a single click, not a drag, but still needs an optimistic
+  // pending value: otherwise a poll response landing after the click but
+  // before the update RPC resolves would visually snap the toggle back to
+  // its pre-click state until the RPC's own response arrives.
+  const agcOn = pending.agc ?? (mixer?.agcEnabled === true);
 
-  const commitSpeaker = () => commit({ speakerVolume: speakerVal });
-  const commitMic = () => commit({ micVolume: micVal });
-  const toggleAgc = () => commit({ agcEnabled: !agcOn });
+  const commitSpeaker = () => commit('speaker', { speakerVolume: speakerVal });
+  const commitMic = () => commit('mic', { micVolume: micVal });
+  const toggleAgc = () => {
+    const next = !agcOn;
+    setPending((p) => ({ ...p, agc: next }));
+    commit('agc', { agcEnabled: next });
+  };
 
   return (
     <div className="lat-panel">

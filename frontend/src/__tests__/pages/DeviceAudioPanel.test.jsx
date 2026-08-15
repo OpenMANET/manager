@@ -108,4 +108,52 @@ describe('TestDeviceAudioPanel', () => {
     });
     expect(screen.queryByLabelText('Device mic volume')).toBeNull();
   });
+
+  it('committing the speaker slider does not clobber a concurrently mid-drag mic slider', async () => {
+    fetchAudioMixer.mockResolvedValue(fullState);
+    updateAudioMixer.mockResolvedValue({ ...fullState, speakerVolume: 20 });
+
+    render(<DeviceAudioPanel />);
+    const speakerSlider = await screen.findByLabelText('Device speaker volume');
+    const micSlider = await screen.findByLabelText('Device mic volume');
+
+    // Start (but don't release) a drag on the mic slider.
+    fireEvent.change(micSlider, { target: { value: '10' } });
+    expect(micSlider).toHaveValue('10');
+
+    // Drag and release the speaker slider while the mic drag is still open.
+    fireEvent.change(speakerSlider, { target: { value: '20' } });
+    await act(async () => {
+      fireEvent.pointerUp(speakerSlider);
+    });
+
+    expect(updateAudioMixer).toHaveBeenCalledWith({ speakerVolume: 20 });
+    // The mic slider's in-progress drag value must survive the speaker commit.
+    expect(micSlider).toHaveValue('10');
+  });
+
+  it('renders the AGC toggle optimistically before the update RPC resolves', async () => {
+    fetchAudioMixer.mockResolvedValue(fullState);
+    let resolveUpdate;
+    updateAudioMixer.mockImplementation(() => new Promise((resolve) => {
+      resolveUpdate = resolve;
+    }));
+
+    render(<DeviceAudioPanel />);
+    const toggle = await screen.findByRole('button', { name: /auto gain control/i });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(toggle);
+
+    // The optimistic new state must be visible immediately, before the
+    // mocked updateAudioMixer promise ever resolves.
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    });
+    expect(updateAudioMixer).toHaveBeenCalledWith({ agcEnabled: true });
+
+    await act(async () => {
+      resolveUpdate({ ...fullState, agcEnabled: true });
+    });
+  });
 });
