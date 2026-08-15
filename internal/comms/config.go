@@ -139,16 +139,16 @@ type CommsConfig struct {
 	audioRecoveryInterval time.Duration
 	// webStatInterval overrides the webPlayoutLoop stat-reporting ticker
 	// period for tests. <= 0 (production) uses webStatDefaultInterval.
-	webStatInterval time.Duration
-	ROIPVOXThreshold      float32
-	MicGain               float32
-	EnableNanoPTT         bool
-	EnableBluetoothPtt    bool
-	Enable                bool
-	Trace                 bool
-	Loopback              bool
-	Debug                 bool
-	ROIPCOSGPIOMask       byte
+	webStatInterval    time.Duration
+	ROIPVOXThreshold   float32
+	MicGain            float32
+	EnableNanoPTT      bool
+	EnableBluetoothPtt bool
+	Enable             bool
+	Trace              bool
+	Loopback           bool
+	Debug              bool
+	ROIPCOSGPIOMask    byte
 }
 
 // NewComms copies cfg and returns a pointer ready for Start.
