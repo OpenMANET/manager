@@ -114,6 +114,31 @@ func TestBridge_PushRxFrame_DropsOnFull(t *testing.T) {
 	}
 }
 
+// TestBridge_PushRxFrame_OversizedCountsBoth pins the counter contract on
+// the defensive oversize guard: RxPushIn counts every PushRxFrame
+// invocation (as the snapshot doc states), so a rejected oversized payload
+// must increment both counters — otherwise rx_push_drop / rx_push_in could
+// exceed 1 and mislead triage.
+func TestBridge_PushRxFrame_OversizedCountsBoth(t *testing.T) {
+	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
+
+	bridge.PushRxFrame(make([]byte, maxFrameBytes+1))
+
+	if got := bridge.RxPushIn.Load(); got != 1 {
+		t.Errorf("RxPushIn: got %d, want 1 (every invocation counts)", got)
+	}
+
+	if got := bridge.RxPushDrop.Load(); got != 1 {
+		t.Errorf("RxPushDrop: got %d, want 1 (oversized payload rejected)", got)
+	}
+
+	select {
+	case f := <-bridge.rxFrames:
+		t.Errorf("oversized payload must not be enqueued; got %v", f.Data())
+	default:
+	}
+}
+
 // TestBridge_ChannelDepth pins the RX buffer at ~200 ms of slack (10
 // frames at 50 fps). The previous 1-second depth meant a stalled browser
 // consumer resumed a full second behind live audio and stayed there for

@@ -194,6 +194,11 @@ func (b *Bridge) PushRxFrame(opusData []byte) {
 		return
 	}
 
+	// RxPushIn counts every invocation, including rejected ones — the
+	// snapshot doc defines it that way, and it keeps the
+	// rx_push_drop / rx_push_in triage ratio bounded at 1.
+	b.RxPushIn.Add(1)
+
 	// Cannot happen with a conforming upstream (the jitter buffer rejects
 	// payloads over the RFC 6716 cap); guard so a future caller cannot
 	// overrun the pooled buffer.
@@ -202,8 +207,6 @@ func (b *Bridge) PushRxFrame(opusData []byte) {
 
 		return
 	}
-
-	b.RxPushIn.Add(1)
 
 	bufPtr := b.framePool.Get().(*[]byte) //nolint:forcetypeassert
 	copy((*bufPtr)[:len(opusData)], opusData)
@@ -215,11 +218,14 @@ func (b *Bridge) PushRxFrame(opusData []byte) {
 	default:
 		// Full: evict the oldest frame (drop-oldest) so the consumer
 		// resumes on the freshest audio — for PTT voice, fresh beats
-		// stale — then retry the send once.
+		// stale — then retry the send once. Each branch logs what
+		// actually happened; a consumer draining between the selects
+		// means nothing is dropped at all, which must not log as a drop.
 		select {
 		case old := <-b.rxFrames:
 			b.RxPushDrop.Add(1)
 			old.Release()
+			b.log.Debug().Msg("web: RX frame channel full; evicted oldest")
 		default:
 			// A consumer drained the channel between our two selects;
 			// nothing to evict.
@@ -232,8 +238,7 @@ func (b *Bridge) PushRxFrame(opusData []byte) {
 			// new frame rather than looping.
 			b.RxPushDrop.Add(1)
 			b.framePool.Put(bufPtr)
+			b.log.Debug().Msg("web: RX frame channel contended; dropped newest")
 		}
-
-		b.log.Debug().Msg("web: RX frame channel full; dropped oldest")
 	}
 }

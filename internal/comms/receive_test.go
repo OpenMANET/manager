@@ -891,7 +891,8 @@ func TestWebPlayoutLoop_GatesWhenNoConsumer(t *testing.T) {
 
 	select {
 	case f := <-bridge.RxFrames():
-		t.Errorf("bridge channel should stay empty without a consumer; got frame %v", f)
+		t.Errorf("bridge channel should stay empty without a consumer; got frame %v", f.Data())
+		f.Release()
 	default:
 	}
 }
@@ -993,8 +994,9 @@ func TestWebPlayoutLoop_DeliversWhileBroadcasting(t *testing.T) {
 	go cfg.webPlayoutLoop(ctx, pc, jb, rt)
 
 	select {
-	case <-bridge.RxFrames():
+	case f := <-bridge.RxFrames():
 		// OK — frame delivered as expected.
+		f.Release()
 	case <-ctx.Done():
 		t.Error("bridge should receive frames in web mode even while broadcasting")
 	}
@@ -1141,7 +1143,8 @@ func TestWebPlayoutLoop_DoesNotAdvanceCursorOnSafetyPoll(t *testing.T) {
 	// Drain the seed frame so the loop observes expected=101 with an
 	// empty buffer.
 	select {
-	case <-bridge.RxFrames():
+	case f := <-bridge.RxFrames():
+		f.Release()
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("seed frame never reached bridge")
 	}
