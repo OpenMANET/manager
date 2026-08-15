@@ -754,35 +754,122 @@ produce no event.
 
 ## Volume control via ALSA
 
+[`control/alsa`](control/alsa/) is a pure-Go ALSA mixer binding
+(`github.com/gen2brain/alsa`) shared by two independent consumers: the
+OpenVLM's physical VOL+/VOL− buttons, and the daemon's own hardware
+mixer RPCs. No CGO is required, the package cross-compiles cleanly to
+`linux/amd64`, `linux/arm64`, and `linux/mipsle`, and it does not depend
+on alsa-utils being installed on the target.
+
+### `Controller` — the VOL+/VOL− button handler
+
 [`control/alsa.Controller`](control/alsa/controller.go) is the
-`AuxEventHandler` wired into `CommsConfig.AuxHandler` by the manager. It
-adjusts a named ALSA mixer simple-control on `VolumeUpPressed` /
-`VolumeDownPressed` and ignores release events.
+`AuxEventHandler` wired into `CommsConfig.AuxHandler` by the manager. The
+dispatch loop (`runAuxPump` in [transmit.go](transmit.go)) forwards each
+aux event from the control source's `AuxEvents()` channel directly to the
+handler's `Handle(ctx, ev)`, invoked synchronously on the aux pump
+goroutine — long-running work inside `Handle` would block the pump, but
+the controller's mixer transactions complete in microseconds. `Handle`
+adjusts a mixer control's raw value by ±`Controller.Step` (default 1) on
+`VolumeUpPressed` / `VolumeDownPressed` and ignores release events, so
+holding a button does not auto-repeat. If `Controller.ControlName` is
+left empty the controller resolves the control by trying the playback
+candidate list in order (see below) instead of hard-coding `Master`,
+which is also what fixes button presses on cards that expose the same
+control under a different raw element name. On a CM108B Master control
+(38 raw steps from −37 dB to 0 dB) one raw step is approximately one dB;
+this approximation does not generalize to all cards. Every ALSA failure
+along the way — mixer open, control resolution, range query, value
+read/write — is logged at Warn or Debug and swallowed rather than
+propagated: the volume button must never crash the daemon.
 
-Key properties:
+### `Volume` — absolute get/set for the mixer RPCs
 
-- **Pure-Go ALSA binding** (`github.com/gen2brain/alsa`) — no CGO, cross-
-  compiles cleanly to `linux/amd64`, `linux/arm64`, and `linux/mipsle`.
-  Does not depend on alsa-utils being installed on the target.
-- **Card selection** reads the `ALSA_CARD` environment variable set by
-  `DetectAndSetALSACard` during startup. Volume events are silently
-  ignored if `ALSA_CARD` is unset or non-numeric — this matches behaviour
-  on systems with no OpenVLM connected.
-- **Default control name**: `Master` (`alsa.DefaultControlName`). On a
-  CM108B Master control (38 raw steps from −37 dB to 0 dB) one raw step
-  is approximately one dB; this approximation does not generalize to all
-  cards. The control name and step size can be overridden via the
-  `Controller.ControlName` / `Controller.Step` fields.
-- **Errors are swallowed** — a transient ALSA failure (mixer open, control
-  not found, range query) is logged at Warn or Debug and never propagated
-  back through the dispatch loop. The volume button must never crash the
-  daemon.
+[`control/alsa.Volume`](control/alsa/volume.go) is the counterpart used
+by the `CommsService.GetAudioMixer` / `UpdateAudioMixer` RPCs and by the
+startup mixer re-apply. Where `Controller` nudges a raw value by a
+relative step and swallows every error, `Volume` reads and writes
+absolute percentages (0–100, mapped onto each control's own
+`RangeMin`/`RangeMax`) and returns typed errors — `alsa.ErrNoCard` when
+no ALSA card is available, `alsa.ErrControlNotFound` when none of a
+role's candidate names resolve — so the RPC layer can map failures to
+the right response code instead of guessing from a log line. `State`
+reads the current speaker volume, mic volume, and AGC switch in one
+mixer session; controls that are simply absent from the card report
+`-1` (or `AGCPresent: false`) rather than an error. `Apply` writes the
+non-nil fields of an `Update` and then re-reads `State` so the RPC
+response always reflects what actually landed on hardware. A single
+`*alsa.Volume` is shared across the comms manager, the API server, and
+the instrumentation registry so all three observe the same
+last-known-good reading.
 
-The dispatch loop (`runAuxPump` in [transmit.go](transmit.go)) forwards
-each aux event from the source's `AuxEvents()` channel directly to the
-handler's `Handle(ctx, ev)`. The handler is invoked synchronously on the
-aux pump goroutine, so long-running work inside `Handle` would block the
-pump — the ALSA controller's mixer transactions complete in microseconds.
+### Candidate-list resolution
+
+Both `Controller` and `Volume` resolve a logical role (speaker volume,
+mic volume, AGC switch, and — startup-unmute only — the playback/capture
+mute switches) against an ordered list of raw ALSA element names via the
+shared [`ResolveCtl`](control/alsa/resolve.go) helper, which returns the
+first exact match. `gen2brain/alsa` matches raw kernel element names
+exactly, which differ from `amixer`'s simple names, so both spellings
+are listed where cards disagree:
+
+- `PlaybackVolumeNames`: `Master`, `Speaker Playback Volume`,
+  `PCM Playback Volume`, `Headphone Playback Volume`
+- `CaptureVolumeNames`: `Mic Capture Volume`, `Capture Volume`, `Mic`
+- `AGCNames`: `Auto Gain Control`
+- `PlaybackSwitchNames`: `Master Playback Switch`,
+  `Speaker Playback Switch`, `PCM Playback Switch`
+- `CaptureSwitchNames`: `Mic Capture Switch`, `Capture Switch`
+
+`Master` stays first on the playback list so the deployed VOL+/VOL−
+button behavior is unchanged on cards where it exists. An operator can
+pin an exact raw element name per role instead of trusting the
+candidate list via `comms.audio.speakerControl`, `comms.audio.micControl`,
+and `comms.audio.agcControl` — each becomes the sole entry in that
+role's list when set (`alsa.NamesFromOverrides`), which also lets a
+future card with an unlisted name work without a code change. The
+switch-name lists have no config override; they only matter for the
+defensive startup unmute described below.
+
+### Persistence semantics
+
+`UpdateAudioMixer` writes to hardware first and only persists to
+`comms.audio.speakerVolume` / `comms.audio.micVolume` / `comms.audio.agc`
+once the hardware write has succeeded, so a failed persist can never
+leave the config file claiming a level the card rejected. VOL+/VOL−
+button presses handled by `Controller` are deliberately **not**
+persisted — they are momentary hardware nudges, not configuration
+changes. The practical effect: `comms.audio.*` is the boot baseline
+re-applied on startup, while `GetAudioMixer` always reports whatever the
+hardware currently holds, which may have drifted from that baseline via
+button presses or an out-of-band `alsamixer` session.
+
+### Startup behavior
+
+The manager wires `CommsConfig.AudioMixerStartup` to re-apply the
+persisted `comms.audio.*` values via `Volume.ApplyStartup`, gated on
+`Config.HasCommsAudioSettings()` — a daemon with no `comms.audio.*` key
+set never touches the hardware mixer at all. The re-apply runs once
+after `control.DetectAndSetALSACard` in `Start()`, and again after every
+successful in-run audio recovery (a USB replug resets the card's mixer
+state). `ApplyStartup` applies the speaker, mic, and AGC fields as three
+independent `Apply` calls rather than one combined write, so a missing
+control for one field cannot block the others from landing. It then
+forces every resolvable playback/capture switch control on — with no
+mute exposed anywhere in the API, this is the only recovery from an
+out-of-band `alsamixer` mute — and finally logs the card's full mixer
+control enumeration at Debug, which is the field diagnostic for
+matching an unfamiliar card's raw element names against the candidate
+lists above. Every step swallows and logs its own errors; a mixer
+failure at startup must never block audio.
+
+### AGC and manual mic volume
+
+When `comms.audio.agc` is enabled, the CM108B's own Auto Gain Control
+adjusts capture gain continuously, so a manual `micVolume` change made
+while AGC is on may appear to have little or no audible effect — the
+hardware is actively working against it. This is expected behavior, not
+a bug in `Volume.Apply`.
 
 ---
 
@@ -918,7 +1005,7 @@ audio refactor). ALSA card auto-detection runs for both `openvlm` and
 | [audiopool/](audiopool/) | Audio constants (`FrameSize`, `SampleRate`, `Channels`, `EncBufSize`), buffer pools (`Float32Pool`, `Int16Pool`, `EncBufPool`), `RMSEnergy` |
 | [codec/](codec/) | `AudioEncoder`/`AudioDecoder` interfaces, Opus implementation (`NewOpusEncoder`/`NewOpusDecoder`/`EncodeS16`/`DecodeS16`/`DecodeFloat32`/`SetPacketLossPerc`) |
 | [control/](control/) | `EventSource`, `PTTEvent`, four backends (`OpenVLMSource`, `ROIPSource`, `NanoPTTSource`, `WebEventSource`), `AuxEvent`/`AuxEventSource`/`AuxEventHandler`, `HalfDuplexGate`, registry (`Register`/`Lookup`/`Factory`/`ControlDeps`), `HIDDevice`/`HIDOpener`, `DetectAndSetALSACard` |
-| [control/alsa/](control/alsa/) | `Controller` — pure-Go ALSA mixer `AuxEventHandler` for VOL+/VOL− on the OpenVLM |
+| [control/alsa/](control/alsa/) | `Controller` — pure-Go ALSA mixer `AuxEventHandler` for VOL+/VOL− on the OpenVLM; `Volume` — absolute State/Apply used by `GetAudioMixer`/`UpdateAudioMixer` and the startup mixer re-apply; shared candidate-list resolution (`ResolveCtl`) |
 | [device/](device/) | `AudioStream` interface + `NewMalgoStream`, `DiscoverCM108` (unified sysfs walk) + `CM108Descriptor`, `CheckOpenVLMIdentity` (HID GPIO1 strap probe), `Cache`, `FindEvdev`, `IfaceIPv4`/`JoinMulticastGroup`, `ResolveAudio`/`LogAudioDevices` |
 | [rtp/](rtp/) | `Session` (pion Packetizer + RTCP SR), `Sender`, `JitterBuffer` (ring buffer + SSRC tracking + `EnableNotify` + gap-run histogram), `JitterBufferSnapshot`, `PacketWriter`/`PacketReader`, `SwappableSender` (lock-free + `SwapAndDeferClose`)/`SwappableReceiver`, `SSRCFromID`, `ParseIncoming` |
 | [webaudio/](webaudio/) | `Bridge` (RPC ↔ comms runtime plumbing for web mode), `NewBridge`, `SendFn`, `InjectTxFrame`, `PushRxFrame`, `RxFrames`, `BridgeSnapshot` |
