@@ -4,7 +4,6 @@ package comms
 
 import (
 	"context"
-	"net"
 	"net/netip"
 	"testing"
 	"time"
