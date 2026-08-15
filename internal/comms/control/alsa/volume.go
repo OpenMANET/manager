@@ -3,6 +3,7 @@ package alsa
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/rs/zerolog"
 
@@ -76,6 +77,15 @@ type Volume struct {
 	// the card may have enumerated after comms startup detection ran.
 	// Defaults to control.DetectAndSetALSACard; tests inject a stub.
 	DetectCard func(zerolog.Logger)
+
+	// Atomic caches of the most recent daemon-side reading, consumed by
+	// the instrumentation snapshot (atomic-load-only contract). Encoding:
+	// 0 = never read (unknown); volume fields store pct+1 (1..101); the
+	// AGC field stores 1 = off, 2 = on. Out-of-band alsamixer or VOL
+	// button changes are not tracked until the next API read.
+	lastSpeakerPct atomic.Int64
+	lastMicPct     atomic.Int64
+	lastAGC        atomic.Int64
 }
 
 func (v *Volume) opener() Opener {
@@ -188,7 +198,28 @@ func (v *Volume) State(_ context.Context) (State, error) {
 		}
 	}
 
+	v.cacheState(st)
+
 	return st, nil
+}
+
+// cacheState records st into the atomic instrumentation cache.
+func (v *Volume) cacheState(st State) {
+	if st.SpeakerPct >= 0 {
+		v.lastSpeakerPct.Store(int64(st.SpeakerPct) + 1)
+	}
+
+	if st.MicPct >= 0 {
+		v.lastMicPct.Store(int64(st.MicPct) + 1)
+	}
+
+	if st.AGCPresent {
+		if st.AGCEnabled {
+			v.lastAGC.Store(2)
+		} else {
+			v.lastAGC.Store(1)
+		}
+	}
 }
 
 // Apply writes the non-nil fields of u to hardware, then reads back and
