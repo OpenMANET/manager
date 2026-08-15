@@ -237,12 +237,18 @@ func (jb *JitterBuffer) pushLocked(seq uint16, payload []byte) bool {
 		return false
 	}
 
+	// One clock read per push, shared by the idle check below and the
+	// lastPush stamp at the end — pushLocked runs under the mutex the
+	// playback callback contends on, so redundant time.Now calls are
+	// pure added hold time.
+	now := jb.nowFn()
+
 	// Idle-reset safety net: if a long gap has elapsed since the last push,
 	// treat the next packet as the start of a fresh stream regardless of
 	// sequence number. Catches edge cases the SSRC check cannot, e.g. a sender
 	// that resets seq without rotating SSRC, or RFC 3550 §8.2 collision-driven
 	// SSRC rotation that the caller did not propagate.
-	if jb.init && !jb.lastPush.IsZero() && jb.nowFn().Sub(jb.lastPush) > jitterIdleResetThreshold {
+	if jb.init && !jb.lastPush.IsZero() && now.Sub(jb.lastPush) > jitterIdleResetThreshold {
 		jb.resetLocked()
 		jb.IdleResets.Add(1)
 	}
@@ -283,7 +289,7 @@ func (jb *JitterBuffer) pushLocked(seq uint16, payload []byte) bool {
 	slot.payload = buf
 	slot.valid = true
 	jb.count++
-	jb.lastPush = jb.nowFn()
+	jb.lastPush = now
 
 	return true
 }

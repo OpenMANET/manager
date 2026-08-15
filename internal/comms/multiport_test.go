@@ -3,7 +3,7 @@ package comms
 import (
 	"context"
 	"errors"
-	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -292,7 +292,7 @@ func TestReceiveLoop_SkipsDeliveryWhenReceiveDisabled(t *testing.T) {
 
 	// Pre-load one valid RTP packet.
 	raw := makeRTPBytes(t, 0)
-	src := &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4), Port: 5004}
+	src := netip.MustParseAddrPort("1.2.3.4:5004")
 	reader := newMockReader(
 		mockPacket{data: raw, src: src},
 	)
