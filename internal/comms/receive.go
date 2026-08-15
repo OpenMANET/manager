@@ -27,6 +27,20 @@ const maxConsecutivePLC = 10
 // is still willing to PLC.
 const concealRecentWindow = 200 * time.Millisecond
 
+const (
+	// receiveErrStreakThreshold is the number of consecutive ReadFromUDP
+	// failures after which receiveLoop starts backing off between attempts.
+	// The first errors stay instant so the socket-swap path (a single
+	// net.ErrClosed while UpdateMulticastEndpoint closes the old socket to
+	// unblock the read) never pays the backoff.
+	receiveErrStreakThreshold = 3
+
+	// receiveErrBackoff bounds the retry rate on a persistently failing
+	// socket to ~100 attempts/s instead of a busy spin that would pin a
+	// core on the embedded targets.
+	receiveErrBackoff = 10 * time.Millisecond
+)
+
 // zeroInt16 fills an int16 slice with zeros. Used by the playout callback to
 // emit silence into the malgo int16 playback buffer.
 func zeroInt16(out []int16) {
@@ -133,6 +147,12 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 		cachedLocalIP    net.IP
 	)
 
+	// errStreak counts consecutive read failures. A handful of instant
+	// retries covers the legitimate transients (socket swap); beyond the
+	// threshold the loop backs off so a permanently dead socket cannot
+	// busy-spin this goroutine.
+	errStreak := 0
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -143,6 +163,8 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 		n, src, err := pc.Receiver.ReadFromUDP(buf)
 		if err == nil {
 			pc.RxPkts.Add(1)
+
+			errStreak = 0
 		}
 
 		if err != nil {
@@ -160,6 +182,15 @@ func (cfg *CommsConfig) receiveLoop(ctx context.Context, pc *PortChannel, rt *Co
 					jitter.Reset()
 				} else {
 					cfg.Log.Error().Err(err).Msg("comms: recv error")
+				}
+
+				errStreak++
+				if errStreak >= receiveErrStreakThreshold {
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(receiveErrBackoff):
+					}
 				}
 
 				continue

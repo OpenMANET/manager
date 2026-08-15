@@ -240,6 +240,24 @@ func (m *mockReader) remaining() int {
 	return len(m.packets)
 }
 
+// ─── fakeErrReader ───────────────────────────────────────────────────────────
+
+// fakeErrReader is a PacketReader whose ReadFromUDP always fails with err.
+// reads counts attempts so tests can assert receiveLoop backs off instead of
+// busy-spinning on a permanently failing socket.
+type fakeErrReader struct {
+	err   error
+	reads atomic.Int64
+}
+
+func (f *fakeErrReader) ReadFromUDP(_ []byte) (int, *net.UDPAddr, error) {
+	f.reads.Add(1)
+
+	return 0, nil, f.err
+}
+
+func (f *fakeErrReader) Close() error { return nil }
+
 // ─── mockEventSource ─────────────────────────────────────────────────────────
 
 // mockEventSource satisfies control.EventSource. Pre-loaded events are sent

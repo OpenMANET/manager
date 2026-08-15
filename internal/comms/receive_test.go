@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/openmanet/openmanetd/internal/comms/audiopool"
+	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 )
@@ -573,6 +574,85 @@ func TestReceiveLoop_StampsLastRemoteRx(t *testing.T) {
 	if pc.RxGate.LastUnixNano() == 0 {
 		t.Error("expected rxGate to be marked after receiving a remote packet")
 	}
+}
+
+// ─── receiveLoop failure-path tests ───────────────────────────────────────────
+
+func TestReceiveLoop_BacksOffOnPersistentReadErrors(t *testing.T) {
+	// A permanently failing receiver (e.g. a socket closed by Start's
+	// teardown while the loop's context is still live) must not busy-spin.
+	// After a few consecutive errors the loop backs off between attempts.
+	reader := &fakeErrReader{err: net.ErrClosed}
+	pc := &PortChannel{
+		cfg:      McastPortConfig{Receive: true},
+		Receiver: rtp.NewSwappableReceiver(reader),
+	}
+	pc.ReceiveEnabled.Store(true)
+
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		cfg.receiveLoop(ctx, pc, rt)
+	}()
+
+	// 100 ms of persistent errors must produce a bounded number of read
+	// attempts. With the consecutive-error threshold and backoff the loop
+	// makes on the order of a dozen attempts; a spinning loop makes
+	// hundreds of thousands.
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("receiveLoop did not exit after cancel")
+	}
+
+	if n := reader.reads.Load(); n > 100 {
+		t.Fatalf("receiveLoop busy-spun on persistent read errors: %d reads in 100 ms", n)
+	}
+}
+
+func TestRun_StopsReceiveLoopsWhenEventSourceCloses(t *testing.T) {
+	// When the control source dies (e.g. PTT dongle unplugged), its events
+	// channel closes and Run returns; Start's defers then close every
+	// receiver while the manager's context is still live. The goroutines
+	// Run spawned must terminate with it instead of erroring against
+	// permanently closed sockets forever.
+	reader := &fakeErrReader{err: net.ErrClosed}
+	pc := &PortChannel{
+		cfg:      McastPortConfig{Receive: true},
+		Receiver: rtp.NewSwappableReceiver(reader),
+	}
+	pc.ReceiveEnabled.Store(true)
+
+	rt := &CommsRuntime{Ports: []*PortChannel{pc}}
+	cfg := &CommsConfig{Log: zerolog.Nop()}
+
+	src := &mockEventSource{ch: make(chan control.PTTEvent)}
+	close(src.ch)
+
+	cfg.Run(context.Background(), rt, src) // returns as soon as events closes
+
+	// After Run returns, the spawned receiveLoop must wind down: poll until
+	// the read count stops advancing.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		before := reader.reads.Load()
+		time.Sleep(50 * time.Millisecond)
+
+		if reader.reads.Load() == before {
+			return // loop has stopped
+		}
+	}
+
+	t.Fatal("receiveLoop still reading after Run returned; run-scoped cancellation missing")
 }
 
 // ─── receiveLoop socket-swap recovery tests ───────────────────────────────────
