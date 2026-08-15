@@ -70,13 +70,13 @@ type Update struct {
 // mixer per call and close it on return; operations complete in
 // microseconds and never touch the audio hot path.
 type Volume struct {
-	Log   zerolog.Logger
-	Open  Opener
-	Names Names
+	Log  zerolog.Logger
+	Open Opener
 	// DetectCard runs ALSA card auto-detection when ALSA_CARD is unset —
 	// the card may have enumerated after comms startup detection ran.
 	// Defaults to control.DetectAndSetALSACard; tests inject a stub.
 	DetectCard func(zerolog.Logger)
+	Names      Names
 
 	// Atomic caches of the most recent daemon-side reading, consumed by
 	// the instrumentation snapshot (atomic-load-only contract). Encoding:

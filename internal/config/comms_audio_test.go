@@ -95,6 +95,7 @@ comms:
 	// File contents: keys written, comment preserved.
 	data, err := os.ReadFile(c.GetConfigFilePath())
 	require.NoError(t, err)
+
 	content := string(data)
 	assert.Contains(t, content, "# top comment survives")
 	assert.Contains(t, content, "speakerVolume: 45")
@@ -110,6 +111,7 @@ func TestPersistCommsAudio_PartialWritesOnlyProvidedFields(t *testing.T) {
 
 	data, err := os.ReadFile(c.GetConfigFilePath())
 	require.NoError(t, err)
+
 	content := string(data)
 	assert.Contains(t, content, "agc: false")
 	assert.NotContains(t, content, "speakerVolume")
