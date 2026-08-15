@@ -805,13 +805,15 @@ last-known-good reading.
 
 ### Candidate-list resolution
 
-Both `Controller` and `Volume` resolve a logical role (speaker volume,
-mic volume, AGC switch, and — startup-unmute only — the playback/capture
-mute switches) against an ordered list of raw ALSA element names via the
-shared [`ResolveCtl`](control/alsa/resolve.go) helper, which returns the
-first exact match. `gen2brain/alsa` matches raw kernel element names
-exactly, which differ from `amixer`'s simple names, so both spellings
-are listed where cards disagree:
+`Volume` resolves a logical role (speaker volume, mic volume, AGC
+switch, and — startup-unmute only — the playback/capture mute switches)
+against an ordered list of raw ALSA element names via the shared
+[`ResolveCtl`](control/alsa/resolve.go) helper, which returns the first
+exact match; `Controller` uses the same helper but only ever resolves
+the playback role, since VOL+/VOL− only ever touches speaker volume.
+`gen2brain/alsa` matches raw kernel element names exactly, which differ
+from `amixer`'s simple names, so both spellings are listed where cards
+disagree:
 
 - `PlaybackVolumeNames`: `Master`, `Speaker Playback Volume`,
   `PCM Playback Volume`, `Headphone Playback Volume`
@@ -827,9 +829,16 @@ pin an exact raw element name per role instead of trusting the
 candidate list via `comms.audio.speakerControl`, `comms.audio.micControl`,
 and `comms.audio.agcControl` — each becomes the sole entry in that
 role's list when set (`alsa.NamesFromOverrides`), which also lets a
-future card with an unlisted name work without a code change. The
-switch-name lists have no config override; they only matter for the
-defensive startup unmute described below.
+future card with an unlisted name work without a code change. **These
+overrides reach only the `Volume` path** — the `GetAudioMixer`/
+`UpdateAudioMixer` RPCs and the startup re-apply. The VOL+/VOL− button
+path always resolves against the built-in `PlaybackVolumeNames` list:
+`Controller.ControlName` exists as a code-level override field, but
+production wiring (`CommsManager.buildCommsConfig`) never sets it from
+config, so pinning `comms.audio.speakerControl` has no effect on button
+behavior — only on what `GetAudioMixer`/`UpdateAudioMixer` read and
+write. The switch-name lists have no config override at all; they only
+matter for the defensive startup unmute described below.
 
 ### Persistence semantics
 
