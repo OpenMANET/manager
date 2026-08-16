@@ -160,6 +160,88 @@ describe('TestDeviceAudioPanel', () => {
     expect(updateAudioMixer).toHaveBeenCalledWith({ speakerVolume: 71 });
   });
 
+  it('suppresses poll overwrites while a slider drag is active', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchAudioMixer.mockResolvedValue(fullState);
+
+      render(<DeviceAudioPanel />);
+      await act(async () => {}); // flush the immediate mount poll
+      const slider = screen.getByLabelText('Device speaker volume');
+      expect(slider).toHaveValue('70');
+
+      // Open a drag, then let a poll land with a different hardware value.
+      fireEvent.change(slider, { target: { value: '30' } });
+      fetchAudioMixer.mockResolvedValue({ ...fullState, speakerVolume: 90 });
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+
+      // The in-progress drag must not be overwritten by the poll response.
+      expect(slider).toHaveValue('30');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reverts an interrupted drag on pointercancel and resumes polling', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchAudioMixer.mockResolvedValue(fullState);
+
+      render(<DeviceAudioPanel />);
+      await act(async () => {});
+      const slider = screen.getByLabelText('Device speaker volume');
+
+      // A touch drag interrupted by scroll fires pointercancel, never
+      // pointerup: the drag must be discarded, not committed.
+      fireEvent.change(slider, { target: { value: '30' } });
+      await act(async () => {
+        fireEvent.pointerCancel(slider);
+      });
+
+      expect(updateAudioMixer).not.toHaveBeenCalled();
+      expect(slider).toHaveValue('70');
+
+      // Polling must resume immediately afterward.
+      fetchAudioMixer.mockResolvedValue({ ...fullState, speakerVolume: 90 });
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(slider).toHaveValue('90');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cannot suppress polling forever after a drag ends without any release event', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchAudioMixer.mockResolvedValue(fullState);
+
+      render(<DeviceAudioPanel />);
+      await act(async () => {});
+      const slider = screen.getByLabelText('Device speaker volume');
+
+      // Simulate a pointerup that never landed on the input: the drag flag
+      // stays set with no commit and no cancel.
+      fireEvent.change(slider, { target: { value: '30' } });
+      fetchAudioMixer.mockResolvedValue({ ...fullState, speakerVolume: 90 });
+
+      // After enough consecutive suppressed polls the stale drag must be
+      // dropped and the panel must converge to hardware state again.
+      for (let i = 0; i < 4; i++) {
+        await act(async () => {
+          vi.advanceTimersByTime(5000);
+        });
+      }
+
+      expect(slider).toHaveValue('90');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('renders the AGC toggle optimistically before the update RPC resolves', async () => {
     fetchAudioMixer.mockResolvedValue(fullState);
     let resolveUpdate;

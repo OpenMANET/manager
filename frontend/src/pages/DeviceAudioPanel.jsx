@@ -12,12 +12,25 @@
 // `pending` and `draggingRef` are keyed per control ('speaker' | 'mic' |
 // 'agc') so that releasing one control never clobbers another control's
 // in-flight drag or commit — see commit() below.
+//
+// A drag normally ends in commit() (pointerup / key-up) or cancelDrag()
+// (pointercancel — e.g. a touch drag interrupted by scroll). Because a
+// browser can drop both events (release outside the viewport, tab switch
+// mid-drag), poll() additionally drops any drag flag that has suppressed
+// MAX_SUPPRESSED_POLLS consecutive polls: a stuck flag would otherwise
+// freeze the sliders at phantom values and block polling forever.
 
 import React, { useState, useRef, useCallback } from 'react';
 import { fetchAudioMixer, updateAudioMixer } from '../services/commsApi.js';
 import { useVisibleInterval } from '../hooks/useVisibleInterval.js';
 
 const POLL_MS = 5000;
+
+// Consecutive polls a single drag may suppress before it is considered
+// stuck; it is dropped on the poll after that (~20 s at POLL_MS). Any
+// onChange tick resets the count, so a genuinely active drag is never
+// dropped.
+const MAX_SUPPRESSED_POLLS = 3;
 
 // Keys that actually change a range input's value. onKeyUp fires for any
 // key released while the slider has focus — including Tab, which merely
@@ -41,10 +54,31 @@ export default function DeviceAudioPanel() {
   const [mixer, setMixer] = useState(null);     // last known AudioMixerState
   const [pending, setPending] = useState({});   // { speaker?, mic?, agc? } — optimistic per-control overrides
   const [error, setError] = useState(false);
-  const draggingRef = useRef(new Set());        // control keys currently mid-drag (sliders only)
+  // Control keys currently mid-drag (sliders only), mapped to how many
+  // polls each has suppressed since its last onChange tick.
+  const draggingRef = useRef(new Map());
+
+  // Discards one control's pending override and drag flag without
+  // committing — the pointercancel path and the stale-drag safety net.
+  const dropPending = useCallback((key) => {
+    draggingRef.current.delete(key);
+    setPending((p) => {
+      if (!(key in p)) return p;
+      const next = { ...p };
+      delete next[key];
+      return next;
+    });
+  }, []);
 
   const poll = useCallback(async () => {
     const state = await fetchAudioMixer();
+    for (const [key, missed] of draggingRef.current) {
+      if (missed >= MAX_SUPPRESSED_POLLS) {
+        dropPending(key); // stuck drag — no release event ever arrived
+      } else {
+        draggingRef.current.set(key, missed + 1);
+      }
+    }
     if (draggingRef.current.size > 0) return; // never fight an active slider drag
     if (state === null) {
       setError(true);
@@ -52,7 +86,7 @@ export default function DeviceAudioPanel() {
     }
     setError(false);
     setMixer(state);
-  }, []);
+  }, [dropPending]);
 
   useVisibleInterval(poll, POLL_MS);
 
@@ -78,13 +112,15 @@ export default function DeviceAudioPanel() {
   }, []);
 
   const onSpeakerDrag = (v) => {
-    draggingRef.current.add('speaker');
+    draggingRef.current.set('speaker', 0);
     setPending((p) => ({ ...p, speaker: v }));
   };
   const onMicDrag = (v) => {
-    draggingRef.current.add('mic');
+    draggingRef.current.set('mic', 0);
     setPending((p) => ({ ...p, mic: v }));
   };
+  const cancelSpeakerDrag = () => dropPending('speaker');
+  const cancelMicDrag = () => dropPending('mic');
 
   const loading = mixer === null && !error;
   const unavailable = !loading && !error && !mixer?.available;
@@ -139,6 +175,7 @@ export default function DeviceAudioPanel() {
                 value={speakerVal}
                 onChange={(e) => onSpeakerDrag(Number(e.target.value))}
                 onPointerUp={commitSpeaker}
+                onPointerCancel={cancelSpeakerDrag}
                 onKeyUp={onSpeakerKeyUp}
                 aria-label="Device speaker volume"
               />
@@ -157,6 +194,7 @@ export default function DeviceAudioPanel() {
                 value={micVal}
                 onChange={(e) => onMicDrag(Number(e.target.value))}
                 onPointerUp={commitMic}
+                onPointerCancel={cancelMicDrag}
                 onKeyUp={onMicKeyUp}
                 aria-label="Device mic volume"
               />
