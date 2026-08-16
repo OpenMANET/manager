@@ -2,6 +2,7 @@ package alsa
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 
@@ -386,7 +387,15 @@ func (v *Volume) ApplyStartup(ctx context.Context, u Update) {
 		}
 
 		if _, err := v.Apply(ctx, part); err != nil {
-			v.Log.Warn().Err(err).Msg("alsa-vol: startup mixer apply failed")
+			ev := v.Log.Warn()
+			if errors.Is(err, ErrControlNotFound) {
+				// A card simply lacking this control is expected hardware
+				// variance; with AGC applied on every startup, warning here
+				// would recur on each boot and recovery of AGC-less cards.
+				ev = v.Log.Debug()
+			}
+
+			ev.Err(err).Msg("alsa-vol: startup mixer apply failed")
 		}
 	}
 

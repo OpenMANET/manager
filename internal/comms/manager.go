@@ -85,12 +85,12 @@ func (m *CommsManager) buildCommsConfig() *CommsConfig {
 }
 
 // mixerStartupUpdate translates persisted comms.audio values into an
-// alsa.Update. ok is false when no comms.audio key is set.
-func mixerStartupUpdate(cfg *config.Config) (alsa.Update, bool) {
-	if !cfg.HasCommsAudioSettings() {
-		return alsa.Update{}, false
-	}
-
+// alsa.Update. Volume keys are apply-only-when-set: an absent key leaves
+// that hardware control untouched. AGC is policy, not passthrough — it is
+// always applied, defaulting to disabled when comms.audio.agc is unset, so
+// the CM108B's automatic capture gain never rides along silently on a
+// fresh install or after a USB replug resets the chip.
+func mixerStartupUpdate(cfg *config.Config) alsa.Update {
 	var u alsa.Update
 
 	if v := cfg.GetCommsAudioSpeakerVolume(); v >= 0 {
@@ -101,11 +101,12 @@ func mixerStartupUpdate(cfg *config.Config) (alsa.Update, bool) {
 		u.MicPct = &v
 	}
 
-	if enabled, set := cfg.GetCommsAudioAGC(); set {
-		u.AGC = &enabled
-	}
+	// The set flag is deliberately ignored: unset reads as false, which is
+	// exactly the default this policy enforces.
+	agc, _ := cfg.GetCommsAudioAGC()
+	u.AGC = &agc
 
-	return u, true
+	return u
 }
 
 // mixerStartup returns the startup mixer re-apply closure, or nil when no
@@ -122,12 +123,7 @@ func (m *CommsManager) mixerStartup() func() {
 	mixer := m.mixer
 
 	return func() {
-		u, ok := mixerStartupUpdate(cfg)
-		if !ok {
-			return
-		}
-
-		mixer.ApplyStartup(context.Background(), u)
+		mixer.ApplyStartup(context.Background(), mixerStartupUpdate(cfg))
 	}
 }
 

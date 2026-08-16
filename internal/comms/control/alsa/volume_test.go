@@ -1,6 +1,7 @@
 package alsa_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -284,6 +285,29 @@ func TestVolume_ApplyStartup_AppliesEachFieldIndependently(t *testing.T) {
 
 	assert.Equal(t, []int{38}, speaker.snapshotValues(), "speaker applied despite missing mic control")
 	assert.Equal(t, []int{0}, agc.snapshotValues(), "agc applied despite missing mic control")
+}
+
+func TestVolume_ApplyStartup_MissingControlLogsDebugNotWarn(t *testing.T) {
+	withCard(t, "0")
+
+	// Card with no AGC control at all. AGC is applied on every startup
+	// (off-by-default policy), so hardware that simply lacks the switch
+	// must produce a Debug skip, not a Warn on every boot and recovery.
+	speaker := newFakeCtl([]int{0}, 0, 38)
+	mx := &fakeMixer{ctls: map[string]alsa.Ctl{"Master": speaker}}
+	op := &fakeOpener{mixer: mx}
+
+	var buf bytes.Buffer
+
+	v := &alsa.Volume{Log: zerolog.New(&buf), Open: op.opener()}
+
+	off := false
+	v.ApplyStartup(context.Background(), alsa.Update{AGC: &off})
+
+	logs := buf.String()
+	assert.NotContains(t, logs, `"level":"warn"`,
+		"a missing control is expected hardware variance, not a warning")
+	assert.Contains(t, logs, `"level":"debug"`, "the skip must still be observable")
 }
 
 func TestVolume_ApplyStartup_UnmutesSwitches(t *testing.T) {
