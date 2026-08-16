@@ -55,8 +55,8 @@ func TestService_Snapshot_Populated(t *testing.T) {
 
 	bridge := webaudio.NewBridge(zerolog.Nop(), nil)
 	// Drive the bridge counters so the snapshot has non-zero values.
-	bridge.PushRxFrame([]byte{0x01})
-	bridge.PushRxFrame([]byte{0x02})
+	bridge.PushRxFrame(1, []byte{0x01})
+	bridge.PushRxFrame(1, []byte{0x02})
 
 	port0 := &PortChannel{
 		cfg:    McastPortConfig{Address: "239.0.0.1", Port: 5000},

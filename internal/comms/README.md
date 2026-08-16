@@ -343,8 +343,9 @@ periodic instrumentation snapshot under `comms.broadcast_encoder` — see
    channel) before falling through.
 6. **Web mode**: a `webPlayoutLoop` per port uses
    [`jitter.EnableNotify`](rtp/jitter.go) for edge-triggered wakeups and
-   forwards raw Opus payloads to `rt.WebBridge.PushRxFrame` for the
-   browser to decode and play.
+   forwards raw Opus payloads to `rt.WebBridge.PushRxFrame`, tagged with
+   the port's 1-based talk group channel, for the browser to decode,
+   play, and attribute to the right talk group.
 
 [`halfDuplexDecayLoop`](receive.go) runs alongside the receive loops on a
 100 ms ticker (`halfDuplexDecayInterval`). It walks every send-enabled
@@ -680,7 +681,8 @@ In web mode the entire malgo pipeline is **bypassed**:
   `endTransmission` short-circuit on `rt.WebBridge != nil`.
 - Per-port playback streams are not opened.
 - Inbound audio is forwarded raw via [`webaudio.Bridge.PushRxFrame`](webaudio/bridge.go)
-  → `RxFrames()` channel → RPC stream → browser decoder.
+  (tagged with the port's talk group channel) → `RxFrames()` channel →
+  RPC stream (`StreamAudioRxResponse.talkgroup`) → browser decoder.
 - Outbound audio is injected via `webaudio.Bridge.InjectTxFrame`
   → bound `SendFn` → `cfg.sendToAllPorts(rt, payload)`.
 

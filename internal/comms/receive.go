@@ -12,6 +12,7 @@ import (
 
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
+	"github.com/openmanet/openmanetd/internal/config"
 )
 
 // maxConsecutivePLC caps the number of consecutive Packet-Loss-Concealment
@@ -412,6 +413,18 @@ func (cfg *CommsConfig) playoutOneFrame(pc *PortChannel, rt *CommsRuntime, jitte
 func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jitter *rtp.JitterBuffer, rt *CommsRuntime) { //nolint:gocognit
 	notify := jitter.EnableNotify()
 
+	// webChannel tags every frame handed to the bridge with this port's
+	// 1-based talk group channel so the RPC layer (and ultimately the
+	// browser) can attribute RX audio to the right talk group. Resolved
+	// once: the port never changes for the life of the loop. A port
+	// outside the talk group plan tags 0 (unknown); consumers fall back
+	// to channel 1. TalkGroupChannel caps channels at 32, so the byte
+	// conversion cannot truncate.
+	var webChannel byte
+	if ch, chErr := config.TalkGroupChannel(pc.cfg.Port); chErr == nil {
+		webChannel = byte(ch)
+	}
+
 	const safetyPoll = 100 * time.Millisecond
 
 	ticker := time.NewTicker(safetyPoll)
@@ -486,7 +499,7 @@ func (cfg *CommsConfig) webPlayoutLoop(ctx context.Context, pc *PortChannel, jit
 			// PushRxFrame copies into a bridge-pooled buffer, so the
 			// jitter payload can be released immediately — the whole
 			// hand-off is allocation-free.
-			rt.WebBridge.PushRxFrame(payload)
+			rt.WebBridge.PushRxFrame(webChannel, payload)
 			jitter.ReleasePayload(payload)
 		}
 	}

@@ -899,8 +899,7 @@ cfg.webPlayoutLoop(ctx, jitter, rt)
     for {
       payload, _ := jitter.PopOrConceal(200ms)
       if payload == nil { return }
-      cp := copy of payload
-      rt.WebBridge.PushRxFrame(cp)
+      rt.WebBridge.PushRxFrame(webChannel, payload)  // copies internally; webChannel = port's talk group
       jitter.ReleasePayload(payload)
     }
   }
@@ -1396,8 +1395,8 @@ type SendFn func(opusData []byte)
 
 func NewBridge(log zerolog.Logger, send SendFn) *Bridge
 func (b *Bridge) InjectTxFrame(opusData []byte)        // RPC TX path
-func (b *Bridge) PushRxFrame(opusData []byte)          // webPlayoutLoop RX
-func (b *Bridge) RxFrames() <-chan []byte              // RPC RX channel
+func (b *Bridge) PushRxFrame(ch byte, opusData []byte) // webPlayoutLoop RX (ch = 1-based talk group, 0 = unknown)
+func (b *Bridge) RxFrames() <-chan Frame               // RPC RX channel; Frame carries Data(), Channel(), Release()
 ```
 
 The parent binds `SendFn` to `cfg.sendToAllPorts(rt, …)` at construction

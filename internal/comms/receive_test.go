@@ -989,6 +989,55 @@ func TestWebPlayoutLoop_ForwardsRawOpus(t *testing.T) {
 	}
 }
 
+// TestWebPlayoutLoop_TagsFramesWithTalkGroupChannel pins the talk group
+// attribution contract: every frame handed to the web bridge carries the
+// 1-based channel derived from the port's UDP port (38803 → channel 2), so
+// the RPC layer can tell the browser which talk group the audio belongs
+// to. A port outside the talk group plan tags frames with 0 (unknown).
+func TestWebPlayoutLoop_TagsFramesWithTalkGroupChannel(t *testing.T) {
+	tests := []struct {
+		name string
+		port int
+		want byte
+	}{
+		{name: "talkgroup 2 port", port: 38803, want: 2},
+		{name: "unmapped port", port: 40000, want: 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := newSilentComms()
+			rt, pc := newReceiveRuntime()
+			pc.cfg.Port = tc.port
+
+			bridge := webaudio.NewBridge(zerolog.Nop(), func(payload []byte) {
+				cfg.sendToAllPorts(rt, payload)
+			})
+			rt.WebBridge = bridge
+			bridge.AddConsumer() // this test reads RxFrames directly
+
+			jb := rtp.NewJitterBuffer(1, 16)
+			jb.Push(0, []byte{0xAA})
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+
+			go cfg.webPlayoutLoop(ctx, pc, jb, rt)
+
+			select {
+			case frame := <-bridge.RxFrames():
+				if got := frame.Channel(); got != tc.want {
+					t.Errorf("frame channel: got %d, want %d", got, tc.want)
+				}
+
+				frame.Release()
+			case <-time.After(500 * time.Millisecond):
+				t.Error("timed out waiting for frame on web bridge")
+			}
+		})
+	}
+}
+
 // TestWebPlayoutLoop_MultipleFrames verifies that a sequence of frames is
 // streamed through the web bridge in order.
 func TestWebPlayoutLoop_MultipleFrames(t *testing.T) {

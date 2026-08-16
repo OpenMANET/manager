@@ -374,8 +374,9 @@ func (c *CommsService) StreamAudioRx(ctx context.Context, _ *commsv1.StreamAudio
 			// into the wire buffer synchronously, so the pooled frame
 			// buffer is free to recycle once Send returns.
 			err := stream.Send(&commsv1.StreamAudioRxResponse{
-				OpusData: frame.Data(),
-				Sequence: seq,
+				OpusData:  frame.Data(),
+				Sequence:  seq,
+				Talkgroup: int32(frame.Channel()),
 			})
 
 			frame.Release()
