@@ -31,7 +31,6 @@ func TestCommsAudio_Defaults_Unset(t *testing.T) {
 
 	_, set := c.GetCommsAudioAGC()
 	assert.False(t, set)
-	assert.False(t, c.HasCommsAudioSettings())
 	assert.Empty(t, c.GetCommsAudioSpeakerControl())
 }
 
@@ -50,7 +49,6 @@ func TestCommsAudio_LoadAndClamp(t *testing.T) {
 	enabled, set := c.GetCommsAudioAGC()
 	assert.True(t, set)
 	assert.True(t, enabled)
-	assert.True(t, c.HasCommsAudioSettings())
 	assert.Equal(t, "My Speaker", c.GetCommsAudioSpeakerControl())
 }
 

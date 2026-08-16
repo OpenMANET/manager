@@ -267,12 +267,15 @@ func TestCommsManager_BuildConfigCarriesDSCP(t *testing.T) {
 	}
 }
 
-func TestMixerStartupUpdate_Unconfigured(t *testing.T) {
+func TestMixerStartupUpdate_Unconfigured_DefaultsAGCOff(t *testing.T) {
 	v := viper.New()
 	cfg := config.NewWithoutWatch(v)
 
-	_, ok := mixerStartupUpdate(cfg)
-	assert.False(t, ok, "no comms.audio key set: no startup apply")
+	u := mixerStartupUpdate(cfg)
+	assert.Nil(t, u.SpeakerPct, "unset speakerVolume must stay nil")
+	assert.Nil(t, u.MicPct, "unset micVolume must stay nil")
+	require.NotNil(t, u.AGC, "AGC defaults to disabled when comms.audio.agc is unset")
+	assert.False(t, *u.AGC)
 }
 
 func TestMixerStartupUpdate_BuildsPartialUpdate(t *testing.T) {
@@ -281,8 +284,7 @@ func TestMixerStartupUpdate_BuildsPartialUpdate(t *testing.T) {
 	v.Set("comms.audio.agc", false)
 	cfg := config.NewWithoutWatch(v)
 
-	u, ok := mixerStartupUpdate(cfg)
-	require.True(t, ok)
+	u := mixerStartupUpdate(cfg)
 	require.NotNil(t, u.SpeakerPct)
 	assert.Equal(t, 80, *u.SpeakerPct)
 	assert.Nil(t, u.MicPct, "unset micVolume must stay nil")
@@ -290,14 +292,24 @@ func TestMixerStartupUpdate_BuildsPartialUpdate(t *testing.T) {
 	assert.False(t, *u.AGC)
 }
 
+func TestMixerStartupUpdate_ExplicitAGCOnIsPreserved(t *testing.T) {
+	v := viper.New()
+	v.Set("comms.audio.agc", true)
+	cfg := config.NewWithoutWatch(v)
+
+	u := mixerStartupUpdate(cfg)
+	require.NotNil(t, u.AGC)
+	assert.True(t, *u.AGC, "an operator's explicit agc: true must not be overridden by the off default")
+}
+
 // TestBuildCommsConfig_MixerStartupWiring verifies that the closure is
 // always wired whenever a hardware mixer is present, even when comms.audio
-// is unconfigured at build time — and that invoking it in that state is a
-// true no-op that never touches the hardware mixer. The gate now lives
-// entirely inside the closure (checked at invocation time), not at build
-// time, so a later USB-replug recovery can still pick up config written
-// after Enable() (see TestBuildCommsConfig_MixerStartupWiring_PicksUpLateConfig).
+// is unconfigured at build time — and that invoking it in that state still
+// touches the hardware mixer, because the AGC off-by-default policy applies
+// on every startup regardless of configuration.
 func TestBuildCommsConfig_MixerStartupWiring(t *testing.T) {
+	t.Setenv("ALSA_CARD", "0")
+
 	var openerCalled bool
 
 	unconfigured := config.NewWithoutWatch(viper.New())
@@ -306,9 +318,7 @@ func TestBuildCommsConfig_MixerStartupWiring(t *testing.T) {
 		Open: func(uint) (alsa.Mixer, error) {
 			openerCalled = true
 
-			t.Errorf("mixer opener must not be called when comms.audio is unconfigured")
-
-			return nil, errors.New("mixer opener must not be called")
+			return nil, errors.New("no real card in test")
 		},
 	}
 	m := NewCommsManager(unconfigured, zerolog.Nop(), mixer)
@@ -317,24 +327,16 @@ func TestBuildCommsConfig_MixerStartupWiring(t *testing.T) {
 	require.NotNil(t, closure, "closure must always be wired when a mixer is present")
 
 	closure()
-	assert.False(t, openerCalled, "unconfigured daemon must never touch the hardware mixer")
-
-	v := viper.New()
-	v.Set("comms.audio.speakerVolume", 80)
-	configured := config.NewWithoutWatch(v)
-	m2 := NewCommsManager(configured, zerolog.Nop(), &alsa.Volume{Log: zerolog.Nop()})
-	assert.NotNil(t, m2.buildCommsConfig().AudioMixerStartup, "configured: closure wired")
+	assert.True(t, openerCalled,
+		"unconfigured daemon must still touch the mixer: AGC defaults to disabled")
 }
 
 // TestBuildCommsConfig_MixerStartupWiring_PicksUpLateConfig is the
-// regression test for the build-time gate bug: a closure built while
-// comms.audio was unconfigured must still re-check the config at
-// invocation time and attempt the mixer once an operator persists a value
-// mid-run (e.g. via the CommsService audio-mixer RPCs, which call
-// Config.PersistCommsAudio).
+// regression test for the build-time gate bug: the startup update must be
+// derived from the config at invocation time, so a value persisted mid-run
+// (e.g. via the CommsService audio-mixer RPCs, which call
+// Config.PersistCommsAudio) reaches later recoveries such as a USB replug.
 func TestBuildCommsConfig_MixerStartupWiring_PicksUpLateConfig(t *testing.T) {
-	t.Setenv("ALSA_CARD", "0")
-
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.yml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte("comms:\n  enable: true\n"), 0644))
@@ -345,25 +347,9 @@ func TestBuildCommsConfig_MixerStartupWiring_PicksUpLateConfig(t *testing.T) {
 
 	cfg := config.NewWithoutWatch(v)
 
-	var openerCalled bool
-
-	mixer := &alsa.Volume{
-		Log: zerolog.Nop(),
-		Open: func(uint) (alsa.Mixer, error) {
-			openerCalled = true
-
-			return nil, errors.New("no real card in test")
-		},
-	}
-
-	m := NewCommsManager(cfg, zerolog.Nop(), mixer)
-
-	// The closure is built once, while comms.audio is still unconfigured.
-	closure := m.buildCommsConfig().AudioMixerStartup
-	require.NotNil(t, closure)
-
-	closure()
-	assert.False(t, openerCalled, "closure built while unconfigured must no-op until comms.audio is set")
+	// Built while comms.audio is unconfigured: only the AGC off default.
+	u := mixerStartupUpdate(cfg)
+	assert.Nil(t, u.SpeakerPct, "no speaker value before one is persisted")
 
 	// An operator persists a mixer value mid-run. This is the same
 	// v.Set + reload sequence Config.PersistCommsAudio performs when the
@@ -371,9 +357,10 @@ func TestBuildCommsConfig_MixerStartupWiring_PicksUpLateConfig(t *testing.T) {
 	speaker := 80
 	require.NoError(t, cfg.PersistCommsAudio(&speaker, nil, nil))
 
-	// The SAME closure, built before the config change, must now pick up
-	// the update on invocation — the whole point of re-checking config at
-	// invocation time instead of gating once at build time.
-	closure()
-	assert.True(t, openerCalled, "closure must re-check config at invocation time and attempt the mixer once comms.audio is configured")
+	// The same config handle, re-read at the next invocation, must now
+	// carry the persisted value — the whole point of deriving the update
+	// at invocation time instead of once at build time.
+	u = mixerStartupUpdate(cfg)
+	require.NotNil(t, u.SpeakerPct)
+	assert.Equal(t, 80, *u.SpeakerPct)
 }

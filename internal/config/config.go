@@ -1423,15 +1423,6 @@ func (c *Config) GetCommsAudioAGCControl() string {
 	return c.CommsAudioAGCControl
 }
 
-// HasCommsAudioSettings reports whether any comms.audio level key is set —
-// the gate for the startup mixer re-apply.
-func (c *Config) HasCommsAudioSettings() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.CommsAudioSpeakerVolume >= 0 || c.CommsAudioMicVolume >= 0 || c.CommsAudioAGCSet
-}
-
 // GetAuthEnable returns whether HTTP authentication is enabled.
 func (c *Config) GetAuthEnable() bool {
 	c.mu.RLock()
