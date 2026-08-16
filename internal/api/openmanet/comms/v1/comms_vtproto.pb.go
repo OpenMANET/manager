@@ -83,6 +83,7 @@ func (m *StreamAudioRxResponse) CloneVT() *StreamAudioRxResponse {
 	r := new(StreamAudioRxResponse)
 	r.Sequence = m.Sequence
 	r.Callsign = m.Callsign
+	r.Talkgroup = m.Talkgroup
 	if rhs := m.OpusData; rhs != nil {
 		tmpBytes := make([]byte, len(rhs))
 		copy(tmpBytes, rhs)
@@ -299,6 +300,9 @@ func (this *StreamAudioRxResponse) EqualVT(that *StreamAudioRxResponse) bool {
 		return false
 	}
 	if this.Callsign != that.Callsign {
+		return false
+	}
+	if this.Talkgroup != that.Talkgroup {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -601,6 +605,11 @@ func (m *StreamAudioRxResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error)
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if m.Talkgroup != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Talkgroup))
+		i--
+		dAtA[i] = 0x20
 	}
 	if len(m.Callsign) > 0 {
 		i -= len(m.Callsign)
@@ -1074,6 +1083,11 @@ func (m *StreamAudioRxResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int, 
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.Talkgroup != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Talkgroup))
+		i--
+		dAtA[i] = 0x20
+	}
 	if len(m.Callsign) > 0 {
 		i -= len(m.Callsign)
 		copy(dAtA[i:], m.Callsign)
@@ -1449,6 +1463,9 @@ func (m *StreamAudioRxResponse) SizeVT() (n int) {
 	l = len(m.Callsign)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.Talkgroup != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.Talkgroup))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1917,6 +1934,25 @@ func (m *StreamAudioRxResponse) UnmarshalVT(dAtA []byte) error {
 			}
 			m.Callsign = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Talkgroup", wireType)
+			}
+			m.Talkgroup = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Talkgroup |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -2931,6 +2967,25 @@ func (m *StreamAudioRxResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 			}
 			m.Callsign = stringValue
 			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Talkgroup", wireType)
+			}
+			m.Talkgroup = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Talkgroup |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])

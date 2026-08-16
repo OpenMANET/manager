@@ -181,7 +181,11 @@ type StreamAudioRxResponse struct {
 	Sequence uint32 `protobuf:"varint,2,opt,name=sequence,proto3" json:"sequence,omitempty"`
 	// Callsign of the remote peer whose audio this frame belongs to.
 	// Empty if the sender did not include a callsign extension.
-	Callsign      string `protobuf:"bytes,3,opt,name=callsign,proto3" json:"callsign,omitempty"`
+	Callsign string `protobuf:"bytes,3,opt,name=callsign,proto3" json:"callsign,omitempty"`
+	// 1-based talk group channel this frame was received on. 0 when the
+	// server predates this field or the receiving port has no talk group
+	// mapping; consumers should treat 0 as channel 1 for compatibility.
+	Talkgroup     int32 `protobuf:"varint,4,opt,name=talkgroup,proto3" json:"talkgroup,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -235,6 +239,13 @@ func (x *StreamAudioRxResponse) GetCallsign() string {
 		return x.Callsign
 	}
 	return ""
+}
+
+func (x *StreamAudioRxResponse) GetTalkgroup() int32 {
+	if x != nil {
+		return x.Talkgroup
+	}
+	return 0
 }
 
 // StreamAudioTxResponse is returned when the client closes the TX stream.
@@ -590,11 +601,12 @@ const file_openmanet_comms_v1_comms_proto_rawDesc = "" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\"O\n" +
 	"\x14StreamAudioTxRequest\x12\x1b\n" +
 	"\topus_data\x18\x01 \x01(\fR\bopusData\x12\x1a\n" +
-	"\bsequence\x18\x02 \x01(\rR\bsequence\"l\n" +
+	"\bsequence\x18\x02 \x01(\rR\bsequence\"\x8a\x01\n" +
 	"\x15StreamAudioRxResponse\x12\x1b\n" +
 	"\topus_data\x18\x01 \x01(\fR\bopusData\x12\x1a\n" +
 	"\bsequence\x18\x02 \x01(\rR\bsequence\x12\x1a\n" +
-	"\bcallsign\x18\x03 \x01(\tR\bcallsign\"@\n" +
+	"\bcallsign\x18\x03 \x01(\tR\bcallsign\x12\x1c\n" +
+	"\ttalkgroup\x18\x04 \x01(\x05R\ttalkgroup\"@\n" +
 	"\x15StreamAudioTxResponse\x12'\n" +
 	"\x0fframes_received\x18\x01 \x01(\rR\x0eframesReceived\"\x16\n" +
 	"\x14StreamAudioRxRequest\"\xc2\x02\n" +

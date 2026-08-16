@@ -35,11 +35,12 @@ const rxFrameDepth = 10
 // RPC consumer. The backing buffer is pooled: the consumer must call
 // Release exactly once when done with Data (after stream.Send has
 // marshaled it), and must not retain the slice afterwards. The zero Frame
-// is inert — Data returns nil and Release is a no-op.
+// is inert — Data returns nil, Channel returns 0, and Release is a no-op.
 type Frame struct {
 	b   *Bridge
 	buf *[]byte
 	n   int
+	ch  byte
 }
 
 // Data returns the Opus payload. Valid until Release is called.
@@ -49,6 +50,12 @@ func (f Frame) Data() []byte {
 	}
 
 	return (*f.buf)[:f.n]
+}
+
+// Channel returns the 1-based talk group channel the payload was received
+// on, or 0 when the producing port had no talk group mapping.
+func (f Frame) Channel() byte {
+	return f.ch
 }
 
 // Release returns the frame's pooled buffer to the bridge. Safe on the
@@ -185,11 +192,12 @@ func (b *Bridge) RxFrames() <-chan Frame {
 	return b.rxFrames
 }
 
-// PushRxFrame delivers a raw Opus payload for the web client. The payload
-// is copied into a pooled buffer, so the caller's slice may be reused the
-// moment the call returns. Non-blocking; if the channel is full the frame
-// is dropped and its buffer recycled.
-func (b *Bridge) PushRxFrame(opusData []byte) {
+// PushRxFrame delivers a raw Opus payload for the web client, tagged with
+// the 1-based talk group channel it was received on (0 = unknown). The
+// payload is copied into a pooled buffer, so the caller's slice may be
+// reused the moment the call returns. Non-blocking; if the channel is full
+// the frame is dropped and its buffer recycled.
+func (b *Bridge) PushRxFrame(ch byte, opusData []byte) {
 	if b == nil {
 		return
 	}
@@ -211,7 +219,7 @@ func (b *Bridge) PushRxFrame(opusData []byte) {
 	bufPtr := b.framePool.Get().(*[]byte) //nolint:forcetypeassert
 	copy((*bufPtr)[:len(opusData)], opusData)
 
-	f := Frame{b: b, buf: bufPtr, n: len(opusData)}
+	f := Frame{b: b, buf: bufPtr, n: len(opusData), ch: ch}
 
 	select {
 	case b.rxFrames <- f:

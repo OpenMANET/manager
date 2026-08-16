@@ -21,7 +21,7 @@ func BenchmarkWebDrain(b *testing.B) {
 	for b.Loop() {
 		// Mirror the webPlayoutLoop drain and RPC consumer: the bridge
 		// copies into a pooled buffer, the consumer releases after use.
-		bridge.PushRxFrame(payload)
+		bridge.PushRxFrame(1, payload)
 
 		f := <-bridge.RxFrames()
 		f.Release()

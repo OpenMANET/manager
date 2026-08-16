@@ -82,6 +82,33 @@ func newTestBridge() (*Bridge, *mockCommsClient) {
 	return b, comms
 }
 
+// TestWSChannelForTalkgroup pins the talkgroup→WS-channel-byte mapping used
+// by the audio RX loop. Zero (a daemon that predates the talkgroup field)
+// and out-of-range values fall back to channel 1 so audio keeps flowing.
+func TestWSChannelForTalkgroup(t *testing.T) {
+	tests := []struct {
+		name      string
+		talkgroup int32
+		want      byte
+	}{
+		{name: "zero falls back to 1", talkgroup: 0, want: 1},
+		{name: "channel 1", talkgroup: 1, want: 1},
+		{name: "channel 2", talkgroup: 2, want: 2},
+		{name: "channel 5", talkgroup: 5, want: 5},
+		{name: "max byte", talkgroup: 255, want: 255},
+		{name: "above byte range falls back", talkgroup: 256, want: 1},
+		{name: "negative falls back", talkgroup: -3, want: 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := wsChannel(tc.talkgroup); got != tc.want {
+				t.Errorf("wsChannel(%d): got %d, want %d", tc.talkgroup, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBridge_HandleTXToggle(t *testing.T) {
 	b, comms := newTestBridge()
 

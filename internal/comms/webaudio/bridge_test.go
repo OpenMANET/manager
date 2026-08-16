@@ -55,7 +55,7 @@ func TestBridge_PushRxFrame_Delivered(t *testing.T) {
 	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
 
 	data := []byte{0xCA, 0xFE}
-	bridge.PushRxFrame(data)
+	bridge.PushRxFrame(1, data)
 
 	select {
 	case got := <-bridge.RxFrames():
@@ -69,6 +69,35 @@ func TestBridge_PushRxFrame_Delivered(t *testing.T) {
 	}
 }
 
+// TestBridge_PushRxFrame_CarriesChannel pins the talk group identity
+// contract: the channel byte handed to PushRxFrame must ride the frame to
+// the consumer so the RPC layer can tell the browser which talk group the
+// audio belongs to. The zero Frame reports channel 0 (unknown).
+func TestBridge_PushRxFrame_CarriesChannel(t *testing.T) {
+	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
+
+	bridge.PushRxFrame(2, []byte{0xCA})
+	bridge.PushRxFrame(5, []byte{0xFE})
+
+	for _, want := range []byte{2, 5} {
+		select {
+		case got := <-bridge.RxFrames():
+			if ch := got.Channel(); ch != want {
+				t.Errorf("frame channel: got %d, want %d", ch, want)
+			}
+
+			got.Release()
+		case <-time.After(200 * time.Millisecond):
+			t.Fatal("timed out waiting for RX frame")
+		}
+	}
+
+	var zero Frame
+	if ch := zero.Channel(); ch != 0 {
+		t.Errorf("zero Frame channel: got %d, want 0", ch)
+	}
+}
+
 // TestBridge_PushRxFrame_CopiesPayload pins the ownership contract: the
 // caller's payload may be reused (it aliases a jitter-pool buffer) the
 // moment PushRxFrame returns, so the frame in the channel must hold its
@@ -77,7 +106,7 @@ func TestBridge_PushRxFrame_CopiesPayload(t *testing.T) {
 	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
 
 	data := []byte{0x11, 0x22}
-	bridge.PushRxFrame(data)
+	bridge.PushRxFrame(1, data)
 
 	// Caller reuses its buffer immediately.
 	data[0] = 0xEE
@@ -96,14 +125,14 @@ func TestBridge_PushRxFrame_DropsOnFull(t *testing.T) {
 
 	// Fill the channel.
 	for range cap(bridge.rxFrames) {
-		bridge.PushRxFrame([]byte{0x00})
+		bridge.PushRxFrame(1, []byte{0x00})
 	}
 
 	// This push must not block.
 	done := make(chan struct{})
 
 	go func() {
-		bridge.PushRxFrame([]byte{0xFF})
+		bridge.PushRxFrame(1, []byte{0xFF})
 		close(done)
 	}()
 
@@ -122,7 +151,7 @@ func TestBridge_PushRxFrame_DropsOnFull(t *testing.T) {
 func TestBridge_PushRxFrame_OversizedCountsBoth(t *testing.T) {
 	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
 
-	bridge.PushRxFrame(make([]byte, maxFrameBytes+1))
+	bridge.PushRxFrame(1, make([]byte, maxFrameBytes+1))
 
 	if got := bridge.RxPushIn.Load(); got != 1 {
 		t.Errorf("RxPushIn: got %d, want 1 (every invocation counts)", got)
@@ -162,7 +191,7 @@ func TestBridge_PushRxFrame_DropsOldestOnFull(t *testing.T) {
 
 	// Frames 0..depth fill the channel and then force one eviction.
 	for i := range depth + 1 {
-		bridge.PushRxFrame([]byte{byte(i)})
+		bridge.PushRxFrame(1, []byte{byte(i)})
 	}
 
 	if got := bridge.RxPushDrop.Load(); got != 1 {
@@ -192,8 +221,8 @@ func TestBridge_AddConsumer_FlushesStaleFrames(t *testing.T) {
 	bridge := NewBridge(zerolog.Nop(), func(_ []byte) {})
 
 	bridge.AddConsumer()
-	bridge.PushRxFrame([]byte{0x01})
-	bridge.PushRxFrame([]byte{0x02})
+	bridge.PushRxFrame(1, []byte{0x01})
+	bridge.PushRxFrame(1, []byte{0x02})
 	bridge.RemoveConsumer() // consumer detached with frames still queued
 
 	bridge.AddConsumer() // hours later, a new browser attaches
@@ -206,7 +235,7 @@ func TestBridge_AddConsumer_FlushesStaleFrames(t *testing.T) {
 
 	// A second consumer attaching while the first is still active must NOT
 	// flush frames the active consumer is about to read.
-	bridge.PushRxFrame([]byte{0x03})
+	bridge.PushRxFrame(1, []byte{0x03})
 	bridge.AddConsumer()
 
 	select {
@@ -229,12 +258,12 @@ func TestBridge_PushRxFrame_ZeroAlloc(t *testing.T) {
 	data := make([]byte, 100)
 
 	// Warm the pool.
-	bridge.PushRxFrame(data)
+	bridge.PushRxFrame(1, data)
 	f := <-bridge.RxFrames()
 	f.Release()
 
 	allocs := testing.AllocsPerRun(100, func() {
-		bridge.PushRxFrame(data)
+		bridge.PushRxFrame(1, data)
 
 		got := <-bridge.RxFrames()
 		got.Release()
@@ -254,11 +283,11 @@ func TestBridge_PushRxFrame_DropRecyclesBuffer(t *testing.T) {
 	data := make([]byte, 100)
 
 	for range cap(bridge.rxFrames) {
-		bridge.PushRxFrame(data)
+		bridge.PushRxFrame(1, data)
 	}
 
 	allocs := testing.AllocsPerRun(100, func() {
-		bridge.PushRxFrame(data)
+		bridge.PushRxFrame(1, data)
 	})
 
 	if allocs != 0 {

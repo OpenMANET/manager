@@ -32,7 +32,9 @@ import (
 	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/blos"
+	"github.com/openmanet/openmanetd/internal/comms"
 	"github.com/openmanet/openmanetd/internal/comms/control/alsa"
+	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/logs"
@@ -581,6 +583,68 @@ func TestIntegration_SendPTTEvent_WebNotActive(t *testing.T) {
 		assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
 		assert.Contains(t, connectErr.Message(), "web control source not active")
 	}
+}
+
+// TestIntegration_StreamAudioRx_CarriesTalkgroup pins the talk group
+// attribution contract on the web RX stream: a frame pushed into the web
+// audio bridge tagged with channel 3 must reach the RPC client with
+// Talkgroup=3, so the frontend bridge can label the WebSocket frame with
+// the real talk group instead of hardcoding channel 1.
+func TestIntegration_StreamAudioRx_CarriesTalkgroup(t *testing.T) {
+	bridge := webaudio.NewBridge(zerolog.Nop(), nil)
+	svc := &comms.Service{Rt: &comms.CommsRuntime{WebBridge: bridge}}
+
+	mux := http.NewServeMux()
+	mux.Handle(commsconnect.NewCommsServiceHandler(&handlers.CommsService{
+		Cfg:     &config.Config{CommsEnable: true},
+		Log:     zerolog.Nop(),
+		Service: func() *comms.Service { return svc },
+	}, connect.WithInterceptors(validate.NewInterceptor())))
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	client := commsconnect.NewCommsServiceClient(
+		http.DefaultClient,
+		srv.URL,
+		connect.WithGRPCWeb(),
+	)
+
+	// Bound the whole stream so a regression hangs for seconds, not the
+	// package's 10-minute test timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+
+	// Continuously push tagged frames before opening the stream: the
+	// connect client does not return until the handler's first Send
+	// flushes, and the handler's consumer attach flushes concurrently
+	// pushed frames (a documented one-frame race), so a steady producer
+	// is the only race-free way to guarantee the stream sees a frame.
+	prodCtx, prodCancel := context.WithCancel(context.Background())
+	t.Cleanup(prodCancel)
+
+	go func() {
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-prodCtx.Done():
+				return
+			case <-ticker.C:
+				bridge.PushRxFrame(3, []byte{0xAA, 0xBB})
+			}
+		}
+	}()
+
+	stream, err := client.StreamAudioRx(ctx, &commsv1.StreamAudioRxRequest{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = stream.Close() })
+
+	require.True(t, stream.Receive(), "expected an RX frame, got stream end: %v", stream.Err())
+	msg := stream.Msg()
+	assert.Equal(t, int32(3), msg.GetTalkgroup())
+	assert.Equal(t, []byte{0xAA, 0xBB}, msg.GetOpusData())
 }
 
 func TestIntegration_StreamAudioRx_WebNotActive(t *testing.T) {
