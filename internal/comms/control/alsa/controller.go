@@ -220,18 +220,28 @@ func clamp(v, lo, hi int) int {
 
 // DefaultOpener is the production Opener: it opens the kernel mixer for the
 // given card via gen2brain/alsa and wraps the result so the controller's
-// Mixer/Ctl interfaces are satisfied.
+// Mixer/Ctl interfaces are satisfied. A second handle to the same control
+// node backs elemIO, which replaces the library's element value accessors
+// for INTEGER/BOOLEAN controls (see elemio.go for why).
 func DefaultOpener(card uint) (Mixer, error) {
 	m, err := alsa.MixerOpen(card)
 	if err != nil {
 		return nil, fmt.Errorf("alsa.MixerOpen card=%d: %w", card, err)
 	}
 
-	return &mixerWrap{m: m}, nil
+	eio, err := openElemIO(card)
+	if err != nil {
+		_ = m.Close() // best-effort; the open error is the one worth reporting
+
+		return nil, fmt.Errorf("elem io card=%d: %w", card, err)
+	}
+
+	return &mixerWrap{m: m, eio: eio}, nil
 }
 
 type mixerWrap struct {
-	m *alsa.Mixer
+	m   *alsa.Mixer
+	eio *elemIO
 }
 
 func (w *mixerWrap) CtlByName(name string) (Ctl, error) {
@@ -244,15 +254,23 @@ func (w *mixerWrap) CtlByName(name string) (Ctl, error) {
 		return nil, errors.New("CtlByName returned nil")
 	}
 
-	return &ctlWrap{c: c}, nil
+	return &ctlWrap{c: c, eio: w.eio}, nil
 }
 
 func (w *mixerWrap) Close() error {
+	var errs []error
+
 	if err := w.m.Close(); err != nil {
-		return fmt.Errorf("mixer close: %w", err)
+		errs = append(errs, fmt.Errorf("mixer close: %w", err))
 	}
 
-	return nil
+	if w.eio != nil {
+		if err := w.eio.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 func (w *mixerWrap) ControlNames() []string {
@@ -267,12 +285,37 @@ func (w *mixerWrap) ControlNames() []string {
 }
 
 type ctlWrap struct {
-	c *alsa.MixerCtl
+	c   *alsa.MixerCtl
+	eio *elemIO
+}
+
+// routesThroughElemIO reports whether value access must bypass the
+// library: its INTEGER/BOOLEAN accessors overlay the kernel's long array
+// as int32, so channels past the first are unreachable on 64-bit targets.
+// ENUMERATED (u32 array) and INTEGER64/BYTES (other union members) keep
+// the library accessors.
+func (w *ctlWrap) routesThroughElemIO() bool {
+	if w.eio == nil {
+		return false
+	}
+
+	t := w.c.Type()
+
+	return t == alsa.SNDRV_CTL_ELEM_TYPE_BOOLEAN || t == alsa.SNDRV_CTL_ELEM_TYPE_INTEGER
 }
 
 func (w *ctlWrap) NumValues() uint32 { return w.c.NumValues() }
 
 func (w *ctlWrap) Value(index uint) (int, error) {
+	if w.routesThroughElemIO() {
+		v, err := w.eio.value(w.c.ID(), w.c.NumValues(), index)
+		if err != nil {
+			return 0, fmt.Errorf("ctl value: %w", err)
+		}
+
+		return v, nil
+	}
+
 	v, err := w.c.Value(index)
 	if err != nil {
 		return 0, fmt.Errorf("ctl value: %w", err)
@@ -282,6 +325,14 @@ func (w *ctlWrap) Value(index uint) (int, error) {
 }
 
 func (w *ctlWrap) SetValue(index uint, value int) error {
+	if w.routesThroughElemIO() {
+		if err := w.eio.setValue(w.c.ID(), w.c.NumValues(), index, value); err != nil {
+			return fmt.Errorf("ctl set value: %w", err)
+		}
+
+		return nil
+	}
+
 	if err := w.c.SetValue(index, value); err != nil {
 		return fmt.Errorf("ctl set value: %w", err)
 	}
