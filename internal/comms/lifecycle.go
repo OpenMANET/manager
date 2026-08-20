@@ -9,6 +9,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/openmanet/openmanetd/internal/comms/announce"
 	"github.com/openmanet/openmanetd/internal/comms/audio"
 	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/control"
@@ -336,6 +337,39 @@ func (cfg *CommsConfig) seedActiveChannel(rt *CommsRuntime) {
 	}
 }
 
+// startAnnouncer wires the announcement player to the event registry.
+// Best-effort: clip decode failure logs and disables announcements
+// (mirroring the audio-init posture). Web mode is skipped — the browser
+// owns the speaker; it gets the event stream instead. The registry
+// listener is never removed: registry and player share the runtime's
+// lifetime, and Run exits with ctx.
+func (cfg *CommsConfig) startAnnouncer(ctx context.Context, rt *CommsRuntime) {
+	if rt.WebBridge != nil {
+		return
+	}
+
+	player, err := announce.New(cfg.Log, func(frame []int16) bool {
+		return cfg.queueLocalAudioFrame(rt, frame)
+	})
+	if err != nil {
+		cfg.Log.Warn().Err(err).Msg("comms: announcements disabled")
+
+		return
+	}
+
+	rt.Announcer = player
+
+	go player.Run(ctx)
+
+	rt.Events.Add(func(ev talkgroup.Event) {
+		if ev.Kind != talkgroup.KindSelected || ev.Source == talkgroup.SourceInit {
+			return
+		}
+
+		player.Announce(ev.Channel)
+	})
+}
+
 // Start initializes all comms subsystems and blocks until ctx is canceled.
 // Returns nil on clean shutdown, or an error if initialization fails.
 // The caller is responsible for canceling ctx to stop the subsystem.
@@ -465,6 +499,12 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 			rt.audioCleanup()
 		}
 	}()
+
+	// ── announcer ─────────────────────────────────────────────────────────
+	// Must run after initAudioIO: it needs the per-port playback streams
+	// that initAudioIO/startHardwareAudio install, and it checks
+	// rt.WebBridge (set by initAudioIO's web-mode branch) to skip web mode.
+	cfg.startAnnouncer(ctx, rt)
 
 	// ── run loop ───────────────────────────────────────────────────────────
 	cfg.Run(ctx, rt, src)

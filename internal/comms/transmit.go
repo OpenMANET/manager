@@ -6,6 +6,7 @@ import (
 
 	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/config"
 )
 
 // defaultPttStartDelayMs is the mic-warmup floor applied when
@@ -145,6 +146,79 @@ func (cfg *CommsConfig) queueBeep(rt *CommsRuntime, beep []int16) {
 			return
 		}
 	}
+}
+
+// trySendPlaybackFrame attempts a non-blocking send of frame into pc's
+// playback buffer. Returns whether the buffer accepted it. A free
+// function (not a closure) so queueLocalAudioFrame's hot path allocates
+// nothing — a closure capturing frame would otherwise escape to the heap.
+func trySendPlaybackFrame(pc *PortChannel, frame []int16) bool {
+	select {
+	case pc.PlaybackBuffer <- frame:
+		return true
+	default:
+		return false
+	}
+}
+
+// queueLocalAudioFrame queues one locally generated PCM frame (an
+// announcement) into a single audible playback stream. Preference:
+//
+//  1. The active talk group's port, when its stream is running — the
+//     announcement should come out of the channel it announces.
+//  2. The first running stream (mirrors queueBeep's rule 1).
+//  3. Wake the first startable stream and arm the beep re-sleep timer.
+//     The timer is Reset on every subsequent frame, so it re-sleeps
+//     ~beepWakeWindow after the clip's last frame — the "window sized
+//     to clip length" behavior without tracking clip length here.
+//
+// Unlike queueBeep the sends are non-blocking: the announcer produces a
+// frame every 20 ms indefinitely, and a stalled buffer must drop (the
+// player counts it) rather than wedge the player goroutine. Returns
+// whether a buffer accepted the frame.
+func (cfg *CommsConfig) queueLocalAudioFrame(rt *CommsRuntime, frame []int16) bool {
+	if ch := int(rt.ActiveChannel.Load()); ch > 0 {
+		if port, err := config.TalkGroupPort(ch); err == nil {
+			for _, pc := range rt.Ports {
+				if pc.cfg.Port == port && pc.PlaybackBuffer != nil && pc.playbackIsRunning() {
+					return trySendPlaybackFrame(pc, frame)
+				}
+			}
+		}
+	}
+
+	for _, pc := range rt.Ports {
+		if pc.PlaybackBuffer != nil && pc.playbackIsRunning() {
+			return trySendPlaybackFrame(pc, frame)
+		}
+	}
+
+	for _, pc := range rt.Ports {
+		if pc.PlaybackBuffer == nil {
+			continue
+		}
+
+		if err := pc.startPlayback(); err != nil {
+			cfg.Log.Warn().Err(err).Int("port", pc.cfg.Port).
+				Msg("comms: failed to wake playback stream for announcement")
+
+			continue
+		}
+
+		if !pc.playbackIsRunning() {
+			continue
+		}
+
+		if !trySendPlaybackFrame(pc, frame) {
+			return false
+		}
+
+		pc.armBeepSleep(beepWakeWindow)
+
+		return true
+	}
+
+	return false
 }
 
 // ─── Transmission state ───────────────────────────────────────────────────────

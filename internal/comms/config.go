@@ -8,6 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/openmanet/openmanetd/internal/comms/announce"
 	"github.com/openmanet/openmanetd/internal/comms/codec"
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/device"
@@ -67,6 +68,9 @@ type CommsRuntime struct { //nolint:govet // fieldalignment: mu must sit directl
 	// RPC subscribers, and any future listeners. Allocated once in
 	// Start; nil in minimal test runtimes (Notify is nil-safe).
 	Events *talkgroup.Registry
+	// Announcer plays talk group voice clips; nil in web mode, when clip
+	// decode failed, or in minimal test runtimes.
+	Announcer *announce.Player
 
 	// selectMu serializes SelectTalkGroup's multi-port flip so two
 	// concurrent selections cannot interleave partial port states. Never

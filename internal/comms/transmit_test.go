@@ -9,7 +9,9 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"github.com/openmanet/openmanetd/internal/comms/webaudio"
@@ -992,4 +994,63 @@ func TestTryAudioRecovery_DetectionGate(t *testing.T) {
 			assert.Equal(t, wantCalls, detectCalls, "detection seam call count")
 		})
 	}
+}
+
+// ─── queueLocalAudioFrame ────────────────────────────────────────────────────
+
+func TestQueueLocalAudioFrame_PrefersActivePort(t *testing.T) {
+	svc := newSelectTestService(t, 3)
+	rt := svc.Rt
+
+	for _, pc := range rt.Ports {
+		pc.PlaybackBuffer = make(chan []int16, 4)
+		pc.setPlaybackStream(&fakeAudioStream{}) // existing mocks_test fake
+	}
+
+	// Ports 0 and 2 running; active channel = 3 (port index 2).
+	rt.Ports[0].markPlaybackRunning()
+	rt.Ports[2].markPlaybackRunning()
+	rt.ActiveChannel.Store(3)
+
+	frame := make([]int16, audiopool.FrameSize)
+	require.True(t, svc.Cfg.queueLocalAudioFrame(rt, frame))
+
+	assert.Empty(t, rt.Ports[0].PlaybackBuffer, "active port preferred over first running port")
+	assert.Len(t, rt.Ports[2].PlaybackBuffer, 1)
+}
+
+func TestQueueLocalAudioFrame_FallsBackToFirstRunning(t *testing.T) {
+	svc := newSelectTestService(t, 2)
+	rt := svc.Rt
+
+	for _, pc := range rt.Ports {
+		pc.PlaybackBuffer = make(chan []int16, 4)
+		pc.setPlaybackStream(&fakeAudioStream{})
+	}
+
+	rt.Ports[1].markPlaybackRunning()
+	// No active channel recorded.
+
+	require.True(t, svc.Cfg.queueLocalAudioFrame(rt, make([]int16, audiopool.FrameSize)))
+	assert.Len(t, rt.Ports[1].PlaybackBuffer, 1)
+}
+
+func TestQueueLocalAudioFrame_DropsWhenFull(t *testing.T) {
+	svc := newSelectTestService(t, 1)
+	rt := svc.Rt
+	pc := rt.Ports[0]
+	pc.PlaybackBuffer = make(chan []int16, 1)
+	pc.setPlaybackStream(&fakeAudioStream{})
+	pc.markPlaybackRunning()
+	rt.ActiveChannel.Store(1)
+
+	require.True(t, svc.Cfg.queueLocalAudioFrame(rt, make([]int16, audiopool.FrameSize)))
+	assert.False(t, svc.Cfg.queueLocalAudioFrame(rt, make([]int16, audiopool.FrameSize)),
+		"full buffer drops, never blocks")
+}
+
+func TestQueueLocalAudioFrame_NoBuffers(t *testing.T) {
+	svc := newSelectTestService(t, 1)
+
+	assert.False(t, svc.Cfg.queueLocalAudioFrame(svc.Rt, make([]int16, audiopool.FrameSize)))
 }
