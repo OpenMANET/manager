@@ -283,17 +283,23 @@ func (s *Service) SelectTalkGroup(channel int, src talkgroup.Source) error {
 		rxChanged = make([]int, 0, len(rt.Ports))
 	)
 
+	// Disable every non-target port FIRST, then enable the target LAST, so a
+	// lock-free reader (TX sendToAllPorts, RX loops, status snapshot) never
+	// observes two ports active at once — the exclusive-select guarantee holds
+	// even mid-flip. All atomic-only; no device I/O under selectMu.
 	for i := range rt.Ports {
-		enabled := i == targetIdx
+		if i == targetIdx {
+			continue
+		}
 
-		sc, sendErr := s.setSend(i, enabled)
+		sc, sendErr := s.setSend(i, false)
 		if sendErr != nil {
 			rt.selectMu.Unlock()
 
 			return sendErr
 		}
 
-		rc, recvErr := s.setReceiveFlag(i, enabled)
+		rc, recvErr := s.setReceiveFlag(i, false)
 		if recvErr != nil {
 			rt.selectMu.Unlock()
 
@@ -306,6 +312,26 @@ func (s *Service) SelectTalkGroup(channel int, src talkgroup.Source) error {
 
 		changed = changed || sc || rc
 	}
+
+	sc, sendErr := s.setSend(targetIdx, true)
+	if sendErr != nil {
+		rt.selectMu.Unlock()
+
+		return sendErr
+	}
+
+	rc, recvErr := s.setReceiveFlag(targetIdx, true)
+	if recvErr != nil {
+		rt.selectMu.Unlock()
+
+		return recvErr
+	}
+
+	if rc {
+		rxChanged = append(rxChanged, targetIdx)
+	}
+
+	changed = changed || sc || rc
 
 	prev := int(rt.ActiveChannel.Swap(int32(channel)))
 
