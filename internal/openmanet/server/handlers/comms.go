@@ -343,7 +343,11 @@ func (c *CommsService) StreamTalkGroupEvents(ctx context.Context, _ *emptypb.Emp
 		select {
 		case <-ctx.Done():
 			return nil
-		case ev := <-ch:
+		case ev, ok := <-ch:
+			if !ok {
+				return nil
+			}
+
 			if err := stream.Send(&commsv1.StreamTalkGroupEventsResponse{Event: ev}); err != nil {
 				return err
 			}

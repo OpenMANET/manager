@@ -50,18 +50,49 @@ func TestSelectTalkGroup_NotRunning(t *testing.T) {
 
 func TestTalkGroupEventToProto(t *testing.T) {
 	at := time.Now()
+
 	got := handlers.TalkGroupEventToProto(talkgroup.Event{
 		Kind: talkgroup.KindSelected, Channel: 3, Prev: 1,
 		Send: true, Receive: true, Source: talkgroup.SourceGPIO, At: at,
 	})
 
-	assert.Equal(t, commsv1.TalkGroupEventKind_TALK_GROUP_EVENT_KIND_SELECTED, got.Kind)
 	assert.Equal(t, int32(3), got.Talkgroup)
 	assert.Equal(t, int32(1), got.PrevTalkgroup)
 	assert.True(t, got.SendEnabled)
 	assert.True(t, got.ReceiveEnabled)
-	assert.Equal(t, commsv1.TalkGroupEventSource_TALK_GROUP_EVENT_SOURCE_GPIO, got.Source)
 	assert.Equal(t, at.Unix(), got.At.AsTime().Unix())
+}
+
+// TestTalkGroupEventToProto_KindMapping pins every talkgroup.Kind value
+// against its proto constant. TalkGroupEventToProto uses a direct numeric
+// cast (commsv1.TalkGroupEventKind(ev.Kind)), so a future proto renumber
+// of any value here would silently corrupt events with nothing else to
+// catch it.
+func TestTalkGroupEventToProto_KindMapping(t *testing.T) {
+	cases := map[talkgroup.Kind]commsv1.TalkGroupEventKind{
+		talkgroup.KindSelected:  commsv1.TalkGroupEventKind_TALK_GROUP_EVENT_KIND_SELECTED,
+		talkgroup.KindDirection: commsv1.TalkGroupEventKind_TALK_GROUP_EVENT_KIND_DIRECTION,
+	}
+
+	for in, want := range cases {
+		got := handlers.TalkGroupEventToProto(talkgroup.Event{Kind: in})
+		assert.Equalf(t, want, got.Kind, "Kind %d", in)
+	}
+}
+
+// TestTalkGroupEventToProto_SourceMapping pins every talkgroup.Source value
+// against its proto constant, for the same reason as the Kind mapping test.
+func TestTalkGroupEventToProto_SourceMapping(t *testing.T) {
+	cases := map[talkgroup.Source]commsv1.TalkGroupEventSource{
+		talkgroup.SourceRPC:  commsv1.TalkGroupEventSource_TALK_GROUP_EVENT_SOURCE_RPC,
+		talkgroup.SourceGPIO: commsv1.TalkGroupEventSource_TALK_GROUP_EVENT_SOURCE_GPIO,
+		talkgroup.SourceInit: commsv1.TalkGroupEventSource_TALK_GROUP_EVENT_SOURCE_INIT,
+	}
+
+	for in, want := range cases {
+		got := handlers.TalkGroupEventToProto(talkgroup.Event{Source: in})
+		assert.Equalf(t, want, got.Source, "Source %d", in)
+	}
 }
 
 func TestStreamTalkGroupEvents_NotRunning(t *testing.T) {
