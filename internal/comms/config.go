@@ -183,6 +183,7 @@ type CommsConfig struct {
 	Trace              bool
 	Loopback           bool
 	Debug              bool
+	GPIOSelectorEnable bool
 	ROIPCOSGPIOMask    byte
 }
 
@@ -200,6 +201,7 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		CommKey:                  cfg.CommKey,
 		RtpID:                    cfg.RtpID,
 		Debug:                    cfg.Debug,
+		GPIOSelectorEnable:       cfg.GPIOSelectorEnable,
 		Loopback:                 cfg.Loopback,
 		Trace:                    cfg.Trace,
 		ControlSource:            cfg.ControlSource,

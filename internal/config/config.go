@@ -46,6 +46,7 @@ const (
 	DefaultCommsBluetoothPttBluetoothAudioDeviceHint string  = ""
 	DefaultCommsBluetoothPttBluetoothInputDevice     string  = ""
 	DefaultCommsBluetoothPttBluetoothOutputDevice    string  = ""
+	DefaultCommsGPIOSelectorEnable                   bool    = true
 	DefaultResetDBOnStart                            bool    = false
 	DefaultEnableGNSS                                bool    = false
 	DefaultGNSSSendAsNMEA                            bool    = false
@@ -233,6 +234,7 @@ type Config struct {
 	BatmanMulticastEnhancementsEnabled        bool
 	BatmanMulticastForceflood                 bool
 	CommsDebug                                bool
+	CommsGPIOSelectorEnable                   bool
 	CommsEnable                               bool
 	CommsTrace                                bool
 	CommsNanoPTTEnable                        bool
@@ -439,6 +441,12 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsDebug = c.v.GetBool("comms.debug")
 	} else {
 		c.CommsDebug = DefaultCommsDebug
+	}
+
+	if c.v.IsSet("comms.gpioSelector.enable") {
+		c.CommsGPIOSelectorEnable = c.v.GetBool("comms.gpioSelector.enable")
+	} else {
+		c.CommsGPIOSelectorEnable = DefaultCommsGPIOSelectorEnable
 	}
 
 	if c.v.IsSet("comms.loopback") {
@@ -985,6 +993,15 @@ func (c *Config) GetCommsDebug() bool {
 	defer c.mu.RUnlock()
 
 	return c.CommsDebug
+}
+
+// GetCommsGPIOSelectorEnable returns whether the hardware talk group
+// selector is enabled (honored only on boards that wire one).
+func (c *Config) GetCommsGPIOSelectorEnable() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.CommsGPIOSelectorEnable
 }
 
 // GetCommsLoopback returns whether comms loopback mode is enabled.
