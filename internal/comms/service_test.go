@@ -2,6 +2,7 @@ package comms
 
 import (
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -244,4 +245,47 @@ func TestSeedActiveChannel(t *testing.T) {
 	require.Len(t, events, 1)
 	assert.Equal(t, talkgroup.SourceInit, events[0].Source)
 	assert.Equal(t, talkgroup.KindSelected, events[0].Kind)
+}
+
+// TestSelectTalkGroup_ConcurrentConverges proves the phase-split locking
+// (atomic flips under selectMu, playback reconciled unlocked afterward)
+// still keeps the exclusive-selection invariant when multiple selection
+// sources race: whichever channel wins is the only one left with a
+// receive-enabled port.
+func TestSelectTalkGroup_ConcurrentConverges(t *testing.T) {
+	svc := newSelectTestService(t, 5)
+
+	var wg sync.WaitGroup
+
+	for g := range 8 {
+		wg.Add(1)
+
+		ch := g%5 + 1
+
+		go func() {
+			defer wg.Done()
+
+			_ = svc.SelectTalkGroup(ch, talkgroup.SourceRPC)
+		}()
+	}
+
+	wg.Wait()
+
+	active := svc.ActiveTalkGroup()
+	require.NotZero(t, active)
+
+	wantPort, err := config.TalkGroupPort(active)
+	require.NoError(t, err)
+
+	enabled := 0
+
+	for _, pc := range svc.Rt.Ports {
+		if pc.ReceiveEnabled.Load() {
+			enabled++
+
+			assert.Equal(t, wantPort, pc.cfg.Port, "the single receive-enabled port must be the active channel")
+		}
+	}
+
+	assert.Equal(t, 1, enabled, "exactly one receive-enabled port after concurrent selects")
 }

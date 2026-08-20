@@ -107,15 +107,9 @@ func (s *Service) setSend(portIdx int, enabled bool) (bool, error) {
 	return old != enabled, nil
 }
 
-// setReceive flips the receive toggle without emitting an event, starting
-// or stopping the port's playback stream to match (P4: only enabled ports
-// keep a running malgo device). A device-level stream failure is logged,
-// not returned: the RTP-side enable must still take effect — web mode and
-// audio-failed mode have no stream at all, and device failures are owned
-// by the audio recovery machinery. Returns whether the stored value
-// actually changed; the playback choreography is skipped entirely on a
-// no-change set as a pure cost optimization (the calls are idempotent).
-func (s *Service) setReceive(portIdx int, enabled bool) (bool, error) {
+// setReceiveFlag flips the receive toggle atomically without touching the
+// playback stream. Returns whether the stored value actually changed.
+func (s *Service) setReceiveFlag(portIdx int, enabled bool) (bool, error) {
 	if s == nil || s.Rt == nil {
 		return false, ErrNotRunning
 	}
@@ -124,20 +118,27 @@ func (s *Service) setReceive(portIdx int, enabled bool) (bool, error) {
 		return false, fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(s.Rt.Ports))
 	}
 
+	old := s.Rt.Ports[portIdx].ReceiveEnabled.Swap(enabled)
+
+	return old != enabled, nil
+}
+
+// applyReceivePlayback starts or stops the port's playback stream to match
+// its current ReceiveEnabled flag. Device I/O only — the caller must have
+// already flipped the atomic. Deliberately NOT called while holding
+// rt.selectMu: startPlayback/stopPlayback perform malgo device calls,
+// serialized by the port's own playbackMu, and concurrency.md forbids a
+// global lock across device I/O. A stream failure is logged, not returned.
+func (s *Service) applyReceivePlayback(portIdx int) {
 	pc := s.Rt.Ports[portIdx]
 
-	old := pc.ReceiveEnabled.Swap(enabled)
-	if old == enabled {
-		return false, nil
-	}
-
-	if !enabled {
+	if !pc.ReceiveEnabled.Load() {
 		if err := pc.stopPlayback(); err != nil {
 			s.Cfg.Log.Warn().Err(err).Int("port", pc.cfg.Port).
 				Msg("comms: failed to sleep playback stream on RX disable")
 		}
 
-		return true, nil
+		return
 	}
 
 	// Discard beeps queued while the stream was asleep — a stale start
@@ -157,6 +158,28 @@ func (s *Service) setReceive(portIdx int, enabled bool) (bool, error) {
 		s.Cfg.Log.Warn().Err(err).Int("port", pc.cfg.Port).
 			Msg("comms: failed to wake playback stream on RX enable")
 	}
+}
+
+// setReceive flips the receive toggle without emitting an event, starting
+// or stopping the port's playback stream to match (P4: only enabled ports
+// keep a running malgo device). A device-level stream failure is logged,
+// not returned: the RTP-side enable must still take effect — web mode and
+// audio-failed mode have no stream at all, and device failures are owned
+// by the audio recovery machinery. Returns whether the stored value
+// actually changed; the playback choreography is skipped entirely on a
+// no-change set as a pure cost optimization (the calls are idempotent).
+// Delegates to setReceiveFlag (atomic) + applyReceivePlayback (device I/O).
+func (s *Service) setReceive(portIdx int, enabled bool) (bool, error) {
+	changed, err := s.setReceiveFlag(portIdx, enabled)
+	if err != nil {
+		return false, err
+	}
+
+	if !changed {
+		return false, nil
+	}
+
+	s.applyReceivePlayback(portIdx)
 
 	return true, nil
 }
@@ -234,9 +257,6 @@ func (s *Service) SelectTalkGroup(channel int, src talkgroup.Source) error {
 
 	rt := s.Rt
 
-	rt.selectMu.Lock()
-	defer rt.selectMu.Unlock()
-
 	targetIdx := -1
 
 	for i, pc := range rt.Ports {
@@ -251,39 +271,50 @@ func (s *Service) SelectTalkGroup(channel int, src talkgroup.Source) error {
 		return fmt.Errorf("comms: talk group %d is not provisioned", channel)
 	}
 
-	var changed bool
+	// Phase 1 — atomic flips only, serialized by selectMu. No device I/O
+	// inside the lock: holding selectMu across a malgo Start/Stop would let
+	// one hung driver call freeze every selection source. Playback is
+	// reconciled unlocked in phase 2, each start/stop serialized by the
+	// port's own playbackMu.
+	rt.selectMu.Lock()
+
+	var (
+		changed   bool
+		rxChanged = make([]int, 0, len(rt.Ports))
+	)
 
 	for i := range rt.Ports {
-		if i == targetIdx {
-			continue
-		}
+		enabled := i == targetIdx
 
-		sc, sendErr := s.setSend(i, false)
+		sc, sendErr := s.setSend(i, enabled)
 		if sendErr != nil {
+			rt.selectMu.Unlock()
+
 			return sendErr
 		}
 
-		rc, recvErr := s.setReceive(i, false)
+		rc, recvErr := s.setReceiveFlag(i, enabled)
 		if recvErr != nil {
+			rt.selectMu.Unlock()
+
 			return recvErr
+		}
+
+		if rc {
+			rxChanged = append(rxChanged, i)
 		}
 
 		changed = changed || sc || rc
 	}
 
-	sc, sendErr := s.setSend(targetIdx, true)
-	if sendErr != nil {
-		return sendErr
-	}
-
-	rc, recvErr := s.setReceive(targetIdx, true)
-	if recvErr != nil {
-		return recvErr
-	}
-
-	changed = changed || sc || rc
-
 	prev := int(rt.ActiveChannel.Swap(int32(channel)))
+
+	rt.selectMu.Unlock()
+
+	// Phase 2 — reconcile playback for the ports whose receive flag changed.
+	for _, i := range rxChanged {
+		s.applyReceivePlayback(i)
+	}
 
 	if !changed && prev == channel {
 		return nil
