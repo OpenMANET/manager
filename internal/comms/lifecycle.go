@@ -14,7 +14,9 @@ import (
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/device"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
+	"github.com/openmanet/openmanetd/internal/comms/talkgroup"
 	"github.com/openmanet/openmanetd/internal/comms/webaudio"
+	"github.com/openmanet/openmanetd/internal/config"
 )
 
 // startHardwareAudio constructs an audio.Init bound to cfg/rt, builds the
@@ -308,6 +310,32 @@ func (cfg *CommsConfig) detectALSACard() {
 	control.DetectAndSetALSACard(cfg.Log)
 }
 
+// seedActiveChannel derives the boot-time active talk group from the
+// seeded per-port toggles (first port with both directions enabled),
+// records it, and emits a SourceInit event. The announcer deliberately
+// ignores SourceInit, so boot is silent.
+func (cfg *CommsConfig) seedActiveChannel(rt *CommsRuntime) {
+	for _, pc := range rt.Ports {
+		if !pc.SendEnabled.Load() || !pc.ReceiveEnabled.Load() {
+			continue
+		}
+
+		ch, err := config.TalkGroupChannel(pc.cfg.Port)
+		if err != nil {
+			continue
+		}
+
+		rt.ActiveChannel.Store(int32(ch))
+		rt.Events.Notify(talkgroup.Event{
+			Kind: talkgroup.KindSelected, Channel: ch,
+			Send: true, Receive: true,
+			Source: talkgroup.SourceInit, At: time.Now(),
+		})
+
+		return
+	}
+}
+
 // Start initializes all comms subsystems and blocks until ctx is canceled.
 // Returns nil on clean shutdown, or an error if initialization fails.
 // The caller is responsible for canceling ctx to stop the subsystem.
@@ -383,6 +411,7 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 		Ports:           ports,
 		BeepBufferStart: beepStart,
 		BeepBufferStop:  beepStop,
+		Events:          talkgroup.NewRegistry(cfg.Log),
 	}
 
 	rt.LocalIP.Store(&localIP)
@@ -419,6 +448,8 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 	}()
 
 	SetDefault(svc)
+
+	cfg.seedActiveChannel(rt)
 
 	// ── event source ───────────────────────────────────────────────────────
 	src, srcErr := cfg.buildEventSource(rt)

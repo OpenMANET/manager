@@ -11,6 +11,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/comms/codec"
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/device"
+	"github.com/openmanet/openmanetd/internal/comms/talkgroup"
 	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 	"github.com/openmanet/openmanetd/internal/config"
 )
@@ -57,6 +58,20 @@ type CommsRuntime struct { //nolint:govet // fieldalignment: mu must sit directl
 	PlaybackOutputLatency time.Duration
 	Broadcasting          atomic.Bool
 	RemoteRxActive        atomic.Bool
+
+	// ActiveChannel is the 1-based talk group most recently applied by
+	// SelectTalkGroup (or seeded from the boot-time toggles). 0 until a
+	// selection or seed happens. Read lock-free by status and snapshot.
+	ActiveChannel atomic.Int32
+	// Events fans talk group changes out to the announcer, streaming
+	// RPC subscribers, and any future listeners. Allocated once in
+	// Start; nil in minimal test runtimes (Notify is nil-safe).
+	Events *talkgroup.Registry
+
+	// selectMu serializes SelectTalkGroup's multi-port flip so two
+	// concurrent selections cannot interleave partial port states. Never
+	// taken on the audio or packet hot paths.
+	selectMu sync.Mutex
 
 	// mu protects broadcastStream. It is written at startup by
 	// initAudioIO/startHardwareAudio and again by the Run loop's audio

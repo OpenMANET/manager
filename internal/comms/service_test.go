@@ -3,6 +3,13 @@ package comms
 import (
 	"errors"
 	"testing"
+
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/openmanet/openmanetd/internal/comms/talkgroup"
+	"github.com/openmanet/openmanetd/internal/config"
 )
 
 // newTestService constructs a *Service directly (bypassing Start) with a
@@ -110,4 +117,131 @@ func TestService_EnableTalkGroupAndStates(t *testing.T) {
 	if err := svc.EnableTalkGroupSend(42, true); err == nil {
 		t.Error("out-of-range EnableTalkGroupSend: want error")
 	}
+}
+
+// ─── SelectTalkGroup / ActiveTalkGroup / Events / seedActiveChannel tests ─────
+
+func newSelectTestService(t *testing.T, numPorts int) *Service {
+	t.Helper()
+
+	ports := make([]*PortChannel, numPorts)
+	mcast := make([]McastPortConfig, numPorts)
+
+	for i := range numPorts {
+		port, err := config.TalkGroupPort(i + 1)
+		require.NoError(t, err)
+
+		ports[i] = &PortChannel{cfg: McastPortConfig{Address: "239.192.41.1", Port: port}}
+		mcast[i] = ports[i].cfg
+	}
+
+	rt := &CommsRuntime{Ports: ports, Events: talkgroup.NewRegistry(zerolog.Nop())}
+
+	return &Service{Cfg: &CommsConfig{Log: zerolog.Nop(), McastPorts: mcast}, Rt: rt}
+}
+
+func TestSelectTalkGroup_ExclusiveFlip(t *testing.T) {
+	svc := newSelectTestService(t, 5)
+	// seed: channel 1 active
+	svc.Rt.Ports[0].SendEnabled.Store(true)
+	svc.Rt.Ports[0].ReceiveEnabled.Store(true)
+	svc.Rt.ActiveChannel.Store(1)
+
+	var events []talkgroup.Event
+
+	svc.Rt.Events.Add(func(ev talkgroup.Event) { events = append(events, ev) })
+
+	require.NoError(t, svc.SelectTalkGroup(3, talkgroup.SourceRPC))
+
+	for i, pc := range svc.Rt.Ports {
+		want := i == 2
+		assert.Equal(t, want, pc.SendEnabled.Load(), "port %d send", i)
+		assert.Equal(t, want, pc.ReceiveEnabled.Load(), "port %d receive", i)
+	}
+
+	assert.Equal(t, 3, svc.ActiveTalkGroup())
+	require.Len(t, events, 1, "one KindSelected event, no KindDirection noise")
+	assert.Equal(t, talkgroup.KindSelected, events[0].Kind)
+	assert.Equal(t, 3, events[0].Channel)
+	assert.Equal(t, 1, events[0].Prev)
+	assert.Equal(t, talkgroup.SourceRPC, events[0].Source)
+}
+
+func TestSelectTalkGroup_NoOpEmitsNoEvent(t *testing.T) {
+	svc := newSelectTestService(t, 5)
+	svc.Rt.Ports[1].SendEnabled.Store(true)
+	svc.Rt.Ports[1].ReceiveEnabled.Store(true)
+	svc.Rt.ActiveChannel.Store(2)
+
+	var events []talkgroup.Event
+
+	svc.Rt.Events.Add(func(ev talkgroup.Event) { events = append(events, ev) })
+
+	require.NoError(t, svc.SelectTalkGroup(2, talkgroup.SourceGPIO))
+	assert.Empty(t, events, "re-selecting the active group with no state delta is silent")
+}
+
+func TestSelectTalkGroup_Unprovisioned(t *testing.T) {
+	svc := newSelectTestService(t, 5)
+
+	err := svc.SelectTalkGroup(9, talkgroup.SourceRPC)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not provisioned")
+}
+
+func TestSelectTalkGroup_NotRunning(t *testing.T) {
+	var svc *Service
+
+	require.ErrorIs(t, svc.SelectTalkGroup(1, talkgroup.SourceRPC), ErrNotRunning)
+	assert.Zero(t, svc.ActiveTalkGroup())
+	assert.Nil(t, svc.Events())
+}
+
+func TestEnableTalkGroupSend_EmitsDirectionEvent(t *testing.T) {
+	svc := newSelectTestService(t, 2)
+
+	var events []talkgroup.Event
+
+	svc.Rt.Events.Add(func(ev talkgroup.Event) { events = append(events, ev) })
+
+	require.NoError(t, svc.EnableTalkGroupSend(1, true))
+	require.Len(t, events, 1)
+	assert.Equal(t, talkgroup.KindDirection, events[0].Kind)
+	assert.Equal(t, 2, events[0].Channel)
+	assert.True(t, events[0].Send)
+
+	// Redundant set: no state change, no event.
+	require.NoError(t, svc.EnableTalkGroupSend(1, true))
+	assert.Len(t, events, 1)
+}
+
+func TestActiveMulticastPort_TracksSelection(t *testing.T) {
+	svc := newSelectTestService(t, 5)
+
+	first, err := config.TalkGroupPort(1)
+	require.NoError(t, err)
+	assert.Equal(t, first, svc.ActiveMulticastPort(), "falls back to first port before any selection")
+
+	require.NoError(t, svc.SelectTalkGroup(4, talkgroup.SourceRPC))
+
+	want, err := config.TalkGroupPort(4)
+	require.NoError(t, err)
+	assert.Equal(t, want, svc.ActiveMulticastPort())
+}
+
+func TestSeedActiveChannel(t *testing.T) {
+	svc := newSelectTestService(t, 5)
+	svc.Rt.Ports[2].SendEnabled.Store(true)
+	svc.Rt.Ports[2].ReceiveEnabled.Store(true)
+
+	var events []talkgroup.Event
+
+	svc.Rt.Events.Add(func(ev talkgroup.Event) { events = append(events, ev) })
+
+	svc.Cfg.seedActiveChannel(svc.Rt)
+
+	assert.Equal(t, 3, svc.ActiveTalkGroup())
+	require.Len(t, events, 1)
+	assert.Equal(t, talkgroup.SourceInit, events[0].Source)
+	assert.Equal(t, talkgroup.KindSelected, events[0].Kind)
 }

@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/talkgroup"
 	"github.com/openmanet/openmanetd/internal/comms/webaudio"
+	"github.com/openmanet/openmanetd/internal/config"
 )
 
 // Service is the live comms subsystem instance returned (conceptually) by
@@ -68,48 +71,65 @@ func (s *Service) ActiveMulticastAddr() string {
 	return s.Cfg.McastPorts[0].Address
 }
 
-// ActiveMulticastPort returns the UDP port of the first configured port.
-// Returns 0 when no ports are configured.
+// ActiveMulticastPort returns the UDP port of the active talk group,
+// falling back to the first configured port when nothing has been
+// selected yet. Before the selection spine existed this always returned
+// the first port, which made the status RPC's ActiveTalkgroup a fiction.
 func (s *Service) ActiveMulticastPort() int {
 	if s == nil || s.Cfg == nil || len(s.Cfg.McastPorts) == 0 {
 		return 0
 	}
 
+	if s.Rt != nil {
+		if ch := int(s.Rt.ActiveChannel.Load()); ch > 0 {
+			if port, err := config.TalkGroupPort(ch); err == nil {
+				return port
+			}
+		}
+	}
+
 	return s.Cfg.McastPorts[0].Port
 }
 
-// EnableTalkGroupSend toggles RTP transmission on the port at portIdx.
-func (s *Service) EnableTalkGroupSend(portIdx int, enabled bool) error {
+// setSend flips the send toggle without emitting an event. Returns
+// whether the stored value actually changed.
+func (s *Service) setSend(portIdx int, enabled bool) (bool, error) {
 	if s == nil || s.Rt == nil {
-		return ErrNotRunning
+		return false, ErrNotRunning
 	}
 
 	if portIdx < 0 || portIdx >= len(s.Rt.Ports) {
-		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(s.Rt.Ports))
+		return false, fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(s.Rt.Ports))
 	}
 
-	s.Rt.Ports[portIdx].SendEnabled.Store(enabled)
+	old := s.Rt.Ports[portIdx].SendEnabled.Swap(enabled)
 
-	return nil
+	return old != enabled, nil
 }
 
-// EnableTalkGroupReceive toggles RTP reception on the port at portIdx and
-// starts or stops the port's playback stream to match (P4: only enabled
-// ports keep a running malgo device). A device-level stream failure is
-// logged, not returned: the RTP-side enable must still take effect — web
-// mode and audio-failed mode have no stream at all, and device failures
-// are owned by the audio recovery machinery.
-func (s *Service) EnableTalkGroupReceive(portIdx int, enabled bool) error {
+// setReceive flips the receive toggle without emitting an event, starting
+// or stopping the port's playback stream to match (P4: only enabled ports
+// keep a running malgo device). A device-level stream failure is logged,
+// not returned: the RTP-side enable must still take effect — web mode and
+// audio-failed mode have no stream at all, and device failures are owned
+// by the audio recovery machinery. Returns whether the stored value
+// actually changed; the playback choreography is skipped entirely on a
+// no-change set as a pure cost optimization (the calls are idempotent).
+func (s *Service) setReceive(portIdx int, enabled bool) (bool, error) {
 	if s == nil || s.Rt == nil {
-		return ErrNotRunning
+		return false, ErrNotRunning
 	}
 
 	if portIdx < 0 || portIdx >= len(s.Rt.Ports) {
-		return fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(s.Rt.Ports))
+		return false, fmt.Errorf("comms: port index %d out of range [0, %d)", portIdx, len(s.Rt.Ports))
 	}
 
 	pc := s.Rt.Ports[portIdx]
-	pc.ReceiveEnabled.Store(enabled)
+
+	old := pc.ReceiveEnabled.Swap(enabled)
+	if old == enabled {
+		return false, nil
+	}
 
 	if !enabled {
 		if err := pc.stopPlayback(); err != nil {
@@ -117,7 +137,7 @@ func (s *Service) EnableTalkGroupReceive(portIdx int, enabled bool) error {
 				Msg("comms: failed to sleep playback stream on RX disable")
 		}
 
-		return nil
+		return true, nil
 	}
 
 	// Discard beeps queued while the stream was asleep — a stale start
@@ -138,7 +158,168 @@ func (s *Service) EnableTalkGroupReceive(portIdx int, enabled bool) error {
 			Msg("comms: failed to wake playback stream on RX enable")
 	}
 
+	return true, nil
+}
+
+// EnableTalkGroupSend toggles RTP transmission on the port at portIdx
+// and emits a KindDirection event when the state actually changed.
+func (s *Service) EnableTalkGroupSend(portIdx int, enabled bool) error {
+	changed, err := s.setSend(portIdx, enabled)
+	if err != nil {
+		return err
+	}
+
+	if changed {
+		s.notifyDirection(portIdx)
+	}
+
 	return nil
+}
+
+// EnableTalkGroupReceive toggles RTP reception on the port at portIdx and
+// starts or stops the port's playback stream to match (P4: only enabled
+// ports keep a running malgo device), emitting a KindDirection event when
+// the state actually changed.
+func (s *Service) EnableTalkGroupReceive(portIdx int, enabled bool) error {
+	changed, err := s.setReceive(portIdx, enabled)
+	if err != nil {
+		return err
+	}
+
+	if changed {
+		s.notifyDirection(portIdx)
+	}
+
+	return nil
+}
+
+// notifyDirection emits a KindDirection event for the port at portIdx.
+// Ports that do not map to a talk group channel (custom McastPorts in
+// tests) are silently skipped.
+func (s *Service) notifyDirection(portIdx int) {
+	rt := s.Rt
+
+	pc := rt.Ports[portIdx]
+
+	ch, err := config.TalkGroupChannel(pc.cfg.Port)
+	if err != nil {
+		return
+	}
+
+	rt.Events.Notify(talkgroup.Event{
+		Kind:    talkgroup.KindDirection,
+		Channel: ch,
+		Send:    pc.SendEnabled.Load(),
+		Receive: pc.ReceiveEnabled.Load(),
+		Source:  talkgroup.SourceRPC,
+		At:      time.Now(),
+	})
+}
+
+// SelectTalkGroup makes channel the single active talk group: RX+TX on
+// its port, all other ports disabled. All selection sources (RPC, GPIO,
+// web) funnel through here so every consumer of the event registry sees
+// an identical stream. A selection that changes nothing (already active,
+// no stray toggles) emits no event — this keeps a boot-time GPIO read
+// that matches the seeded channel from announcing at startup.
+func (s *Service) SelectTalkGroup(channel int, src talkgroup.Source) error {
+	if s == nil || s.Rt == nil {
+		return ErrNotRunning
+	}
+
+	targetPort, err := config.TalkGroupPort(channel)
+	if err != nil {
+		return err
+	}
+
+	rt := s.Rt
+
+	rt.selectMu.Lock()
+	defer rt.selectMu.Unlock()
+
+	targetIdx := -1
+
+	for i, pc := range rt.Ports {
+		if pc.cfg.Port == targetPort {
+			targetIdx = i
+
+			break
+		}
+	}
+
+	if targetIdx == -1 {
+		return fmt.Errorf("comms: talk group %d is not provisioned", channel)
+	}
+
+	var changed bool
+
+	for i := range rt.Ports {
+		if i == targetIdx {
+			continue
+		}
+
+		sc, sendErr := s.setSend(i, false)
+		if sendErr != nil {
+			return sendErr
+		}
+
+		rc, recvErr := s.setReceive(i, false)
+		if recvErr != nil {
+			return recvErr
+		}
+
+		changed = changed || sc || rc
+	}
+
+	sc, sendErr := s.setSend(targetIdx, true)
+	if sendErr != nil {
+		return sendErr
+	}
+
+	rc, recvErr := s.setReceive(targetIdx, true)
+	if recvErr != nil {
+		return recvErr
+	}
+
+	changed = changed || sc || rc
+
+	prev := int(rt.ActiveChannel.Swap(int32(channel)))
+
+	if !changed && prev == channel {
+		return nil
+	}
+
+	rt.Events.Notify(talkgroup.Event{
+		Kind:    talkgroup.KindSelected,
+		Channel: channel,
+		Prev:    prev,
+		Send:    true,
+		Receive: true,
+		Source:  src,
+		At:      time.Now(),
+	})
+
+	return nil
+}
+
+// ActiveTalkGroup returns the 1-based active talk group, or 0 when comms
+// is not running or nothing has been selected yet.
+func (s *Service) ActiveTalkGroup() int {
+	if s == nil || s.Rt == nil {
+		return 0
+	}
+
+	return int(s.Rt.ActiveChannel.Load())
+}
+
+// Events returns the talk group event registry, or nil when comms is not
+// running.
+func (s *Service) Events() *talkgroup.Registry {
+	if s == nil || s.Rt == nil {
+		return nil
+	}
+
+	return s.Rt.Events
 }
 
 // TalkGroupStates returns a snapshot of per-port direction-toggle state.
