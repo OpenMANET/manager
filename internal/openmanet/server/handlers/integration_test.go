@@ -398,6 +398,67 @@ func TestIntegration_SetReceiveTalkGroup_NotRunning(t *testing.T) {
 	}
 }
 
+func TestIntegration_SelectTalkGroup_ValidationAndPrecondition(t *testing.T) {
+	srv := newTestServer(t)
+	client := commsconnect.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	// 0 fails buf.validate before reaching the handler.
+	_, err := client.SelectTalkGroup(context.Background(),
+		&commsv1.SelectTalkGroupRequest{Talkgroup: 0})
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+
+	// Valid number, but comms is not enabled in newTestServer's wired config.
+	_, err = client.SelectTalkGroup(context.Background(),
+		&commsv1.SelectTalkGroupRequest{Talkgroup: 2})
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
+}
+
+func TestIntegration_SelectTalkGroup_NotRunning(t *testing.T) {
+	srv := newTestServerEnabled(t)
+	client := commsconnect.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	// Comms is enabled but the runtime is not started, so SelectTalkGroup
+	// resolves a nil *comms.Service and returns FailedPrecondition.
+	_, err := client.SelectTalkGroup(context.Background(),
+		&commsv1.SelectTalkGroupRequest{Talkgroup: 2})
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
+}
+
+func TestIntegration_StreamTalkGroupEvents_NotRunning(t *testing.T) {
+	srv := newTestServerEnabled(t)
+	client := commsconnect.NewCommsServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	stream, err := client.StreamTalkGroupEvents(context.Background(), &emptypb.Empty{})
+	// connect-go may return the error on the initial call or defer it to the
+	// first Receive, depending on the protocol.
+	if err != nil {
+		var connectErr *connect.Error
+		if assert.ErrorAs(t, err, &connectErr) {
+			assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
+		}
+
+		return
+	}
+
+	ok := stream.Receive()
+	assert.False(t, ok)
+	require.Error(t, stream.Err())
+
+	var connectErr *connect.Error
+	if assert.ErrorAs(t, stream.Err(), &connectErr) {
+		assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
+	}
+
+	require.NoError(t, stream.Close())
+}
+
 // ── Validation (interceptor enforcement over HTTP) ────────────────────────────
 
 func TestIntegration_Validation_GetNode_EmptyHostname(t *testing.T) {

@@ -105,6 +105,32 @@ func TestValidation_SetReceiveTalkGroupRequest_ValidTalkgroups(t *testing.T) {
 	}
 }
 
+// ── SelectTalkGroupRequest ────────────────────────────────────────────────────
+
+func TestValidation_SelectTalkGroupRequest_OutOfRange(t *testing.T) {
+	v := newValidator(t)
+
+	for _, tg := range []int32{0, -1, 33, 100} {
+		tg := tg
+		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
+			err := v.Validate(&commsv1.SelectTalkGroupRequest{Talkgroup: tg})
+			assert.Error(t, err, "talkgroup %d is out of range [1,32] and must fail validation", tg)
+		})
+	}
+}
+
+func TestValidation_SelectTalkGroupRequest_ValidTalkgroups(t *testing.T) {
+	v := newValidator(t)
+
+	for _, tg := range []int32{1, 16, 32} {
+		tg := tg
+		t.Run(fmt.Sprintf("talkgroup_%d", tg), func(t *testing.T) {
+			err := v.Validate(&commsv1.SelectTalkGroupRequest{Talkgroup: tg})
+			assert.NoError(t, err, "talkgroup %d must pass validation", tg)
+		})
+	}
+}
+
 // ── UpdateAudioMixerRequest ───────────────────────────────────────────────────
 
 func TestUpdateAudioMixerRequest_Validation(t *testing.T) {
