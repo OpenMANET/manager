@@ -2,6 +2,7 @@ package gpio
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -14,14 +15,30 @@ import (
 // fakeLines is a hand-rolled lineGroup: tests set vals and fire the
 // captured edge handler.
 type fakeLines struct {
-	mu     sync.Mutex
-	vals   [5]int
-	closed bool
+	mu      sync.Mutex
+	vals    [5]int
+	valsErr error
+	closed  bool
+	// valuesCalled, when non-nil, receives one token per Values call so
+	// tests can serialize edge firings against the watch goroutine's
+	// reads without sleeping. Buffered; send is non-blocking.
+	valuesCalled chan struct{}
 }
 
 func (f *fakeLines) Values(out []int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if f.valuesCalled != nil {
+		select {
+		case f.valuesCalled <- struct{}{}:
+		default:
+		}
+	}
+
+	if f.valsErr != nil {
+		return f.valsErr
+	}
 
 	copy(out, f.vals[:])
 
@@ -42,6 +59,13 @@ func (f *fakeLines) set(vals [5]int) {
 	defer f.mu.Unlock()
 
 	f.vals = vals
+}
+
+func (f *fakeLines) setErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.valsErr = err
 }
 
 func newFakeSelector(initial [5]int) (*Selector, *fakeLines, *func()) {
@@ -166,4 +190,50 @@ func TestSelector_SnapshotNilSafe(t *testing.T) {
 	var snap SelectorSnapshot
 
 	assert.NotPanics(t, func() { s.Snapshot(&snap) })
+}
+
+// TestSelector_ReadErrorBreakerClosesAndReleases pins the error breaker:
+// after readErrorBreaker consecutive Values failures the watch goroutine
+// closes the events channel and releases the lines. Each edge firing is
+// serialized against the watcher's read via valuesCalled, so edges never
+// coalesce and every firing produces exactly one failed read.
+func TestSelector_ReadErrorBreakerClosesAndReleases(t *testing.T) {
+	s, fl, handler := newFakeSelector([5]int{0, 1, 1, 1, 1})
+	fl.valuesCalled = make(chan struct{}, readErrorBreaker+1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	events, err := s.Events(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, recvChannel(t, events))
+	waitValuesCall(t, fl) // the successful boot read
+
+	fl.setErr(errors.New("ioctl: line request revoked"))
+
+	for range readErrorBreaker {
+		(*handler)()
+		waitValuesCall(t, fl)
+	}
+
+	select {
+	case v, ok := <-events:
+		require.False(t, ok, "breaker must close the channel, got value %d", v)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for events channel to close")
+	}
+
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	assert.True(t, fl.closed, "lines released after breaker trip")
+}
+
+func waitValuesCall(t *testing.T, fl *fakeLines) {
+	t.Helper()
+
+	select {
+	case <-fl.valuesCalled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for a Values read")
+	}
 }
