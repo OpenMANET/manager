@@ -43,7 +43,7 @@ Every snapshot is a single JSON object with this shape:
 
 ```json
 {
-  "schema_version": "1.4.0",
+  "schema_version": "1.5.0",
   "captured_at_start": "2026-04-09T12:34:56.789012345Z",
   "captured_at_end":   "2026-04-09T12:34:56.789013101Z",
   "daemon": { ... },
@@ -59,7 +59,7 @@ Every snapshot is a single JSON object with this shape:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `schema_version` | string | Semver of the envelope schema. Bump minor for additive fields, major for breaking changes. The current value is `1.4.0`. |
+| `schema_version` | string | Semver of the envelope schema. Bump minor for additive fields, major for breaking changes. The current value is `1.5.0`. |
 | `captured_at_start` | RFC3339 timestamp | Wall-clock time when the capture loop began reading counters. |
 | `captured_at_end` | RFC3339 timestamp | Wall-clock time when the capture loop finished. The difference `captured_at_end - captured_at_start` bounds the counter-read skew window; in practice this is microseconds. |
 | `daemon.version` | string | openmanetd build version. Empty until the build system populates it. |
@@ -106,9 +106,13 @@ so reading them does not stall the TX or RX paths.
   "broadcasting": false,
   "remote_rx_active": false,
   "control_source": "openvlm",
+  "active_talkgroup": 2,
+  "talkgroup_events_dropped": 0,
   "broadcast_encoder": { ... },
   "web_bridge": { ... },
   "fec_adapter": { ... },
+  "announcer": { ... },
+  "gpio_selector": { ... },
   "ports": [ ... ]
 }
 ```
@@ -119,9 +123,13 @@ so reading them does not stall the TX or RX paths.
 | `broadcasting` | bool | `true` when the TX gate is currently open (mid-PTT). |
 | `remote_rx_active` | bool | `true` when the half-duplex cache reports a remote packet was received recently; TX is blocked while this is set. |
 | `control_source` | string | Active PTT control source: `openvlm`, `nanoptt`, `web`, or `roip`. |
+| `active_talkgroup` | int | 1-based talk group currently active; 0 = never selected or comms down. See **comms.talkgroup** below. |
+| `talkgroup_events_dropped` | uint64 | Talk group events shed by bounded-buffer stream subscribers. See **comms.talkgroup** below. |
 | `broadcast_encoder` | object | TX-side audio encoder counters. |
 | `web_bridge` | object | Web-mode RX bridge counters. |
 | `fec_adapter` | object | Adaptive Opus FEC control-loop state. See **comms.fec_adapter** below. |
+| `announcer` | object | Voice-announcement player counters. See **comms.talkgroup** below. |
+| `gpio_selector` | object | Hardware talk group selector counters. See **comms.talkgroup** below. |
 | `ports` | array | Per-talk-group counters. |
 
 #### `comms.broadcast_encoder`
@@ -176,6 +184,25 @@ mesh links), so no inter-node feedback protocol is needed. See
 | `transitions` | count | Monotonic count of level changes since the adapter started. Rising rapidly means the network is flapping and the hysteresis bands may need widening. |
 | `write_errors` | count | Monotonic count of `SetPacketLossPerc` calls that the Opus encoder rejected. Should stay at 0 in production; non-zero means something is wrong with the encoder state. |
 | `floor` | perc (0-100) | The operator-configured lower bound from `comms.packetLossPerc`. The adapter will never drop below this value; it is also the initial level at startup. |
+
+#### `comms.talkgroup` — selection, announcer, and hardware selector
+
+Exclusive talk group selection (`SelectTalkGroup`, RPC- or hardware-driven),
+the voice-announcement player that reads selection changes back to the
+operator, and the Raven 5-position GPIO selector. `announcer` and
+`gpio_selector` read as all-zero when the corresponding subsystem isn't
+wired in (web mode for the announcer, a non-Raven board or
+`comms.gpioSelector.enable: false` for the selector) — zero here means
+"not present", not "broken".
+
+| Field | Unit | Meaning |
+|---|---|---|
+| `active_talkgroup` | channel number | 1-based talk group currently active; 0 = never selected or comms down. |
+| `talkgroup_events_dropped` | count | Talk group events shed by bounded-buffer stream subscribers. A rising value with an active `StreamTalkGroupEvents` client means that client reads too slowly. |
+| `announcer.plays` | count | Voice announcement playbacks started since comms start. |
+| `announcer.frame_drops` | count | Announcement frames refused by a full playback buffer. |
+| `gpio_selector.transitions` | count | Accepted hardware selector position changes. **Includes the one boot-time selection** — the selector emits the initial switch position at start, which counts as a transition, so a fresh daemon shows `transitions >= 1` even before the operator has touched the switch. |
+| `gpio_selector.held_glitches` | count | Selector edge wakeups where zero or multiple pins were active and the previous selection was held. |
 
 #### `comms.ports[*]`
 
@@ -394,6 +421,22 @@ thumb in order and flag anything that fits.
 16. **"Mic too quiet / too hot" with `agc_enabled: true`.** The CM108B's
    AGC overrides manual capture gain; toggle AGC off via
    `UpdateAudioMixer` before tuning `mic_volume_pct`.
+17. **Selector wiring health.** A steadily rising
+   `comms.gpio_selector.held_glitches` with flat
+   `comms.gpio_selector.transitions` indicates a stuck or miswired
+   selector (multiple pins grounded, or a floating line) — the
+   operator's switch turns are being ignored. Occasional held-glitches
+   during transitions are normal rotary behavior (the wiper bridges two
+   contacts briefly as it turns). Cross-check `comms.active_talkgroup`
+   against the physical switch position; remember `transitions` starts
+   at 1 on a fresh boot (the selector emits the initial position as a
+   transition), so `transitions == 1` with zero held-glitches since
+   boot is healthy, not stuck.
+18. **Announcement audibility.** `comms.announcer.plays` rising with
+   `comms.announcer.frame_drops` near zero is healthy. Sustained
+   `frame_drops` means the playback buffer is contended — check whether
+   the active port's stream is running
+   (`comms.ports[*].receive_enabled`).
 
 ## Skew note
 

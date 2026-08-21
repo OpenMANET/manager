@@ -1,8 +1,10 @@
 package comms
 
 import (
+	"github.com/openmanet/openmanetd/internal/comms/announce"
 	"github.com/openmanet/openmanetd/internal/comms/audio"
 	"github.com/openmanet/openmanetd/internal/comms/control"
+	"github.com/openmanet/openmanetd/internal/comms/gpio"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 )
@@ -17,9 +19,19 @@ type CommsSnapshot struct {
 	BroadcastEncoder audio.AudioEncoderSnapshot `json:"broadcast_encoder"`
 	WebBridge        webaudio.BridgeSnapshot    `json:"web_bridge"`
 	FECAdapter       FECAdapterSnapshot         `json:"fec_adapter"`
-	Enabled          bool                       `json:"enabled"`
-	Broadcasting     bool                       `json:"broadcasting"`
-	RemoteRxActive   bool                       `json:"remote_rx_active"`
+	// Announcer is the voice-announcement player section.
+	Announcer announce.Snapshot `json:"announcer"`
+	// GPIOSelector is the hardware selector section (zeros off-Raven).
+	GPIOSelector gpio.SelectorSnapshot `json:"gpio_selector"`
+	// ActiveTalkgroup is the 1-based active talk group (0 when nothing
+	// has been selected yet or comms is down).
+	ActiveTalkgroup int `json:"active_talkgroup"`
+	// TalkgroupEventsDropped counts events shed by bounded-buffer
+	// listeners (streaming RPC subscribers) since comms start.
+	TalkgroupEventsDropped uint64 `json:"talkgroup_events_dropped"`
+	Enabled                bool   `json:"enabled"`
+	Broadcasting           bool   `json:"broadcasting"`
+	RemoteRxActive         bool   `json:"remote_rx_active"`
 }
 
 // PortSnapshot is the per-talk-group section of a CommsSnapshot.
@@ -99,6 +111,10 @@ func (s *Service) Snapshot(dst *CommsSnapshot) {
 		dst.BroadcastEncoder = audio.AudioEncoderSnapshot{}
 		dst.WebBridge = webaudio.BridgeSnapshot{}
 		dst.Ports = dst.Ports[:0]
+		dst.ActiveTalkgroup = 0
+		dst.TalkgroupEventsDropped = 0
+		dst.Announcer = announce.Snapshot{}
+		dst.GPIOSelector = gpio.SelectorSnapshot{}
 
 		return
 	}
@@ -117,6 +133,10 @@ func (s *Service) Snapshot(dst *CommsSnapshot) {
 		dst.BroadcastEncoder = audio.AudioEncoderSnapshot{}
 		dst.WebBridge = webaudio.BridgeSnapshot{}
 		dst.Ports = dst.Ports[:0]
+		dst.ActiveTalkgroup = 0
+		dst.TalkgroupEventsDropped = 0
+		dst.Announcer = announce.Snapshot{}
+		dst.GPIOSelector = gpio.SelectorSnapshot{}
 
 		return
 	}
@@ -124,6 +144,10 @@ func (s *Service) Snapshot(dst *CommsSnapshot) {
 	dst.Enabled = true
 	dst.Broadcasting = rt.Broadcasting.Load()
 	dst.RemoteRxActive = rt.RemoteRxActive.Load()
+	dst.ActiveTalkgroup = int(rt.ActiveChannel.Load())
+	dst.TalkgroupEventsDropped = rt.Events.Dropped()
+	rt.Announcer.Snapshot(&dst.Announcer)
+	rt.GPIOSel.Snapshot(&dst.GPIOSelector)
 
 	// BroadcastStream is an interface. In production the live instance is
 	// always a *audio.BroadcastEncoder; test fakes may substitute a
