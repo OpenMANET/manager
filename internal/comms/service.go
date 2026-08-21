@@ -335,26 +335,36 @@ func (s *Service) SelectTalkGroup(channel int, src talkgroup.Source) error {
 
 	prev := int(rt.ActiveChannel.Swap(int32(channel)))
 
+	// Emit the selection event while STILL holding selectMu, so concurrent
+	// selections notify listeners in the same order they flipped
+	// ActiveChannel. If the event fired after Unlock (and after the
+	// variable-latency phase-2 device I/O below), a slower select's Notify
+	// could land after a newer one and the latest-wins announcer would speak
+	// the superseded channel while ActiveChannel already holds the newer one.
+	// Listeners are non-blocking by contract (announcer latest-wins slot;
+	// stream bounded drop-oldest), so this critical section stays bounded and
+	// performs no device I/O — the "no lock across blocking ops" rule still
+	// holds (the playback reconcile stays unlocked in phase 2).
+	if changed || prev != channel {
+		rt.Events.Notify(talkgroup.Event{
+			Kind:    talkgroup.KindSelected,
+			Channel: channel,
+			Prev:    prev,
+			Send:    true,
+			Receive: true,
+			Source:  src,
+			At:      time.Now(),
+		})
+	}
+
 	rt.selectMu.Unlock()
 
 	// Phase 2 — reconcile playback for the ports whose receive flag changed.
+	// Unlocked: startPlayback/stopPlayback are malgo device calls, serialized
+	// per-port by playbackMu; selectMu must never wrap them.
 	for _, i := range rxChanged {
 		s.applyReceivePlayback(i)
 	}
-
-	if !changed && prev == channel {
-		return nil
-	}
-
-	rt.Events.Notify(talkgroup.Event{
-		Kind:    talkgroup.KindSelected,
-		Channel: channel,
-		Prev:    prev,
-		Send:    true,
-		Receive: true,
-		Source:  src,
-		At:      time.Now(),
-	})
 
 	return nil
 }

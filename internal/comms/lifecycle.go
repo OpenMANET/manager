@@ -397,14 +397,28 @@ func (cfg *CommsConfig) startGPIOSelector(ctx context.Context, svc *Service) {
 
 	svc.Rt.GPIOSel = sel
 
-	go func() {
-		for ch := range events {
-			if err := svc.SelectTalkGroup(ch, talkgroup.SourceGPIO); err != nil {
-				cfg.Log.Warn().Err(err).Int("channel", ch).
-					Msg("comms: GPIO talk group selection failed")
-			}
+	go svc.forwardSelections(events, cfg.Log)
+}
+
+// forwardSelections applies each channel emitted by the GPIO selector as a
+// talk group selection. The FIRST emission is the selector's boot-time read
+// of the physical switch position: it is forwarded as SourceInit so the
+// daemon adopts that position (flip + ActiveChannel update + stream event)
+// WITHOUT the announcer speaking it — honoring the "no boot-time
+// announcement" decision. Every later emission is a live operator action,
+// forwarded as SourceGPIO (which the announcer does play). The loop exits
+// when events closes (ctx cancel or the selector's error breaker).
+func (s *Service) forwardSelections(events <-chan int, log zerolog.Logger) {
+	src := talkgroup.SourceInit
+
+	for ch := range events {
+		if err := s.SelectTalkGroup(ch, src); err != nil {
+			log.Warn().Err(err).Int("channel", ch).
+				Msg("comms: GPIO talk group selection failed")
 		}
-	}()
+
+		src = talkgroup.SourceGPIO
+	}
 }
 
 // Start initializes all comms subsystems and blocks until ctx is canceled.

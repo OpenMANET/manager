@@ -289,3 +289,26 @@ func TestSelectTalkGroup_ConcurrentConverges(t *testing.T) {
 
 	assert.Equal(t, 1, enabled, "exactly one receive-enabled port after concurrent selects")
 }
+
+func TestForwardSelections_FirstEmissionIsSourceInit(t *testing.T) {
+	svc := newSelectTestService(t, 5)
+
+	var srcs []talkgroup.Source
+
+	svc.Rt.Events.Add(func(ev talkgroup.Event) {
+		if ev.Kind == talkgroup.KindSelected {
+			srcs = append(srcs, ev.Source)
+		}
+	})
+
+	events := make(chan int, 2)
+	events <- 2 // selector's boot-time read of the physical switch position
+	events <- 3 // a subsequent operator turn
+	close(events)
+
+	svc.forwardSelections(events, zerolog.Nop())
+
+	require.Len(t, srcs, 2)
+	assert.Equal(t, talkgroup.SourceInit, srcs[0], "boot read forwarded as SourceInit so the announcer stays silent")
+	assert.Equal(t, talkgroup.SourceGPIO, srcs[1], "later turns forwarded as SourceGPIO")
+}
