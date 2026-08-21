@@ -342,7 +342,7 @@ func (s *Service) SelectTalkGroup(channel int, src talkgroup.Source) error {
 	// could land after a newer one and the latest-wins announcer would speak
 	// the superseded channel while ActiveChannel already holds the newer one.
 	// Listeners are non-blocking by contract (announcer latest-wins slot;
-	// stream bounded drop-oldest), so this critical section stays bounded and
+	// stream bounded drop-newest), so this critical section stays bounded and
 	// performs no device I/O — the "no lock across blocking ops" rule still
 	// holds (the playback reconcile stays unlocked in phase 2).
 	if changed || prev != channel {
