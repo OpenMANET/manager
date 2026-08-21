@@ -12,6 +12,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/comms/codec"
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/device"
+	"github.com/openmanet/openmanetd/internal/comms/gpio"
 	"github.com/openmanet/openmanetd/internal/comms/talkgroup"
 	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 	"github.com/openmanet/openmanetd/internal/config"
@@ -71,6 +72,9 @@ type CommsRuntime struct { //nolint:govet // fieldalignment: mu must sit directl
 	// Announcer plays talk group voice clips; nil in web mode, when clip
 	// decode failed, or in minimal test runtimes.
 	Announcer *announce.Player
+	// GPIOSel is the hardware talk group selector; nil when the board
+	// doesn't wire one, the operator disabled it, or open failed.
+	GPIOSel *gpio.Selector
 
 	// selectMu serializes SelectTalkGroup's multi-port flip so two
 	// concurrent selections cannot interleave partial port states. Never
@@ -140,7 +144,10 @@ type CommsConfig struct {
 	detectALSACardFn func()
 	// readUDPDropsFn overrides the /proc/net/udp kernel-drop scan for
 	// tests. When nil, readUDPDrops falls back to readUDPSocketDrops.
-	readUDPDropsFn           func(localPort int) (int64, error)
+	readUDPDropsFn func(localPort int) (int64, error)
+	// gpioSelectorSupportedFn overrides the board capability check for
+	// tests. Nil means board.GPIOSelectorSupported.
+	gpioSelectorSupportedFn  func() bool
 	BluetoothOutputDevice    string
 	NanoPTTDevicePath        string
 	CommKey                  string

@@ -14,10 +14,12 @@ import (
 	"github.com/openmanet/openmanetd/internal/comms/audiopool"
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/device"
+	"github.com/openmanet/openmanetd/internal/comms/gpio"
 	"github.com/openmanet/openmanetd/internal/comms/rtp"
 	"github.com/openmanet/openmanetd/internal/comms/talkgroup"
 	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 	"github.com/openmanet/openmanetd/internal/config"
+	"github.com/openmanet/openmanetd/internal/util/board"
 )
 
 // startHardwareAudio constructs an audio.Init bound to cfg/rt, builds the
@@ -370,6 +372,41 @@ func (cfg *CommsConfig) startAnnouncer(ctx context.Context, rt *CommsRuntime) {
 	})
 }
 
+// startGPIOSelector launches the hardware talk group selector when the
+// board wires one (Raven) and the operator has not disabled it.
+// Best-effort: an open failure (driver quirk, permissions) logs and
+// degrades gracefully — RPC and web selection keep working.
+func (cfg *CommsConfig) startGPIOSelector(ctx context.Context, svc *Service) {
+	supported := cfg.gpioSelectorSupportedFn
+	if supported == nil {
+		supported = board.GPIOSelectorSupported
+	}
+
+	if !supported() || !cfg.GPIOSelectorEnable {
+		return
+	}
+
+	sel := &gpio.Selector{Log: cfg.Log}
+
+	events, err := sel.Events(ctx)
+	if err != nil {
+		cfg.Log.Warn().Err(err).Msg("comms: GPIO selector unavailable")
+
+		return
+	}
+
+	svc.Rt.GPIOSel = sel
+
+	go func() {
+		for ch := range events {
+			if err := svc.SelectTalkGroup(ch, talkgroup.SourceGPIO); err != nil {
+				cfg.Log.Warn().Err(err).Int("channel", ch).
+					Msg("comms: GPIO talk group selection failed")
+			}
+		}
+	}()
+}
+
 // Start initializes all comms subsystems and blocks until ctx is canceled.
 // Returns nil on clean shutdown, or an error if initialization fails.
 // The caller is responsible for canceling ctx to stop the subsystem.
@@ -505,6 +542,12 @@ func (cfg *CommsConfig) Start(ctx context.Context) error {
 	// that initAudioIO/startHardwareAudio install, and it checks
 	// rt.WebBridge (set by initAudioIO's web-mode branch) to skip web mode.
 	cfg.startAnnouncer(ctx, rt)
+
+	// ── GPIO selector ─────────────────────────────────────────────────────
+	// Raven-only hardware talk group selector; skipped when the board
+	// doesn't wire one or the operator disabled it. Best-effort: an open
+	// failure degrades gracefully, leaving RPC/web selection working.
+	cfg.startGPIOSelector(ctx, svc)
 
 	// ── run loop ───────────────────────────────────────────────────────────
 	cfg.Run(ctx, rt, src)
