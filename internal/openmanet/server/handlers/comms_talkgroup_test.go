@@ -109,3 +109,44 @@ func TestStreamTalkGroupEvents_NotRunning(t *testing.T) {
 	require.ErrorAs(t, err, &connectErr)
 	assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
 }
+
+func TestTalkGroupEventListener_DeliversUntilFullThenDropsNewest(t *testing.T) {
+	reg := talkgroup.NewRegistry(zerolog.Nop())
+	ch := make(chan *commsv1.TalkGroupEvent, 16)
+
+	fn := handlers.TalkGroupEventListener(ch, reg)
+
+	// 17 events into a 16-slot buffer: the 17th is dropped and counted.
+	for i := 1; i <= 17; i++ {
+		fn(talkgroup.Event{
+			Kind: talkgroup.KindSelected, Channel: i,
+			Send: true, Receive: true,
+			Source: talkgroup.SourceRPC, At: time.Now(),
+		})
+	}
+
+	assert.Equal(t, uint64(1), reg.Dropped(), "one overflow event counted")
+	require.Len(t, ch, 16, "buffer holds the first 16 events")
+
+	for want := 1; want <= 16; want++ {
+		got := <-ch
+		assert.Equal(t, int32(want), got.Talkgroup, "delivery order preserved")
+	}
+}
+
+func TestTalkGroupEventListener_RecoversAfterDrain(t *testing.T) {
+	reg := talkgroup.NewRegistry(zerolog.Nop())
+	ch := make(chan *commsv1.TalkGroupEvent, 1)
+
+	fn := handlers.TalkGroupEventListener(ch, reg)
+
+	fn(talkgroup.Event{Kind: talkgroup.KindSelected, Channel: 1})
+	fn(talkgroup.Event{Kind: talkgroup.KindSelected, Channel: 2}) // dropped
+	assert.Equal(t, uint64(1), reg.Dropped())
+
+	<-ch // consumer catches up
+
+	fn(talkgroup.Event{Kind: talkgroup.KindSelected, Channel: 3})
+	assert.Equal(t, uint64(1), reg.Dropped(), "no drop once the buffer has room")
+	assert.Equal(t, int32(3), (<-ch).Talkgroup)
+}

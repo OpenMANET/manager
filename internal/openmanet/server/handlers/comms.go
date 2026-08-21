@@ -329,14 +329,7 @@ func (c *CommsService) StreamTalkGroupEvents(ctx context.Context, _ *emptypb.Emp
 
 	ch := make(chan *commsv1.TalkGroupEvent, talkGroupEventChanSize)
 
-	id := reg.Add(func(ev talkgroup.Event) {
-		proto := TalkGroupEventToProto(ev)
-		select {
-		case ch <- proto:
-		default:
-			reg.NoteDropped()
-		}
-	})
+	id := reg.Add(TalkGroupEventListener(ch, reg))
 	defer reg.Remove(id)
 
 	for {
@@ -359,6 +352,21 @@ func (c *CommsService) StreamTalkGroupEvents(ctx context.Context, _ *emptypb.Emp
 // wire form. Enum numeric values are aligned by construction (the proto
 // enums mirror talkgroup.Kind / talkgroup.Source), so direct casts are
 // safe; TestTalkGroupEventToProto pins the alignment.
+// TalkGroupEventListener returns the registry listener that feeds one
+// stream subscriber's bounded channel. Non-blocking by the registry's
+// contract: when ch is full the newest event is dropped and counted via
+// NoteDropped, never stalling the notifier. Exported so the overflow
+// branch is unit-testable (same rationale as TalkGroupEventToProto).
+func TalkGroupEventListener(ch chan<- *commsv1.TalkGroupEvent, reg *talkgroup.Registry) func(talkgroup.Event) {
+	return func(ev talkgroup.Event) {
+		select {
+		case ch <- TalkGroupEventToProto(ev):
+		default:
+			reg.NoteDropped()
+		}
+	}
+}
+
 func TalkGroupEventToProto(ev talkgroup.Event) *commsv1.TalkGroupEvent {
 	return &commsv1.TalkGroupEvent{
 		Kind:           commsv1.TalkGroupEventKind(ev.Kind),
