@@ -1,6 +1,8 @@
 package talkgroup_test
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -58,4 +60,61 @@ func TestRegistry_NilReceiverSafe(t *testing.T) {
 
 	assert.NotPanics(t, func() { r.Notify(talkgroup.Event{}) })
 	assert.Zero(t, r.Dropped())
+}
+
+// TestRegistry_ConcurrentAddRemoveNotify stress-tests the
+// snapshot-under-lock contract: concurrent Add/Remove churn, Notify
+// fan-out, and NoteDropped must not race or deadlock (-race gates it),
+// and both counters must stay exact — the persistent listener sees every
+// Notify because it registers before any fires, and Dropped is a plain
+// atomic sum.
+func TestRegistry_ConcurrentAddRemoveNotify(t *testing.T) {
+	r := talkgroup.NewRegistry(zerolog.Nop())
+
+	const (
+		workers = 8
+		iters   = 200
+	)
+
+	var persistentCalls atomic.Int64
+
+	r.Add(func(talkgroup.Event) { persistentCalls.Add(1) })
+
+	var wg sync.WaitGroup
+
+	wg.Add(workers * 3)
+
+	for range workers {
+		go func() {
+			defer wg.Done()
+
+			for range iters {
+				id := r.Add(func(talkgroup.Event) {})
+				r.Remove(id)
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+
+			for i := range iters {
+				r.Notify(talkgroup.Event{Kind: talkgroup.KindSelected, Channel: i%5 + 1})
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+
+			for range iters {
+				r.NoteDropped()
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	assert.Equal(t, int64(workers*iters), persistentCalls.Load(),
+		"persistent listener sees every Notify")
+	assert.Equal(t, uint64(workers*iters), r.Dropped(),
+		"drop counter is an exact concurrent sum")
 }
