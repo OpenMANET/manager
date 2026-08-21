@@ -44,7 +44,13 @@ func oggPackets(b []byte) ([][]byte, error) {
 			off += int(s)
 
 			if s < 255 { // lacing value < 255 terminates a packet
-				packets = append(packets, cur)
+				// Skip zero-length packets: valid Ogg, but meaningless
+				// for Opus — and keeping one would both feed the decoder
+				// an empty buffer and shift the header-packet skip below.
+				if len(cur) > 0 {
+					packets = append(packets, cur)
+				}
+
 				cur = nil
 			}
 		}
