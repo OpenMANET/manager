@@ -225,6 +225,7 @@ func TestSelector_ReadErrorBreakerClosesAndReleases(t *testing.T) {
 
 	fl.mu.Lock()
 	defer fl.mu.Unlock()
+
 	assert.True(t, fl.closed, "lines released after breaker trip")
 }
 

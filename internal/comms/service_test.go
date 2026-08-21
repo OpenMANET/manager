@@ -303,7 +303,9 @@ func TestForwardSelections_FirstEmissionIsSourceInit(t *testing.T) {
 
 	events := make(chan int, 2)
 	events <- 2 // selector's boot-time read of the physical switch position
+
 	events <- 3 // a subsequent operator turn
+
 	close(events)
 
 	svc.forwardSelections(events, zerolog.Nop())
