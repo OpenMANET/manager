@@ -29,12 +29,13 @@ const (
 	KindDirection
 )
 
-// Event is a single talk group state-change observation.
+// Event is a single talk group state-change observation. Field order is
+// alignment-optimal (fieldalignment): 48 bytes instead of 56.
 type Event struct {
 	At      time.Time
-	Kind    Kind
 	Channel int // 1-based talk group the event is about
 	Prev    int // previous active channel (KindSelected only, 0 if none)
+	Kind    Kind
 	Send    bool
 	Receive bool
 	Source  Source

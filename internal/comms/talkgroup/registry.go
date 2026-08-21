@@ -12,7 +12,7 @@ import (
 // recover, drop accounting. Notify fires at human rate (selection and
 // toggle changes), so the per-Notify snapshot allocation is acceptable;
 // nothing here runs on an audio or packet hot path.
-type Registry struct {
+type Registry struct { //nolint:govet // fieldalignment: mu stays above the fields it guards per .claude/rules/concurrency.md; not worth 8 GC-scan bytes
 	log zerolog.Logger
 
 	mu        sync.Mutex // protects the fields below
