@@ -466,9 +466,11 @@ func TestGetOrCreateForwarding_ReenablesMatchingDisabledForwarding(t *testing.T)
 	// Re-enabled the existing forwarding instead of creating mmrouter.
 	assert.Equal(t, "@forwarding[0]", got)
 
-	v, ok := m.Get("firewall", "@forwarding[0]", "enabled")
-	require.True(t, ok)
-	assert.Equal(t, "1", v[0])
+	// `enabled` is cleared, not set to "1" — this converges to the
+	// same shape as a freshly-created forwarding (which never writes
+	// `enabled` at all) so a second wizard run is idempotent.
+	_, ok := m.Get("firewall", "@forwarding[0]", "enabled")
+	assert.False(t, ok, "enabled should be cleared, not explicitly set, on re-enable")
 
 	// mmrouter section was NOT created.
 	_, ok = m.Get("firewall", "mmrouter", "src")

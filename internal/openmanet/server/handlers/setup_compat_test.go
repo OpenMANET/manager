@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -397,25 +398,114 @@ func TestCompat_AhwlanDhcpPoolCreated(t *testing.T) {
 		"dhcp pool must have force=1 so dnsmasq serves even when an upstream DHCP server is on the LAN")
 }
 
-// TestCompat_DnsmasqWhitelisted asserts the per-network dnsmasq
-// instance the wizard creates for ahwlan has the standard wizard
-// options. The factory anonymous dnsmasq is left as a fallback (with
-// non-whitelist options pruned by the reset phase).
+// TestCompat_DnsmasqWhitelisted asserts the wizard does NOT create a
+// second, per-network "ahwlan_dns" dnsmasq instance. OpenWrt launches
+// one dnsmasq process per `config dnsmasq` section, so a second
+// instance races the global (factory) one for port 53 — the loser
+// exits and takes its bound pool down with it (root cause #2). The
+// ahwlan pool attaches to the surviving global instance instead:
+// fixture shape is exactly one dnsmasq and an instance-less pool.
 func TestCompat_DnsmasqWhitelisted(t *testing.T) {
 	tr := runScenarioApply(t, gateRouterEthProfile())
 
-	// A per-network dnsmasq instance bound to ahwlan must exist; the
-	// scenario phase creates it via SetupDnsmasqInstance with the
-	// wizard's 11 standard options.
-	const dnsmasq = "ahwlan_dns"
-	require.True(t, tr.hasSection("dhcp", dnsmasq),
-		"per-network ahwlan_dns dnsmasq instance must exist after the wizard runs")
+	assert.False(t, tr.hasSection("dhcp", "ahwlan_dns"),
+		"a second per-network dnsmasq instance must not be created — it races the global instance for port 53")
 
-	assert.Equal(t, "1000", tr.getOne("dhcp", dnsmasq, "cachesize"))
-	assert.Equal(t, "1", tr.getOne("dhcp", dnsmasq, "localservice"))
-	assert.Equal(t, "1", tr.getOne("dhcp", dnsmasq, "authoritative"))
-	assert.Equal(t, "/ahwlan/", tr.getOne("dhcp", dnsmasq, "local"))
-	assert.Equal(t, "ahwlan", tr.getOne("dhcp", dnsmasq, "domain"))
+	assert.Len(t, tr.sectionsOfType("dhcp", "dnsmasq"), 1,
+		"exactly one dnsmasq section must survive the wizard")
+
+	pool := tr.findDhcpPool("ahwlan")
+	require.NotEmpty(t, pool, "ahwlan dhcp pool must exist")
+	assert.Empty(t, tr.get("dhcp", pool, "instance"),
+		"the ahwlan pool must not bind to a dnsmasq instance")
+}
+
+// TestCompat_SingleDnsmasqInstance pins root cause #2: a second
+// dnsmasq section races the global one for port 53; the loser exits
+// and takes its bound pool down ("flaky after setup"). Both fixtures
+// show exactly one dnsmasq and pools with no instance option.
+func TestCompat_SingleDnsmasqInstance(t *testing.T) {
+	for name, profile := range map[string]*setupv1.MeshNodeProfile{
+		"gate-router-eth": gateRouterEthProfile(),
+		"point-extender":  pointExtenderProfile(),
+		"point-none":      pointNoneProfile(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			tr := runScenarioApply(t, profile)
+
+			assert.Len(t, tr.sectionsOfType("dhcp", "dnsmasq"), 1,
+				"exactly one dnsmasq section — a second instance races port 53")
+
+			for _, pool := range tr.sectionsOfType("dhcp", "dhcp") {
+				assert.Empty(t, tr.get("dhcp", pool, "instance"),
+					"pool %s must not bind to a dnsmasq instance", pool)
+			}
+		})
+	}
+}
+
+// TestCompat_AhwlanPoolFixtureParity locks the pool to the capture
+// shape. force is asserted on both scenarios (deliberate divergence
+// from the extender capture, which omits it — force only makes
+// dnsmasq serve when a foreign DHCP server is present). start is
+// randomized for points, so assert presence not value there.
+func TestCompat_AhwlanPoolFixtureParity(t *testing.T) {
+	tr := runScenarioApply(t, gateRouterEthProfile())
+
+	pool := tr.findDhcpPool("ahwlan")
+	require.NotEmpty(t, pool)
+
+	secs := loadFixture(t, "mesh-gate-router-eth", "dhcp")
+	fx := findFixtureSection(secs, "dhcp", "ahwlan")
+	assertTreeMatchesFixture(t, tr, "dhcp", pool, fx, "start")
+	assert.NotEmpty(t, tr.getOne("dhcp", pool, "start"))
+
+	for _, gone := range []string{"ra", "ra_slaac", "ra_flags", "dns", "dns_service", "ignore", "instance"} {
+		assert.Empty(t, tr.get("dhcp", pool, gone),
+			"pool option %s not in fixture; must not be written", gone)
+	}
+}
+
+// TestCompat_ApplyTwiceIdempotent re-runs the wizard and asserts the
+// second pass produces an identical staged tree — pins the pool
+// re-enable path (previously only ignore was cleared, dropping the
+// pool's options after the reset whitelist stripped them).
+func TestCompat_ApplyTwiceIdempotent(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, _ := newFullSetupService(t, cfg)
+
+	// The service's RNG is reset to the same seed before each apply so
+	// both runs draw identical MAC/wifi-key values at the same call
+	// positions — otherwise the un-seeded time-based fallback would
+	// make the two trees differ for reasons unrelated to what this
+	// test pins (whole-tree equality across two applies). This
+	// re-seeding does NOT by itself prove the dhcp pool's `start`
+	// offset survives a re-run — a deterministic seed would reproduce
+	// the same value even if GetOrCreateDhcpPool redrew it on every
+	// call. That specific behavior (re-enable keeps an existing
+	// `start` rather than redrawing) is pinned at the unit level by
+	// TestGetOrCreateDhcpPool_ReenableBackfillsForce in
+	// internal/network/uci_dhcp_test.go; this test's job is only to
+	// confirm nothing else in the full apply pipeline perturbs the
+	// tree on a second run once the per-call values are held fixed.
+	svc.RNG = rand.New(rand.NewSource(1))
+
+	collector := &streamCollector{}
+	require.NoError(t, svc.ApplySetupForTest(context.Background(), gateRouterEthProfile(), collector))
+
+	reader, ok := svc.UCI.(*fakeConfigReader)
+	require.True(t, ok)
+
+	first := deepCopyReaderData(reader)
+
+	// Re-arm the wizard (completion flipped the flags) and apply again.
+	require.NoError(t, cfg.PersistSetupAndAuth(false, false))
+
+	svc.RNG = rand.New(rand.NewSource(1))
+	require.NoError(t, svc.ApplySetupForTest(context.Background(), gateRouterEthProfile(), &streamCollector{}))
+
+	assert.Equal(t, first, deepCopyReaderData(reader),
+		"second apply must produce an identical UCI tree")
 }
 
 // TestCompat_AhwlanFirewallZone asserts the firewall zone for ahwlan
@@ -694,15 +784,28 @@ func TestCompat_ScopedDnsmasqRemovedInReset(t *testing.T) {
 	require.NoError(t, reader.SetType("dhcp", "scoped_lan_dns", "interface",
 		uci.TypeOption, "lan"))
 
+	// Also inject an "ahwlan_dns" section, mimicking a leftover from a
+	// prior firmware's (pre-fix) wizard run that created the second,
+	// port-53-racing instance this fix removed.
+	require.NoError(t, reader.AddSection("dhcp", "ahwlan_dns", "dnsmasq"))
+	require.NoError(t, reader.SetType("dhcp", "ahwlan_dns", "interface",
+		uci.TypeOption, "ahwlan"))
+
 	require.NoError(t, svc.ApplySetupForTest(context.Background(),
 		gateRouterEthProfile(), &streamCollector{}))
 
-	// The scoped dnsmasq must be gone after the wizard runs — the
-	// reset phase deletes scoped sections so the per-network
-	// ahwlan_dns can take over without a competing global dnsmasq.
-	assert.False(t,
-		(&uciTree{reader: reader}).hasSection("dhcp", "scoped_lan_dns"),
+	tr := &uciTree{reader: reader}
+
+	// Both scoped dnsmasq sections must be gone after the wizard
+	// runs — the reset phase deletes any dnsmasq with `interface` set
+	// (or non-loopback `notinterface`), leaving only the anonymous
+	// global instance the ahwlan pool attaches to.
+	assert.False(t, tr.hasSection("dhcp", "scoped_lan_dns"),
 		"reset phase must remove scoped dnsmasq sections")
+	assert.False(t, tr.hasSection("dhcp", "ahwlan_dns"),
+		"reset phase must remove a leftover prior-firmware ahwlan_dns section")
+	assert.Len(t, tr.sectionsOfType("dhcp", "dnsmasq"), 1,
+		"exactly one dnsmasq section must survive the wizard")
 }
 
 // Gap 5: mesh-point scenarios must write `network.ahwlan.dns=1.1.1.1`.

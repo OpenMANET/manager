@@ -1068,64 +1068,40 @@ func (s *SetupService) scenarioMeshPointNone(profile *setupv1.MeshNodeProfile) e
 	return s.writeWizardBookkeeping(profile)
 }
 
-// setupLanDhcpNoUplink creates a DHCP pool + dnsmasq instance bound
-// to the lan interface, with `dhcp_option=['3','6']` set so dnsmasq
-// doesn't advertise itself as a router or DNS server. Used by the
+// setupLanDhcpNoUplink creates a DHCP pool bound to the lan
+// interface, with `dhcp_option=['3','6']` set so dnsmasq doesn't
+// advertise itself as a router or DNS server. Used by the
 // mesh-point-none scenario where the device is downstream of a peer
 // mesh-gate that owns the upstream gateway/DNS.
+//
+// A dedicated per-network dnsmasq section is deliberately NOT
+// created: OpenWrt launches one dnsmasq process per section and the
+// two race for port 53 — the loser exits and takes its bound pool
+// down with it. Both LuCI captures show exactly one dnsmasq and an
+// instance-less pool.
 func (s *SetupService) setupLanDhcpNoUplink() error {
-	const (
-		networkID   = "lan"
-		dnsmasqName = "lan_dns"
-	)
-
-	if err := s.UCI.AddSection("dhcp", dnsmasqName, "dnsmasq"); err != nil {
-		s.Log.Debug().Err(err).Msg("AddSection lan dnsmasq (ignored if exists)")
-	}
-
-	if err := network.SetupDnsmasqInstance(s.UCI, dnsmasqName, networkID); err != nil {
-		return fmt.Errorf("setupDnsmasqInstance lan: %w", err)
-	}
-
-	pool, err := network.GetOrCreateDhcpPool(s.UCI, dnsmasqName, networkID, s.rng())
-	if err != nil {
-		return fmt.Errorf("getOrCreateDhcpPool lan: %w", err)
-	}
+	const networkID = "lan"
 
 	// dhcp_option=['3','6'] suppresses both the default-route option
 	// (3) and the DNS-server option (6), so clients on the LAN don't
 	// try to route their default gateway through this device.
-	if err := s.UCI.SetType("dhcp", pool, "dhcp_option", uci.TypeList, "3", "6"); err != nil {
-		return fmt.Errorf("setting lan dhcp_option: %w", err)
+	extraOptions := map[string][]string{"dhcp_option": {"3", "6"}}
+
+	if _, err := network.GetOrCreateDhcpPool(s.UCI, networkID, extraOptions, s.rng()); err != nil {
+		return fmt.Errorf("getOrCreateDhcpPool lan: %w", err)
 	}
 
 	return nil
 }
 
-// setupAhwlanDhcp creates a DHCP pool + dnsmasq instance bound to
-// the ahwlan interface. Without this, clients on the management
-// network never get an IP and the device is unreachable to anyone
-// not statically configured. The dnsmasq survivor is whitelisted to
-// the wizard's standard option set in the reset phase, then this
-// helper layers the per-network options on top.
+// setupAhwlanDhcp creates the ahwlan DHCP pool on the surviving
+// global dnsmasq instance. A dedicated per-network dnsmasq section
+// is deliberately NOT created: OpenWrt launches one dnsmasq process
+// per section and the two race for port 53 — the loser exits and
+// takes its bound pool down with it. Both LuCI captures show exactly
+// one dnsmasq and an instance-less pool.
 func (s *SetupService) setupAhwlanDhcp() error {
-	const (
-		networkID   = "ahwlan"
-		dnsmasqName = "ahwlan_dns"
-	)
-
-	// Create a per-network dnsmasq instance so the global anonymous
-	// dnsmasq stays as a fallback. This mirrors LuCI's behavior of
-	// creating a named dnsmasq when the wizard provides DHCP.
-	if err := s.UCI.AddSection("dhcp", dnsmasqName, "dnsmasq"); err != nil {
-		s.Log.Debug().Err(err).Msg("AddSection dnsmasq (ignored if exists)")
-	}
-
-	if err := network.SetupDnsmasqInstance(s.UCI, dnsmasqName, networkID); err != nil {
-		return fmt.Errorf("setupDnsmasqInstance: %w", err)
-	}
-
-	if _, err := network.GetOrCreateDhcpPool(s.UCI, dnsmasqName, networkID, s.rng()); err != nil {
+	if _, err := network.GetOrCreateDhcpPool(s.UCI, "ahwlan", nil, s.rng()); err != nil {
 		return fmt.Errorf("getOrCreateDhcpPool: %w", err)
 	}
 

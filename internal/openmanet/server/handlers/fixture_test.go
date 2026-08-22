@@ -125,8 +125,6 @@ func findFixtureSectionByOption(secs []fixtureSection, secType, option, value st
 // list order included) matches the staged tree, minus ignoreOptions.
 // It does not detect options the tree carries that the fixture lacks;
 // callers that need to prove an option is absent must assert that explicitly.
-//
-//nolint:unused // used by Tasks 2-7
 func assertTreeMatchesFixture(t *testing.T, tr *uciTree, config, treeSection string, fx *fixtureSection, ignoreOptions ...string) {
 	t.Helper()
 
@@ -145,6 +143,31 @@ func assertTreeMatchesFixture(t *testing.T, tr *uciTree, config, treeSection str
 		got := tr.get(config, treeSection, opt)
 		assert.Equal(t, want, got, "%s.%s.%s", config, treeSection, opt)
 	}
+}
+
+// deepCopyReaderData snapshots a fakeConfigReader's option data as a
+// plain nested map so two points in time can be compared with
+// assert.Equal without aliasing the reader's live (mutable) storage.
+func deepCopyReaderData(r *fakeConfigReader) map[string]map[string]map[string][]string {
+	out := make(map[string]map[string]map[string][]string, len(r.data))
+
+	for config, sections := range r.data {
+		outSections := make(map[string]map[string][]string, len(sections))
+
+		for section, options := range sections {
+			outOptions := make(map[string][]string, len(options))
+
+			for option, values := range options {
+				outOptions[option] = append([]string(nil), values...)
+			}
+
+			outSections[section] = outOptions
+		}
+
+		out[config] = outSections
+	}
+
+	return out
 }
 
 func TestFixtureParser_GateNetwork(t *testing.T) {

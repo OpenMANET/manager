@@ -577,11 +577,17 @@ func GetOrCreateForwarding(reader ConfigReader, src, dest, name string) (string,
 		}
 	}
 
-	// Re-enable any disabled forwarding that already matches.
+	// Re-enable any disabled forwarding that already matches. Clear
+	// the `enabled` option rather than setting it to "1" so a
+	// re-enabled forwarding converges to the same shape a freshly
+	// created one has — fresh creation below never writes `enabled`
+	// at all, and forwardingEnabled treats absence as enabled.
+	// Setting an explicit "1" here would leave a stray option a fresh
+	// first run never wrote, breaking wizard re-run idempotence.
 	for _, s := range sections {
 		if matchesForwarding(reader, s, src, dest) {
-			if err := reader.SetType(firewallConfigName, s, "enabled", uci.TypeOption, "1"); err != nil {
-				return "", err
+			if err := reader.Del(firewallConfigName, s, "enabled"); err != nil {
+				return "", fmt.Errorf("clearing enabled on %s: %w", s, err)
 			}
 
 			return s, nil
