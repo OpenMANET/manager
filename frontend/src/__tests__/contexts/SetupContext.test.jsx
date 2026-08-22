@@ -128,4 +128,38 @@ describe('SetupContext.reducer', () => {
     const next = reducer(initialState, { type: 'NOT_A_REAL_ACTION' });
     expect(next).toBe(initialState);
   });
+
+  it('SET_TIMEZONE stores the zone name', () => {
+    const next = reducer(initialState, { type: SETUP_ACTIONS.SET_TIMEZONE, value: 'America/Denver' });
+    expect(next.timezone).toBe('America/Denver');
+    expect(next.mesh).toBe(initialState.mesh);
+  });
+
+  it('HYDRATE_FROM_STATUS prefers the browser zone when the device offers it', () => {
+    const next = reducer(initialState, {
+      type: SETUP_ACTIONS.HYDRATE_FROM_STATUS,
+      status: { radios: [], timezones: ['America/Denver', 'UTC'] },
+      browserTimezone: 'America/Denver',
+    });
+    expect(next.timezone).toBe('America/Denver');
+  });
+
+  it('HYDRATE_FROM_STATUS falls back to currentTimezone when the browser zone is unknown', () => {
+    const next = reducer(initialState, {
+      type: SETUP_ACTIONS.HYDRATE_FROM_STATUS,
+      status: { radios: [], timezones: ['UTC'], currentTimezone: 'UTC' },
+      browserTimezone: 'Mars/Olympus',
+    });
+    expect(next.timezone).toBe('UTC');
+  });
+
+  it('HYDRATE_FROM_STATUS keeps a user-chosen timezone', () => {
+    const seeded = { ...initialState, timezone: 'Europe/Paris' };
+    const next = reducer(seeded, {
+      type: SETUP_ACTIONS.HYDRATE_FROM_STATUS,
+      status: { radios: [], timezones: ['UTC'] },
+      browserTimezone: 'UTC',
+    });
+    expect(next.timezone).toBe('Europe/Paris');
+  });
 });

@@ -14,6 +14,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { create } from '@bufbuild/protobuf';
+import { timestampFromDate } from '@bufbuild/protobuf/wkt';
 import { setupClient } from '../../services/setupClient.js';
 import { useSetup } from '../../contexts/SetupContext.jsx';
 import {
@@ -76,7 +77,12 @@ export default function StepReview() {
     setPhaseError(null);
     setTerminal(null);
 
-    const req = create(ApplySetupRequestSchema, { profile: profileToProto(state) });
+    // Stamp the client's clock at apply time (not page load) so the
+    // device's PHASE_SET_TIMEZONE step gets an accurate reference even
+    // if the wizard sat open for a while before the user clicked Apply.
+    const profile = profileToProto(state);
+    profile.clientTime = timestampFromDate(new Date());
+    const req = create(ApplySetupRequestSchema, { profile });
     let sawTerminal = false;
 
     try {
@@ -236,6 +242,7 @@ function profileToProto(state) {
     hostname:      state.hostname,
     adminPassword: state.adminPassword,
     role:          state.role,
+    timezone:      state.timezone,
     mesh: create(MeshRadioConfigSchema, {
       radioName:    state.mesh.radioName,
       meshId:       state.mesh.meshId,

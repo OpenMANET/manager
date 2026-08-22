@@ -55,6 +55,13 @@
   margin-top: 4px;
 }
 
+.setup-detected {
+  color: var(--ok);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  margin-top: 5px;
+}
+
 .setup-role-cards {
   display: grid;
   grid-template-columns: 1fr 1fr;

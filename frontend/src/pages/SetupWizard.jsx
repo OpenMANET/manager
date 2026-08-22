@@ -65,7 +65,13 @@ function SetupWizardShell() {
         setStatus(resp);
         // Pre-fill the mesh radio with the first HaLow radio so the
         // user doesn't have to pick when there's an obvious choice.
-        dispatch({ type: 'HYDRATE_FROM_STATUS', status: resp });
+        // browserTimezone rides on the action (not read inside the
+        // reducer) so the reducer stays pure.
+        dispatch({
+          type: 'HYDRATE_FROM_STATUS',
+          status: resp,
+          browserTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        });
       })
       .catch((err) => { if (!cancelled) setStatusError(err); });
     return () => { cancelled = true; };

@@ -54,6 +54,10 @@ export const initialState = {
   // adminPasswordConfirm is UI-only — never sent to the backend; just
   // forces the user to type the same password twice.
   adminPasswordConfirm: '',
+  // IANA zone name (e.g. "America/Denver"). Empty until HYDRATE_FROM_STATUS
+  // seeds it from the browser or the device's current zone, or the user
+  // picks one on the Identity step.
+  timezone: '',
 };
 
 export const SETUP_ACTIONS = {
@@ -69,6 +73,7 @@ export const SETUP_ACTIONS = {
   REMOVE_AP:              'REMOVE_AP',
   SET_ADMIN_PASSWORD:     'SET_ADMIN_PASSWORD',
   SET_ADMIN_PASSWORD_CONFIRM: 'SET_ADMIN_PASSWORD_CONFIRM',
+  SET_TIMEZONE:           'SET_TIMEZONE',
   RESET:                  'RESET',
   HYDRATE_FROM_STATUS:    'HYDRATE_FROM_STATUS',
 };
@@ -154,6 +159,9 @@ export function reducer(state, action) {
     case SETUP_ACTIONS.SET_ADMIN_PASSWORD_CONFIRM:
       return { ...state, adminPasswordConfirm: action.value };
 
+    case SETUP_ACTIONS.SET_TIMEZONE:
+      return { ...state, timezone: action.value };
+
     case SETUP_ACTIONS.RESET:
       return { ...initialState };
 
@@ -188,6 +196,20 @@ export function reducer(state, action) {
           next.mesh.countryCode = 'US';
         } else if (countries.length > 0) {
           next.mesh.countryCode = countries[0].code;
+        }
+      }
+
+      // Pre-fill the timezone: prefer the browser's own zone (rides on
+      // the action so the reducer stays pure — the dispatch site
+      // supplies it via Intl.DateTimeFormat) when the device's zone
+      // list actually offers it, otherwise fall back to the device's
+      // current zone. Never overwrite a zone the user already picked.
+      if (!state.timezone) {
+        const zones = action.status?.timezones ?? [];
+        if (action.browserTimezone && zones.includes(action.browserTimezone)) {
+          next.timezone = action.browserTimezone;
+        } else if (action.status?.currentTimezone) {
+          next.timezone = action.status.currentTimezone;
         }
       }
 
