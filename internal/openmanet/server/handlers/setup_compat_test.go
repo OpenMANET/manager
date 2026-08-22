@@ -580,13 +580,73 @@ func TestCompat_MmrouterForwardingForGate(t *testing.T) {
 }
 
 // TestCompat_MmextenderForwardingForExtender asserts the mmextender
-// forwarding rule (lan→ahwlan) exists for mesh-point-extender.
+// forwarding rule (ahwlan→lan) exists for mesh-point-extender. The
+// capture shows the extender forwarding traffic from the mesh into
+// its local clients, not the reverse.
 func TestCompat_MmextenderForwardingForExtender(t *testing.T) {
 	tr := runScenarioApply(t, pointExtenderProfile())
 
-	fwd := tr.findFirewallForwarding("lan", "ahwlan")
+	fwd := tr.findFirewallForwarding("ahwlan", "lan")
 	require.NotEmpty(t, fwd,
-		"forwarding lan→ahwlan must exist on a mesh-point-extender (the mmextender forward)")
+		"forwarding ahwlan→lan must exist on a mesh-point-extender (the mmextender forward)")
+}
+
+// TestCompat_ExtenderForwardingMatchesFixture pins root cause #4:
+// the capture has a single ahwlan→lan forwarding and no masq on any
+// zone — the old lan→ahwlan direction blocked mesh peers from
+// reaching the extender's clients, and the masq side effect broke
+// end-to-end mesh addressing.
+func TestCompat_ExtenderForwardingMatchesFixture(t *testing.T) {
+	tr := runScenarioApply(t, pointExtenderProfile())
+
+	require.NotEmpty(t, tr.findFirewallForwarding("ahwlan", "lan"),
+		"fixture direction is ahwlan→lan")
+	assert.Empty(t, tr.findFirewallForwarding("lan", "ahwlan"),
+		"reverse forwarding must not exist")
+
+	ahwlanZone := tr.findFirewallZoneByName("ahwlan")
+	require.NotEmpty(t, ahwlanZone)
+	assert.Empty(t, tr.get("firewall", ahwlanZone, "masq"),
+		"no masq on the mesh zone in any scenario")
+
+	lanZone := tr.findFirewallZoneByName("lan")
+	require.NotEmpty(t, lanZone)
+	assert.Empty(t, tr.get("firewall", lanZone, "masq"),
+		"extender fixture has no masq on lan either")
+	assert.Equal(t, "1", tr.getOne("firewall", lanZone, "mtu_fix"))
+}
+
+// TestCompat_NoMasqOnAhwlanAnyScenario sweeps every scenario.
+func TestCompat_NoMasqOnAhwlanAnyScenario(t *testing.T) {
+	for name, profile := range map[string]*setupv1.MeshNodeProfile{
+		"gate-router-eth":      gateRouterEthProfile(),
+		"gate-router-firewall": gateRouterFirewallEthProfile(),
+		"point-extender":       pointExtenderProfile(),
+		"point-none":           pointNoneProfile(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			tr := runScenarioApply(t, profile)
+			zone := tr.findFirewallZoneByName("ahwlan")
+			require.NotEmpty(t, zone)
+			assert.Empty(t, tr.get("firewall", zone, "masq"))
+		})
+	}
+}
+
+// TestCompat_MmrouterForwardingHasMasqOnLan keeps the gate scenario
+// covered: mmrouter still forwards ahwlan→lan with masq=1 on the lan
+// zone (the destination NAT the gate needs to reach the upstream).
+func TestCompat_MmrouterForwardingHasMasqOnLan(t *testing.T) {
+	tr := runScenarioApply(t, gateRouterEthProfile())
+
+	fwd := tr.findFirewallForwarding("ahwlan", "lan")
+	require.NotEmpty(t, fwd, "mmrouter forwarding ahwlan→lan must exist for gate-router-eth")
+
+	lanZone := tr.findFirewallZoneByName("lan")
+	require.NotEmpty(t, lanZone)
+	assert.Equal(t, "1", tr.getOne("firewall", lanZone, "masq"),
+		"gate-router-eth fixture has masq=1 on the lan zone")
+	assert.Equal(t, "1", tr.getOne("firewall", lanZone, "mtu_fix"))
 }
 
 // TestCompat_LanProtoOnGateWithEthUplink asserts network.lan.proto is

@@ -944,7 +944,7 @@ func (s *SetupService) scenarioMeshGateRouter(profile *setupv1.MeshNodeProfile, 
 		}
 	}
 
-	if _, err := network.GetOrCreateForwarding(s.UCI, "ahwlan", upstreamZone, "mmrouter"); err != nil {
+	if _, err := network.GetOrCreateForwarding(s.UCI, "ahwlan", upstreamZone, "mmrouter", true); err != nil {
 		return fmt.Errorf("creating mmrouter forwarding: %w", err)
 	}
 
@@ -973,12 +973,14 @@ func (s *SetupService) scenarioMeshGateRouter(profile *setupv1.MeshNodeProfile, 
 }
 
 // scenarioMeshPointExtender sets up a mesh point that bridges the
-// mesh onto its ethernet/AP clients. Forwarding direction matches
-// LuCI's branch 4a (lan → ahwlan, named "mmextender"). Writes:
+// mesh onto its ethernet/AP clients. The capture shows a single
+// ahwlan → lan forwarding, named "mmextender", and no masq on either
+// zone: the extender is not a NAT boundary, it just lets mesh peers
+// reach the extender's local clients. Writes:
 //
 //   - ahwlan firewall zone with mtu_fix=1
 //   - lan firewall zone with mtu_fix=1
-//   - mmextender forwarding lan → ahwlan
+//   - mmextender forwarding ahwlan → lan (no masq on either zone)
 //   - 13 default WAN firewall rules
 //   - DHCP pool + dnsmasq for ahwlan
 //   - network.wizard bookkeeping
@@ -999,7 +1001,7 @@ func (s *SetupService) scenarioMeshPointExtender(profile *setupv1.MeshNodeProfil
 		return fmt.Errorf("setting ahwlan mtu_fix: %w", err)
 	}
 
-	if _, err := network.GetOrCreateForwarding(s.UCI, "lan", "ahwlan", "mmextender"); err != nil {
+	if _, err := network.GetOrCreateForwarding(s.UCI, "ahwlan", "lan", "mmextender", false); err != nil {
 		return fmt.Errorf("creating mmextender forwarding: %w", err)
 	}
 

@@ -402,7 +402,7 @@ func TestGetOrCreateForwarding_ReturnsExistingEnabled(t *testing.T) {
 	require.NoError(t, m.SetType("firewall", "mmrouter", "src", uci.TypeOption, "ahwlan"))
 	require.NoError(t, m.SetType("firewall", "mmrouter", "dest", uci.TypeOption, "lan"))
 
-	got, err := GetOrCreateForwarding(m, "ahwlan", "lan", "mmrouter")
+	got, err := GetOrCreateForwarding(m, "ahwlan", "lan", "mmrouter", true)
 	require.NoError(t, err)
 	assert.Equal(t, "mmrouter", got)
 }
@@ -411,7 +411,7 @@ func TestGetOrCreateForwarding_CreatesNewNamedSection(t *testing.T) {
 	m := newFirewallMock(t)
 	addAnonZone(t, m, "lan", "lan")
 
-	got, err := GetOrCreateForwarding(m, "ahwlan", "lan", "mmrouter")
+	got, err := GetOrCreateForwarding(m, "ahwlan", "lan", "mmrouter", true)
 	require.NoError(t, err)
 	assert.Equal(t, "mmrouter", got)
 
@@ -423,7 +423,8 @@ func TestGetOrCreateForwarding_CreatesNewNamedSection(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "lan", v[0])
 
-	// `lan` zone got mtu_fix/masq because it is the destination.
+	// `lan` zone got mtu_fix/masq because it is the destination and
+	// natOnDest was requested.
 	v, ok = m.Get("firewall", "@zone[0]", "mtu_fix")
 	require.True(t, ok)
 	assert.Equal(t, "1", v[0])
@@ -431,6 +432,24 @@ func TestGetOrCreateForwarding_CreatesNewNamedSection(t *testing.T) {
 	v, ok = m.Get("firewall", "@zone[0]", "masq")
 	require.True(t, ok)
 	assert.Equal(t, "1", v[0])
+}
+
+func TestGetOrCreateForwarding_NoMasqWhenNatOnDestFalse(t *testing.T) {
+	m := newFirewallMock(t)
+	addAnonZone(t, m, "lan", "lan")
+
+	got, err := GetOrCreateForwarding(m, "ahwlan", "lan", "mmextender", false)
+	require.NoError(t, err)
+	assert.Equal(t, "mmextender", got)
+
+	// mtu_fix is still always set on the destination zone.
+	v, ok := m.Get("firewall", "@zone[0]", "mtu_fix")
+	require.True(t, ok)
+	assert.Equal(t, "1", v[0])
+
+	// masq is NOT set when natOnDest is false.
+	_, ok = m.Get("firewall", "@zone[0]", "masq")
+	assert.False(t, ok, "masq must not be set when natOnDest is false")
 }
 
 func TestGetOrCreateForwarding_DisablesOtherForwardingsFromSameSrc(t *testing.T) {
@@ -442,7 +461,7 @@ func TestGetOrCreateForwarding_DisablesOtherForwardingsFromSameSrc(t *testing.T)
 	require.NoError(t, m.SetType("firewall", "@forwarding[0]", "src", uci.TypeOption, "ahwlan"))
 	require.NoError(t, m.SetType("firewall", "@forwarding[0]", "dest", uci.TypeOption, "wan"))
 
-	_, err := GetOrCreateForwarding(m, "ahwlan", "lan", "mmrouter")
+	_, err := GetOrCreateForwarding(m, "ahwlan", "lan", "mmrouter", true)
 	require.NoError(t, err)
 
 	// Old forwarding is now disabled.
@@ -461,7 +480,7 @@ func TestGetOrCreateForwarding_ReenablesMatchingDisabledForwarding(t *testing.T)
 	require.NoError(t, m.SetType("firewall", "@forwarding[0]", "dest", uci.TypeOption, "lan"))
 	require.NoError(t, m.SetType("firewall", "@forwarding[0]", "enabled", uci.TypeOption, "0"))
 
-	got, err := GetOrCreateForwarding(m, "ahwlan", "lan", "mmrouter")
+	got, err := GetOrCreateForwarding(m, "ahwlan", "lan", "mmrouter", true)
 	require.NoError(t, err)
 	// Re-enabled the existing forwarding instead of creating mmrouter.
 	assert.Equal(t, "@forwarding[0]", got)
@@ -479,10 +498,10 @@ func TestGetOrCreateForwarding_ReenablesMatchingDisabledForwarding(t *testing.T)
 
 func TestGetOrCreateForwarding_RejectsEmptyArgs(t *testing.T) {
 	m := newFirewallMock(t)
-	_, err := GetOrCreateForwarding(m, "", "lan", "x")
+	_, err := GetOrCreateForwarding(m, "", "lan", "x", true)
 	assert.Error(t, err)
 
-	_, err = GetOrCreateForwarding(m, "ahwlan", "", "x")
+	_, err = GetOrCreateForwarding(m, "ahwlan", "", "x", true)
 	assert.Error(t, err)
 }
 
