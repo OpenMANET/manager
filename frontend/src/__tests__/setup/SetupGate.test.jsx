@@ -35,3 +35,27 @@ describe('gateStateFromStatus', () => {
     expect(gateStateFromStatus(null)).toBe('wizard-hidden');
   });
 });
+
+describe('dismissed', () => {
+  const active = { isEnabled: true, isSetupComplete: false, hasHalowRadio: true };
+
+  it('wizard-active + dismissed opens routes', () => {
+    expect(gateStateFromStatus(active, true)).toBe('wizard-dismissed');
+  });
+
+  it('no-halow + dismissed opens routes', () => {
+    expect(gateStateFromStatus({ ...active, hasHalowRadio: false }, true)).toBe('wizard-dismissed');
+  });
+
+  it('wizard-hidden ignores dismissed', () => {
+    expect(gateStateFromStatus({ ...active, isSetupComplete: true }, true)).toBe('wizard-hidden');
+  });
+
+  it('fail-closed ignores dismissed', () => {
+    expect(gateStateFromStatus(undefined, true)).toBe('wizard-hidden');
+  });
+
+  it('default is not dismissed', () => {
+    expect(gateStateFromStatus(active)).toBe('wizard-active');
+  });
+});

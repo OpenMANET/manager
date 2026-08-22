@@ -15,6 +15,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { setupClient } from '../services/setupClient.js';
+import { dismissSetup } from '../services/setupDismiss.js';
 import {
   SetupProvider,
   useSetup,
@@ -54,6 +55,7 @@ function SetupWizardShell() {
   const [status, setStatus] = useState(null);
   const [statusError, setStatusError] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmSkip, setConfirmSkip] = useState(false);
 
   // Load the status payload on mount so step components have radio +
   // ethernet-port data available without re-fetching.
@@ -130,6 +132,22 @@ function SetupWizardShell() {
     advance();
   };
 
+  // Full reload (not `navigate`): SetupGate computed its state on mount,
+  // so a reload re-evaluates the gate with the flag set. Simple and
+  // correct for a once-per-session action.
+  //
+  // Disarm SetupBeforeUnloadGuard first, the same way StepReview does on
+  // a successful apply (StepReview.jsx): mesh.radioName is auto-filled
+  // from the detected HaLow radio on mount (HYDRATE_FROM_STATUS), so
+  // hasMeaningfulInput() is true on real hardware even when the user has
+  // typed nothing — without this the native "leave site?" prompt fires
+  // right after the user answers this modal's own confirmation.
+  const onSkip = () => {
+    window.dispatchEvent(new Event('setup-applied'));
+    dismissSetup();
+    window.location.assign('/');
+  };
+
   const isFirst = currentIndex === 0;
   const isLast  = currentIndex === steps.length - 1;
 
@@ -141,6 +159,11 @@ function SetupWizardShell() {
         <div>
           <h2>OpenMANET Setup Wizard</h2>
           <div className="crumb">Step {currentIndex + 1} of {steps.length}: {step.label}</div>
+        </div>
+        <div className="lat-view-toolbar">
+          <button type="button" className="lat-btn ghost" onClick={() => setConfirmSkip(true)}>
+            Skip for now
+          </button>
         </div>
       </div>
 
@@ -188,6 +211,22 @@ function SetupWizardShell() {
               onClick={() => { setConfirmReset(false); advance(); }}>
               Reset and continue
             </button>
+          </div>
+        </div>
+      )}
+
+      {confirmSkip && (
+        <div className="lat-panel" role="alertdialog" aria-label="Skip setup confirmation">
+          <div className="lat-alert warn" role="alert">Skip Setup?</div>
+          <p>This device stays unconfigured:</p>
+          <ul>
+            <li>No mesh, network, or firewall configuration applied</li>
+            <li>No admin password — the interface is unprotected</li>
+            <li>Setup reopens on your next visit until completed</li>
+          </ul>
+          <div className="setup-nav">
+            <button type="button" className="lat-btn ghost" onClick={() => setConfirmSkip(false)}>Cancel</button>
+            <button type="button" className="lat-btn" onClick={onSkip}>Skip for now</button>
           </div>
         </div>
       )}

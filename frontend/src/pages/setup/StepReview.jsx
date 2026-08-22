@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import { create } from '@bufbuild/protobuf';
 import { timestampFromDate } from '@bufbuild/protobuf/wkt';
 import { setupClient } from '../../services/setupClient.js';
+import { resumeSetup } from '../../services/setupDismiss.js';
 import { useSetup } from '../../contexts/SetupContext.jsx';
 import {
   ApplySetupRequestSchema,
@@ -95,6 +96,11 @@ export default function StepReview() {
           sawTerminal = true;
           setTerminalResult(ev.result ?? null);
           setTerminal(ev.result?.success ? 'success' : 'failure');
+          if (ev.result?.success) {
+            // Clear the session "Skip for now" flag: a completed wizard
+            // must not leave a stale dismiss banner behind.
+            resumeSetup();
+          }
           // Notify the BeforeUnload guard so the success-page
           // navigation doesn't trigger a confirmation prompt.
           window.dispatchEvent(new Event('setup-applied'));
@@ -119,6 +125,7 @@ export default function StepReview() {
           onSuccess: () => {
             if (cancelRef.current) return;
             setTerminal('success');
+            resumeSetup();
             window.dispatchEvent(new Event('setup-applied'));
           },
           onTimeout: () => {
