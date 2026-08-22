@@ -8,8 +8,10 @@ import (
 	fmt "fmt"
 	v1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
 	protohelpers "github.com/planetscale/vtprotobuf/protohelpers"
+	timestamppb1 "github.com/planetscale/vtprotobuf/types/known/timestamppb"
 	proto "google.golang.org/protobuf/proto"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	io "io"
 	unsafe "unsafe"
 )
@@ -114,6 +116,8 @@ func (m *MeshNodeProfile) CloneVT() *MeshNodeProfile {
 	r.Role = m.Role
 	r.Mesh = m.Mesh.CloneVT()
 	r.Uplink = m.Uplink.CloneVT()
+	r.Timezone = m.Timezone
+	r.ClientTime = (*timestamppb.Timestamp)((*timestamppb1.Timestamp)(m.ClientTime).CloneVT())
 	if m.DeviceMode != nil {
 		r.DeviceMode = m.DeviceMode.(interface {
 			CloneVT() isMeshNodeProfile_DeviceMode
@@ -240,6 +244,7 @@ func (m *GetSetupStatusResponse) CloneVT() *GetSetupStatusResponse {
 	r.AlreadyConfigured = m.AlreadyConfigured
 	r.CurrentHostname = m.CurrentHostname
 	r.CurrentCountry = m.CurrentCountry
+	r.CurrentTimezone = m.CurrentTimezone
 	if rhs := m.Radios; rhs != nil {
 		tmpContainer := make([]*SetupRadio, len(rhs))
 		for k, v := range rhs {
@@ -258,6 +263,11 @@ func (m *GetSetupStatusResponse) CloneVT() *GetSetupStatusResponse {
 			tmpContainer[k] = v.CloneVT()
 		}
 		r.Countries = tmpContainer
+	}
+	if rhs := m.Timezones; rhs != nil {
+		tmpContainer := make([]string, len(rhs))
+		copy(tmpContainer, rhs)
+		r.Timezones = tmpContainer
 	}
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
@@ -498,6 +508,12 @@ func (this *MeshNodeProfile) EqualVT(that *MeshNodeProfile) bool {
 			}
 		}
 	}
+	if this.Timezone != that.Timezone {
+		return false
+	}
+	if !(*timestamppb1.Timestamp)(this.ClientTime).EqualVT((*timestamppb1.Timestamp)(that.ClientTime)) {
+		return false
+	}
 	return string(this.unknownFields) == string(that.unknownFields)
 }
 
@@ -719,6 +735,18 @@ func (this *GetSetupStatusResponse) EqualVT(that *GetSetupStatusResponse) bool {
 		}
 	}
 	if this.CurrentCountry != that.CurrentCountry {
+		return false
+	}
+	if len(this.Timezones) != len(that.Timezones) {
+		return false
+	}
+	for i, vx := range this.Timezones {
+		vy := that.Timezones[i]
+		if vx != vy {
+			return false
+		}
+	}
+	if this.CurrentTimezone != that.CurrentTimezone {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -1104,6 +1132,23 @@ func (m *MeshNodeProfile) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		}
 		i -= size
 	}
+	if m.ClientTime != nil {
+		size, err := (*timestamppb1.Timestamp)(m.ClientTime).MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x52
+	}
+	if len(m.Timezone) > 0 {
+		i -= len(m.Timezone)
+		copy(dAtA[i:], m.Timezone)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Timezone)))
+		i--
+		dAtA[i] = 0x4a
+	}
 	if len(m.Aps) > 0 {
 		for iNdEx := len(m.Aps) - 1; iNdEx >= 0; iNdEx-- {
 			size, err := m.Aps[iNdEx].MarshalToSizedBufferVT(dAtA[:i])
@@ -1404,6 +1449,22 @@ func (m *GetSetupStatusResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.CurrentTimezone) > 0 {
+		i -= len(m.CurrentTimezone)
+		copy(dAtA[i:], m.CurrentTimezone)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CurrentTimezone)))
+		i--
+		dAtA[i] = 0x5a
+	}
+	if len(m.Timezones) > 0 {
+		for iNdEx := len(m.Timezones) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.Timezones[iNdEx])
+			copy(dAtA[i:], m.Timezones[iNdEx])
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Timezones[iNdEx])))
+			i--
+			dAtA[i] = 0x52
+		}
 	}
 	if len(m.CurrentCountry) > 0 {
 		i -= len(m.CurrentCountry)
@@ -1949,6 +2010,23 @@ func (m *MeshNodeProfile) MarshalToSizedBufferVTStrict(dAtA []byte) (int, error)
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.ClientTime != nil {
+		size, err := (*timestamppb1.Timestamp)(m.ClientTime).MarshalToSizedBufferVTStrict(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x52
+	}
+	if len(m.Timezone) > 0 {
+		i -= len(m.Timezone)
+		copy(dAtA[i:], m.Timezone)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Timezone)))
+		i--
+		dAtA[i] = 0x4a
+	}
 	if len(m.Aps) > 0 {
 		for iNdEx := len(m.Aps) - 1; iNdEx >= 0; iNdEx-- {
 			size, err := m.Aps[iNdEx].MarshalToSizedBufferVTStrict(dAtA[:i])
@@ -2263,6 +2341,22 @@ func (m *GetSetupStatusResponse) MarshalToSizedBufferVTStrict(dAtA []byte) (int,
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.CurrentTimezone) > 0 {
+		i -= len(m.CurrentTimezone)
+		copy(dAtA[i:], m.CurrentTimezone)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CurrentTimezone)))
+		i--
+		dAtA[i] = 0x5a
+	}
+	if len(m.Timezones) > 0 {
+		for iNdEx := len(m.Timezones) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.Timezones[iNdEx])
+			copy(dAtA[i:], m.Timezones[iNdEx])
+			i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.Timezones[iNdEx])))
+			i--
+			dAtA[i] = 0x52
+		}
 	}
 	if len(m.CurrentCountry) > 0 {
 		i -= len(m.CurrentCountry)
@@ -2662,6 +2756,14 @@ func (m *MeshNodeProfile) SizeVT() (n int) {
 			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 		}
 	}
+	l = len(m.Timezone)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if m.ClientTime != nil {
+		l = (*timestamppb1.Timestamp)(m.ClientTime).SizeVT()
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -2800,6 +2902,16 @@ func (m *GetSetupStatusResponse) SizeVT() (n int) {
 		}
 	}
 	l = len(m.CurrentCountry)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
+	if len(m.Timezones) > 0 {
+		for _, s := range m.Timezones {
+			l = len(s)
+			n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+		}
+	}
+	l = len(m.CurrentTimezone)
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
@@ -3853,6 +3965,74 @@ func (m *MeshNodeProfile) UnmarshalVT(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Timezone", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Timezone = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ClientTime", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.ClientTime == nil {
+				m.ClientTime = &timestamppb.Timestamp{}
+			}
+			if err := (*timestamppb1.Timestamp)(m.ClientTime).UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -4643,6 +4823,70 @@ func (m *GetSetupStatusResponse) UnmarshalVT(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.CurrentCountry = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Timezones", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Timezones = append(m.Timezones, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		case 11:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CurrentTimezone", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.CurrentTimezone = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -6100,6 +6344,78 @@ func (m *MeshNodeProfile) UnmarshalVTUnsafe(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Timezone", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.Timezone = stringValue
+			iNdEx = postIndex
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ClientTime", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.ClientTime == nil {
+				m.ClientTime = &timestamppb.Timestamp{}
+			}
+			if err := (*timestamppb1.Timestamp)(m.ClientTime).UnmarshalVTUnsafe(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := protohelpers.Skip(dAtA[iNdEx:])
@@ -6922,6 +7238,78 @@ func (m *GetSetupStatusResponse) UnmarshalVTUnsafe(dAtA []byte) error {
 				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
 			}
 			m.CurrentCountry = stringValue
+			iNdEx = postIndex
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Timezones", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.Timezones = append(m.Timezones, stringValue)
+			iNdEx = postIndex
+		case 11:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CurrentTimezone", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.CurrentTimezone = stringValue
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

@@ -12,6 +12,7 @@ import (
 	v1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -256,7 +257,12 @@ const (
 	ApplySetupResponse_PHASE_PASSWORD          ApplySetupResponse_Phase = 13
 	ApplySetupResponse_PHASE_RELOAD_SERVICES   ApplySetupResponse_Phase = 15
 	ApplySetupResponse_PHASE_PERSIST_FLAGS     ApplySetupResponse_Phase = 14
-	ApplySetupResponse_PHASE_TERMINAL          ApplySetupResponse_Phase = 99
+	// Stages system.zonename + POSIX timezone; runs between
+	// PHASE_HOSTNAME and PHASE_BASE_NETWORK. Numbered 16 because 14/15
+	// were consumed by the reload/persist restructure (numbers no
+	// longer track execution order — see the ordering comment above).
+	ApplySetupResponse_PHASE_SET_TIMEZONE ApplySetupResponse_Phase = 16
+	ApplySetupResponse_PHASE_TERMINAL     ApplySetupResponse_Phase = 99
 )
 
 // Enum value maps for ApplySetupResponse_Phase.
@@ -278,6 +284,7 @@ var (
 		13: "PHASE_PASSWORD",
 		15: "PHASE_RELOAD_SERVICES",
 		14: "PHASE_PERSIST_FLAGS",
+		16: "PHASE_SET_TIMEZONE",
 		99: "PHASE_TERMINAL",
 	}
 	ApplySetupResponse_Phase_value = map[string]int32{
@@ -297,6 +304,7 @@ var (
 		"PHASE_PASSWORD":          13,
 		"PHASE_RELOAD_SERVICES":   15,
 		"PHASE_PERSIST_FLAGS":     14,
+		"PHASE_SET_TIMEZONE":      16,
 		"PHASE_TERMINAL":          99,
 	}
 )
@@ -748,7 +756,16 @@ type MeshNodeProfile struct {
 	Uplink *Uplink `protobuf:"bytes,7,opt,name=uplink,proto3" json:"uplink,omitempty"`
 	// One entry per non-mesh radio the operator wants to expose as an AP.
 	// Radios omitted from this list stay disabled. Order is not significant.
-	Aps           []*RadioApProfile `protobuf:"bytes,8,rep,name=aps,proto3" json:"aps,omitempty"`
+	Aps []*RadioApProfile `protobuf:"bytes,8,rep,name=aps,proto3" json:"aps,omitempty"`
+	// IANA timezone name (e.g. "America/Denver"). Optional; empty keeps
+	// the device's current timezone. Membership in the device's zone
+	// table is validated in the handler (not expressible in
+	// protovalidate) and rejected with INVALID_ARGUMENT.
+	Timezone string `protobuf:"bytes,9,opt,name=timezone,proto3" json:"timezone,omitempty"`
+	// Browser wall clock captured when the operator pressed Apply (not
+	// at page load). Used to correct the device clock when drift
+	// exceeds 10s. Optional; best-effort on the device side.
+	ClientTime    *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=client_time,json=clientTime,proto3" json:"client_time,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -846,6 +863,20 @@ func (x *MeshNodeProfile) GetUplink() *Uplink {
 func (x *MeshNodeProfile) GetAps() []*RadioApProfile {
 	if x != nil {
 		return x.Aps
+	}
+	return nil
+}
+
+func (x *MeshNodeProfile) GetTimezone() string {
+	if x != nil {
+		return x.Timezone
+	}
+	return ""
+}
+
+func (x *MeshNodeProfile) GetClientTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ClientTime
 	}
 	return nil
 }
@@ -1123,8 +1154,14 @@ type GetSetupStatusResponse struct {
 	// `wireless.<morse-radio>.country`). The frontend uses this as the
 	// pre-selected default on the country dropdown.
 	CurrentCountry string `protobuf:"bytes,9,opt,name=current_country,json=currentCountry,proto3" json:"current_country,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// IANA zone names the device accepts, sorted. Drives the wizard's
+	// timezone select so the list is device-authoritative.
+	Timezones []string `protobuf:"bytes,10,rep,name=timezones,proto3" json:"timezones,omitempty"`
+	// Currently configured IANA zone (system.@system[0].zonename);
+	// empty when unset.
+	CurrentTimezone string `protobuf:"bytes,11,opt,name=current_timezone,json=currentTimezone,proto3" json:"current_timezone,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetSetupStatusResponse) Reset() {
@@ -1216,6 +1253,20 @@ func (x *GetSetupStatusResponse) GetCountries() []*SetupCountry {
 func (x *GetSetupStatusResponse) GetCurrentCountry() string {
 	if x != nil {
 		return x.CurrentCountry
+	}
+	return ""
+}
+
+func (x *GetSetupStatusResponse) GetTimezones() []string {
+	if x != nil {
+		return x.Timezones
+	}
+	return nil
+}
+
+func (x *GetSetupStatusResponse) GetCurrentTimezone() string {
+	if x != nil {
+		return x.CurrentTimezone
 	}
 	return ""
 }
@@ -1345,23 +1396,42 @@ func (x *ApplySetupResult) GetExpectedUrl() string {
 // STATUS_DONE (or STATUS_FAILED) on exit. The terminal event has
 // phase=PHASE_TERMINAL and carries the ApplySetupResult.
 //
-// Phase ordering as of the post-bricking restructure:
+// Phase ordering as of the post-bricking restructure. Enum numbers do
+// NOT track execution order for the phases annotated below — this list
+// is EXECUTION order, with each entry's real enum value called out:
 //
-//	1..12  Validate, snapshot, reset, hostname, base-network, wireless,
-//	       per-radio AP/STA, scenario, batman-adv, mesh11sd, commit.
-//	13     PASSWORD
-//	14     RELOAD_SERVICES (synchronous; reload then restart fallback)
-//	15     PERSIST_FLAGS  (atomic flip; only after reload succeeded)
-//	99     TERMINAL
+//	1     VALIDATE
+//	2     SNAPSHOT
+//	3     RESET_WIRELESS
+//	4     RESET_NETWORK
+//	5     HOSTNAME
+//	16    SET_TIMEZONE      (numbered 16 because 14/15 were already
+//	                          consumed by the reload/persist restructure
+//	                          below, but it EXECUTES here — between
+//	                          HOSTNAME and BASE_NETWORK — so the device
+//	                          clock and locale are correct before any
+//	                          network state is touched)
+//	6     BASE_NETWORK
+//	7     WIRELESS_MESH
+//	8     PER_RADIO_AP_STA
+//	9     SCENARIO_TOPOLOGY
+//	10    BATMAN_ADV
+//	11    MESH11SD
+//	12    COMMIT
+//	13    PASSWORD
+//	15    RELOAD_SERVICES   (synchronous; reload then restart fallback)
+//	14    PERSIST_FLAGS     (atomic flip; only after reload succeeded)
+//	99    TERMINAL
 //
-// PHASE_RELOAD_SERVICES runs synchronously BEFORE PHASE_PERSIST_FLAGS
-// so the wizard only persists `setup.complete=true` when the reloaded
-// services actually picked up the new UCI. A pre-restructure version
-// emitted PHASE_TERMINAL before reload and let reload run in a fire-
-// and-forget goroutine; that turned a failed reload into a silent
-// brick (UCI committed, flags flipped, device unreachable, wizard
-// permanently disabled). Reload failures now abort PERSIST_FLAGS so
-// the user can re-run the wizard from CLI/console recovery.
+// PHASE_RELOAD_SERVICES (enum 15) runs synchronously BEFORE
+// PHASE_PERSIST_FLAGS (enum 14) so the wizard only persists
+// `setup.complete=true` when the reloaded services actually picked up
+// the new UCI. A pre-restructure version emitted PHASE_TERMINAL before
+// reload and let reload run in a fire-and-forget goroutine; that
+// turned a failed reload into a silent brick (UCI committed, flags
+// flipped, device unreachable, wizard permanently disabled). Reload
+// failures now abort PERSIST_FLAGS so the user can re-run the wizard
+// from CLI/console recovery.
 type ApplySetupResponse struct {
 	state  protoimpl.MessageState    `protogen:"open.v1"`
 	Phase  ApplySetupResponse_Phase  `protobuf:"varint,1,opt,name=phase,proto3,enum=openmanet.setup.v1.ApplySetupResponse_Phase" json:"phase,omitempty"`
@@ -1436,7 +1506,7 @@ var File_openmanet_setup_v1_setup_proto protoreflect.FileDescriptor
 
 const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"\n" +
-	"\x1eopenmanet/setup/v1/setup.proto\x12\x12openmanet.setup.v1\x1a\x1bbuf/validate/validate.proto\x1a!openmanet/common/v1/options.proto\x1a*openmanet/wifi_config/v1/wifi_config.proto\"\xe6\x01\n" +
+	"\x1eopenmanet/setup/v1/setup.proto\x12\x12openmanet.setup.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a!openmanet/common/v1/options.proto\x1a*openmanet/wifi_config/v1/wifi_config.proto\"\xe6\x01\n" +
 	"\x0eWifiStaProfile\x12&\n" +
 	"\n" +
 	"radio_name\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tradioName\x12-\n" +
@@ -1478,7 +1548,7 @@ const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"encryption\x12;\n" +
 	"\rbandwidth_mhz\x18\x05 \x01(\rB\x16\xbaH\x13*\x110\x010\x020\x040\b0\x140(0P0\xa0\x01R\fbandwidthMhz\x12!\n" +
 	"\achannel\x18\x06 \x01(\rB\a\xbaH\x04*\x02 \x00R\achannel\x12;\n" +
-	"\fcountry_code\x18\a \x01(\tB\x18\xbaH\x15r\x13\x18\x032\x0f^([A-Z]{2,3})?$R\vcountryCode\"\x97\x04\n" +
+	"\fcountry_code\x18\a \x01(\tB\x18\xbaH\x15r\x13\x18\x032\x0f^([A-Z]{2,3})?$R\vcountryCode\"\xf9\x04\n" +
 	"\x0fMeshNodeProfile\x12O\n" +
 	"\bhostname\x18\x01 \x01(\tB3\xbaH0r.\x10\x01\x18?2(^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$R\bhostname\x12.\n" +
 	"\x0eadmin_password\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\bR\radminPassword\x12<\n" +
@@ -1488,7 +1558,11 @@ const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"\rmeshgate_mode\x18\x05 \x01(\x0e2 .openmanet.setup.v1.MeshGateModeH\x00R\fmeshgateMode\x127\n" +
 	"\x04mesh\x18\x06 \x01(\v2#.openmanet.setup.v1.MeshRadioConfigR\x04mesh\x122\n" +
 	"\x06uplink\x18\a \x01(\v2\x1a.openmanet.setup.v1.UplinkR\x06uplink\x124\n" +
-	"\x03aps\x18\b \x03(\v2\".openmanet.setup.v1.RadioApProfileR\x03apsB\r\n" +
+	"\x03aps\x18\b \x03(\v2\".openmanet.setup.v1.RadioApProfileR\x03aps\x12#\n" +
+	"\btimezone\x18\t \x01(\tB\a\xbaH\x04r\x02\x18@R\btimezone\x12;\n" +
+	"\vclient_time\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"clientTimeB\r\n" +
 	"\vdevice_mode\"\xbd\x01\n" +
 	"\n" +
 	"SetupRadio\x12\x12\n" +
@@ -1507,7 +1581,7 @@ const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12G\n" +
 	"\n" +
 	"bandwidths\x18\x03 \x03(\v2'.openmanet.setup.v1.SetupRadioBandwidthR\n" +
-	"bandwidths\"\xad\x03\n" +
+	"bandwidths\"\xf6\x03\n" +
 	"\x16GetSetupStatusResponse\x12\x1d\n" +
 	"\n" +
 	"is_enabled\x18\x01 \x01(\bR\tisEnabled\x12*\n" +
@@ -1518,19 +1592,22 @@ const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"\x06radios\x18\x06 \x03(\v2\x1e.openmanet.setup.v1.SetupRadioR\x06radios\x12%\n" +
 	"\x0eethernet_ports\x18\a \x03(\tR\rethernetPorts\x12>\n" +
 	"\tcountries\x18\b \x03(\v2 .openmanet.setup.v1.SetupCountryR\tcountries\x12'\n" +
-	"\x0fcurrent_country\x18\t \x01(\tR\x0ecurrentCountry\"R\n" +
+	"\x0fcurrent_country\x18\t \x01(\tR\x0ecurrentCountry\x12\x1c\n" +
+	"\ttimezones\x18\n" +
+	" \x03(\tR\ttimezones\x12)\n" +
+	"\x10current_timezone\x18\v \x01(\tR\x0fcurrentTimezone\"R\n" +
 	"\x11ApplySetupRequest\x12=\n" +
 	"\aprofile\x18\x01 \x01(\v2#.openmanet.setup.v1.MeshNodeProfileR\aprofile\"\xc5\x01\n" +
 	"\x10ApplySetupResult\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12O\n" +
 	"\ffailed_phase\x18\x02 \x01(\x0e2,.openmanet.setup.v1.ApplySetupResponse.PhaseR\vfailedPhase\x12#\n" +
 	"\rexpected_ssid\x18\x03 \x01(\tR\fexpectedSsid\x12!\n" +
-	"\fexpected_url\x18\x04 \x01(\tR\vexpectedUrl\"\xe3\x05\n" +
+	"\fexpected_url\x18\x04 \x01(\tR\vexpectedUrl\"\xfb\x05\n" +
 	"\x12ApplySetupResponse\x12B\n" +
 	"\x05phase\x18\x01 \x01(\x0e2,.openmanet.setup.v1.ApplySetupResponse.PhaseR\x05phase\x12E\n" +
 	"\x06status\x18\x02 \x01(\x0e2-.openmanet.setup.v1.ApplySetupResponse.StatusR\x06status\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12<\n" +
-	"\x06result\x18\x04 \x01(\v2$.openmanet.setup.v1.ApplySetupResultR\x06result\"\x8f\x03\n" +
+	"\x06result\x18\x04 \x01(\v2$.openmanet.setup.v1.ApplySetupResultR\x06result\"\xa7\x03\n" +
 	"\x05Phase\x12\x15\n" +
 	"\x11PHASE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0ePHASE_VALIDATE\x10\x01\x12\x12\n" +
@@ -1548,7 +1625,8 @@ const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"\fPHASE_COMMIT\x10\f\x12\x12\n" +
 	"\x0ePHASE_PASSWORD\x10\r\x12\x19\n" +
 	"\x15PHASE_RELOAD_SERVICES\x10\x0f\x12\x17\n" +
-	"\x13PHASE_PERSIST_FLAGS\x10\x0e\x12\x12\n" +
+	"\x13PHASE_PERSIST_FLAGS\x10\x0e\x12\x16\n" +
+	"\x12PHASE_SET_TIMEZONE\x10\x10\x12\x12\n" +
 	"\x0ePHASE_TERMINAL\x10c\"X\n" +
 	"\x06Status\x12\x16\n" +
 	"\x12STATUS_UNSPECIFIED\x10\x00\x12\x12\n" +
@@ -1610,6 +1688,7 @@ var file_openmanet_setup_v1_setup_proto_goTypes = []any{
 	(*ApplySetupResult)(nil),       // 16: openmanet.setup.v1.ApplySetupResult
 	(*ApplySetupResponse)(nil),     // 17: openmanet.setup.v1.ApplySetupResponse
 	(v1.WifiEncryption)(0),         // 18: openmanet.wifi_config.v1.WifiEncryption
+	(*timestamppb.Timestamp)(nil),  // 19: google.protobuf.Timestamp
 }
 var file_openmanet_setup_v1_setup_proto_depIdxs = []int32{
 	18, // 0: openmanet.setup.v1.WifiStaProfile.encryption:type_name -> openmanet.wifi_config.v1.WifiEncryption
@@ -1623,20 +1702,21 @@ var file_openmanet_setup_v1_setup_proto_depIdxs = []int32{
 	9,  // 8: openmanet.setup.v1.MeshNodeProfile.mesh:type_name -> openmanet.setup.v1.MeshRadioConfig
 	8,  // 9: openmanet.setup.v1.MeshNodeProfile.uplink:type_name -> openmanet.setup.v1.Uplink
 	7,  // 10: openmanet.setup.v1.MeshNodeProfile.aps:type_name -> openmanet.setup.v1.RadioApProfile
-	12, // 11: openmanet.setup.v1.SetupRadio.bandwidths:type_name -> openmanet.setup.v1.SetupRadioBandwidth
-	12, // 12: openmanet.setup.v1.SetupCountry.bandwidths:type_name -> openmanet.setup.v1.SetupRadioBandwidth
-	11, // 13: openmanet.setup.v1.GetSetupStatusResponse.radios:type_name -> openmanet.setup.v1.SetupRadio
-	13, // 14: openmanet.setup.v1.GetSetupStatusResponse.countries:type_name -> openmanet.setup.v1.SetupCountry
-	10, // 15: openmanet.setup.v1.ApplySetupRequest.profile:type_name -> openmanet.setup.v1.MeshNodeProfile
-	4,  // 16: openmanet.setup.v1.ApplySetupResult.failed_phase:type_name -> openmanet.setup.v1.ApplySetupResponse.Phase
-	4,  // 17: openmanet.setup.v1.ApplySetupResponse.phase:type_name -> openmanet.setup.v1.ApplySetupResponse.Phase
-	5,  // 18: openmanet.setup.v1.ApplySetupResponse.status:type_name -> openmanet.setup.v1.ApplySetupResponse.Status
-	16, // 19: openmanet.setup.v1.ApplySetupResponse.result:type_name -> openmanet.setup.v1.ApplySetupResult
-	20, // [20:20] is the sub-list for method output_type
-	20, // [20:20] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	19, // 11: openmanet.setup.v1.MeshNodeProfile.client_time:type_name -> google.protobuf.Timestamp
+	12, // 12: openmanet.setup.v1.SetupRadio.bandwidths:type_name -> openmanet.setup.v1.SetupRadioBandwidth
+	12, // 13: openmanet.setup.v1.SetupCountry.bandwidths:type_name -> openmanet.setup.v1.SetupRadioBandwidth
+	11, // 14: openmanet.setup.v1.GetSetupStatusResponse.radios:type_name -> openmanet.setup.v1.SetupRadio
+	13, // 15: openmanet.setup.v1.GetSetupStatusResponse.countries:type_name -> openmanet.setup.v1.SetupCountry
+	10, // 16: openmanet.setup.v1.ApplySetupRequest.profile:type_name -> openmanet.setup.v1.MeshNodeProfile
+	4,  // 17: openmanet.setup.v1.ApplySetupResult.failed_phase:type_name -> openmanet.setup.v1.ApplySetupResponse.Phase
+	4,  // 18: openmanet.setup.v1.ApplySetupResponse.phase:type_name -> openmanet.setup.v1.ApplySetupResponse.Phase
+	5,  // 19: openmanet.setup.v1.ApplySetupResponse.status:type_name -> openmanet.setup.v1.ApplySetupResponse.Status
+	16, // 20: openmanet.setup.v1.ApplySetupResponse.result:type_name -> openmanet.setup.v1.ApplySetupResult
+	21, // [21:21] is the sub-list for method output_type
+	21, // [21:21] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_openmanet_setup_v1_setup_proto_init() }
