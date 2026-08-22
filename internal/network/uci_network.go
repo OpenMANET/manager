@@ -1232,7 +1232,8 @@ const (
 )
 
 // batmanDeviceOptions enumerates every batman-adv option set on a
-// `proto batadv` interface by SetupBatmanDeviceOnNetwork. Mirrors the
+// `proto batadv` interface by SetupBatmanDeviceOnNetwork, other than
+// gw_mode and multicast_mode which are caller-supplied. Mirrors the
 // LuCI uci.js setupBatmanDeviceOnNetwork() exactly.
 var batmanDeviceOptions = []struct{ k, v string }{ //nolint:gochecknoglobals // package-level constant
 	{optionProto, batadvProto},
@@ -1245,7 +1246,6 @@ var batmanDeviceOptions = []struct{ k, v string }{ //nolint:gochecknoglobals // 
 	{"fragmentation", "1"},
 	{"orig_interval", "1000"},
 	{"distributed_arp_table", "1"},
-	{"multicast_mode", "1"},
 	{"network_coding", "1"},
 	{"isolation_mark", "0x00000000/0x00000000"},
 }
@@ -1254,10 +1254,12 @@ var batmanDeviceOptions = []struct{ k, v string }{ //nolint:gochecknoglobals // 
 // device interface on the network config, mirroring LuCI's
 // setupBatmanDeviceOnNetwork() exactly. Use empty deviceName to
 // default to BatmanDeviceName ("bat0"); empty gwMode defaults to
-// "client".
+// "client"; empty multicastMode defaults to "0" (forceflood off),
+// matching the runtime daemon's configureBatmanForcefloodWithDeps
+// default and both LuCI fixture captures.
 //
 // Does not commit.
-func SetupBatmanDeviceOnNetwork(reader ConfigReader, gwMode, deviceName string) error {
+func SetupBatmanDeviceOnNetwork(reader ConfigReader, gwMode, deviceName, multicastMode string) error {
 	if deviceName == "" {
 		deviceName = BatmanDeviceName
 	}
@@ -1266,10 +1268,25 @@ func SetupBatmanDeviceOnNetwork(reader ConfigReader, gwMode, deviceName string) 
 		gwMode = "client"
 	}
 
+	if multicastMode == "" {
+		multicastMode = "0"
+	}
+
 	if !batmanInterfaceExists(reader, deviceName) {
 		if err := reader.AddSection(networkConfigName, deviceName, networkInterfaceType); err != nil {
 			return fmt.Errorf("creating batman device %s: %w", deviceName, err)
 		}
+	}
+
+	// gw_mode and multicast_mode are caller-supplied and written first
+	// so that batmanDeviceOptions can never silently reintroduce a
+	// hardcoded multicast_mode that shadows the config-derived value.
+	if err := reader.SetType(networkConfigName, deviceName, "gw_mode", uci.TypeOption, gwMode); err != nil {
+		return fmt.Errorf("setting %s.%s.gw_mode: %w", networkConfigName, deviceName, err)
+	}
+
+	if err := reader.SetType(networkConfigName, deviceName, "multicast_mode", uci.TypeOption, multicastMode); err != nil {
+		return fmt.Errorf("setting %s.%s.multicast_mode: %w", networkConfigName, deviceName, err)
 	}
 
 	for _, kv := range batmanDeviceOptions {
@@ -1277,10 +1294,6 @@ func SetupBatmanDeviceOnNetwork(reader ConfigReader, gwMode, deviceName string) 
 			return fmt.Errorf("setting %s.%s.%s: %w",
 				networkConfigName, deviceName, kv.k, err)
 		}
-	}
-
-	if err := reader.SetType(networkConfigName, deviceName, "gw_mode", uci.TypeOption, gwMode); err != nil {
-		return fmt.Errorf("setting %s.%s.gw_mode: %w", networkConfigName, deviceName, err)
 	}
 
 	return nil

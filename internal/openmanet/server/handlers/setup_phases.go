@@ -1172,8 +1172,18 @@ func (s *SetupService) runBatmanAdv(_ context.Context, stream applySetupStream, 
 		"configuring batman-adv", func() error {
 			gwMode := batmanGwModeForRole(profile.GetRole())
 
+			// Multicast forceflood is derived from the same config the
+			// runtime daemon's configureBatmanForcefloodWithDeps reads
+			// (batman.multicastForceflood). The reset phase deletes
+			// bat0 entirely, so there is no prior value to preserve —
+			// this config read is the only source of truth.
+			mm := "0"
+			if s.Cfg != nil && s.Cfg.GetBatmanMulticastForceflood() {
+				mm = "1"
+			}
+
 			if err := network.SetupBatmanDeviceOnNetwork(s.UCI, gwMode,
-				network.BatmanDeviceName); err != nil {
+				network.BatmanDeviceName, mm); err != nil {
 				return err
 			}
 

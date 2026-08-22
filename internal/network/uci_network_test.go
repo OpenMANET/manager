@@ -2521,7 +2521,7 @@ func freshNetworkMock(t *testing.T) *mockConfigReader {
 func TestSetupBatmanDeviceOnNetwork_CreatesAndPopulatesBat0(t *testing.T) {
 	m := freshNetworkMock(t)
 
-	require.NoError(t, SetupBatmanDeviceOnNetwork(m, "server", BatmanDeviceName))
+	require.NoError(t, SetupBatmanDeviceOnNetwork(m, "server", BatmanDeviceName, "1"))
 
 	v, ok := m.Get("network", "bat0", "proto")
 	require.True(t, ok)
@@ -2538,24 +2538,33 @@ func TestSetupBatmanDeviceOnNetwork_CreatesAndPopulatesBat0(t *testing.T) {
 	v, ok = m.Get("network", "bat0", "isolation_mark")
 	require.True(t, ok)
 	assert.Equal(t, "0x00000000/0x00000000", v[0])
+
+	v, ok = m.Get("network", "bat0", "multicast_mode")
+	require.True(t, ok)
+	assert.Equal(t, "1", v[0])
 }
 
 func TestSetupBatmanDeviceOnNetwork_DefaultsAppliedOnEmptyArgs(t *testing.T) {
 	m := freshNetworkMock(t)
 
-	require.NoError(t, SetupBatmanDeviceOnNetwork(m, "", ""))
+	require.NoError(t, SetupBatmanDeviceOnNetwork(m, "", "", ""))
 
 	// Default gw_mode is "client".
 	v, ok := m.Get("network", "bat0", "gw_mode")
 	require.True(t, ok)
 	assert.Equal(t, "client", v[0])
+
+	// Default multicast_mode is "0" (forceflood off).
+	v, ok = m.Get("network", "bat0", "multicast_mode")
+	require.True(t, ok)
+	assert.Equal(t, "0", v[0])
 }
 
 func TestSetupBatmanDeviceOnNetwork_IdempotentOnExistingSection(t *testing.T) {
 	m := freshNetworkMock(t)
 	require.NoError(t, m.AddSection("network", "bat0", "interface"))
 
-	require.NoError(t, SetupBatmanDeviceOnNetwork(m, "server", "bat0"))
+	require.NoError(t, SetupBatmanDeviceOnNetwork(m, "server", "bat0", "0"))
 
 	// Section still exists and options were written.
 	v, ok := m.Get("network", "bat0", "proto")

@@ -223,6 +223,38 @@ func assertBatmanDevice(t *testing.T, tr *uciTree, wantGwMode string) {
 	assert.Equal(t, "1000", tr.getOne("network", "bat0", "orig_interval"))
 }
 
+// TestCompat_MulticastModeMatchesForcefloodConfig pins root cause
+// #3: the wizard hardcoded multicast_mode=1 while firmware, the
+// runtime daemon (configureBatmanForceflood), and both captures use
+// 0. With optimization on, multicast RTP reaches only IGMP/MLD-
+// announced listeners — comms audio silently degrades until the
+// daemon's next start corrects it.
+func TestCompat_MulticastModeMatchesForcefloodConfig(t *testing.T) {
+	tr := runScenarioApply(t, gateRouterEthProfile())
+
+	assert.Equal(t, "0", tr.getOne("network", "bat0", "multicast_mode"),
+		"default batman.multicastForceflood=false must write multicast_mode=0 (fixture parity)")
+}
+
+// TestCompat_MulticastModeForcefloodEnabled asserts that when the
+// operator has enabled batman.multicastForceflood in config.yml, the
+// wizard writes multicast_mode=1 on bat0 — the same mapping the
+// runtime daemon's configureBatmanForcefloodWithDeps applies.
+func TestCompat_MulticastModeForcefloodEnabled(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\nbatman:\n  multicastForceflood: true\n")
+	svc, _ := newFullSetupService(t, cfg)
+
+	collector := &streamCollector{}
+	require.NoError(t, svc.ApplySetupForTest(context.Background(), gateRouterEthProfile(), collector))
+
+	reader, ok := svc.UCI.(*fakeConfigReader)
+	require.True(t, ok, "fakeConfigReader expected on UCI field")
+
+	tr := &uciTree{reader: reader}
+	assert.Equal(t, "1", tr.getOne("network", "bat0", "multicast_mode"),
+		"batman.multicastForceflood=true must write multicast_mode=1")
+}
+
 // TestCompat_BatmeshHardifsWritten asserts batmesh0 + batmesh1 exist
 // with proto=batadv_hardif master=bat0.
 func TestCompat_BatmeshHardifsWritten(t *testing.T) {
