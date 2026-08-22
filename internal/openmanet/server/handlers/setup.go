@@ -20,6 +20,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/network/morseregdb"
 	"github.com/openmanet/openmanetd/internal/system"
+	"github.com/openmanet/openmanetd/internal/tzinfo"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -112,8 +113,9 @@ type SetupService struct {
 	Interfaces     InterfaceProvider
 	Cfg            *config.Config
 	RNG            *rand.Rand
-	Now            func() time.Time
 	LoadRegDB      func(path string) (*morseregdb.DB, error)
+	SetTimeFn      func(time.Time) error // overrideable clock write for tests; nil falls back to unix.Settimeofday
+	nowFn          func() time.Time      // overrideable time.Now for deterministic clock-drift tests; nil falls back to time.Now
 	RegDBPath      string
 	mu             sync.Mutex
 }
@@ -255,12 +257,19 @@ func (s *SetupService) GetSetupStatus(ctx context.Context, _ *emptypb.Empty) (*s
 	// (`luci.wizard.used=1`) has all the same UCI state the new wizard
 	// would otherwise produce, so we treat it as fully configured and
 	// hide the new wizard route.
+	//
+	// One system-config read serves both current_hostname and
+	// current_timezone below.
+	sysCfg := s.currentSystemConfig()
+
 	resp := &setupv1.GetSetupStatusResponse{
 		IsEnabled:       s.Cfg.GetSetupEnabled(),
 		IsSetupComplete: s.Cfg.GetSetupComplete() || s.legacyLuciWizardUsed(),
-		CurrentHostname: s.currentHostname(),
+		CurrentHostname: sysCfg.Hostname,
 		Radios:          s.collectSetupRadios(ctx),
 		EthernetPorts:   s.collectEthernetPorts(),
+		Timezones:       tzinfo.Names(),
+		CurrentTimezone: sysCfg.Zonename,
 	}
 
 	resp.HasHalowRadio = anyHalow(resp.Radios)
@@ -372,17 +381,20 @@ func (s *SetupService) currentMorseCountry() string {
 	return ""
 }
 
-// currentHostname reads `system.@system[0].hostname` via the UCI
-// reader, returning empty if the section cannot be read.
-func (s *SetupService) currentHostname() string {
+// currentSystemConfig reads `system.@system[0]` via the UCI reader
+// once, returning a zero-value UCISystem (never nil) if the section
+// cannot be read — so GetSetupStatus can pull both current_hostname
+// and current_timezone from a single read rather than two. The
+// SetupGate polls GetSetupStatus, so halving its UCI reads matters.
+func (s *SetupService) currentSystemConfig() *network.UCISystem {
 	cfg, err := network.GetSystemConfigWithReader(s.UCI)
 	if err != nil {
-		s.Log.Warn().Err(err).Msg("reading system hostname")
+		s.Log.Warn().Err(err).Msg("reading system config")
 
-		return ""
+		return &network.UCISystem{}
 	}
 
-	return cfg.Hostname
+	return cfg
 }
 
 // collectSetupRadios returns one SetupRadio entry per `wifi-device`
@@ -824,6 +836,10 @@ func (s *SetupService) validateProfile(profile *setupv1.MeshNodeProfile) error {
 	if !hostnameRFC1123.MatchString(profile.GetHostname()) {
 		return fmt.Errorf("hostname %q is not a valid RFC 1123 label",
 			profile.GetHostname())
+	}
+
+	if tz := profile.GetTimezone(); tz != "" && !tzinfo.Known(tz) {
+		return fmt.Errorf("unknown timezone %q", tz)
 	}
 
 	role := profile.GetRole()

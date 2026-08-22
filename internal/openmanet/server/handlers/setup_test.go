@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // ── helper: build a SetupService over a populated UCI tree ──────────────────
@@ -168,6 +170,41 @@ func TestGetSetupStatus_FreshDevice_DefaultsDisabled(t *testing.T) {
 	assert.False(t, resp.GetAlreadyConfigured(), "factory hostname should not flag already configured")
 	assert.Equal(t, "BCM2711-97d6", resp.GetCurrentHostname())
 	assert.Len(t, resp.GetRadios(), 2)
+}
+
+// TestGetSetupStatus_ReturnsTimezones asserts the response carries the
+// full, sorted tzinfo table plus the device's currently-configured
+// zonename (read from system.@system[0].zonename).
+func TestGetSetupStatus_ReturnsTimezones(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "auth:\n  enable: false\n")
+
+	reader := newSetupReader()
+	reader.data["system"]["@system[0]"]["zonename"] = []string{"America/Denver"}
+
+	svc := newSetupService(t, cfg, reader, &fakeInterfaceProvider{})
+
+	resp, err := svc.GetSetupStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "America/Denver", resp.GetCurrentTimezone())
+
+	tzs := resp.GetTimezones()
+	require.NotEmpty(t, tzs)
+	assert.True(t, sort.StringsAreSorted(tzs), "Timezones must be sorted")
+	assert.Contains(t, tzs, "America/Denver")
+}
+
+// TestGetSetupStatus_CurrentTimezoneEmptyWhenUnset asserts a fresh
+// device (no zonename ever written) reports an empty current_timezone
+// rather than erroring.
+func TestGetSetupStatus_CurrentTimezoneEmptyWhenUnset(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "auth:\n  enable: false\n")
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+
+	resp, err := svc.GetSetupStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	assert.Empty(t, resp.GetCurrentTimezone())
 }
 
 func TestGetSetupStatus_EnabledIncomplete(t *testing.T) {
@@ -1225,6 +1262,7 @@ func TestApplySetup_MeshPointExtender_HappyPath(t *testing.T) {
 		setupv1.ApplySetupResponse_PHASE_RESET_WIRELESS,
 		setupv1.ApplySetupResponse_PHASE_RESET_NETWORK,
 		setupv1.ApplySetupResponse_PHASE_HOSTNAME,
+		setupv1.ApplySetupResponse_PHASE_SET_TIMEZONE,
 		setupv1.ApplySetupResponse_PHASE_BASE_NETWORK,
 		setupv1.ApplySetupResponse_PHASE_WIRELESS_MESH,
 		setupv1.ApplySetupResponse_PHASE_PER_RADIO_AP_STA,
@@ -1614,6 +1652,7 @@ func TestApplySetup_PhasesEmitInCorrectOrder(t *testing.T) {
 		setupv1.ApplySetupResponse_PHASE_RESET_WIRELESS,
 		setupv1.ApplySetupResponse_PHASE_RESET_NETWORK,
 		setupv1.ApplySetupResponse_PHASE_HOSTNAME,
+		setupv1.ApplySetupResponse_PHASE_SET_TIMEZONE,
 		setupv1.ApplySetupResponse_PHASE_BASE_NETWORK,
 		setupv1.ApplySetupResponse_PHASE_WIRELESS_MESH,
 		setupv1.ApplySetupResponse_PHASE_PER_RADIO_AP_STA,
@@ -1642,4 +1681,168 @@ func TestWizardConfigsIncludesUmdns(t *testing.T) {
 // without a reboot.
 func TestReloadServicesIncludesUmdns(t *testing.T) {
 	assert.Contains(t, handlers.ReloadServicesForTest(), "umdns")
+}
+
+// ── PHASE_SET_TIMEZONE ──────────────────────────────────────────────────────
+
+// failingSystemWriteReader wraps a *fakeConfigReader and fails only
+// SetType calls that write the system config's zonename/timezone
+// options. Every earlier phase (reset wireless/network, hostname —
+// hostname goes through HostnameSetter, not UCI.SetType, in
+// newFullSetupService) succeeds against the same underlying data, so
+// the injected failure is pinned precisely to PHASE_SET_TIMEZONE.
+type failingSystemWriteReader struct {
+	*fakeConfigReader
+}
+
+func (r *failingSystemWriteReader) SetType(config, section, option string, typ uci.OptionType, values ...string) error {
+	if config == "system" && (option == "zonename" || option == "timezone") {
+		return assert.AnError
+	}
+
+	return r.fakeConfigReader.SetType(config, section, option, typ, values...)
+}
+
+// TestApplySetup_TimezoneStageFailureRollsBack asserts a failure
+// writing system.zonename/timezone rolls back UCI and reports
+// PHASE_SET_TIMEZONE as the failed phase — the same invariant every
+// sibling phase pins (see TestApplySetup_HostnameSetterFailureRollsBack
+// and friends).
+func TestApplySetup_TimezoneStageFailureRollsBack(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, deps := newFullSetupService(t, cfg)
+
+	inner, ok := svc.UCI.(*fakeConfigReader)
+	require.True(t, ok, "fakeConfigReader expected on UCI field")
+
+	svc.UCI = &failingSystemWriteReader{fakeConfigReader: inner}
+
+	prof := minimalProfile()
+	prof.Timezone = "America/Denver"
+
+	collector := &streamCollector{}
+	err := svc.ApplySetupForTest(context.Background(), prof, collector)
+
+	requireConnectCode(t, err, connect.CodeInternal)
+
+	// Snapshot was taken; rollback was invoked exactly once.
+	assert.Equal(t, 1, deps.Snap.snapshotCalls)
+	assert.Equal(t, 1, deps.Snap.restoreCalls)
+
+	last := collector.sent[len(collector.sent)-1]
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_TERMINAL, last.GetPhase())
+	require.NotNil(t, last.GetResult())
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_SET_TIMEZONE,
+		last.GetResult().GetFailedPhase())
+}
+
+// TestApplySetup_EmptyTimezoneLeavesExistingUntouched asserts an empty
+// profile.timezone (the operator cleared the pre-filled select) leaves
+// the device's existing system.timezone value alone and never writes
+// system.zonename.
+func TestApplySetup_EmptyTimezoneLeavesExistingUntouched(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, _ := newFullSetupService(t, cfg)
+
+	reader, ok := svc.UCI.(*fakeConfigReader)
+	require.True(t, ok, "fakeConfigReader expected on UCI field")
+
+	prof := minimalProfile() // Timezone left as the zero value ("")
+
+	require.NoError(t, runApplySetup(t, svc, prof))
+
+	tz, ok := reader.Get("system", "@system[0]", "timezone")
+	require.True(t, ok)
+	assert.Equal(t, []string{"UTC"}, tz, "existing timezone must be untouched when profile.timezone is empty")
+
+	_, ok = reader.Get("system", "@system[0]", "zonename")
+	assert.False(t, ok, "zonename must not be written when profile.timezone is empty")
+}
+
+// TestApplySetup_UnknownTimezoneRejected asserts a timezone name not
+// present in the embedded tzinfo table fails validation with
+// CodeInvalidArgument before any mutation phase runs.
+func TestApplySetup_UnknownTimezoneRejected(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, _ := newFullSetupService(t, cfg)
+
+	prof := minimalProfile()
+	prof.Timezone = "Nowhere/Fake"
+
+	err := runApplySetup(t, svc, prof)
+	requireConnectCode(t, err, connect.CodeInvalidArgument)
+}
+
+// TestApplySetup_TimezoneClockSync exercises the clock-drift threshold
+// in both directions: a client clock 30s AHEAD of the device (positive
+// driftSecs) and 30s BEHIND the device (negative driftSecs) both
+// trigger exactly one SetTimeFn call with the client's time — pinning
+// both the negated and un-negated paths of syncClock's abs(drift)
+// computation. A 5s drift (below the 10s threshold) never syncs.
+func TestApplySetup_TimezoneClockSync(t *testing.T) {
+	fixedNow := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name       string
+		driftSecs  int
+		wantCalled bool
+	}{
+		{name: "30s drift (client ahead of device) triggers sync", driftSecs: 30, wantCalled: true},
+		{name: "30s drift (client behind device) also triggers sync", driftSecs: -30, wantCalled: true},
+		{name: "5s drift does not trigger sync", driftSecs: 5, wantCalled: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+			svc, _ := newFullSetupService(t, cfg)
+			svc.SetNowFnForTest(func() time.Time { return fixedNow })
+
+			calls := 0
+
+			var calledWith time.Time
+
+			svc.SetTimeFn = func(tt time.Time) error {
+				calls++
+				calledWith = tt
+
+				return nil
+			}
+
+			clientTime := fixedNow.Add(time.Duration(tc.driftSecs) * time.Second)
+
+			prof := minimalProfile()
+			prof.Timezone = "America/Denver"
+			prof.ClientTime = timestamppb.New(clientTime)
+
+			require.NoError(t, runApplySetup(t, svc, prof))
+
+			if tc.wantCalled {
+				assert.Equal(t, 1, calls)
+				assert.True(t, calledWith.Equal(clientTime), "SetTimeFn must be called with the client's time")
+
+				return
+			}
+
+			assert.Equal(t, 0, calls)
+		})
+	}
+}
+
+// TestApplySetup_TimezoneClockSyncSetTimeFnErrorStillSucceeds asserts
+// a failing SetTimeFn is best-effort: the phase (and the whole apply)
+// still succeeds.
+func TestApplySetup_TimezoneClockSyncSetTimeFnErrorStillSucceeds(t *testing.T) {
+	fixedNow := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, _ := newFullSetupService(t, cfg)
+	svc.SetNowFnForTest(func() time.Time { return fixedNow })
+	svc.SetTimeFn = func(time.Time) error { return assert.AnError }
+
+	prof := minimalProfile()
+	prof.Timezone = "America/Denver"
+	prof.ClientTime = timestamppb.New(fixedNow.Add(30 * time.Second))
+
+	require.NoError(t, runApplySetup(t, svc, prof), "SetTimeFn failure must not fail the phase")
 }

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"time"
 
 	setupv1 "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1"
 )
@@ -36,3 +37,10 @@ func WizardConfigsForTest() []string { return wizardConfigs }
 // config a phase writes to is also reloaded) without duplicating the
 // list.
 func ReloadServicesForTest() []string { return reloadServices }
+
+// SetNowFnForTest overrides the unexported nowFn field used by the
+// SET_TIMEZONE phase's clock-drift check. Lets tests inject a fixed
+// reference time instead of racing the wall clock.
+func (s *SetupService) SetNowFnForTest(fn func() time.Time) {
+	s.nowFn = fn
+}

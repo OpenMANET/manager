@@ -11,6 +11,8 @@ import (
 	setupv1 "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1"
 	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
 	"github.com/openmanet/openmanetd/internal/network"
+	"github.com/openmanet/openmanetd/internal/tzinfo"
+	"golang.org/x/sys/unix"
 )
 
 // runMutationPhases threads phases 3-12 in order, returning the phase
@@ -39,6 +41,10 @@ func (s *SetupService) runMutationPhases(
 
 	if err := s.runHostname(ctx, stream, profile); err != nil {
 		return setupv1.ApplySetupResponse_PHASE_HOSTNAME, err
+	}
+
+	if err := s.runSetTimezone(ctx, stream, profile); err != nil {
+		return setupv1.ApplySetupResponse_PHASE_SET_TIMEZONE, err
 	}
 
 	if err := s.runBaseNetwork(ctx, stream, profile); err != nil {
@@ -288,6 +294,91 @@ func (s *SetupService) runHostname(ctx context.Context, stream applySetupStream,
 			return s.UCI.SetType("system", sections[0], "hostname",
 				uci.TypeOption, profile.GetHostname())
 		})
+}
+
+// ── Phase: set timezone (enum 16, runs between hostname and base network) ────
+
+const clockDriftThreshold = 10 * time.Second
+
+// runSetTimezone stages system.zonename + the POSIX timezone and
+// best-effort-syncs the device clock from the browser's wall clock.
+// Stage-only: phase 12 commits. Empty timezone keeps the device's
+// current zone (the operator cleared the pre-filled select).
+func (s *SetupService) runSetTimezone(_ context.Context, stream applySetupStream, profile *setupv1.MeshNodeProfile) error {
+	return s.runPhase(stream, setupv1.ApplySetupResponse_PHASE_SET_TIMEZONE,
+		"writing system timezone", func() error {
+			tz := profile.GetTimezone()
+			if tz == "" {
+				return nil
+			}
+
+			posix, ok := tzinfo.PosixTZ(tz)
+			if !ok {
+				// Validate already rejected unknown zones; reaching
+				// here means the table changed mid-flight.
+				return fmt.Errorf("unknown timezone %q", tz)
+			}
+
+			if err := network.StageSystemTimezoneWithReader(tz, posix, s.UCI); err != nil {
+				return err
+			}
+
+			s.syncClock(profile)
+
+			return nil
+		})
+}
+
+// syncClock corrects the device clock from client_time when drift
+// exceeds the threshold. Best-effort: failures log at Warn and never
+// fail the phase — a wrong clock is an annoyance, a failed wizard
+// run is not.
+func (s *SetupService) syncClock(profile *setupv1.MeshNodeProfile) {
+	ct := profile.GetClientTime()
+	if ct == nil {
+		return
+	}
+
+	target := ct.AsTime()
+
+	drift := s.timeNow().Sub(target)
+	if drift < 0 {
+		drift = -drift
+	}
+
+	if drift <= clockDriftThreshold {
+		return
+	}
+
+	if err := s.setTime(target); err != nil {
+		s.Log.Warn().Err(err).Dur("drift", drift).
+			Msg("failed to sync device clock from browser time")
+
+		return
+	}
+
+	s.Log.Info().Dur("drift", drift).Msg("device clock synced from browser time")
+}
+
+func (s *SetupService) setTime(t time.Time) error {
+	if s.SetTimeFn != nil {
+		return s.SetTimeFn(t)
+	}
+
+	tv := unix.NsecToTimeval(t.UnixNano())
+	if err := unix.Settimeofday(&tv); err != nil {
+		return fmt.Errorf("settimeofday: %w", err)
+	}
+
+	return nil
+}
+
+func (s *SetupService) timeNow() time.Time {
+	if s.nowFn != nil {
+		return s.nowFn()
+	}
+
+	return time.Now()
 }
 
 // ── Phase 6: base network ifaces ─────────────────────────────────────────────

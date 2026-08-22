@@ -733,6 +733,24 @@ func TestCompat_HostnameWritten(t *testing.T) {
 		"the hostname setter must be invoked once with the profile's hostname")
 }
 
+// TestCompat_TimezoneStagedFromProfile asserts the wizard writes both
+// system.zonename (IANA) and system.timezone (POSIX TZ) matching the
+// captured fixture when the profile requests a timezone.
+func TestCompat_TimezoneStagedFromProfile(t *testing.T) {
+	p := gateRouterEthProfile()
+	p.Timezone = "America/Denver"
+	tr := runScenarioApply(t, p)
+
+	secs := loadFixture(t, "mesh-gate-router-eth", "system")
+	fx := findFixtureSection(secs, "system", "")
+	require.NotNil(t, fx)
+
+	sys := tr.sectionsOfType("system", "system")
+	require.NotEmpty(t, sys)
+	assert.Equal(t, fx.Options["zonename"], tr.get("system", sys[0], "zonename"))
+	assert.Equal(t, fx.Options["timezone"], tr.get("system", sys[0], "timezone"))
+}
+
 // TestCompat_DefaultWanFirewallRulesPresent asserts the 13 wizard-
 // installed firewall rules exist.
 func TestCompat_DefaultWanFirewallRulesPresent(t *testing.T) {
