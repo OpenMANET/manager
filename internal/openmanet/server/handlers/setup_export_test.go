@@ -24,3 +24,15 @@ func (s *SetupService) ApplySetupForTest(
 ) error {
 	return s.applySetup(ctx, profile, stream)
 }
+
+// WizardConfigsForTest exposes the package-private wizardConfigs slice
+// so external tests can assert coverage (e.g. that a new UCI config a
+// phase writes to is also captured by the snapshot/rollback phase)
+// without duplicating the list.
+func WizardConfigsForTest() []string { return wizardConfigs }
+
+// ReloadServicesForTest exposes the package-private reloadServices
+// slice so external tests can assert coverage (e.g. that a new UCI
+// config a phase writes to is also reloaded) without duplicating the
+// list.
+func ReloadServicesForTest() []string { return reloadServices }

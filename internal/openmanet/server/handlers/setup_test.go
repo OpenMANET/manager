@@ -1166,7 +1166,7 @@ func newFullSetupService(t *testing.T, cfg *config.Config) (*handlers.SetupServi
 // constant in setup.go so tests can size the fake reloader's done
 // channel correctly.
 var handlersReloadServices = []string{ //nolint:gochecknoglobals // test-scoped slice mirroring an unexported package constant
-	"wireless", "network", "dhcp", "firewall", "system", "mesh11sd",
+	"wireless", "network", "dhcp", "firewall", "system", "mesh11sd", "umdns",
 }
 
 // waitForReloadGoroutine blocks until either every reloadService has
@@ -1202,10 +1202,10 @@ func TestApplySetup_MeshPointExtender_HappyPath(t *testing.T) {
 	assert.Equal(t, 1, deps.Snap.snapshotCalls)
 	assert.Equal(t, 0, deps.Snap.restoreCalls, "happy path must not roll back")
 
-	// Snapshot scope covered all six wizard configs.
+	// Snapshot scope covered all seven wizard configs.
 	require.NotNil(t, deps.Snap.lastSnapshot)
 	assert.ElementsMatch(t, []string{
-		"wireless", "network", "dhcp", "firewall", "system", "mesh11sd",
+		"wireless", "network", "dhcp", "firewall", "system", "mesh11sd", "umdns",
 	}, deps.Snap.lastSnapshot.configs)
 
 	// Hostname setter saw the user's hostname.
@@ -1627,4 +1627,19 @@ func TestApplySetup_PhasesEmitInCorrectOrder(t *testing.T) {
 	}, startedSequence)
 
 	_ = deps // reload now runs synchronously; no goroutine wait needed
+}
+
+// TestWizardConfigsIncludesUmdns pins that umdns is captured by the
+// snapshot/rollback phase. Without it, a failure between the umdns
+// write (phase 6) and phase 12's commit would restore the other six
+// configs but leave a partial umdns write live on disk.
+func TestWizardConfigsIncludesUmdns(t *testing.T) {
+	assert.Contains(t, handlers.WizardConfigsForTest(), "umdns")
+}
+
+// TestReloadServicesIncludesUmdns pins that umdns is nudged by the
+// reload phase, so a freshly-registered network list takes effect
+// without a reboot.
+func TestReloadServicesIncludesUmdns(t *testing.T) {
+	assert.Contains(t, handlers.ReloadServicesForTest(), "umdns")
 }

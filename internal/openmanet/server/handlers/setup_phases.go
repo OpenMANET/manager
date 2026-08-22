@@ -301,6 +301,10 @@ func (s *SetupService) runHostname(ctx context.Context, stream applySetupStream,
 //     get a randomized ipaddr in the mesh subnet via RandomMeshIP;
 //     mesh-gate scenarios omit ipaddr because openmanetd's gateway
 //     code assigns the address at runtime.
+//   - Registers `umdns.@umdns[0].network` with `lan` and `ahwlan` so
+//     mDNS advertises the device on both interfaces — without this,
+//     the terminal event's promised `https://<hostname>.local` never
+//     resolves even on a correctly-configured device.
 //   - Creates the `config device 'br-ahwlan'` bridge with type=bridge,
 //     a randomly-generated F2:-prefixed MAC, and the scenario's
 //     ethernet-port allocation as ports. The batman-adv phase appends
@@ -340,6 +344,13 @@ func (s *SetupService) runBaseNetwork(_ context.Context, stream applySetupStream
 
 			if err := network.SetupAhwlanInterface(s.UCI, ahwlanIPaddr); err != nil {
 				return fmt.Errorf("setupAhwlanInterface: %w", err)
+			}
+
+			const umdnsLanNetwork = "lan"
+
+			if err := network.StageUmdnsNetworksWithReader(s.UCI,
+				[]string{umdnsLanNetwork, "ahwlan"}); err != nil {
+				return fmt.Errorf("stage umdns networks: %w", err)
 			}
 
 			ports := s.ethernetPortsForAhwlan(profile, scenario)

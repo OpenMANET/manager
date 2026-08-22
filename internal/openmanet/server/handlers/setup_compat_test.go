@@ -1061,3 +1061,21 @@ func TestCompat_UplinkPortFallbackWhenUnset(t *testing.T) {
 	assert.NotContains(t, tr.get("network", bridge, "ports"), bound,
 		"the bound uplink port must not also sit in br-ahwlan")
 }
+
+// TestCompat_UmdnsNetworksRegistered: the terminal event promises
+// <hostname>.local; without umdns.@umdns[0].network the promise is
+// false and a working device looks dead.
+func TestCompat_UmdnsNetworksRegistered(t *testing.T) {
+	for name, profile := range map[string]*setupv1.MeshNodeProfile{
+		"gate-router-eth": gateRouterEthProfile(),
+		"point-extender":  pointExtenderProfile(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			tr := runScenarioApply(t, profile)
+
+			secs := tr.sectionsOfType("umdns", "umdns")
+			require.Len(t, secs, 1)
+			assert.Equal(t, []string{"lan", "ahwlan"}, tr.get("umdns", secs[0], "network"))
+		})
+	}
+}

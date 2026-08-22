@@ -28,7 +28,7 @@ import (
 // network.StageSystemHostnameWithReader; tests substitute a fake.
 //
 // CRITICAL: SetHostname must NOT commit the UCI tree. The wizard
-// commits all six configs atomically in phase 12. A premature commit
+// commits all seven configs atomically in phase 12. A premature commit
 // here opens a window where a failure between phase 5 and phase 12
 // would leave the hostname change durable but the rest of the
 // wizard's writes rolled back — a half-applied wizard run.
@@ -72,7 +72,7 @@ type UCISnapshot interface {
 	Configs() []string
 }
 
-// UCISnapshotter captures and restores the UCI tree across the six
+// UCISnapshotter captures and restores the UCI tree across the seven
 // configs the setup wizard mutates. Production wraps the digineo
 // go-uci tree with a per-config /etc/config/* file dump; tests
 // substitute a fake that deep-copies the in-memory mock state.
@@ -86,11 +86,14 @@ type UCISnapshotter interface {
 	Restore(ctx context.Context, snapshot UCISnapshot) error
 }
 
-// wizardConfigs lists the six UCI configs the wizard touches. The
+// wizardConfigs lists the seven UCI configs the wizard touches. The
 // snapshot phase captures all of them so any failure can be rolled
-// back atomically.
+// back atomically. umdns is included so a failure between the
+// base-network phase (which registers lan/ahwlan with umdns) and
+// phase 12's commit rolls the umdns write back along with everything
+// else, rather than leaving a half-applied umdns section live.
 var wizardConfigs = []string{ //nolint:gochecknoglobals // package-level constant
-	"wireless", "network", "dhcp", "firewall", "system", "mesh11sd",
+	"wireless", "network", "dhcp", "firewall", "system", "mesh11sd", "umdns",
 }
 
 // SetupService implements the SetupService ConnectRPC service. It
@@ -651,9 +654,12 @@ func (s *SetupService) emitTerminalSuccess(stream applySetupStream, profile *set
 // so its new bridges/interfaces are live before `firewall` rebuilds
 // chains and `wireless` brings up wifi-ifaces against the new
 // network sections. `dhcp`, `mesh11sd`, and `system` come last
-// because they depend on network being up.
+// because they depend on network being up. `umdns` comes last of all
+// so it re-announces after every other service has settled; reload
+// tolerance (reloadOneService) means an image without umdns installed
+// just logs a warning here and the other six still succeed.
 var reloadServices = []string{ //nolint:gochecknoglobals // package-level constant
-	"network", "firewall", "wireless", "dhcp", "mesh11sd", "system",
+	"network", "firewall", "wireless", "dhcp", "mesh11sd", "system", "umdns",
 }
 
 // runReloadServices reloads every service in the canonical list,
