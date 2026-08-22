@@ -1278,9 +1278,17 @@ func SetupBatmanDeviceOnNetwork(reader ConfigReader, gwMode, deviceName, multica
 		}
 	}
 
-	// gw_mode and multicast_mode are caller-supplied and written first
-	// so that batmanDeviceOptions can never silently reintroduce a
-	// hardcoded multicast_mode that shadows the config-derived value.
+	// gw_mode and multicast_mode are caller-supplied and written
+	// before the batmanDeviceOptions loop below, not after. Since that
+	// loop runs second, last-write-wins means a hardcoded gw_mode or
+	// multicast_mode reintroduced into batmanDeviceOptions would win
+	// over the caller-supplied value rather than being silently
+	// shadowed by it. That is what makes
+	// TestCompat_MulticastModeMatchesForcefloodConfig sensitive to the
+	// regression (root cause #3: multicast_mode hardcoded to "1"): the
+	// wrong value actually reaches bat0 and the test catches it.
+	// Writing these values after the loop instead would mask the same
+	// regression, so keep this order.
 	if err := reader.SetType(networkConfigName, deviceName, "gw_mode", uci.TypeOption, gwMode); err != nil {
 		return fmt.Errorf("setting %s.%s.gw_mode: %w", networkConfigName, deviceName, err)
 	}

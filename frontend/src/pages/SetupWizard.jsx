@@ -8,7 +8,7 @@
 // and the GetSetupStatus payload (so step components can render radio +
 // ethernet-port lists without re-fetching).
 //
-// On apply (StepReview), a streaming ApplySetup runs through all 14
+// On apply (StepReview), a streaming ApplySetup runs through all 15
 // phases. The terminal event is success/failure; if the stream drops
 // before the terminal arrives, StepReview falls back to polling
 // GetSetupStatus.

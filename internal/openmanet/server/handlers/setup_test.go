@@ -1182,7 +1182,7 @@ func newFullSetupService(t *testing.T, cfg *config.Config) (*handlers.SetupServi
 		Snap:     &fakeSnapshotter{},
 		Host:     &fakeHostnameSetter{},
 		Pass:     &fakePasswordSetter{},
-		Reloader: newFakeReloader(len(handlersReloadServices)),
+		Reloader: newFakeReloader(len(handlers.ReloadServicesForTest())),
 	}
 
 	svc := &handlers.SetupService{
@@ -1199,29 +1199,24 @@ func newFullSetupService(t *testing.T, cfg *config.Config) (*handlers.SetupServi
 	return svc, deps
 }
 
-// handlersReloadServices mirrors the package-private reloadServices
-// constant in setup.go so tests can size the fake reloader's done
-// channel correctly.
-var handlersReloadServices = []string{ //nolint:gochecknoglobals // test-scoped slice mirroring an unexported package constant
-	"wireless", "network", "dhcp", "firewall", "system", "mesh11sd", "umdns",
-}
-
 // waitForReloadGoroutine blocks until either every reloadService has
 // been invoked or the timeout elapses. Tests use this to synchronize
 // with the fire-and-forget reload goroutine.
 func waitForReloadGoroutine(t *testing.T, r *fakeServiceReloader, timeout time.Duration) {
 	t.Helper()
 
+	want := len(handlers.ReloadServicesForTest())
+
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 
-	for i := 0; i < len(handlersReloadServices); i++ {
+	for i := 0; i < want; i++ {
 		select {
 		case <-r.done:
 			// Got one.
 		case <-deadline.C:
 			t.Fatalf("reload goroutine did not finish within %s (got %d/%d)",
-				timeout, i, len(handlersReloadServices))
+				timeout, i, want)
 		}
 	}
 }
@@ -1254,7 +1249,7 @@ func TestApplySetup_MeshPointExtender_HappyPath(t *testing.T) {
 	assert.Equal(t, "root", calls[0].username)
 	assert.Equal(t, "supersecret", calls[0].password)
 
-	// All 14 phases fired (PHASE_VALIDATE through PHASE_PERSIST_FLAGS)
+	// All 15 phases fired (PHASE_VALIDATE through PHASE_PERSIST_FLAGS)
 	// plus PHASE_TERMINAL with success.
 	wantPhases := []setupv1.ApplySetupResponse_Phase{
 		setupv1.ApplySetupResponse_PHASE_VALIDATE,
@@ -1299,7 +1294,7 @@ func TestApplySetup_MeshPointExtender_HappyPath(t *testing.T) {
 
 	// Reload goroutine should have run reload on every wizard service.
 	waitForReloadGoroutine(t, deps.Reloader, 2*time.Second)
-	assert.ElementsMatch(t, handlersReloadServices, deps.Reloader.reloadCallsCopy())
+	assert.ElementsMatch(t, handlers.ReloadServicesForTest(), deps.Reloader.reloadCallsCopy())
 	assert.Empty(t, deps.Reloader.restartCallsCopy(), "all reloads succeeded; no restart fallback")
 
 	// Setup-complete and auth-enable flags now true.
@@ -1510,7 +1505,7 @@ func TestApplySetup_PersistFlagsFailureDoesNotRollback(t *testing.T) {
 		Snap:     &fakeSnapshotter{},
 		Host:     &fakeHostnameSetter{},
 		Pass:     &fakePasswordSetter{},
-		Reloader: newFakeReloader(len(handlersReloadServices)),
+		Reloader: newFakeReloader(len(handlers.ReloadServicesForTest())),
 	}
 
 	svc := &handlers.SetupService{
@@ -1554,8 +1549,8 @@ func TestApplySetup_ReloadFailuresFallBackToRestart(t *testing.T) {
 
 	waitForReloadGoroutine(t, deps.Reloader, 2*time.Second)
 
-	assert.ElementsMatch(t, handlersReloadServices, deps.Reloader.reloadCallsCopy())
-	assert.ElementsMatch(t, handlersReloadServices, deps.Reloader.restartCallsCopy())
+	assert.ElementsMatch(t, handlers.ReloadServicesForTest(), deps.Reloader.reloadCallsCopy())
+	assert.ElementsMatch(t, handlers.ReloadServicesForTest(), deps.Reloader.restartCallsCopy())
 }
 
 func TestApplySetup_ReloadCompleteFailureAbortsBeforeFlagFlip(t *testing.T) {
