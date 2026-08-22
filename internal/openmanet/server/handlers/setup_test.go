@@ -1296,6 +1296,53 @@ func TestApplySetup_MeshGateRouterEth_HappyPath(t *testing.T) {
 	assert.True(t, last.GetResult().GetSuccess())
 }
 
+// TestApplySetup_DisabledAPClearsStaleCredentials seeds a wifi-iface
+// with stale ssid/key/encryption left over from a prior wizard run
+// (these options survive the reset phase because they're on the
+// wizard's wifi-iface whitelist), then applies a profile with that
+// radio disabled. The comment on writeAPIface's disabled branch
+// claims credentials are cleared; this pins that the code actually
+// does it, not just marks disabled=1.
+func TestApplySetup_DisabledAPClearsStaleCredentials(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, _ := newFullSetupService(t, cfg)
+
+	reader, ok := svc.UCI.(*fakeConfigReader)
+	require.True(t, ok, "fakeConfigReader expected on UCI field")
+
+	// Seed default_radio0 with stale credentials from a prior run.
+	reader.data["wireless"]["default_radio0"] = map[string][]string{
+		"device":     {"radio0"},
+		"mode":       {"ap"},
+		"ssid":       {"stale-ssid"},
+		"key":        {"stale-passphrase"},
+		"encryption": {"psk2"},
+	}
+	reader.sectionTypes["wireless"]["default_radio0"] = "wifi-iface"
+
+	prof := pointExtenderProfile()
+	prof.Aps = []*setupv1.RadioApProfile{
+		{
+			RadioName: "radio0",
+			Enabled:   false, // operator chose to disable
+		},
+	}
+
+	require.NoError(t, runApplySetup(t, svc, prof))
+
+	ssid, _ := reader.Get("wireless", "default_radio0", "ssid")
+	assert.Empty(t, ssid, "stale ssid must be cleared when the AP is disabled")
+
+	key, _ := reader.Get("wireless", "default_radio0", "key")
+	assert.Empty(t, key, "stale key must be cleared when the AP is disabled")
+
+	encryption, _ := reader.Get("wireless", "default_radio0", "encryption")
+	assert.Empty(t, encryption, "stale encryption must be cleared when the AP is disabled")
+
+	disabled, _ := reader.Get("wireless", "default_radio0", "disabled")
+	assert.Equal(t, []string{"1"}, disabled, "disabled=1 must still be written")
+}
+
 func TestApplySetup_SnapshotFailureRollsBack(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
 	svc, deps := newFullSetupService(t, cfg)

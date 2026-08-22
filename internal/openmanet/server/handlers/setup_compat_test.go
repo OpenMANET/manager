@@ -370,6 +370,31 @@ func TestCompat_MeshIfaceBoundToBatmesh0(t *testing.T) {
 		"mesh wifi-iface MUST have network=batmesh0 — without it, the mesh radio doesn't bind to batman")
 }
 
+// TestCompat_MeshEncryptionDefaultsToSAE asserts an UNSPECIFIED mesh
+// encryption still writes `encryption=sae` rather than skipping the
+// write and inheriting whatever encryption survived the reset phase.
+// 802.11s mesh in this system is always SAE.
+func TestCompat_MeshEncryptionDefaultsToSAE(t *testing.T) {
+	p := gateRouterEthProfile()
+	p.Mesh.Encryption = wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_UNSPECIFIED
+	tr := runScenarioApply(t, p)
+
+	// Find the mesh iface (mode=mesh) and assert encryption written.
+	var mesh string
+
+	for _, s := range tr.sectionsOfType("wireless", "wifi-iface") {
+		if tr.getOne("wireless", s, "mode") == "mesh" {
+			mesh = s
+
+			break
+		}
+	}
+
+	require.NotEmpty(t, mesh)
+	assert.Equal(t, "sae", tr.getOne("wireless", mesh, "encryption"),
+		"UNSPECIFIED must default to sae, not skip the write and inherit pre-reset state")
+}
+
 // TestCompat_APBoundToAhwlan asserts AP wifi-ifaces get
 // `network=ahwlan` (the gate scenario binding). Mesh-point-extender
 // has its own binding tested separately.
@@ -735,6 +760,33 @@ func TestCompat_DefaultWanFirewallRulesPresent(t *testing.T) {
 	for name, found := range wantNames {
 		assert.Truef(t, found, "expected wizard to write firewall rule %q", name)
 	}
+}
+
+// TestCompat_ICMPv6BritishSpelling: fw4's type table and both
+// captures use neighbour-*; an unknown name can invalidate the whole
+// rule, breaking NDP toward the uplink zone.
+func TestCompat_ICMPv6BritishSpelling(t *testing.T) {
+	tr := runScenarioApply(t, gateRouterEthProfile())
+
+	secs := loadFixture(t, "mesh-gate-router-eth", "firewall")
+	fx := findFixtureSectionByOption(secs, "rule", "name", "Allow-ICMPv6-Input")
+	require.NotNil(t, fx)
+
+	// Locate the staged rule by its name option.
+	var ruleSection string
+
+	for _, s := range tr.sectionsOfType("firewall", "rule") {
+		if tr.getOne("firewall", s, "name") == "Allow-ICMPv6-Input" {
+			ruleSection = s
+
+			break
+		}
+	}
+
+	require.NotEmpty(t, ruleSection)
+
+	assert.Equal(t, fx.Options["icmp_type"], tr.get("firewall", ruleSection, "icmp_type"),
+		"icmp_type list must match the capture exactly, including neighbour- spelling and order")
 }
 
 // ── LuCI Morse parity invariants (post-2026-04-28 review) ────────────────────

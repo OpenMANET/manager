@@ -9,6 +9,7 @@ import (
 
 	"github.com/digineo/go-uci/v2"
 	setupv1 "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1"
+	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
 	"github.com/openmanet/openmanetd/internal/network"
 )
 
@@ -512,6 +513,18 @@ func (s *SetupService) cfgMeshSubnetBaseIP() string {
 
 // ── Phase 7: wireless mesh + device knobs ────────────────────────────────────
 
+// meshEncryption maps the profile enum to the UCI value, defaulting
+// to SAE: 802.11s mesh in this system is always SAE, and skipping
+// the write on UNSPECIFIED would inherit whatever encryption
+// survived the reset phase.
+func meshEncryption(e wificonfigv1.WifiEncryption) string {
+	if v := ProtoToWifiEncryption(e); v != "" {
+		return v
+	}
+
+	return "sae"
+}
+
 // runWirelessMesh writes the morse wifi-device's hardcoded mcast and
 // PS knobs, the user-supplied mesh interface settings (mesh_id, key,
 // encryption, beacon_int=1000, mode=mesh), and the LuCI mesh-AP
@@ -572,7 +585,7 @@ func (s *SetupService) runWirelessMesh(_ context.Context, stream applySetupStrea
 				{wifiOptionNetwork, "batmesh0"},
 				{"mesh_id", mesh.GetMeshId()},
 				{wifiOptionKey, mesh.GetPassphrase()},
-				{wifiOptionEncryption, ProtoToWifiEncryption(mesh.GetEncryption())},
+				{wifiOptionEncryption, meshEncryption(mesh.GetEncryption())},
 				{"beacon_int", "1000"},
 			}
 
@@ -752,6 +765,12 @@ func (s *SetupService) writeAPIface(ap *setupv1.RadioApProfile) error {
 		// up stale credentials.
 		if err := s.UCI.SetType("wireless", ifaceName, "disabled", uci.TypeOption, "1"); err != nil {
 			return fmt.Errorf("setting AP iface %s.disabled: %w", ifaceName, err)
+		}
+
+		for _, opt := range []string{"ssid", wifiOptionKey, wifiOptionEncryption} {
+			if err := s.UCI.Del("wireless", ifaceName, opt); err != nil {
+				return fmt.Errorf("clearing stale %s on %s: %w", opt, ifaceName, err)
+			}
 		}
 
 		return nil
