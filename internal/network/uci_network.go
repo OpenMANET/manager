@@ -1717,3 +1717,37 @@ func EnsureWan6Interface(reader ConfigReader) error {
 
 	return reader.SetType(networkConfigName, section, optionProto, uci.TypeOption, "dhcpv6")
 }
+
+// EnsureWanInterface creates the `wan` interface section with
+// `proto=dhcp` if it does not already exist, mirroring
+// EnsureWan6Interface. The wizard uses this on gate-with-ethernet
+// scenarios where the uplink port is bound to wan rather than lan.
+//
+// Does not commit.
+func EnsureWanInterface(reader ConfigReader) error {
+	const section = "wan"
+
+	if !batmanInterfaceExists(reader, section) {
+		if err := reader.AddSection(networkConfigName, section, networkInterfaceType); err != nil {
+			return fmt.Errorf("creating wan: %w", err)
+		}
+	}
+
+	return reader.SetType(networkConfigName, section, optionProto, uci.TypeOption, "dhcp")
+}
+
+// SetInterfaceDeviceWithReader binds a network interface section to a
+// physical device (network.<section>.device). The wizard uses this to
+// re-attach the uplink port after the reset phase strips every
+// interface's device option. Does not commit.
+func SetInterfaceDeviceWithReader(reader ConfigReader, section, device string) error {
+	if section == "" || device == "" {
+		return fmt.Errorf("section and device are required")
+	}
+
+	if err := reader.SetType(networkConfigName, section, networkDeviceType, uci.TypeOption, device); err != nil {
+		return fmt.Errorf("setting %s.%s.device: %w", networkConfigName, section, err)
+	}
+
+	return nil
+}

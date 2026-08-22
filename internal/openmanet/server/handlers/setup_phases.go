@@ -305,10 +305,13 @@ func (s *SetupService) runHostname(ctx context.Context, stream applySetupStream,
 //     ethernet-port allocation as ports. The batman-adv phase appends
 //     `bat0` to the port list afterwards.
 //   - For mesh-gate-with-ethernet-router scenarios, flips
-//     `network.lan.proto` to `dhcp` so the upstream router DHCP-
-//     assigns the WAN address.
+//     `network.lan.proto` to `dhcp`, rebinds the resolved uplink port
+//     to `network.lan.device` (phase 4's reset stripped it), and
+//     ensures `network.wan6` exists with `proto=dhcpv6` — so the
+//     upstream router DHCP-assigns the WAN address.
 //   - For mesh-gate-with-ethernet-router_firewall scenarios, ensures
-//     the `network.wan6` interface exists with `proto=dhcpv6`.
+//     `network.wan` and `network.wan6` exist and rebinds the resolved
+//     uplink port to both their `device` options.
 //   - Always sets `network.lan.dns=1.1.1.1` (mirrors LuCI's
 //     setupBatmanInterfaceOnDevice).
 //
@@ -350,42 +353,71 @@ func (s *SetupService) runBaseNetwork(_ context.Context, stream applySetupStream
 				return fmt.Errorf("set lan.dns: %w", err)
 			}
 
-			// Per-scenario interface protocol writes.
-			switch scenario {
-			case scenarioMeshGateRouterEth:
-				if err := network.SetInterfaceProtoWithReader(s.UCI, "lan", "dhcp"); err != nil {
-					return fmt.Errorf("set lan.proto: %w", err)
-				}
-			case scenarioMeshGateRouterFirewallEth:
-				if err := network.EnsureWan6Interface(s.UCI); err != nil {
-					return fmt.Errorf("ensureWan6: %w", err)
-				}
-			case scenarioMeshGateRouterWifiSta:
-				// STA radio uses lan as its backing network so the wifi
-				// uplink driver brings the iface up via DHCP.
-				if err := network.SetInterfaceProtoWithReader(s.UCI, "lan", "dhcp"); err != nil {
-					return fmt.Errorf("set lan.proto for wifi-sta: %w", err)
-				}
-			case scenarioMeshPointExtender, scenarioMeshPointNone, scenarioUnknown:
-				// Mesh-point scenarios leave lan as-is (typically
-				// proto=static from the factory image). The unknown
-				// case shouldn't reach here — classifyScenario already
-				// returned an error.
-			}
-
-			return nil
+			return s.applyScenarioUplinkBinding(scenario, profile)
 		})
+}
+
+// applyScenarioUplinkBinding performs the per-scenario interface
+// protocol and device writes that bind the resolved uplink port
+// (resolveUplinkPort) to whichever interface carries the gate's
+// upstream connection, since phase 4's reset strips `device` from
+// every interface.
+func (s *SetupService) applyScenarioUplinkBinding(scenario scenarioKind, profile *setupv1.MeshNodeProfile) error {
+	switch scenario {
+	case scenarioMeshGateRouterEth:
+		if err := network.SetInterfaceProtoWithReader(s.UCI, "lan", "dhcp"); err != nil {
+			return fmt.Errorf("set lan.proto: %w", err)
+		}
+
+		if err := network.SetInterfaceDeviceWithReader(s.UCI, "lan", s.resolveUplinkPort(profile)); err != nil {
+			return fmt.Errorf("bind uplink to lan: %w", err)
+		}
+
+		if err := network.EnsureWan6Interface(s.UCI); err != nil {
+			return fmt.Errorf("ensureWan6: %w", err)
+		}
+	case scenarioMeshGateRouterFirewallEth:
+		if err := network.EnsureWanInterface(s.UCI); err != nil {
+			return fmt.Errorf("ensureWan: %w", err)
+		}
+
+		if err := network.EnsureWan6Interface(s.UCI); err != nil {
+			return fmt.Errorf("ensureWan6: %w", err)
+		}
+
+		port := s.resolveUplinkPort(profile)
+		if err := network.SetInterfaceDeviceWithReader(s.UCI, "wan", port); err != nil {
+			return fmt.Errorf("bind uplink to wan: %w", err)
+		}
+
+		if err := network.SetInterfaceDeviceWithReader(s.UCI, "wan6", port); err != nil {
+			return fmt.Errorf("bind uplink to wan6: %w", err)
+		}
+	case scenarioMeshGateRouterWifiSta:
+		// STA radio uses lan as its backing network so the wifi
+		// uplink driver brings the iface up via DHCP.
+		if err := network.SetInterfaceProtoWithReader(s.UCI, "lan", "dhcp"); err != nil {
+			return fmt.Errorf("set lan.proto for wifi-sta: %w", err)
+		}
+	case scenarioMeshPointExtender, scenarioMeshPointNone, scenarioUnknown:
+		// Mesh-point scenarios leave lan as-is (typically
+		// proto=static from the factory image). The unknown case
+		// shouldn't reach here — classifyScenario already returned
+		// an error.
+	}
+
+	return nil
 }
 
 // ethernetPortsForAhwlan returns the ethernet port list that should
 // become br-ahwlan's `ports`. Heuristic per scenario:
 //
-//   - Mesh-gate with ethernet router/router_firewall + a chosen uplink
-//     port: every detected ethernet port EXCEPT the chosen uplink. The
-//     uplink stays attached to lan (router) or wan (router_firewall).
-//   - Mesh-gate with ethernet but no chosen port: empty ahwlan ports;
-//     the operator likely wants to use wifi-AP only on the management
-//     side.
+//   - Mesh-gate with ethernet router/router_firewall: every detected
+//     ethernet port EXCEPT the resolved uplink port (see
+//     resolveUplinkPort — the profile's choice, else the first
+//     detected port, else the platform default). The uplink stays
+//     attached to lan (router) or wan (router_firewall); it is always
+//     excluded from br-ahwlan since it is always bound elsewhere.
 //   - Mesh-gate with wifi-sta uplink, mesh-point extender, mesh-point
 //     none: every detected ethernet port goes to ahwlan.
 //
@@ -400,11 +432,7 @@ func (s *SetupService) ethernetPortsForAhwlan(profile *setupv1.MeshNodeProfile, 
 
 	switch scenario {
 	case scenarioMeshGateRouterEth, scenarioMeshGateRouterFirewallEth:
-		uplink := profile.GetUplink().GetEthernetPort()
-
-		if uplink == "" {
-			return all
-		}
+		uplink := s.resolveUplinkPort(profile)
 
 		out := make([]string, 0, len(all))
 
@@ -423,6 +451,22 @@ func (s *SetupService) ethernetPortsForAhwlan(profile *setupv1.MeshNodeProfile, 
 	}
 
 	return all
+}
+
+// resolveUplinkPort returns the ethernet port carrying the gate's
+// upstream connection: the profile's choice when set, else the first
+// detected port (Uplink.ethernet_port proto contract: "Empty falls
+// back to the first ethernet port"), else the platform default.
+func (s *SetupService) resolveUplinkPort(profile *setupv1.MeshNodeProfile) string {
+	if p := profile.GetUplink().GetEthernetPort(); p != "" {
+		return p
+	}
+
+	if all := s.collectEthernetPorts(); len(all) > 0 {
+		return all[0]
+	}
+
+	return network.DefaultEthernetInterfaceName
 }
 
 // rng returns the seeded random source the wizard uses for bridge

@@ -738,3 +738,79 @@ func TestCompat_RouterFirewallEth_LanProtoUntouched(t *testing.T) {
 	assert.NotEqual(t, "dhcp", tr.getOne("network", "lan", "proto"),
 		"router_firewall scenario must NOT change lan.proto to dhcp (the upstream is wan)")
 }
+
+// ── Uplink port binding (P0.1) ────────────────────────────────────────────────
+//
+// Phase 4's reset strips `device` from every interface
+// (UnsetGatewayAndDeviceOnInterfaces) and deletes br-lan; the chosen
+// uplink port was previously only used to *exclude* it from
+// br-ahwlan — nothing rebound it, so the gate advertised
+// gw_mode=server with zero upstream. These tests pin the fix.
+
+// TestCompat_UplinkPortBoundToLan pins root cause #1 of "wizard
+// produces broken devices": after reset strips lan.device, the
+// router-eth scenario must rebind the chosen uplink port so the gate
+// has upstream connectivity. Fixture: lan.device 'eth0'.
+func TestCompat_UplinkPortBoundToLan(t *testing.T) {
+	tr := runScenarioApply(t, gateRouterEthProfile())
+
+	assert.Equal(t, "eth0", tr.getOne("network", "lan", "device"),
+		"uplink port must be bound to lan — without it the gate has no upstream and a single-port board is unreachable by wire")
+}
+
+// TestCompat_Wan6CreatedForRouterEth: the gate fixture carries a wan6
+// dhcpv6 interface; previously only router-firewall created it.
+func TestCompat_Wan6CreatedForRouterEth(t *testing.T) {
+	tr := runScenarioApply(t, gateRouterEthProfile())
+
+	assert.True(t, tr.hasSection("network", "wan6"), "wan6 must exist (fixture parity)")
+	assert.Equal(t, "dhcpv6", tr.getOne("network", "wan6", "proto"))
+}
+
+// TestCompat_UplinkPortBoundToWanForRouterFirewall: router-firewall
+// binds the port to wan/wan6 (no LuCI capture exists for this SKU;
+// shape hand-derived from the LuCI wizard source — flag for bench
+// confirmation).
+func TestCompat_UplinkPortBoundToWanForRouterFirewall(t *testing.T) {
+	tr := runScenarioApply(t, gateRouterFirewallEthProfile())
+
+	assert.Equal(t, "eth0", tr.getOne("network", "wan", "device"))
+	assert.Equal(t, "eth0", tr.getOne("network", "wan6", "device"))
+	assert.NotEqual(t, "eth0", tr.getOne("network", "lan", "device"),
+		"router-firewall must not also bind the port to lan")
+}
+
+// TestCompat_LanFixtureParity_GateRouterEth locks the whole lan
+// section to the capture. dns is ignored: fixture lan carries the
+// pre-uplink static leftovers (ipaddr/netmask/ip6assign) from the
+// capture SKU which SetInterfaceProto does not remove — assert the
+// wizard-owned options only.
+func TestCompat_LanFixtureParity_GateRouterEth(t *testing.T) {
+	tr := runScenarioApply(t, gateRouterEthProfile())
+
+	secs := loadFixture(t, "mesh-gate-router-eth", "network")
+	lan := findFixtureSection(secs, "interface", "lan")
+	require.NotNil(t, lan)
+
+	assert.Equal(t, lan.Options["device"], tr.get("network", "lan", "device"))
+	assert.Equal(t, lan.Options["proto"], tr.get("network", "lan", "proto"))
+	assert.Equal(t, lan.Options["dns"], tr.get("network", "lan", "dns"))
+}
+
+// TestCompat_UplinkPortFallbackWhenUnset asserts that an unset
+// ethernet_port falls back to a resolved port (Uplink.ethernet_port
+// proto contract: "Empty falls back to the first ethernet port") and
+// that the resolved port is still excluded from br-ahwlan.
+func TestCompat_UplinkPortFallbackWhenUnset(t *testing.T) {
+	p := gateRouterEthProfile()
+	p.Uplink.EthernetPort = ""
+	tr := runScenarioApply(t, p)
+
+	bound := tr.getOne("network", "lan", "device")
+	assert.NotEmpty(t, bound, "empty ethernet_port must fall back to the first detected port (proto contract)")
+
+	bridge := tr.findBridgeDevice("br-ahwlan")
+	require.NotEmpty(t, bridge)
+	assert.NotContains(t, tr.get("network", bridge, "ports"), bound,
+		"the bound uplink port must not also sit in br-ahwlan")
+}
