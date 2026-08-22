@@ -26,7 +26,10 @@ vi.mock('../../../services/setupClient.js', () => ({
 import StepReview from '../../../pages/setup/StepReview.jsx';
 import { SetupProvider, useSetup } from '../../../contexts/SetupContext.jsx';
 import { SETUP_ACTIONS } from '../../../contexts/SetupContext.jsx';
-import { ApplySetupResponse_Phase as Phase } from '../../../gen/openmanet/setup/v1/setup_pb.js';
+import {
+  ApplySetupResponse_Phase as Phase,
+  ApplySetupResponse_Status as Status,
+} from '../../../gen/openmanet/setup/v1/setup_pb.js';
 
 const KEY = 'omd-setup-dismissed';
 
@@ -57,6 +60,19 @@ function fakeStream(events) {
   return {
     [Symbol.asyncIterator]: async function* () {
       for (const ev of events) yield ev;
+    },
+  };
+}
+
+// Like fakeStream, but never completes after the given events — keeps
+// the apply loop (and therefore the in-progress checklist) mounted so
+// a test can assert on the intermediate "Apply progress" list instead
+// of a terminal panel.
+function fakeHangingStream(events) {
+  return {
+    [Symbol.asyncIterator]: async function* () {
+      for (const ev of events) yield ev;
+      await new Promise(() => {});
     },
   };
 }
@@ -118,5 +134,22 @@ describe('TestStepReviewDismissFlag', () => {
       expect(screen.getByText(/setup complete/i)).toBeInTheDocument();
     });
     expect(sessionStorage.getItem(KEY)).toBeNull();
+  });
+});
+
+describe('TestStepReviewApplyProgress', () => {
+  it('renders a checklist row for the SET_TIMEZONE phase', async () => {
+    applyState.applySetup = vi.fn(() => fakeHangingStream([
+      { phase: Phase.HOSTNAME, status: Status.DONE },
+      { phase: Phase.SET_TIMEZONE, status: Status.DONE },
+    ]));
+
+    renderStep();
+    fireEvent.click(await screen.findByRole('button', { name: /^apply$/i }));
+
+    const list = await screen.findByLabelText(/apply progress/i);
+    await waitFor(() => {
+      expect(list).toHaveTextContent('Timezone');
+    });
   });
 });

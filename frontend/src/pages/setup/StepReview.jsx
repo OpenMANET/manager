@@ -47,6 +47,7 @@ const PHASE_DEFS = [
   [Phase.RESET_WIRELESS,     'Reset wireless'],
   [Phase.RESET_NETWORK,      'Reset network'],
   [Phase.HOSTNAME,           'Hostname'],
+  [Phase.SET_TIMEZONE,       'Timezone'],
   [Phase.BASE_NETWORK,       'Base network'],
   [Phase.WIRELESS_MESH,      'Mesh'],
   [Phase.PER_RADIO_AP_STA,   'Per-radio'],
