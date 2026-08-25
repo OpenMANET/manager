@@ -14,9 +14,12 @@ import (
 )
 
 type AddressReservationWorker struct {
-	Config *ManagementConfig
-	Client *alfred.Client
-	done   <-chan struct{}
+	Config             *ManagementConfig
+	Client             *alfred.Client
+	uciOpenMANETConfig network.OpenMANETConfigReader
+	uciDHCPConfig      network.DHCPConfigReader
+	uciNetworkConfig   network.ConfigReader
+	done               <-chan struct{}
 
 	reserveInterval time.Duration
 }
@@ -25,9 +28,12 @@ func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client
 	config.Log.Info().Msg("AddressReservationWorker initialized")
 
 	return &AddressReservationWorker{
-		Config: config,
-		Client: client,
-		done:   ctx.Done(),
+		Config:             config,
+		Client:             client,
+		uciOpenMANETConfig: network.NewUCIOpenMANETConfigReader(),
+		uciDHCPConfig:      network.NewUCIDHCPConfigReader(),
+		uciNetworkConfig:   network.NewUCINetworkConfigReader(),
+		done:               ctx.Done(),
 
 		reserveInterval: config.addressReservationWorkerReserveInterval,
 	}
@@ -45,7 +51,18 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded(ctx context.Context)
 		case <-arw.done:
 			return
 		case <-ticker.C:
-			configured, err := network.IsDHCPConfiguredWithReader(arw.Config.uciOpenMANETConfig)
+			// The setup wizard can rewrite all three UCI configs while the
+			// daemon remains up. go-uci caches each config tree, so reload
+			// before every reservation attempt both observes a rerun's
+			// dhcpconfigured=0 flag and prevents stale trees from overwriting
+			// the wizard's new network/DHCP state when we commit below.
+			if err := arw.reloadUCIConfigs(); err != nil {
+				arw.Config.Log.Error().Err(err).Msg("Error reloading UCI config for address reservation")
+
+				continue
+			}
+
+			configured, err := network.IsDHCPConfiguredWithReader(arw.uciOpenMANETConfig)
 			if err != nil {
 				arw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
 
@@ -109,7 +126,7 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded(ctx context.Context)
 					IPV6IfaceID:    network.DefaultIPv6IfaceID,
 					IPV6Assignment: network.DefaultIPv6Assign,
 					Device:         arw.Config.IFace,
-				}, arw.Config.uciNetworkConfig)
+				}, arw.uciNetworkConfig)
 				if err != nil {
 					arw.Config.Log.Error().Err(err).Msg("Error setting network config for address reservation")
 
@@ -134,7 +151,7 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded(ctx context.Context)
 
 				arw.Config.Log.Debug().Interface("dhcpConfig", dhcpConfig).Msg("Setting DHCP config")
 
-				err = network.SetDHCPConfigWithReader(normalizedIface, dhcpConfig, arw.Config.uciDHCPConfig)
+				err = network.SetDHCPConfigWithReader(normalizedIface, dhcpConfig, arw.uciDHCPConfig)
 				if err != nil {
 					arw.Config.Log.Error().Err(err).Msg("Error setting DHCP config")
 
@@ -144,7 +161,7 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded(ctx context.Context)
 				arw.Config.Log.Info().Msgf("Static IP %s and DHCP configured via address reservation", staticIP)
 
 				// Mark DHCP as configured
-				err = network.SetDHCPConfiguredWithReader(arw.Config.uciOpenMANETConfig)
+				err = network.SetDHCPConfiguredWithReader(arw.uciOpenMANETConfig)
 				if err != nil {
 					arw.Config.Log.Error().Err(err).Msg("Error marking DHCP as configured")
 
@@ -175,13 +192,32 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded(ctx context.Context)
 	}
 }
 
+func (arw *AddressReservationWorker) reloadUCIConfigs() error {
+	readers := []struct {
+		name   string
+		reload func() error
+	}{
+		{name: "openmanetd", reload: arw.uciOpenMANETConfig.ReloadConfig},
+		{name: "network", reload: arw.uciNetworkConfig.ReloadConfig},
+		{name: "dhcp", reload: arw.uciDHCPConfig.ReloadConfig},
+	}
+
+	for _, reader := range readers {
+		if err := reader.reload(); err != nil {
+			return fmt.Errorf("reload %s: %w", reader.name, err)
+		}
+	}
+
+	return nil
+}
+
 func (arw *AddressReservationWorker) cleanUpInterfaces() error {
 	meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
 	if err != nil {
 		return fmt.Errorf("%w", err)
 	}
 
-	return arw.cleanUpInterfacesWithDeps(meshCfg.IsGatewayMode(), arw.Config.uciNetworkConfig, arw.Config.uciDHCPConfig, network.ReloadNetwork)
+	return arw.cleanUpInterfacesWithDeps(meshCfg.IsGatewayMode(), arw.uciNetworkConfig, arw.uciDHCPConfig, network.ReloadNetwork)
 }
 
 func (arw *AddressReservationWorker) cleanUpInterfacesWithDeps(

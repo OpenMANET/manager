@@ -143,11 +143,22 @@ func (s *SetupService) runResetWireless(_ context.Context, stream applySetupStre
 // runResetNetwork wipes leftover firewall rules, disables existing
 // forwardings, clears mtu_fix/masq from zones, ignores existing dhcp
 // pools, whitelists the surviving dnsmasq instance to the wizard's
-// standard option set, and removes bridge + batadv interfaces.
+// standard option set, removes bridge + batadv interfaces, and marks address
+// reservation incomplete so the management worker assigns a fresh persistent
+// address after the wizard finishes.
 // Mirrors the LuCI resetUciNetworkTopology() block.
 func (s *SetupService) runResetNetwork(_ context.Context, stream applySetupStream) error {
 	return s.runPhase(stream, setupv1.ApplySetupResponse_PHASE_RESET_NETWORK,
 		"resetting network topology", func() error {
+			// A prior wizard run has already set this flag to 1. The base
+			// network phase below deliberately assigns a temporary 10.41.254.x
+			// address, so a rerun must request a fresh peer-aware reservation.
+			// Stage the write in the shared wizard tree; phase 12 commits it
+			// atomically with the rest of the configuration.
+			if err := network.StageDHCPUnconfiguredWithReader(s.UCI); err != nil {
+				return fmt.Errorf("clearing address reservation state: %w", err)
+			}
+
 			if err := network.RemoveAllRules(s.UCI); err != nil {
 				return err
 			}

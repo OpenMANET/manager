@@ -3,6 +3,7 @@ package mgmt
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/digineo/go-uci/v2"
@@ -117,6 +118,44 @@ func (f *fakeNetworkReader) ReloadConfig() error {
 	return nil
 }
 
+// reloadTrackingReader wraps the existing map-based reader solely to record
+// reload calls. The mutex protects the fields below, allowing this fake to be
+// used safely by future goroutine-driven worker tests.
+type reloadTrackingReader struct {
+	*fakeNetworkReader
+
+	mu          sync.Mutex // protects reloadCalls and reloadErr below
+	reloadCalls int
+	reloadErr   error
+}
+
+func newReloadTrackingReader() *reloadTrackingReader {
+	return &reloadTrackingReader{fakeNetworkReader: newFakeNetworkReader()}
+}
+
+func (r *reloadTrackingReader) ReloadConfig() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.reloadCalls++
+
+	return r.reloadErr
+}
+
+func (r *reloadTrackingReader) calls() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.reloadCalls
+}
+
+func (r *reloadTrackingReader) setReloadError(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.reloadErr = err
+}
+
 // seedLanNetworkSection seeds a "lan" section so NetworkSectionExistsWithReader returns true.
 func (f *fakeNetworkReader) seedLanNetworkSection() {
 	_ = f.AddSection("network", "lan", "interface")
@@ -131,6 +170,33 @@ func (f *fakeNetworkReader) seedLanDHCPSection() {
 
 func noopReload(_ context.Context) error {
 	return nil
+}
+
+func TestAddressReservationReloadsAllUCIConfigs(t *testing.T) {
+	openmanetReader := newReloadTrackingReader()
+	networkReader := newReloadTrackingReader()
+	dhcpReader := newReloadTrackingReader()
+	arw := &AddressReservationWorker{Config: &ManagementConfig{}, uciOpenMANETConfig: openmanetReader, uciNetworkConfig: networkReader, uciDHCPConfig: dhcpReader}
+
+	require.NoError(t, arw.reloadUCIConfigs())
+	assert.Equal(t, 1, openmanetReader.calls())
+	assert.Equal(t, 1, networkReader.calls())
+	assert.Equal(t, 1, dhcpReader.calls())
+}
+
+func TestAddressReservationStopsWhenUCIReloadFails(t *testing.T) {
+	openmanetReader := newReloadTrackingReader()
+	networkReader := newReloadTrackingReader()
+	dhcpReader := newReloadTrackingReader()
+	networkReader.setReloadError(errors.New("network reload failed"))
+	arw := &AddressReservationWorker{Config: &ManagementConfig{}, uciOpenMANETConfig: openmanetReader, uciNetworkConfig: networkReader, uciDHCPConfig: dhcpReader}
+
+	err := arw.reloadUCIConfigs()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "reload network")
+	assert.Equal(t, 1, openmanetReader.calls())
+	assert.Equal(t, 1, networkReader.calls())
+	assert.Equal(t, 0, dhcpReader.calls())
 }
 
 func TestCleanUpInterfacesWithDeps_GatewayModeSkips(t *testing.T) {
