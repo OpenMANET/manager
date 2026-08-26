@@ -573,6 +573,10 @@ func TestSetupBatMesh1Interface_Success(t *testing.T) {
 		t.Errorf("MeshFwding: got %q, want %q", newIface.MeshFwding, "0")
 	}
 
+	if newIface.MeshRSSIThreshold != "-80" {
+		t.Errorf("MeshRSSIThreshold: got %q, want %q", newIface.MeshRSSIThreshold, "-80")
+	}
+
 	if newIface.Encryption != "sae" {
 		t.Errorf("Encryption: got %q, want %q", newIface.Encryption, "sae")
 	}

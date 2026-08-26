@@ -8,9 +8,12 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/openmanet/openmanetd/internal/comms/announce"
 	"github.com/openmanet/openmanetd/internal/comms/codec"
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/device"
+	"github.com/openmanet/openmanetd/internal/comms/gpio"
+	"github.com/openmanet/openmanetd/internal/comms/talkgroup"
 	"github.com/openmanet/openmanetd/internal/comms/webaudio"
 	"github.com/openmanet/openmanetd/internal/config"
 )
@@ -57,6 +60,26 @@ type CommsRuntime struct { //nolint:govet // fieldalignment: mu must sit directl
 	PlaybackOutputLatency time.Duration
 	Broadcasting          atomic.Bool
 	RemoteRxActive        atomic.Bool
+
+	// ActiveChannel is the 1-based talk group most recently applied by
+	// SelectTalkGroup (or seeded from the boot-time toggles). 0 until a
+	// selection or seed happens. Read lock-free by status and snapshot.
+	ActiveChannel atomic.Int32
+	// Events fans talk group changes out to the announcer, streaming
+	// RPC subscribers, and any future listeners. Allocated once in
+	// Start; nil in minimal test runtimes (Notify is nil-safe).
+	Events *talkgroup.Registry
+	// Announcer plays talk group voice clips; nil in web mode, when clip
+	// decode failed, or in minimal test runtimes.
+	Announcer *announce.Player
+	// GPIOSel is the hardware talk group selector; nil when the board
+	// doesn't wire one, the operator disabled it, or open failed.
+	GPIOSel *gpio.Selector
+
+	// selectMu serializes SelectTalkGroup's multi-port flip so two
+	// concurrent selections cannot interleave partial port states. Never
+	// taken on the audio or packet hot paths.
+	selectMu sync.Mutex
 
 	// mu protects broadcastStream. It is written at startup by
 	// initAudioIO/startHardwareAudio and again by the Run loop's audio
@@ -121,7 +144,10 @@ type CommsConfig struct {
 	detectALSACardFn func()
 	// readUDPDropsFn overrides the /proc/net/udp kernel-drop scan for
 	// tests. When nil, readUDPDrops falls back to readUDPSocketDrops.
-	readUDPDropsFn           func(localPort int) (int64, error)
+	readUDPDropsFn func(localPort int) (int64, error)
+	// gpioSelectorSupportedFn overrides the board capability check for
+	// tests. Nil means board.GPIOSelectorSupported.
+	gpioSelectorSupportedFn  func() bool
 	BluetoothOutputDevice    string
 	NanoPTTDevicePath        string
 	CommKey                  string
@@ -164,6 +190,7 @@ type CommsConfig struct {
 	Trace              bool
 	Loopback           bool
 	Debug              bool
+	GPIOSelectorEnable bool
 	ROIPCOSGPIOMask    byte
 }
 
@@ -181,6 +208,7 @@ func NewComms(cfg CommsConfig) *CommsConfig {
 		CommKey:                  cfg.CommKey,
 		RtpID:                    cfg.RtpID,
 		Debug:                    cfg.Debug,
+		GPIOSelectorEnable:       cfg.GPIOSelectorEnable,
 		Loopback:                 cfg.Loopback,
 		Trace:                    cfg.Trace,
 		ControlSource:            cfg.ControlSource,

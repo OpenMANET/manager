@@ -10,11 +10,13 @@ import (
 	"connectrpc.com/connect"
 	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commsv1 "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1"
 	"github.com/openmanet/openmanetd/internal/comms"
 	"github.com/openmanet/openmanetd/internal/comms/control"
 	"github.com/openmanet/openmanetd/internal/comms/control/alsa"
+	"github.com/openmanet/openmanetd/internal/comms/talkgroup"
 	"github.com/openmanet/openmanetd/internal/config"
 )
 
@@ -286,6 +288,95 @@ func (c *CommsService) SetReceiveTalkGroup(_ context.Context, req *commsv1.SetRe
 	return &commsv1.SetReceiveTalkGroupResponse{
 		Success: true,
 	}, nil
+}
+
+// talkGroupEventChanSize bounds the per-subscriber event buffer. 16
+// absorbs the burst a rapid selector spin can produce while keeping
+// per-stream memory trivial; overflow drops (counted via NoteDropped)
+// rather than blocking the notifier.
+const talkGroupEventChanSize = 16
+
+// SelectTalkGroup makes the requested talk group the single active
+// channel via the comms selection spine.
+func (c *CommsService) SelectTalkGroup(_ context.Context, req *commsv1.SelectTalkGroupRequest) (*commsv1.SelectTalkGroupResponse, error) {
+	if !c.Cfg.GetCommsEnable() {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("comms module not enabled"))
+	}
+
+	if err := c.commsService().SelectTalkGroup(int(req.GetTalkgroup()), talkgroup.SourceRPC); err != nil {
+		if errors.Is(err, comms.ErrNotRunning) {
+			c.Log.Error().Err(err).Msg("SelectTalkGroup: comms not running")
+
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
+
+		c.Log.Warn().Err(err).Int32("talkgroup", req.GetTalkgroup()).Msg("SelectTalkGroup rejected")
+
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	return &commsv1.SelectTalkGroupResponse{Success: true}, nil
+}
+
+// StreamTalkGroupEvents streams talk group change events to the client.
+// Near-copy of the BLOS event stream: bounded channel, non-blocking send
+// with drop accounting, listener removed on return.
+func (c *CommsService) StreamTalkGroupEvents(ctx context.Context, _ *emptypb.Empty, stream *connect.ServerStream[commsv1.StreamTalkGroupEventsResponse]) error {
+	reg := c.commsService().Events()
+	if reg == nil {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("comms subsystem is not running"))
+	}
+
+	ch := make(chan *commsv1.TalkGroupEvent, talkGroupEventChanSize)
+
+	id := reg.Add(TalkGroupEventListener(ch, reg))
+	defer reg.Remove(id)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case ev, ok := <-ch:
+			if !ok {
+				return nil
+			}
+
+			if err := stream.Send(&commsv1.StreamTalkGroupEventsResponse{Event: ev}); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// TalkGroupEventToProto converts an internal talk group event to its
+// wire form. Enum numeric values are aligned by construction (the proto
+// enums mirror talkgroup.Kind / talkgroup.Source), so direct casts are
+// safe; TestTalkGroupEventToProto pins the alignment.
+// TalkGroupEventListener returns the registry listener that feeds one
+// stream subscriber's bounded channel. Non-blocking by the registry's
+// contract: when ch is full the newest event is dropped and counted via
+// NoteDropped, never stalling the notifier. Exported so the overflow
+// branch is unit-testable (same rationale as TalkGroupEventToProto).
+func TalkGroupEventListener(ch chan<- *commsv1.TalkGroupEvent, reg *talkgroup.Registry) func(talkgroup.Event) {
+	return func(ev talkgroup.Event) {
+		select {
+		case ch <- TalkGroupEventToProto(ev):
+		default:
+			reg.NoteDropped()
+		}
+	}
+}
+
+func TalkGroupEventToProto(ev talkgroup.Event) *commsv1.TalkGroupEvent {
+	return &commsv1.TalkGroupEvent{
+		Kind:           commsv1.TalkGroupEventKind(ev.Kind),
+		Talkgroup:      int32(ev.Channel),
+		PrevTalkgroup:  int32(ev.Prev),
+		SendEnabled:    ev.Send,
+		ReceiveEnabled: ev.Receive,
+		Source:         commsv1.TalkGroupEventSource(ev.Source),
+		At:             timestamppb.New(ev.At),
+	}
 }
 
 // SendPTTEvent delivers a PTT state change from the web client to the comms

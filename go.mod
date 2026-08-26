@@ -41,6 +41,8 @@ require (
 	tailscale.com v1.98.2
 )
 
+require github.com/warthog618/go-gpiocdev v0.9.1
+
 require (
 	buf.build/go/protovalidate v1.3.0
 	cel.dev/expr v0.25.2 // indirect

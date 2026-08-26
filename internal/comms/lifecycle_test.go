@@ -255,3 +255,27 @@ func TestApplyMixerStartup_NilSafe(t *testing.T) {
 	cfg := &CommsConfig{Log: zerolog.Nop()}
 	cfg.applyMixerStartup() // must not panic
 }
+
+func TestStartGPIOSelector_SkipsWhenUnsupported(t *testing.T) {
+	svc := newSelectTestService(t, 2)
+	svc.Cfg.GPIOSelectorEnable = true
+	svc.Cfg.gpioSelectorSupportedFn = func() bool { return false }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	svc.Cfg.startGPIOSelector(ctx, svc)
+	assert.Nil(t, svc.Rt.GPIOSel)
+}
+
+func TestStartGPIOSelector_SkipsWhenDisabled(t *testing.T) {
+	svc := newSelectTestService(t, 2)
+	svc.Cfg.GPIOSelectorEnable = false
+	svc.Cfg.gpioSelectorSupportedFn = func() bool { return true }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	svc.Cfg.startGPIOSelector(ctx, svc)
+	assert.Nil(t, svc.Rt.GPIOSel)
+}

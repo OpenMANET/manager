@@ -60,6 +60,7 @@ func (m *CommsManager) buildCommsConfig() *CommsConfig {
 		Enable:                   true, // manager only calls Start when enabling
 		Iface:                    m.cfg.GetMeshNetInterface(),
 		Debug:                    m.cfg.GetCommsDebug(),
+		GPIOSelectorEnable:       m.cfg.GetCommsGPIOSelectorEnable(),
 		Loopback:                 m.cfg.GetCommsLoopback(),
 		Trace:                    m.cfg.GetCommsTrace(),
 		ControlSource:            m.cfg.GetCommsControlSource(),

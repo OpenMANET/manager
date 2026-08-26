@@ -12,10 +12,11 @@ import (
 
 // mockCommsClient records calls to the comms RPC service.
 type mockCommsClient struct {
-	setSendCalls    []setSendCall
-	setReceiveCalls []setReceiveCall
-	pttCalls        []int32
-	statusResp      *commsv1.GetCommsStatusResponse
+	setSendCalls         []setSendCall
+	setReceiveCalls      []setReceiveCall
+	selectTalkGroupCalls []int32
+	pttCalls             []int32
+	statusResp           *commsv1.GetCommsStatusResponse
 }
 
 type setSendCall struct {
@@ -50,6 +51,16 @@ func (m *mockCommsClient) SetReceiveTalkGroup(_ context.Context, req *commsv1.Se
 	m.setReceiveCalls = append(m.setReceiveCalls, setReceiveCall{req.Talkgroup, req.Enabled})
 
 	return &commsv1.SetReceiveTalkGroupResponse{Success: true}, nil
+}
+
+func (m *mockCommsClient) SelectTalkGroup(_ context.Context, req *commsv1.SelectTalkGroupRequest) (*commsv1.SelectTalkGroupResponse, error) {
+	m.selectTalkGroupCalls = append(m.selectTalkGroupCalls, req.Talkgroup)
+
+	return &commsv1.SelectTalkGroupResponse{Success: true}, nil
+}
+
+func (m *mockCommsClient) StreamTalkGroupEvents(_ context.Context, _ *emptypb.Empty) (*connect.ServerStreamForClient[commsv1.StreamTalkGroupEventsResponse], error) {
+	return nil, nil
 }
 
 func (m *mockCommsClient) SendPTTEvent(_ context.Context, req *commsv1.SendPTTEventRequest) (*commsv1.SendPTTEventResponse, error) {

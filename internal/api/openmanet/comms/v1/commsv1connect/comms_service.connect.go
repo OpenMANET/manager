@@ -49,6 +49,12 @@ const (
 	// CommsServiceSetReceiveTalkGroupProcedure is the fully-qualified name of the CommsService's
 	// SetReceiveTalkGroup RPC.
 	CommsServiceSetReceiveTalkGroupProcedure = "/openmanet.comms.v1.CommsService/SetReceiveTalkGroup"
+	// CommsServiceSelectTalkGroupProcedure is the fully-qualified name of the CommsService's
+	// SelectTalkGroup RPC.
+	CommsServiceSelectTalkGroupProcedure = "/openmanet.comms.v1.CommsService/SelectTalkGroup"
+	// CommsServiceStreamTalkGroupEventsProcedure is the fully-qualified name of the CommsService's
+	// StreamTalkGroupEvents RPC.
+	CommsServiceStreamTalkGroupEventsProcedure = "/openmanet.comms.v1.CommsService/StreamTalkGroupEvents"
 	// CommsServiceSendPTTEventProcedure is the fully-qualified name of the CommsService's SendPTTEvent
 	// RPC.
 	CommsServiceSendPTTEventProcedure = "/openmanet.comms.v1.CommsService/SendPTTEvent"
@@ -78,6 +84,12 @@ type CommsServiceClient interface {
 	SetSendTalkGroup(context.Context, *v1.SetSendTalkGroupRequest) (*v1.SetSendTalkGroupResponse, error)
 	// Enables or disables RTP reception on the specified talkgroup.
 	SetReceiveTalkGroup(context.Context, *v1.SetReceiveTalkGroupRequest) (*v1.SetReceiveTalkGroupResponse, error)
+	// SelectTalkGroup makes the requested talk group the single active
+	// channel: RX+TX enabled on it, all other groups disabled.
+	SelectTalkGroup(context.Context, *v1.SelectTalkGroupRequest) (*v1.SelectTalkGroupResponse, error)
+	// StreamTalkGroupEvents streams talk group selection and direction
+	// toggle changes to the client.
+	StreamTalkGroupEvents(context.Context, *emptypb.Empty) (*connect.ServerStreamForClient[v1.StreamTalkGroupEventsResponse], error)
 	// SendPTTEvent sends a PTT state change from the web client.
 	SendPTTEvent(context.Context, *v1.SendPTTEventRequest) (*v1.SendPTTEventResponse, error)
 	// StreamAudioTx is a client-streaming RPC: the web client streams
@@ -136,6 +148,18 @@ func NewCommsServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(commsServiceMethods.ByName("SetReceiveTalkGroup")),
 			connect.WithClientOptions(opts...),
 		),
+		selectTalkGroup: connect.NewClient[v1.SelectTalkGroupRequest, v1.SelectTalkGroupResponse](
+			httpClient,
+			baseURL+CommsServiceSelectTalkGroupProcedure,
+			connect.WithSchema(commsServiceMethods.ByName("SelectTalkGroup")),
+			connect.WithClientOptions(opts...),
+		),
+		streamTalkGroupEvents: connect.NewClient[emptypb.Empty, v1.StreamTalkGroupEventsResponse](
+			httpClient,
+			baseURL+CommsServiceStreamTalkGroupEventsProcedure,
+			connect.WithSchema(commsServiceMethods.ByName("StreamTalkGroupEvents")),
+			connect.WithClientOptions(opts...),
+		),
 		sendPTTEvent: connect.NewClient[v1.SendPTTEventRequest, v1.SendPTTEventResponse](
 			httpClient,
 			baseURL+CommsServiceSendPTTEventProcedure,
@@ -171,16 +195,18 @@ func NewCommsServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 
 // commsServiceClient implements CommsServiceClient.
 type commsServiceClient struct {
-	getCommsConfig      *connect.Client[emptypb.Empty, v1.GetCommsConfigResponse]
-	updateCommsConfig   *connect.Client[v1.UpdateCommsConfigRequest, v1.UpdateCommsConfigResponse]
-	getCommsStatus      *connect.Client[emptypb.Empty, v1.GetCommsStatusResponse]
-	setSendTalkGroup    *connect.Client[v1.SetSendTalkGroupRequest, v1.SetSendTalkGroupResponse]
-	setReceiveTalkGroup *connect.Client[v1.SetReceiveTalkGroupRequest, v1.SetReceiveTalkGroupResponse]
-	sendPTTEvent        *connect.Client[v1.SendPTTEventRequest, v1.SendPTTEventResponse]
-	streamAudioTx       *connect.Client[v1.StreamAudioTxRequest, v1.StreamAudioTxResponse]
-	streamAudioRx       *connect.Client[v1.StreamAudioRxRequest, v1.StreamAudioRxResponse]
-	getAudioMixer       *connect.Client[emptypb.Empty, v1.GetAudioMixerResponse]
-	updateAudioMixer    *connect.Client[v1.UpdateAudioMixerRequest, v1.UpdateAudioMixerResponse]
+	getCommsConfig        *connect.Client[emptypb.Empty, v1.GetCommsConfigResponse]
+	updateCommsConfig     *connect.Client[v1.UpdateCommsConfigRequest, v1.UpdateCommsConfigResponse]
+	getCommsStatus        *connect.Client[emptypb.Empty, v1.GetCommsStatusResponse]
+	setSendTalkGroup      *connect.Client[v1.SetSendTalkGroupRequest, v1.SetSendTalkGroupResponse]
+	setReceiveTalkGroup   *connect.Client[v1.SetReceiveTalkGroupRequest, v1.SetReceiveTalkGroupResponse]
+	selectTalkGroup       *connect.Client[v1.SelectTalkGroupRequest, v1.SelectTalkGroupResponse]
+	streamTalkGroupEvents *connect.Client[emptypb.Empty, v1.StreamTalkGroupEventsResponse]
+	sendPTTEvent          *connect.Client[v1.SendPTTEventRequest, v1.SendPTTEventResponse]
+	streamAudioTx         *connect.Client[v1.StreamAudioTxRequest, v1.StreamAudioTxResponse]
+	streamAudioRx         *connect.Client[v1.StreamAudioRxRequest, v1.StreamAudioRxResponse]
+	getAudioMixer         *connect.Client[emptypb.Empty, v1.GetAudioMixerResponse]
+	updateAudioMixer      *connect.Client[v1.UpdateAudioMixerRequest, v1.UpdateAudioMixerResponse]
 }
 
 // GetCommsConfig calls openmanet.comms.v1.CommsService.GetCommsConfig.
@@ -226,6 +252,20 @@ func (c *commsServiceClient) SetReceiveTalkGroup(ctx context.Context, req *v1.Se
 		return response.Msg, err
 	}
 	return nil, err
+}
+
+// SelectTalkGroup calls openmanet.comms.v1.CommsService.SelectTalkGroup.
+func (c *commsServiceClient) SelectTalkGroup(ctx context.Context, req *v1.SelectTalkGroupRequest) (*v1.SelectTalkGroupResponse, error) {
+	response, err := c.selectTalkGroup.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// StreamTalkGroupEvents calls openmanet.comms.v1.CommsService.StreamTalkGroupEvents.
+func (c *commsServiceClient) StreamTalkGroupEvents(ctx context.Context, req *emptypb.Empty) (*connect.ServerStreamForClient[v1.StreamTalkGroupEventsResponse], error) {
+	return c.streamTalkGroupEvents.CallServerStream(ctx, connect.NewRequest(req))
 }
 
 // SendPTTEvent calls openmanet.comms.v1.CommsService.SendPTTEvent.
@@ -277,6 +317,12 @@ type CommsServiceHandler interface {
 	SetSendTalkGroup(context.Context, *v1.SetSendTalkGroupRequest) (*v1.SetSendTalkGroupResponse, error)
 	// Enables or disables RTP reception on the specified talkgroup.
 	SetReceiveTalkGroup(context.Context, *v1.SetReceiveTalkGroupRequest) (*v1.SetReceiveTalkGroupResponse, error)
+	// SelectTalkGroup makes the requested talk group the single active
+	// channel: RX+TX enabled on it, all other groups disabled.
+	SelectTalkGroup(context.Context, *v1.SelectTalkGroupRequest) (*v1.SelectTalkGroupResponse, error)
+	// StreamTalkGroupEvents streams talk group selection and direction
+	// toggle changes to the client.
+	StreamTalkGroupEvents(context.Context, *emptypb.Empty, *connect.ServerStream[v1.StreamTalkGroupEventsResponse]) error
 	// SendPTTEvent sends a PTT state change from the web client.
 	SendPTTEvent(context.Context, *v1.SendPTTEventRequest) (*v1.SendPTTEventResponse, error)
 	// StreamAudioTx is a client-streaming RPC: the web client streams
@@ -331,6 +377,18 @@ func NewCommsServiceHandler(svc CommsServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(commsServiceMethods.ByName("SetReceiveTalkGroup")),
 		connect.WithHandlerOptions(opts...),
 	)
+	commsServiceSelectTalkGroupHandler := connect.NewUnaryHandlerSimple(
+		CommsServiceSelectTalkGroupProcedure,
+		svc.SelectTalkGroup,
+		connect.WithSchema(commsServiceMethods.ByName("SelectTalkGroup")),
+		connect.WithHandlerOptions(opts...),
+	)
+	commsServiceStreamTalkGroupEventsHandler := connect.NewServerStreamHandlerSimple(
+		CommsServiceStreamTalkGroupEventsProcedure,
+		svc.StreamTalkGroupEvents,
+		connect.WithSchema(commsServiceMethods.ByName("StreamTalkGroupEvents")),
+		connect.WithHandlerOptions(opts...),
+	)
 	commsServiceSendPTTEventHandler := connect.NewUnaryHandlerSimple(
 		CommsServiceSendPTTEventProcedure,
 		svc.SendPTTEvent,
@@ -373,6 +431,10 @@ func NewCommsServiceHandler(svc CommsServiceHandler, opts ...connect.HandlerOpti
 			commsServiceSetSendTalkGroupHandler.ServeHTTP(w, r)
 		case CommsServiceSetReceiveTalkGroupProcedure:
 			commsServiceSetReceiveTalkGroupHandler.ServeHTTP(w, r)
+		case CommsServiceSelectTalkGroupProcedure:
+			commsServiceSelectTalkGroupHandler.ServeHTTP(w, r)
+		case CommsServiceStreamTalkGroupEventsProcedure:
+			commsServiceStreamTalkGroupEventsHandler.ServeHTTP(w, r)
 		case CommsServiceSendPTTEventProcedure:
 			commsServiceSendPTTEventHandler.ServeHTTP(w, r)
 		case CommsServiceStreamAudioTxProcedure:
@@ -410,6 +472,14 @@ func (UnimplementedCommsServiceHandler) SetSendTalkGroup(context.Context, *v1.Se
 
 func (UnimplementedCommsServiceHandler) SetReceiveTalkGroup(context.Context, *v1.SetReceiveTalkGroupRequest) (*v1.SetReceiveTalkGroupResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.comms.v1.CommsService.SetReceiveTalkGroup is not implemented"))
+}
+
+func (UnimplementedCommsServiceHandler) SelectTalkGroup(context.Context, *v1.SelectTalkGroupRequest) (*v1.SelectTalkGroupResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.comms.v1.CommsService.SelectTalkGroup is not implemented"))
+}
+
+func (UnimplementedCommsServiceHandler) StreamTalkGroupEvents(context.Context, *emptypb.Empty, *connect.ServerStream[v1.StreamTalkGroupEventsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("openmanet.comms.v1.CommsService.StreamTalkGroupEvents is not implemented"))
 }
 
 func (UnimplementedCommsServiceHandler) SendPTTEvent(context.Context, *v1.SendPTTEventRequest) (*v1.SendPTTEventResponse, error) {
