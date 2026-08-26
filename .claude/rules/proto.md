@@ -1,6 +1,6 @@
 # Protobuf Rules
 
-All `.proto` files in Waypoint live under `proto/` and are managed with [buf](https://buf.build). Any change to a `.proto` file — adding, modifying, deleting — must pass `buf lint` with **zero issues** before it is committed.
+All `.proto` files in OpenMANETd live under `proto/` (a git submodule) and are managed with [buf](https://buf.build). Any change to a `.proto` file — adding, modifying, deleting — must pass `buf lint` with **zero issues** before it is committed.
 
 This rule covers the gate. For naming conventions and RPC design see `.claude/rules/api-design.md`.
 
@@ -29,7 +29,7 @@ The repo's `proto/buf.yaml` uses the `STANDARD` lint preset, which enforces:
 - RPC method names: `PascalCase` verb-first (`Get`, `List`, `Create`, `Update`, `Delete`, `Set`, `Stream`).
 - Enum values: `SCREAMING_SNAKE_CASE` with the enum name as a prefix.
 - Files end with `_service.proto` or describe a single concern.
-- File package matches the directory path (`proto/Waypoint/v1/foo.proto` ⇒ `package Waypoint.v1;`).
+- File package matches the directory path (`proto/openmanet/comms/v1/comms.proto` ⇒ `package openmanet.comms.v1;`).
 - Every file declares a package.
 - Imports are explicit; no relying on transitive imports.
 
@@ -41,7 +41,7 @@ The full preset list is at https://buf.build/docs/lint/rules. If you don't recog
 |---|---|
 | `FIELD_LOWER_SNAKE_CASE` | Rename `userID` → `user_id`. (Generated Go field will still be `UserID` because protoc-gen-go converts.) |
 | `SERVICE_SUFFIX` | Add the `Service` suffix: `service Auth` → `service AuthService`. |
-| `RPC_REQUEST_RESPONSE_UNIQUE` | Each RPC needs its own `FooRequest`/`FooResponse` even if they're empty. Don't reuse `google.protobuf.Empty` for a request type that may grow. |
+| `RPC_REQUEST_RESPONSE_UNIQUE` | Each RPC needs its own `FooRequest`/`FooResponse` even if they're empty. Exception: `google.protobuf.Empty` is allowed (`rpc_allow_google_protobuf_empty_requests: true` in `buf.yaml`) — use it when an RPC has no meaningful request or response, per `.claude/rules/api-design.md`. Prefer a dedicated request message when fields are likely to be added later, since swapping `Empty` out is a breaking change. |
 | `PACKAGE_DIRECTORY_MATCH` | Move the file or rename the package so they match. |
 | `IMPORT_USED` | Remove the unused import. |
 | `import "X": file does not exist` | Run `cd proto && buf dep update` to refresh `buf.lock` and pull the dep into the local cache. |

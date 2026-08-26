@@ -1,6 +1,6 @@
 # Linting Rules
 
-All Go code in Waypoint must pass `golangci-lint run --timeout 5m` cleanly. Lint output of "0 issues." is a precondition for considering any change "done".
+All Go code in OpenMANETd must pass `golangci-lint run --timeout 5m` cleanly. Lint output of "0 issues." is a precondition for considering any change "done".
 
 ---
 
@@ -8,7 +8,7 @@ All Go code in Waypoint must pass `golangci-lint run --timeout 5m` cleanly. Lint
 
 A change is not complete until:
 1. `go build ./...` succeeds
-2. `go test -count=1 ./internal/...` passes (excluding integration-tagged tests when no Postgres available)
+2. `go test -count=1 ./internal/...` passes, and `make integration-test` passes when the change touches handler or server code (integration tests are tagged `//go:build integration` and never run via plain `go test ./...`)
 3. `golangci-lint run --timeout 5m` reports `0 issues.`
 4. `go vet ./...` is clean (covered by golangci-lint, but worth running standalone)
 5. If the change touches `proto/`: `make proto-lint` reports zero issues per `.claude/rules/proto.md`.

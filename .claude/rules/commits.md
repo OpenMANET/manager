@@ -15,7 +15,7 @@ Every commit Claude creates in this repository **must** follow the Conventional 
 ```
 
 - **type** — required. Lowercase. One of the allowed values below.
-- **scope** — optional but strongly preferred. Lowercase, single word, in parentheses. Names the package/area touched (e.g., `auth`, `server`, `database`, `cmd`, `lint`, `rules`, `proto`, `worker`, `frontend`, `observability`, `queue`).
+- **scope** — optional but strongly preferred. Lowercase, single word, in parentheses. Names the package/area touched (e.g., `comms`, `blos`, `mgmt`, `server`, `database`, `config`, `cmd`, `proto`, `frontend`, `rules`, `deps`).
 - **subject** — required. Imperative mood ("add" not "added"/"adds"). Lowercase first letter. No trailing period. ≤ 72 chars total line length including type and scope.
 - **body** — optional. Wrap at ~80 chars. Explain *why* and *what changed at a high level*; the diff already shows the *what* in detail.
 - **footer** — optional. Used for `BREAKING CHANGE: …` notices and trailers like `Co-Authored-By:` or `Refs: #123`.
@@ -40,7 +40,7 @@ If a single change touches multiple types, pick the dominant one. If two are gen
 
 ## Subject rules
 
-- Imperative mood: `add OIDC verifier`, not `added OIDC verifier` or `adding OIDC verifier`.
+- Imperative mood: `add talk group registry`, not `added talk group registry` or `adding talk group registry`.
 - Lowercase first letter (after `:`): `add foo`, not `Add foo`.
 - No trailing period.
 - Describe the change, not the reason: `add session expiry index` (not `users complained about slow lookups`). The reason goes in the body.
@@ -59,7 +59,7 @@ When in doubt, add a one-line body. Empty body is fine for trivial commits like 
 ## Examples (good)
 
 ```
-feat(auth): add OIDC code+PKCE login handler
+feat(comms): add GPIO talk group selector watcher
 ```
 
 ```
@@ -78,13 +78,14 @@ docs(rules): add linting rule and definition-of-done
 ```
 
 ```
-refactor(database): drop unused ctx from openStdlib
+refactor(comms): move talk group registry into its own package
 
-Goose's stdlib adapter doesn't take a context. The argument was vestigial.
+The registry is shared by the RPC handlers and the GPIO selector; keeping
+it inside comms created an import cycle.
 ```
 
 ```
-build(deps): bump pgx/v5 to v5.9.2
+build(deps): bump github.com/mattn/go-sqlite3 to v1.14.50
 ```
 
 ```
@@ -97,7 +98,7 @@ BREAKING CHANGE: clients must update generated bindings.
 
 | Bad | Why | Fix |
 |---|---|---|
-| `Update files` | Vague, no type, no scope | `chore(scaffold): rename openmanet → summit` |
+| `Update files` | Vague, no type, no scope | `chore(rules): reorganize claude rule files` |
 | `feat: Added new endpoint.` | Past tense, capitalized, trailing period | `feat(api): add list-sessions endpoint` |
 | `fix bug` | No type colon, no scope, no detail | `fix(auth): handle expired session as no session` |
 | `feat(server): WIP` | "WIP" should never be in main history | Squash before merge or amend with a real subject |
@@ -113,7 +114,7 @@ A commit is not complete until:
 1. Subject follows the format above.
 2. The change passes `make lint` (see `linting.md`) and tests.
 3. The body explains the *why* when the change isn't self-evident.
-4. The Co-Authored-By trailer is present.
+4. No Co-Authored-By or other trailer is present (see "Co-Authored-By trailer" above).
 
 If any check fails, fix and re-stage; never commit a half-formed message hoping to amend later.
 

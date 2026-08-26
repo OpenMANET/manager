@@ -24,6 +24,26 @@ const (
 	// wifiModeMesh is the wifi-iface `mode` value used by 802.11s mesh
 	// interfaces (e.g. batmesh0/batmesh1).
 	wifiModeMesh = "mesh"
+
+	// batMesh1RSSIThreshold is the mesh_rssi_threshold (dBm) applied to the
+	// 2.4 GHz batmesh1 interface. wpa_supplicant treats -255..-1 as a dBm
+	// floor for accepting a mesh peer, 0 as "no threshold", and 1 as "leave
+	// the driver default alone".
+	//
+	// batmesh1 exists to carry traffic between nodes close enough for 2.4 GHz
+	// to be decisively faster than the 900 MHz batmesh0 (S1G/HaLow) link, not
+	// to extend range. batmesh0 owns range. So the threshold is set at the
+	// crossover point rather than at the edge of usability: a 2.4 GHz link
+	// that is merely *reachable* is worse than no 2.4 GHz link at all, because
+	// batman-adv will use it and the low MCS rate consumes airtime out of all
+	// proportion to the traffic it carries.
+	//
+	// -80 dBm holds HE20 MCS2/MCS3 (~14-20 Mbps of real throughput) with a few
+	// dB of fade margin for mobile nodes, against roughly 1-4 Mbps from a
+	// 2 MHz HaLow channel -- several times faster, which is the bar. Dropping
+	// to -85 would admit MCS0/MCS1 links at ~4-9 Mbps that flap under motion
+	// and are not worth preferring over batmesh0.
+	batMesh1RSSIThreshold = "-80"
 )
 
 // setTransportInterfaceMTU sets the MTU (Maximum Transmission Unit) for all
@@ -129,7 +149,8 @@ func (m *ManagementConfig) setupBatMesh1Interface(ctx context.Context) error {
 //  3. Locates an existing wifi-iface with mode=mesh and borrows its mesh_id and
 //     key values.
 //  4. Creates the new wifi-iface with network=batmesh1, mode=mesh,
-//     mesh_fwding=0, encryption=sae, and the borrowed credentials.
+//     mesh_fwding=0, mesh_rssi_threshold=-80, encryption=sae, and the
+//     borrowed credentials.
 //  5. Updates the matched 2g radio with channel=8 and htmode=HE20.
 //  6. Marks batmesh1 as configured.
 func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
@@ -227,13 +248,14 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 
 	// Step 4: create the new wifi-iface.
 	newIface := &network.UCIWirelessIface{
-		Device:     radioSection,
-		Network:    "batmesh1",
-		Mode:       wifiModeMesh,
-		MeshID:     meshID,
-		Key:        meshKey,
-		MeshFwding: "0",
-		Encryption: "sae",
+		Device:            radioSection,
+		Network:           "batmesh1",
+		Mode:              wifiModeMesh,
+		MeshID:            meshID,
+		Key:               meshKey,
+		MeshFwding:        "0",
+		MeshRSSIThreshold: batMesh1RSSIThreshold,
+		Encryption:        "sae",
 	}
 
 	if err := network.SetWirelessIfaceConfigWithReader(newIfaceSection, newIface, wirelessReader); err != nil {
