@@ -7,8 +7,9 @@
 # Fallback engine: espeak-ng (development only; regenerate with Piper
 #   before release).
 #
-# Pipeline per clip: synth -> 48 kHz mono -> loudnorm to -3 dB peak ->
-# trim silence -> pad 60 ms head / 100 ms tail -> opusenc 32 kbps.
+# Pipeline per clip: synth -> 48 kHz mono -> trim leading/trailing silence ->
+# pad 60 ms head / 100 ms tail -> peak-limit to -3 dBFS (alimiter) ->
+# opusenc 32 kbps.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
