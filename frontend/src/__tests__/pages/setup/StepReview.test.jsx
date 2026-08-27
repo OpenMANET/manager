@@ -201,3 +201,47 @@ describe('TestStepReviewRebootNotice', () => {
     expect(screen.getByText(NOTICE)).toBeInTheDocument();
   });
 });
+
+describe('TestStepReviewMeshBackhaul', () => {
+  function BackhaulHarness({ passphrase }) {
+    const { dispatch } = useSetup();
+    useEffect(() => {
+      dispatch({ type: SETUP_ACTIONS.SET_HOSTNAME, value: 'node1' });
+      dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'radioName', value: 'radio1' });
+      dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'meshId', value: 'mesh1' });
+      dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'countryCode', value: 'US' });
+      dispatch({ type: SETUP_ACTIONS.SET_ADMIN_PASSWORD, value: 'longenough123' });
+      dispatch({ type: SETUP_ACTIONS.SET_ADMIN_PASSWORD_CONFIRM, value: 'longenough123' });
+      dispatch({ type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio0', mode: 'backhaul' });
+      dispatch({
+        type: SETUP_ACTIONS.SET_AP,
+        value: { radioName: 'radio0', backhaulMeshId: 'bh-2g', backhaulPassphrase: passphrase },
+      });
+    }, [dispatch, passphrase]);
+    return <StepReview />;
+  }
+
+  it('lists the backhaul radio and sends mesh_backhaul with its own credentials', async () => {
+    applyState.applySetup = vi.fn(() => fakeStream([
+      { phase: Phase.TERMINAL, result: { success: true } },
+    ]));
+
+    render(<SetupProvider><BackhaulHarness passphrase="backhaulpass" /></SetupProvider>);
+
+    expect(await screen.findByText('radio0: bh-2g')).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: /^apply$/i }));
+
+    await waitFor(() => expect(applyState.applySetup).toHaveBeenCalledTimes(1));
+    const req = applyState.applySetup.mock.calls[0][0];
+    const entry = req.profile.aps.find(a => a.radioName === 'radio0');
+    expect(entry.enabled).toBe(false);
+    expect(entry.meshBackhaul).toMatchObject({ meshId: 'bh-2g', passphrase: 'backhaulpass' });
+  });
+
+  it('blocks Apply while the backhaul passphrase is too short', async () => {
+    render(<SetupProvider><BackhaulHarness passphrase="short" /></SetupProvider>);
+
+    expect(await screen.findByText(/mesh backhaul on radio0 needs a passphrase/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^apply$/i })).toBeDisabled();
+  });
+});

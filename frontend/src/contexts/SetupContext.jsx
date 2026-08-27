@@ -71,12 +71,30 @@ export const SETUP_ACTIONS = {
   SET_UPLINK_WIRELESS:    'SET_UPLINK_WIRELESS',
   SET_AP:                 'SET_AP',
   REMOVE_AP:              'REMOVE_AP',
+  SET_RADIO_MODE:         'SET_RADIO_MODE',
   SET_ADMIN_PASSWORD:     'SET_ADMIN_PASSWORD',
   SET_ADMIN_PASSWORD_CONFIRM: 'SET_ADMIN_PASSWORD_CONFIRM',
   SET_TIMEZONE:           'SET_TIMEZONE',
   RESET:                  'RESET',
   HYDRATE_FROM_STATUS:    'HYDRATE_FROM_STATUS',
 };
+
+// apDefaults is the per-radio entry shape in state.aps. `enabled` is
+// the client-AP switch; `meshBackhaul` marks the one radio (at most)
+// that runs the 2.4 GHz batman-adv backhaul instead, with its own
+// mesh ID and passphrase.
+export function apDefaults(radioName) {
+  return {
+    radioName,
+    enabled:            false,
+    ssid:               '',
+    passphrase:         '',
+    encryption:         WifiEncryption.PSK2,
+    meshBackhaul:       false,
+    backhaulMeshId:     '',
+    backhaulPassphrase: '',
+  };
+}
 
 // reducer is exported for unit tests so they can drive it without a
 // full Provider tree.
@@ -134,19 +152,41 @@ export function reducer(state, action) {
       // — fields not in `value` are merged with the existing entry, or
       // defaulted on insert.
       const idx = state.aps.findIndex(ap => ap.radioName === action.value.radioName);
-      const baseDefaults = {
-        radioName:  action.value.radioName,
-        enabled:    false,
-        ssid:       '',
-        passphrase: '',
-        encryption: WifiEncryption.PSK2,
-      };
+      const baseDefaults = apDefaults(action.value.radioName);
       const merged = idx >= 0
         ? { ...state.aps[idx], ...action.value }
         : { ...baseDefaults, ...action.value };
       const aps = [...state.aps];
       if (idx >= 0) aps[idx] = merged;
       else aps.push(merged);
+      return { ...state, aps };
+    }
+
+    case SETUP_ACTIONS.SET_RADIO_MODE: {
+      // One control per radio: 'off' | 'ap' | 'backhaul'. Only one
+      // radio may be the backhaul (the daemon runs a single batmesh1
+      // hardif), so choosing it on one radio clears it on every other.
+      // AP and backhaul fields both survive a mode flip so the user can
+      // change their mind without retyping.
+      const { radioName, mode } = action;
+      const isBackhaul = mode === 'backhaul';
+      const idx = state.aps.findIndex(ap => ap.radioName === radioName);
+      const existing = idx >= 0 ? state.aps[idx] : apDefaults(radioName);
+      const updated = {
+        ...existing,
+        enabled:      mode === 'ap',
+        meshBackhaul: isBackhaul,
+        backhaulMeshId: isBackhaul && !existing.backhaulMeshId
+          ? `${state.mesh.meshId}-2g`
+          : existing.backhaulMeshId,
+      };
+      const aps = state.aps.map(ap => (
+        isBackhaul && ap.radioName !== radioName && ap.meshBackhaul
+          ? { ...ap, meshBackhaul: false }
+          : ap
+      ));
+      if (idx >= 0) aps[idx] = updated;
+      else aps.push(updated);
       return { ...state, aps };
     }
 

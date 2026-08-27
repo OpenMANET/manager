@@ -257,6 +257,39 @@ html, body {
 .lat-toggle.on .thumb { left: 22px; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 .lat-toggle.on .label { color: var(--accent); }
 
+/* ------------------------------------------------------------------- seg */
+
+/* Segmented radiogroup: a row of mutually exclusive uppercase mono
+   buttons. Mark the container role="radiogroup" and each button
+   role="radio" + aria-checked; the .active class carries the visual
+   state. Wraps on narrow viewports so three options fit at 360px. */
+.lat-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.lat-seg button {
+  flex: 1 1 96px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 0 12px;
+  min-height: 36px;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.lat-seg button:hover { background: rgba(0, 229, 255, 0.05); color: var(--text); }
+.lat-seg button.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(0, 229, 255, 0.08);
+}
+
 /* ------------------------------------------------------------------ check */
 
 /* Compact native checkbox + uppercase mono label, color-shifted for

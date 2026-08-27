@@ -162,4 +162,47 @@ describe('SetupContext.reducer', () => {
     });
     expect(next.timezone).toBe('Europe/Paris');
   });
+
+  it('SET_RADIO_MODE backhaul disables the AP, seeds the mesh ID, and clears backhaul on other radios', () => {
+    const withAp = reducer(initialState, {
+      type: SETUP_ACTIONS.SET_AP,
+      value: { radioName: 'radio0', enabled: true, ssid: 'home', passphrase: 'longenough' },
+    });
+    const first = reducer(withAp, { type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio0', mode: 'backhaul' });
+    const r0 = first.aps.find(a => a.radioName === 'radio0');
+    expect(r0.enabled).toBe(false);
+    expect(r0.meshBackhaul).toBe(true);
+    expect(r0.backhaulMeshId).toBe(`${initialState.mesh.meshId}-2g`);
+    expect(r0.ssid).toBe('home'); // AP fields survive a mode flip
+
+    const second = reducer(first, { type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio2', mode: 'backhaul' });
+    expect(second.aps.find(a => a.radioName === 'radio0').meshBackhaul).toBe(false);
+    expect(second.aps.find(a => a.radioName === 'radio2').meshBackhaul).toBe(true);
+    expect(second.aps.filter(a => a.meshBackhaul)).toHaveLength(1);
+  });
+
+  it('SET_RADIO_MODE ap and off flip enabled and clear backhaul', () => {
+    const bh = reducer(initialState, { type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio0', mode: 'backhaul' });
+    const ap = reducer(bh, { type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio0', mode: 'ap' });
+    expect(ap.aps[0].enabled).toBe(true);
+    expect(ap.aps[0].meshBackhaul).toBe(false);
+
+    const off = reducer(ap, { type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio0', mode: 'off' });
+    expect(off.aps[0].enabled).toBe(false);
+    expect(off.aps[0].meshBackhaul).toBe(false);
+    expect(off).not.toBe(ap);
+  });
+
+  it('SET_RADIO_MODE keeps a user-typed backhaul mesh ID across mode flips', () => {
+    const bh = reducer(initialState, { type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio0', mode: 'backhaul' });
+    const typed = reducer(bh, { type: SETUP_ACTIONS.SET_AP, value: { radioName: 'radio0', backhaulMeshId: 'mine' } });
+    const off = reducer(typed, { type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio0', mode: 'off' });
+    const again = reducer(off, { type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio0', mode: 'backhaul' });
+    expect(again.aps[0].backhaulMeshId).toBe('mine');
+  });
+
+  it('SET_AP defaults the backhaul fields on insert', () => {
+    const next = reducer(initialState, { type: SETUP_ACTIONS.SET_AP, value: { radioName: 'radio0' } });
+    expect(next.aps[0]).toMatchObject({ meshBackhaul: false, backhaulMeshId: '', backhaulPassphrase: '' });
+  });
 });

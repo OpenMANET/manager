@@ -27,9 +27,11 @@ import {
   MeshRole,
   UplinkSchema,
   RadioApProfileSchema,
+  MeshBackhaulProfileSchema,
   WifiStaProfileSchema,
   UplinkType,
 } from '../../gen/openmanet/setup/v1/setup_pb.js';
+import { WifiEncryption } from '../../gen/openmanet/wifi_config/v1/wifi_config_pb.js';
 import {
   ROLE_LABELS,
   MESH_POINT_MODE_LABELS,
@@ -253,6 +255,15 @@ function applyBlockers(state) {
   } else if (state.adminPassword !== state.adminPasswordConfirm) {
     out.push('Admin password and confirmation do not match (Password step).');
   }
+  for (const ap of state.aps) {
+    if (!ap.meshBackhaul) continue;
+    if (!ap.backhaulMeshId) {
+      out.push(`Mesh backhaul on ${ap.radioName} needs a mesh ID (Wi-Fi step).`);
+    }
+    if (!ap.backhaulPassphrase || ap.backhaulPassphrase.length < 8) {
+      out.push(`Mesh backhaul on ${ap.radioName} needs a passphrase of at least 8 characters (Wi-Fi step).`);
+    }
+  }
   return out;
 }
 
@@ -274,12 +285,20 @@ function profileToProto(state) {
       channel:      state.mesh.channel,
       countryCode:  state.mesh.countryCode,
     }),
-    aps: state.aps.filter(a => a.enabled).map(a => create(RadioApProfileSchema, {
+    aps: state.aps.filter(a => a.enabled || a.meshBackhaul).map(a => create(RadioApProfileSchema, {
       radioName:  a.radioName,
-      enabled:    true,
-      ssid:       a.ssid,
-      passphrase: a.passphrase,
-      encryption: a.encryption,
+      enabled:    a.enabled,
+      ssid:       a.enabled ? a.ssid : '',
+      passphrase: a.enabled ? a.passphrase : '',
+      // A backhaul entry carries no AP credentials, but the proto still
+      // requires a defined non-zero encryption — send SAE.
+      encryption: a.enabled ? a.encryption : WifiEncryption.SAE,
+      meshBackhaul: a.meshBackhaul
+        ? create(MeshBackhaulProfileSchema, {
+            meshId:     a.backhaulMeshId,
+            passphrase: a.backhaulPassphrase,
+          })
+        : undefined,
     })),
   });
 
@@ -320,6 +339,7 @@ async function pollForCompletion({ onSuccess, onTimeout }) {
 
 function ReviewSummary({ state }) {
   const apEntries = state.aps.filter(a => a.enabled);
+  const backhaul = state.aps.find(a => a.meshBackhaul);
   return (
     <>
       <div className="kv"><span className="k">Hostname</span><span className="v">{state.hostname}</span></div>
@@ -363,6 +383,10 @@ function ReviewSummary({ state }) {
             ? 'none'
             : apEntries.map(a => `${a.radioName}: ${a.ssid}`).join(', ')}
         </span>
+      </div>
+      <div className="kv">
+        <span className="k">Mesh backhaul</span>
+        <span className="v">{backhaul ? `${backhaul.radioName}: ${backhaul.backhaulMeshId}` : 'none'}</span>
       </div>
     </>
   );

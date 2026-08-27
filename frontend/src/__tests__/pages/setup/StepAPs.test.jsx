@@ -1,23 +1,26 @@
 // =============================================================================
-// StepAPs.test.jsx — AP encryption choices
+// StepAPs.test.jsx — per-radio mode selector and AP encryption choices
 // =============================================================================
 //
-// Pins the encryption options the wizard offers per AP radio. The set
-// mirrors the LuCI mesh wizard (psk2 / sae-mixed / sae) plus the open
-// modes; psk-mixed (WPA1+WPA2) is deliberately not offered because it
-// was previously mislabelled as WPA2/WPA3.
+// Pins (a) the encryption options the wizard offers per AP radio — the
+// LuCI mesh wizard's psk2 / sae-mixed / sae plus the open modes, never
+// psk-mixed — and (b) the Off / Access point / Mesh backhaul selector:
+// "Mesh backhaul" appears only when the device reports the radio as
+// capable (SetupRadio.supports_mesh_backhaul), and choosing it swaps
+// the AP form for the backhaul mesh ID + passphrase fields.
 
 import React from 'react';
 import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 
 import StepAPs from '../../../pages/setup/StepAPs.jsx';
 import { SetupProvider } from '../../../contexts/SetupContext.jsx';
 
 const STATUS = {
   radios: [
-    { name: 'radio0', band: '2g', isHalow: false },
+    { name: 'radio0', band: '2g', isHalow: false, hardwareName: 'MediaTek MT7915AN', supportsMeshBackhaul: true },
     { name: 'radio1', band: 's1g', isHalow: true },
+    { name: 'radio2', band: '5g', isHalow: false, hardwareName: 'platform/soc/mmc1', supportsMeshBackhaul: false },
   ],
 };
 
@@ -29,13 +32,21 @@ function renderStep() {
   );
 }
 
+function modeGroup(radio) {
+  return screen.getByRole('radiogroup', { name: `Mode on ${radio}` });
+}
+
+function pickMode(radio, label) {
+  fireEvent.click(within(modeGroup(radio)).getByRole('radio', { name: label }));
+}
+
 afterEach(cleanup);
 
 describe('StepAPsEncryptionOptions', () => {
   it('offers SAE, PSK2, SAE_MIXED, OWE and NONE in that order', () => {
     renderStep();
 
-    fireEvent.click(screen.getByRole('switch', { name: 'Enable AP on radio0' }));
+    pickMode('radio0', 'Access point');
     fireEvent.click(screen.getByRole('button', { name: 'Encryption on radio0' }));
 
     const labels = screen.getAllByRole('option').map(o => o.textContent);
@@ -51,9 +62,56 @@ describe('StepAPsEncryptionOptions', () => {
   it('never offers the legacy WPA/WPA2 mixed mode', () => {
     renderStep();
 
-    fireEvent.click(screen.getByRole('switch', { name: 'Enable AP on radio0' }));
+    pickMode('radio0', 'Access point');
     fireEvent.click(screen.getByRole('button', { name: 'Encryption on radio0' }));
 
     expect(screen.queryByRole('option', { name: 'WPA / WPA2 (mixed, legacy)' })).toBeNull();
+  });
+});
+
+describe('StepAPsRadioMode', () => {
+  it('offers Mesh backhaul only on radios the device marks capable', () => {
+    renderStep();
+
+    expect(within(modeGroup('radio0')).queryByRole('radio', { name: 'Mesh backhaul' })).not.toBeNull();
+    expect(within(modeGroup('radio2')).queryByRole('radio', { name: 'Mesh backhaul' })).toBeNull();
+    expect(screen.queryByRole('radiogroup', { name: 'Mode on radio1' })).toBeNull(); // HaLow radio is not listed
+  });
+
+  it('starts every radio Off and shows the chipset next to it', () => {
+    renderStep();
+
+    expect(within(modeGroup('radio0')).getByRole('radio', { name: 'Off' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByText('MediaTek MT7915AN')).toBeInTheDocument();
+  });
+
+  it('choosing Mesh backhaul shows mesh ID + passphrase and hides the AP form', () => {
+    renderStep();
+
+    pickMode('radio0', 'Mesh backhaul');
+
+    expect(within(modeGroup('radio0')).getByRole('radio', { name: 'Mesh backhaul' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByLabelText('Backhaul mesh ID')).toHaveValue('openmanet-2g');
+    expect(screen.getByLabelText('Backhaul passphrase')).toBeInTheDocument();
+    expect(screen.queryByLabelText('SSID')).toBeNull();
+  });
+
+  it('switching back to Access point restores the AP form and drops the backhaul fields', () => {
+    renderStep();
+
+    pickMode('radio0', 'Mesh backhaul');
+    pickMode('radio0', 'Access point');
+
+    expect(screen.getByLabelText('SSID')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Backhaul mesh ID')).toBeNull();
+  });
+
+  it('flags a short backhaul passphrase inline', () => {
+    renderStep();
+
+    pickMode('radio0', 'Mesh backhaul');
+    fireEvent.change(screen.getByLabelText('Backhaul passphrase'), { target: { value: 'short' } });
+
+    expect(screen.getByText('Passphrase must be at least 8 characters.')).toBeInTheDocument();
   });
 });
