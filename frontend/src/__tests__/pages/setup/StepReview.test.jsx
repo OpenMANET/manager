@@ -24,6 +24,7 @@ vi.mock('../../../services/setupClient.js', () => ({
 }));
 
 import StepReview from '../../../pages/setup/StepReview.jsx';
+import { setupClient } from '../../../services/setupClient.js';
 import { SetupProvider, useSetup } from '../../../contexts/SetupContext.jsx';
 import { SETUP_ACTIONS } from '../../../contexts/SetupContext.jsx';
 import {
@@ -151,5 +152,52 @@ describe('TestStepReviewApplyProgress', () => {
     await waitFor(() => {
       expect(list).toHaveTextContent('Timezone');
     });
+  });
+});
+
+// Ledger §08 P2 / §04 F3: after the wizard's own network reload,
+// openmanetd's address-reservation worker claims the node's final mesh
+// address on its first tick (125 s after bat0 comes up) and reboots the
+// device. The operator must be told on every screen they might be
+// looking at when that second outage lands.
+describe('TestStepReviewRebootNotice', () => {
+  const NOTICE = /reboots itself about 2.3 minutes after apply/i;
+
+  it('warns on the review screen that the device reboots itself', async () => {
+    renderStep();
+
+    expect(await screen.findByText(NOTICE)).toBeInTheDocument();
+    // Harness dispatches the hostname in an effect; wait for the re-render.
+    expect(await screen.findByText(/node1\.local keeps working/i)).toBeInTheDocument();
+  });
+
+  it('repeats the reboot notice on the success panel', async () => {
+    applyState.applySetup = vi.fn(() => fakeStream([
+      { phase: Phase.TERMINAL, result: { success: true, expectedUrl: 'https://node1.local:8081/login' } },
+    ]));
+
+    renderStep();
+    fireEvent.click(await screen.findByRole('button', { name: /^apply$/i }));
+
+    expect(await screen.findByText(/setup complete/i)).toBeInTheDocument();
+    expect(screen.getByText(NOTICE)).toBeInTheDocument();
+    expect(screen.queryByText(/only device on the mesh/i)).toBeNull();
+  });
+
+  it('repeats the reboot notice on the reconnecting panel', async () => {
+    // Stream drops before a terminal event and the completion poll never
+    // answers, so StepReview stays on the AmbiguousPanel.
+    setupClient.getSetupStatus.mockImplementationOnce(() => new Promise(() => {}));
+    applyState.applySetup = vi.fn(() => ({
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(new Error('connection lost')),
+      }),
+    }));
+
+    renderStep();
+    fireEvent.click(await screen.findByRole('button', { name: /^apply$/i }));
+
+    expect(await screen.findByText(/confirming/i)).toBeInTheDocument();
+    expect(screen.getByText(NOTICE)).toBeInTheDocument();
   });
 });

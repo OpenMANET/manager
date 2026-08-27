@@ -62,6 +62,17 @@ const PHASE_DEFS = [
 const POLL_INTERVAL_MS = 4000;
 const POLL_TIMEOUT_MS  = 60000;
 
+// rebootNotice is repeated on the review, success, and reconnecting
+// screens. After the wizard's own network reload, openmanetd's
+// address-reservation worker waits for peer gossip (first tick 125 s
+// after bat0 comes up — internal/mgmt/mgmt.go), claims the node's final
+// mesh address, and reboots the device: a second outage the operator
+// must expect. mDNS follows the hostname, so the .local URL survives it.
+function rebootNotice(hostname) {
+  const mdns = `${hostname || 'hostname'}.local`;
+  return `The device reboots itself about 2–3 minutes after apply and comes back on its final mesh address; ${mdns} keeps working.`;
+}
+
 export default function StepReview() {
   const { state } = useSetup();
   const [phaseMap, setPhaseMap] = useState({});  // phase enum → 'started'|'done'|'failed'
@@ -163,9 +174,12 @@ export default function StepReview() {
       <h3>Review &amp; Apply</h3>
 
       <div className="lat-alert crit">
-        Applying these settings will reload network services. The device
-        will likely move to a new IP address and SSID; you&apos;ll need to
-        reconnect.
+        <div>
+          Applying these settings will reload network services. The device
+          will likely move to a new IP address and SSID; you&apos;ll need to
+          reconnect.
+        </div>
+        <div>{rebootNotice(state.hostname)}</div>
       </div>
 
       <ReviewSummary state={state} />
@@ -367,11 +381,7 @@ function SuccessPanel({ state, result }) {
         <li>Open <a href={url}>{url}</a></li>
         <li>Sign in with the admin password you just set.</li>
       </ol>
-      <p className="setup-help">
-        If this is the only device on the mesh, your management IP will
-        remain at the value chosen during setup; the address will
-        renumber automatically when other peers join.
-      </p>
+      <p className="setup-help">{rebootNotice(state.hostname)}</p>
     </div>
   );
 }
@@ -408,6 +418,7 @@ function AmbiguousPanel({ state }) {
       <p className="setup-help">
         If this takes more than a minute, try connecting now: <a href={url}>{url}</a>
       </p>
+      <p className="setup-help">{rebootNotice(state.hostname)}</p>
     </div>
   );
 }
