@@ -1152,3 +1152,46 @@ func TestCompat_UmdnsNetworksRegistered(t *testing.T) {
 		})
 	}
 }
+
+// TestCompat_OpenmanetdFlagsReset pins the wizard's half of the
+// two-stage addressing design: openmanetd.config.dhcpconfigured=0
+// tells AddressReservationWorker to claim a mesh address after boot
+// (it acts whenever the value is not "1"), and batmesh1configured=0
+// lets setupBatMesh1Interface run on MT7915/16 boards. Without the
+// reset, re-running the wizard on a device that had reserved before
+// keeps the stale flag and the daemon never re-reserves.
+func TestCompat_OpenmanetdFlagsReset(t *testing.T) {
+	for scenario, profile := range map[string]*setupv1.MeshNodeProfile{
+		"gate":  gateRouterEthProfile(),
+		"point": pointExtenderProfile(),
+	} {
+		t.Run(scenario, func(t *testing.T) {
+			tr := runScenarioApply(t, profile)
+
+			assert.Equal(t, "0", tr.getOne("openmanetd", "config", "dhcpconfigured"))
+			assert.Equal(t, "0", tr.getOne("openmanetd", "config", "batmesh1configured"))
+			assert.Contains(t, tr.sectionsOfType("openmanetd", "openmanet"), "config",
+				"section must carry the shipped type `openmanet`")
+		})
+	}
+}
+
+// TestCompat_OpenmanetdFlagsOverwriteStaleOne seeds the flags a
+// previously-reserved device carries and proves the wizard clears
+// them (stage-only; commit happens in phase 12 with everything else).
+func TestCompat_OpenmanetdFlagsOverwriteStaleOne(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, _ := newFullSetupService(t, cfg)
+
+	reader, ok := svc.UCI.(*fakeConfigReader)
+	require.True(t, ok)
+	require.NoError(t, reader.AddSection("openmanetd", "config", "openmanet"))
+	require.NoError(t, reader.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "1"))
+	require.NoError(t, reader.SetType("openmanetd", "config", "batmesh1configured", uci.TypeOption, "1"))
+
+	require.NoError(t, svc.ApplySetupForTest(context.Background(), pointExtenderProfile(), &streamCollector{}))
+
+	tr := &uciTree{reader: reader}
+	assert.Equal(t, "0", tr.getOne("openmanetd", "config", "dhcpconfigured"))
+	assert.Equal(t, "0", tr.getOne("openmanetd", "config", "batmesh1configured"))
+}

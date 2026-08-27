@@ -87,14 +87,15 @@ type UCISnapshotter interface {
 	Restore(ctx context.Context, snapshot UCISnapshot) error
 }
 
-// wizardConfigs lists the seven UCI configs the wizard touches. The
+// wizardConfigs lists the UCI configs the wizard touches. The
 // snapshot phase captures all of them so any failure can be rolled
 // back atomically. umdns is included so a failure between the
 // base-network phase (which registers lan/ahwlan with umdns) and
 // phase 12's commit rolls the umdns write back along with everything
 // else, rather than leaving a half-applied umdns section live.
+// openmanetd carries the address-reservation flags staged in phase 9.
 var wizardConfigs = []string{ //nolint:gochecknoglobals // package-level constant
-	"wireless", "network", "dhcp", "firewall", "system", "mesh11sd", "umdns",
+	"wireless", "network", "dhcp", "firewall", "system", "mesh11sd", "umdns", "openmanetd",
 }
 
 // SetupService implements the SetupService ConnectRPC service. It

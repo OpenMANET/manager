@@ -1235,10 +1235,11 @@ func TestApplySetup_MeshPointExtender_HappyPath(t *testing.T) {
 	assert.Equal(t, 1, deps.Snap.snapshotCalls)
 	assert.Equal(t, 0, deps.Snap.restoreCalls, "happy path must not roll back")
 
-	// Snapshot scope covered all seven wizard configs.
+	// Snapshot scope covers every wizard config, including the
+	// openmanetd flags file staged in phase 9.
 	require.NotNil(t, deps.Snap.lastSnapshot)
 	assert.ElementsMatch(t, []string{
-		"wireless", "network", "dhcp", "firewall", "system", "mesh11sd", "umdns",
+		"wireless", "network", "dhcp", "firewall", "system", "mesh11sd", "umdns", "openmanetd",
 	}, deps.Snap.lastSnapshot.configs)
 
 	// Hostname setter saw the user's hostname.
@@ -1670,6 +1671,13 @@ func TestApplySetup_PhasesEmitInCorrectOrder(t *testing.T) {
 // configs but leave a partial umdns write live on disk.
 func TestWizardConfigsIncludesUmdns(t *testing.T) {
 	assert.Contains(t, handlers.WizardConfigsForTest(), "umdns")
+}
+
+// TestWizardConfigsIncludesOpenmanetd pins that the openmanetd flags
+// file is captured by the snapshot/rollback phase: a failure after
+// phase 9 must restore dhcpconfigured/batmesh1configured too.
+func TestWizardConfigsIncludesOpenmanetd(t *testing.T) {
+	assert.Contains(t, handlers.WizardConfigsForTest(), "openmanetd")
 }
 
 // TestReloadServicesIncludesUmdns pins that umdns is nudged by the

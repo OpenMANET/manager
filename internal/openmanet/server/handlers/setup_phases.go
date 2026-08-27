@@ -1271,6 +1271,43 @@ func (s *SetupService) writeWizardBookkeeping(profile *setupv1.MeshNodeProfile) 
 		}
 	}
 
+	return s.writeOpenmanetdFlags()
+}
+
+// writeOpenmanetdFlags stages the wizard's half of the two-stage
+// addressing design in /etc/config/openmanetd:
+//
+//	config openmanet 'config'
+//	    option dhcpconfigured '0'
+//	    option batmesh1configured '0'
+//
+// dhcpconfigured=0 makes AddressReservationWorker claim a mesh-unique
+// address + DHCP window after boot (it acts whenever the value is not
+// "1"); batmesh1configured=0 lets setupBatMesh1Interface run. The
+// wizard's ahwlan address is a throwaway 10.41.254.x bootstrap, so the
+// flag must be clear even when a previous run had reserved.
+//
+// Stage-only on purpose: network.ClearDHCPConfiguredWithReader and
+// friends commit immediately, which would break the phase-12 atomic
+// commit and the snapshot/rollback contract.
+func (s *SetupService) writeOpenmanetdFlags() error {
+	const (
+		openmanetdConfig  = "openmanetd"
+		openmanetdSection = "config"
+		openmanetdType    = "openmanet"
+	)
+
+	// Shipped images carry the section; AddSection on an existing
+	// named section may error on some readers — ignore, SetType
+	// works either way.
+	_ = s.UCI.AddSection(openmanetdConfig, openmanetdSection, openmanetdType)
+
+	for _, flag := range []string{"dhcpconfigured", "batmesh1configured"} {
+		if err := s.UCI.SetType(openmanetdConfig, openmanetdSection, flag, uci.TypeOption, "0"); err != nil {
+			return fmt.Errorf("stage openmanetd.config.%s: %w", flag, err)
+		}
+	}
+
 	return nil
 }
 
