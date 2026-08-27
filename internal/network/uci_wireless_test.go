@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGetWirelessMeshPassphraseFromPath(t *testing.T) {
@@ -876,4 +878,44 @@ func TestWhitelistDeviceFields_PropagatesDelError(t *testing.T) {
 	if err := WhitelistDeviceFields(reader, "radio4", WizardWifiDeviceWhitelist); err == nil {
 		t.Errorf("expected propagated error")
 	}
+}
+
+func TestMeshLink_Section(t *testing.T) {
+	link := MeshLink{Radio: "radio0", Network: BatmanSecondaryIface}
+
+	assert.Equal(t, "batmesh1_radio0", link.Section())
+	assert.NotEqual(t, "default_radio0", link.Section(),
+		"the link section must never be the AP section the wizard writes on the same radio")
+	assert.Equal(t, "batmesh0_radio2", MeshLink{Radio: "radio2", Network: BatmanPrimaryIface}.Section(),
+		"the name is keyed by the hardif, not hard-wired to batmesh1")
+}
+
+func TestMeshLink_IfaceConfig(t *testing.T) {
+	link := MeshLink{
+		Radio:         "radio0",
+		Network:       BatmanSecondaryIface,
+		MeshID:        "backhaul",
+		Key:           "secretkey999",
+		RSSIThreshold: SecondaryMeshRSSIThreshold,
+	}
+
+	want := &UCIWirelessIface{
+		Device:            "radio0",
+		Network:           "batmesh1",
+		Mode:              "mesh",
+		MeshID:            "backhaul",
+		Key:               "secretkey999",
+		MeshFwding:        "0",
+		MeshRSSIThreshold: "-80",
+		Encryption:        "sae",
+	}
+
+	assert.Equal(t, want, link.IfaceConfig())
+}
+
+func TestMeshLink_IfaceConfig_NoThreshold(t *testing.T) {
+	got := MeshLink{Radio: "radio2", Network: BatmanPrimaryIface, MeshID: "m", Key: "k"}.IfaceConfig()
+
+	assert.Empty(t, got.MeshRSSIThreshold, "an empty threshold must not be written")
+	assert.Equal(t, "batmesh0", got.Network)
 }

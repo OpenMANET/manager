@@ -115,6 +115,79 @@ type UCIWirelessIface struct {
 	Disabled          string `uci:"option disabled"`
 }
 
+// Mesh-link settings shared by the daemon's boot-time fallback
+// (mgmt.setupBatMesh1Interface) and the setup wizard's phase 8. Both
+// write the same wifi-iface for a batman-adv hardif, so the values live
+// here rather than in either caller.
+const (
+	// WifiModeMesh is the wifi-iface `mode` value for 802.11s mesh links.
+	WifiModeMesh = "mesh"
+
+	// wifiEncryptionSAE is the only encryption a mesh link may use.
+	wifiEncryptionSAE = "sae"
+
+	// SecondaryMeshChannel2G and SecondaryMeshHTMode2G are the radio
+	// settings applied to the 2.4 GHz radio that carries the secondary
+	// batman-adv link (batmesh1): channel 8, 20 MHz HE.
+	SecondaryMeshChannel2G = "8"
+	SecondaryMeshHTMode2G  = "HE20"
+
+	// SecondaryMeshRSSIThreshold is the mesh_rssi_threshold (dBm) applied
+	// to the 2.4 GHz secondary link. wpa_supplicant treats -255..-1 as a
+	// dBm floor for accepting a mesh peer, 0 as "no threshold", and 1 as
+	// "leave the driver default alone".
+	//
+	// The secondary link exists to carry traffic between nodes close
+	// enough for 2.4 GHz to be decisively faster than the 900 MHz primary
+	// (S1G/HaLow) link, not to extend range. The primary link owns range.
+	// So the threshold is set at the crossover point rather than at the
+	// edge of usability: a 2.4 GHz link that is merely *reachable* is
+	// worse than no 2.4 GHz link at all, because batman-adv will use it
+	// and the low MCS rate consumes airtime out of all proportion to the
+	// traffic it carries.
+	//
+	// -80 dBm holds HE20 MCS2/MCS3 (~14-20 Mbps of real throughput) with
+	// a few dB of fade margin for mobile nodes, against roughly 1-4 Mbps
+	// from a 2 MHz HaLow channel -- several times faster, which is the
+	// bar. Dropping to -85 would admit MCS0/MCS1 links at ~4-9 Mbps that
+	// flap under motion and are not worth preferring over the primary.
+	SecondaryMeshRSSIThreshold = "-80"
+)
+
+// MeshLink describes one 802.11s wifi-iface bound to a batman-adv hardif.
+type MeshLink struct {
+	Radio         string // wifi-device section, e.g. "radio0"
+	Network       string // batadv_hardif interface, e.g. BatmanSecondaryIface
+	MeshID        string
+	Key           string
+	RSSIThreshold string // mesh_rssi_threshold in dBm; empty omits the option
+}
+
+// Section returns the wifi-iface section name for the link,
+// "<Network>_<Radio>" (e.g. "batmesh1_radio0"). The primary link keeps
+// the factory "default_<radio>" section, so callers use Section only for
+// secondary hardifs — the name can never collide with the AP section the
+// wizard writes on the same radio.
+func (l MeshLink) Section() string {
+	return l.Network + "_" + l.Radio
+}
+
+// IfaceConfig returns the wifi-iface option set for the link: the hardif
+// binding, mode=mesh, the credentials, mesh_fwding=0 (batman-adv does
+// the forwarding), the RSSI threshold when set, and encryption=sae.
+func (l MeshLink) IfaceConfig() *UCIWirelessIface {
+	return &UCIWirelessIface{
+		Device:            l.Radio,
+		Network:           l.Network,
+		Mode:              WifiModeMesh,
+		MeshID:            l.MeshID,
+		Key:               l.Key,
+		MeshFwding:        "0",
+		MeshRSSIThreshold: l.RSSIThreshold,
+		Encryption:        wifiEncryptionSAE,
+	}
+}
+
 // UCIWirelessConfigReader wraps the UCI functions for wireless configuration.
 type UCIWirelessConfigReader struct {
 	tree uci.Tree
