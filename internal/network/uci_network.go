@@ -204,10 +204,6 @@ func GetUCINetworkByNameWithReader(name string, reader ConfigReader) (*UCINetwor
 		config.IPV6Class = values[0]
 	}
 
-	if values, ok := reader.Get(networkConfigName, name, optionMulticastMode); ok && len(values) > 0 {
-		config.MulticastMode = values[0]
-	}
-
 	return &config, nil
 }
 
@@ -1280,6 +1276,20 @@ func MulticastModeForForceflood(forceflood bool) string {
 	}
 
 	return MulticastModeOptimised
+}
+
+// MulticastModeWithReader returns the batman-adv multicast_mode option
+// currently persisted on the given interface's network section, or "" when
+// the option is unset. Unlike GetUCINetworkByNameWithReader it reads a
+// single option and cannot fail, so callers doing a change-only reconcile
+// have no error to handle. See MulticastModeForForceflood for the value's
+// meaning.
+func MulticastModeWithReader(reader ConfigReader, iface string) string {
+	if values, ok := reader.Get(networkConfigName, iface, optionMulticastMode); ok && len(values) > 0 {
+		return values[0]
+	}
+
+	return ""
 }
 
 // SetupBatmanDeviceOnNetwork creates (or updates) the batman-adv

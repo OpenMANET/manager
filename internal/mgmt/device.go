@@ -312,13 +312,9 @@ func (m *ManagementConfig) configureBatmanForcefloodWithDeps(
 	reloadFn func(context.Context) error,
 ) error {
 	want := network.MulticastModeForForceflood(m.BatmanMulticastForceflood)
+	current := network.MulticastModeWithReader(reader, m.BatInterface)
 
-	current, readErr := network.GetUCINetworkByNameWithReader(m.BatInterface, reader)
-	if readErr != nil {
-		return fmt.Errorf("read %s: %w", m.BatInterface, readErr)
-	}
-
-	if current.MulticastMode == want {
+	if current == want {
 		m.Log.Debug().
 			Str("interface", m.BatInterface).
 			Str("multicast_mode", want).
@@ -335,7 +331,7 @@ func (m *ManagementConfig) configureBatmanForcefloodWithDeps(
 
 	m.Log.Info().
 		Str("interface", m.BatInterface).
-		Str("previous", current.MulticastMode).
+		Str("previous", current).
 		Str("multicast_mode", want).
 		Msg("Persisted batman-adv multicast_mode (forceflood) to UCI")
 
