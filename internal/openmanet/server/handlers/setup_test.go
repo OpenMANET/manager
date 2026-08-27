@@ -1110,12 +1110,21 @@ func newFullSetupReader() *fakeConfigReader {
 		"output":  {"ACCEPT"},
 		"forward": {"ACCEPT"},
 	}
+	// wan mirrors the factory image (testfixtures/setup-wizard/before/
+	// firewall:16-24): OpenWrt's default REJECT input/forward policy
+	// with masq + mtu_fix, which the wizard strips in phase 4 and
+	// re-applies only on a forwarding destination. wan6 is deliberately
+	// left out of the network list so
+	// TestCompat_RouterFirewallEth_Wan6InWanZone keeps proving the
+	// wizard adds it.
 	r.data["firewall"]["@zone[1]"] = map[string][]string{
 		"name":    {"wan"},
 		"network": {"wan"},
-		"input":   {"ACCEPT"},
+		"input":   {"REJECT"},
 		"output":  {"ACCEPT"},
-		"forward": {"ACCEPT"},
+		"forward": {"REJECT"},
+		"masq":    {"1"},
+		"mtu_fix": {"1"},
 	}
 
 	if r.sectionTypes["firewall"] == nil {

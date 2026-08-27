@@ -975,6 +975,50 @@ func TestCompat_RouterFirewallEth_Wan6Created(t *testing.T) {
 		"wan6.proto must be dhcpv6")
 }
 
+// D2 (wizard-parity ledger, 2026-08-27): the router_firewall scenario
+// keeps the factory wan zone policy — input REJECT / output ACCEPT /
+// forward REJECT — and re-applies masq + mtu_fix on it as the
+// destination of the mmrouter forwarding. LuCI's setupNetworkIface('wan')
+// sets ACCEPT×3 instead (tools_wizard.js:364-368); the divergence is
+// deliberate: OpenWrt's default policy plus the 13 explicit wan rules is
+// what "router + firewall (untrusted upstream)" promises, and LuCI
+// cannot reach this scenario on the shipped radio, so there is no
+// capture to match. Flip the three policy values below if the decision
+// is ever reversed.
+func TestCompat_RouterFirewallEth_WanZonePolicy(t *testing.T) {
+	tr := runScenarioApply(t, gateRouterFirewallEthProfile())
+
+	wanZone := tr.findFirewallZoneByName("wan")
+	require.NotEmpty(t, wanZone, "wan firewall zone must exist")
+
+	assert.Equal(t, "REJECT", tr.getOne("firewall", wanZone, "input"),
+		"factory wan input policy must survive the wizard")
+	assert.Equal(t, "ACCEPT", tr.getOne("firewall", wanZone, "output"))
+	assert.Equal(t, "REJECT", tr.getOne("firewall", wanZone, "forward"),
+		"factory wan forward policy must survive the wizard")
+	assert.Equal(t, "1", tr.getOne("firewall", wanZone, "masq"),
+		"wan is the NAT destination of the mmrouter forwarding")
+	assert.Equal(t, "1", tr.getOne("firewall", wanZone, "mtu_fix"),
+		"wan is the destination of the mmrouter forwarding")
+}
+
+// When lan is the upstream (plain router), wan carries nothing: the
+// factory masq/mtu_fix flags are stripped by the phase-4 reset and not
+// re-applied. The LuCI capture agrees
+// (testfixtures/setup-wizard/after/mesh-gate-router-eth/firewall:17-23
+// has neither flag on wan).
+func TestCompat_RouterEth_WanZoneNatFlagsStripped(t *testing.T) {
+	tr := runScenarioApply(t, gateRouterEthProfile())
+
+	wanZone := tr.findFirewallZoneByName("wan")
+	require.NotEmpty(t, wanZone, "wan firewall zone must exist")
+
+	assert.Empty(t, tr.get("firewall", wanZone, "masq"),
+		"masq must be stripped from wan when lan is the upstream")
+	assert.Empty(t, tr.get("firewall", wanZone, "mtu_fix"),
+		"mtu_fix must be stripped from wan when lan is the upstream")
+}
+
 // Gap 3: every wizard run must emit the LuCI mesh-AP overlay section
 // (`meshap_<mesh-radio>`) so operators can later toggle it on from the
 // settings UI without having to create the section by hand. The
