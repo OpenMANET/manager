@@ -204,6 +204,10 @@ func GetUCINetworkByNameWithReader(name string, reader ConfigReader) (*UCINetwor
 		config.IPV6Class = values[0]
 	}
 
+	if values, ok := reader.Get(networkConfigName, name, optionMulticastMode); ok && len(values) > 0 {
+		config.MulticastMode = values[0]
+	}
+
 	return &config, nil
 }
 

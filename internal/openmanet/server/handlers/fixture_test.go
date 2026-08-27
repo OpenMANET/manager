@@ -218,7 +218,8 @@ func ownedRows() []ownedRow {
 		// gateway's address on points. Gates never carry ahwlan.dns
 		// (TestCompat_MeshGateAhwlanNoDNS), so the row is point-only.
 		{Scenario: "mesh-point-extender", Config: "network", SectionType: "interface", SectionName: "ahwlan", Option: "dns", Owner: ownerDaemon},
-		// configureBatmanForceflood rewrites it on every daemon start.
+		// configureBatmanForceflood reconciles it on every daemon start
+		// (commit + reload only when the persisted value differs).
 		{Config: "network", SectionType: "interface", SectionName: "bat0", Option: "multicast_mode", Owner: ownerDaemon},
 		// The reservation worker rewrites the pool start (offset 100 first).
 		{Config: "dhcp", SectionType: "dhcp", SectionName: "ahwlan", Option: "start", Owner: ownerDaemon},

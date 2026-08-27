@@ -292,7 +292,9 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 // kernel defines it as the negation of forceflood, so forceflood=true
 // writes "0" (classic flooding) and false writes "1" (IGMP/MLD-snooping
 // optimisations) — see network.MulticastModeForForceflood. A subsequent
-// network reload applies the change.
+// network reload applies the change. The write is change-only: when bat0
+// already carries the wanted value nothing is committed and no reload is
+// issued.
 func (m *ManagementConfig) configureBatmanForceflood(ctx context.Context) error {
 	return m.configureBatmanForcefloodWithDeps(
 		ctx,
@@ -309,17 +311,32 @@ func (m *ManagementConfig) configureBatmanForcefloodWithDeps(
 	reader network.ConfigReader,
 	reloadFn func(context.Context) error,
 ) error {
-	val := network.MulticastModeForForceflood(m.BatmanMulticastForceflood)
+	want := network.MulticastModeForForceflood(m.BatmanMulticastForceflood)
+
+	current, readErr := network.GetUCINetworkByNameWithReader(m.BatInterface, reader)
+	if readErr != nil {
+		return fmt.Errorf("read %s: %w", m.BatInterface, readErr)
+	}
+
+	if current.MulticastMode == want {
+		m.Log.Debug().
+			Str("interface", m.BatInterface).
+			Str("multicast_mode", want).
+			Msg("batman-adv multicast_mode already persisted; skipping commit and reload")
+
+		return nil
+	}
 
 	if err := network.SetNetworkConfigWithReader(m.BatInterface, &network.UCINetwork{
-		MulticastMode: val,
+		MulticastMode: want,
 	}, reader); err != nil {
 		return fmt.Errorf("set multicast_mode on %s: %w", m.BatInterface, err)
 	}
 
-	m.Log.Debug().
+	m.Log.Info().
 		Str("interface", m.BatInterface).
-		Str("multicast_mode", val).
+		Str("previous", current.MulticastMode).
+		Str("multicast_mode", want).
 		Msg("Persisted batman-adv multicast_mode (forceflood) to UCI")
 
 	if err := reloadFn(ctx); err != nil {

@@ -854,3 +854,61 @@ func TestConfigureBatmanForceflood_ReloadError(t *testing.T) {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
+
+// TestConfigureBatmanForceflood_UnchangedSkipsCommitAndReload pins ledger
+// row D1: on an already-configured device the boot-time multicast_mode
+// write must be a no-op — no UCI commit, no reload_config — so a reboot
+// does not bounce the network stack for a value that is already there.
+func TestConfigureBatmanForceflood_UnchangedSkipsCommitAndReload(t *testing.T) {
+	m := newTestManagementConfig()
+	m.BatInterface = "bat0"
+	m.BatmanMulticastForceflood = true // maps to multicast_mode "0"
+
+	reader := newFakeNetworkReader()
+	require.NoError(t, reader.AddSection("network", "bat0", "interface"))
+	require.NoError(t, reader.SetType("network", "bat0", "multicast_mode", uci.TypeOption, "0"))
+
+	reloadCalled := false
+	reloadFn := func(_ context.Context) error {
+		reloadCalled = true
+
+		return nil
+	}
+
+	require.NoError(t, m.configureBatmanForcefloodWithDeps(context.Background(), reader, reloadFn))
+
+	assert.Zero(t, reader.commitCalls, "unchanged multicast_mode must not commit")
+	assert.False(t, reloadCalled, "unchanged multicast_mode must not reload the network")
+
+	values, ok := reader.Get("network", "bat0", "multicast_mode")
+	require.True(t, ok)
+	assert.Equal(t, []string{"0"}, values)
+}
+
+// TestConfigureBatmanForceflood_ChangedCommitsAndReloads is the other half
+// of D1: when the persisted value differs from the configured one, the
+// daemon rewrites it, commits exactly once, and reloads.
+func TestConfigureBatmanForceflood_ChangedCommitsAndReloads(t *testing.T) {
+	m := newTestManagementConfig()
+	m.BatInterface = "bat0"
+	m.BatmanMulticastForceflood = true // maps to multicast_mode "0"
+
+	reader := newFakeNetworkReader()
+	require.NoError(t, reader.AddSection("network", "bat0", "interface"))
+	require.NoError(t, reader.SetType("network", "bat0", "multicast_mode", uci.TypeOption, "1"))
+
+	reloadCalled := false
+	reloadFn := func(_ context.Context) error {
+		reloadCalled = true
+
+		return nil
+	}
+
+	require.NoError(t, m.configureBatmanForcefloodWithDeps(context.Background(), reader, reloadFn))
+
+	values, ok := reader.Get("network", "bat0", "multicast_mode")
+	require.True(t, ok)
+	assert.Equal(t, []string{"0"}, values)
+	assert.Equal(t, 1, reader.commitCalls, "changed multicast_mode must commit exactly once")
+	assert.True(t, reloadCalled, "changed multicast_mode must reload the network")
+}

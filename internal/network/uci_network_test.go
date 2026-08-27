@@ -1292,6 +1292,28 @@ func TestGetUCINetworkByNameWithReader_IPv6Fields(t *testing.T) {
 	}
 }
 
+func TestGetUCINetworkByNameWithReader_MulticastMode(t *testing.T) {
+	reader := &mockConfigReader{
+		data: map[string]map[string]map[string][]string{
+			"network": {
+				"bat0": {
+					"proto":          {"batadv"},
+					"multicast_mode": {"0"},
+				},
+			},
+		},
+	}
+
+	want := &UCINetwork{
+		Proto:         "batadv",
+		MulticastMode: "0",
+	}
+
+	got, err := GetUCINetworkByNameWithReader("bat0", reader)
+	require.NoError(t, err)
+	assert.Equal(t, want, got, "the getter must read multicast_mode back, mirroring SetNetworkConfigWithReader")
+}
+
 func TestSetNetworkIPV6AssignmentWithReader_CommitError(t *testing.T) {
 	reader := &mockConfigReader{
 		data:        make(map[string]map[string]map[string][]string),
