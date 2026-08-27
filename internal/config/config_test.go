@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -1370,46 +1371,6 @@ func TestBLOSEnabled(t *testing.T) {
 	}
 }
 
-func TestGetEnableBatmanMulticastEnhancements(t *testing.T) {
-	tests := []struct {
-		setValue *bool
-		name     string
-		want     bool
-	}{
-		{
-			name:     "returns true when enabled",
-			setValue: boolPtr(true),
-			want:     true,
-		},
-		{
-			name:     "returns false when disabled",
-			setValue: boolPtr(false),
-			want:     false,
-		},
-		{
-			name:     "returns default when not set",
-			setValue: nil,
-			want:     DefaultBatmanMulticastEnhancementsEnabled,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			v := viper.New()
-			if tt.setValue != nil {
-				v.Set("batman.multicastEnhancementsEnabled", *tt.setValue)
-			}
-
-			cfg := New(v)
-
-			got := cfg.GetEnableBatmanMulticastEnhancements()
-			if got != tt.want {
-				t.Errorf("GetEnableBatmanMulticastEnhancements() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestGetBatmanMulticastForceflood(t *testing.T) {
 	tests := []struct {
 		setValue *bool
@@ -1447,6 +1408,28 @@ func TestGetBatmanMulticastForceflood(t *testing.T) {
 				t.Errorf("GetBatmanMulticastForceflood() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestNewWithoutWatch_IgnoresRemovedMulticastEnhancementsKey pins that a
+// config.yml written before batman.multicastEnhancementsEnabled was removed
+// (decision D0, 2026-08-27) still loads: viper ignores keys nothing reads,
+// and the sibling batman.multicastForceflood key in the same block is still
+// honored. This is a regression pin, not a RED test — it passed before the
+// key was removed too.
+func TestNewWithoutWatch_IgnoresRemovedMulticastEnhancementsKey(t *testing.T) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+
+	legacy := "batman:\n  multicastEnhancementsEnabled: false\n  multicastForceflood: true\n"
+	if err := v.ReadConfig(strings.NewReader(legacy)); err != nil {
+		t.Fatalf("ReadConfig: %v", err)
+	}
+
+	cfg := NewWithoutWatch(v)
+
+	if !cfg.GetBatmanMulticastForceflood() {
+		t.Error("GetBatmanMulticastForceflood() = false; the sibling key must still be read when the removed key is present")
 	}
 }
 

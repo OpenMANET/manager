@@ -47,7 +47,6 @@ type ManagementConfig struct {
 	PositionDataType                        bool
 	AddressReservationDataType              bool
 	MeshNeighborsDataType                   bool
-	BatmanMulticastEnhancementsEnabled      bool
 	BatmanMulticastForceflood               bool
 	GatewayDataType                         bool
 }
@@ -94,12 +93,6 @@ func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
 func (m *ManagementConfig) Start(ctx context.Context) {
 	if err := m.setTransportInterfaceMTU(); err != nil {
 		m.Log.Error().Err(err).Msg("Failed to set MTU for transport interface")
-	}
-
-	if m.BatmanMulticastEnhancementsEnabled {
-		if err := m.configureDeviceMulticast(ctx); err != nil {
-			m.Log.Error().Err(err).Msg("Failed to configure device multicast settings")
-		}
 	}
 
 	if err := m.configureBatmanForceflood(ctx); err != nil {

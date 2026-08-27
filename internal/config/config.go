@@ -11,11 +11,10 @@ import (
 
 // Default configuration values
 const (
-	DefaultMeshNetInterface                   string = "br-ahwlan"
-	DefaultDBFile                             string = "/etc/openmanetd/openmanetd.db"
-	DefaultAlfredMode                         string = "primary"
-	DefaultAlfredBatInterface                 string = "bat0"
-	DefaultBatmanMulticastEnhancementsEnabled bool   = true
+	DefaultMeshNetInterface   string = "br-ahwlan"
+	DefaultDBFile             string = "/etc/openmanetd/openmanetd.db"
+	DefaultAlfredMode         string = "primary"
+	DefaultAlfredBatInterface string = "bat0"
 	// DefaultBatmanMulticastForceflood controls batman-adv's multicast mode.
 	// When true, every multicast frame is flooded to every mesh node. When
 	// false, batman-adv uses IGMP/MLD snooping to deliver each group only to
@@ -231,7 +230,6 @@ type Config struct {
 	CommsMicGain                              float32
 	AlfredDataTypeAddressReserv               bool
 	AlfredDataTypeNode                        bool
-	BatmanMulticastEnhancementsEnabled        bool
 	BatmanMulticastForceflood                 bool
 	CommsDebug                                bool
 	CommsGPIOSelectorEnable                   bool
@@ -354,12 +352,6 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.GNSSSource = val
 	} else {
 		c.GNSSSource = DefaultGNSSSource
-	}
-
-	if c.v.IsSet("batman.multicastEnhancementsEnabled") {
-		c.BatmanMulticastEnhancementsEnabled = c.v.GetBool("batman.multicastEnhancementsEnabled")
-	} else {
-		c.BatmanMulticastEnhancementsEnabled = DefaultBatmanMulticastEnhancementsEnabled
 	}
 
 	if c.v.IsSet("batman.multicastForceflood") {
@@ -869,14 +861,6 @@ func (c *Config) GetResetDBOnStart() bool {
 	defer c.mu.RUnlock()
 
 	return c.ResetDBOnStart
-}
-
-// GetEnableBatmanMulticastEnhancements returns whether batman-adv multicast enhancements are enabled.
-func (c *Config) GetEnableBatmanMulticastEnhancements() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.BatmanMulticastEnhancementsEnabled
 }
 
 // GetBatmanMulticastForceflood returns whether batman-adv multicast forceflood is enabled.

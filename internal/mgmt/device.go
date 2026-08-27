@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/iwinfo"
 	"github.com/openmanet/openmanetd/internal/network"
 )
@@ -16,10 +15,6 @@ const (
 	defaultBatmanInterfaceMTU   int = 1460
 	defaultAhwlanInterfaceMTU   int = 1460
 	defaultEthernetInterfaceMTU int = 1460
-
-	igmpSnoopingEnabled      = "1"
-	multicastQuerierEnabled  = "1"
-	multicastQuerierDisabled = "0"
 
 	// wifiModeMesh is the wifi-iface `mode` value used by 802.11s mesh
 	// interfaces (e.g. batmesh0/batmesh1).
@@ -326,62 +321,6 @@ func (m *ManagementConfig) configureBatmanForcefloodWithDeps(
 		Str("interface", m.BatInterface).
 		Str("multicast_mode", val).
 		Msg("Persisted batman-adv multicast_mode (forceflood) to UCI")
-
-	if err := reloadFn(ctx); err != nil {
-		return fmt.Errorf("reload config: %w", err)
-	}
-
-	return nil
-}
-
-// configureDeviceMulticast configures IGMP snooping and multicast querier
-// settings on the network device identified by ManagementConfig.IFace.
-// Gateway status is determined by querying batman-adv via BatInterface.
-func (m *ManagementConfig) configureDeviceMulticast(ctx context.Context) error { //nolint:unused
-	return m.configureDeviceMulticastWithDeps(
-		ctx,
-		network.NewUCINetworkConfigReader(),
-		batmanadv.GetMeshConfig,
-		network.ForceReloadConfig,
-	)
-}
-
-// configureDeviceMulticastWithDeps is the testable implementation of
-// configureDeviceMulticast. Dependencies are injected so the function can be
-// unit-tested without a real OpenWrt environment.
-func (m *ManagementConfig) configureDeviceMulticastWithDeps(
-	ctx context.Context,
-	reader network.ConfigReader,
-	getMeshConfig func(string) (*batmanadv.MeshConfig, error),
-	reloadFn func(context.Context) error,
-) error {
-	device, err := network.GetDeviceByNameWithReader(m.IFace, reader)
-	if err != nil {
-		return fmt.Errorf("get device %s: %w", m.IFace, err)
-	}
-
-	meshCfg, err := getMeshConfig(m.BatInterface)
-	if err != nil {
-		return fmt.Errorf("get mesh config: %w", err)
-	}
-
-	device.IgmpSnooping = igmpSnoopingEnabled
-
-	if meshCfg.IsGatewayMode() {
-		device.MulticastQuerier = multicastQuerierEnabled
-	} else {
-		device.MulticastQuerier = multicastQuerierDisabled
-	}
-
-	if err := network.SetDeviceConfigWithReader(m.IFace, device, reader); err != nil {
-		return fmt.Errorf("set device config %s: %w", m.IFace, err)
-	}
-
-	m.Log.Info().
-		Str("device", m.IFace).
-		Str("igmp_snooping", device.IgmpSnooping).
-		Str("multicast_querier", device.MulticastQuerier).
-		Msg("Configured device multicast settings")
 
 	if err := reloadFn(ctx); err != nil {
 		return fmt.Errorf("reload config: %w", err)
