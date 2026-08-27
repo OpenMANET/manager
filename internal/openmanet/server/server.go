@@ -209,6 +209,7 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		HostnameSetter: cfg.SetupHostnameSetter,
 		Reloader:       cfg.SetupReloader,
 		Iwinfo:         iwinfo.NewClient(),
+		WirelessStatus: network.NewDefaultWirelessStatusProvider(),
 		Interfaces:     interfaces,
 		RNG:            cfg.SetupRNG,
 	}, connect.WithInterceptors(validateInterceptor)))

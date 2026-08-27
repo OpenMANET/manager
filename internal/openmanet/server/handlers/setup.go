@@ -112,6 +112,7 @@ type SetupService struct {
 	PasswordSetter auth.PasswordSetter
 	HostnameSetter HostnameSetter
 	Iwinfo         iwinfo.IwinfoProvider
+	WirelessStatus network.WirelessStatusProvider
 	Interfaces     InterfaceProvider
 	Cfg            *config.Config
 	RNG            *rand.Rand
@@ -404,7 +405,14 @@ func (s *SetupService) currentSystemConfig() *network.UCISystem {
 // as HaLow. Bandwidths/channels per radio are not yet populated; the
 // wizard handler defers to WifiConfigService.GetRadioSettings for the
 // channel list (frontend calls both RPCs in parallel).
-func (s *SetupService) collectSetupRadios(_ context.Context) []*setupv1.SetupRadio {
+//
+// When at least one non-HaLow 2.4 GHz radio exists, the radios' live
+// interfaces are resolved through iwinfo + ubus wireless status (the
+// correlation mgmt.setupBatMesh1Interface uses) so the label can show
+// the chipset and supports_mesh_backhaul can say whether the daemon
+// would run the secondary link there. On HaLow-only boards nothing is
+// resolved, keeping the SetupGate poll free of ubus calls.
+func (s *SetupService) collectSetupRadios(ctx context.Context) []*setupv1.SetupRadio {
 	deviceSections, err := s.UCI.GetSections("wireless", "wifi-device")
 	if err != nil {
 		s.Log.Warn().Err(err).Msg("listing wifi-device sections")
@@ -413,6 +421,7 @@ func (s *SetupService) collectSetupRadios(_ context.Context) []*setupv1.SetupRad
 	}
 
 	radios := make([]*setupv1.SetupRadio, 0, len(deviceSections))
+	candidates := make(map[string]struct{}, len(deviceSections))
 
 	for _, name := range deviceSections {
 		dev, err := network.GetWirelessDeviceByNameWithReader(name, s.UCI)
@@ -426,9 +435,75 @@ func (s *SetupService) collectSetupRadios(_ context.Context) []*setupv1.SetupRad
 			HardwareName: dev.Path,
 			IsHalow:      strings.EqualFold(dev.Type, "morse"),
 		})
+
+		if isSecondaryMeshCandidate(dev) {
+			candidates[name] = struct{}{}
+		}
+	}
+
+	if len(candidates) == 0 {
+		return radios
+	}
+
+	hardware := s.resolveRadioHardware(ctx, deviceSections)
+
+	for _, radio := range radios {
+		hw, ok := hardware[radio.GetName()]
+		if !ok {
+			continue
+		}
+
+		radio.HardwareName = hw
+
+		if _, candidate := candidates[radio.GetName()]; candidate {
+			radio.SupportsMeshBackhaul = network.SupportsSecondaryMeshLink(hw)
+		}
 	}
 
 	return radios
+}
+
+// isSecondaryMeshCandidate reports whether a wifi-device could carry the
+// 2.4 GHz secondary mesh link at all: band 2g and not the HaLow radio.
+// The chipset test is applied separately, once the live interface is
+// resolved.
+func isSecondaryMeshCandidate(dev *network.UCIWirelessDevice) bool {
+	return dev.Band == "2g" && !strings.EqualFold(dev.Type, "morse")
+}
+
+// resolveRadioHardware maps each wifi-device section to the iwinfo
+// hardware name of its live interface. Both providers are optional;
+// when either is missing or fails every radio stays unresolved and the
+// callers fall back (bus-path label, no backhaul offer, daemon fallback
+// at boot). Two ubus calls per invocation.
+func (s *SetupService) resolveRadioHardware(ctx context.Context, devices []string) map[string]string {
+	out := make(map[string]string, len(devices))
+
+	if s.Iwinfo == nil || s.WirelessStatus == nil {
+		return out
+	}
+
+	infos, err := s.Iwinfo.GetInfoForAll(ctx)
+	if err != nil {
+		s.Log.Debug().Err(err).Msg("iwinfo unavailable; radio hardware names unresolved")
+
+		return out
+	}
+
+	status, err := s.WirelessStatus.GetWirelessStatus(ctx)
+	if err != nil {
+		s.Log.Debug().Err(err).Msg("wireless status unavailable; radio hardware names unresolved")
+
+		return out
+	}
+
+	for _, name := range devices {
+		if hw := network.ResolveWirelessRadioHardwareName(name, status, infos); hw != "" {
+			out[name] = hw
+		}
+	}
+
+	return out
 }
 
 // collectEthernetPorts enumerates the ethernet interfaces that the

@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	setupv1 "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1"
 	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
 	"github.com/openmanet/openmanetd/internal/config"
+	"github.com/openmanet/openmanetd/internal/iwinfo"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/rs/zerolog"
@@ -275,6 +277,95 @@ func TestGetSetupStatus_RadioMetadataIsHalowSet(t *testing.T) {
 	require.NotNil(t, byName["radio1"])
 	assert.True(t, byName["radio1"].GetIsHalow())
 	assert.Equal(t, "s1g", byName["radio1"].GetBand())
+}
+
+// backhaulCapableProviders returns iwinfo + wireless-status fakes that
+// report radio0's live interface as a MediaTek MT7915AN, the shape the
+// daemon's batmesh1 fallback keys on.
+func backhaulCapableProviders() (*fakeIwinfoProvider, *fakeWirelessStatusProvider) {
+	iw := &fakeIwinfoProvider{infoByDevice: map[string]*iwinfo.InterfaceInfo{
+		"phy0-ap0": {Hardware: iwinfo.HardwareInfo{Name: "MediaTek MT7915AN"}},
+	}}
+	ws := &fakeWirelessStatusProvider{status: map[string]*network.WirelessRadioStatus{
+		"radio0": {Interfaces: []network.WirelessRadioInterface{{Ifname: "phy0-ap0"}}},
+	}}
+
+	return iw, ws
+}
+
+func TestGetSetupStatus_SupportsMeshBackhaul_MT7915(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "")
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+	svc.Iwinfo, svc.WirelessStatus = backhaulCapableProviders()
+
+	resp, err := svc.GetSetupStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	byName := map[string]*setupv1.SetupRadio{}
+	for _, r := range resp.GetRadios() {
+		byName[r.GetName()] = r
+	}
+
+	require.NotNil(t, byName["radio0"])
+	assert.True(t, byName["radio0"].GetSupportsMeshBackhaul())
+	assert.Equal(t, "MediaTek MT7915AN", byName["radio0"].GetHardwareName(),
+		"the label shows the chipset when iwinfo knows it")
+
+	require.NotNil(t, byName["radio1"])
+	assert.False(t, byName["radio1"].GetSupportsMeshBackhaul(), "HaLow radios never qualify")
+	assert.Equal(t, "platform/soc/fe204000.spi", byName["radio1"].GetHardwareName(),
+		"unresolved radios keep the bus-path label")
+}
+
+func TestGetSetupStatus_SupportsMeshBackhaul_FalseFor5GHz(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "")
+	reader := newSetupReader()
+	reader.data["wireless"]["radio0"]["band"] = []string{"5g"}
+	svc := newSetupService(t, cfg, reader, &fakeInterfaceProvider{})
+	svc.Iwinfo, svc.WirelessStatus = backhaulCapableProviders()
+
+	resp, err := svc.GetSetupStatus(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	for _, r := range resp.GetRadios() {
+		assert.False(t, r.GetSupportsMeshBackhaul(), "%s: only 2.4 GHz radios carry the secondary link", r.GetName())
+	}
+}
+
+func TestGetSetupStatus_SupportsMeshBackhaul_FalseWhenUnresolvable(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "")
+
+	cases := map[string]func(svc *handlers.SetupService){
+		"no providers wired": func(*handlers.SetupService) {},
+		"iwinfo error": func(svc *handlers.SetupService) {
+			svc.Iwinfo = &fakeIwinfoProvider{infoErr: errors.New("ubus timeout")}
+			_, svc.WirelessStatus = backhaulCapableProviders()
+		},
+		"wireless status error": func(svc *handlers.SetupService) {
+			svc.Iwinfo, _ = backhaulCapableProviders()
+			svc.WirelessStatus = &fakeWirelessStatusProvider{err: errors.New("ubus timeout")}
+		},
+		"other chipset": func(svc *handlers.SetupService) {
+			svc.Iwinfo = &fakeIwinfoProvider{infoByDevice: map[string]*iwinfo.InterfaceInfo{
+				"phy0-ap0": {Hardware: iwinfo.HardwareInfo{Name: "Broadcom BCM43430"}},
+			}}
+			_, svc.WirelessStatus = backhaulCapableProviders()
+		},
+	}
+
+	for name, arrange := range cases {
+		t.Run(name, func(t *testing.T) {
+			svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+			arrange(svc)
+
+			resp, err := svc.GetSetupStatus(context.Background(), &emptypb.Empty{})
+			require.NoError(t, err)
+
+			for _, r := range resp.GetRadios() {
+				assert.False(t, r.GetSupportsMeshBackhaul(), r.GetName())
+			}
+		})
+	}
 }
 
 func TestGetSetupStatus_AlreadyConfigured_NonFactoryHostname(t *testing.T) {

@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"buf.build/go/protovalidate"
@@ -199,5 +200,36 @@ func TestValidation_MeshRadioConfig_RejectsEverythingButSAE(t *testing.T) {
 		cfg.Encryption = enc
 
 		assert.Error(t, v.Validate(cfg), "mesh links are SAE only; %s must be rejected", enc)
+	}
+}
+
+// ── MeshBackhaulProfile ───────────────────────────────────────────────────────
+
+func TestValidation_MeshBackhaulProfile_Boundaries(t *testing.T) {
+	v := newValidator(t)
+
+	cases := []struct {
+		name   string
+		meshID string
+		pass   string
+		ok     bool
+	}{
+		{"minimum", "a", "12345678", true},
+		{"maximum", strings.Repeat("m", 32), strings.Repeat("p", 63), true},
+		{"empty mesh id", "", "12345678", false},
+		{"mesh id too long", strings.Repeat("m", 33), "12345678", false},
+		{"passphrase too short", "backhaul", "1234567", false},
+		{"passphrase too long", "backhaul", strings.Repeat("p", 64), false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := v.Validate(&setupv1.MeshBackhaulProfile{MeshId: tc.meshID, Passphrase: tc.pass})
+			if tc.ok {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+			}
+		})
 	}
 }

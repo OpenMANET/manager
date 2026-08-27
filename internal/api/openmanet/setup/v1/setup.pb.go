@@ -333,7 +333,7 @@ func (x ApplySetupResponse_Phase) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ApplySetupResponse_Phase.Descriptor instead.
 func (ApplySetupResponse_Phase) EnumDescriptor() ([]byte, []int) {
-	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{11, 0}
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{12, 0}
 }
 
 type ApplySetupResponse_Status int32
@@ -385,7 +385,7 @@ func (x ApplySetupResponse_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ApplySetupResponse_Status.Descriptor instead.
 func (ApplySetupResponse_Status) EnumDescriptor() ([]byte, []int) {
-	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{11, 1}
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{12, 1}
 }
 
 // WifiStaProfile configures a station-mode interface on a non-mesh radio,
@@ -464,22 +464,83 @@ func (x *WifiStaProfile) GetEncryption() v1.WifiEncryption {
 	return v1.WifiEncryption(0)
 }
 
+// MeshBackhaulProfile turns a non-HaLow radio into a second batman-adv
+// mesh link (UCI network batmesh1) instead of a client AP. The link is
+// always WPA3 (SAE) with its own mesh ID and passphrase; every node on
+// the 2.4 GHz backhaul must share both.
+type MeshBackhaulProfile struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MeshId        string                 `protobuf:"bytes,1,opt,name=mesh_id,json=meshId,proto3" json:"mesh_id,omitempty"`
+	Passphrase    string                 `protobuf:"bytes,2,opt,name=passphrase,proto3" json:"passphrase,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MeshBackhaulProfile) Reset() {
+	*x = MeshBackhaulProfile{}
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MeshBackhaulProfile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MeshBackhaulProfile) ProtoMessage() {}
+
+func (x *MeshBackhaulProfile) ProtoReflect() protoreflect.Message {
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MeshBackhaulProfile.ProtoReflect.Descriptor instead.
+func (*MeshBackhaulProfile) Descriptor() ([]byte, []int) {
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *MeshBackhaulProfile) GetMeshId() string {
+	if x != nil {
+		return x.MeshId
+	}
+	return ""
+}
+
+func (x *MeshBackhaulProfile) GetPassphrase() string {
+	if x != nil {
+		return x.Passphrase
+	}
+	return ""
+}
+
 // RadioApProfile configures one non-mesh radio's AP interface for client
 // devices ("Client device Wi-Fi" in the wizard UI).
 type RadioApProfile struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RadioName     string                 `protobuf:"bytes,1,opt,name=radio_name,json=radioName,proto3" json:"radio_name,omitempty"`
-	Enabled       bool                   `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	Ssid          string                 `protobuf:"bytes,3,opt,name=ssid,proto3" json:"ssid,omitempty"`
-	Passphrase    string                 `protobuf:"bytes,4,opt,name=passphrase,proto3" json:"passphrase,omitempty"`
-	Encryption    v1.WifiEncryption      `protobuf:"varint,5,opt,name=encryption,proto3,enum=openmanet.wifi_config.v1.WifiEncryption" json:"encryption,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	RadioName  string                 `protobuf:"bytes,1,opt,name=radio_name,json=radioName,proto3" json:"radio_name,omitempty"`
+	Enabled    bool                   `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	Ssid       string                 `protobuf:"bytes,3,opt,name=ssid,proto3" json:"ssid,omitempty"`
+	Passphrase string                 `protobuf:"bytes,4,opt,name=passphrase,proto3" json:"passphrase,omitempty"`
+	Encryption v1.WifiEncryption      `protobuf:"varint,5,opt,name=encryption,proto3,enum=openmanet.wifi_config.v1.WifiEncryption" json:"encryption,omitempty"`
+	// When set, this radio runs a mesh backhaul instead of an AP. The
+	// handler requires enabled=false, ignores ssid/passphrase/encryption
+	// (encryption must still be a defined non-zero value — send SAE), and
+	// accepts at most one backhaul entry per profile.
+	MeshBackhaul  *MeshBackhaulProfile `protobuf:"bytes,6,opt,name=mesh_backhaul,json=meshBackhaul,proto3" json:"mesh_backhaul,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RadioApProfile) Reset() {
 	*x = RadioApProfile{}
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[1]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -491,7 +552,7 @@ func (x *RadioApProfile) String() string {
 func (*RadioApProfile) ProtoMessage() {}
 
 func (x *RadioApProfile) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[1]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -504,7 +565,7 @@ func (x *RadioApProfile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RadioApProfile.ProtoReflect.Descriptor instead.
 func (*RadioApProfile) Descriptor() ([]byte, []int) {
-	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{1}
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *RadioApProfile) GetRadioName() string {
@@ -542,6 +603,13 @@ func (x *RadioApProfile) GetEncryption() v1.WifiEncryption {
 	return v1.WifiEncryption(0)
 }
 
+func (x *RadioApProfile) GetMeshBackhaul() *MeshBackhaulProfile {
+	if x != nil {
+		return x.MeshBackhaul
+	}
+	return nil
+}
+
 // Uplink describes how a Mesh Gate connects upstream.
 type Uplink struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -556,7 +624,7 @@ type Uplink struct {
 
 func (x *Uplink) Reset() {
 	*x = Uplink{}
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[2]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -568,7 +636,7 @@ func (x *Uplink) String() string {
 func (*Uplink) ProtoMessage() {}
 
 func (x *Uplink) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[2]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -581,7 +649,7 @@ func (x *Uplink) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Uplink.ProtoReflect.Descriptor instead.
 func (*Uplink) Descriptor() ([]byte, []int) {
-	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{2}
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Uplink) GetType() UplinkType {
@@ -642,7 +710,7 @@ type MeshRadioConfig struct {
 
 func (x *MeshRadioConfig) Reset() {
 	*x = MeshRadioConfig{}
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[3]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -654,7 +722,7 @@ func (x *MeshRadioConfig) String() string {
 func (*MeshRadioConfig) ProtoMessage() {}
 
 func (x *MeshRadioConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[3]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -667,7 +735,7 @@ func (x *MeshRadioConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeshRadioConfig.ProtoReflect.Descriptor instead.
 func (*MeshRadioConfig) Descriptor() ([]byte, []int) {
-	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{3}
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *MeshRadioConfig) GetRadioName() string {
@@ -735,6 +803,9 @@ func (x *MeshRadioConfig) GetCountryCode() string {
 //     bandwidth on the chosen radio
 //   - device_mode oneof must match role (MESH_GATE -> meshgate_mode,
 //     MESH_POINT -> meshpoint_mode)
+//   - at most one aps[] entry carries mesh_backhaul; that entry must have
+//     enabled=false, its radio must not be the STA uplink radio, and the
+//     device must report supports_mesh_backhaul=true for it
 type MeshNodeProfile struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// RFC 1123 hostname label: 1..63 chars, alphanumeric, hyphens allowed
@@ -773,7 +844,7 @@ type MeshNodeProfile struct {
 
 func (x *MeshNodeProfile) Reset() {
 	*x = MeshNodeProfile{}
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[4]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -785,7 +856,7 @@ func (x *MeshNodeProfile) String() string {
 func (*MeshNodeProfile) ProtoMessage() {}
 
 func (x *MeshNodeProfile) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[4]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -798,7 +869,7 @@ func (x *MeshNodeProfile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeshNodeProfile.ProtoReflect.Descriptor instead.
 func (*MeshNodeProfile) Descriptor() ([]byte, []int) {
-	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{4}
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *MeshNodeProfile) GetHostname() string {
@@ -906,7 +977,9 @@ type SetupRadio struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Frequency band of the radio.
 	Band string `protobuf:"bytes,2,opt,name=band,proto3" json:"band,omitempty"`
-	// Human-readable hardware label (chipset / model).
+	// Human-readable hardware label: the iwinfo chipset name when the
+	// radio's live interface can be resolved (e.g. "MediaTek MT7915AN"),
+	// else the UCI device path.
 	HardwareName string `protobuf:"bytes,3,opt,name=hardware_name,json=hardwareName,proto3" json:"hardware_name,omitempty"`
 	// Per-bandwidth legal channel list, populated from regulatory data.
 	// The frontend uses this to populate the channel dropdown after the
@@ -916,14 +989,18 @@ type SetupRadio struct {
 	// AND the driver reports a usable iwinfo state. Only HaLow radios are
 	// valid mesh radio candidates. The wizard refuses to enter when no
 	// SetupRadio has is_halow=true.
-	IsHalow       bool `protobuf:"varint,5,opt,name=is_halow,json=isHalow,proto3" json:"is_halow,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	IsHalow bool `protobuf:"varint,5,opt,name=is_halow,json=isHalow,proto3" json:"is_halow,omitempty"`
+	// True when the daemon would accept this radio as the 2.4 GHz mesh
+	// backhaul: band 2g, not HaLow, chipset MT7915/MT7916 as reported by
+	// iwinfo through the radio's live interface. False when unresolvable.
+	SupportsMeshBackhaul bool `protobuf:"varint,6,opt,name=supports_mesh_backhaul,json=supportsMeshBackhaul,proto3" json:"supports_mesh_backhaul,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SetupRadio) Reset() {
 	*x = SetupRadio{}
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[5]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -935,7 +1012,7 @@ func (x *SetupRadio) String() string {
 func (*SetupRadio) ProtoMessage() {}
 
 func (x *SetupRadio) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[5]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -948,7 +1025,7 @@ func (x *SetupRadio) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetupRadio.ProtoReflect.Descriptor instead.
 func (*SetupRadio) Descriptor() ([]byte, []int) {
-	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{5}
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SetupRadio) GetName() string {
@@ -986,6 +1063,13 @@ func (x *SetupRadio) GetIsHalow() bool {
 	return false
 }
 
+func (x *SetupRadio) GetSupportsMeshBackhaul() bool {
+	if x != nil {
+		return x.SupportsMeshBackhaul
+	}
+	return false
+}
+
 // SetupRadioBandwidth lists legal channels at a single bandwidth.
 type SetupRadioBandwidth struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -997,7 +1081,7 @@ type SetupRadioBandwidth struct {
 
 func (x *SetupRadioBandwidth) Reset() {
 	*x = SetupRadioBandwidth{}
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[6]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1009,7 +1093,7 @@ func (x *SetupRadioBandwidth) String() string {
 func (*SetupRadioBandwidth) ProtoMessage() {}
 
 func (x *SetupRadioBandwidth) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[6]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1022,7 +1106,7 @@ func (x *SetupRadioBandwidth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetupRadioBandwidth.ProtoReflect.Descriptor instead.
 func (*SetupRadioBandwidth) Descriptor() ([]byte, []int) {
-	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{6}
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SetupRadioBandwidth) GetMhz() uint32 {
@@ -1060,7 +1144,7 @@ type SetupCountry struct {
 
 func (x *SetupCountry) Reset() {
 	*x = SetupCountry{}
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[7]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1072,7 +1156,7 @@ func (x *SetupCountry) String() string {
 func (*SetupCountry) ProtoMessage() {}
 
 func (x *SetupCountry) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[7]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1085,7 +1169,7 @@ func (x *SetupCountry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetupCountry.ProtoReflect.Descriptor instead.
 func (*SetupCountry) Descriptor() ([]byte, []int) {
-	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{7}
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SetupCountry) GetCode() string {
@@ -1167,7 +1251,7 @@ type GetSetupStatusResponse struct {
 
 func (x *GetSetupStatusResponse) Reset() {
 	*x = GetSetupStatusResponse{}
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[8]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1179,7 +1263,7 @@ func (x *GetSetupStatusResponse) String() string {
 func (*GetSetupStatusResponse) ProtoMessage() {}
 
 func (x *GetSetupStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[8]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1192,7 +1276,7 @@ func (x *GetSetupStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSetupStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetSetupStatusResponse) Descriptor() ([]byte, []int) {
-	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{8}
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetSetupStatusResponse) GetIsEnabled() bool {
@@ -1282,7 +1366,7 @@ type ApplySetupRequest struct {
 
 func (x *ApplySetupRequest) Reset() {
 	*x = ApplySetupRequest{}
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[9]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1294,7 +1378,7 @@ func (x *ApplySetupRequest) String() string {
 func (*ApplySetupRequest) ProtoMessage() {}
 
 func (x *ApplySetupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[9]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1307,7 +1391,7 @@ func (x *ApplySetupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplySetupRequest.ProtoReflect.Descriptor instead.
 func (*ApplySetupRequest) Descriptor() ([]byte, []int) {
-	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{9}
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ApplySetupRequest) GetProfile() *MeshNodeProfile {
@@ -1336,7 +1420,7 @@ type ApplySetupResult struct {
 
 func (x *ApplySetupResult) Reset() {
 	*x = ApplySetupResult{}
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[10]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1348,7 +1432,7 @@ func (x *ApplySetupResult) String() string {
 func (*ApplySetupResult) ProtoMessage() {}
 
 func (x *ApplySetupResult) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[10]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1361,7 +1445,7 @@ func (x *ApplySetupResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplySetupResult.ProtoReflect.Descriptor instead.
 func (*ApplySetupResult) Descriptor() ([]byte, []int) {
-	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{10}
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ApplySetupResult) GetSuccess() bool {
@@ -1447,7 +1531,7 @@ type ApplySetupResponse struct {
 
 func (x *ApplySetupResponse) Reset() {
 	*x = ApplySetupResponse{}
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[11]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1459,7 +1543,7 @@ func (x *ApplySetupResponse) String() string {
 func (*ApplySetupResponse) ProtoMessage() {}
 
 func (x *ApplySetupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[11]
+	mi := &file_openmanet_setup_v1_setup_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1472,7 +1556,7 @@ func (x *ApplySetupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplySetupResponse.ProtoReflect.Descriptor instead.
 func (*ApplySetupResponse) Descriptor() ([]byte, []int) {
-	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{11}
+	return file_openmanet_setup_v1_setup_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ApplySetupResponse) GetPhase() ApplySetupResponse_Phase {
@@ -1518,7 +1602,12 @@ const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"\n" +
 	"encryption\x18\x04 \x01(\x0e2(.openmanet.wifi_config.v1.WifiEncryptionB\n" +
 	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\n" +
-	"encryption\"\xfe\x01\n" +
+	"encryption\"d\n" +
+	"\x13MeshBackhaulProfile\x12\"\n" +
+	"\amesh_id\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18 R\x06meshId\x12)\n" +
+	"\n" +
+	"passphrase\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\b\x18?R\n" +
+	"passphrase\"\xcc\x02\n" +
 	"\x0eRadioApProfile\x12&\n" +
 	"\n" +
 	"radio_name\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tradioName\x12\x18\n" +
@@ -1530,7 +1619,8 @@ const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"\n" +
 	"encryption\x18\x05 \x01(\x0e2(.openmanet.wifi_config.v1.WifiEncryptionB\n" +
 	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\n" +
-	"encryption\"\xb6\x01\n" +
+	"encryption\x12L\n" +
+	"\rmesh_backhaul\x18\x06 \x01(\v2'.openmanet.setup.v1.MeshBackhaulProfileR\fmeshBackhaul\"\xb6\x01\n" +
 	"\x06Uplink\x12>\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x1e.openmanet.setup.v1.UplinkTypeB\n" +
 	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\x04type\x12,\n" +
@@ -1564,7 +1654,7 @@ const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"\vclient_time\x18\n" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"clientTimeB\r\n" +
-	"\vdevice_mode\"\xbd\x01\n" +
+	"\vdevice_mode\"\xf3\x01\n" +
 	"\n" +
 	"SetupRadio\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
@@ -1573,7 +1663,8 @@ const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"\n" +
 	"bandwidths\x18\x04 \x03(\v2'.openmanet.setup.v1.SetupRadioBandwidthR\n" +
 	"bandwidths\x12\x19\n" +
-	"\bis_halow\x18\x05 \x01(\bR\aisHalow\"C\n" +
+	"\bis_halow\x18\x05 \x01(\bR\aisHalow\x124\n" +
+	"\x16supports_mesh_backhaul\x18\x06 \x01(\bR\x14supportsMeshBackhaul\"C\n" +
 	"\x13SetupRadioBandwidth\x12\x10\n" +
 	"\x03mhz\x18\x01 \x01(\rR\x03mhz\x12\x1a\n" +
 	"\bchannels\x18\x02 \x03(\rR\bchannels\"\x7f\n" +
@@ -1668,7 +1759,7 @@ func file_openmanet_setup_v1_setup_proto_rawDescGZIP() []byte {
 }
 
 var file_openmanet_setup_v1_setup_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_openmanet_setup_v1_setup_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_openmanet_setup_v1_setup_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_openmanet_setup_v1_setup_proto_goTypes = []any{
 	(MeshRole)(0),                  // 0: openmanet.setup.v1.MeshRole
 	(MeshPointMode)(0),             // 1: openmanet.setup.v1.MeshPointMode
@@ -1677,47 +1768,49 @@ var file_openmanet_setup_v1_setup_proto_goTypes = []any{
 	(ApplySetupResponse_Phase)(0),  // 4: openmanet.setup.v1.ApplySetupResponse.Phase
 	(ApplySetupResponse_Status)(0), // 5: openmanet.setup.v1.ApplySetupResponse.Status
 	(*WifiStaProfile)(nil),         // 6: openmanet.setup.v1.WifiStaProfile
-	(*RadioApProfile)(nil),         // 7: openmanet.setup.v1.RadioApProfile
-	(*Uplink)(nil),                 // 8: openmanet.setup.v1.Uplink
-	(*MeshRadioConfig)(nil),        // 9: openmanet.setup.v1.MeshRadioConfig
-	(*MeshNodeProfile)(nil),        // 10: openmanet.setup.v1.MeshNodeProfile
-	(*SetupRadio)(nil),             // 11: openmanet.setup.v1.SetupRadio
-	(*SetupRadioBandwidth)(nil),    // 12: openmanet.setup.v1.SetupRadioBandwidth
-	(*SetupCountry)(nil),           // 13: openmanet.setup.v1.SetupCountry
-	(*GetSetupStatusResponse)(nil), // 14: openmanet.setup.v1.GetSetupStatusResponse
-	(*ApplySetupRequest)(nil),      // 15: openmanet.setup.v1.ApplySetupRequest
-	(*ApplySetupResult)(nil),       // 16: openmanet.setup.v1.ApplySetupResult
-	(*ApplySetupResponse)(nil),     // 17: openmanet.setup.v1.ApplySetupResponse
-	(v1.WifiEncryption)(0),         // 18: openmanet.wifi_config.v1.WifiEncryption
-	(*timestamppb.Timestamp)(nil),  // 19: google.protobuf.Timestamp
+	(*MeshBackhaulProfile)(nil),    // 7: openmanet.setup.v1.MeshBackhaulProfile
+	(*RadioApProfile)(nil),         // 8: openmanet.setup.v1.RadioApProfile
+	(*Uplink)(nil),                 // 9: openmanet.setup.v1.Uplink
+	(*MeshRadioConfig)(nil),        // 10: openmanet.setup.v1.MeshRadioConfig
+	(*MeshNodeProfile)(nil),        // 11: openmanet.setup.v1.MeshNodeProfile
+	(*SetupRadio)(nil),             // 12: openmanet.setup.v1.SetupRadio
+	(*SetupRadioBandwidth)(nil),    // 13: openmanet.setup.v1.SetupRadioBandwidth
+	(*SetupCountry)(nil),           // 14: openmanet.setup.v1.SetupCountry
+	(*GetSetupStatusResponse)(nil), // 15: openmanet.setup.v1.GetSetupStatusResponse
+	(*ApplySetupRequest)(nil),      // 16: openmanet.setup.v1.ApplySetupRequest
+	(*ApplySetupResult)(nil),       // 17: openmanet.setup.v1.ApplySetupResult
+	(*ApplySetupResponse)(nil),     // 18: openmanet.setup.v1.ApplySetupResponse
+	(v1.WifiEncryption)(0),         // 19: openmanet.wifi_config.v1.WifiEncryption
+	(*timestamppb.Timestamp)(nil),  // 20: google.protobuf.Timestamp
 }
 var file_openmanet_setup_v1_setup_proto_depIdxs = []int32{
-	18, // 0: openmanet.setup.v1.WifiStaProfile.encryption:type_name -> openmanet.wifi_config.v1.WifiEncryption
-	18, // 1: openmanet.setup.v1.RadioApProfile.encryption:type_name -> openmanet.wifi_config.v1.WifiEncryption
-	3,  // 2: openmanet.setup.v1.Uplink.type:type_name -> openmanet.setup.v1.UplinkType
-	6,  // 3: openmanet.setup.v1.Uplink.wireless:type_name -> openmanet.setup.v1.WifiStaProfile
-	18, // 4: openmanet.setup.v1.MeshRadioConfig.encryption:type_name -> openmanet.wifi_config.v1.WifiEncryption
-	0,  // 5: openmanet.setup.v1.MeshNodeProfile.role:type_name -> openmanet.setup.v1.MeshRole
-	1,  // 6: openmanet.setup.v1.MeshNodeProfile.meshpoint_mode:type_name -> openmanet.setup.v1.MeshPointMode
-	2,  // 7: openmanet.setup.v1.MeshNodeProfile.meshgate_mode:type_name -> openmanet.setup.v1.MeshGateMode
-	9,  // 8: openmanet.setup.v1.MeshNodeProfile.mesh:type_name -> openmanet.setup.v1.MeshRadioConfig
-	8,  // 9: openmanet.setup.v1.MeshNodeProfile.uplink:type_name -> openmanet.setup.v1.Uplink
-	7,  // 10: openmanet.setup.v1.MeshNodeProfile.aps:type_name -> openmanet.setup.v1.RadioApProfile
-	19, // 11: openmanet.setup.v1.MeshNodeProfile.client_time:type_name -> google.protobuf.Timestamp
-	12, // 12: openmanet.setup.v1.SetupRadio.bandwidths:type_name -> openmanet.setup.v1.SetupRadioBandwidth
-	12, // 13: openmanet.setup.v1.SetupCountry.bandwidths:type_name -> openmanet.setup.v1.SetupRadioBandwidth
-	11, // 14: openmanet.setup.v1.GetSetupStatusResponse.radios:type_name -> openmanet.setup.v1.SetupRadio
-	13, // 15: openmanet.setup.v1.GetSetupStatusResponse.countries:type_name -> openmanet.setup.v1.SetupCountry
-	10, // 16: openmanet.setup.v1.ApplySetupRequest.profile:type_name -> openmanet.setup.v1.MeshNodeProfile
-	4,  // 17: openmanet.setup.v1.ApplySetupResult.failed_phase:type_name -> openmanet.setup.v1.ApplySetupResponse.Phase
-	4,  // 18: openmanet.setup.v1.ApplySetupResponse.phase:type_name -> openmanet.setup.v1.ApplySetupResponse.Phase
-	5,  // 19: openmanet.setup.v1.ApplySetupResponse.status:type_name -> openmanet.setup.v1.ApplySetupResponse.Status
-	16, // 20: openmanet.setup.v1.ApplySetupResponse.result:type_name -> openmanet.setup.v1.ApplySetupResult
-	21, // [21:21] is the sub-list for method output_type
-	21, // [21:21] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	19, // 0: openmanet.setup.v1.WifiStaProfile.encryption:type_name -> openmanet.wifi_config.v1.WifiEncryption
+	19, // 1: openmanet.setup.v1.RadioApProfile.encryption:type_name -> openmanet.wifi_config.v1.WifiEncryption
+	7,  // 2: openmanet.setup.v1.RadioApProfile.mesh_backhaul:type_name -> openmanet.setup.v1.MeshBackhaulProfile
+	3,  // 3: openmanet.setup.v1.Uplink.type:type_name -> openmanet.setup.v1.UplinkType
+	6,  // 4: openmanet.setup.v1.Uplink.wireless:type_name -> openmanet.setup.v1.WifiStaProfile
+	19, // 5: openmanet.setup.v1.MeshRadioConfig.encryption:type_name -> openmanet.wifi_config.v1.WifiEncryption
+	0,  // 6: openmanet.setup.v1.MeshNodeProfile.role:type_name -> openmanet.setup.v1.MeshRole
+	1,  // 7: openmanet.setup.v1.MeshNodeProfile.meshpoint_mode:type_name -> openmanet.setup.v1.MeshPointMode
+	2,  // 8: openmanet.setup.v1.MeshNodeProfile.meshgate_mode:type_name -> openmanet.setup.v1.MeshGateMode
+	10, // 9: openmanet.setup.v1.MeshNodeProfile.mesh:type_name -> openmanet.setup.v1.MeshRadioConfig
+	9,  // 10: openmanet.setup.v1.MeshNodeProfile.uplink:type_name -> openmanet.setup.v1.Uplink
+	8,  // 11: openmanet.setup.v1.MeshNodeProfile.aps:type_name -> openmanet.setup.v1.RadioApProfile
+	20, // 12: openmanet.setup.v1.MeshNodeProfile.client_time:type_name -> google.protobuf.Timestamp
+	13, // 13: openmanet.setup.v1.SetupRadio.bandwidths:type_name -> openmanet.setup.v1.SetupRadioBandwidth
+	13, // 14: openmanet.setup.v1.SetupCountry.bandwidths:type_name -> openmanet.setup.v1.SetupRadioBandwidth
+	12, // 15: openmanet.setup.v1.GetSetupStatusResponse.radios:type_name -> openmanet.setup.v1.SetupRadio
+	14, // 16: openmanet.setup.v1.GetSetupStatusResponse.countries:type_name -> openmanet.setup.v1.SetupCountry
+	11, // 17: openmanet.setup.v1.ApplySetupRequest.profile:type_name -> openmanet.setup.v1.MeshNodeProfile
+	4,  // 18: openmanet.setup.v1.ApplySetupResult.failed_phase:type_name -> openmanet.setup.v1.ApplySetupResponse.Phase
+	4,  // 19: openmanet.setup.v1.ApplySetupResponse.phase:type_name -> openmanet.setup.v1.ApplySetupResponse.Phase
+	5,  // 20: openmanet.setup.v1.ApplySetupResponse.status:type_name -> openmanet.setup.v1.ApplySetupResponse.Status
+	17, // 21: openmanet.setup.v1.ApplySetupResponse.result:type_name -> openmanet.setup.v1.ApplySetupResult
+	22, // [22:22] is the sub-list for method output_type
+	22, // [22:22] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_openmanet_setup_v1_setup_proto_init() }
@@ -1725,7 +1818,7 @@ func file_openmanet_setup_v1_setup_proto_init() {
 	if File_openmanet_setup_v1_setup_proto != nil {
 		return
 	}
-	file_openmanet_setup_v1_setup_proto_msgTypes[4].OneofWrappers = []any{
+	file_openmanet_setup_v1_setup_proto_msgTypes[5].OneofWrappers = []any{
 		(*MeshNodeProfile_MeshpointMode)(nil),
 		(*MeshNodeProfile_MeshgateMode)(nil),
 	}
@@ -1735,7 +1828,7 @@ func file_openmanet_setup_v1_setup_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openmanet_setup_v1_setup_proto_rawDesc), len(file_openmanet_setup_v1_setup_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   12,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
