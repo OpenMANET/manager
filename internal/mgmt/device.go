@@ -3,7 +3,6 @@ package mgmt
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/openmanet/openmanetd/internal/iwinfo"
 	"github.com/openmanet/openmanetd/internal/network"
@@ -15,30 +14,6 @@ const (
 	defaultBatmanInterfaceMTU   int = 1460
 	defaultAhwlanInterfaceMTU   int = 1460
 	defaultEthernetInterfaceMTU int = 1460
-
-	// wifiModeMesh is the wifi-iface `mode` value used by 802.11s mesh
-	// interfaces (e.g. batmesh0/batmesh1).
-	wifiModeMesh = "mesh"
-
-	// batMesh1RSSIThreshold is the mesh_rssi_threshold (dBm) applied to the
-	// 2.4 GHz batmesh1 interface. wpa_supplicant treats -255..-1 as a dBm
-	// floor for accepting a mesh peer, 0 as "no threshold", and 1 as "leave
-	// the driver default alone".
-	//
-	// batmesh1 exists to carry traffic between nodes close enough for 2.4 GHz
-	// to be decisively faster than the 900 MHz batmesh0 (S1G/HaLow) link, not
-	// to extend range. batmesh0 owns range. So the threshold is set at the
-	// crossover point rather than at the edge of usability: a 2.4 GHz link
-	// that is merely *reachable* is worse than no 2.4 GHz link at all, because
-	// batman-adv will use it and the low MCS rate consumes airtime out of all
-	// proportion to the traffic it carries.
-	//
-	// -80 dBm holds HE20 MCS2/MCS3 (~14-20 Mbps of real throughput) with a few
-	// dB of fade margin for mobile nodes, against roughly 1-4 Mbps from a
-	// 2 MHz HaLow channel -- several times faster, which is the bar. Dropping
-	// to -85 would admit MCS0/MCS1 links at ~4-9 Mbps that flap under motion
-	// and are not worth preferring over batmesh0.
-	batMesh1RSSIThreshold = "-80"
 )
 
 // setTransportInterfaceMTU sets the MTU (Maximum Transmission Unit) for all
@@ -134,20 +109,24 @@ func (m *ManagementConfig) setupBatMesh1Interface(ctx context.Context) error {
 	)
 }
 
-// setupBatMesh1InterfaceWithDeps configures a new 2.4 GHz batman-adv batmesh1
-// wireless interface. It is idempotent: if batmesh1configured is already set to
-// true the method returns immediately. The method:
+// setupBatMesh1InterfaceWithDeps configures the 2.4 GHz secondary
+// batman-adv mesh link (network batmesh1) when the wizard did not. It is
+// idempotent: if batmesh1configured is already set the method returns
+// immediately. The method:
 //
-//  1. Returns without changes when batmesh1 is already configured.
-//  2. Correlates each 2.4 GHz UCI radio with its runtime interface and selects
-//     a single radio backed by an MT7915 or MT7916 chipset.
-//  3. Locates an existing wifi-iface with mode=mesh and borrows its mesh_id and
-//     key values.
-//  4. Creates the new wifi-iface with network=batmesh1, mode=mesh,
-//     mesh_fwding=0, mesh_rssi_threshold=-80, encryption=sae, and the
-//     borrowed credentials.
-//  5. Updates the matched 2g radio with channel=8 and htmode=HE20.
-//  6. Marks batmesh1 as configured.
+//  1. Returns without changes when batmesh1 is already configured (the
+//     wizard stages the flag to 1 when the operator chose the backhaul).
+//  2. Correlates each 2.4 GHz UCI radio with its runtime interface and
+//     selects a single radio backed by a chipset that
+//     network.SupportsSecondaryMeshLink accepts.
+//  3. Leaves the radio alone when its AP section (default_<radio>) is
+//     enabled — the operator's AP wins over the fallback link.
+//  4. Locates an existing wifi-iface with mode=mesh and borrows its
+//     mesh_id and key values.
+//  5. Creates wifi-iface <batmesh1>_<radio> from network.MeshLink so the
+//     section can never collide with the AP section on the same radio.
+//  6. Updates the matched 2g radio with the secondary-link channel and
+//     width, then marks batmesh1 as configured.
 func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 	ctx context.Context,
 	openmanetReader network.OpenMANETConfigReader,
@@ -194,7 +173,7 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 		}
 
 		hardwareName := network.ResolveWirelessRadioHardwareName(section, status, allInfo)
-		if !strings.Contains(hardwareName, "MT7915") && !strings.Contains(hardwareName, "MT7916") {
+		if !network.SupportsSecondaryMeshLink(hardwareName) {
 			continue
 		}
 
@@ -213,7 +192,15 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 		return nil
 	}
 
-	// Step 3: find mesh credentials from an existing mesh wifi-iface.
+	// Step 3: an enabled AP on the radio wins. The operator (or the
+	// wizard) chose it; never move its channel or add a link beside it.
+	if radioHostsEnabledAP(radioSection, wirelessReader) {
+		m.Log.Info().Str("radio", radioSection).Msg("Radio hosts an enabled AP; leaving it alone, no batmesh1 link written")
+
+		return nil
+	}
+
+	// Step 4: find mesh credentials from an existing mesh wifi-iface.
 	ifaceSections, err := wirelessReader.GetSections("wireless", "wifi-iface")
 	if err != nil {
 		return fmt.Errorf("get wifi-iface sections: %w", err)
@@ -227,7 +214,7 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 			continue
 		}
 
-		if iface.Mode == wifiModeMesh {
+		if iface.Mode == network.WifiModeMesh {
 			meshID = iface.MeshID
 			meshKey = iface.Key
 
@@ -239,30 +226,26 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 		return fmt.Errorf("no existing wifi-iface with mode=mesh found; cannot determine mesh credentials")
 	}
 
-	newIfaceSection := "default_" + radioSection
-
-	// Step 4: create the new wifi-iface.
-	newIface := &network.UCIWirelessIface{
-		Device:            radioSection,
-		Network:           "batmesh1",
-		Mode:              wifiModeMesh,
-		MeshID:            meshID,
-		Key:               meshKey,
-		MeshFwding:        "0",
-		MeshRSSIThreshold: batMesh1RSSIThreshold,
-		Encryption:        "sae",
+	link := network.MeshLink{
+		Radio:         radioSection,
+		Network:       network.BatmanSecondaryIface,
+		MeshID:        meshID,
+		Key:           meshKey,
+		RSSIThreshold: network.SecondaryMeshRSSIThreshold,
 	}
+	newIfaceSection := link.Section()
 
-	if err := network.SetWirelessIfaceConfigWithReader(newIfaceSection, newIface, wirelessReader); err != nil {
+	// Step 5: create the new wifi-iface.
+	if err := network.SetWirelessIfaceConfigWithReader(newIfaceSection, link.IfaceConfig(), wirelessReader); err != nil {
 		return fmt.Errorf("create wifi-iface %s: %w", newIfaceSection, err)
 	}
 
 	m.Log.Info().Str("section", newIfaceSection).Str("device", radioSection).Msg("Created batmesh1 wifi-iface")
 
-	// Step 5: update the 2g radio device.
+	// Step 6: update the 2g radio device.
 	radioUpdate := &network.UCIWirelessDevice{
-		Channel:  "8",
-		HTMode:   "HE20",
+		Channel:  network.SecondaryMeshChannel2G,
+		HTMode:   network.SecondaryMeshHTMode2G,
 		Disabled: "0",
 	}
 
@@ -270,7 +253,7 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 		return fmt.Errorf("update wifi-device %s: %w", radioSection, err)
 	}
 
-	m.Log.Info().Str("section", radioSection).Str("channel", "8").Str("htmode", "HE20").Str("disabled", "0").Msg("Updated 2g radio for batmesh1")
+	m.Log.Info().Str("section", radioSection).Str("channel", network.SecondaryMeshChannel2G).Str("htmode", network.SecondaryMeshHTMode2G).Str("disabled", "0").Msg("Updated 2g radio for batmesh1")
 
 	// Step 6: mark batmesh1 as configured.
 	if err := network.SetBatMesh1ConfiguredWithReader(openmanetReader); err != nil {
@@ -283,6 +266,18 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 	_ = network.ForceReloadConfig(ctx)
 
 	return nil
+}
+
+// radioHostsEnabledAP reports whether the AP section for radio
+// ("default_<radio>", the name both the factory image and the wizard
+// use) exists with mode=ap and is not disabled.
+func radioHostsEnabledAP(radio string, reader network.ConfigReader) bool {
+	iface, err := network.GetWirelessIfaceByNameWithReader("default_"+radio, reader)
+	if err != nil {
+		return false
+	}
+
+	return iface.Mode == "ap" && iface.Disabled != "1"
 }
 
 // configureBatmanForceflood persists the batman-adv multicast mode derived

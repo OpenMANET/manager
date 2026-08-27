@@ -270,6 +270,20 @@ func (f *fakeWirelessReader) seedMeshIface(section, device, meshID, key string) 
 	_ = f.SetType("wireless", section, "encryption", uci.TypeOption, "sae")
 }
 
+// seedAPIface seeds a named wifi-iface section with mode=ap bound to
+// ahwlan; disabled is written only when non-empty.
+func (f *fakeWirelessReader) seedAPIface(section, device, disabled string) {
+	_ = f.AddSection("wireless", section, "wifi-iface")
+	_ = f.SetType("wireless", section, "device", uci.TypeOption, device)
+	_ = f.SetType("wireless", section, "mode", uci.TypeOption, "ap")
+	_ = f.SetType("wireless", section, "network", uci.TypeOption, "ahwlan")
+	_ = f.SetType("wireless", section, "ssid", uci.TypeOption, "client-wifi")
+
+	if disabled != "" {
+		_ = f.SetType("wireless", section, "disabled", uci.TypeOption, disabled)
+	}
+}
+
 // ── fakeIwinfo ───────────────────────────────────────────────────────────────
 
 // fakeIwinfo implements iwinfo.IwinfoProvider for test purposes.
@@ -542,8 +556,8 @@ func TestSetupBatMesh1Interface_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify new wifi-iface was created as "default_radio1".
-	newIface, ierr := network.GetWirelessIfaceByNameWithReader("default_radio1", wireless)
+	// Verify new wifi-iface was created as "batmesh1_radio1".
+	newIface, ierr := network.GetWirelessIfaceByNameWithReader("batmesh1_radio1", wireless)
 	if ierr != nil {
 		t.Fatalf("failed to read back new iface: %v", ierr)
 	}
@@ -631,7 +645,7 @@ func TestSetupBatMesh1Interface_doesNotTouchUnrelated2gRadio(t *testing.T) {
 
 	require.NoError(t, m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, status))
 
-	_, createdOnboardMesh := wireless.Get("wireless", "default_radio0", "device")
+	_, createdOnboardMesh := wireless.Get("wireless", "batmesh1_radio0", "device")
 	assert.False(t, createdOnboardMesh, "must not create batmesh1 on the unrelated onboard radio")
 
 	radio0, err := network.GetWirelessDeviceByNameWithReader("radio0", wireless)
@@ -640,7 +654,7 @@ func TestSetupBatMesh1Interface_doesNotTouchUnrelated2gRadio(t *testing.T) {
 	assert.Equal(t, "HT20", radio0.HTMode)
 	assert.Empty(t, radio0.Disabled)
 
-	iface, err := network.GetWirelessIfaceByNameWithReader("default_radio1", wireless)
+	iface, err := network.GetWirelessIfaceByNameWithReader("batmesh1_radio1", wireless)
 	require.NoError(t, err)
 	assert.Equal(t, "radio1", iface.Device)
 }
@@ -753,6 +767,117 @@ func TestSetupBatMesh1Interface_IdempotentWhenAlreadyConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil for already-configured (idempotency check), got %v", err)
 	}
+}
+
+func TestSetupBatMesh1Interface_LeavesEnabledAPAlone(t *testing.T) {
+	m := newTestManagementConfig()
+	openmanet := newFakeOpenMANETReader()
+	openmanet.seedBatMesh1Configured("0")
+
+	wireless := newFakeWirelessReader()
+	wireless.seedMeshIface("existing_mesh0", "radio4", "halowmesh", "secretkey999")
+	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
+	wireless.seedAPIface("default_radio1", "radio1", "")
+
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7915AN")
+
+	require.NoError(t, m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlh0")))
+
+	_, created := wireless.Get("wireless", "batmesh1_radio1", "device")
+	assert.False(t, created, "no mesh link may be written beside an enabled AP")
+
+	radio, err := network.GetWirelessDeviceByNameWithReader("radio1", wireless)
+	require.NoError(t, err)
+	assert.Equal(t, "6", radio.Channel, "the AP's channel must not move")
+	assert.Equal(t, "HT20", radio.HTMode)
+
+	ap, err := network.GetWirelessIfaceByNameWithReader("default_radio1", wireless)
+	require.NoError(t, err)
+	assert.Equal(t, "ap", ap.Mode)
+	assert.Equal(t, "client-wifi", ap.SSID)
+
+	configured, err := network.IsBatMesh1ConfiguredWithReader(openmanet)
+	require.NoError(t, err)
+	assert.False(t, configured, "flag stays 0 so a later boot retries once the AP is off")
+	assert.Zero(t, wireless.commitCalls)
+}
+
+func TestSetupBatMesh1Interface_DisabledAPOnRadioGetsLinkAlongside(t *testing.T) {
+	m := newTestManagementConfig()
+	openmanet := newFakeOpenMANETReader()
+	openmanet.seedBatMesh1Configured("0")
+
+	wireless := newFakeWirelessReader()
+	wireless.seedMeshIface("existing_mesh0", "radio4", "halowmesh", "secretkey999")
+	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
+	wireless.seedAPIface("default_radio1", "radio1", "1")
+
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7915AN")
+
+	require.NoError(t, m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlh0")))
+
+	link, err := network.GetWirelessIfaceByNameWithReader("batmesh1_radio1", wireless)
+	require.NoError(t, err)
+	assert.Equal(t, "batmesh1", link.Network)
+	assert.Equal(t, "mesh", link.Mode)
+
+	ap, err := network.GetWirelessIfaceByNameWithReader("default_radio1", wireless)
+	require.NoError(t, err)
+	assert.Equal(t, "ap", ap.Mode, "the disabled AP section is left as it was")
+	assert.Equal(t, "1", ap.Disabled)
+	assert.Equal(t, "client-wifi", ap.SSID)
+}
+
+func TestSetupBatMesh1Interface_NeverWritesDefaultSection(t *testing.T) {
+	m := newTestManagementConfig()
+	openmanet := newFakeOpenMANETReader()
+	openmanet.seedBatMesh1Configured("0")
+
+	wireless := newFakeWirelessReader()
+	wireless.seedMeshIface("existing_mesh0", "radio4", "halowmesh", "secretkey999")
+	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
+
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7915AN")
+
+	require.NoError(t, m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlh0")))
+
+	_, wroteDefault := wireless.Get("wireless", "default_radio1", "device")
+	assert.False(t, wroteDefault, "default_<radio> belongs to the AP; the daemon must never create it")
+
+	_, wroteLink := wireless.Get("wireless", "batmesh1_radio1", "device")
+	assert.True(t, wroteLink)
+}
+
+func TestSetupBatMesh1Interface_OptionSetMatchesMeshLink(t *testing.T) {
+	m := newTestManagementConfig()
+	openmanet := newFakeOpenMANETReader()
+	openmanet.seedBatMesh1Configured("0")
+
+	wireless := newFakeWirelessReader()
+	wireless.seedMeshIface("existing_mesh0", "radio4", "halowmesh", "secretkey999")
+	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
+
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7915AN")
+
+	require.NoError(t, m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlh0")))
+
+	want := network.MeshLink{
+		Radio:         "radio1",
+		Network:       network.BatmanSecondaryIface,
+		MeshID:        "halowmesh",
+		Key:           "secretkey999",
+		RSSIThreshold: network.SecondaryMeshRSSIThreshold,
+	}.IfaceConfig()
+
+	got, err := network.GetWirelessIfaceByNameWithReader("batmesh1_radio1", wireless)
+	require.NoError(t, err)
+	assert.Equal(t, want, got, "the daemon must write exactly the shared MeshLink option set")
+
+	radio, err := network.GetWirelessDeviceByNameWithReader("radio1", wireless)
+	require.NoError(t, err)
+	assert.Equal(t, network.SecondaryMeshChannel2G, radio.Channel)
+	assert.Equal(t, network.SecondaryMeshHTMode2G, radio.HTMode)
+	assert.Equal(t, "0", radio.Disabled)
 }
 
 // ── configureBatmanForceflood tests ─────────────────────────────────────────
