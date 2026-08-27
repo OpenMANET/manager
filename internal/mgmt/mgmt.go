@@ -74,6 +74,7 @@ func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
 		PositionDataType:           cfg.PositionDataType,
 		AddressReservationDataType: cfg.AddressReservationDataType,
 		MeshNeighborsDataType:      cfg.MeshNeighborsDataType,
+		BatmanMulticastForceflood:  cfg.BatmanMulticastForceflood,
 		WirelessConfig:             wirelessConfig,
 		DB:                         cfg.DB,
 		GPS:                        cfg.GPS,
