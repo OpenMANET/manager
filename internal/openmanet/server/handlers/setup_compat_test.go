@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/digineo/go-uci/v2"
 	setupv1 "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1"
 	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
@@ -493,11 +494,14 @@ func TestCompat_DnsmasqWhitelisted(t *testing.T) {
 // dnsmasq section races the global one for port 53; the loser exits
 // and takes its bound pool down ("flaky after setup"). Both fixtures
 // show exactly one dnsmasq and pools with no instance option.
+// D1 (wizard-parity ledger, 2026-08-27): "point-none" is not part of
+// this sweep — MESH_POINT_MODE_NONE is rejected by validateProfile, so
+// pointNoneProfile() can no longer reach runScenarioApply's ApplySetup
+// happy path. See TestCompat_MeshPointNone_RejectedAtValidate.
 func TestCompat_SingleDnsmasqInstance(t *testing.T) {
 	for name, profile := range map[string]*setupv1.MeshNodeProfile{
 		"gate-router-eth": gateRouterEthProfile(),
 		"point-extender":  pointExtenderProfile(),
-		"point-none":      pointNoneProfile(),
 	} {
 		t.Run(name, func(t *testing.T) {
 			tr := runScenarioApply(t, profile)
@@ -657,12 +661,16 @@ func TestCompat_ExtenderForwardingMatchesFixture(t *testing.T) {
 }
 
 // TestCompat_NoMasqOnAhwlanAnyScenario sweeps every scenario.
+//
+// D1 (wizard-parity ledger, 2026-08-27): "point-none" is not part of
+// this sweep — MESH_POINT_MODE_NONE is rejected by validateProfile, so
+// pointNoneProfile() can no longer reach runScenarioApply's ApplySetup
+// happy path. See TestCompat_MeshPointNone_RejectedAtValidate.
 func TestCompat_NoMasqOnAhwlanAnyScenario(t *testing.T) {
 	for name, profile := range map[string]*setupv1.MeshNodeProfile{
 		"gate-router-eth":      gateRouterEthProfile(),
 		"gate-router-firewall": gateRouterFirewallEthProfile(),
 		"point-extender":       pointExtenderProfile(),
-		"point-none":           pointNoneProfile(),
 	} {
 		t.Run(name, func(t *testing.T) {
 			tr := runScenarioApply(t, profile)
@@ -903,37 +911,41 @@ func gateRouterFirewallEthProfile() *setupv1.MeshNodeProfile {
 	return prof
 }
 
-// Gap 1: scenarioMeshPointNone must put ahwlan into DHCP-CLIENT mode
-// and run the DHCP SERVER on lan, not on ahwlan. This is the LuCI 4b
-// semantic — a "headless" mesh point pulls its address from a peer
-// mesh-gate over the mesh and serves DHCP only on its LAN side.
-func TestCompat_MeshPointNone_AhwlanIsDhcpClient(t *testing.T) {
-	tr := runScenarioApply(t, pointNoneProfile())
+// D1 (wizard-parity ledger, 2026-08-27): MESH_POINT_MODE_NONE is
+// rejected at validation until openmanetd's address-reservation worker
+// can leave a DHCP-client ahwlan alone. Today the worker rewrites every
+// non-gateway's ahwlan to a static address on its first tick
+// (internal/mgmt/address_reservation.go), so the scenario's proto=dhcp
+// never survives boot. The enum value stays (removing it is a wire
+// break) and scenarioMeshPointNone stays as the write path to re-enable
+// once the daemon supports it.
+func TestCompat_MeshPointNone_RejectedAtValidate(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, deps := newFullSetupService(t, cfg)
+	collector := &streamCollector{}
 
-	assert.Equal(t, "dhcp", tr.getOne("network", "ahwlan", "proto"),
-		"mesh-point-none ahwlan must be a DHCP client (the peer mesh-gate provides the address)")
-	assert.Empty(t, tr.get("network", "ahwlan", "ipaddr"),
-		"mesh-point-none ahwlan must NOT have a static ipaddr")
-}
+	err := svc.ApplySetupForTest(context.Background(), pointNoneProfile(), collector)
+	require.Error(t, err)
 
-// Gap 1 (cont.): mesh-point-none serves DHCP on lan, not on ahwlan,
-// with the no-router/no-DNS option codes set.
-func TestCompat_MeshPointNone_DhcpServerOnLan(t *testing.T) {
-	tr := runScenarioApply(t, pointNoneProfile())
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+	assert.Contains(t, connectErr.Message(), "meshpoint_mode NONE")
 
-	lanPool := tr.findDhcpPool("lan")
-	require.NotEmpty(t, lanPool,
-		"mesh-point-none must serve DHCP on lan (the device's downstream LAN side)")
+	require.NotEmpty(t, collector.sent)
+	terminal := collector.sent[len(collector.sent)-1]
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_TERMINAL, terminal.GetPhase())
+	assert.Equal(t, setupv1.ApplySetupResponse_PHASE_VALIDATE, terminal.GetResult().GetFailedPhase())
 
-	dhcpOption := tr.get("dhcp", lanPool, "dhcp_option")
-	assert.Contains(t, dhcpOption, "3",
-		"lan DHCP must suppress the default-route option (dhcp_option=3)")
-	assert.Contains(t, dhcpOption, "6",
-		"lan DHCP must suppress the DNS-server option (dhcp_option=6)")
+	// Validation rejects before phase 2: no snapshot, no staged writes.
+	assert.Equal(t, 0, deps.Snap.snapshotCalls, "no snapshot when validation rejects")
 
-	ahwlanPool := tr.findDhcpPool("ahwlan")
-	assert.Empty(t, ahwlanPool,
-		"mesh-point-none must NOT serve DHCP on ahwlan (it's a DHCP client there)")
+	reader, ok := svc.UCI.(*fakeConfigReader)
+	require.True(t, ok, "fakeConfigReader expected on UCI field")
+
+	tr := &uciTree{reader: reader}
+	assert.False(t, tr.hasSection("network", "ahwlan"), "no phase may run after a validation reject")
+	assert.False(t, tr.hasSection("network", "wizard"), "no bookkeeping after a validation reject")
 }
 
 // Gap 2: router_firewall scenario must add wan6 to the wan firewall

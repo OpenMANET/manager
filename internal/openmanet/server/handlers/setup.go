@@ -871,6 +871,16 @@ func (s *SetupService) validateProfile(profile *setupv1.MeshNodeProfile) error {
 			return errors.New("meshpoint_mode is required when role is MESH_POINT")
 		}
 
+		// D1 (wizard-parity ledger, 2026-08-27): the address-reservation
+		// worker rewrites every non-gateway's ahwlan to a static address
+		// on its first tick, so the DHCP-client ahwlan this mode needs
+		// cannot survive boot. Rejected until the daemon supports it;
+		// the enum value and scenarioMeshPointNone are kept for that day.
+		if profile.GetMeshpointMode() == setupv1.MeshPointMode_MESH_POINT_MODE_NONE {
+			return errors.New("meshpoint_mode NONE is not supported yet: " +
+				"the address-reservation worker overrides a DHCP-client ahwlan on its first tick")
+		}
+
 		if profile.GetMeshgateMode() != setupv1.MeshGateMode_MESH_GATE_MODE_UNSPECIFIED {
 			return errors.New("meshgate_mode must not be set when role is MESH_POINT")
 		}

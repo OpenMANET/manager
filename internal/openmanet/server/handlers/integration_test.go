@@ -1363,6 +1363,35 @@ func TestIntegration_ApplySetup_RejectsWhenAlreadyComplete(t *testing.T) {
 	assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
 }
 
+func TestIntegration_ApplySetup_RejectsMeshPointNone(t *testing.T) {
+	srv := newSetupTestServer(t, "setup:\n  enabled: true\n")
+	client := setupconnect.NewSetupServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	prof := integrationMinimalProfile()
+	prof.DeviceMode = &setupv1.MeshNodeProfile_MeshpointMode{
+		MeshpointMode: setupv1.MeshPointMode_MESH_POINT_MODE_NONE,
+	}
+
+	stream, err := client.ApplySetup(context.Background(), &setupv1.ApplySetupRequest{Profile: prof})
+	require.NoError(t, err)
+
+	// Drain STARTED / FAILED / TERMINAL; the rejection is the stream error.
+	received := 0
+	for stream.Receive() {
+		received++
+	}
+
+	assert.GreaterOrEqual(t, received, 3)
+
+	err = stream.Err()
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+	assert.Contains(t, connectErr.Message(), "meshpoint_mode NONE")
+}
+
 // integrationMinimalProfile returns a fully-valid MeshNodeProfile for
 // integration tests of the SetupService.
 func integrationMinimalProfile() *setupv1.MeshNodeProfile {

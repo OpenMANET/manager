@@ -32,6 +32,15 @@ const MESH_ENCRYPTION_VALUES = [
   WifiEncryption.NONE,
 ];
 
+// Selectable mesh-point modes. MESH_POINT_MODE_NONE is hidden here (and
+// rejected by validateProfile on the backend) until openmanetd's
+// address-reservation worker can leave a DHCP-client ahwlan alone —
+// wizard-parity ledger decision D1 (2026-08-27). The label stays in
+// MESH_POINT_MODE_LABELS so the review summary can still name it.
+const HIDDEN_MESH_POINT_MODES = new Set([MeshPointMode.UNSPECIFIED, MeshPointMode.NONE]);
+const MESH_POINT_MODE_OPTIONS = optionsFromMap(MESH_POINT_MODE_LABELS)
+  .filter(o => !HIDDEN_MESH_POINT_MODES.has(o.value));
+
 const BANDWIDTH_LABELS = {
   1: '1 MHz',
   2: '2 MHz',
@@ -276,9 +285,7 @@ export default function StepMesh({ status }) {
           <LatSelect
             ariaLabel="Mesh point mode"
             value={state.meshpointMode}
-            options={Object.entries(MESH_POINT_MODE_LABELS).map(([value, label]) => ({
-              value: Number(value), label,
-            })).filter(o => o.value !== MeshPointMode.UNSPECIFIED)}
+            options={MESH_POINT_MODE_OPTIONS}
             onChange={(v) => dispatch({ type: SETUP_ACTIONS.SET_MESHPOINT_MODE, value: v })}
           />
         </div>
