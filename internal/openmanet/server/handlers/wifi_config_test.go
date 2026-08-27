@@ -1281,6 +1281,7 @@ func TestWifiEncryptionRoundTrip(t *testing.T) {
 		{"psk2", wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK2},
 		{"psk", wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK},
 		{"psk-mixed", wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK_MIXED},
+		{"sae-mixed", wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE_MIXED},
 		{"none", wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_NONE},
 		{"owe", wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_OWE},
 	}

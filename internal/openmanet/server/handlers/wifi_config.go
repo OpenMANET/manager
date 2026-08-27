@@ -882,6 +882,8 @@ func WifiEncryptionToProto(s string) wificonfigv1.WifiEncryption {
 		return wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK
 	case "psk-mixed":
 		return wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK_MIXED
+	case "sae-mixed":
+		return wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE_MIXED
 	case "none":
 		return wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_NONE
 	case "owe":
@@ -902,6 +904,8 @@ func ProtoToWifiEncryption(e wificonfigv1.WifiEncryption) string {
 		return "psk"
 	case wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK_MIXED:
 		return "psk-mixed"
+	case wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE_MIXED:
+		return "sae-mixed"
 	case wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_NONE:
 		return "none"
 	case wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_OWE:

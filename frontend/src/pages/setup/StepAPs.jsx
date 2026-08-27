@@ -12,10 +12,13 @@ import { useSetup, SETUP_ACTIONS } from '../../contexts/SetupContext.jsx';
 import { WifiEncryption } from '../../gen/openmanet/wifi_config/v1/wifi_config_pb.js';
 import { ENCRYPTION_LABELS } from './labels.js';
 
+// Same three secured choices the LuCI mesh wizard offers (psk2,
+// sae-mixed, sae) plus the open modes. PSK_MIXED (WPA1+WPA2) stays in
+// the proto for wire compatibility but is not offered here.
 const AP_ENCRYPTION_VALUES = [
   WifiEncryption.SAE,
   WifiEncryption.PSK2,
-  WifiEncryption.PSK_MIXED,
+  WifiEncryption.SAE_MIXED,
   WifiEncryption.OWE,
   WifiEncryption.NONE,
 ];
