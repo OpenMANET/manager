@@ -26,8 +26,10 @@ const (
 	CommsMulticastGroup string = "239.192.41.1"
 
 	// CommsRTPPortRange is the UDP destination port range used by the
-	// OpenMANET comms RTP traffic. Matches the captured LuCI fixture.
-	CommsRTPPortRange string = "33801-38864"
+	// OpenMANET comms RTP traffic: the talk-group range owned by
+	// internal/config/multicast.go (38801 + channel-1). Matches
+	// upstream LuCI's wizard rule and both captured fixtures.
+	CommsRTPPortRange string = "38801-38864"
 
 	// BatmanMeshTCPPort is the TCP port used by batman-adv mesh
 	// management traffic. Matches the LuCI captured fixture.

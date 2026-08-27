@@ -111,6 +111,18 @@ func (t *uciTree) findFirewallForwarding(src, dest string) string {
 	return ""
 }
 
+// findFirewallRuleByName returns the section name of the first
+// `config rule` whose `name` equals name, or "" if none.
+func (t *uciTree) findFirewallRuleByName(name string) string {
+	for _, s := range t.sectionsOfType("firewall", "rule") {
+		if t.getOne("firewall", s, "name") == name {
+			return s
+		}
+	}
+
+	return ""
+}
+
 // findDhcpPool returns the section name of the first `config dhcp`
 // whose `interface` equals iface and which is not marked `ignore=1`.
 func (t *uciTree) findDhcpPool(iface string) string {
@@ -776,6 +788,33 @@ func TestCompat_DefaultWanFirewallRulesPresent(t *testing.T) {
 
 	for name, found := range wantNames {
 		assert.Truef(t, found, "expected wizard to write firewall rule %q", name)
+	}
+}
+
+// TestCompat_CommsFirewallRuleMatchesFixture pins the whole "Allow
+// Incoming Comms" rule against both captures. The port range is the
+// talk-group range 38801-38864 (internal/config/multicast.go); the
+// constant previously opened 33801-38864, 5000 ports wider than any
+// consumer.
+func TestCompat_CommsFirewallRuleMatchesFixture(t *testing.T) {
+	for scenario, profile := range map[string]*setupv1.MeshNodeProfile{
+		"mesh-gate-router-eth": gateRouterEthProfile(),
+		"mesh-point-extender":  pointExtenderProfile(),
+	} {
+		t.Run(scenario, func(t *testing.T) {
+			tr := runScenarioApply(t, profile)
+
+			rule := tr.findFirewallRuleByName("Allow Incoming Comms")
+			require.NotEmpty(t, rule, "wizard must write the comms rule")
+
+			secs := loadFixture(t, scenario, "firewall")
+			fx := findFixtureSectionByOption(secs, "rule", "name", "Allow Incoming Comms")
+			require.NotNil(t, fx)
+
+			assertTreeMatchesFixture(t, tr, "firewall", rule, fx)
+			assertNoExtraOptions(t, tr, "firewall", rule, fx)
+			assert.Equal(t, "38801-38864", tr.getOne("firewall", rule, "dest_port"))
+		})
 	}
 }
 

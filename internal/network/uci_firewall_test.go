@@ -248,7 +248,10 @@ func TestAddDefaultWanFirewallRules_AllowIncomingCommsHasMulticastDest(t *testin
 
 	v, ok = m.Get("firewall", rule, "dest_port")
 	require.True(t, ok)
-	assert.Equal(t, CommsRTPPortRange, v[0])
+	// Pinned as a literal on purpose: the comms talk-group range is
+	// 38801-38864 (internal/config/multicast.go) and upstream LuCI
+	// writes the same. Comparing against the constant could never fail.
+	assert.Equal(t, "38801-38864", v[0])
 }
 
 func TestAddDefaultWanFirewallRules_RejectsEmptyLocalZone(t *testing.T) {
