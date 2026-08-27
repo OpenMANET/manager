@@ -10,6 +10,7 @@ import (
 	"github.com/digineo/go-uci/v2"
 	setupv1 "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1"
 	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
+	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1319,4 +1320,100 @@ func TestCompat_LuciAbsentIsFine(t *testing.T) {
 
 	assert.Empty(t, tr.get("luci", "main", "homepage"))
 	assert.Equal(t, "1", tr.getOne("luci", "wizard", "used"))
+}
+
+// ── Mesh backhaul (P4) ────────────────────────────────────────────────────────
+
+func pointExtenderBackhaulProfile() *setupv1.MeshNodeProfile {
+	prof := pointExtenderProfile()
+	prof.Aps = []*setupv1.RadioApProfile{backhaulEntry("radio0")}
+
+	return prof
+}
+
+// TestCompat_MeshBackhaul_WritesMeshLinkOptionSet asserts the wizard
+// writes exactly the daemon's option set under the non-colliding
+// section, with the operator's own credentials, and moves the radio to
+// the secondary link's channel and width.
+func TestCompat_MeshBackhaul_WritesMeshLinkOptionSet(t *testing.T) {
+	tr := runScenarioApply(t, pointExtenderBackhaulProfile())
+
+	want := network.MeshLink{
+		Radio:         "radio0",
+		Network:       network.BatmanSecondaryIface,
+		MeshID:        "backhaul-2g",
+		Key:           "backhaulpass",
+		RSSIThreshold: network.SecondaryMeshRSSIThreshold,
+	}
+	require.True(t, tr.hasSection("wireless", want.Section()), "wifi-iface %s must exist", want.Section())
+
+	got, err := network.GetWirelessIfaceByNameWithReader(want.Section(), tr.reader)
+	require.NoError(t, err)
+	assert.Equal(t, want.IfaceConfig(), got)
+	assert.Empty(t, tr.getOne("wireless", want.Section(), "disabled"), "the link must be enabled")
+
+	assert.Equal(t, network.SecondaryMeshChannel2G, tr.getOne("wireless", "radio0", "channel"))
+	assert.Equal(t, network.SecondaryMeshHTMode2G, tr.getOne("wireless", "radio0", "htmode"))
+	assert.Empty(t, tr.getOne("wireless", "radio0", "disabled"))
+}
+
+// TestCompat_MeshBackhaul_KeepsAPSectionDisabled asserts default_<radio>
+// stays present but off, with no credentials, so the daemon's fallback
+// and a later settings edit both see an intact, inert AP section.
+func TestCompat_MeshBackhaul_KeepsAPSectionDisabled(t *testing.T) {
+	tr := runScenarioApply(t, pointExtenderBackhaulProfile())
+
+	require.True(t, tr.hasSection("wireless", "default_radio0"))
+	assert.Equal(t, "ap", tr.getOne("wireless", "default_radio0", "mode"))
+	assert.Equal(t, "1", tr.getOne("wireless", "default_radio0", "disabled"))
+	assert.Empty(t, tr.getOne("wireless", "default_radio0", "ssid"))
+	assert.NotEqual(t, "batmesh1", tr.getOne("wireless", "default_radio0", "network"),
+		"the AP section is never converted into the mesh link")
+}
+
+// TestCompat_MeshBackhaul_FlagHandoff asserts batmesh1configured is 1
+// when the wizard wrote the link (daemon fallback skips) and 0 otherwise
+// (daemon fallback may run).
+func TestCompat_MeshBackhaul_FlagHandoff(t *testing.T) {
+	chosen := runScenarioApply(t, pointExtenderBackhaulProfile())
+	assert.Equal(t, "1", chosen.getOne("openmanetd", "config", "batmesh1configured"))
+	assert.Equal(t, "0", chosen.getOne("openmanetd", "config", "dhcpconfigured"),
+		"the address-reservation flag is unaffected")
+
+	notChosen := runScenarioApply(t, pointExtenderProfile())
+	assert.Equal(t, "0", notChosen.getOne("openmanetd", "config", "batmesh1configured"))
+	assert.False(t, notChosen.hasSection("wireless", "batmesh1_radio0"),
+		"no backhaul chosen: the wizard writes no link section")
+}
+
+// TestCompat_MeshBackhaul_OtherRadioAPIntact asserts a backhaul on one
+// radio does not disturb an enabled AP on another.
+func TestCompat_MeshBackhaul_OtherRadioAPIntact(t *testing.T) {
+	prof := pointExtenderBackhaulProfile()
+	prof.Aps = append(prof.Aps, &setupv1.RadioApProfile{
+		RadioName:  "radio2",
+		Enabled:    true,
+		Ssid:       "client-5g",
+		Passphrase: "appassword",
+		Encryption: wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE,
+	})
+
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, _ := newFullSetupService(t, cfg)
+
+	reader, ok := svc.UCI.(*fakeConfigReader)
+	require.True(t, ok)
+
+	reader.data["wireless"]["radio2"] = map[string][]string{"type": {"mac80211"}, "band": {"5g"}, "channel": {"36"}}
+	reader.sectionTypes["wireless"]["radio2"] = "wifi-device"
+
+	require.NoError(t, svc.ApplySetupForTest(context.Background(), prof, &streamCollector{}))
+
+	tr := &uciTree{reader: reader}
+
+	assert.Equal(t, "ap", tr.getOne("wireless", "default_radio2", "mode"))
+	assert.Equal(t, "client-5g", tr.getOne("wireless", "default_radio2", "ssid"))
+	assert.Empty(t, tr.getOne("wireless", "default_radio2", "disabled"))
+	assert.Equal(t, "36", tr.getOne("wireless", "radio2", "channel"), "only the backhaul radio changes channel")
+	assert.True(t, tr.hasSection("wireless", "batmesh1_radio0"))
 }

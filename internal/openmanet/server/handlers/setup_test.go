@@ -854,6 +854,102 @@ func TestApplySetup_RejectsDuplicateAPRadios(t *testing.T) {
 	requireConnectCode(t, err, connect.CodeInvalidArgument)
 }
 
+func backhaulEntry(radio string) *setupv1.RadioApProfile {
+	return &setupv1.RadioApProfile{
+		RadioName:  radio,
+		Enabled:    false,
+		Encryption: wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE,
+		MeshBackhaul: &setupv1.MeshBackhaulProfile{
+			MeshId:     "backhaul-2g",
+			Passphrase: "backhaulpass",
+		},
+	}
+}
+
+func TestApplySetup_RejectsBackhaulThatIsAlsoEnabledAP(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+	svc.Iwinfo, svc.WirelessStatus = backhaulCapableProviders()
+
+	prof := minimalProfile()
+	entry := backhaulEntry("radio0")
+	entry.Enabled = true
+	entry.Ssid = "both"
+	entry.Passphrase = "longenough"
+	prof.Aps = []*setupv1.RadioApProfile{entry}
+
+	err := runApplySetup(t, svc, prof)
+	requireConnectCode(t, err, connect.CodeInvalidArgument)
+	assert.Contains(t, err.Error(), "cannot be both an AP and the mesh backhaul")
+}
+
+func TestApplySetup_RejectsTwoBackhauls(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	reader := newSetupReader()
+	reader.data["wireless"]["radio2"] = map[string][]string{"type": {"mac80211"}, "band": {"2g"}, "channel": {"6"}}
+	reader.sectionTypes["wireless"]["radio2"] = "wifi-device"
+	svc := newSetupService(t, cfg, reader, &fakeInterfaceProvider{})
+	svc.Iwinfo, svc.WirelessStatus = backhaulCapableProviders()
+
+	prof := minimalProfile()
+	prof.Aps = []*setupv1.RadioApProfile{backhaulEntry("radio0"), backhaulEntry("radio2")}
+
+	err := runApplySetup(t, svc, prof)
+	requireConnectCode(t, err, connect.CodeInvalidArgument)
+	assert.Contains(t, err.Error(), "only one radio may be the mesh backhaul")
+}
+
+func TestApplySetup_RejectsBackhaulOnUnsupportedRadio(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+	// No providers wired: capability cannot be resolved, so the choice is refused.
+
+	prof := minimalProfile()
+	prof.Aps = []*setupv1.RadioApProfile{backhaulEntry("radio0")}
+
+	err := runApplySetup(t, svc, prof)
+	requireConnectCode(t, err, connect.CodeInvalidArgument)
+	assert.Contains(t, err.Error(), "does not support mesh backhaul")
+}
+
+func TestApplySetup_RejectsBackhaulOnMeshRadio(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+	svc.Iwinfo, svc.WirelessStatus = backhaulCapableProviders()
+
+	prof := minimalProfile()
+	prof.Aps = []*setupv1.RadioApProfile{backhaulEntry("radio1")} // the HaLow mesh radio
+
+	err := runApplySetup(t, svc, prof)
+	requireConnectCode(t, err, connect.CodeInvalidArgument)
+}
+
+func TestApplySetup_RejectsBackhaulOnSTARadio(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+	svc.Iwinfo, svc.WirelessStatus = backhaulCapableProviders()
+
+	prof := minimalProfile()
+	prof.Role = setupv1.MeshRole_MESH_ROLE_MESH_GATE
+	prof.DeviceMode = &setupv1.MeshNodeProfile_MeshgateMode{
+		MeshgateMode: setupv1.MeshGateMode_MESH_GATE_MODE_ROUTER,
+	}
+	prof.Uplink = &setupv1.Uplink{
+		Type: setupv1.UplinkType_UPLINK_TYPE_WIRELESS_STA,
+		Wireless: &setupv1.WifiStaProfile{
+			RadioName:  "radio0",
+			Ssid:       "upstream",
+			Passphrase: "upstreampass",
+			Encryption: wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK2,
+		},
+	}
+	prof.Aps = []*setupv1.RadioApProfile{backhaulEntry("radio0")}
+
+	err := runApplySetup(t, svc, prof)
+	requireConnectCode(t, err, connect.CodeInvalidArgument)
+	assert.Contains(t, err.Error(), "also the wireless uplink radio")
+}
+
 func TestApplySetup_RejectsShortPassphrase(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
 	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
@@ -1296,6 +1392,11 @@ func newFullSetupService(t *testing.T, cfg *config.Config) (*handlers.SetupServi
 		Reloader:       deps.Reloader,
 		Interfaces:     &fakeInterfaceProvider{},
 	}
+
+	// radio0 (2g mac80211) resolves to an MT7915 so backhaul profiles
+	// pass validation; HaLow-only or unresolvable boards are covered
+	// by TestGetSetupStatus_SupportsMeshBackhaul_*.
+	svc.Iwinfo, svc.WirelessStatus = backhaulCapableProviders()
 
 	return svc, deps
 }

@@ -810,6 +810,10 @@ func bandwidthToHTMode(mhz uint32) string {
 //     without having to re-create the section.
 //   - The STA iface gets `network=lan` so DHCP from the upstream is
 //     written into the lan subnet (matches LuCI scenario 3d).
+//   - A radio the operator chose as mesh backhaul keeps its AP section
+//     present but disabled (writeAPIface with enabled=false) and gets
+//     the secondary batman-adv link written beside it under
+//     network.MeshLink's section name.
 //
 // Uses raw SetType calls (rather than network.SetWirelessIfaceConfig)
 // so writes stay staged in the in-memory tree until phase 12 commits.
@@ -818,6 +822,14 @@ func (s *SetupService) runPerRadioAPSta(_ context.Context, stream applySetupStre
 		"configuring per-radio AP/STA", func() error {
 			for _, ap := range profile.GetAps() {
 				if err := s.writeAPIface(ap); err != nil {
+					return err
+				}
+
+				if ap.GetMeshBackhaul() == nil {
+					continue
+				}
+
+				if err := s.writeMeshBackhaulIface(ap); err != nil {
 					return err
 				}
 			}
@@ -941,6 +953,68 @@ func (s *SetupService) writeSTAIface(w *setupv1.WifiStaProfile) error {
 	return nil
 }
 
+// writeMeshBackhaulIface stages the secondary batman-adv mesh link on
+// the radio the operator chose in place of an AP. Section name and
+// option set come from network.MeshLink, so the wizard writes exactly
+// what the daemon's boot-time fallback (mgmt.setupBatMesh1Interface)
+// would — with the operator's own mesh ID and passphrase instead of
+// borrowed HaLow credentials — and the section can never collide with
+// default_<radio>. The radio moves to the link's fixed channel/width.
+// Raw SetType calls only; phase 12 commits.
+func (s *SetupService) writeMeshBackhaulIface(ap *setupv1.RadioApProfile) error {
+	link := network.MeshLink{
+		Radio:         ap.GetRadioName(),
+		Network:       network.BatmanSecondaryIface,
+		MeshID:        ap.GetMeshBackhaul().GetMeshId(),
+		Key:           ap.GetMeshBackhaul().GetPassphrase(),
+		RSSIThreshold: network.SecondaryMeshRSSIThreshold,
+	}
+	section := link.Section()
+	cfg := link.IfaceConfig()
+
+	if err := s.UCI.AddSection("wireless", section, "wifi-iface"); err != nil {
+		s.Log.Debug().Err(err).Str("section", section).Msg("AddSection (ignored)")
+	}
+
+	ifaceWrites := []optionWrite{
+		{wifiOptionDevice, cfg.Device},
+		{wifiOptionNetwork, cfg.Network},
+		{wifiOptionMode, cfg.Mode},
+		{wifiOptionMeshID, cfg.MeshID},
+		{wifiOptionKey, cfg.Key},
+		{wifiOptionMeshFwding, cfg.MeshFwding},
+		{wifiOptionMeshRSSI, cfg.MeshRSSIThreshold},
+		{wifiOptionEncryption, cfg.Encryption},
+	}
+
+	for _, ow := range ifaceWrites {
+		if err := s.UCI.SetType("wireless", section, ow.option, uci.TypeOption, ow.value); err != nil {
+			return fmt.Errorf("setting mesh backhaul iface %s.%s: %w", section, ow.option, err)
+		}
+	}
+
+	if err := s.UCI.Del("wireless", section, wifiOptionDisabled); err != nil {
+		return fmt.Errorf("clearing mesh backhaul iface %s.disabled: %w", section, err)
+	}
+
+	radioWrites := []optionWrite{
+		{wifiOptionChannel, network.SecondaryMeshChannel2G},
+		{wifiOptionHTMode, network.SecondaryMeshHTMode2G},
+	}
+
+	for _, ow := range radioWrites {
+		if err := s.UCI.SetType("wireless", link.Radio, ow.option, uci.TypeOption, ow.value); err != nil {
+			return fmt.Errorf("setting mesh backhaul radio %s.%s: %w", link.Radio, ow.option, err)
+		}
+	}
+
+	if err := s.UCI.Del("wireless", link.Radio, wifiOptionDisabled); err != nil {
+		return fmt.Errorf("clearing mesh backhaul radio %s.disabled: %w", link.Radio, err)
+	}
+
+	return nil
+}
+
 // ── Phase 9: scenario topology ───────────────────────────────────────────────
 
 // runScenarioTopology dispatches to one of the five canonical scenario
@@ -993,6 +1067,12 @@ const (
 	wifiOptionKey        = "key"
 	wifiOptionEncryption = "encryption"
 	wifiOptionSSID       = "ssid"
+	wifiOptionMeshID     = "mesh_id"
+	wifiOptionMeshFwding = "mesh_fwding"
+	wifiOptionMeshRSSI   = "mesh_rssi_threshold"
+	wifiOptionChannel    = "channel"
+	wifiOptionHTMode     = "htmode"
+	wifiOptionDisabled   = "disabled"
 	wifiEncryptionSAE    = "sae"
 	wifiNetworkAhwlan    = "ahwlan"
 )
@@ -1272,7 +1352,7 @@ func (s *SetupService) writeWizardBookkeeping(profile *setupv1.MeshNodeProfile) 
 		}
 	}
 
-	if err := s.writeOpenmanetdFlags(); err != nil {
+	if err := s.writeOpenmanetdFlags(profile); err != nil {
 		return err
 	}
 
@@ -1280,22 +1360,25 @@ func (s *SetupService) writeWizardBookkeeping(profile *setupv1.MeshNodeProfile) 
 }
 
 // writeOpenmanetdFlags stages the wizard's half of the two-stage
-// addressing design in /etc/config/openmanetd:
+// addressing design and the batmesh1 handoff in /etc/config/openmanetd:
 //
 //	config openmanet 'config'
 //	    option dhcpconfigured '0'
-//	    option batmesh1configured '0'
+//	    option batmesh1configured '0'   (or '1')
 //
 // dhcpconfigured=0 makes AddressReservationWorker claim a mesh-unique
 // address + DHCP window after boot (it acts whenever the value is not
-// "1"); batmesh1configured=0 lets setupBatMesh1Interface run. The
-// wizard's ahwlan address is a throwaway 10.41.254.x bootstrap, so the
-// flag must be clear even when a previous run had reserved.
+// "1"). The wizard's ahwlan address is a throwaway 10.41.254.x
+// bootstrap, so the flag must be clear even when a previous run had
+// reserved. batmesh1configured is 1 when the operator chose a mesh
+// backhaul (phase 8 wrote the link; the daemon's fallback must not run)
+// and 0 otherwise so setupBatMesh1Interface may still add one on a
+// free radio.
 //
 // Stage-only on purpose: network.ClearDHCPConfiguredWithReader and
 // friends commit immediately, which would break the phase-12 atomic
 // commit and the snapshot/rollback contract.
-func (s *SetupService) writeOpenmanetdFlags() error {
+func (s *SetupService) writeOpenmanetdFlags(profile *setupv1.MeshNodeProfile) error {
 	const (
 		openmanetdConfig  = "openmanetd"
 		openmanetdSection = "config"
@@ -1307,13 +1390,35 @@ func (s *SetupService) writeOpenmanetdFlags() error {
 	// works either way.
 	_ = s.UCI.AddSection(openmanetdConfig, openmanetdSection, openmanetdType)
 
-	for _, flag := range []string{"dhcpconfigured", "batmesh1configured"} {
-		if err := s.UCI.SetType(openmanetdConfig, openmanetdSection, flag, uci.TypeOption, "0"); err != nil {
-			return fmt.Errorf("stage openmanetd.config.%s: %w", flag, err)
+	batmesh1 := "0"
+	if profileHasMeshBackhaul(profile) {
+		batmesh1 = "1"
+	}
+
+	flags := []optionWrite{
+		{"dhcpconfigured", "0"},
+		{"batmesh1configured", batmesh1},
+	}
+
+	for _, flag := range flags {
+		if err := s.UCI.SetType(openmanetdConfig, openmanetdSection, flag.option, uci.TypeOption, flag.value); err != nil {
+			return fmt.Errorf("stage openmanetd.config.%s: %w", flag.option, err)
 		}
 	}
 
 	return nil
+}
+
+// profileHasMeshBackhaul reports whether any radio in the profile was
+// chosen as the mesh backhaul.
+func profileHasMeshBackhaul(profile *setupv1.MeshNodeProfile) bool {
+	for _, ap := range profile.GetAps() {
+		if ap.GetMeshBackhaul() != nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 // LuCI bookkeeping the Go wizard mirrors from the LuCI mesh wizard's

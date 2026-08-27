@@ -890,7 +890,7 @@ func (s *SetupService) hasUsableHalowRadio() bool {
 // failure. Returns the validation error so the caller can decide
 // whether to roll back.
 func (s *SetupService) runValidate(
-	_ context.Context,
+	ctx context.Context,
 	stream applySetupStream,
 	profile *setupv1.MeshNodeProfile,
 ) error {
@@ -899,7 +899,12 @@ func (s *SetupService) runValidate(
 		return err
 	}
 
-	if err := s.validateProfile(profile); err != nil {
+	err := s.validateProfile(profile)
+	if err == nil {
+		err = s.validateMeshBackhaul(ctx, profile)
+	}
+
+	if err != nil {
 		_ = emitPhaseFailed(stream, setupv1.ApplySetupResponse_PHASE_VALIDATE, err.Error())
 
 		return err
@@ -1132,8 +1137,17 @@ func validateUplink(uplink *setupv1.Uplink, meshRadio string, aps []*setupv1.Rad
 	}
 
 	for _, ap := range aps {
-		if ap.GetEnabled() && ap.GetRadioName() == wireless.GetRadioName() {
+		if ap.GetRadioName() != wireless.GetRadioName() {
+			continue
+		}
+
+		if ap.GetEnabled() {
 			return fmt.Errorf("uplink STA radio %q is also configured as an enabled AP",
+				wireless.GetRadioName())
+		}
+
+		if ap.GetMeshBackhaul() != nil {
+			return fmt.Errorf("mesh backhaul radio %q is also the wireless uplink radio",
 				wireless.GetRadioName())
 		}
 	}
@@ -1143,6 +1157,56 @@ func validateUplink(uplink *setupv1.Uplink, meshRadio string, aps []*setupv1.Rad
 	}
 
 	return nil
+}
+
+// validateMeshBackhaul enforces the per-radio mesh-backhaul rules: at
+// most one backhaul entry, never combined with an enabled AP on the
+// same radio, and only on a radio the daemon would accept (2.4 GHz,
+// not HaLow, MT7915/MT7916 per iwinfo). The mesh-radio and STA-radio
+// clashes are covered by validateAPs and validateUplink.
+func (s *SetupService) validateMeshBackhaul(ctx context.Context, profile *setupv1.MeshNodeProfile) error {
+	var backhaul *setupv1.RadioApProfile
+
+	for _, ap := range profile.GetAps() {
+		if ap.GetMeshBackhaul() == nil {
+			continue
+		}
+
+		if ap.GetEnabled() {
+			return fmt.Errorf("radio %q cannot be both an AP and the mesh backhaul", ap.GetRadioName())
+		}
+
+		if backhaul != nil {
+			return fmt.Errorf("only one radio may be the mesh backhaul (%q and %q)",
+				backhaul.GetRadioName(), ap.GetRadioName())
+		}
+
+		backhaul = ap
+	}
+
+	if backhaul == nil {
+		return nil
+	}
+
+	if !s.radioSupportsMeshBackhaul(ctx, backhaul.GetRadioName()) {
+		return fmt.Errorf("radio %q does not support mesh backhaul (needs a 2.4 GHz MT7915/MT7916 radio)",
+			backhaul.GetRadioName())
+	}
+
+	return nil
+}
+
+// radioSupportsMeshBackhaul answers with the same inventory
+// GetSetupStatus reports, so the wizard can never be told a radio
+// qualifies and then have the apply refuse it (or the reverse).
+func (s *SetupService) radioSupportsMeshBackhaul(ctx context.Context, name string) bool {
+	for _, radio := range s.collectSetupRadios(ctx) {
+		if radio.GetName() == name {
+			return radio.GetSupportsMeshBackhaul()
+		}
+	}
+
+	return false
 }
 
 // validatePassphrase enforces WPA's 8..63 char rule unless the

@@ -1274,29 +1274,22 @@ func newSetupTestServer(t *testing.T, yamlContent string) *httptest.Server {
 
 	cfg := config.NewWithoutWatch(v)
 
-	reader := &fakeConfigReader{
-		data: map[string]map[string]map[string][]string{
-			"wireless": {
-				"radio0": {"type": {"mac80211"}, "band": {"2g"}, "channel": {"1"}},
-				"radio1": {"type": {"morse"}, "band": {"s1g"}, "channel": {"42"}},
-			},
-			"system": {
-				"@system[0]": {"hostname": {"BCM2711-97d6"}},
-			},
-		},
-		sectionTypes: map[string]map[string]string{
-			"wireless": {"radio0": "wifi-device", "radio1": "wifi-device"},
-			"system":   {"@system[0]": "system"},
-		},
-	}
+	reader := newFullSetupReader()
+	iw, ws := backhaulCapableProviders()
 
 	mux := http.NewServeMux()
 
 	mux.Handle(setupconnect.NewSetupServiceHandler(&handlers.SetupService{
-		Cfg:        cfg,
-		Log:        zerolog.Nop(),
-		UCI:        reader,
-		Interfaces: &fakeInterfaceProvider{},
+		Cfg:            cfg,
+		Log:            zerolog.Nop(),
+		UCI:            reader,
+		Snapshotter:    &fakeSnapshotter{},
+		HostnameSetter: &fakeHostnameSetter{},
+		PasswordSetter: &fakePasswordSetter{},
+		Reloader:       newFakeReloader(len(handlers.ReloadServicesForTest())),
+		Interfaces:     &fakeInterfaceProvider{},
+		Iwinfo:         iw,
+		WirelessStatus: ws,
 	}, connect.WithInterceptors(validate.NewInterceptor())))
 
 	srv := httptest.NewServer(mux)
@@ -1435,4 +1428,35 @@ func integrationMinimalProfile() *setupv1.MeshNodeProfile {
 			Channel:      42,
 		},
 	}
+}
+
+func TestIntegration_ApplySetup_MeshBackhaul(t *testing.T) {
+	srv := newSetupTestServer(t, "setup:\n  enabled: true\n")
+	client := setupconnect.NewSetupServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	prof := integrationMinimalProfile()
+	prof.Aps = []*setupv1.RadioApProfile{{
+		RadioName:  "radio0",
+		Encryption: wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE,
+		MeshBackhaul: &setupv1.MeshBackhaulProfile{
+			MeshId:     "backhaul-2g",
+			Passphrase: "backhaulpass",
+		},
+	}}
+
+	stream, err := client.ApplySetup(context.Background(), &setupv1.ApplySetupRequest{Profile: prof})
+	require.NoError(t, err)
+
+	sawValidateDone := false
+
+	for stream.Receive() {
+		msg := stream.Msg()
+		if msg.GetPhase() == setupv1.ApplySetupResponse_PHASE_VALIDATE &&
+			msg.GetStatus() == setupv1.ApplySetupResponse_STATUS_DONE {
+			sawValidateDone = true
+		}
+	}
+
+	require.NoError(t, stream.Err(), "a backhaul on a capable radio must apply end to end")
+	assert.True(t, sawValidateDone, "validation must accept the backhaul entry")
 }
