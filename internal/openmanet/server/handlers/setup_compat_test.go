@@ -315,8 +315,8 @@ func TestCompat_AhwlanIPaddrSet_Point(t *testing.T) {
 
 	ip := tr.getOne("network", "ahwlan", "ipaddr")
 	require.NotEmpty(t, ip, "mesh-point ahwlan.ipaddr must be set to a random in-subnet address")
-	assert.True(t, strings.HasPrefix(ip, "10.41."),
-		"ahwlan.ipaddr must be inside the mesh subnet (got %q)", ip)
+	assert.True(t, ipInBootstrapWindow(ip),
+		"ahwlan.ipaddr must be the wizard's 10.41.254.x bootstrap address (got %q); the daemon replaces it at reservation", ip)
 	assert.NotEqual(t, "10.41.254.1", ip,
 		"ahwlan.ipaddr must avoid the factory IP")
 }
@@ -514,7 +514,7 @@ func TestCompat_AhwlanPoolFixtureParity(t *testing.T) {
 
 	secs := loadFixture(t, "mesh-gate-router-eth", "dhcp")
 	fx := findFixtureSection(secs, "dhcp", "ahwlan")
-	assertTreeMatchesFixture(t, tr, "dhcp", pool, fx, "start")
+	assertTreeMatchesFixtureOwned(t, tr, "mesh-gate-router-eth", "dhcp", pool, fx)
 	assert.NotEmpty(t, tr.getOne("dhcp", pool, "start"))
 
 	for _, gone := range []string{"ra", "ra_slaac", "ra_flags", "dns", "dns_service", "ignore", "instance"} {

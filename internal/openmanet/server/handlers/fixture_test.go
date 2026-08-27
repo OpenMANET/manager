@@ -170,6 +170,165 @@ func deepCopyReaderData(r *fakeConfigReader) map[string]map[string]map[string][]
 	return out
 }
 
+// ── Ownership map ────────────────────────────────────────────────────────────
+//
+// The after/ fixtures are not pure wizard output: the openmanetd daemon
+// rewrites several rows on first boot (address reservation, gateway
+// DNS, batmesh1 conversion) and radio0 on the extender capture was
+// hand-edited. A "fixture wins" assertion over those rows would pin
+// daemon or operator behavior into the wizard. The table below names
+// them; assertTreeMatchesFixtureOwned skips them automatically and the
+// wizard's own value for each is pinned in setup_ownership_test.go.
+// Source: Wizard Parity Ledger §03 / §07.
+
+// rowOwner names the process that writes a fixture row after (or
+// instead of) the wizard.
+type rowOwner string
+
+const (
+	ownerDaemon rowOwner = "daemon" // openmanetd runtime rewrites it after the wizard
+	ownerManual rowOwner = "manual" // hand-edited on the capture device
+)
+
+// ownedRow identifies a fixture row (Option set) or a whole section
+// (Option "") the wizard does not own. Scenario "" applies to every
+// fixture, otherwise only to after/<Scenario>. SectionName "" with
+// MatchOption set identifies an anonymous section by one of its
+// option values.
+type ownedRow struct {
+	Scenario    string
+	Config      string
+	SectionType string
+	SectionName string
+	MatchOption string
+	MatchValue  string
+	Option      string
+	Owner       rowOwner
+}
+
+// ownedRows is the ownership map. A function, not a package var, so
+// gochecknoglobals stays quiet in the test package.
+func ownedRows() []ownedRow {
+	return []ownedRow{
+		// AddressReservationWorker replaces the wizard's 10.41.254.x
+		// bootstrap address ~125 s after the daemon starts.
+		{Config: "network", SectionType: "interface", SectionName: "ahwlan", Option: "ipaddr", Owner: ownerDaemon},
+		// GatewayWorker overwrites the wizard's 1.1.1.1 with the elected
+		// gateway's address on points. Gates never carry ahwlan.dns
+		// (TestCompat_MeshGateAhwlanNoDNS), so the row is point-only.
+		{Scenario: "mesh-point-extender", Config: "network", SectionType: "interface", SectionName: "ahwlan", Option: "dns", Owner: ownerDaemon},
+		// configureBatmanForceflood rewrites it on every daemon start.
+		{Config: "network", SectionType: "interface", SectionName: "bat0", Option: "multicast_mode", Owner: ownerDaemon},
+		// The reservation worker rewrites the pool start (offset 100 first).
+		{Config: "dhcp", SectionType: "dhcp", SectionName: "ahwlan", Option: "start", Owner: ownerDaemon},
+		// Hand-edited 2.4 GHz radio on the extender capture (channel 8,
+		// country, cell_density) — excluded from parity.
+		{Scenario: "mesh-point-extender", Config: "wireless", SectionType: "wifi-device", SectionName: "radio0", Owner: ownerManual},
+		// setupBatMesh1Interface converted the factory AP section into a
+		// mesh iface on first boot (ledger F4).
+		{Scenario: "mesh-point-extender", Config: "wireless", SectionType: "wifi-iface", SectionName: "default_radio0", Owner: ownerDaemon},
+	}
+}
+
+// daemonRemovedSections lists sections the wizard writes and the
+// daemon deletes after address reservation on mesh points. They are
+// absent from the extender fixture, so no parity assertion can cover
+// them; setup_ownership_test.go asserts the wizard still writes them.
+func daemonRemovedSections() []ownedRow {
+	return []ownedRow{
+		{Scenario: "mesh-point-extender", Config: "network", SectionType: "interface", SectionName: "lan", Owner: ownerDaemon},
+		{Scenario: "mesh-point-extender", Config: "dhcp", SectionType: "dhcp", SectionName: "lan", Owner: ownerDaemon},
+	}
+}
+
+// matches reports whether r applies to fixture section fx of config in
+// scenario.
+func (r ownedRow) matches(scenario, config string, fx *fixtureSection) bool {
+	if r.Scenario != "" && r.Scenario != scenario {
+		return false
+	}
+
+	if r.Config != config || r.SectionType != fx.Type {
+		return false
+	}
+
+	if r.SectionName != "" {
+		return r.SectionName == fx.Name
+	}
+
+	if r.MatchOption == "" {
+		return false
+	}
+
+	for _, v := range fx.Options[r.MatchOption] {
+		if v == r.MatchValue {
+			return true
+		}
+	}
+
+	return false
+}
+
+// sectionOwner reports the owner of a wholly-owned fixture section.
+func sectionOwner(scenario, config string, fx *fixtureSection) (rowOwner, bool) {
+	for _, r := range ownedRows() {
+		if r.Option == "" && r.matches(scenario, config, fx) {
+			return r.Owner, true
+		}
+	}
+
+	return "", false
+}
+
+// ownedOptions returns the options of fx that a non-wizard process
+// owns. A wholly-owned section yields every option it carries.
+func ownedOptions(scenario, config string, fx *fixtureSection) map[string]rowOwner {
+	out := make(map[string]rowOwner, 2)
+
+	for _, r := range ownedRows() {
+		if !r.matches(scenario, config, fx) {
+			continue
+		}
+
+		if r.Option == "" {
+			for opt := range fx.Options {
+				out[opt] = r.Owner
+			}
+
+			continue
+		}
+
+		out[r.Option] = r.Owner
+	}
+
+	return out
+}
+
+// assertTreeMatchesFixtureOwned is assertTreeMatchesFixture with the
+// ownership map applied: owned options are skipped automatically, and
+// a wholly-owned section fails the test outright — its wizard-side
+// value belongs in setup_ownership_test.go, not in a parity check.
+func assertTreeMatchesFixtureOwned(t *testing.T, tr *uciTree, scenario, config, treeSection string, fx *fixtureSection) {
+	t.Helper()
+
+	require.NotNil(t, fx, "fixture section missing")
+
+	if owner, ok := sectionOwner(scenario, config, fx); ok {
+		require.Failf(t, "section not wizard-owned",
+			"%s %s %q is %s-owned; assert the wizard's value explicitly instead of by fixture parity",
+			config, fx.Type, fx.Name, owner)
+	}
+
+	owned := ownedOptions(scenario, config, fx)
+
+	ignore := make([]string, 0, len(owned))
+	for opt := range owned {
+		ignore = append(ignore, opt)
+	}
+
+	assertTreeMatchesFixture(t, tr, config, treeSection, fx, ignore...)
+}
+
 func TestFixtureParser_GateNetwork(t *testing.T) {
 	secs := loadFixture(t, "mesh-gate-router-eth", "network")
 
@@ -184,4 +343,63 @@ func TestFixtureParser_GateNetwork(t *testing.T) {
 	bridge := findFixtureSectionByOption(secs, "device", "name", "br-ahwlan")
 	require.NotNil(t, bridge)
 	assert.Equal(t, []string{"eth1", "bat0"}, bridge.Options["ports"])
+}
+
+// ── Ownership map self-tests ─────────────────────────────────────────────────
+
+func TestOwnership_AhwlanOptionsOwnedByDaemon(t *testing.T) {
+	secs := loadFixture(t, "mesh-point-extender", "network")
+	fx := findFixtureSection(secs, "interface", "ahwlan")
+	require.NotNil(t, fx)
+
+	assert.Equal(t, map[string]rowOwner{"ipaddr": ownerDaemon, "dns": ownerDaemon},
+		ownedOptions("mesh-point-extender", "network", fx))
+
+	_, whole := sectionOwner("mesh-point-extender", "network", fx)
+	assert.False(t, whole, "ahwlan is wizard-owned apart from two options")
+}
+
+func TestOwnership_Bat0OnlyMulticastModeOwned(t *testing.T) {
+	secs := loadFixture(t, "mesh-gate-router-eth", "network")
+	fx := findFixtureSection(secs, "interface", "bat0")
+	require.NotNil(t, fx)
+
+	assert.Equal(t, map[string]rowOwner{"multicast_mode": ownerDaemon},
+		ownedOptions("mesh-gate-router-eth", "network", fx))
+}
+
+func TestOwnership_Radio0ManualOnExtenderOnly(t *testing.T) {
+	ext := loadFixture(t, "mesh-point-extender", "wireless")
+	fx := findFixtureSection(ext, "wifi-device", "radio0")
+	require.NotNil(t, fx)
+
+	owner, ok := sectionOwner("mesh-point-extender", "wireless", fx)
+	require.True(t, ok)
+	assert.Equal(t, ownerManual, owner)
+
+	// Every option of a wholly-owned section is owned.
+	assert.Len(t, ownedOptions("mesh-point-extender", "wireless", fx), len(fx.Options))
+
+	gate := loadFixture(t, "mesh-gate-router-eth", "wireless")
+	gfx := findFixtureSection(gate, "wifi-device", "radio0")
+	require.NotNil(t, gfx)
+
+	_, ok = sectionOwner("mesh-gate-router-eth", "wireless", gfx)
+	assert.False(t, ok, "gate radio0 was not hand-edited")
+}
+
+func TestOwnership_UnownedSectionHasNoOwnedOptions(t *testing.T) {
+	secs := loadFixture(t, "mesh-gate-router-eth", "network")
+	fx := findFixtureSection(secs, "interface", "batmesh0")
+	require.NotNil(t, fx)
+
+	assert.Empty(t, ownedOptions("mesh-gate-router-eth", "network", fx))
+}
+
+func TestOwnership_DaemonRemovedSectionsAreAbsentFromExtenderFixture(t *testing.T) {
+	for _, row := range daemonRemovedSections() {
+		secs := loadFixture(t, row.Scenario, row.Config)
+		assert.Nil(t, findFixtureSection(secs, row.SectionType, row.SectionName),
+			"%s %s %q must be absent from after/%s (daemon deletes it)", row.Config, row.SectionType, row.SectionName, row.Scenario)
+	}
 }
