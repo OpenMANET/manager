@@ -1239,7 +1239,7 @@ func TestApplySetup_MeshPointExtender_HappyPath(t *testing.T) {
 	// openmanetd flags file staged in phase 9.
 	require.NotNil(t, deps.Snap.lastSnapshot)
 	assert.ElementsMatch(t, []string{
-		"wireless", "network", "dhcp", "firewall", "system", "mesh11sd", "umdns", "openmanetd",
+		"wireless", "network", "dhcp", "firewall", "system", "mesh11sd", "umdns", "openmanetd", "luci",
 	}, deps.Snap.lastSnapshot.configs)
 
 	// Hostname setter saw the user's hostname.
@@ -1678,6 +1678,13 @@ func TestWizardConfigsIncludesUmdns(t *testing.T) {
 // phase 9 must restore dhcpconfigured/batmesh1configured too.
 func TestWizardConfigsIncludesOpenmanetd(t *testing.T) {
 	assert.Contains(t, handlers.WizardConfigsForTest(), "openmanetd")
+}
+
+// TestWizardConfigsIncludesLuci pins that /etc/config/luci is in the
+// snapshot scope: a failure after phase 9 must roll back
+// luci.wizard.used and the homepage deletion.
+func TestWizardConfigsIncludesLuci(t *testing.T) {
+	assert.Contains(t, handlers.WizardConfigsForTest(), "luci")
 }
 
 // TestReloadServicesIncludesUmdns pins that umdns is nudged by the

@@ -566,8 +566,12 @@ func TestCompat_ApplyTwiceIdempotent(t *testing.T) {
 
 	first := deepCopyReaderData(reader)
 
-	// Re-arm the wizard (completion flipped the flags) and apply again.
+	// Re-arm the wizard the way `openmanetd setup-reset` does:
+	// completion flipped setup.complete/auth.enable AND wrote
+	// luci.wizard.used=1 (writeLuciBookkeeping), and the re-apply
+	// guard refuses on either.
 	require.NoError(t, cfg.PersistSetupAndAuth(false, false))
+	require.NoError(t, reader.SetType("luci", "wizard", "used", uci.TypeOption, "0"))
 
 	svc.RNG = rand.New(rand.NewSource(1))
 	require.NoError(t, svc.ApplySetupForTest(context.Background(), gateRouterEthProfile(), &streamCollector{}))
@@ -1194,4 +1198,65 @@ func TestCompat_OpenmanetdFlagsOverwriteStaleOne(t *testing.T) {
 	tr := &uciTree{reader: reader}
 	assert.Equal(t, "0", tr.getOne("openmanetd", "config", "dhcpconfigured"))
 	assert.Equal(t, "0", tr.getOne("openmanetd", "config", "batmesh1configured"))
+}
+
+// TestCompat_LuciWizardUsedWritten pins that the Go wizard records
+// completion the way the LuCI mesh wizard does (luci.wizard.used=1,
+// tools/morse/wizard.js save()). LuCI stays installed on shipped
+// images; without the flag its landing page keeps steering operators
+// into a flow that rewrites country, channel, timezone and password.
+func TestCompat_LuciWizardUsedWritten(t *testing.T) {
+	tr := runScenarioApply(t, pointExtenderProfile())
+
+	assert.Equal(t, "1", tr.getOne("luci", "wizard", "used"))
+	assert.Contains(t, tr.sectionsOfType("luci", "wizard"), "wizard")
+}
+
+// TestCompat_LuciHomepageCleared pins the homepage reset: LuCI's
+// uci-defaults point luci.main.homepage at admin/morse/landing on
+// first boot and the landing page moves it to admin/selectwizard.
+// Both must be deleted (LuCI's own save does the same); any other
+// value is an operator choice and stays.
+func TestCompat_LuciHomepageCleared(t *testing.T) {
+	cases := []struct {
+		name     string
+		seed     string
+		wantGone bool
+	}{
+		{name: "landing", seed: "admin/morse/landing", wantGone: true},
+		{name: "selectwizard", seed: "admin/selectwizard", wantGone: true},
+		{name: "operator-choice", seed: "admin/status/overview", wantGone: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+			svc, _ := newFullSetupService(t, cfg)
+
+			reader, ok := svc.UCI.(*fakeConfigReader)
+			require.True(t, ok)
+			require.NoError(t, reader.AddSection("luci", "main", "core"))
+			require.NoError(t, reader.SetType("luci", "main", "homepage", uci.TypeOption, tc.seed))
+
+			require.NoError(t, svc.ApplySetupForTest(context.Background(), pointExtenderProfile(), &streamCollector{}))
+
+			tr := &uciTree{reader: reader}
+			if tc.wantGone {
+				assert.Empty(t, tr.get("luci", "main", "homepage"))
+			} else {
+				assert.Equal(t, tc.seed, tr.getOne("luci", "main", "homepage"))
+			}
+		})
+	}
+}
+
+// TestCompat_LuciAbsentIsFine: minimal images ship without
+// /etc/config/luci. The wizard must still complete (go-uci creates the
+// config on AddSection; the snapshotter captures the missing file as
+// nil and Restore removes it again on rollback).
+func TestCompat_LuciAbsentIsFine(t *testing.T) {
+	tr := runScenarioApply(t, gateRouterEthProfile())
+
+	assert.Empty(t, tr.get("luci", "main", "homepage"))
+	assert.Equal(t, "1", tr.getOne("luci", "wizard", "used"))
 }

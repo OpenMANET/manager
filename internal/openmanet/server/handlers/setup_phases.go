@@ -1271,7 +1271,11 @@ func (s *SetupService) writeWizardBookkeeping(profile *setupv1.MeshNodeProfile) 
 		}
 	}
 
-	return s.writeOpenmanetdFlags()
+	if err := s.writeOpenmanetdFlags(); err != nil {
+		return err
+	}
+
+	return s.writeLuciBookkeeping()
 }
 
 // writeOpenmanetdFlags stages the wizard's half of the two-stage
@@ -1305,6 +1309,54 @@ func (s *SetupService) writeOpenmanetdFlags() error {
 	for _, flag := range []string{"dhcpconfigured", "batmesh1configured"} {
 		if err := s.UCI.SetType(openmanetdConfig, openmanetdSection, flag, uci.TypeOption, "0"); err != nil {
 			return fmt.Errorf("stage openmanetd.config.%s: %w", flag, err)
+		}
+	}
+
+	return nil
+}
+
+// LuCI bookkeeping the Go wizard mirrors from the LuCI mesh wizard's
+// save() (luci-app-morseconfig tools/morse/wizard.js): mark the wizard
+// used and clear the first-boot landing homepage so LuCI stops
+// steering operators into a flow that rewrites country, channel,
+// timezone and the root password on Apply.
+const (
+	luciConfig               = "luci"
+	luciWizardSection        = "wizard"
+	luciWizardType           = "wizard"
+	luciWizardUsedOption     = "used"
+	luciMainSection          = "main"
+	luciHomepageOption       = "homepage"
+	luciLandingHomepage      = "admin/morse/landing"
+	luciSelectWizardHomepage = "admin/selectwizard"
+)
+
+// writeLuciBookkeeping stages luci.wizard.used=1 and deletes
+// luci.main.homepage when it still points at one of LuCI's wizard
+// pages. Any other homepage is an operator choice and is left alone.
+// Safe on images without /etc/config/luci: go-uci creates the config
+// on AddSection and the snapshotter restores "no file" on rollback.
+//
+// Side effect operators must know: legacyLuciWizardUsed() now also
+// fires after a Go-wizard run, so re-running the wizard requires
+// clearing luci.wizard.used as well as setup.complete —
+// `openmanetd setup-reset` does both.
+func (s *SetupService) writeLuciBookkeeping() error {
+	_ = s.UCI.AddSection(luciConfig, luciWizardSection, luciWizardType)
+
+	if err := s.UCI.SetType(luciConfig, luciWizardSection, luciWizardUsedOption, uci.TypeOption, "1"); err != nil {
+		return fmt.Errorf("stage luci.wizard.used: %w", err)
+	}
+
+	v, ok := s.UCI.Get(luciConfig, luciMainSection, luciHomepageOption)
+	if !ok || len(v) == 0 {
+		return nil
+	}
+
+	switch strings.TrimSpace(v[0]) {
+	case luciLandingHomepage, luciSelectWizardHomepage:
+		if err := s.UCI.Del(luciConfig, luciMainSection, luciHomepageOption); err != nil {
+			return fmt.Errorf("delete luci.main.homepage: %w", err)
 		}
 	}
 

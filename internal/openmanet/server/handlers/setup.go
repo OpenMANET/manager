@@ -94,8 +94,9 @@ type UCISnapshotter interface {
 // phase 12's commit rolls the umdns write back along with everything
 // else, rather than leaving a half-applied umdns section live.
 // openmanetd carries the address-reservation flags staged in phase 9.
+// luci carries the wizard-used flag and homepage reset staged in phase 9.
 var wizardConfigs = []string{ //nolint:gochecknoglobals // package-level constant
-	"wireless", "network", "dhcp", "firewall", "system", "mesh11sd", "umdns", "openmanetd",
+	"wireless", "network", "dhcp", "firewall", "system", "mesh11sd", "umdns", "openmanetd", "luci",
 }
 
 // SetupService implements the SetupService ConnectRPC service. It
@@ -280,18 +281,18 @@ func (s *SetupService) GetSetupStatus(ctx context.Context, _ *emptypb.Empty) (*s
 	return resp, nil
 }
 
-// legacyLuciWizardUsed reports whether the device has already been
-// configured via the legacy LuCI Morse wizard. The LuCI wizard records
-// completion in /etc/config/luci as:
+// legacyLuciWizardUsed reports whether a wizard — the legacy LuCI
+// Morse wizard or this one — has already marked the device configured
+// in /etc/config/luci:
 //
 //	config wizard 'wizard'
 //	    option used '1'
 //
-// When this flag is set we treat the device as fully set up — running
-// the new wizard would reset everything the LuCI wizard already wrote.
-// Operators who genuinely want to re-run setup can clear the flag via
-// `uci set luci.wizard.used=0 && uci commit luci` or by hand-editing
-// /etc/config/luci.
+// The Go wizard writes the same flag at apply (writeLuciBookkeeping) so
+// LuCI stops offering its own wizard. When set we treat the device as
+// fully set up. Operators who genuinely want to re-run setup must
+// clear it together with setup.complete: `openmanetd setup-reset`
+// does both.
 func (s *SetupService) legacyLuciWizardUsed() bool {
 	v, ok := s.UCI.Get("luci", "wizard", "used")
 	if !ok || len(v) == 0 {
@@ -769,6 +770,9 @@ func (s *SetupService) checkReapplyGuard(_ context.Context) error {
 			errors.New("setup wizard already completed on this device"))
 	}
 
+	// Set by the LuCI wizard and, since F2, by this wizard too — see
+	// legacyLuciWizardUsed. setup-reset clears it alongside
+	// setup.complete.
 	if s.legacyLuciWizardUsed() {
 		return connect.NewError(connect.CodeFailedPrecondition,
 			errors.New("legacy LuCI Morse wizard already configured this device (luci.wizard.used=1)"))
