@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -329,6 +330,53 @@ func assertTreeMatchesFixtureOwned(t *testing.T, tr *uciTree, scenario, config, 
 	assertTreeMatchesFixture(t, tr, config, treeSection, fx, ignore...)
 }
 
+// extraOptions returns, sorted, the options the staged tree section
+// carries that the fixture section lacks, minus allowlist. A pure
+// function so the harness can test itself without a fake testing.T.
+// A missing tree config or section yields nil.
+func extraOptions(tr *uciTree, config, treeSection string, fx *fixtureSection, allowlist ...string) []string {
+	allowed := make(map[string]bool, len(allowlist))
+	for _, a := range allowlist {
+		allowed[a] = true
+	}
+
+	var extra []string
+
+	for opt := range tr.reader.data[config][treeSection] {
+		if _, inFixture := fx.Options[opt]; inFixture || allowed[opt] {
+			continue
+		}
+
+		extra = append(extra, opt)
+	}
+
+	sort.Strings(extra)
+
+	return extra
+}
+
+// assertNoExtraOptions fails when the staged section carries options
+// the fixture does not. A failure means the wizard started writing
+// something the captured device never had: update the fixture, add
+// the row to the ownership map, or allowlist it here with a comment —
+// never silently.
+func assertNoExtraOptions(t *testing.T, tr *uciTree, config, treeSection string, fx *fixtureSection, allowlist ...string) {
+	t.Helper()
+
+	require.NotNil(t, fx, "fixture section missing")
+
+	assert.Empty(t, extraOptions(tr, config, treeSection, fx, allowlist...),
+		"%s.%s carries options the %s fixture section lacks", config, treeSection, fx.Name)
+}
+
+// newTreeWith builds a one-section uciTree for harness self-tests.
+func newTreeWith(config, section string, opts map[string][]string) *uciTree {
+	return &uciTree{reader: &fakeConfigReader{
+		data:         map[string]map[string]map[string][]string{config: {section: opts}},
+		sectionTypes: map[string]map[string]string{config: {section: "test"}},
+	}}
+}
+
 func TestFixtureParser_GateNetwork(t *testing.T) {
 	secs := loadFixture(t, "mesh-gate-router-eth", "network")
 
@@ -402,4 +450,60 @@ func TestOwnership_DaemonRemovedSectionsAreAbsentFromExtenderFixture(t *testing.
 		assert.Nil(t, findFixtureSection(secs, row.SectionType, row.SectionName),
 			"%s %s %q must be absent from after/%s (daemon deletes it)", row.Config, row.SectionType, row.SectionName, row.Scenario)
 	}
+}
+
+// ── Extra-option detection self-tests ───────────────────────────────────────
+
+func TestHarness_ExtraOptions_DetectsOptionFixtureLacks(t *testing.T) {
+	tr := newTreeWith("dhcp", "pool", map[string][]string{
+		"start": {"100"}, "limit": {"16"}, "ra": {"server"},
+	})
+	fx := &fixtureSection{Type: "dhcp", Name: "ahwlan", Options: map[string][]string{
+		"start": {"100"}, "limit": {"16"},
+	}}
+
+	assert.Equal(t, []string{"ra"}, extraOptions(tr, "dhcp", "pool", fx))
+}
+
+func TestHarness_ExtraOptions_AllowlistSuppresses(t *testing.T) {
+	tr := newTreeWith("dhcp", "pool", map[string][]string{
+		"start": {"100"}, "ra": {"server"}, "dns": {"1"},
+	})
+	fx := &fixtureSection{Type: "dhcp", Name: "ahwlan", Options: map[string][]string{
+		"start": {"100"},
+	}}
+
+	assert.Equal(t, []string{"ra"}, extraOptions(tr, "dhcp", "pool", fx, "dns"))
+	assert.Empty(t, extraOptions(tr, "dhcp", "pool", fx, "dns", "ra"))
+}
+
+func TestHarness_ExtraOptions_IdenticalIsEmpty(t *testing.T) {
+	tr := newTreeWith("network", "bat0", map[string][]string{"proto": {"batadv"}})
+	fx := &fixtureSection{Type: "interface", Name: "bat0", Options: map[string][]string{"proto": {"batadv"}}}
+
+	assert.Empty(t, extraOptions(tr, "network", "bat0", fx))
+}
+
+func TestHarness_ExtraOptions_MissingTreeSectionIsEmpty(t *testing.T) {
+	tr := newTreeWith("network", "bat0", map[string][]string{"proto": {"batadv"}})
+	fx := &fixtureSection{Type: "interface", Name: "ahwlan", Options: map[string][]string{"proto": {"static"}}}
+
+	assert.Empty(t, extraOptions(tr, "network", "ahwlan", fx))
+	assert.Empty(t, extraOptions(tr, "firewall", "ahwlan", fx))
+}
+
+func TestFixtureParser_ExtenderNetwork(t *testing.T) {
+	secs := loadFixture(t, "mesh-point-extender", "network")
+
+	assert.Nil(t, findFixtureSection(secs, "interface", "lan"),
+		"the daemon removed lan on the extender capture")
+
+	ahwlan := findFixtureSection(secs, "interface", "ahwlan")
+	require.NotNil(t, ahwlan)
+	assert.Equal(t, []string{"10.41.1.2"}, ahwlan.Options["ipaddr"])
+	assert.Equal(t, []string{"10.41.0.3"}, ahwlan.Options["dns"])
+
+	bridge := findFixtureSectionByOption(secs, "device", "name", "br-ahwlan")
+	require.NotNil(t, bridge)
+	assert.Contains(t, bridge.Options["ports"], "bat0")
 }

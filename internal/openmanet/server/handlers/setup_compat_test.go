@@ -517,10 +517,9 @@ func TestCompat_AhwlanPoolFixtureParity(t *testing.T) {
 	assertTreeMatchesFixtureOwned(t, tr, "mesh-gate-router-eth", "dhcp", pool, fx)
 	assert.NotEmpty(t, tr.getOne("dhcp", pool, "start"))
 
-	for _, gone := range []string{"ra", "ra_slaac", "ra_flags", "dns", "dns_service", "ignore", "instance"} {
-		assert.Empty(t, tr.get("dhcp", pool, gone),
-			"pool option %s not in fixture; must not be written", gone)
-	}
+	// Two-directional: the pool must carry nothing the capture lacks
+	// (ra/ra_slaac/ra_flags/dns/dns_service/ignore/instance included).
+	assertNoExtraOptions(t, tr, "dhcp", pool, fx)
 }
 
 // TestCompat_ApplyTwiceIdempotent re-runs the wizard and asserts the
