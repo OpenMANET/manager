@@ -25,13 +25,6 @@ import {
   optionsFromMap,
 } from './labels.js';
 
-// Mesh encryption is restricted to SAE or NONE per the plan; PSK
-// variants don't make sense on an 802.11s mesh.
-const MESH_ENCRYPTION_VALUES = [
-  WifiEncryption.SAE,
-  WifiEncryption.NONE,
-];
-
 // Selectable mesh-point modes. MESH_POINT_MODE_NONE is hidden here (and
 // rejected by validateProfile on the backend) until openmanetd's
 // address-reservation worker can leave a DHCP-client ahwlan alone —
@@ -192,32 +185,30 @@ export default function StepMesh({ status }) {
 
       <div className="lat-field">
         <label>Encryption</label>
-        <LatSelect
-          ariaLabel="Mesh encryption"
-          value={state.mesh.encryption}
-          options={MESH_ENCRYPTION_VALUES.map(v => ({ value: v, label: ENCRYPTION_LABELS[v] }))}
-          onChange={(v) => dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'encryption', value: v })}
-        />
+        <div className="lat-input" style={{ pointerEvents: 'none' }}>
+          {ENCRYPTION_LABELS[WifiEncryption.SAE]}
+        </div>
+        <div className="setup-help">
+          Mesh links are always WPA3 (SAE). Open meshes are not supported.
+        </div>
       </div>
 
-      {state.mesh.encryption !== WifiEncryption.NONE && (
-        <div className="lat-field">
-          <label htmlFor="setup-mesh-pass">Mesh passphrase</label>
-          <input
-            id="setup-mesh-pass"
-            className="lat-input"
-            type="password"
-            value={state.mesh.passphrase}
-            onChange={(e) => dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'passphrase', value: e.target.value })}
-            minLength={8}
-            maxLength={63}
-            autoComplete="new-password"
-          />
-          {state.mesh.passphrase && state.mesh.passphrase.length < 8 && (
-            <div className="setup-error">Passphrase must be at least 8 characters.</div>
-          )}
-        </div>
-      )}
+      <div className="lat-field">
+        <label htmlFor="setup-mesh-pass">Mesh passphrase</label>
+        <input
+          id="setup-mesh-pass"
+          className="lat-input"
+          type="password"
+          value={state.mesh.passphrase}
+          onChange={(e) => dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'passphrase', value: e.target.value })}
+          minLength={8}
+          maxLength={63}
+          autoComplete="new-password"
+        />
+        {state.mesh.passphrase && state.mesh.passphrase.length < 8 && (
+          <div className="setup-error">Passphrase must be at least 8 characters.</div>
+        )}
+      </div>
 
       <div className="lat-field">
         <label>Country</label>

@@ -7,6 +7,8 @@ import (
 	"buf.build/go/protovalidate"
 	commsv1 "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1"
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
+	setupv1 "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1"
+	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -162,5 +164,40 @@ func TestUpdateAudioMixerRequest_Validation(t *testing.T) {
 				assert.NoError(t, err)
 			}
 		})
+	}
+}
+
+// ── MeshRadioConfig ───────────────────────────────────────────────────────────
+
+func saeMeshRadioConfig() *setupv1.MeshRadioConfig {
+	return &setupv1.MeshRadioConfig{
+		RadioName:    "radio1",
+		MeshId:       "openmanet-mesh",
+		Passphrase:   "longpasscode",
+		Encryption:   wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE,
+		BandwidthMhz: 2,
+		Channel:      42,
+	}
+}
+
+func TestValidation_MeshRadioConfig_AcceptsSAE(t *testing.T) {
+	v := newValidator(t)
+
+	assert.NoError(t, v.Validate(saeMeshRadioConfig()))
+}
+
+func TestValidation_MeshRadioConfig_RejectsEverythingButSAE(t *testing.T) {
+	v := newValidator(t)
+
+	for _, enc := range []wificonfigv1.WifiEncryption{
+		wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_NONE,
+		wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_OWE,
+		wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK2,
+		wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE_MIXED,
+	} {
+		cfg := saeMeshRadioConfig()
+		cfg.Encryption = enc
+
+		assert.Error(t, v.Validate(cfg), "mesh links are SAE only; %s must be rejected", enc)
 	}
 }

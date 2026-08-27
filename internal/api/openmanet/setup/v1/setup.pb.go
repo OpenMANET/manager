@@ -612,7 +612,8 @@ type MeshRadioConfig struct {
 	RadioName  string                 `protobuf:"bytes,1,opt,name=radio_name,json=radioName,proto3" json:"radio_name,omitempty"`
 	MeshId     string                 `protobuf:"bytes,2,opt,name=mesh_id,json=meshId,proto3" json:"mesh_id,omitempty"`
 	Passphrase string                 `protobuf:"bytes,3,opt,name=passphrase,proto3" json:"passphrase,omitempty"`
-	// SAE or NONE for S1G mesh — restricted at handler validation phase.
+	// WPA3 (SAE) is the only encryption an 802.11s mesh link may use;
+	// open meshes are rejected here, not in the handler.
 	Encryption v1.WifiEncryption `protobuf:"varint,4,opt,name=encryption,proto3,enum=openmanet.wifi_config.v1.WifiEncryption" json:"encryption,omitempty"`
 	// S1G channel numbering depends on bandwidth, so the wizard captures
 	// both. The handler translates bandwidth_mhz to a WifiHTMode value
@@ -1544,7 +1545,7 @@ const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"passphrase\x12T\n" +
 	"\n" +
 	"encryption\x18\x04 \x01(\x0e2(.openmanet.wifi_config.v1.WifiEncryptionB\n" +
-	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\n" +
+	"\xbaH\a\x82\x01\x04\x10\x01\x18\x01R\n" +
 	"encryption\x12;\n" +
 	"\rbandwidth_mhz\x18\x05 \x01(\rB\x16\xbaH\x13*\x110\x010\x020\x040\b0\x140(0P0\xa0\x01R\fbandwidthMhz\x12!\n" +
 	"\achannel\x18\x06 \x01(\rB\a\xbaH\x04*\x02 \x00R\achannel\x12;\n" +

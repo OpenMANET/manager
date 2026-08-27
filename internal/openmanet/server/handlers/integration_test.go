@@ -1392,6 +1392,30 @@ func TestIntegration_ApplySetup_RejectsMeshPointNone(t *testing.T) {
 	assert.Contains(t, connectErr.Message(), "meshpoint_mode NONE")
 }
 
+func TestIntegration_ApplySetup_RejectsOpenMesh(t *testing.T) {
+	srv := newSetupTestServer(t, "setup:\n  enabled: true\n")
+	client := setupconnect.NewSetupServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	prof := integrationMinimalProfile()
+	prof.Mesh.Encryption = wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_NONE
+	prof.Mesh.Passphrase = ""
+
+	stream, err := client.ApplySetup(context.Background(), &setupv1.ApplySetupRequest{Profile: prof})
+	require.NoError(t, err)
+
+	for stream.Receive() {
+		t.Logf("phase %s %s", stream.Msg().GetPhase(), stream.Msg().GetStatus())
+	}
+
+	err = stream.Err()
+	require.Error(t, err, "the validate interceptor must reject an open mesh before any phase runs")
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+	assert.Contains(t, connectErr.Message(), "encryption")
+}
+
 // integrationMinimalProfile returns a fully-valid MeshNodeProfile for
 // integration tests of the SetupService.
 func integrationMinimalProfile() *setupv1.MeshNodeProfile {

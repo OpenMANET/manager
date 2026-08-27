@@ -45,3 +45,13 @@ describe('StepMeshPointModeOptions', () => {
     expect(labels).not.toContain(MESH_POINT_MODE_LABELS[MeshPointMode.NONE]);
   });
 });
+
+describe('StepMeshEncryption', () => {
+  it('fixes encryption to WPA3 (SAE) and never offers an open mesh', () => {
+    renderStep();
+
+    expect(screen.queryByRole('button', { name: 'Mesh encryption' })).toBeNull();
+    expect(screen.getByText('WPA3 (SAE)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Mesh passphrase')).toBeInTheDocument();
+  });
+});
