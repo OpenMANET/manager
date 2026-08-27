@@ -15,15 +15,19 @@ const (
 	DefaultDBFile             string = "/etc/openmanetd/openmanetd.db"
 	DefaultAlfredMode         string = "primary"
 	DefaultAlfredBatInterface string = "bat0"
-	// DefaultBatmanMulticastForceflood controls batman-adv's multicast mode.
-	// When true, every multicast frame is flooded to every mesh node. When
-	// false, batman-adv uses IGMP/MLD snooping to deliver each group only to
-	// nodes that have joined it. Voice (continuous, per-channel subscribers)
-	// costs dramatically less bandwidth and CPU under snooping; ATAK CoT
-	// (all-nodes group) is still delivered because every node joins it.
-	// Operators can force-flood explicitly via batman.multicastForceflood
-	// when reliability over raw efficiency is required.
-	DefaultBatmanMulticastForceflood                 bool    = false
+	// DefaultBatmanMulticastForceflood controls batman-adv's multicast mode
+	// through the bat0 `multicast_mode` UCI option, which the kernel defines
+	// as the negation of forceflood: true writes multicast_mode=0 and every
+	// node classic-floods every multicast frame; false writes
+	// multicast_mode=1 and batman-adv's IGMP/MLD-snooping optimisations
+	// deliver each group only to nodes that announced membership. The
+	// default is true (classic flooding): it is the value the LuCI wizard
+	// and both fixture captures leave on the device, and it keeps comms RTP
+	// audible without every listener gossiping IGMP/MLD membership across
+	// the mesh. Decision D7 (2026-08-27): keep the key, fix the mapping,
+	// default true. Operators can set batman.multicastForceflood: false to
+	// turn the optimisations on. Mapping: network.MulticastModeForForceflood.
+	DefaultBatmanMulticastForceflood                 bool    = true
 	DefaultAlfredSocketPath                          string  = "/var/run/alfred.sock"
 	DefaultAlfredEnable                              bool    = true
 	DefaultAlfredDataTypeGateway                     bool    = true

@@ -285,11 +285,14 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 	return nil
 }
 
-// configureBatmanForceflood persists the batman-adv multicast forceflood
-// setting to the UCI network config so it survives reboots. The UCI option
-// name is `multicast_mode` on the bat0 interface section — this is the
-// batadv proto handler's option that maps to the kernel's multicast
-// forceflood behavior. A subsequent network reload applies the change.
+// configureBatmanForceflood persists the batman-adv multicast mode derived
+// from batman.multicastForceflood to the bat0 interface section of the UCI
+// network config so it survives reboots. The UCI option is `multicast_mode`,
+// which OpenWrt's batadv proto handler passes straight to batctl; the
+// kernel defines it as the negation of forceflood, so forceflood=true
+// writes "0" (classic flooding) and false writes "1" (IGMP/MLD-snooping
+// optimisations) — see network.MulticastModeForForceflood. A subsequent
+// network reload applies the change.
 func (m *ManagementConfig) configureBatmanForceflood(ctx context.Context) error {
 	return m.configureBatmanForcefloodWithDeps(
 		ctx,
@@ -306,10 +309,7 @@ func (m *ManagementConfig) configureBatmanForcefloodWithDeps(
 	reader network.ConfigReader,
 	reloadFn func(context.Context) error,
 ) error {
-	val := "0"
-	if m.BatmanMulticastForceflood {
-		val = "1"
-	}
+	val := network.MulticastModeForForceflood(m.BatmanMulticastForceflood)
 
 	if err := network.SetNetworkConfigWithReader(m.BatInterface, &network.UCINetwork{
 		MulticastMode: val,

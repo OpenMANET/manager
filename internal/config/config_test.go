@@ -1433,15 +1433,14 @@ func TestNewWithoutWatch_IgnoresRemovedMulticastEnhancementsKey(t *testing.T) {
 	}
 }
 
-// TestDefaultBatmanMulticastForceflood_IsSnooping locks in the semantic choice
-// that out-of-the-box deployments use batman-adv MCAST snooping (forceflood
-// off). Flooding every multicast frame to every node scales quadratically
-// with voice-channel × site count and was the prior default; snooping scales
-// with active subscribers. Changing this default is a deployment-wide
-// behavior change and should be deliberate.
-func TestDefaultBatmanMulticastForceflood_IsSnooping(t *testing.T) {
-	if DefaultBatmanMulticastForceflood {
-		t.Errorf("DefaultBatmanMulticastForceflood = true; expected false (use MCAST snooping by default)")
+// TestDefaultBatmanMulticastForceflood_IsClassicFlooding locks in decision
+// D7 (2026-08-27): out-of-the-box deployments classic-flood every multicast
+// frame (bat0 multicast_mode 0), matching the LuCI wizard and both fixture
+// captures. Changing this default flips the shipped UCI value on every
+// device and must be deliberate.
+func TestDefaultBatmanMulticastForceflood_IsClassicFlooding(t *testing.T) {
+	if !DefaultBatmanMulticastForceflood {
+		t.Error("DefaultBatmanMulticastForceflood = false; expected true (classic flooding, multicast_mode 0)")
 	}
 }
 

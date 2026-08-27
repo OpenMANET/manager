@@ -37,10 +37,11 @@ type UCINetwork struct {
 	IPV6Assignment string `uci:"option ip6assign"`
 	IPV6IfaceID    string `uci:"option ip6ifaceid"`
 	IPV6Class      string `uci:"list ip6class"`
-	// MulticastMode is the batman-adv batadv proto option that controls
-	// multicast forceflood behavior. "1" enables forceflood (broadcast
-	// every multicast frame), "0" uses batman-adv's optimized multicast
-	// delivery. Only meaningful on `proto batadv` interfaces.
+	// MulticastMode is the batman-adv `multicast_mode` option on a
+	// `proto batadv` interface. The kernel defines it as the negation of
+	// forceflood: "0" classic-floods every multicast frame (forceflood on),
+	// "1" enables the IGMP/MLD-snooping optimisations (forceflood off).
+	// See MulticastModeForForceflood.
 	MulticastMode string `uci:"option multicast_mode"`
 }
 
@@ -298,7 +299,7 @@ func SetNetworkConfigWithReader(section string, config *UCINetwork, reader Confi
 	}
 
 	if config.MulticastMode != "" {
-		if err := reader.SetType(networkConfigName, section, "multicast_mode", uci.TypeOption, config.MulticastMode); err != nil {
+		if err := reader.SetType(networkConfigName, section, optionMulticastMode, uci.TypeOption, config.MulticastMode); err != nil {
 			return fmt.Errorf("failed to set multicast_mode: %w", err)
 		}
 	}
@@ -1225,10 +1226,11 @@ const (
 	// UCI option keys repeated across the network/dhcp/vxlan/wireless
 	// configs. Centralized so goconst is happy and so any rename is a
 	// single edit.
-	optionProto      string = "proto"
-	optionNetmask    string = "netmask"
-	optionIP6Assign  string = "ip6assign"
-	optionIP6IfaceID string = "ip6ifaceid"
+	optionProto         string = "proto"
+	optionNetmask       string = "netmask"
+	optionIP6Assign     string = "ip6assign"
+	optionIP6IfaceID    string = "ip6ifaceid"
+	optionMulticastMode string = "multicast_mode"
 )
 
 // batmanDeviceOptions enumerates every batman-adv option set on a
@@ -1250,13 +1252,39 @@ var batmanDeviceOptions = []struct{ k, v string }{ //nolint:gochecknoglobals // 
 	{"isolation_mark", "0x00000000/0x00000000"},
 }
 
+// Values of the batman-adv `multicast_mode` UCI option on a `proto batadv`
+// interface. The kernel exports this switch as the negation of forceflood
+// (BATADV_ATTR_MULTICAST_FORCEFLOOD_ENABLED = !multicast_mode,
+// net/batman-adv/netlink.c): "0" makes every node classic-flood every
+// multicast frame; "1" enables the IGMP/MLD-snooping optimisations so a
+// group only reaches nodes that announced membership. OpenWrt's batadv
+// proto handler passes the value straight to
+// `batctl meshif <dev> multicast_mode`.
+const (
+	MulticastModeForceflood = "0"
+	MulticastModeOptimised  = "1"
+)
+
+// MulticastModeForForceflood maps the batman.multicastForceflood config
+// flag onto the multicast_mode UCI value. It is the single source of truth
+// for both writers — the runtime daemon (mgmt.configureBatmanForceflood)
+// and the setup wizard (SetupService.runBatmanAdv) — so they cannot
+// disagree, and the only place the inversion is spelled out.
+func MulticastModeForForceflood(forceflood bool) string {
+	if forceflood {
+		return MulticastModeForceflood
+	}
+
+	return MulticastModeOptimised
+}
+
 // SetupBatmanDeviceOnNetwork creates (or updates) the batman-adv
 // device interface on the network config, mirroring LuCI's
 // setupBatmanDeviceOnNetwork() exactly. Use empty deviceName to
 // default to BatmanDeviceName ("bat0"); empty gwMode defaults to
-// "client"; empty multicastMode defaults to "0" (forceflood off),
-// matching the runtime daemon's configureBatmanForcefloodWithDeps
-// default and both LuCI fixture captures.
+// "client"; empty multicastMode defaults to MulticastModeForceflood ("0",
+// classic flooding — the shipped default and both LuCI fixture
+// captures).
 //
 // Does not commit.
 func SetupBatmanDeviceOnNetwork(reader ConfigReader, gwMode, deviceName, multicastMode string) error {
@@ -1269,7 +1297,7 @@ func SetupBatmanDeviceOnNetwork(reader ConfigReader, gwMode, deviceName, multica
 	}
 
 	if multicastMode == "" {
-		multicastMode = "0"
+		multicastMode = MulticastModeForceflood
 	}
 
 	if !batmanInterfaceExists(reader, deviceName) {
@@ -1293,7 +1321,7 @@ func SetupBatmanDeviceOnNetwork(reader ConfigReader, gwMode, deviceName, multica
 		return fmt.Errorf("setting %s.%s.gw_mode: %w", networkConfigName, deviceName, err)
 	}
 
-	if err := reader.SetType(networkConfigName, deviceName, "multicast_mode", uci.TypeOption, multicastMode); err != nil {
+	if err := reader.SetType(networkConfigName, deviceName, optionMulticastMode, uci.TypeOption, multicastMode); err != nil {
 		return fmt.Errorf("setting %s.%s.multicast_mode: %w", networkConfigName, deviceName, err)
 	}
 

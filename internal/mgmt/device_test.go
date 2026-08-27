@@ -782,8 +782,8 @@ func TestConfigureBatmanForceflood_Enabled(t *testing.T) {
 		t.Fatal("expected multicast_mode to be written to bat0 section")
 	}
 
-	if len(values) != 1 || values[0] != "1" {
-		t.Errorf("multicast_mode: got %v, want [1]", values)
+	if len(values) != 1 || values[0] != "0" {
+		t.Errorf("multicast_mode: got %v, want [0] (forceflood on = classic flooding)", values)
 	}
 
 	if !reloadCalled {
@@ -809,8 +809,8 @@ func TestConfigureBatmanForceflood_Disabled(t *testing.T) {
 		t.Fatal("expected multicast_mode to be written to bat0 section")
 	}
 
-	if len(values) != 1 || values[0] != "0" {
-		t.Errorf("multicast_mode: got %v, want [0]", values)
+	if len(values) != 1 || values[0] != "1" {
+		t.Errorf("multicast_mode: got %v, want [1] (forceflood off = multicast optimisations on)", values)
 	}
 }
 

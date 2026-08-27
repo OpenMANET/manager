@@ -2554,10 +2554,24 @@ func TestSetupBatmanDeviceOnNetwork_DefaultsAppliedOnEmptyArgs(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "client", v[0])
 
-	// Default multicast_mode is "0" (forceflood off).
+	// Default multicast_mode is "0" (classic flooding, forceflood on).
 	v, ok = m.Get("network", "bat0", "multicast_mode")
 	require.True(t, ok)
 	assert.Equal(t, "0", v[0])
+}
+
+// TestMulticastModeForForceflood pins the kernel's semantics for the
+// batadv multicast_mode option: it is the negation of forceflood
+// (BATADV_ATTR_MULTICAST_FORCEFLOOD_ENABLED = !multicast_mode), so the
+// config flag and the UCI value read as opposites. Both writers — the
+// runtime daemon and the setup wizard — go through this one function.
+func TestMulticastModeForForceflood(t *testing.T) {
+	assert.Equal(t, "0", MulticastModeForForceflood(true),
+		"forceflood on = classic flooding = multicast_mode 0")
+	assert.Equal(t, "1", MulticastModeForForceflood(false),
+		"forceflood off = multicast optimisations on = multicast_mode 1")
+	assert.Equal(t, MulticastModeForceflood, MulticastModeForForceflood(true))
+	assert.Equal(t, MulticastModeOptimised, MulticastModeForForceflood(false))
 }
 
 func TestSetupBatmanDeviceOnNetwork_IdempotentOnExistingSection(t *testing.T) {

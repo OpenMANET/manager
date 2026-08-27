@@ -10,6 +10,7 @@ import (
 	"github.com/digineo/go-uci/v2"
 	setupv1 "github.com/openmanet/openmanetd/internal/api/openmanet/setup/v1"
 	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
+	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/tzinfo"
 	"golang.org/x/sys/unix"
@@ -1388,15 +1389,19 @@ func (s *SetupService) runBatmanAdv(_ context.Context, stream applySetupStream, 
 		"configuring batman-adv", func() error {
 			gwMode := batmanGwModeForRole(profile.GetRole())
 
-			// Multicast forceflood is derived from the same config the
+			// multicast_mode is derived from the same config flag the
 			// runtime daemon's configureBatmanForcefloodWithDeps reads
-			// (batman.multicastForceflood). The reset phase deletes
-			// bat0 entirely, so there is no prior value to preserve —
-			// this config read is the only source of truth.
-			mm := "0"
-			if s.Cfg != nil && s.Cfg.GetBatmanMulticastForceflood() {
-				mm = "1"
+			// (batman.multicastForceflood) through the shared
+			// network.MulticastModeForForceflood mapping. The reset phase
+			// deletes bat0 entirely, so there is no prior value to
+			// preserve — this config read is the only source of truth. A
+			// nil Cfg (unit tests) behaves like the shipped default.
+			forceflood := config.DefaultBatmanMulticastForceflood
+			if s.Cfg != nil {
+				forceflood = s.Cfg.GetBatmanMulticastForceflood()
 			}
+
+			mm := network.MulticastModeForForceflood(forceflood)
 
 			if err := network.SetupBatmanDeviceOnNetwork(s.UCI, gwMode,
 				network.BatmanDeviceName, mm); err != nil {

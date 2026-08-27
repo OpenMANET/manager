@@ -237,24 +237,28 @@ func assertBatmanDevice(t *testing.T, tr *uciTree, wantGwMode string) {
 }
 
 // TestCompat_MulticastModeMatchesForcefloodConfig pins root cause
-// #3: the wizard hardcoded multicast_mode=1 while firmware, the
-// runtime daemon (configureBatmanForceflood), and both captures use
-// 0. With optimization on, multicast RTP reaches only IGMP/MLD-
-// announced listeners — comms audio silently degrades until the
-// daemon's next start corrects it.
+// #3 (the wizard once hardcoded multicast_mode=1 while firmware, the
+// runtime daemon, and both captures carry 0) and decision D7
+// (2026-08-27): the default batman.multicastForceflood=true maps to
+// multicast_mode=0 — classic flooding — so multicast RTP reaches
+// every node without IGMP/MLD membership announcements crossing the
+// mesh. The mapping is network.MulticastModeForForceflood, shared
+// with the runtime daemon's configureBatmanForcefloodWithDeps.
 func TestCompat_MulticastModeMatchesForcefloodConfig(t *testing.T) {
 	tr := runScenarioApply(t, gateRouterEthProfile())
 
 	assert.Equal(t, "0", tr.getOne("network", "bat0", "multicast_mode"),
-		"default batman.multicastForceflood=false must write multicast_mode=0 (fixture parity)")
+		"default batman.multicastForceflood=true must write multicast_mode=0 (fixture parity)")
 }
 
-// TestCompat_MulticastModeForcefloodEnabled asserts that when the
-// operator has enabled batman.multicastForceflood in config.yml, the
-// wizard writes multicast_mode=1 on bat0 — the same mapping the
-// runtime daemon's configureBatmanForcefloodWithDeps applies.
-func TestCompat_MulticastModeForcefloodEnabled(t *testing.T) {
-	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\nbatman:\n  multicastForceflood: true\n")
+// TestCompat_MulticastModeForcefloodDisabledWritesOne asserts that
+// when the operator sets batman.multicastForceflood: false in
+// config.yml, the wizard writes multicast_mode=1 on bat0 — batman-adv's
+// multicast optimisations on — through the same
+// network.MulticastModeForForceflood mapping the runtime daemon
+// applies.
+func TestCompat_MulticastModeForcefloodDisabledWritesOne(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\nbatman:\n  multicastForceflood: false\n")
 	svc, _ := newFullSetupService(t, cfg)
 
 	collector := &streamCollector{}
@@ -265,7 +269,7 @@ func TestCompat_MulticastModeForcefloodEnabled(t *testing.T) {
 
 	tr := &uciTree{reader: reader}
 	assert.Equal(t, "1", tr.getOne("network", "bat0", "multicast_mode"),
-		"batman.multicastForceflood=true must write multicast_mode=1")
+		"batman.multicastForceflood=false must write multicast_mode=1")
 }
 
 // TestCompat_BatmeshHardifsWritten asserts batmesh0 + batmesh1 exist
