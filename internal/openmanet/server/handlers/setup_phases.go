@@ -1232,19 +1232,23 @@ func (s *SetupService) setupAhwlanDhcp() error {
 }
 
 // writeWizardBookkeeping records the user's selections in the
-// `network.wizard` section so the settings UI can show them later.
+// `config wizard 'wizard'` section of /etc/config/network so the
+// settings UI and detectAlreadyConfigured can read them later.
 // Mirrors the LuCI wizard's `network.wizard.{device_mode_meshgate,
-// device_mode_meshpoint, uplink}` writes.
+// device_mode_meshpoint, uplink}` writes. The section type must not
+// be `interface`: netifd instantiates every type=interface section
+// as a network interface, and a proto-less `wizard` interface is
+// noise in ifstatus and logs.
 func (s *SetupService) writeWizardBookkeeping(profile *setupv1.MeshNodeProfile) error {
 	const (
 		networkConfig = "network"
 		wizardSection = "wizard"
+		wizardType    = "wizard"
 	)
 
-	// Ensure the wizard interface section exists. AddSection on an
-	// already-existing named section may error on some readers;
-	// ignore — subsequent SetType calls work either way.
-	_ = s.UCI.AddSection(networkConfig, wizardSection, "interface")
+	// AddSection on an already-existing named section may error on
+	// some readers; ignore — subsequent SetType calls work either way.
+	_ = s.UCI.AddSection(networkConfig, wizardSection, wizardType)
 
 	if mp := ProtoToMeshPointMode(profile.GetMeshpointMode()); mp != "" {
 		if err := s.UCI.SetType(networkConfig, wizardSection, "device_mode_meshpoint",

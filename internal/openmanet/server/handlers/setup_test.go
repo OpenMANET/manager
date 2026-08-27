@@ -332,8 +332,9 @@ func TestGetSetupStatus_AlreadyConfigured_FactoryMeshGateAnnouncementsIgnored(t 
 
 func TestGetSetupStatus_AlreadyConfigured_WizardBookkeepingSection(t *testing.T) {
 	// The wizard writes a `config wizard 'wizard'` section into
-	// /etc/config/network on apply. If we see one, the wizard has
-	// already run.
+	// /etc/config/network on apply (writeWizardBookkeeping; pinned by
+	// TestCompat_WizardBookkeepingSectionType). If we see one, the
+	// wizard has already run.
 	cfg := setupBLOSTestConfig(t, "")
 
 	reader := newSetupReader()

@@ -818,6 +818,23 @@ func TestCompat_CommsFirewallRuleMatchesFixture(t *testing.T) {
 	}
 }
 
+// TestCompat_WizardBookkeepingSectionType pins that the wizard's
+// network.wizard bookkeeping section is `config wizard 'wizard'`, the
+// type LuCI writes (meshwizard.js uci.add('network','wizard','wizard'))
+// and the type detectAlreadyConfigured reads. netifd instantiates only
+// type=interface sections as interfaces, so writing it as `interface`
+// produced a bogus, proto-less interface named wizard on every device.
+func TestCompat_WizardBookkeepingSectionType(t *testing.T) {
+	tr := runScenarioApply(t, gateRouterEthProfile())
+
+	assert.Contains(t, tr.sectionsOfType("network", "wizard"), "wizard",
+		"network.wizard must be a `wizard`-type section")
+	assert.NotContains(t, tr.sectionsOfType("network", "interface"), "wizard",
+		"network.wizard must not be an interface section (netifd would bring it up)")
+	assert.Equal(t, "router", tr.getOne("network", "wizard", "device_mode_meshgate"))
+	assert.Equal(t, "ethernet", tr.getOne("network", "wizard", "uplink"))
+}
+
 // TestCompat_ICMPv6BritishSpelling: fw4's type table and both
 // captures use neighbour-*; an unknown name can invalidate the whole
 // rule, breaking NDP toward the uplink zone.
