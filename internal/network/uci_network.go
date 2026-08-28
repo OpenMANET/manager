@@ -7,6 +7,8 @@ import (
 	"net"
 	"os/exec"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/digineo/go-uci/v2"
@@ -60,6 +62,7 @@ type UCIDevice struct {
 	Table            string   `uci:"option table"`
 	IgmpSnooping     string   `uci:"option igmp_snooping"`
 	MulticastQuerier string   `uci:"option multicast_querier"`
+	MTU              string   `uci:"option mtu"`
 	Ports            []string `uci:"list ports"`
 }
 
@@ -802,26 +805,18 @@ func GetDeviceByName(name string) (*UCIDevice, error) {
 }
 
 // GetDeviceByNameWithReader loads and returns the UCI device configuration by name using the provided reader.
-// It searches through all anonymous device sections to find one with the matching name option.
+// It searches every device section for one whose name option matches.
 func GetDeviceByNameWithReader(name string, reader ConfigReader) (*UCIDevice, error) {
-	// Get all device sections (they are anonymous)
-	sections, err := reader.GetSections(networkConfigName, networkDeviceType)
+	section, err := findDeviceByName(reader, name)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get device sections: %w", err)
+		return nil, err
 	}
 
-	// Search for the device with the matching name
-	for _, section := range sections {
-		if values, ok := reader.Get(networkConfigName, section, "name"); ok && len(values) > 0 {
-			if values[0] == name {
-				// Found the device, load all its options
-				return loadDeviceFromSection(section, reader)
-			}
-		}
+	if section == "" {
+		return nil, fmt.Errorf("device %s not found", name)
 	}
 
-	// Device not found
-	return nil, fmt.Errorf("device %s not found", name)
+	return loadDeviceFromSection(section, reader)
 }
 
 // loadDeviceFromSection loads a device configuration from a specific UCI section.
@@ -878,6 +873,10 @@ func loadDeviceFromSection(section string, reader ConfigReader) (*UCIDevice, err
 
 	if values, ok := reader.Get(networkConfigName, section, "multicast_querier"); ok && len(values) > 0 {
 		device.MulticastQuerier = values[0]
+	}
+
+	if values, ok := reader.Get(networkConfigName, section, "mtu"); ok && len(values) > 0 {
+		device.MTU = values[0]
 	}
 
 	return device, nil
@@ -1026,6 +1025,12 @@ func SetDeviceConfigWithReader(name string, device *UCIDevice, reader ConfigRead
 	if device.MulticastQuerier != "" {
 		if err := reader.SetType(networkConfigName, section, "multicast_querier", uci.TypeOption, device.MulticastQuerier); err != nil {
 			return fmt.Errorf("failed to set device multicast_querier: %w", err)
+		}
+	}
+
+	if device.MTU != "" {
+		if err := reader.SetType(networkConfigName, section, "mtu", uci.TypeOption, device.MTU); err != nil {
+			return fmt.Errorf("failed to set device mtu: %w", err)
 		}
 	}
 
@@ -1219,6 +1224,15 @@ const (
 	networkDeviceType    string = "device"
 
 	bridgeTypeBridge string = "bridge"
+
+	// wizardDeviceSectionPrefix names the `config device` sections the
+	// setup wizard creates for physical ports that only need to carry
+	// an mtu. UnsetDeviceMTU removes them on the next reset.
+	wizardDeviceSectionPrefix string = "wizard_device_"
+
+	// minDeviceMTU is netifd's floor for `option mtu`; smaller values
+	// are ignored and the kernel default stays.
+	minDeviceMTU int = 68
 
 	batadvProto       string = "batadv"
 	batadvHardifProto string = "batadv_hardif"
@@ -1694,6 +1708,115 @@ func CreateBridgeDevice(reader ConfigReader, name string, ports []string, macadd
 	}
 
 	return section, nil
+}
+
+// findDeviceByName returns the section name of the `config device`
+// whose `name` option equals name, regardless of its type, or "" when
+// none exists. Vendor board configs ship such sections for physical
+// ports (`config device` / `option name 'eth0'` / `option macaddr`),
+// and netifd keeps one settings block per device name — a second
+// section for the same name would drop the vendor's options.
+func findDeviceByName(reader ConfigReader, name string) (string, error) {
+	sections, err := reader.GetSections(networkConfigName, networkDeviceType)
+	if err != nil {
+		return "", fmt.Errorf("listing network devices: %w", err)
+	}
+
+	for _, s := range sections {
+		got, _ := reader.Get(networkConfigName, s, "name")
+		if len(got) > 0 && got[0] == name {
+			return s, nil
+		}
+	}
+
+	return "", nil
+}
+
+// SetDeviceMTUWithReader stages `option mtu` on the `config device`
+// section whose `name` is name, creating the named section
+// wizard_device_<name> (with `option name`) when none exists. netifd
+// applies the option to the device on the next reload, so the value
+// outlives the daemon's netlink pass. Does not commit — the setup
+// wizard commits every tainted config in one go at its commit phase.
+// Returns the section written. Values below netifd's minimum (68) are
+// rejected so a typo can never stage an mtu netifd would ignore.
+func SetDeviceMTUWithReader(reader ConfigReader, name string, mtu int) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("device name cannot be empty")
+	}
+
+	if mtu < minDeviceMTU {
+		return "", fmt.Errorf("mtu %d is below netifd's minimum of %d", mtu, minDeviceMTU)
+	}
+
+	section, err := findDeviceByName(reader, name)
+	if err != nil {
+		return "", err
+	}
+
+	if section == "" {
+		section = wizardDeviceSectionPrefix + sanitizeUCIName(name)
+
+		if addErr := reader.AddSection(networkConfigName, section, networkDeviceType); addErr != nil {
+			return "", fmt.Errorf("creating device section %s: %w", section, addErr)
+		}
+
+		if nameErr := reader.SetType(networkConfigName, section, "name", uci.TypeOption, name); nameErr != nil {
+			return "", fmt.Errorf("setting name on %s: %w", section, nameErr)
+		}
+	}
+
+	if setErr := reader.SetType(networkConfigName, section, "mtu", uci.TypeOption, strconv.Itoa(mtu)); setErr != nil {
+		return "", fmt.Errorf("setting mtu on %s: %w", section, setErr)
+	}
+
+	return section, nil
+}
+
+// UnsetDeviceMTU removes `option mtu` from every `config device`
+// section and deletes the wizard-owned port sections (wizard_device_*)
+// that exist only to carry one. The setup wizard runs it in its reset
+// phase so a re-run whose uplink port changed leaves no stale mtu
+// behind; the base-network phase then stages the current values.
+// Does not commit.
+//
+// Two passes: go-uci renders anonymous sections as @device[N] with N
+// counted over every device section, named ones included, so deleting
+// a wizard_device_* section shifts the refs of the anonymous sections
+// after it. The strip pass therefore runs first over a list that stays
+// valid, and the delete pass re-lists and touches named sections only.
+func UnsetDeviceMTU(reader ConfigReader) error {
+	sections, err := reader.GetSections(networkConfigName, networkDeviceType)
+	if err != nil {
+		return fmt.Errorf("listing network devices: %w", err)
+	}
+
+	for _, s := range sections {
+		if strings.HasPrefix(s, wizardDeviceSectionPrefix) {
+			continue
+		}
+
+		if delErr := reader.Del(networkConfigName, s, "mtu"); delErr != nil {
+			return fmt.Errorf("unsetting mtu on %s: %w", s, delErr)
+		}
+	}
+
+	sections, err = reader.GetSections(networkConfigName, networkDeviceType)
+	if err != nil {
+		return fmt.Errorf("listing network devices: %w", err)
+	}
+
+	for _, s := range sections {
+		if !strings.HasPrefix(s, wizardDeviceSectionPrefix) {
+			continue
+		}
+
+		if delErr := reader.DelSection(networkConfigName, s); delErr != nil {
+			return fmt.Errorf("deleting %s: %w", s, delErr)
+		}
+	}
+
+	return nil
 }
 
 // AppendBridgePort adds `port` to the bridge section's `ports` list,

@@ -9,11 +9,13 @@ import (
 )
 
 const (
-	// Interface MTU for interfaces
+	// Interface MTU for interfaces. The bridge and ethernet values are
+	// shared with the setup wizard, which persists them in UCI; the
+	// netlink pass below still applies them at every start.
 	defaultMeshInterfaceMTU     int = 1500
 	defaultBatmanInterfaceMTU   int = 1460
-	defaultAhwlanInterfaceMTU   int = 1460
-	defaultEthernetInterfaceMTU int = 1460
+	defaultAhwlanInterfaceMTU   int = network.DefaultBridgeMTU
+	defaultEthernetInterfaceMTU int = network.DefaultEthernetMTU
 )
 
 // setTransportInterfaceMTU sets the MTU (Maximum Transmission Unit) for all

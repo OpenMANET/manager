@@ -1072,3 +1072,12 @@ func TestConfigureBatmanForceflood_ChangedCommitsAndReloads(t *testing.T) {
 	assert.Equal(t, 1, reader.commitCalls, "changed multicast_mode must commit exactly once")
 	assert.True(t, reloadCalled, "changed multicast_mode must reload the network")
 }
+
+// TestTransportMTUConstants_MatchNetworkPackage pins that the daemon's
+// netlink pass and the wizard's UCI writes agree on the transport MTU
+// (wizard-parity P6): both read internal/network's constants.
+func TestTransportMTUConstants_MatchNetworkPackage(t *testing.T) {
+	assert.Equal(t, network.DefaultBridgeMTU, defaultAhwlanInterfaceMTU)
+	assert.Equal(t, network.DefaultEthernetMTU, defaultEthernetInterfaceMTU)
+	assert.Equal(t, 1460, defaultAhwlanInterfaceMTU, "the shipped value must not drift")
+}
