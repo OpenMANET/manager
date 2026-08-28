@@ -2772,7 +2772,7 @@ func TestUnsetDeviceMTU_StripsOptionAndRemovesWizardSections(t *testing.T) {
 	require.NoError(t, m.AddSection("network", "veth0", "device"))
 	require.NoError(t, m.SetType("network", "veth0", "type", uci.TypeOption, "veth"))
 
-	require.NoError(t, UnsetDeviceMTU(m))
+	require.NoError(t, UnsetDeviceMTU(m, []string{DefaultBridgeInterfaceName, "eth0", "eth1"}))
 
 	_, ok := m.Get("network", "@device[0]", "mtu")
 	assert.False(t, ok, "vendor section mtu must be stripped")
@@ -2794,8 +2794,36 @@ func TestUnsetDeviceMTU_StripsOptionAndRemovesWizardSections(t *testing.T) {
 func TestUnsetDeviceMTU_NoDevicesIsNoop(t *testing.T) {
 	m := freshNetworkMock(t)
 
-	require.NoError(t, UnsetDeviceMTU(m))
+	require.NoError(t, UnsetDeviceMTU(m, []string{DefaultBridgeInterfaceName, "eth0"}))
 	assert.False(t, m.commitCalled)
+}
+
+// TestUnsetDeviceMTU_LeavesUnrelatedDeviceAlone pins the fix for the
+// over-broad strip: a device section the wizard never manages (br-lan
+// here, with an operator-set jumbo mtu) keeps its mtu, while the
+// wizard's own br-ahwlan section is cleared. The earlier build stripped
+// every device section's mtu and would fail this.
+func TestUnsetDeviceMTU_LeavesUnrelatedDeviceAlone(t *testing.T) {
+	m := freshNetworkMock(t)
+
+	// Operator/vendor device the wizard does not manage.
+	require.NoError(t, m.AddSection("network", "vendor_brlan", "device"))
+	require.NoError(t, m.SetType("network", "vendor_brlan", "name", uci.TypeOption, "br-lan"))
+	require.NoError(t, m.SetType("network", "vendor_brlan", "mtu", uci.TypeOption, "9000"))
+
+	// Wizard-managed bridge with a stale mtu from a prior run.
+	require.NoError(t, m.AddSection("network", "wizard_bridge_br_ahwlan", "device"))
+	require.NoError(t, m.SetType("network", "wizard_bridge_br_ahwlan", "name", uci.TypeOption, DefaultBridgeInterfaceName))
+	require.NoError(t, m.SetType("network", "wizard_bridge_br_ahwlan", "mtu", uci.TypeOption, "1460"))
+
+	require.NoError(t, UnsetDeviceMTU(m, []string{DefaultBridgeInterfaceName, "eth0"}))
+
+	v, ok := m.Get("network", "vendor_brlan", "mtu")
+	require.True(t, ok, "unrelated device section must survive")
+	assert.Equal(t, "9000", v[0], "an operator's mtu on br-lan must not be wiped by the wizard reset")
+
+	_, ok = m.Get("network", "wizard_bridge_br_ahwlan", "mtu")
+	assert.False(t, ok, "the wizard's own br-ahwlan mtu must still be stripped")
 }
 
 func TestUnsetGatewayAndDeviceOnInterfaces_SkipsLoopback(t *testing.T) {
@@ -2910,23 +2938,38 @@ config device
 
 	reader := &UCINetworkConfigReader{tree: uci.NewTree(dir)}
 
-	require.NoError(t, UnsetDeviceMTU(reader),
+	require.NoError(t, UnsetDeviceMTU(reader, []string{DefaultBridgeInterfaceName, "eth0", "eth1", "eth2"}),
 		"stripping must survive anonymous device sections ordered after wizard-owned ones")
 
 	sections, err := reader.GetSections("network", "device")
 	require.NoError(t, err)
 	assert.Len(t, sections, 3, "both wizard_device_* sections deleted, the three anonymous ones kept")
 
+	// eth0 is a managed port, so its mtu is cleared; dummy0 and dummy1
+	// are devices the wizard never manages and keep their mtu — that
+	// is the scoped-strip fix.
+	wantMTU := map[string]string{"eth0": "", "dummy0": "1400", "dummy1": "1400"}
+
 	for _, s := range sections {
 		name, ok := reader.Get("network", s, "name")
 		require.Truef(t, ok, "%s must keep its name", s)
+
+		want, known := wantMTU[name[0]]
+		require.Truef(t, known, "unexpected surviving device %s (%s)", s, name[0])
 
 		// digineo/go-uci's Get reports ok=true whenever the section
 		// exists, regardless of whether the option does — its second
 		// return value answers "section found", not "option found".
 		// The values slice is the only real signal of deletion.
 		mtu, _ := reader.Get("network", s, "mtu")
-		assert.Emptyf(t, mtu, "%s (%s) must have no mtu left", s, name[0])
+
+		if want == "" {
+			assert.Emptyf(t, mtu, "%s (%s) must have no mtu left", s, name[0])
+			continue
+		}
+
+		require.NotEmptyf(t, mtu, "%s (%s) must keep its mtu", s, name[0])
+		assert.Equalf(t, want, mtu[0], "%s (%s) mtu", s, name[0])
 	}
 
 	mac, ok := reader.Get("network", "@device[0]", "macaddr")

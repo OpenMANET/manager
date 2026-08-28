@@ -182,7 +182,7 @@ func (s *SetupService) runResetNetwork(_ context.Context, stream applySetupStrea
 				return err
 			}
 
-			if err := network.UnsetDeviceMTU(s.UCI); err != nil {
+			if err := network.UnsetDeviceMTU(s.UCI, s.transportMTUDeviceNames()); err != nil {
 				return err
 			}
 
@@ -590,6 +590,27 @@ func (s *SetupService) stageTransportMTU(ethernetPorts []string) error {
 	}
 
 	return nil
+}
+
+// transportMTUDeviceNames returns the device names whose `option mtu`
+// the reset phase may strip: br-ahwlan plus every detected ethernet
+// port (falling back to the platform default when none are detected).
+// This is the superset stageTransportMTU could have written across any
+// scenario or uplink choice — the reset uses the full port list, not
+// the uplink-filtered ethernetPortsForAhwlan, so a re-run that changed
+// the uplink still clears the mtu the previous run left on what is now
+// the uplink port. It never names an unrelated device (br-lan, a wan
+// bridge), so UnsetDeviceMTU leaves those alone.
+func (s *SetupService) transportMTUDeviceNames() []string {
+	ports := s.collectEthernetPorts()
+	if len(ports) == 0 {
+		ports = []string{network.DefaultEthernetInterfaceName}
+	}
+
+	names := make([]string, 0, len(ports)+1)
+	names = append(names, network.DefaultBridgeInterfaceName)
+
+	return append(names, ports...)
 }
 
 // resolveUplinkPort returns the ethernet port carrying the gate's

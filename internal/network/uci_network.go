@@ -1773,19 +1773,34 @@ func SetDeviceMTUWithReader(reader ConfigReader, name string, mtu int) (string, 
 	return section, nil
 }
 
-// UnsetDeviceMTU removes `option mtu` from every `config device`
-// section and deletes the wizard-owned port sections (wizard_device_*)
-// that exist only to carry one. The setup wizard runs it in its reset
-// phase so a re-run whose uplink port changed leaves no stale mtu
-// behind; the base-network phase then stages the current values.
-// Does not commit.
+// UnsetDeviceMTU removes `option mtu` from the `config device`
+// sections the wizard's transport-mtu pass manages — those whose
+// `name` is in deviceNames (br-ahwlan and the detected ethernet ports)
+// — and deletes the wizard-owned port sections (wizard_device_*) that
+// exist only to carry one. The setup wizard runs it in its reset phase
+// so a re-run whose uplink port changed leaves no stale mtu behind;
+// the base-network phase then stages the current values. Does not
+// commit.
+//
+// Scoping to deviceNames is deliberate: an earlier build stripped mtu
+// from every device section, which wiped an mtu a vendor board config
+// or an operator had set on an unrelated device (br-lan, a wan bridge,
+// a non-ethernet port the wizard never touches). Only the wizard's own
+// devices are cleared now. A wizard_device_* section is always
+// wizard-owned, so the delete pass removes every one regardless of
+// name.
 //
 // Two passes: go-uci renders anonymous sections as @device[N] with N
 // counted over every device section, named ones included, so deleting
 // a wizard_device_* section shifts the refs of the anonymous sections
 // after it. The strip pass therefore runs first over a list that stays
 // valid, and the delete pass re-lists and touches named sections only.
-func UnsetDeviceMTU(reader ConfigReader) error {
+func UnsetDeviceMTU(reader ConfigReader, deviceNames []string) error {
+	managed := make(map[string]struct{}, len(deviceNames))
+	for _, n := range deviceNames {
+		managed[n] = struct{}{}
+	}
+
 	sections, err := reader.GetSections(networkConfigName, networkDeviceType)
 	if err != nil {
 		return fmt.Errorf("listing network devices: %w", err)
@@ -1793,6 +1808,15 @@ func UnsetDeviceMTU(reader ConfigReader) error {
 
 	for _, s := range sections {
 		if strings.HasPrefix(s, wizardDeviceSectionPrefix) {
+			continue
+		}
+
+		name, _ := reader.Get(networkConfigName, s, "name")
+		if len(name) == 0 {
+			continue
+		}
+
+		if _, ok := managed[name[0]]; !ok {
 			continue
 		}
 
