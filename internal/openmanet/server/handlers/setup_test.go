@@ -1120,6 +1120,7 @@ type snapConfigData struct {
 // captureConfig deep-copies one config out of a fakeConfigReader.
 func captureConfig(r *fakeConfigReader, config string) snapConfigData {
 	d, hasData := r.data[config]
+
 	tt, hasTypes := r.sectionTypes[config]
 	if !hasData && !hasTypes {
 		return snapConfigData{present: false}

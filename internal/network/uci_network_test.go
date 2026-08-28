@@ -2965,6 +2965,7 @@ config device
 
 		if want == "" {
 			assert.Emptyf(t, mtu, "%s (%s) must have no mtu left", s, name[0])
+
 			continue
 		}
 
