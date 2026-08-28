@@ -1107,18 +1107,60 @@ func requireConnectCode(t *testing.T, err error, want connect.Code) {
 
 // ── Phase 2-12 scenario tests ───────────────────────────────────────────────
 
-// fakeUCISnapshot is a simple test double for UCISnapshot. It just
-// remembers which configs it was created from so tests can assert
-// the snapshotter saw the expected scopes.
+// snapConfigData is a deep copy of one UCI config's option data and
+// section types, captured so the reader-backed fake snapshotter can
+// put it back on rollback. present=false records that the config did
+// not exist at snapshot time, so restore removes it again.
+type snapConfigData struct {
+	present bool
+	data    map[string]map[string][]string
+	types   map[string]string
+}
+
+// captureConfig deep-copies one config out of a fakeConfigReader.
+func captureConfig(r *fakeConfigReader, config string) snapConfigData {
+	d, hasData := r.data[config]
+	tt, hasTypes := r.sectionTypes[config]
+	if !hasData && !hasTypes {
+		return snapConfigData{present: false}
+	}
+
+	out := snapConfigData{present: true, data: map[string]map[string][]string{}, types: map[string]string{}}
+
+	for sec, opts := range d {
+		optCopy := make(map[string][]string, len(opts))
+		for k, v := range opts {
+			optCopy[k] = append([]string(nil), v...)
+		}
+
+		out.data[sec] = optCopy
+	}
+
+	for sec, ty := range tt {
+		out.types[sec] = ty
+	}
+
+	return out
+}
+
+// fakeUCISnapshot is a test double for UCISnapshot. It remembers which
+// configs it was created from (so tests can assert the snapshotter saw
+// the expected scopes) and, when the snapshotter is reader-backed, a
+// deep copy of each config's state for a real rollback.
 type fakeUCISnapshot struct {
-	configs []string
+	configs  []string
+	captured map[string]snapConfigData
 }
 
 func (f *fakeUCISnapshot) Configs() []string { return f.configs }
 
-// fakeSnapshotter implements UCISnapshotter and records the calls
-// made to it. Restore is a no-op.
+// fakeSnapshotter implements UCISnapshotter and records the calls made
+// to it. When reader is set it deep-copies the mock UCI state on
+// Snapshot and writes it back on Restore, so rollback tests can assert
+// the tree returns to its pre-apply values; when reader is nil Restore
+// only records the call (the shape older tests rely on).
 type fakeSnapshotter struct {
+	reader        *fakeConfigReader
 	snapshotCalls int
 	restoreCalls  int
 	snapshotErr   error
@@ -1133,15 +1175,71 @@ func (f *fakeSnapshotter) Snapshot(_ context.Context, configs []string) (handler
 		return nil, f.snapshotErr
 	}
 
-	f.lastSnapshot = &fakeUCISnapshot{configs: append([]string(nil), configs...)}
+	snap := &fakeUCISnapshot{configs: append([]string(nil), configs...)}
 
-	return f.lastSnapshot, nil
+	if f.reader != nil {
+		snap.captured = make(map[string]snapConfigData, len(configs))
+		for _, c := range configs {
+			snap.captured[c] = captureConfig(f.reader, c)
+		}
+	}
+
+	f.lastSnapshot = snap
+
+	return snap, nil
 }
 
-func (f *fakeSnapshotter) Restore(_ context.Context, _ handlers.UCISnapshot) error {
+func (f *fakeSnapshotter) Restore(_ context.Context, snapshot handlers.UCISnapshot) error {
 	f.restoreCalls++
 
-	return f.restoreErr
+	if f.restoreErr != nil {
+		return f.restoreErr
+	}
+
+	if f.reader == nil {
+		return nil
+	}
+
+	snap, ok := snapshot.(*fakeUCISnapshot)
+	if !ok || snap.captured == nil {
+		return nil
+	}
+
+	for config, cd := range snap.captured {
+		delete(f.reader.data, config)
+		delete(f.reader.sectionTypes, config)
+
+		if !cd.present {
+			continue
+		}
+
+		restored := captureConfigInto(cd)
+		f.reader.data[config] = restored.data
+		f.reader.sectionTypes[config] = restored.types
+	}
+
+	return nil
+}
+
+// captureConfigInto returns a fresh deep copy of a captured config so
+// a restore never aliases the snapshot's own maps.
+func captureConfigInto(cd snapConfigData) snapConfigData {
+	out := snapConfigData{present: true, data: map[string]map[string][]string{}, types: map[string]string{}}
+
+	for sec, opts := range cd.data {
+		optCopy := make(map[string][]string, len(opts))
+		for k, v := range opts {
+			optCopy[k] = append([]string(nil), v...)
+		}
+
+		out.data[sec] = optCopy
+	}
+
+	for sec, ty := range cd.types {
+		out.types[sec] = ty
+	}
+
+	return out
 }
 
 // fakeHostnameSetter records the hostnames it was asked to set.
@@ -1391,6 +1489,12 @@ func newFullSetupService(t *testing.T, cfg *config.Config) (*handlers.SetupServi
 		PasswordSetter: deps.Pass,
 		Reloader:       deps.Reloader,
 		Interfaces:     &fakeInterfaceProvider{},
+	}
+
+	// Reader-back the snapshotter so a rollback in a phase test really
+	// restores the mock tree, not just counts the call.
+	if r, ok := svc.UCI.(*fakeConfigReader); ok {
+		deps.Snap.reader = r
 	}
 
 	// radio0 (2g mac80211) resolves to an MT7915 so backhaul profiles
@@ -1687,6 +1791,45 @@ func TestApplySetup_PasswordFailureRollsBackUCIButNotPassword(t *testing.T) {
 	// so we just assert SetupComplete remains false (the load-bearing
 	// invariant — the wizard stays reachable for retry).
 	assert.False(t, cfg.GetSetupComplete())
+}
+
+// TestApplySetup_RollbackRestoresStagedFlags proves the rollback path
+// actually puts the tree back: a commit failure after the luci and
+// openmanetd bookkeeping has been staged must restore both to their
+// pre-apply values, not leave them half-written. Runs in the default
+// suite (the integration test covers the same over ConnectRPC).
+func TestApplySetup_RollbackRestoresStagedFlags(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, deps := newFullSetupService(t, cfg)
+
+	reader, ok := svc.UCI.(*fakeConfigReader)
+	require.True(t, ok)
+
+	// Pre-apply state a successful run would change: a stale
+	// dhcpconfigured=1 the wizard sets to 0, and the first-boot LuCI
+	// landing homepage the wizard deletes. Both must come back on
+	// rollback. (luci.wizard.used is left unset so the re-apply guard
+	// does not refuse before the snapshot is even taken.)
+	require.NoError(t, reader.AddSection("openmanetd", "config", "openmanet"))
+	require.NoError(t, reader.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "1"))
+	require.NoError(t, reader.AddSection("luci", "main", "core"))
+	require.NoError(t, reader.SetType("luci", "main", "homepage", uci.TypeOption, "admin/morse/landing"))
+
+	// Fail the phase-12 commit so the mutation pipeline rolls back.
+	reader.commitError = assert.AnError
+
+	err := svc.ApplySetupForTest(context.Background(), minimalProfile(), &streamCollector{})
+	requireConnectCode(t, err, connect.CodeInternal)
+
+	assert.Equal(t, 1, deps.Snap.restoreCalls, "a commit failure must roll back")
+
+	tr := &uciTree{reader: reader}
+	assert.Equal(t, "1", tr.getOne("openmanetd", "config", "dhcpconfigured"),
+		"rollback must restore the pre-apply dhcpconfigured=1, not leave the wizard's 0")
+	assert.Equal(t, "admin/morse/landing", tr.getOne("luci", "main", "homepage"),
+		"rollback must restore the deleted landing homepage")
+	assert.Empty(t, tr.getOne("luci", "wizard", "used"),
+		"rollback must undo the wizard's luci.wizard.used=1 write")
 }
 
 func TestApplySetup_PersistFlagsFailureDoesNotRollback(t *testing.T) {

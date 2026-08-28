@@ -4,6 +4,7 @@ package handlers_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 
 	"connectrpc.com/connect"
 	"connectrpc.com/validate"
+	"github.com/digineo/go-uci/v2"
 	"github.com/mdlayher/wifi"
 	blosproto "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1"
 	blosconnect "github.com/openmanet/openmanetd/internal/api/openmanet/blos/v1/blosv1connect"
@@ -1264,6 +1266,19 @@ func TestIntegration_Validation_GetLogs_MaxLinesOutOfRange(t *testing.T) {
 func newSetupTestServer(t *testing.T, yamlContent string) *httptest.Server {
 	t.Helper()
 
+	srv, _ := newSetupTestServerWithReader(t, yamlContent)
+
+	return srv
+}
+
+// newSetupTestServerWithReader is newSetupTestServer but also returns
+// the UCI reader the handler writes to, so a test can assert the
+// staged values after ApplySetup and seed pre-apply state. The
+// snapshotter is reader-backed so a forced rollback really restores
+// the tree.
+func newSetupTestServerWithReader(t *testing.T, yamlContent string) (*httptest.Server, *fakeConfigReader) {
+	t.Helper()
+
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.yml")
 	require.NoError(t, os.WriteFile(cfgPath, []byte(yamlContent), 0o644))
@@ -1283,7 +1298,7 @@ func newSetupTestServer(t *testing.T, yamlContent string) *httptest.Server {
 		Cfg:            cfg,
 		Log:            zerolog.Nop(),
 		UCI:            reader,
-		Snapshotter:    &fakeSnapshotter{},
+		Snapshotter:    &fakeSnapshotter{reader: reader},
 		HostnameSetter: &fakeHostnameSetter{},
 		PasswordSetter: &fakePasswordSetter{},
 		Reloader:       newFakeReloader(len(handlers.ReloadServicesForTest())),
@@ -1295,7 +1310,7 @@ func newSetupTestServer(t *testing.T, yamlContent string) *httptest.Server {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	return srv
+	return srv, reader
 }
 
 func TestIntegration_GetSetupStatus_DefaultsDisabled(t *testing.T) {
@@ -1459,4 +1474,78 @@ func TestIntegration_ApplySetup_MeshBackhaul(t *testing.T) {
 
 	require.NoError(t, stream.Err(), "a backhaul on a capable radio must apply end to end")
 	assert.True(t, sawValidateDone, "validation must accept the backhaul entry")
+}
+
+// TestIntegration_ApplySetup_WritesLuciAndOpenmanetdFlags drives the
+// full ConnectRPC + validate-interceptor + streaming + commit path and
+// asserts the wizard's LuCI and openmanetd bookkeeping lands on the
+// tree: luci.wizard.used=1, the first-boot landing homepage cleared,
+// and the two reservation flags staged (ledger F2/F3 "done when").
+func TestIntegration_ApplySetup_WritesLuciAndOpenmanetdFlags(t *testing.T) {
+	srv, reader := newSetupTestServerWithReader(t, "setup:\n  enabled: true\n")
+
+	// Seed the first-boot LuCI homepage so the wizard has one to clear.
+	require.NoError(t, reader.AddSection("luci", "main", "core"))
+	require.NoError(t, reader.SetType("luci", "main", "homepage", uci.TypeOption, "admin/morse/landing"))
+
+	client := setupconnect.NewSetupServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	stream, err := client.ApplySetup(context.Background(),
+		&setupv1.ApplySetupRequest{Profile: integrationMinimalProfile()})
+	require.NoError(t, err)
+
+	for stream.Receive() {
+	}
+
+	require.NoError(t, stream.Err(), "a minimal extender profile must apply end to end")
+
+	tr := &uciTree{reader: reader}
+	assert.Equal(t, "1", tr.getOne("luci", "wizard", "used"),
+		"the wizard must mark itself used so LuCI stops steering into its own flow")
+	assert.Empty(t, tr.getOne("luci", "main", "homepage"),
+		"the first-boot landing homepage must be cleared")
+	assert.Equal(t, "0", tr.getOne("openmanetd", "config", "dhcpconfigured"),
+		"dhcpconfigured must be staged to 0 so the reservation worker claims a mesh address")
+	assert.Equal(t, "0", tr.getOne("openmanetd", "config", "batmesh1configured"),
+		"batmesh1configured must be 0 when no backhaul was chosen")
+}
+
+// TestIntegration_ApplySetup_RollbackRestoresFlags forces a commit
+// failure late in the pipeline and asserts the pre-apply luci and
+// openmanetd values are restored — the wizard must never leave the
+// reservation flags or LuCI bookkeeping half-written after a rollback
+// (ledger F2/F3 "done when": values asserted after a forced rollback).
+func TestIntegration_ApplySetup_RollbackRestoresFlags(t *testing.T) {
+	srv, reader := newSetupTestServerWithReader(t, "setup:\n  enabled: true\n")
+
+	// Pre-apply state a successful run would change: a stale
+	// dhcpconfigured=1 the wizard sets to 0, and the first-boot LuCI
+	// landing homepage the wizard deletes. luci.wizard.used is left
+	// unset so the re-apply guard admits the run.
+	require.NoError(t, reader.AddSection("openmanetd", "config", "openmanet"))
+	require.NoError(t, reader.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "1"))
+	require.NoError(t, reader.AddSection("luci", "main", "core"))
+	require.NoError(t, reader.SetType("luci", "main", "homepage", uci.TypeOption, "admin/morse/landing"))
+
+	// Make the phase-12 commit fail so the mutation pipeline rolls back.
+	reader.commitError = errors.New("commit boom")
+
+	client := setupconnect.NewSetupServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	stream, err := client.ApplySetup(context.Background(),
+		&setupv1.ApplySetupRequest{Profile: integrationMinimalProfile()})
+	require.NoError(t, err)
+
+	for stream.Receive() {
+	}
+
+	require.Error(t, stream.Err(), "a commit failure must surface as an RPC error")
+
+	tr := &uciTree{reader: reader}
+	assert.Equal(t, "1", tr.getOne("openmanetd", "config", "dhcpconfigured"),
+		"rollback must restore the pre-apply dhcpconfigured=1, not leave the wizard's 0")
+	assert.Equal(t, "admin/morse/landing", tr.getOne("luci", "main", "homepage"),
+		"rollback must restore the deleted landing homepage")
+	assert.Empty(t, tr.getOne("luci", "wizard", "used"),
+		"rollback must undo the wizard's luci.wizard.used=1 write")
 }
