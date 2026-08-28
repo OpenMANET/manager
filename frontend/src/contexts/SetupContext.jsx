@@ -21,6 +21,7 @@ import {
   UplinkType,
 } from '../gen/openmanet/setup/v1/setup_pb.js';
 import { WifiEncryption } from '../gen/openmanet/wifi_config/v1/wifi_config_pb.js';
+import { apDefaults } from './apDefaults.js';
 
 // initialState mirrors the MeshNodeProfile shape with Mesh Point selected
 // by default (plan: "Mesh Point should be selected by default") and the
@@ -78,23 +79,6 @@ export const SETUP_ACTIONS = {
   RESET:                  'RESET',
   HYDRATE_FROM_STATUS:    'HYDRATE_FROM_STATUS',
 };
-
-// apDefaults is the per-radio entry shape in state.aps. `enabled` is
-// the client-AP switch; `meshBackhaul` marks the one radio (at most)
-// that runs the 2.4 GHz batman-adv backhaul instead, with its own
-// mesh ID and passphrase.
-export function apDefaults(radioName) {
-  return {
-    radioName,
-    enabled:            false,
-    ssid:               '',
-    passphrase:         '',
-    encryption:         WifiEncryption.PSK2,
-    meshBackhaul:       false,
-    backhaulMeshId:     '',
-    backhaulPassphrase: '',
-  };
-}
 
 // reducer is exported for unit tests so they can drive it without a
 // full Provider tree.

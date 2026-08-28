@@ -8,7 +8,8 @@
 // phones / laptops join the mesh through.
 
 import LatSelect from '../../components/LatSelect.jsx';
-import { useSetup, SETUP_ACTIONS, apDefaults } from '../../contexts/SetupContext.jsx';
+import { useSetup, SETUP_ACTIONS } from '../../contexts/SetupContext.jsx';
+import { apDefaults } from '../../contexts/apDefaults.js';
 import { WifiEncryption } from '../../gen/openmanet/wifi_config/v1/wifi_config_pb.js';
 import { ENCRYPTION_LABELS } from './labels.js';
 
