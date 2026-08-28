@@ -205,4 +205,17 @@ describe('SetupContext.reducer', () => {
     const next = reducer(initialState, { type: SETUP_ACTIONS.SET_AP, value: { radioName: 'radio0' } });
     expect(next.aps[0]).toMatchObject({ meshBackhaul: false, backhaulMeshId: '', backhaulPassphrase: '' });
   });
+
+  it('SET_RADIO_MODE clamps the seeded backhaul mesh ID to 32 characters', () => {
+    const longMeshId = 'a'.repeat(32);
+    const withMeshId = reducer(initialState, {
+      type: SETUP_ACTIONS.SET_MESH_FIELD,
+      field: 'meshId',
+      value: longMeshId,
+    });
+    const next = reducer(withMeshId, { type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio0', mode: 'backhaul' });
+    const seeded = next.aps.find(a => a.radioName === 'radio0').backhaulMeshId;
+    expect(seeded.length).toBeLessThanOrEqual(32);
+    expect(seeded.endsWith('-2g')).toBe(true);
+  });
 });

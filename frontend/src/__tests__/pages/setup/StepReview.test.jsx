@@ -244,4 +244,31 @@ describe('TestStepReviewMeshBackhaul', () => {
     expect(await screen.findByText(/mesh backhaul on radio0 needs a passphrase/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^apply$/i })).toBeDisabled();
   });
+
+  function LongMeshIdHarness() {
+    const { dispatch } = useSetup();
+    useEffect(() => {
+      dispatch({ type: SETUP_ACTIONS.SET_HOSTNAME, value: 'node1' });
+      dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'radioName', value: 'radio1' });
+      dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'meshId', value: 'mesh1' });
+      dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'countryCode', value: 'US' });
+      dispatch({ type: SETUP_ACTIONS.SET_ADMIN_PASSWORD, value: 'longenough123' });
+      dispatch({ type: SETUP_ACTIONS.SET_ADMIN_PASSWORD_CONFIRM, value: 'longenough123' });
+      dispatch({ type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio0', mode: 'backhaul' });
+      // Force a value past the reducer's seed-time clamp — this is the
+      // shape a pre-clamp seed (or a hand-edited long mesh ID) produces.
+      dispatch({
+        type: SETUP_ACTIONS.SET_AP,
+        value: { radioName: 'radio0', backhaulMeshId: 'x'.repeat(33), backhaulPassphrase: 'longenough123' },
+      });
+    }, [dispatch]);
+    return <StepReview />;
+  }
+
+  it('blocks Apply when the backhaul mesh ID exceeds 32 characters', async () => {
+    render(<SetupProvider><LongMeshIdHarness /></SetupProvider>);
+
+    expect(await screen.findByText(/32 characters or fewer/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^apply$/i })).toBeDisabled();
+  });
 });

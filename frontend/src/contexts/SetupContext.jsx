@@ -176,8 +176,11 @@ export function reducer(state, action) {
         ...existing,
         enabled:      mode === 'ap',
         meshBackhaul: isBackhaul,
+        // The Step-2 mesh-ID input allows up to 32 chars, but
+        // MeshBackhaulProfile.mesh_id caps at 32 — clamp the seed so
+        // appending "-2g" can never push it past the proto limit.
         backhaulMeshId: isBackhaul && !existing.backhaulMeshId
-          ? `${state.mesh.meshId}-2g`
+          ? `${state.mesh.meshId.slice(0, 29)}-2g`
           : existing.backhaulMeshId,
       };
       const aps = state.aps.map(ap => (

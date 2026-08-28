@@ -263,6 +263,9 @@ function applyBlockers(state) {
     if (!ap.backhaulPassphrase || ap.backhaulPassphrase.length < 8) {
       out.push(`Mesh backhaul on ${ap.radioName} needs a passphrase of at least 8 characters (Wi-Fi step).`);
     }
+    if (ap.backhaulMeshId && ap.backhaulMeshId.length > 32) {
+      out.push(`Mesh backhaul on ${ap.radioName} mesh ID must be 32 characters or fewer (Wi-Fi step).`);
+    }
   }
   return out;
 }
