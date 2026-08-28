@@ -8,6 +8,7 @@ import (
 
 	"github.com/openmanet/go-alfred"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
+	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/system"
 	"github.com/openmanet/openmanetd/internal/util"
@@ -19,6 +20,22 @@ type AddressReservationWorker struct {
 	done   <-chan struct{}
 
 	reserveInterval time.Duration
+
+	// ipConflictDetected latches once a peer is seen on this node's
+	// address and is never cleared (ledger F3 seam 1). Task 3 removes it.
+	ipConflictDetected bool
+}
+
+// reservationDeps bundles the I/O seams of one reservation tick so the
+// decision and its writes can run against fakes.
+type reservationDeps struct {
+	openMANETReader network.OpenMANETConfigReader
+	networkReader   network.ConfigReader
+	dhcpReader      network.DHCPConfigReader
+	getIface        func(string) network.NetworkInterface
+	getMeshConfig   func(string) (*batmanadv.MeshConfig, error)
+	reloadNetwork   func(context.Context) error
+	reboot          func() error
 }
 
 func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client, ctx context.Context) *AddressReservationWorker {
@@ -33,155 +50,163 @@ func NewAddressReservationWorker(config *ManagementConfig, client *alfred.Client
 	}
 }
 
-func (arw *AddressReservationWorker) ReserveAddressIfNeeded(ctx context.Context) { //nolint:gocognit
-	var (
-		ticker             = time.NewTicker(arw.reserveInterval)
-		ipConflictDetected = false
-	)
+// productionDeps wires the tick to the real UCI readers, netlink, batctl
+// and the reboot command.
+func (arw *AddressReservationWorker) productionDeps() reservationDeps {
+	return reservationDeps{
+		openMANETReader: arw.Config.uciOpenMANETConfig,
+		networkReader:   arw.Config.uciNetworkConfig,
+		dhcpReader:      arw.Config.uciDHCPConfig,
+		getIface:        network.GetInterfaceByName,
+		getMeshConfig:   batmanadv.GetMeshConfig,
+		reloadNetwork:   network.ReloadNetwork,
+		reboot:          system.Reboot,
+	}
+}
+
+// ReserveAddressIfNeeded runs one reservation tick every reserveInterval
+// until the worker's context is done.
+func (arw *AddressReservationWorker) ReserveAddressIfNeeded(ctx context.Context) {
+	ticker := time.NewTicker(arw.reserveInterval)
 	defer ticker.Stop()
+
+	deps := arw.productionDeps()
 
 	for {
 		select {
 		case <-arw.done:
 			return
 		case <-ticker.C:
-			configured, err := network.IsDHCPConfiguredWithReader(arw.Config.uciOpenMANETConfig)
-			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error checking DHCP configuration")
-
-				continue
-			}
-
-			nodes, err := arw.Config.DB.ListMeshNodes(ctx)
-			if err != nil {
-				arw.Config.Log.Error().Err(err).Msg("Error listing mesh nodes from database")
-
-				continue
-			}
-
-			// Get interface information
-			iface := network.GetInterfaceByName(arw.Config.IFace)
-
-			// Check for IP conflicts
-			for _, node := range nodes {
-				for _, ipAddr := range iface.IP {
-					if ipAddr.IP.String() == node.IpAddr {
-						ipConflictDetected = true
-
-						arw.Config.Log.Warn().Msgf("IP conflict detected with node %s (%s)", node.Hostname, node.IpAddr)
-
-						break
-					}
-				}
-			}
-
-			if !configured || ipConflictDetected { //nolint:nestif
-				arw.Config.Log.Debug().Msg("DHCP not configured or IP conflict detected, reserving address")
-
-				// Get mesh config to determine if we are a gateway
-				meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
-				if err != nil {
-					arw.Config.Log.Error().Err(err).Msg("Error getting mesh config")
-
-					continue
-				}
-
-				staticIP, err := network.SelectAvailableStaticIPFromNodeData(nodes, meshCfg.IsGatewayMode())
-				if err != nil {
-					arw.Config.Log.Error().Err(err).Msg("Error selecting available static IP")
-
-					continue
-				}
-
-				// if arw.Config.IFace is prefixed with "br-", remove the prefix because dhcp and network config is tied to the physical interface
-				normalizedIface, err := util.InterfaceWithoutBridge(arw.Config.IFace)
-				if err != nil {
-					arw.Config.Log.Error().Err(err).Msg("Error normalizing interface name")
-
-					continue
-				}
-
-				err = network.SetNetworkConfigWithReader(normalizedIface, &network.UCINetwork{
-					Proto:          network.DefaultNetworkProto,
-					IPAddr:         staticIP,
-					NetMask:        network.DefaultNetworkMask,
-					IPV6Class:      network.DefaultIPv6Class,
-					IPV6IfaceID:    network.DefaultIPv6IfaceID,
-					IPV6Assignment: network.DefaultIPv6Assign,
-					Device:         arw.Config.IFace,
-				}, arw.Config.uciNetworkConfig)
-				if err != nil {
-					arw.Config.Log.Error().Err(err).Msg("Error setting network config for address reservation")
-
-					continue
-				}
-
-				// Process received address reservation records
-				dhcpStart, err := network.CalculateAvailableDHCPStart(nodes, network.DefaultNetworkAddress, network.DefaultNetworkMask, network.DefaultDHCPAddressLimit)
-				if err != nil {
-					arw.Config.Log.Error().Err(err).Msg("Error calculating available DHCP start address")
-
-					continue
-				}
-
-				dhcpConfig := &network.UCIDHCP{
-					Interface: normalizedIface,
-					Start:     strconv.Itoa(dhcpStart),
-					Limit:     strconv.Itoa(network.DefaultDHCPAddressLimit),
-					LeaseTime: network.DefaultDHCPLeaseTime,
-					Force:     "1",
-				}
-
-				arw.Config.Log.Debug().Interface("dhcpConfig", dhcpConfig).Msg("Setting DHCP config")
-
-				err = network.SetDHCPConfigWithReader(normalizedIface, dhcpConfig, arw.Config.uciDHCPConfig)
-				if err != nil {
-					arw.Config.Log.Error().Err(err).Msg("Error setting DHCP config")
-
-					continue
-				}
-
-				arw.Config.Log.Info().Msgf("Static IP %s and DHCP configured via address reservation", staticIP)
-
-				// Mark DHCP as configured
-				err = network.SetDHCPConfiguredWithReader(arw.Config.uciOpenMANETConfig)
-				if err != nil {
-					arw.Config.Log.Error().Err(err).Msg("Error marking DHCP as configured")
-
-					continue
-				}
-
-				// Clean up interfaces or configs if needed.
-				// This will only happen on initial configuration. If users create things later
-				// we will not change them unless they re-request an address reservation.
-				err = arw.cleanUpInterfaces()
-				if err != nil {
-					arw.Config.Log.Error().Err(err).Msg("Error cleaning up interfaces")
-
-					continue
-				}
-
-				// Restart the system to apply new network settings
-				arw.Config.Log.Info().Msg("Rebooting system to apply new network settings")
-
-				err = system.Reboot()
-				if err != nil {
-					arw.Config.Log.Error().Err(err).Msg("Error rebooting system")
-
-					continue
-				}
+			if err := arw.reserveOnceWithDeps(ctx, deps); err != nil {
+				arw.Config.Log.Error().Err(err).Msg("Error in address reservation tick")
 			}
 		}
 	}
 }
 
-func (arw *AddressReservationWorker) cleanUpInterfaces() error {
-	meshCfg, err := batmanadv.GetMeshConfig(arw.Config.BatInterface)
+// reserveOnceWithDeps runs a single reservation tick. It returns without
+// touching UCI when DHCP is already configured and no peer holds this
+// node's address; otherwise it claims a mesh address and DHCP window,
+// marks dhcpconfigured=1, drops the bootstrap sections and reboots.
+func (arw *AddressReservationWorker) reserveOnceWithDeps(ctx context.Context, deps reservationDeps) error {
+	configured, err := network.IsDHCPConfiguredWithReader(deps.openMANETReader)
 	if err != nil {
-		return fmt.Errorf("%w", err)
+		return fmt.Errorf("check DHCP configuration: %w", err)
 	}
 
-	return arw.cleanUpInterfacesWithDeps(meshCfg.IsGatewayMode(), arw.Config.uciNetworkConfig, arw.Config.uciDHCPConfig, network.ReloadNetwork)
+	nodes, err := arw.Config.DB.ListMeshNodes(ctx)
+	if err != nil {
+		return fmt.Errorf("list mesh nodes: %w", err)
+	}
+
+	iface := deps.getIface(arw.Config.IFace)
+
+	if conflicts := findIPConflicts(iface, nodes); len(conflicts) > 0 {
+		arw.ipConflictDetected = true
+
+		arw.Config.Log.Warn().Msgf("IP conflict detected with node %s (%s)", conflicts[0].Hostname, conflicts[0].IpAddr)
+	}
+
+	if configured && !arw.ipConflictDetected {
+		return nil
+	}
+
+	arw.Config.Log.Debug().Msg("DHCP not configured or IP conflict detected, reserving address")
+
+	return arw.applyReservationWithDeps(nodes, deps)
+}
+
+// findIPConflicts returns every peer row whose advertised address matches
+// one of iface's addresses, in database order.
+func findIPConflicts(iface network.NetworkInterface, nodes []models.MeshNode) []models.MeshNode {
+	var conflicts []models.MeshNode
+
+	for _, node := range nodes {
+		for _, addr := range iface.IP {
+			if addr.IP.String() == node.IpAddr {
+				conflicts = append(conflicts, node)
+
+				break
+			}
+		}
+	}
+
+	return conflicts
+}
+
+// applyReservationWithDeps claims an address and DHCP window from what the
+// peer rows leave free, persists them, marks DHCP configured, cleans up the
+// bootstrap sections and reboots so every service comes back on the final
+// address (ledger D2: the reboot is by design).
+func (arw *AddressReservationWorker) applyReservationWithDeps(nodes []models.MeshNode, deps reservationDeps) error {
+	// The gateway flag decides both the address range and the cleanup.
+	meshCfg, err := deps.getMeshConfig(arw.Config.BatInterface)
+	if err != nil {
+		return fmt.Errorf("get mesh config: %w", err)
+	}
+
+	staticIP, err := network.SelectAvailableStaticIPFromNodeData(nodes, meshCfg.IsGatewayMode())
+	if err != nil {
+		return fmt.Errorf("select available static IP: %w", err)
+	}
+
+	// dhcp and network sections are keyed by the interface without its br- prefix.
+	normalizedIface, err := util.InterfaceWithoutBridge(arw.Config.IFace)
+	if err != nil {
+		return fmt.Errorf("normalize interface name: %w", err)
+	}
+
+	err = network.SetNetworkConfigWithReader(normalizedIface, &network.UCINetwork{
+		Proto:          network.DefaultNetworkProto,
+		IPAddr:         staticIP,
+		NetMask:        network.DefaultNetworkMask,
+		IPV6Class:      network.DefaultIPv6Class,
+		IPV6IfaceID:    network.DefaultIPv6IfaceID,
+		IPV6Assignment: network.DefaultIPv6Assign,
+		Device:         arw.Config.IFace,
+	}, deps.networkReader)
+	if err != nil {
+		return fmt.Errorf("set network config: %w", err)
+	}
+
+	dhcpStart, err := network.CalculateAvailableDHCPStart(nodes, network.DefaultNetworkAddress, network.DefaultNetworkMask, network.DefaultDHCPAddressLimit)
+	if err != nil {
+		return fmt.Errorf("calculate DHCP start: %w", err)
+	}
+
+	dhcpConfig := &network.UCIDHCP{
+		Interface: normalizedIface,
+		Start:     strconv.Itoa(dhcpStart),
+		Limit:     strconv.Itoa(network.DefaultDHCPAddressLimit),
+		LeaseTime: network.DefaultDHCPLeaseTime,
+		Force:     "1",
+	}
+
+	arw.Config.Log.Debug().Interface("dhcpConfig", dhcpConfig).Msg("Setting DHCP config")
+
+	if err = network.SetDHCPConfigWithReader(normalizedIface, dhcpConfig, deps.dhcpReader); err != nil {
+		return fmt.Errorf("set DHCP config: %w", err)
+	}
+
+	arw.Config.Log.Info().Msgf("Static IP %s and DHCP configured via address reservation", staticIP)
+
+	if err = network.SetDHCPConfiguredWithReader(deps.openMANETReader); err != nil {
+		return fmt.Errorf("mark DHCP configured: %w", err)
+	}
+
+	// Bootstrap cleanup only happens here, on initial configuration. Sections
+	// an operator creates later are left alone unless a re-reservation runs.
+	if err = arw.cleanUpInterfacesWithDeps(meshCfg.IsGatewayMode(), deps.networkReader, deps.dhcpReader, deps.reloadNetwork); err != nil {
+		return fmt.Errorf("clean up interfaces: %w", err)
+	}
+
+	arw.Config.Log.Info().Msg("Rebooting system to apply new network settings")
+
+	if err = deps.reboot(); err != nil {
+		return fmt.Errorf("reboot: %w", err)
+	}
+
+	return nil
 }
 
 func (arw *AddressReservationWorker) cleanUpInterfacesWithDeps(

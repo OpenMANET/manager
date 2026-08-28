@@ -2,10 +2,16 @@ package mgmt
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/digineo/go-uci/v2"
+	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
+	"github.com/openmanet/openmanetd/internal/database/models"
+	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -244,4 +250,312 @@ func TestCleanUpInterfacesWithDeps_ReloadError(t *testing.T) {
 	err := arw.cleanUpInterfacesWithDeps(false, networkReader, dhcpReader, reloadErr)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "error reloading network configuration")
+}
+
+// ── reserveOnceWithDeps fixture ──────────────────────────────────────────────
+
+// reservationFixture wires an AddressReservationWorker to in-memory fakes so a
+// single tick can run without batctl, netlink, UCI files, or a reboot.
+type reservationFixture struct {
+	arw       *AddressReservationWorker
+	db        *models.Queries
+	openmanet *fakeOpenMANETReader
+	network   *fakeNetworkReader
+	dhcp      *fakeNetworkReader
+	iface     network.NetworkInterface
+	gwMode    string
+	meshErr   error
+	rebootErr error
+	reboots   int
+	reloads   int
+}
+
+func newReservationFixture(t *testing.T) *reservationFixture {
+	t.Helper()
+
+	cfg := newTestManagementConfig()
+	cfg.IFace = "br-ahwlan"
+	cfg.BatInterface = "bat0"
+	cfg.DB = newNodeTestDB(t)
+
+	return &reservationFixture{
+		arw:       &AddressReservationWorker{Config: cfg},
+		db:        cfg.DB,
+		openmanet: newFakeOpenMANETReader(),
+		network:   newFakeNetworkReader(),
+		dhcp:      newFakeNetworkReader(),
+		iface:     makeTestIface("aa:bb:cc:dd:ee:01", "10.41.254.7"),
+		gwMode:    batmanadv.GwModeClient,
+	}
+}
+
+func (f *reservationFixture) deps() reservationDeps {
+	return reservationDeps{
+		openMANETReader: f.openmanet,
+		networkReader:   f.network,
+		dhcpReader:      f.dhcp,
+		getIface:        func(string) network.NetworkInterface { return f.iface },
+		getMeshConfig: func(string) (*batmanadv.MeshConfig, error) {
+			if f.meshErr != nil {
+				return nil, f.meshErr
+			}
+
+			return &batmanadv.MeshConfig{GwMode: f.gwMode}, nil
+		},
+		reloadNetwork: func(context.Context) error {
+			f.reloads++
+
+			return nil
+		},
+		reboot: func() error {
+			f.reboots++
+
+			return f.rebootErr
+		},
+	}
+}
+
+func (f *reservationFixture) tick(t *testing.T) error {
+	t.Helper()
+
+	return f.arw.reserveOnceWithDeps(context.Background(), f.deps())
+}
+
+// seedPeer inserts a peer row as the node-data receive path would. dhcpStart
+// 0 leaves the DHCP window NULL (a peer that advertises no pool).
+func (f *reservationFixture) seedPeer(t *testing.T, mac, ip string, dhcpStart int64) {
+	t.Helper()
+
+	_, err := f.db.CreateMeshNode(context.Background(), models.CreateMeshNodeParams{
+		MacAddr:      mac,
+		Hostname:     "peer-" + mac,
+		IpAddr:       ip,
+		UciDhcpStart: sql.NullInt64{Int64: dhcpStart, Valid: dhcpStart > 0},
+		UciDhcpLimit: sql.NullInt64{Int64: int64(network.DefaultDHCPAddressLimit), Valid: dhcpStart > 0},
+	})
+	require.NoError(t, err)
+}
+
+func firstValue(r *fakeNetworkReader, config, section, option string) string {
+	values, ok := r.Get(config, section, option)
+	if !ok || len(values) == 0 {
+		return ""
+	}
+
+	return values[0]
+}
+
+func (f *reservationFixture) ahwlanIP() string {
+	return firstValue(f.network, "network", "ahwlan", "ipaddr")
+}
+
+func (f *reservationFixture) dhcpStart() string { return firstValue(f.dhcp, "dhcp", "ahwlan", "start") }
+
+func (f *reservationFixture) dhcpConfigured() string {
+	values, ok := f.openmanet.Get("openmanetd", "config", "dhcpconfigured")
+	if !ok || len(values) == 0 {
+		return ""
+	}
+
+	return values[0]
+}
+
+// assertNoWrites checks that a tick left every UCI reader untouched and did
+// not reboot.
+func (f *reservationFixture) assertNoWrites(t *testing.T) {
+	t.Helper()
+
+	assert.Equal(t, 0, f.network.commitCalls, "network must not be committed")
+	assert.Equal(t, 0, f.dhcp.commitCalls, "dhcp must not be committed")
+	assert.Equal(t, 0, f.openmanet.commitCalls, "openmanetd must not be committed")
+	assert.Equal(t, 0, f.reboots, "must not reboot")
+}
+
+// ── reserveOnceWithDeps characterisation tests (pin today's behavior) ────────
+
+func TestReserveOnce_ConfiguredNoConflict_Idle(t *testing.T) {
+	f := newReservationFixture(t)
+	seedDHCPConfigured(f.openmanet)
+	f.iface = makeTestIface("aa:bb:cc:dd:ee:01", "10.41.0.5")
+	f.seedPeer(t, "aa:bb:cc:dd:ee:02", "10.41.0.1", 100)
+
+	require.NoError(t, f.tick(t))
+
+	f.assertNoWrites(t)
+}
+
+func TestReserveOnce_GatewayFirstPick(t *testing.T) {
+	f := newReservationFixture(t)
+	f.gwMode = batmanadv.GwModeServer
+
+	require.NoError(t, f.tick(t))
+
+	assert.Equal(t, "10.41.0.1", f.ahwlanIP(), "a gateway with no peers takes the first address")
+	assert.Equal(t, network.DefaultNetworkProto, firstValue(f.network, "network", "ahwlan", "proto"))
+	assert.Equal(t, network.DefaultNetworkMask, firstValue(f.network, "network", "ahwlan", "netmask"))
+	assert.Equal(t, "br-ahwlan", firstValue(f.network, "network", "ahwlan", "device"))
+	assert.Equal(t, "100", f.dhcpStart(), "pool offset 100 is preferred")
+	assert.Equal(t, strconv.Itoa(network.DefaultDHCPAddressLimit), firstValue(f.dhcp, "dhcp", "ahwlan", "limit"))
+	assert.Equal(t, network.DefaultDHCPLeaseTime, firstValue(f.dhcp, "dhcp", "ahwlan", "leasetime"))
+	assert.Equal(t, "1", firstValue(f.dhcp, "dhcp", "ahwlan", "force"))
+	assert.Equal(t, "1", f.dhcpConfigured())
+	assert.Equal(t, 0, f.reloads, "gateways skip the lan cleanup and its reload")
+	assert.Equal(t, 1, f.reboots)
+}
+
+func TestReserveOnce_GatewaySkipsReservedAddressesAndPools(t *testing.T) {
+	f := newReservationFixture(t)
+	f.gwMode = batmanadv.GwModeServer
+	f.seedPeer(t, "aa:bb:cc:dd:ee:02", "10.41.0.1", 100)
+	f.seedPeer(t, "aa:bb:cc:dd:ee:03", "10.41.0.2", 116)
+
+	require.NoError(t, f.tick(t))
+
+	assert.Equal(t, "10.41.0.3", f.ahwlanIP())
+	assert.Equal(t, "132", f.dhcpStart(), "first 16-address window after 100 and 116")
+	assert.Equal(t, 1, f.reboots)
+}
+
+func TestReserveOnce_PointAloneRandomRange(t *testing.T) {
+	f := newReservationFixture(t)
+	f.network.seedLanNetworkSection()
+	f.dhcp.seedLanDHCPSection()
+
+	require.NoError(t, f.tick(t))
+
+	octets := strings.Split(f.ahwlanIP(), ".")
+	require.Len(t, octets, 4, "ipaddr %q must be dotted quad", f.ahwlanIP())
+	assert.Equal(t, "10", octets[0])
+	assert.Equal(t, "41", octets[1])
+
+	third, err := strconv.Atoi(octets[2])
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, third, 1)
+	assert.LessOrEqual(t, third, 252, "253/254 are reserved third octets")
+
+	fourth, err := strconv.Atoi(octets[3])
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, fourth, 1)
+	assert.LessOrEqual(t, fourth, 254)
+
+	_, lanNet := f.network.Get("network", "lan", "proto")
+	assert.False(t, lanNet, "points drop the bootstrap lan network section")
+
+	_, lanDHCP := f.dhcp.Get("dhcp", "lan", "interface")
+	assert.False(t, lanDHCP, "points drop the bootstrap lan dhcp section")
+	assert.Equal(t, 1, f.reloads, "points reload the network after cleanup")
+	assert.Equal(t, 1, f.reboots)
+}
+
+func TestReserveOnce_PointWithPeersFirstFree(t *testing.T) {
+	f := newReservationFixture(t)
+	f.seedPeer(t, "aa:bb:cc:dd:ee:02", "10.41.1.1", 100)
+	f.seedPeer(t, "aa:bb:cc:dd:ee:03", "10.41.1.2", 116)
+
+	require.NoError(t, f.tick(t))
+
+	assert.Equal(t, "10.41.1.3", f.ahwlanIP(), "two or more peers switch the point to sequential first-free")
+	assert.Equal(t, "132", f.dhcpStart())
+	assert.Equal(t, 1, f.reboots)
+}
+
+func TestReserveOnce_ConflictReReserves(t *testing.T) {
+	f := newReservationFixture(t)
+	f.gwMode = batmanadv.GwModeServer
+	seedDHCPConfigured(f.openmanet)
+	f.iface = makeTestIface("aa:bb:cc:dd:ee:01", "10.41.0.1")
+	f.seedPeer(t, "aa:bb:cc:dd:ee:02", "10.41.0.1", 100)
+
+	require.NoError(t, f.tick(t))
+
+	assert.Equal(t, "10.41.0.2", f.ahwlanIP(), "the peer row keeps .1, so the next free address is .2")
+	assert.Equal(t, 1, f.reboots)
+}
+
+// TestReserveOnce_ConflictFlagPersistsAcrossTicks pins ledger F3 seam 1:
+// ipConflictDetected is never reset, so once a conflict has been seen the
+// worker re-reserves on every following tick even after the address is
+// clean. Task 3 replaces this test with _ConflictFlagDoesNotLeak.
+func TestReserveOnce_ConflictFlagPersistsAcrossTicks(t *testing.T) {
+	f := newReservationFixture(t)
+	f.gwMode = batmanadv.GwModeServer
+	seedDHCPConfigured(f.openmanet)
+	f.iface = makeTestIface("aa:bb:cc:dd:ee:01", "10.41.0.1")
+	f.seedPeer(t, "aa:bb:cc:dd:ee:02", "10.41.0.1", 100)
+
+	require.NoError(t, f.tick(t))
+	require.Equal(t, 1, f.reboots)
+
+	// Second tick: this node now sits on a clean address.
+	f.iface = makeTestIface("aa:bb:cc:dd:ee:01", "10.41.0.2")
+
+	require.NoError(t, f.tick(t))
+
+	assert.Equal(t, 2, f.reboots, "today the sticky flag re-reserves even without a conflict")
+}
+
+func TestReserveOnce_MeshConfigError_NoWrites(t *testing.T) {
+	f := newReservationFixture(t)
+	f.meshErr = errors.New("batctl mj: exit status 1")
+
+	err := f.tick(t)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "get mesh config")
+
+	f.assertNoWrites(t)
+}
+
+func TestReserveOnce_InvalidDHCPConfiguredValue(t *testing.T) {
+	f := newReservationFixture(t)
+	_ = f.openmanet.AddSection("openmanetd", "config", "openmanet")
+	_ = f.openmanet.SetType("openmanetd", "config", "dhcpconfigured", uci.TypeOption, "yes")
+
+	err := f.tick(t)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "check DHCP configuration")
+
+	f.assertNoWrites(t)
+}
+
+// TestReserveOnce_NonBridgeInterface_NoWrites pins an existing quirk: the
+// worker only knows how to derive the UCI section from a br-* name, so a
+// non-bridge mesh interface can never reserve.
+func TestReserveOnce_NonBridgeInterface_NoWrites(t *testing.T) {
+	f := newReservationFixture(t)
+	f.arw.Config.IFace = "eth0"
+
+	err := f.tick(t)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "normalize interface name")
+
+	f.assertNoWrites(t)
+}
+
+func TestReserveOnce_RebootError_AfterWrites(t *testing.T) {
+	f := newReservationFixture(t)
+	f.gwMode = batmanadv.GwModeServer
+	f.rebootErr = errors.New("reboot: exec: not found")
+
+	err := f.tick(t)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reboot")
+
+	assert.Equal(t, "1", f.dhcpConfigured(), "UCI writes happen before the reboot attempt")
+	assert.Equal(t, 1, f.reboots)
+}
+
+func TestFindIPConflicts(t *testing.T) {
+	iface := makeTestIface("aa:bb:cc:dd:ee:01", "10.41.0.1")
+	nodes := []models.MeshNode{
+		{MacAddr: "aa:bb:cc:dd:ee:02", IpAddr: "10.41.0.9"},
+		{MacAddr: "aa:bb:cc:dd:ee:03", IpAddr: "10.41.0.1"},
+		{MacAddr: "aa:bb:cc:dd:ee:04", IpAddr: "10.41.0.1"},
+	}
+
+	got := findIPConflicts(iface, nodes)
+	require.Len(t, got, 2)
+	assert.Equal(t, "aa:bb:cc:dd:ee:03", got[0].MacAddr)
+	assert.Equal(t, "aa:bb:cc:dd:ee:04", got[1].MacAddr)
+
+	assert.Empty(t, findIPConflicts(network.NetworkInterface{}, nodes), "no addresses, no conflicts")
 }
