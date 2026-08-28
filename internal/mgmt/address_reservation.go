@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/openmanet/go-alfred"
@@ -21,10 +22,6 @@ type AddressReservationWorker struct {
 	done   <-chan struct{}
 
 	reserveInterval time.Duration
-
-	// ipConflictDetected latches once a peer is seen on this node's
-	// address and is never cleared (ledger F3 seam 1). Task 3 removes it.
-	ipConflictDetected bool
 }
 
 // reservationDeps bundles the I/O seams of one reservation tick so the
@@ -89,10 +86,11 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded(ctx context.Context)
 	}
 }
 
-// reserveOnceWithDeps runs a single reservation tick. It returns without
-// touching UCI when DHCP is already configured and no peer holds this
-// node's address; otherwise it claims a mesh address and DHCP window,
-// marks dhcpconfigured=1, drops the bootstrap sections and reboots.
+// reserveOnceWithDeps runs a single reservation tick. Each tick starts from
+// a clean slate: it refreshes gossip, then either reserves (DHCP not yet
+// configured), stays idle (configured, no peer on this address, or a peer
+// with a lower MAC will move), or re-addresses (configured and this node
+// has the higher MAC in the conflict).
 func (arw *AddressReservationWorker) reserveOnceWithDeps(ctx context.Context, deps reservationDeps) error {
 	// Refresh gossip first so the decision sees what peers say now, not
 	// what the 60 s receive loop last stored (ledger P5 step 2). A failed
@@ -112,20 +110,47 @@ func (arw *AddressReservationWorker) reserveOnceWithDeps(ctx context.Context, de
 	}
 
 	iface := deps.getIface(arw.Config.IFace)
+	conflicts := findIPConflicts(iface, nodes)
 
-	if conflicts := findIPConflicts(iface, nodes); len(conflicts) > 0 {
-		arw.ipConflictDetected = true
-
-		arw.Config.Log.Warn().Msgf("IP conflict detected with node %s (%s)", conflicts[0].Hostname, conflicts[0].IpAddr)
-	}
-
-	if configured && !arw.ipConflictDetected {
+	// One decision per tick; nothing is remembered between ticks.
+	switch {
+	case !configured:
+		arw.Config.Log.Debug().Msg("DHCP not configured, reserving address")
+	case len(conflicts) == 0:
 		return nil
-	}
+	case !yieldsAddress(iface.MAC, conflicts):
+		arw.Config.Log.Warn().
+			Str("peer", conflicts[0].Hostname).
+			Str("ip", conflicts[0].IpAddr).
+			Msg("IP conflict: peer has the lower MAC and must move; keeping this address")
 
-	arw.Config.Log.Debug().Msg("DHCP not configured or IP conflict detected, reserving address")
+		return nil
+	default:
+		arw.Config.Log.Warn().
+			Str("peer", conflicts[0].Hostname).
+			Str("ip", conflicts[0].IpAddr).
+			Msg("IP conflict: this node has the higher MAC, re-reserving")
+	}
 
 	return arw.applyReservationWithDeps(nodes, deps)
+}
+
+// yieldsAddress reports whether this node must give up its address in a
+// conflict. The node with the lowest MAC keeps the address and every other
+// party re-addresses, so two colliding gates converge in one extra reboot
+// of one node instead of chasing each other (ledger D3). MACs compare
+// case-insensitively; equal or empty MACs never yield.
+func yieldsAddress(ownMAC string, peers []models.MeshNode) bool {
+	own := strings.ToLower(ownMAC)
+
+	for _, peer := range peers {
+		mac := strings.ToLower(peer.MacAddr)
+		if mac != "" && mac < own {
+			return true
+		}
+	}
+
+	return false
 }
 
 // findIPConflicts returns every peer row whose advertised address matches

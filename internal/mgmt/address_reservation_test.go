@@ -470,34 +470,13 @@ func TestReserveOnce_ConflictReReserves(t *testing.T) {
 	f.gwMode = batmanadv.GwModeServer
 	seedDHCPConfigured(f.openmanet)
 	f.iface = makeTestIface("aa:bb:cc:dd:ee:01", "10.41.0.1")
-	f.seedPeer(t, "aa:bb:cc:dd:ee:02", "10.41.0.1", 100)
+	// Task 3: the peer has the lower MAC, so this node is the one that moves.
+	f.seedPeer(t, "aa:bb:cc:dd:ee:00", "10.41.0.1", 100)
 
 	require.NoError(t, f.tick(t))
 
 	assert.Equal(t, "10.41.0.2", f.ahwlanIP(), "the peer row keeps .1, so the next free address is .2")
 	assert.Equal(t, 1, f.reboots)
-}
-
-// TestReserveOnce_ConflictFlagPersistsAcrossTicks pins ledger F3 seam 1:
-// ipConflictDetected is never reset, so once a conflict has been seen the
-// worker re-reserves on every following tick even after the address is
-// clean. Task 3 replaces this test with _ConflictFlagDoesNotLeak.
-func TestReserveOnce_ConflictFlagPersistsAcrossTicks(t *testing.T) {
-	f := newReservationFixture(t)
-	f.gwMode = batmanadv.GwModeServer
-	seedDHCPConfigured(f.openmanet)
-	f.iface = makeTestIface("aa:bb:cc:dd:ee:01", "10.41.0.1")
-	f.seedPeer(t, "aa:bb:cc:dd:ee:02", "10.41.0.1", 100)
-
-	require.NoError(t, f.tick(t))
-	require.Equal(t, 1, f.reboots)
-
-	// Second tick: this node now sits on a clean address.
-	f.iface = makeTestIface("aa:bb:cc:dd:ee:01", "10.41.0.2")
-
-	require.NoError(t, f.tick(t))
-
-	assert.Equal(t, 2, f.reboots, "today the sticky flag re-reserves even without a conflict")
 }
 
 func TestReserveOnce_MeshConfigError_NoWrites(t *testing.T) {
@@ -613,4 +592,94 @@ func TestReserveOnce_GossipRequestError_UsesStoredPeers(t *testing.T) {
 
 	assert.Equal(t, "10.41.0.2", f.ahwlanIP(), "decision falls back to the stored rows")
 	assert.Equal(t, 1, f.reboots)
+}
+
+// ── MAC tie-break + per-tick conflict decision (ledger P5 step 3, D3) ────────
+
+func TestReserveOnce_ConflictLowerMACStays(t *testing.T) {
+	f := newReservationFixture(t)
+	f.gwMode = batmanadv.GwModeServer
+	seedDHCPConfigured(f.openmanet)
+	f.iface = makeTestIface("aa:bb:cc:dd:ee:01", "10.41.0.1")
+	f.seedPeer(t, "aa:bb:cc:dd:ee:02", "10.41.0.1", 100)
+
+	require.NoError(t, f.tick(t))
+
+	f.assertNoWrites(t)
+}
+
+func TestReserveOnce_ConflictHigherMACMoves(t *testing.T) {
+	f := newReservationFixture(t)
+	f.gwMode = batmanadv.GwModeServer
+	seedDHCPConfigured(f.openmanet)
+	f.iface = makeTestIface("aa:bb:cc:dd:ee:02", "10.41.0.1")
+	f.seedPeer(t, "aa:bb:cc:dd:ee:01", "10.41.0.1", 100)
+
+	require.NoError(t, f.tick(t))
+
+	assert.Equal(t, "10.41.0.2", f.ahwlanIP(), "the peer keeps .1; this node takes the next free address")
+	assert.Equal(t, 1, f.reboots)
+}
+
+// TestReserveOnce_ConflictFlagDoesNotLeak replaces the Task 1
+// characterisation test: after a conflict is resolved, a clean tick is idle.
+func TestReserveOnce_ConflictFlagDoesNotLeak(t *testing.T) {
+	f := newReservationFixture(t)
+	f.gwMode = batmanadv.GwModeServer
+	seedDHCPConfigured(f.openmanet)
+	f.iface = makeTestIface("aa:bb:cc:dd:ee:02", "10.41.0.1")
+	f.seedPeer(t, "aa:bb:cc:dd:ee:01", "10.41.0.1", 100)
+
+	require.NoError(t, f.tick(t))
+	require.Equal(t, 1, f.reboots)
+
+	// Second tick: this node now sits on a clean address.
+	f.iface = makeTestIface("aa:bb:cc:dd:ee:02", "10.41.0.2")
+
+	require.NoError(t, f.tick(t))
+
+	assert.Equal(t, 1, f.reboots, "no conflict this tick, so no re-reservation")
+}
+
+func TestReserveOnce_NotConfiguredIgnoresTieBreak(t *testing.T) {
+	f := newReservationFixture(t)
+	f.gwMode = batmanadv.GwModeServer
+	// dhcpconfigured stays 0; the bootstrap address happens to collide with a
+	// lower-MAC peer, which must not stop the first reservation.
+	f.iface = makeTestIface("aa:bb:cc:dd:ee:01", "10.41.0.1")
+	f.seedPeer(t, "aa:bb:cc:dd:ee:02", "10.41.0.1", 100)
+
+	require.NoError(t, f.tick(t))
+
+	assert.Equal(t, "10.41.0.2", f.ahwlanIP())
+	assert.Equal(t, 1, f.reboots)
+}
+
+func TestYieldsAddress(t *testing.T) {
+	tests := []struct {
+		name  string
+		own   string
+		peers []string
+		want  bool
+	}{
+		{name: "peer lower, this node moves", own: "aa:bb:cc:dd:ee:02", peers: []string{"aa:bb:cc:dd:ee:01"}, want: true},
+		{name: "peer higher, this node stays", own: "aa:bb:cc:dd:ee:01", peers: []string{"aa:bb:cc:dd:ee:02"}, want: false},
+		{name: "case-insensitive", own: "AA:BB:CC:DD:EE:02", peers: []string{"aa:bb:cc:dd:ee:01"}, want: true},
+		{name: "any lower peer wins", own: "aa:bb:cc:dd:ee:02", peers: []string{"aa:bb:cc:dd:ee:03", "aa:bb:cc:dd:ee:01"}, want: true},
+		{name: "all peers higher", own: "aa:bb:cc:dd:ee:01", peers: []string{"aa:bb:cc:dd:ee:03", "aa:bb:cc:dd:ee:02"}, want: false},
+		{name: "equal MACs never yield", own: "aa:bb:cc:dd:ee:01", peers: []string{"aa:bb:cc:dd:ee:01"}, want: false},
+		{name: "empty peer MAC ignored", own: "aa:bb:cc:dd:ee:01", peers: []string{""}, want: false},
+		{name: "no peers", own: "aa:bb:cc:dd:ee:01", peers: nil, want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			peers := make([]models.MeshNode, 0, len(tc.peers))
+			for _, mac := range tc.peers {
+				peers = append(peers, models.MeshNode{MacAddr: mac})
+			}
+
+			assert.Equal(t, tc.want, yieldsAddress(tc.own, peers))
+		})
+	}
 }
