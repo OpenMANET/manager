@@ -31,6 +31,8 @@
   /* Accent + status */
   --accent: #00e5ff;
   --accent-2: #00b8cc;
+  --accent-glow-weak: rgba(0, 229, 255, 0.05);
+  --accent-glow-mid:  rgba(0, 229, 255, 0.08);
   --ok: #00e676;
   --warn: #ffb300;
   --crit: #ff3b4d;
@@ -283,12 +285,13 @@ html, body {
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
-.lat-seg button:hover { background: rgba(0, 229, 255, 0.05); color: var(--text); }
+.lat-seg button:hover { background: var(--accent-glow-weak); color: var(--text); }
 .lat-seg button.active {
   color: var(--accent);
   border-color: var(--accent);
-  background: rgba(0, 229, 255, 0.08);
+  background: var(--accent-glow-mid);
 }
+.lat-seg button:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--accent); }
 
 /* ------------------------------------------------------------------ check */
 
