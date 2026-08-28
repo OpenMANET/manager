@@ -2,6 +2,8 @@ package network
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/digineo/go-uci/v2"
@@ -96,11 +98,12 @@ func (r *getSectionsErrorReader) GetSections(_, _ string) ([]string, error) {
 }
 
 // TestStageUmdnsNetworksWithReader_PropagatesGetSectionsError pins that
-// a GetSections failure (I/O or parse error reading /etc/config/umdns)
-// is returned to the caller rather than silently treated as "section
-// absent" and falling into AddSection — go-uci's AddSection can panic
-// when the underlying config never loaded successfully, and this runs
-// in wizard phase 6.
+// a GetSections failure other than os.ErrNotExist (a parse or
+// permission error reading /etc/config/umdns) is returned to the caller
+// rather than treated as "section absent" and falling into AddSection —
+// go-uci's AddSection nil-derefs when the config failed to load for
+// any reason but a missing file, and this runs in wizard phase 6. The
+// missing-file case is TestStageUmdnsNetworksWithReader_RealTree.
 func TestStageUmdnsNetworksWithReader_PropagatesGetSectionsError(t *testing.T) {
 	wantErr := errors.New("reading config file failed")
 	m := &getSectionsErrorReader{
@@ -114,4 +117,56 @@ func TestStageUmdnsNetworksWithReader_PropagatesGetSectionsError(t *testing.T) {
 
 	// AddSection must never be reached on a GetSections failure.
 	assert.Empty(t, m.addSectionCall)
+}
+
+// TestStageUmdnsNetworksWithReader_RealTree drives the production
+// go-uci path rather than mockConfigReader, because the mock never
+// errors from GetSections and so cannot reproduce what a device
+// actually does. Two on-disk shapes matter: no /etc/config/umdns at
+// all (the umdns package is not installed, or the file was removed)
+// and the zero-byte file factory images ship. Both must stage the
+// section in memory and, on Commit, materialize a file umdns can read.
+func TestStageUmdnsNetworksWithReader_RealTree(t *testing.T) {
+	tests := map[string]struct {
+		seed func(t *testing.T, dir string)
+	}{
+		"no config file": {
+			seed: func(t *testing.T, _ string) { t.Helper() },
+		},
+		"zero-byte config file": {
+			seed: func(t *testing.T, dir string) {
+				t.Helper()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "umdns"), nil, 0o644))
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			tc.seed(t, dir)
+
+			reader := &UCINetworkConfigReader{tree: uci.NewTree(dir)}
+
+			require.NoError(t, StageUmdnsNetworksWithReader(reader, []string{"lan", "ahwlan"}))
+
+			sections, err := reader.GetSections("umdns", "umdns")
+			require.NoError(t, err)
+			require.Equal(t, []string{"wizard_umdns"}, sections)
+
+			got, ok := reader.Get("umdns", "wizard_umdns", "network")
+			require.True(t, ok)
+			assert.Equal(t, []string{"lan", "ahwlan"}, got)
+
+			// Phase 12's Commit must write the file so umdns has
+			// something to load on reload.
+			require.NoError(t, reader.Commit())
+
+			body, err := os.ReadFile(filepath.Join(dir, "umdns"))
+			require.NoError(t, err)
+			assert.Contains(t, string(body), "config umdns 'wizard_umdns'")
+			assert.Contains(t, string(body), "list network 'lan'")
+			assert.Contains(t, string(body), "list network 'ahwlan'")
+		})
+	}
 }
