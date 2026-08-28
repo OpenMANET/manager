@@ -240,6 +240,17 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 		return fmt.Errorf("create wifi-iface %s: %w", newIfaceSection, err)
 	}
 
+	// SetWirelessIfaceConfigWithReader only writes non-empty struct
+	// fields, and MeshLink.IfaceConfig().Disabled is always empty. If
+	// this section already carried disabled=1 from a prior wizard run
+	// (e.g. a wizard re-run's reset phase disabled every wifi-iface and
+	// no backhaul was re-chosen), that stale value would otherwise
+	// survive the rewrite and leave the link permanently dead even
+	// though batmesh1configured gets set below. Clear it explicitly.
+	if err := wirelessReader.Del("wireless", newIfaceSection, "disabled"); err != nil {
+		return fmt.Errorf("clear disabled on %s: %w", newIfaceSection, err)
+	}
+
 	m.Log.Info().Str("section", newIfaceSection).Str("device", radioSection).Msg("Created batmesh1 wifi-iface")
 
 	// Step 6: update the 2g radio device.

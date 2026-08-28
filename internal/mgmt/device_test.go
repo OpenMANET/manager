@@ -624,6 +624,41 @@ func TestSetupBatMesh1Interface_Success(t *testing.T) {
 	}
 }
 
+// TestSetupBatMesh1Interface_ClearsStaleDisabledOnLinkSection covers the
+// wizard-rerun scenario: a prior wizard run created batmesh1_radio1, a
+// later wizard re-run's reset phase disabled every wifi-iface (including
+// batmesh1_radio1) and no backhaul was re-chosen, and now the daemon's
+// boot-time fallback rewrites batmesh1_radio1. SetWirelessIfaceConfigWithReader
+// only writes non-empty struct fields, so the stale disabled=1 would
+// otherwise survive the rewrite and the daemon would mark batmesh1 as
+// configured over a permanently-disabled link.
+func TestSetupBatMesh1Interface_ClearsStaleDisabledOnLinkSection(t *testing.T) {
+	m := newTestManagementConfig()
+	openmanet := newFakeOpenMANETReader()
+	openmanet.seedBatMesh1Configured("0")
+
+	wireless := newFakeWirelessReader()
+	wireless.seedMeshIface("existing_mesh0", "radio4", "halowmesh", "secretkey999")
+	wireless.seedWifiDevice("radio1", "2g", "6", "HT20")
+
+	// Pre-existing stale link section from a prior wizard run, left
+	// disabled by a subsequent wizard reset.
+	require.NoError(t, wireless.AddSection("wireless", "batmesh1_radio1", "wifi-iface"))
+	require.NoError(t, wireless.SetType("wireless", "batmesh1_radio1", "disabled", uci.TypeOption, "1"))
+
+	iw := makeIwinfoWithHardware("wlh0", "MediaTek MT7915AN")
+
+	err := m.setupBatMesh1InterfaceWithDeps(context.Background(), openmanet, wireless, iw, wirelessStatusForRadio(t, "radio1", "wlh0"))
+	require.NoError(t, err)
+
+	newIface, ierr := network.GetWirelessIfaceByNameWithReader("batmesh1_radio1", wireless)
+	require.NoError(t, ierr)
+
+	assert.Empty(t, newIface.Disabled, "stale disabled=1 must be cleared on rewrite")
+	assert.Equal(t, "batmesh1", newIface.Network)
+	assert.Equal(t, "mesh", newIface.Mode)
+}
+
 func TestSetupBatMesh1Interface_doesNotTouchUnrelated2gRadio(t *testing.T) {
 	m := newTestManagementConfig()
 	openmanet := newFakeOpenMANETReader()
