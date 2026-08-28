@@ -10,6 +10,9 @@ alfred:
   mode: primary
   batInterface: bat0
   socketPath: /var/run/alfred.sock
+  # Drop peers not heard over Alfred for this long so their mesh address and
+  # DHCP window are released. Go duration string; 0 disables expiry.
+  nodeExpiry: 24h
   dataTypes:
     gateway: true
     node: true

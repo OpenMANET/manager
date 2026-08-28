@@ -4,6 +4,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
@@ -27,37 +28,43 @@ const (
 	// the mesh. Decision D7 (2026-08-27): keep the key, fix the mapping,
 	// default true. Operators can set batman.multicastForceflood: false to
 	// turn the optimisations on. Mapping: network.MulticastModeForForceflood.
-	DefaultBatmanMulticastForceflood                 bool    = true
-	DefaultAlfredSocketPath                          string  = "/var/run/alfred.sock"
-	DefaultAlfredEnable                              bool    = true
-	DefaultAlfredDataTypeGateway                     bool    = true
-	DefaultAlfredDataTypeNode                        bool    = true
-	DefaultAlfredDataTypePosition                    bool    = true
-	DefaultAlfredDataTypeAddressReserv               bool    = true
-	DefaultAlfredDataTypeMeshNeighbors               bool    = true
-	DefaultCommsEnable                               bool    = false
-	DefaultCommsProtocol                             string  = "rtp"
-	DefaultCommsDebug                                bool    = false
-	DefaultCommsLoopback                             bool    = false
-	DefaultCommsTrace                                bool    = false
-	DefaultCommsControlSource                        string  = "openvlm"
-	DefaultCommsMicGain                              float32 = 8.0
-	DefaultCommsNanoPTTEnable                        bool    = false
-	DefaultCommsNanoPTTDevicePath                    string  = "/dev/hidraw0/*"
-	DefaultCommsNanoPTTDeviceName                    string  = ""
-	DefaultCommsBluetoothPttEnable                   bool    = false
-	DefaultCommsBluetoothPttBluetoothAudioDeviceHint string  = ""
-	DefaultCommsBluetoothPttBluetoothInputDevice     string  = ""
-	DefaultCommsBluetoothPttBluetoothOutputDevice    string  = ""
-	DefaultCommsGPIOSelectorEnable                   bool    = true
-	DefaultResetDBOnStart                            bool    = false
-	DefaultEnableGNSS                                bool    = false
-	DefaultGNSSSendAsNMEA                            bool    = false
-	DefaultGNSSSendAsCoT                             bool    = false
-	DefaultGNSSCoTUID                                string  = ""
-	DefaultGNSSSource                                string  = "internal"
-	DefaultEnableBLOS                                bool    = false
-	DefaultBLOSStatusWorkerInterval                  int     = 30 // seconds
+	DefaultBatmanMulticastForceflood   bool   = true
+	DefaultAlfredSocketPath            string = "/var/run/alfred.sock"
+	DefaultAlfredEnable                bool   = true
+	DefaultAlfredDataTypeGateway       bool   = true
+	DefaultAlfredDataTypeNode          bool   = true
+	DefaultAlfredDataTypePosition      bool   = true
+	DefaultAlfredDataTypeAddressReserv bool   = true
+	DefaultAlfredDataTypeMeshNeighbors bool   = true
+	// DefaultAlfredNodeExpiry is how long a peer may stay silent before its
+	// mesh_nodes row is dropped, releasing the address and DHCP window it
+	// advertised so the reservation worker stops treating them as taken
+	// (ledger D4). Zero disables expiry: rows then live until
+	// resetDBOnStart. Key alfred.nodeExpiry, a Go duration string ("24h").
+	DefaultAlfredNodeExpiry                          time.Duration = 24 * time.Hour
+	DefaultCommsEnable                               bool          = false
+	DefaultCommsProtocol                             string        = "rtp"
+	DefaultCommsDebug                                bool          = false
+	DefaultCommsLoopback                             bool          = false
+	DefaultCommsTrace                                bool          = false
+	DefaultCommsControlSource                        string        = "openvlm"
+	DefaultCommsMicGain                              float32       = 8.0
+	DefaultCommsNanoPTTEnable                        bool          = false
+	DefaultCommsNanoPTTDevicePath                    string        = "/dev/hidraw0/*"
+	DefaultCommsNanoPTTDeviceName                    string        = ""
+	DefaultCommsBluetoothPttEnable                   bool          = false
+	DefaultCommsBluetoothPttBluetoothAudioDeviceHint string        = ""
+	DefaultCommsBluetoothPttBluetoothInputDevice     string        = ""
+	DefaultCommsBluetoothPttBluetoothOutputDevice    string        = ""
+	DefaultCommsGPIOSelectorEnable                   bool          = true
+	DefaultResetDBOnStart                            bool          = false
+	DefaultEnableGNSS                                bool          = false
+	DefaultGNSSSendAsNMEA                            bool          = false
+	DefaultGNSSSendAsCoT                             bool          = false
+	DefaultGNSSCoTUID                                string        = ""
+	DefaultGNSSSource                                string        = "internal"
+	DefaultEnableBLOS                                bool          = false
+	DefaultBLOSStatusWorkerInterval                  int           = 30 // seconds
 	// DefaultMeshTopologyDeltaSampleInterval is how often the mesh
 	// topology delta tracker polls batadv-vis for a new snapshot. 5
 	// seconds is a compromise between granularity (the UI panel claims
@@ -212,6 +219,7 @@ type Config struct {
 	CommsAudioMicControl                      string
 	CommsAudioAGCControl                      string
 	onChangeCallbacks                         []func(*Config)
+	AlfredNodeExpiry                          time.Duration
 	BLOSStatusWorkerInterval                  int
 	MeshTopologyDeltaSampleInterval           int
 	MeshTopologyMaxDeltaSamples               int
@@ -419,6 +427,8 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 	} else {
 		c.AlfredDataTypeMeshNeighbors = DefaultAlfredDataTypeMeshNeighbors
 	}
+
+	c.AlfredNodeExpiry = parseDurationOrDefault(c.v.GetString("alfred.nodeExpiry"), DefaultAlfredNodeExpiry)
 
 	// Load comms configuration
 	if c.v.IsSet("comms.enable") {
@@ -957,6 +967,16 @@ func (c *Config) GetAlfredDataTypeMeshNeighbors() bool {
 	defer c.mu.RUnlock()
 
 	return c.AlfredDataTypeMeshNeighbors
+}
+
+// GetAlfredNodeExpiry returns how long a silent peer stays in mesh_nodes
+// before its row (and the address it reserved) is dropped. Zero disables
+// expiry.
+func (c *Config) GetAlfredNodeExpiry() time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.AlfredNodeExpiry
 }
 
 // GetCommsEnable returns whether the comms subsystem is enabled.
@@ -1523,4 +1543,21 @@ func (c *Config) GetTerminalShell() string {
 	defer c.mu.RUnlock()
 
 	return c.TerminalShell
+}
+
+// parseDurationOrDefault parses a Go duration string, returning def when
+// the value is empty, unparsable, or negative. "0" is an explicit,
+// accepted zero. The config package has no logger, so a bad value is
+// defaulted silently; the config tests pin that.
+func parseDurationOrDefault(raw string, def time.Duration) time.Duration {
+	if raw == "" {
+		return def
+	}
+
+	d, err := time.ParseDuration(raw)
+	if err != nil || d < 0 {
+		return def
+	}
+
+	return d
 }

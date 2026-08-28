@@ -43,12 +43,16 @@ type ManagementConfig struct {
 	gatewayWorkerSendInterval               time.Duration
 	gatewayWorkerRecvInterval               time.Duration
 	addressReservationWorkerReserveInterval time.Duration
-	NodeDataType                            bool
-	PositionDataType                        bool
-	AddressReservationDataType              bool
-	MeshNeighborsDataType                   bool
-	BatmanMulticastForceflood               bool
-	GatewayDataType                         bool
+	// NodeExpiry drops mesh_nodes rows not refreshed by gossip within this
+	// window so departed peers stop reserving addresses (ledger D4). Zero
+	// disables expiry.
+	NodeExpiry                 time.Duration
+	NodeDataType               bool
+	PositionDataType           bool
+	AddressReservationDataType bool
+	MeshNeighborsDataType      bool
+	BatmanMulticastForceflood  bool
+	GatewayDataType            bool
 }
 
 func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
@@ -75,6 +79,7 @@ func NewManager(cfg ManagementConfig) (*ManagementConfig, error) {
 		AddressReservationDataType: cfg.AddressReservationDataType,
 		MeshNeighborsDataType:      cfg.MeshNeighborsDataType,
 		BatmanMulticastForceflood:  cfg.BatmanMulticastForceflood,
+		NodeExpiry:                 cfg.NodeExpiry,
 		WirelessConfig:             wirelessConfig,
 		DB:                         cfg.DB,
 		GPS:                        cfg.GPS,

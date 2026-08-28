@@ -2,6 +2,7 @@ package mgmt
 
 import (
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -40,4 +41,21 @@ func TestNewManager_CopiesForceflood(t *testing.T) {
 				"NewManager must copy BatmanMulticastForceflood")
 		})
 	}
+}
+
+// TestNewManager_CopiesNodeExpiry guards against the ledger-F5 class of
+// bug (a field passed in but dropped by NewManager).
+func TestNewManager_CopiesNodeExpiry(t *testing.T) {
+	m, err := NewManager(ManagementConfig{
+		Log:          zerolog.Nop(),
+		BatInterface: "bat0",
+		NodeExpiry:   36 * time.Hour,
+	})
+	require.NoError(t, err)
+
+	if m.WirelessConfig != nil {
+		t.Cleanup(func() { _ = m.WirelessConfig.Close() })
+	}
+
+	assert.Equal(t, 36*time.Hour, m.NodeExpiry, "NewManager must copy NodeExpiry")
 }

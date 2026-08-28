@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -2733,5 +2734,53 @@ func TestGetCommsDSCP(t *testing.T) {
 				t.Errorf("GetCommsDSCP() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGetAlfredNodeExpiry(t *testing.T) {
+	tests := []struct {
+		name     string
+		setValue *string
+		want     time.Duration
+	}{
+		{name: "returns configured duration", setValue: strPtr("30m"), want: 30 * time.Minute},
+		{name: "accepts hours", setValue: strPtr("48h"), want: 48 * time.Hour},
+		{name: "zero disables expiry", setValue: strPtr("0"), want: 0},
+		{name: "empty falls back to default", setValue: strPtr(""), want: DefaultAlfredNodeExpiry},
+		{name: "unparsable falls back to default", setValue: strPtr("soon"), want: DefaultAlfredNodeExpiry},
+		{name: "negative falls back to default", setValue: strPtr("-1h"), want: DefaultAlfredNodeExpiry},
+		{name: "returns default when not set", setValue: nil, want: DefaultAlfredNodeExpiry},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := viper.New()
+			if tt.setValue != nil {
+				v.Set("alfred.nodeExpiry", *tt.setValue)
+			}
+
+			cfg := New(v)
+
+			got := cfg.GetAlfredNodeExpiry()
+			if got != tt.want {
+				t.Errorf("GetAlfredNodeExpiry() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAlfredNodeExpiry_NumericZeroFromYAML(t *testing.T) {
+	// YAML `nodeExpiry: 0` arrives as an int, not a string.
+	v := viper.New()
+	v.Set("alfred.nodeExpiry", 0)
+
+	if got := New(v).GetAlfredNodeExpiry(); got != 0 {
+		t.Errorf("GetAlfredNodeExpiry() = %v, want 0", got)
+	}
+}
+
+func TestDefaultAlfredNodeExpiry_Is24h(t *testing.T) {
+	if DefaultAlfredNodeExpiry != 24*time.Hour {
+		t.Errorf("DefaultAlfredNodeExpiry = %v, want 24h (ledger D4)", DefaultAlfredNodeExpiry)
 	}
 }

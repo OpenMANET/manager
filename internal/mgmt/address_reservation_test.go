@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/digineo/go-uci/v2"
 	"github.com/openmanet/go-alfred"
@@ -682,4 +683,22 @@ func TestYieldsAddress(t *testing.T) {
 			assert.Equal(t, tc.want, yieldsAddress(tc.own, peers))
 		})
 	}
+}
+
+// ── expiry seen from the reservation tick ────────────────────────────────────
+
+func TestReserveOnce_ExpiredPeerNoLongerReserves(t *testing.T) {
+	f := newReservationFixture(t)
+	f.gwMode = batmanadv.GwModeServer
+	f.arw.Config.NodeExpiry = 24 * time.Hour
+
+	db, q := newNodeTestDBConn(t)
+	f.arw.Config.DB = q
+	f.db = q
+	seedNodeUpdatedAgo(t, db, "aa:bb:cc:dd:ee:02", "10.41.0.1", "-25 hours")
+
+	require.NoError(t, f.tick(t))
+
+	assert.Equal(t, "10.41.0.1", f.ahwlanIP(), "a peer silent for longer than nodeExpiry releases its address")
+	assert.Equal(t, "100", f.dhcpStart(), "…and its DHCP window")
 }

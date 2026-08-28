@@ -106,6 +106,7 @@ func Start(staticFS fs.FS) {
 			AddressReservationDataType: cfg.GetAlfredDataTypeAddressReservation(),
 			MeshNeighborsDataType:      cfg.GetAlfredDataTypeMeshNeighbors(),
 			BatmanMulticastForceflood:  cfg.GetBatmanMulticastForceflood(),
+			NodeExpiry:                 cfg.GetAlfredNodeExpiry(),
 			DB:                         db,
 		})
 		if err != nil {

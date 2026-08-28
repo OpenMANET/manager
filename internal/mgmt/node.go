@@ -224,6 +224,32 @@ func (m *ManagementConfig) receiveNodeData(ctx context.Context, client alfredCli
 		}
 	}
 
+	if expireErr := m.expireStaleNodes(ctx); expireErr != nil {
+		m.Log.Error().Err(expireErr).Msg("Error expiring stale mesh nodes")
+	}
+
+	return nil
+}
+
+// expireStaleNodes drops peers not heard from within NodeExpiry so their
+// address and DHCP window stop counting as reserved. It runs after the
+// upserts of the same receive, so a peer that is still gossiping is always
+// refreshed before it could be swept. No-op when expiry is disabled.
+//
+// The cutoff must be UTC: SQLite's CURRENT_TIMESTAMP writes UTC text and
+// go-sqlite3 binds time.Time as text in the same layout, so the comparison
+// is lexicographic and a local-zone cutoff would be off by the UTC offset.
+func (m *ManagementConfig) expireStaleNodes(ctx context.Context) error {
+	if m.NodeExpiry <= 0 || m.DB == nil {
+		return nil
+	}
+
+	cutoff := time.Now().UTC().Add(-m.NodeExpiry)
+
+	if err := m.DB.DeleteMeshNodesUpdatedBefore(ctx, cutoff); err != nil {
+		return fmt.Errorf("expire mesh nodes older than %s: %w", m.NodeExpiry, err)
+	}
+
 	return nil
 }
 

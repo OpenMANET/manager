@@ -1,4 +1,11 @@
 logLevel: info
+alfred:
+  # Peers gossip their mesh address and DHCP window over Alfred; the daemon
+  # keeps them in its database and never reuses what a known peer holds.
+  # nodeExpiry drops a peer not heard for this long so a node that left the
+  # mesh releases its address and pool. Go duration string ("24h", "30m");
+  # 0 keeps rows until resetDBOnStart. Default 24h.
+  nodeExpiry: 24h
 gnss:
   enable: true
   # source selects which position provider feeds the GNSS subsystem:
