@@ -1,10 +1,14 @@
 package handlers_test
 
-// setup_ownership_test.go pins the WIZARD's value for every fixture
-// row the ownership map (fixture_test.go) marks as daemon- or
-// operator-owned. Those rows are skipped by fixture parity on
-// purpose; without these tests nothing would prove the wizard writes
-// the bootstrap values the daemon later replaces.
+// setup_ownership_test.go pins the WIZARD's value for the fixture rows
+// the ownership map (fixture_test.go) marks as daemon- or operator-
+// owned. Those rows are skipped by fixture parity on purpose; without
+// an explicit test nothing would prove the wizard writes the bootstrap
+// value the daemon later replaces. Rows whose wizard value is already
+// pinned by a dedicated compat test (bat0.multicast_mode by
+// TestCompat_MulticastMode*, ahwlan.ipaddr/dns by the point/gate
+// address tests) are covered there rather than duplicated here; the
+// tests below cover the rest.
 
 import (
 	"net"
@@ -69,6 +73,32 @@ func TestOwnership_GateAhwlanHasNoIPaddr(t *testing.T) {
 
 	assert.Empty(t, tr.get("network", "ahwlan", "ipaddr"),
 		"gate ahwlan.ipaddr is daemon-owned and must not be staged by the wizard")
+}
+
+// TestOwnership_PointExtenderDefaultRadio0IsAP pins the wizard side of
+// the default_radio0 ownership row. On MT7915/MT7916 boards the daemon
+// converts default_radio0 into the secondary mesh link on first boot,
+// which is why the extender fixture shows it as mode=mesh network=batmesh1
+// and fixture parity skips it. The wizard itself must leave it a plain
+// AP bridged onto ahwlan — never pre-convert it — so an operator who
+// enabled the 2.4 GHz AP keeps it until (and unless) the daemon claims
+// the radio.
+func TestOwnership_PointExtenderDefaultRadio0IsAP(t *testing.T) {
+	tr := runScenarioApply(t, pointExtenderProfile())
+
+	const section = "default_radio0"
+
+	require.True(t, tr.hasSection("wireless", section),
+		"the wizard writes radio0's AP as default_radio0")
+
+	assert.Equal(t, "ap", tr.getOne("wireless", section, "mode"),
+		"the wizard leaves default_radio0 an AP; the batmesh1 conversion is daemon-owned")
+	assert.Equal(t, "ahwlan", tr.getOne("wireless", section, "network"),
+		"the AP is bridged onto ahwlan, not the batmesh1 hardif")
+	assert.Equal(t, "test-ap-2g", tr.getOne("wireless", section, "ssid"),
+		"the operator's AP SSID must survive the wizard")
+	assert.Empty(t, tr.get("wireless", section, "disabled"),
+		"an enabled AP must not be left disabled")
 }
 
 // TestOwnership_MapRowsExistInFixtures guards the ownership map
