@@ -88,9 +88,10 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded(ctx context.Context)
 
 // reserveOnceWithDeps runs a single reservation tick. Each tick starts from
 // a clean slate: it refreshes gossip, then either reserves (DHCP not yet
-// configured), stays idle (configured, no peer on this address, or a peer
-// with a lower MAC will move), or re-addresses (configured and this node
-// has the higher MAC in the conflict).
+// configured), stays idle (configured, and either no peer holds this
+// address or this node's MAC is the lowest in the conflict so a
+// higher-MAC peer moves), or re-addresses (configured and this node has
+// the higher MAC in the conflict).
 func (arw *AddressReservationWorker) reserveOnceWithDeps(ctx context.Context, deps reservationDeps) error {
 	// Refresh gossip first so the decision sees what peers say now, not
 	// what the 60 s receive loop last stored (ledger P5 step 2). A failed
@@ -122,7 +123,7 @@ func (arw *AddressReservationWorker) reserveOnceWithDeps(ctx context.Context, de
 		arw.Config.Log.Warn().
 			Str("peer", conflicts[0].Hostname).
 			Str("ip", conflicts[0].IpAddr).
-			Msg("IP conflict: peer has the lower MAC and must move; keeping this address")
+			Msg("IP conflict: this node has the lower MAC and keeps its address; the peer must move")
 
 		return nil
 	default:
