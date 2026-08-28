@@ -151,8 +151,10 @@ func (s *SetupService) runResetWireless(_ context.Context, stream applySetupStre
 // runResetNetwork wipes leftover firewall rules, disables existing
 // forwardings, clears mtu_fix/masq from zones, ignores existing dhcp
 // pools, whitelists the surviving dnsmasq instance to the wizard's
-// standard option set, and removes bridge + batadv interfaces.
-// Mirrors the LuCI resetUciNetworkTopology() block.
+// standard option set, removes bridge + batadv interfaces, and strips
+// the transport mtu the previous run staged on device sections.
+// Mirrors the LuCI resetUciNetworkTopology() block; the mtu strip is
+// ours (LuCI never writes one).
 func (s *SetupService) runResetNetwork(_ context.Context, stream applySetupStream) error {
 	return s.runPhase(stream, setupv1.ApplySetupResponse_PHASE_RESET_NETWORK,
 		"resetting network topology", func() error {
@@ -177,6 +179,10 @@ func (s *SetupService) runResetNetwork(_ context.Context, stream applySetupStrea
 			}
 
 			if err := network.RemoveAllBridgeDevices(s.UCI); err != nil {
+				return err
+			}
+
+			if err := network.UnsetDeviceMTU(s.UCI); err != nil {
 				return err
 			}
 
@@ -452,6 +458,10 @@ func (s *SetupService) runBaseNetwork(_ context.Context, stream applySetupStream
 				return fmt.Errorf("createBridgeDevice br-ahwlan: %w", err)
 			}
 
+			if err := s.stageTransportMTU(ports); err != nil {
+				return err
+			}
+
 			// network.lan.dns is set unconditionally (LuCI parity).
 			if err := network.SetInterfaceDNSWithReader(s.UCI, "lan", "1.1.1.1"); err != nil {
 				return fmt.Errorf("set lan.dns: %w", err)
@@ -555,6 +565,31 @@ func (s *SetupService) ethernetPortsForAhwlan(profile *setupv1.MeshNodeProfile, 
 	}
 
 	return all
+}
+
+// stageTransportMTU persists the transport mtu for br-ahwlan and every
+// ethernet port bridged into it: 1500 minus the batman-adv overhead, so
+// wired frames fit through bat0 (the same values the daemon applies to
+// br-ahwlan, eth0 and eth1 through netlink at boot, internal/mgmt
+// setTransportInterfaceMTU). netifd applies `option mtu` on device
+// sections, so the values now survive a network reload instead of
+// waiting for the next daemon start. bat0 derives its mtu from its
+// hardifs and the mesh wlan ifaces are named at runtime, so both stay
+// with the daemon. The uplink port is not mesh transport and is left
+// alone. LuCI writes no mtu at all — this is a deliberate divergence
+// (wizard-parity ledger M3 / P6).
+func (s *SetupService) stageTransportMTU(ethernetPorts []string) error {
+	if _, err := network.SetDeviceMTUWithReader(s.UCI, network.DefaultBridgeInterfaceName, network.DefaultBridgeMTU); err != nil {
+		return fmt.Errorf("stage %s mtu: %w", network.DefaultBridgeInterfaceName, err)
+	}
+
+	for _, port := range ethernetPorts {
+		if _, err := network.SetDeviceMTUWithReader(s.UCI, port, network.DefaultEthernetMTU); err != nil {
+			return fmt.Errorf("stage %s mtu: %w", port, err)
+		}
+	}
+
+	return nil
 }
 
 // resolveUplinkPort returns the ethernet port carrying the gate's
