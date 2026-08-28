@@ -24,10 +24,10 @@ import (
 // without a session.
 //
 // This is the recovery path documented in
-// docs/setup-wizard-recovery.md (added in the post-bricking work):
-// when a device is reachable via console but not over the network
-// after a wizard run, the operator runs `openmanetd setup-reset` to
-// re-open the wizard for a second attempt.
+// docs/setup-wizard-recovery.md: when a device is reachable via
+// console but not over the network after a wizard run, the operator
+// runs `openmanetd setup-reset` to re-open the wizard for a second
+// attempt.
 var setupResetCmd = &cobra.Command{ //nolint:gochecknoglobals
 	Use:   "setup-reset",
 	Short: "Reset the setup wizard so it can be re-run",
