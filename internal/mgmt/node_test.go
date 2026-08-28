@@ -653,3 +653,22 @@ func TestReceiveNodeData_ExpiryDisabled(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, nodes, 1, "nodeExpiry 0 keeps rows forever, as before P5")
 }
+
+func TestReceiveNodeData_RequestErrorSkipsExpiry(t *testing.T) {
+	cfg := newTestManagementConfig()
+	cfg.NodeExpiry = 24 * time.Hour
+
+	db, q := newNodeTestDBConn(t)
+	cfg.DB = q
+
+	seedNodeUpdatedAgo(t, db, "aa:bb:cc:dd:ee:01", "10.41.0.1", "-25 hours")
+
+	client := &fakeAlfredClient{requestErr: assert.AnError}
+
+	err := cfg.receiveNodeData(context.Background(), client, func() (string, error) { return "my-host", nil })
+	require.Error(t, err)
+
+	nodes, listErr := q.ListMeshNodes(context.Background())
+	require.NoError(t, listErr)
+	assert.Len(t, nodes, 1, "a failed Alfred Request must skip the sweep so no peer is expired during an outage")
+}

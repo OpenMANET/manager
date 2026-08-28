@@ -158,7 +158,7 @@ func (ndw *NodeDataWorker) sendNodeDataOnceWithDeps(
 	return nil
 }
 
-func (ndw *NodeDataWorker) StartReceive() { //nolint:gocognit
+func (ndw *NodeDataWorker) StartReceive() {
 	ticker := time.NewTicker(ndw.Interval)
 	defer ticker.Stop()
 
@@ -239,6 +239,10 @@ func (m *ManagementConfig) receiveNodeData(ctx context.Context, client alfredCli
 // The cutoff must be UTC: SQLite's CURRENT_TIMESTAMP writes UTC text and
 // go-sqlite3 binds time.Time as text in the same layout, so the comparison
 // is lexicographic and a local-zone cutoff would be off by the UTC offset.
+//
+// receiveNodeData returns early on a client.Request error, before this call,
+// so the sweep never runs during an Alfred outage — a transient outage
+// cannot mass-expire every peer at once.
 func (m *ManagementConfig) expireStaleNodes(ctx context.Context) error {
 	if m.NodeExpiry <= 0 || m.DB == nil {
 		return nil
