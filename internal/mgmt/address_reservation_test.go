@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/digineo/go-uci/v2"
+	"github.com/openmanet/go-alfred"
+	proto "github.com/openmanet/openmanetd/internal/api/openmanet/network/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/database/models"
 	"github.com/openmanet/openmanetd/internal/network"
@@ -262,6 +264,7 @@ type reservationFixture struct {
 	openmanet *fakeOpenMANETReader
 	network   *fakeNetworkReader
 	dhcp      *fakeNetworkReader
+	client    *fakeAlfredClient
 	iface     network.NetworkInterface
 	gwMode    string
 	meshErr   error
@@ -284,6 +287,7 @@ func newReservationFixture(t *testing.T) *reservationFixture {
 		openmanet: newFakeOpenMANETReader(),
 		network:   newFakeNetworkReader(),
 		dhcp:      newFakeNetworkReader(),
+		client:    &fakeAlfredClient{},
 		iface:     makeTestIface("aa:bb:cc:dd:ee:01", "10.41.254.7"),
 		gwMode:    batmanadv.GwModeClient,
 	}
@@ -294,6 +298,8 @@ func (f *reservationFixture) deps() reservationDeps {
 		openMANETReader: f.openmanet,
 		networkReader:   f.network,
 		dhcpReader:      f.dhcp,
+		client:          f.client,
+		getHostname:     func() (string, error) { return "this-node", nil },
 		getIface:        func(string) network.NetworkInterface { return f.iface },
 		getMeshConfig: func(string) (*batmanadv.MeshConfig, error) {
 			if f.meshErr != nil {
@@ -558,4 +564,53 @@ func TestFindIPConflicts(t *testing.T) {
 	assert.Equal(t, "aa:bb:cc:dd:ee:04", got[1].MacAddr)
 
 	assert.Empty(t, findIPConflicts(network.NetworkInterface{}, nodes), "no addresses, no conflicts")
+}
+
+// gossipRecord marshals a peer announcement the way NodeDataWorker.StartSend
+// publishes it, for feeding fakeAlfredClient.records.
+func gossipRecord(t *testing.T, mac, hostname, ip, dhcpStart string) alfred.Record {
+	t.Helper()
+
+	node := &proto.Node{
+		Mac:          mac,
+		Hostname:     hostname,
+		Ipaddr:       ip,
+		UciDhcpStart: dhcpStart,
+		UciDhcpLimit: strconv.Itoa(network.DefaultDHCPAddressLimit),
+	}
+
+	data, err := node.MarshalVT()
+	require.NoError(t, err)
+
+	return alfred.Record{Data: data}
+}
+
+// ── receive-before-decide (ledger P5 step 2) ─────────────────────────────────
+
+func TestReserveOnce_RefreshesGossipBeforeDeciding(t *testing.T) {
+	f := newReservationFixture(t)
+	f.gwMode = batmanadv.GwModeServer
+	// The peer exists only in Alfred, not yet in the database.
+	f.client.records = []alfred.Record{gossipRecord(t, "aa:bb:cc:dd:ee:02", "peer-gate", "10.41.0.1", "100")}
+
+	require.NoError(t, f.tick(t))
+
+	assert.Equal(t, "10.41.0.2", f.ahwlanIP(), "the address heard this tick must be treated as reserved")
+	assert.Equal(t, "116", f.dhcpStart(), "the pool heard this tick must be treated as reserved")
+
+	peer, err := f.db.GetMeshNode(context.Background(), "aa:bb:cc:dd:ee:02")
+	require.NoError(t, err)
+	assert.Equal(t, "10.41.0.1", peer.IpAddr, "the refresh persists what it heard")
+}
+
+func TestReserveOnce_GossipRequestError_UsesStoredPeers(t *testing.T) {
+	f := newReservationFixture(t)
+	f.gwMode = batmanadv.GwModeServer
+	f.client.requestErr = errors.New("alfred: connection refused")
+	f.seedPeer(t, "aa:bb:cc:dd:ee:02", "10.41.0.1", 100)
+
+	require.NoError(t, f.tick(t), "a failed refresh must not stall the reservation")
+
+	assert.Equal(t, "10.41.0.2", f.ahwlanIP(), "decision falls back to the stored rows")
+	assert.Equal(t, 1, f.reboots)
 }

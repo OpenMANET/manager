@@ -3,6 +3,7 @@ package mgmt
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -32,8 +33,10 @@ type reservationDeps struct {
 	openMANETReader network.OpenMANETConfigReader
 	networkReader   network.ConfigReader
 	dhcpReader      network.DHCPConfigReader
+	client          alfredClient
 	getIface        func(string) network.NetworkInterface
 	getMeshConfig   func(string) (*batmanadv.MeshConfig, error)
+	getHostname     func() (string, error)
 	reloadNetwork   func(context.Context) error
 	reboot          func() error
 }
@@ -57,8 +60,10 @@ func (arw *AddressReservationWorker) productionDeps() reservationDeps {
 		openMANETReader: arw.Config.uciOpenMANETConfig,
 		networkReader:   arw.Config.uciNetworkConfig,
 		dhcpReader:      arw.Config.uciDHCPConfig,
+		client:          arw.Client,
 		getIface:        network.GetInterfaceByName,
 		getMeshConfig:   batmanadv.GetMeshConfig,
+		getHostname:     os.Hostname,
 		reloadNetwork:   network.ReloadNetwork,
 		reboot:          system.Reboot,
 	}
@@ -89,6 +94,13 @@ func (arw *AddressReservationWorker) ReserveAddressIfNeeded(ctx context.Context)
 // node's address; otherwise it claims a mesh address and DHCP window,
 // marks dhcpconfigured=1, drops the bootstrap sections and reboots.
 func (arw *AddressReservationWorker) reserveOnceWithDeps(ctx context.Context, deps reservationDeps) error {
+	// Refresh gossip first so the decision sees what peers say now, not
+	// what the 60 s receive loop last stored (ledger P5 step 2). A failed
+	// refresh is not fatal: decide on the rows already in the database.
+	if recvErr := arw.Config.receiveNodeData(ctx, deps.client, deps.getHostname); recvErr != nil {
+		arw.Config.Log.Warn().Err(recvErr).Msg("Could not refresh node gossip before reservation; using stored peers")
+	}
+
 	configured, err := network.IsDHCPConfiguredWithReader(deps.openMANETReader)
 	if err != nil {
 		return fmt.Errorf("check DHCP configuration: %w", err)

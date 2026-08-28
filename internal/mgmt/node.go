@@ -174,10 +174,25 @@ func (ndw *NodeDataWorker) StartReceive() { //nolint:gocognit
 	}
 }
 
-// receiveNodeDataOnce performs a single iteration of the node data receive logic.
-// It requests node data records from the alfred client, filters out records for the
-// local hostname, and persists the rest to the database.
+// receiveNodeDataOnce performs a single receive iteration for the worker
+// loop. The logic lives on ManagementConfig so the address-reservation
+// worker can run the same refresh before it decides.
 func (ndw *NodeDataWorker) receiveNodeDataOnce(client alfredClient, getHostname func() (string, error)) error {
+	return ndw.Config.receiveNodeData(context.Background(), client, getHostname)
+}
+
+// RecordNodeData persists node information to the database by creating or
+// updating a mesh node record. See ManagementConfig.recordNodeData.
+func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error {
+	return ndw.Config.recordNodeData(context.Background(), nodeData)
+}
+
+// receiveNodeData requests node gossip from Alfred and upserts every record
+// except this node's own into mesh_nodes. It is shared by the NodeDataWorker
+// receive loop (every 60 s) and by the AddressReservationWorker, which calls
+// it immediately before each decision so the decision never acts on rows
+// older than the last receive tick.
+func (m *ManagementConfig) receiveNodeData(ctx context.Context, client alfredClient, getHostname func() (string, error)) error {
 	records, err := client.Request(NodeDataType)
 	if err != nil {
 		return fmt.Errorf("request node data: %w", err)
@@ -185,14 +200,14 @@ func (ndw *NodeDataWorker) receiveNodeDataOnce(client alfredClient, getHostname 
 
 	hostname, err := getHostname()
 	if err != nil {
-		ndw.Config.Log.Error().Err(err).Msg("Error getting hostname")
+		m.Log.Error().Err(err).Msg("Error getting hostname")
 	}
 
 	for _, rec := range records {
 		var nodeData proto.Node
 
-		if err := nodeData.UnmarshalVT(rec.Data); err != nil {
-			ndw.Config.Log.Error().Err(err).Msg("Error unmarshaling node data")
+		if unmarshalErr := nodeData.UnmarshalVT(rec.Data); unmarshalErr != nil {
+			m.Log.Error().Err(unmarshalErr).Msg("Error unmarshaling node data")
 
 			continue
 		}
@@ -202,39 +217,30 @@ func (ndw *NodeDataWorker) receiveNodeDataOnce(client alfredClient, getHostname 
 			continue
 		}
 
-		ndw.Config.Log.Debug().Msgf("Received node data: %+v", &nodeData)
+		m.Log.Debug().Msgf("Received node data: %+v", &nodeData)
 
-		if err := ndw.RecordNodeData(&nodeData); err != nil {
-			ndw.Config.Log.Error().Err(err).Msg("Error recording node data")
+		if recordErr := m.recordNodeData(ctx, &nodeData); recordErr != nil {
+			m.Log.Error().Err(recordErr).Msg("Error recording node data")
 		}
 	}
 
 	return nil
 }
 
-// RecordNodeData persists node information to the database by creating or updating
-// a mesh node record. It converts the protobuf Node data into database model parameters,
-// handling optional DHCP configuration fields (UciDhcpStart and UciDhcpLimit) by parsing
-// them into nullable int64 values. Any parsing errors are logged and returned immediately.
-// If database insertion fails, the error is logged but not returned, allowing the function
-// to complete successfully despite database errors.
-//
-// Parameters:
-//   - nodeData: A protobuf Node message containing mesh node information including
-//     MAC address, IP address, hostname, position, and optional DHCP settings
-//
-// Returns:
-//   - error: Returns an error if DHCP field parsing fails, otherwise returns nil
-//     even if database insertion fails
-func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error { //nolint:gocognit
+// recordNodeData persists node information to the database by creating or
+// updating a mesh node record. It converts the protobuf Node data into
+// database model parameters, handling optional DHCP configuration fields
+// (UciDhcpStart and UciDhcpLimit) by parsing them into nullable int64
+// values. Any parsing errors are logged and returned immediately. If
+// database insertion fails, the error is logged but not returned, allowing
+// the function to complete successfully despite database errors.
+func (m *ManagementConfig) recordNodeData(ctx context.Context, nodeData *proto.Node) error { //nolint:gocognit
 	var dhcpStart, dhcpLimit sql.NullInt64
-
-	ctx := context.Background()
 
 	if nodeData.UciDhcpStart != "" {
 		start, err := strconv.ParseInt(nodeData.UciDhcpStart, 10, 64)
 		if err != nil {
-			ndw.Config.Log.Error().Err(err).Msg("Error parsing UciDhcpStart")
+			m.Log.Error().Err(err).Msg("Error parsing UciDhcpStart")
 
 			return fmt.Errorf("parse UciDhcpStart: %w", err)
 		}
@@ -245,7 +251,7 @@ func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error { //nolint
 	if nodeData.UciDhcpLimit != "" {
 		limit, err := strconv.ParseInt(nodeData.UciDhcpLimit, 10, 64)
 		if err != nil {
-			ndw.Config.Log.Error().Err(err).Msg("Error parsing UciDhcpLimit")
+			m.Log.Error().Err(err).Msg("Error parsing UciDhcpLimit")
 
 			return fmt.Errorf("parse UciDhcpLimit: %w", err)
 		}
@@ -254,7 +260,7 @@ func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error { //nolint
 	}
 
 	// Insert or update node data in the database
-	_, err := ndw.Config.DB.CreateMeshNode(ctx, models.CreateMeshNodeParams{
+	_, err := m.DB.CreateMeshNode(ctx, models.CreateMeshNodeParams{
 		MacAddr:      nodeData.Mac,
 		IpAddr:       nodeData.Ipaddr,
 		Hostname:     nodeData.Hostname,
@@ -265,13 +271,13 @@ func (ndw *NodeDataWorker) RecordNodeData(nodeData *proto.Node) error { //nolint
 		UciDhcpLimit: dhcpLimit,
 	})
 	if err != nil {
-		ndw.Config.Log.Error().Err(err).Msg("Error inserting node data into database")
+		m.Log.Error().Err(err).Msg("Error inserting node data into database")
 	}
 
 	// Delete duplicate entries if any (should not happen due to unique constraint)
-	err = ndw.Config.DB.DeleteDuplicateMeshNodes(ctx)
+	err = m.DB.DeleteDuplicateMeshNodes(ctx)
 	if err != nil {
-		ndw.Config.Log.Error().Err(err).Msg("Error deleting duplicate mesh nodes")
+		m.Log.Error().Err(err).Msg("Error deleting duplicate mesh nodes")
 	}
 
 	return nil
