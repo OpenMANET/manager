@@ -768,13 +768,16 @@ func (s *SetupService) runWirelessMesh(_ context.Context, stream applySetupStrea
 				return fmt.Errorf("clearing mesh iface disabled: %w", err)
 			}
 
-			// Emit the LuCI mesh-AP overlay section. The wizard does
-			// not surface a UI toggle for this — the iface is
-			// always written with disabled=1 and default ssid/key
-			// so an operator can later enable it from the settings
-			// page without having to create the section by hand.
-			// Mirrors LuCI's renderPages() behavior; see plan
-			// "Per-scenario topology mutations" for the rationale.
+			// Emit the mesh-AP overlay section. The wizard does not
+			// surface a UI toggle for this — the iface is always
+			// written disabled with default ssid/key so an operator
+			// can later enable it from the settings page without
+			// having to create the section by hand.
+			//
+			// This is a deliberate divergence from LuCI, not parity:
+			// LuCI creates the overlay during the wizard and then
+			// deletes it at save (removeExtraWifiIfaces), so both
+			// fixture captures lack it. We keep it on purpose.
 			return s.writeMeshAPOverlay(profile, mesh.GetRadioName())
 		})
 }
@@ -1194,8 +1197,9 @@ func (s *SetupService) scenarioMeshGateRouter(profile *setupv1.MeshNodeProfile, 
 	// router_firewall scenarios route through wan and add wan6 (created
 	// in phase 6) for IPv6 transit. Without wan6 in the wan zone's
 	// network list, the implicit-REJECT default zone applies and IPv6
-	// packets on wan6 are dropped. Mirrors the LuCI fixture's wan zone
-	// shape.
+	// packets on wan6 are dropped. This is Go-only: LuCI never creates
+	// wan6 (router_firewall is unreachable on its read-only radio), so
+	// no capture pins it — the shape is bench-derived (ledger V5/V12).
 	if upstreamZone == "wan" {
 		if err := network.AppendZoneNetwork(s.UCI, "wan", "wan6"); err != nil {
 			return fmt.Errorf("adding wan6 to wan zone: %w", err)

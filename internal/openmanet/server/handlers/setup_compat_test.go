@@ -970,7 +970,9 @@ func TestCompat_RouterFirewallEth_Wan6InWanZone(t *testing.T) {
 }
 
 // Gap 2 (cont.): wan6 interface must be created with proto=dhcpv6 in
-// the router_firewall scenario.
+// the router_firewall scenario. This is Go-only — LuCI never creates
+// wan6 (router_firewall is unreachable on its read-only radio), so no
+// capture pins it (ledger V5).
 func TestCompat_RouterFirewallEth_Wan6Created(t *testing.T) {
 	tr := runScenarioApply(t, gateRouterFirewallEthProfile())
 
@@ -1063,7 +1065,8 @@ func TestCompat_MeshAPOverlayEmitted(t *testing.T) {
 
 	const overlayIface = "meshap_radio1"
 	require.True(t, tr.hasSection("wireless", overlayIface),
-		"mesh-AP overlay section %s must exist (LuCI parity, plan §Per-scenario topology)",
+		"mesh-AP overlay section %s must exist — a deliberate divergence from LuCI, "+
+			"which creates it during the wizard then deletes it at save so both captures lack it",
 		overlayIface)
 
 	assert.Equal(t, "ap", tr.getOne("wireless", overlayIface, "mode"))
