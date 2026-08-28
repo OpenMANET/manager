@@ -1024,6 +1024,34 @@ func TestCompat_RouterEth_WanZoneNatFlagsStripped(t *testing.T) {
 		"mtu_fix must be stripped from wan when lan is the upstream")
 }
 
+// TestCompat_Extender_WanZoneFactoryPolicyRetained pins D2 for the
+// mesh-point extender: like the gate scenarios that bind nothing to
+// wan, the wizard leaves the factory wan zone policy alone — input and
+// forward stay REJECT (OpenWrt's default). LuCI's setupNetworkIface('wan')
+// sets ACCEPT×3 and the extender capture shows that
+// (testfixtures/setup-wizard/after/mesh-point-extender/firewall:19-21);
+// the divergence is deliberate and harmless — nothing rides the wan
+// zone on an extender, so the safe default policy is correct. The
+// factory masq/mtu_fix flags are stripped by the phase-4 reset and
+// never re-applied.
+func TestCompat_Extender_WanZoneFactoryPolicyRetained(t *testing.T) {
+	tr := runScenarioApply(t, pointExtenderProfile())
+
+	wanZone := tr.findFirewallZoneByName("wan")
+	require.NotEmpty(t, wanZone, "the factory wan zone must survive the wizard")
+
+	assert.Equal(t, "REJECT", tr.getOne("firewall", wanZone, "input"),
+		"the wizard must keep the factory REJECT input policy on wan (D2)")
+	assert.Equal(t, "ACCEPT", tr.getOne("firewall", wanZone, "output"))
+	assert.Equal(t, "REJECT", tr.getOne("firewall", wanZone, "forward"),
+		"the wizard must keep the factory REJECT forward policy on wan (D2)")
+
+	assert.Empty(t, tr.get("firewall", wanZone, "masq"),
+		"masq is stripped by the phase-4 reset and not re-applied on an extender")
+	assert.Empty(t, tr.get("firewall", wanZone, "mtu_fix"),
+		"mtu_fix is stripped by the phase-4 reset and not re-applied on an extender")
+}
+
 // Gap 3: every wizard run must emit the LuCI mesh-AP overlay section
 // (`meshap_<mesh-radio>`) so operators can later toggle it on from the
 // settings UI without having to create the section by hand. The
