@@ -35,6 +35,13 @@ Highlights that are easy to miss:
 - **`openmanetd`** — the wizard stages `openmanetd.config.dhcpconfigured=0`
   (and `batmesh1configured=0`, or `1` when a mesh backhaul was chosen). These
   are the wizard's half of the two-stage addressing design below.
+- **2.4 GHz mesh backhaul tuning** — `MeshBackhaulProfile` carries optional
+  `bandwidth_mhz`, `channel` and `country_code`. Zero / empty values keep the
+  daemon's fixed defaults (`channel 8`, `htmode HE20`, country untouched);
+  otherwise the wizard writes the operator's channel, `HE20`/`HE40` and
+  country to the backhaul radio. Channel and width must be set together.
+  A code scanned on the mesh step fills these (see
+  [mesh-join-qr.md](mesh-join-qr.md)).
 - **HaLow radios carry mesh only** — a `wifi-device` with `type 'morse'`
   never gets an AP or STA `wifi-iface`. The wizard rejects a profile that names
   one as an AP or wireless-uplink radio, the reset phase deletes any non-mesh
@@ -84,3 +91,4 @@ so a DHCP-client `ahwlan` would not survive boot.
 - [setup-wizard-recovery.md](setup-wizard-recovery.md) — re-opening the wizard.
 - [setup-wizard-bench-checklist.md](setup-wizard-bench-checklist.md) — the
   hardware-only checks CI cannot run.
+- [mesh-join-qr.md](mesh-join-qr.md) — sharing and joining a mesh by QR code.

@@ -58,3 +58,21 @@ done. None of them is a CI acceptance criterion; they are field checks.
    `wizard_device_*` section may remain.
 5. Only after 1–3 hold on both scenarios may a later phase remove the
    bridge/ethernet netlink writes in `internal/mgmt/device.go`.
+
+## QR join (Share Mesh)
+
+- On an iPhone (Safari) and an Android phone (Chrome), over plain HTTP:
+  Scan QR opens the camera, a photo of another node's Share Mesh panel
+  decodes, and the fields fill in.
+- The same photo decodes when taken in direct sun at arm's length (ECC M).
+- A screenshot of the QR sent over a messaging app decodes through the
+  gallery path; the pasted text form decodes through Paste code.
+- Settings › Wireless › Join mesh joins the mesh in one apply: the source
+  node lists the joined node as a peer on both the HaLow mesh and, when
+  configured, the 2.4 GHz backhaul (`batctl n`).
+- A code from a node in another regulatory domain shows the warn and Join
+  mesh stays disabled until the channel is changed.
+- The wizard's mesh step fills from a code; a capable 2.4 GHz radio comes up
+  as the backhaul on the scanned channel and width after the wizard reboot.
+- `ApplyMeshJoin` from `curl` with a Bearer token joins a configured node;
+  the same call without a token is refused with 401.
