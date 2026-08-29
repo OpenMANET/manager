@@ -63,11 +63,19 @@
   border: 1px solid var(--border-subtle);
 }
 
+/* Key column is fixed-width so the value sits right after its label instead
+   of being pushed to the far edge of a stretched grid cell (which read as
+   the value belonging to the *next* key on wide screens). Mirrors the
+   firmware page's strip. */
 .radio-card .status-strip .kv {
-  display: flex;
-  justify-content: space-between;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: baseline;
+  gap: 8px;
   font-size: 11px;
+  border-bottom: none;
+  padding: 2px 0;
+  min-width: 0;
 }
 
 .radio-card .status-strip .kv .k {
@@ -75,10 +83,13 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   font-size: 10px;
+  white-space: nowrap;
 }
 
 .radio-card .status-strip .kv .v {
   color: var(--text);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .radio-card .status-strip .kv .v.accent {
@@ -251,7 +262,7 @@
     grid-template-columns: 1fr;
   }
   .radio-card .status-strip {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
   .power-selector button .dbm {
     font-size: 8px;
