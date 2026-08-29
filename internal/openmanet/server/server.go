@@ -256,6 +256,7 @@ func NewAPIServer(cfg APIServer) *APIServer {
 	api.Handle(meshjoinconnect.NewMeshJoinServiceHandler(&handlers.MeshJoinService{
 		Log:          cfg.Log.With().Str("service", "mesh_join").Logger(),
 		ConfigReader: wifiSvc.ConfigReader,
+		Radios:       wifiSvc,
 	}, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(logsconnect.NewLogsServiceHandler(&handlers.LogsService{
