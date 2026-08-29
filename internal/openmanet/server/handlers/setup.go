@@ -983,11 +983,11 @@ func (s *SetupService) validateProfile(profile *setupv1.MeshNodeProfile) error {
 		return err
 	}
 
-	if err := validateAPs(profile.GetAps(), mesh.GetRadioName()); err != nil {
+	if err := validateAPs(profile.GetAps(), mesh.GetRadioName(), s.radioExistsAsMorse); err != nil {
 		return err
 	}
 
-	if err := validateUplink(profile.GetUplink(), mesh.GetRadioName(), profile.GetAps()); err != nil {
+	if err := validateUplink(profile.GetUplink(), mesh.GetRadioName(), profile.GetAps(), s.radioExistsAsMorse); err != nil {
 		return err
 	}
 
@@ -1058,12 +1058,7 @@ func (s *SetupService) radioExistsAsMorse(radioName string) bool {
 		return false
 	}
 
-	typ, ok := s.UCI.Get("wireless", radioName, "type")
-	if !ok || len(typ) == 0 {
-		return false
-	}
-
-	return strings.EqualFold(typ[0], "morse")
+	return network.IsMorseDevice(s.UCI, radioName)
 }
 
 // validateMeshChannelBandwidth applies a minimal sanity check on
@@ -1084,9 +1079,11 @@ func validateMeshChannelBandwidth(bandwidthMHz, channel uint32) error {
 	}
 }
 
-// validateAPs enforces uniqueness of AP radio names and that none
-// equals the mesh radio.
-func validateAPs(aps []*setupv1.RadioApProfile, meshRadio string) error {
+// validateAPs enforces uniqueness of AP radio names, that none equals
+// the mesh radio, and that none is a type=morse (HaLow) wifi-device —
+// a HaLow radio only ever carries mesh-mode ifaces, and every entry
+// here produces an AP section (disabled or not).
+func validateAPs(aps []*setupv1.RadioApProfile, meshRadio string, isMorse func(string) bool) error {
 	seen := make(map[string]struct{}, len(aps))
 
 	for _, ap := range aps {
@@ -1097,6 +1094,10 @@ func validateAPs(aps []*setupv1.RadioApProfile, meshRadio string) error {
 
 		if name == meshRadio {
 			return fmt.Errorf("AP radio %q must differ from the mesh radio", name)
+		}
+
+		if isMorse(name) {
+			return fmt.Errorf("AP radio %q is a HaLow (type=morse) wifi-device, which only carries mesh interfaces", name)
 		}
 
 		if _, dup := seen[name]; dup {
@@ -1118,10 +1119,11 @@ func validateAPs(aps []*setupv1.RadioApProfile, meshRadio string) error {
 }
 
 // validateUplink confirms the wireless STA radio (when uplink type
-// is WIRELESS_STA) is not the mesh radio and not also configured as
-// an enabled AP — concurrent AP+STA on a single radio is not
-// supported by the wizard.
-func validateUplink(uplink *setupv1.Uplink, meshRadio string, aps []*setupv1.RadioApProfile) error {
+// is WIRELESS_STA) is not the mesh radio, not a type=morse (HaLow)
+// wifi-device — those only carry mesh-mode ifaces — and not also
+// configured as an enabled AP: concurrent AP+STA on a single radio is
+// not supported by the wizard.
+func validateUplink(uplink *setupv1.Uplink, meshRadio string, aps []*setupv1.RadioApProfile, isMorse func(string) bool) error {
 	if uplink == nil ||
 		uplink.GetType() != setupv1.UplinkType_UPLINK_TYPE_WIRELESS_STA {
 		return nil
@@ -1134,6 +1136,11 @@ func validateUplink(uplink *setupv1.Uplink, meshRadio string, aps []*setupv1.Rad
 
 	if wireless.GetRadioName() == meshRadio {
 		return fmt.Errorf("uplink STA radio %q must differ from the mesh radio", wireless.GetRadioName())
+	}
+
+	if isMorse(wireless.GetRadioName()) {
+		return fmt.Errorf("uplink STA radio %q is a HaLow (type=morse) wifi-device, which only carries mesh interfaces",
+			wireless.GetRadioName())
 	}
 
 	for _, ap := range aps {

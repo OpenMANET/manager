@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -1539,6 +1540,94 @@ func TestUpdateRadioSettings_UnspecifiedModeSkipped(t *testing.T) {
 
 	if vals[0] != "ap" {
 		t.Errorf("expected mode unchanged at %q, got %q", "ap", vals[0])
+	}
+}
+
+// A type=morse (HaLow) wifi-device only ever carries mesh-mode
+// ifaces: the settings API must refuse to flip one to any other mode
+// and leave the iface untouched.
+func TestUpdateRadioSettings_RejectsNonMeshModeOnMorseRadio(t *testing.T) {
+	modes := []wificonfigv1.WifiMode{
+		wificonfigv1.WifiMode_WIFI_MODE_AP,
+		wificonfigv1.WifiMode_WIFI_MODE_STA,
+		wificonfigv1.WifiMode_WIFI_MODE_ADHOC,
+		wificonfigv1.WifiMode_WIFI_MODE_MONITOR,
+	}
+
+	for _, mode := range modes {
+		t.Run(mode.String(), func(t *testing.T) {
+			reader := newWifiConfigMockReader()
+			if err := reader.SetType("wireless", "radio2", "type", uci.TypeOption, "morse"); err != nil {
+				t.Fatalf("seed radio2 type: %v", err)
+			}
+
+			if err := reader.SetType("wireless", "default_radio2", "mode", uci.TypeOption, "mesh"); err != nil {
+				t.Fatalf("seed default_radio2 mode: %v", err)
+			}
+
+			svc := newTestWifiConfigService(t)
+			svc.ConfigReader = reader
+
+			_, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+				RadioName: "radio2",
+				Settings: &wificonfigv1.RadioSettings{
+					Ssid:    "client-ap",
+					Channel: "42",
+					Mode:    mode,
+				},
+			})
+			requireConnectCode(t, err, connect.CodeInvalidArgument)
+
+			if !strings.Contains(err.Error(), "type=morse") {
+				t.Errorf("error should name the type=morse rule, got %q", err.Error())
+			}
+
+			vals, ok := reader.Get("wireless", "default_radio2", "mode")
+			if !ok || len(vals) == 0 || vals[0] != "mesh" {
+				t.Errorf("default_radio2 mode must stay mesh, got %v", vals)
+			}
+
+			if reader.commitCalled {
+				t.Error("nothing may be committed on a rejected request")
+			}
+		})
+	}
+}
+
+// Mesh and mode-less (channel/txpower-only) edits on a HaLow radio
+// still go through; the rule only forbids non-mesh modes.
+func TestUpdateRadioSettings_MorseRadioAcceptsMeshAndUnspecifiedMode(t *testing.T) {
+	modes := map[string]wificonfigv1.WifiMode{
+		"mesh":        wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		"unspecified": wificonfigv1.WifiMode_WIFI_MODE_UNSPECIFIED,
+	}
+
+	for name, mode := range modes {
+		t.Run(name, func(t *testing.T) {
+			reader := newWifiConfigMockReader()
+			if err := reader.SetType("wireless", "radio2", "type", uci.TypeOption, "morse"); err != nil {
+				t.Fatalf("seed radio2 type: %v", err)
+			}
+
+			svc := newTestWifiConfigService(t)
+			svc.ConfigReader = reader
+
+			resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+				RadioName: "radio2",
+				Settings: &wificonfigv1.RadioSettings{
+					Ssid:    "halowmesh",
+					Channel: "42",
+					Mode:    mode,
+				},
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if !resp.GetSuccess() {
+				t.Errorf("expected success, got message: %v", resp.GetMessage())
+			}
+		})
 	}
 }
 

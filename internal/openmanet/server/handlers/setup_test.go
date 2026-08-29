@@ -840,6 +840,56 @@ func TestApplySetup_RejectsAPSameAsMeshRadio(t *testing.T) {
 	requireConnectCode(t, err, connect.CodeInvalidArgument)
 }
 
+// withSecondMorseRadio adds radio2 (type=morse) beside the fixture's
+// radio1 mesh radio, so the type=morse rule can be exercised on a
+// radio the mesh-radio rule does not already reject.
+func withSecondMorseRadio(reader *fakeConfigReader) *fakeConfigReader {
+	reader.data["wireless"]["radio2"] = map[string][]string{
+		"type": {"morse"}, "band": {"s1g"}, "channel": {"42"},
+	}
+	reader.sectionTypes["wireless"]["radio2"] = "wifi-device"
+
+	return reader
+}
+
+func TestApplySetup_RejectsAPOnMorseRadio(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc := newSetupService(t, cfg, withSecondMorseRadio(newSetupReader()), &fakeInterfaceProvider{})
+
+	prof := minimalProfile()
+	// Disabled on purpose: even a disabled entry stages a mode=ap
+	// section, so the rule must not depend on Enabled.
+	prof.Aps = []*setupv1.RadioApProfile{{RadioName: "radio2", Enabled: false}}
+
+	err := runApplySetup(t, svc, prof)
+	requireConnectCode(t, err, connect.CodeInvalidArgument)
+	assert.Contains(t, err.Error(), "type=morse")
+}
+
+func TestApplySetup_RejectsSTAUplinkOnMorseRadio(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc := newSetupService(t, cfg, withSecondMorseRadio(newSetupReader()), &fakeInterfaceProvider{})
+
+	prof := minimalProfile()
+	prof.Role = setupv1.MeshRole_MESH_ROLE_MESH_GATE
+	prof.DeviceMode = &setupv1.MeshNodeProfile_MeshgateMode{
+		MeshgateMode: setupv1.MeshGateMode_MESH_GATE_MODE_ROUTER,
+	}
+	prof.Uplink = &setupv1.Uplink{
+		Type: setupv1.UplinkType_UPLINK_TYPE_WIRELESS_STA,
+		Wireless: &setupv1.WifiStaProfile{
+			RadioName:  "radio2",
+			Ssid:       "upstream",
+			Passphrase: "upstreampass",
+			Encryption: wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK2,
+		},
+	}
+
+	err := runApplySetup(t, svc, prof)
+	requireConnectCode(t, err, connect.CodeInvalidArgument)
+	assert.Contains(t, err.Error(), "type=morse")
+}
+
 func TestApplySetup_RejectsDuplicateAPRadios(t *testing.T) {
 	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
 	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})

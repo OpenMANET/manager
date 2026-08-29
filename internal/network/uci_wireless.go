@@ -14,6 +14,7 @@ const (
 	defaultWirelessConfigPath string = "/etc/config/wireless"
 	wirelessConfigName        string = "wireless"
 	wifiIfaceSectionType      string = "wifi-iface"
+	wifiDeviceSectionType     string = "wifi-device"
 
 	// UCI option keys repeated across wifi-device and wifi-iface sections
 	// and their whitelists. Centralized so goconst is happy.
@@ -597,7 +598,7 @@ func SetWirelessDeviceConfigWithReader(section string, config *UCIWirelessDevice
 		return fmt.Errorf("config cannot be nil")
 	}
 
-	_ = reader.AddSection(wirelessConfigName, section, "wifi-device")
+	_ = reader.AddSection(wirelessConfigName, section, wifiDeviceSectionType)
 
 	if config.Type != "" {
 		if err := reader.SetType(wirelessConfigName, section, "type", uci.TypeOption, config.Type); err != nil {
@@ -948,4 +949,73 @@ func DisableAllInterfaces(reader ConfigReader) error {
 	}
 
 	return nil
+}
+
+// IsMorseDevice reports whether the named wifi-device section is a
+// Morse Micro HaLow radio (`option type 'morse'`). The comparison is
+// case-insensitive, matching the wizard's HaLow detection.
+func IsMorseDevice(reader ConfigReader, deviceName string) bool {
+	typ, ok := reader.Get(wirelessConfigName, deviceName, "type")
+	if !ok || len(typ) == 0 {
+		return false
+	}
+
+	return strings.EqualFold(typ[0], "morse")
+}
+
+// RemoveNonMeshIfacesOnMorseDevices deletes every wifi-iface whose
+// `device` is a type=morse wifi-device and whose `mode` is anything
+// but mesh (a missing mode counts: netifd defaults it to ap). A HaLow
+// radio only ever carries 802.11s mesh links; an AP or STA section on
+// one is a leftover from an older wizard build (the meshap_<radio>
+// overlay) or a hand edit, and would let the settings UI bring up an
+// AP on the mesh radio. Returns the deleted section names. Does not
+// commit.
+func RemoveNonMeshIfacesOnMorseDevices(reader ConfigReader) ([]string, error) {
+	devices, err := reader.GetSections(wirelessConfigName, wifiDeviceSectionType)
+	if err != nil {
+		return nil, fmt.Errorf("listing wifi-device sections: %w", err)
+	}
+
+	morse := make(map[string]struct{}, len(devices))
+
+	for _, dev := range devices {
+		if IsMorseDevice(reader, dev) {
+			morse[dev] = struct{}{}
+		}
+	}
+
+	if len(morse) == 0 {
+		return nil, nil
+	}
+
+	ifaces, err := reader.GetSections(wirelessConfigName, wifiIfaceSectionType)
+	if err != nil {
+		return nil, fmt.Errorf("listing wifi-iface sections: %w", err)
+	}
+
+	var removed []string
+
+	for _, iface := range ifaces {
+		dev, ok := reader.Get(wirelessConfigName, iface, "device")
+		if !ok || len(dev) == 0 {
+			continue
+		}
+
+		if _, onMorse := morse[dev[0]]; !onMorse {
+			continue
+		}
+
+		if mode, _ := reader.Get(wirelessConfigName, iface, "mode"); len(mode) > 0 && mode[0] == WifiModeMesh {
+			continue
+		}
+
+		if err := reader.DelSection(wirelessConfigName, iface); err != nil {
+			return removed, fmt.Errorf("deleting %s: %w", iface, err)
+		}
+
+		removed = append(removed, iface)
+	}
+
+	return removed, nil
 }

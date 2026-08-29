@@ -112,9 +112,11 @@ func (s *SetupService) runSnapshot(ctx context.Context, stream applySetupStream)
 
 // ── Phase 3: reset wireless ──────────────────────────────────────────────────
 
-// runResetWireless whitelists every wifi-device + wifi-iface to the
-// wizard's standard field set, then disables every wifi-iface. The
-// wizard re-enables only the interfaces it intends to keep.
+// runResetWireless whitelists every wifi-device to the wizard's
+// standard field set, deletes any non-mesh wifi-iface sitting on a
+// type=morse (HaLow) radio, whitelists the surviving wifi-ifaces, then
+// disables every wifi-iface. The wizard re-enables only the interfaces
+// it intends to keep.
 func (s *SetupService) runResetWireless(_ context.Context, stream applySetupStream) error {
 	return s.runPhase(stream, setupv1.ApplySetupResponse_PHASE_RESET_WIRELESS,
 		"resetting wireless config", func() error {
@@ -128,6 +130,20 @@ func (s *SetupService) runResetWireless(_ context.Context, stream applySetupStre
 					network.WizardWifiDeviceWhitelist); werr != nil {
 					return werr
 				}
+			}
+
+			// A HaLow radio only ever carries mesh-mode ifaces. Drop
+			// any AP/STA section an older wizard build (the
+			// meshap_<radio> overlay) or a hand edit left on one before
+			// the mesh phase writes default_<radio> fresh.
+			removed, err := network.RemoveNonMeshIfacesOnMorseDevices(s.UCI)
+			if err != nil {
+				return err
+			}
+
+			if len(removed) > 0 {
+				s.Log.Info().Strs("sections", removed).
+					Msg("Removed non-mesh wifi-iface sections from HaLow radios")
 			}
 
 			ifaces, err := s.UCI.GetSections("wireless", "wifi-iface")
@@ -768,54 +784,13 @@ func (s *SetupService) runWirelessMesh(_ context.Context, stream applySetupStrea
 				return fmt.Errorf("clearing mesh iface disabled: %w", err)
 			}
 
-			// Emit the mesh-AP overlay section. The wizard does not
-			// surface a UI toggle for this — the iface is always
-			// written disabled with default ssid/key so an operator
-			// can later enable it from the settings page without
-			// having to create the section by hand.
-			//
-			// This is a deliberate divergence from LuCI, not parity:
-			// LuCI creates the overlay during the wizard and then
-			// deletes it at save (removeExtraWifiIfaces), so both
-			// fixture captures lack it. We keep it on purpose.
-			return s.writeMeshAPOverlay(profile, mesh.GetRadioName())
+			// No AP overlay beside the mesh iface: a type=morse
+			// wifi-device only ever carries mesh-mode ifaces. LuCI
+			// creates a meshap_<radio> section during its wizard and
+			// deletes it at save (removeExtraWifiIfaces); the reset
+			// phase removes any such leftover here instead.
+			return nil
 		})
-}
-
-// writeMeshAPOverlay emits the `meshap_<radio>` wifi-iface section,
-// always disabled, with default SSID = profile hostname and a random
-// 8-char key drawn from LuCI's wizard charset. The section gives
-// operators a one-click "enable a mesh-AP for client devices that
-// can't see the mesh directly" toggle in the settings UI without
-// requiring them to create a section from scratch.
-func (s *SetupService) writeMeshAPOverlay(profile *setupv1.MeshNodeProfile, meshRadio string) error {
-	ifaceName := "meshap_" + meshRadio
-
-	if err := s.UCI.AddSection("wireless", ifaceName, "wifi-iface"); err != nil {
-		s.Log.Debug().Err(err).Str("section", ifaceName).Msg("AddSection meshap (ignored)")
-	}
-
-	writes := []optionWrite{
-		{wifiOptionDevice, meshRadio},
-		{wifiOptionMode, "ap"},
-		{wifiOptionNetwork, wifiNetworkAhwlan},
-		{wifiOptionEncryption, wifiEncryptionSAE},
-		{wifiOptionSSID, profile.GetHostname()},
-		{wifiOptionKey, network.RandomWifiKey(s.rng())},
-		{"disabled", "1"},
-	}
-
-	for _, w := range writes {
-		if w.value == "" {
-			continue
-		}
-
-		if err := s.UCI.SetType("wireless", ifaceName, w.option, uci.TypeOption, w.value); err != nil {
-			return fmt.Errorf("setting meshap iface %s.%s: %w", ifaceName, w.option, err)
-		}
-	}
-
-	return nil
 }
 
 // optionWrite is a small struct used by phase helpers that batch
@@ -1132,7 +1107,6 @@ const (
 	wifiOptionChannel    = "channel"
 	wifiOptionHTMode     = "htmode"
 	wifiOptionDisabled   = "disabled"
-	wifiEncryptionSAE    = "sae"
 	wifiNetworkAhwlan    = "ahwlan"
 )
 

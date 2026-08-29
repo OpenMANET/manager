@@ -244,6 +244,42 @@ func (s *WifiConfigService) GetRadioSettings(_ context.Context, req *wificonfigv
 	return resp, nil
 }
 
+// rejectNonMeshModeOnMorse enforces that a type=morse (HaLow)
+// wifi-device only ever carries mesh-mode ifaces: it returns a
+// CodeInvalidArgument error when the request would turn one into an
+// AP, STA, ad-hoc, or monitor iface. An unspecified mode
+// (channel/txpower-only edits) or mesh passes.
+func (s *WifiConfigService) rejectNonMeshModeOnMorse(radioName string, mode wificonfigv1.WifiMode) error {
+	if mode == wificonfigv1.WifiMode_WIFI_MODE_UNSPECIFIED || mode == wificonfigv1.WifiMode_WIFI_MODE_MESH {
+		return nil
+	}
+
+	if !network.IsMorseDevice(s.ConfigReader, radioName) {
+		return nil
+	}
+
+	s.Log.Warn().Str("radio", radioName).Stringer("mode", mode).
+		Msg("Rejecting non-mesh mode on HaLow radio")
+
+	return connect.NewError(connect.CodeInvalidArgument,
+		fmt.Errorf("radio %q is a HaLow (type=morse) wifi-device, which only carries mesh interfaces", radioName))
+}
+
+// ifaceDisabledValue maps the optional `disabled` flag to its UCI
+// value. Empty means the flag was not sent and the option is left
+// unchanged (SetWirelessIfaceConfigWithReader skips empty fields).
+func ifaceDisabledValue(settings *wificonfigv1.RadioSettings) string {
+	if settings.Disabled == nil {
+		return ""
+	}
+
+	if settings.GetDisabled() {
+		return "1"
+	}
+
+	return "0"
+}
+
 // UpdateRadioSettings applies new configuration to a radio.
 func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonfigv1.UpdateRadioSettingsRequest) (*wificonfigv1.UpdateRadioSettingsResponse, error) {
 	s.Log.Debug().Str("radio", req.GetRadioName()).Msg("UpdateRadioSettings request received")
@@ -257,6 +293,10 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 	}
 
 	radioName := req.GetRadioName()
+
+	if err := s.rejectNonMeshModeOnMorse(radioName, settings.GetMode()); err != nil {
+		return nil, err
+	}
 
 	// Find the linked interface section.
 	ifaceSections, err := s.ConfigReader.GetSections(wirelessConfig, "wifi-iface")
@@ -344,13 +384,7 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 		}
 	}
 
-	if settings.Disabled != nil {
-		if settings.GetDisabled() {
-			ifaceCfg.Disabled = "1"
-		} else {
-			ifaceCfg.Disabled = "0"
-		}
-	}
+	ifaceCfg.Disabled = ifaceDisabledValue(settings)
 
 	if err := network.SetWirelessIfaceConfigWithReader(ifaceName, ifaceCfg, s.ConfigReader); err != nil {
 		return &wificonfigv1.UpdateRadioSettingsResponse{

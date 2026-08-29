@@ -1054,30 +1054,49 @@ func TestCompat_Extender_WanZoneFactoryPolicyRetained(t *testing.T) {
 		"mtu_fix is stripped by the phase-4 reset and not re-applied on an extender")
 }
 
-// Gap 3: every wizard run must emit the LuCI mesh-AP overlay section
-// (`meshap_<mesh-radio>`) so operators can later toggle it on from the
-// settings UI without having to create the section by hand. The
-// section is always written disabled with default ssid/key.
-func TestCompat_MeshAPOverlayEmitted(t *testing.T) {
-	// Mesh radio in the test fixture is `radio1`. The overlay iface
-	// must follow the LuCI `meshap_<radio>` naming.
-	tr := runScenarioApply(t, gateRouterEthProfile())
+// A type=morse wifi-device only ever carries mesh-mode ifaces. An
+// older wizard build emitted a disabled meshap_<radio> AP overlay
+// beside the mesh iface (a deliberate divergence from LuCI, which
+// creates that section during its wizard and deletes it at save).
+// The overlay is gone and the reset phase now removes any AP/STA
+// leftover on a HaLow radio, so both LuCI captures and the wizard
+// agree: the HaLow radio ends up with exactly one iface, mode=mesh.
+func TestCompat_MorseRadioCarriesMeshOnly(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, _ := newFullSetupService(t, cfg)
 
-	const overlayIface = "meshap_radio1"
-	require.True(t, tr.hasSection("wireless", overlayIface),
-		"mesh-AP overlay section %s must exist — a deliberate divergence from LuCI, "+
-			"which creates it during the wizard then deletes it at save so both captures lack it",
-		overlayIface)
+	reader, ok := svc.UCI.(*fakeConfigReader)
+	require.True(t, ok)
 
-	assert.Equal(t, "ap", tr.getOne("wireless", overlayIface, "mode"))
-	assert.Equal(t, "sae", tr.getOne("wireless", overlayIface, "encryption"))
-	assert.Equal(t, "1", tr.getOne("wireless", overlayIface, "disabled"),
-		"the mesh-AP overlay must always be written disabled — operators opt-in from settings")
-	assert.Equal(t, "ahwlan", tr.getOne("wireless", overlayIface, "network"))
-	assert.NotEmpty(t, tr.getOne("wireless", overlayIface, "ssid"),
-		"mesh-AP overlay must have a default SSID set so it's usable when toggled on")
-	assert.NotEmpty(t, tr.getOne("wireless", overlayIface, "key"),
-		"mesh-AP overlay must have a default key set")
+	// Leftovers: the old overlay and a hand-added STA, both on the
+	// HaLow radio (radio1 in the fixture).
+	for name, mode := range map[string]string{"meshap_radio1": "ap", "sta_radio1": "sta"} {
+		require.NoError(t, reader.AddSection("wireless", name, "wifi-iface"))
+		require.NoError(t, reader.SetType("wireless", name, "device", uci.TypeOption, "radio1"))
+		require.NoError(t, reader.SetType("wireless", name, "mode", uci.TypeOption, mode))
+	}
+
+	collector := &streamCollector{}
+	require.NoError(t, svc.ApplySetupForTest(context.Background(), gateRouterEthProfile(), collector))
+
+	tr := &uciTree{reader: reader}
+
+	var onMorse []string
+
+	for _, iface := range tr.sectionsOfType("wireless", "wifi-iface") {
+		if tr.getOne("wireless", iface, "device") == "radio1" {
+			onMorse = append(onMorse, iface)
+		}
+	}
+
+	require.Equal(t, []string{"default_radio1"}, onMorse,
+		"the HaLow radio must carry exactly its mesh iface — no AP overlay, no leftovers")
+	assert.Equal(t, "mesh", tr.getOne("wireless", "default_radio1", "mode"))
+	assert.False(t, tr.hasSection("wireless", "meshap_radio1"))
+	assert.False(t, tr.hasSection("wireless", "sta_radio1"))
+
+	// The mac80211 radio's AP is untouched by the purge.
+	assert.Equal(t, "ap", tr.getOne("wireless", "default_radio0", "mode"))
 }
 
 // Gap 4: scoped dnsmasq sections from the factory image must be

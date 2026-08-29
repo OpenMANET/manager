@@ -35,6 +35,12 @@ Highlights that are easy to miss:
 - **`openmanetd`** — the wizard stages `openmanetd.config.dhcpconfigured=0`
   (and `batmesh1configured=0`, or `1` when a mesh backhaul was chosen). These
   are the wizard's half of the two-stage addressing design below.
+- **HaLow radios carry mesh only** — a `wifi-device` with `type 'morse'`
+  never gets an AP or STA `wifi-iface`. The wizard rejects a profile that names
+  one as an AP or wireless-uplink radio, the reset phase deletes any non-mesh
+  iface left on one (older builds wrote a disabled `meshap_<radio>` overlay
+  beside the mesh iface), and the settings API refuses to switch such a radio
+  to AP/STA.
 - **Transport MTU** — the wizard writes `option mtu 1460` on the `br-ahwlan`
   device section and on each ethernet port bridged into it, so the value
   survives a `netifd` reload instead of waiting for the daemon's netlink pass.
