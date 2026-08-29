@@ -1467,3 +1467,31 @@ func TestCompat_MeshBackhaul_OtherRadioAPIntact(t *testing.T) {
 	assert.Equal(t, "36", tr.getOne("wireless", "radio2", "channel"), "only the backhaul radio changes channel")
 	assert.True(t, tr.hasSection("wireless", "batmesh1_radio0"))
 }
+
+// TestCompat_MeshBackhaul_WritesOperatorChannelWidthCountry asserts
+// non-zero MeshBackhaulProfile radio fields replace the fixed defaults.
+func TestCompat_MeshBackhaul_WritesOperatorChannelWidthCountry(t *testing.T) {
+	prof := pointExtenderBackhaulProfile()
+	prof.Aps[0].MeshBackhaul.BandwidthMhz = 40
+	prof.Aps[0].MeshBackhaul.Channel = 6
+	prof.Aps[0].MeshBackhaul.CountryCode = "GB"
+
+	tr := runScenarioApply(t, prof)
+
+	assert.Equal(t, "6", tr.getOne("wireless", "radio0", "channel"))
+	assert.Equal(t, "HE40", tr.getOne("wireless", "radio0", "htmode"))
+	assert.Equal(t, "GB", tr.getOne("wireless", "radio0", "country"))
+}
+
+// TestCompat_MeshBackhaul_ZeroFieldsKeepDefaults pins that the new
+// fields at their zero values reproduce the pre-existing writes and
+// leave the radio's country exactly as the reader seeded it.
+func TestCompat_MeshBackhaul_ZeroFieldsKeepDefaults(t *testing.T) {
+	seeded, _ := newFullSetupReader().Get("wireless", "radio0", "country")
+
+	tr := runScenarioApply(t, pointExtenderBackhaulProfile())
+
+	assert.Equal(t, network.SecondaryMeshChannel2G, tr.getOne("wireless", "radio0", "channel"))
+	assert.Equal(t, network.SecondaryMeshHTMode2G, tr.getOne("wireless", "radio0", "htmode"))
+	assert.Equal(t, seeded, tr.get("wireless", "radio0", "country"), "the wizard must not touch country unless the profile carries one")
+}

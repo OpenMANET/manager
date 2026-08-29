@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1198,6 +1199,30 @@ func (s *SetupService) validateMeshBackhaul(ctx context.Context, profile *setupv
 	if !s.radioSupportsMeshBackhaul(ctx, backhaul.GetRadioName()) {
 		return fmt.Errorf("radio %q does not support mesh backhaul (needs a 2.4 GHz MT7915/MT7916 radio)",
 			backhaul.GetRadioName())
+	}
+
+	return validateBackhaulRadioTuning(backhaul.GetRadioName(), backhaul.GetMeshBackhaul())
+}
+
+// validateBackhaulRadioTuning checks the optional channel/width/country
+// on a backhaul entry: both channel and bandwidth are zero (keep the
+// daemon defaults) or both are set, the width is a 2.4 GHz width and
+// the channel is in the static 2.4 GHz list the settings API uses.
+func validateBackhaulRadioTuning(radio string, bh *setupv1.MeshBackhaulProfile) error {
+	if (bh.GetChannel() == 0) != (bh.GetBandwidthMhz() == 0) {
+		return fmt.Errorf("mesh backhaul on %q: channel and bandwidth_mhz must be set together", radio)
+	}
+
+	if bh.GetChannel() == 0 {
+		return nil
+	}
+
+	if network.SecondaryMeshHTMode(bh.GetBandwidthMhz()) == "" {
+		return fmt.Errorf("mesh backhaul on %q: %d MHz is not a 2.4 GHz width (20 or 40)", radio, bh.GetBandwidthMhz())
+	}
+
+	if !slices.Contains(availableChannelsForBand(wificonfigv1.WifiBand_WIFI_BAND_2G), strconv.FormatUint(uint64(bh.GetChannel()), 10)) {
+		return fmt.Errorf("mesh backhaul on %q: channel %d is not a 2.4 GHz channel (1-11)", radio, bh.GetChannel())
 	}
 
 	return nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 
@@ -993,7 +994,9 @@ func (s *SetupService) writeSTAIface(w *setupv1.WifiStaProfile) error {
 // what the daemon's boot-time fallback (mgmt.setupBatMesh1Interface)
 // would — with the operator's own mesh ID and passphrase instead of
 // borrowed HaLow credentials — and the section can never collide with
-// default_<radio>. The radio moves to the link's fixed channel/width.
+// default_<radio>. The radio moves to the operator's channel/width/
+// country when the profile carries them, else to the link's fixed
+// defaults (channel 8, HE20, country untouched).
 // Raw SetType calls only; phase 12 commits.
 func (s *SetupService) writeMeshBackhaulIface(ap *setupv1.RadioApProfile) error {
 	link := network.MeshLink{
@@ -1031,9 +1034,20 @@ func (s *SetupService) writeMeshBackhaulIface(ap *setupv1.RadioApProfile) error 
 		return fmt.Errorf("clearing mesh backhaul iface %s.disabled: %w", section, err)
 	}
 
+	bh := ap.GetMeshBackhaul()
+
+	channel := network.SecondaryMeshChannel2G
+	if bh.GetChannel() > 0 {
+		channel = strconv.FormatUint(uint64(bh.GetChannel()), 10)
+	}
+
 	radioWrites := []optionWrite{
-		{wifiOptionChannel, network.SecondaryMeshChannel2G},
-		{wifiOptionHTMode, network.SecondaryMeshHTMode2G},
+		{wifiOptionChannel, channel},
+		{wifiOptionHTMode, network.SecondaryMeshHTMode(bh.GetBandwidthMhz())},
+	}
+
+	if cc := bh.GetCountryCode(); cc != "" {
+		radioWrites = append(radioWrites, optionWrite{"country", cc})
 	}
 
 	for _, ow := range radioWrites {

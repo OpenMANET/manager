@@ -2252,3 +2252,63 @@ func TestApplySetup_TimezoneClockSyncSetTimeFnErrorStillSucceeds(t *testing.T) {
 
 	require.NoError(t, runApplySetup(t, svc, prof), "SetTimeFn failure must not fail the phase")
 }
+
+func TestApplySetup_RejectsBackhaulChannelWithoutBandwidth(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+	svc.Iwinfo, svc.WirelessStatus = backhaulCapableProviders()
+
+	prof := minimalProfile()
+	entry := backhaulEntry("radio0")
+	entry.MeshBackhaul.Channel = 6
+	prof.Aps = []*setupv1.RadioApProfile{entry}
+
+	err := runApplySetup(t, svc, prof)
+	requireConnectCode(t, err, connect.CodeInvalidArgument)
+	assert.Contains(t, err.Error(), "channel and bandwidth_mhz must be set together")
+}
+
+func TestApplySetup_RejectsBackhaulBandwidthWithoutChannel(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+	svc.Iwinfo, svc.WirelessStatus = backhaulCapableProviders()
+
+	prof := minimalProfile()
+	entry := backhaulEntry("radio0")
+	entry.MeshBackhaul.BandwidthMhz = 20
+	prof.Aps = []*setupv1.RadioApProfile{entry}
+
+	err := runApplySetup(t, svc, prof)
+	requireConnectCode(t, err, connect.CodeInvalidArgument)
+	assert.Contains(t, err.Error(), "channel and bandwidth_mhz must be set together")
+}
+
+func TestApplySetup_RejectsBackhaulChannelOutside2G(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc := newSetupService(t, cfg, newSetupReader(), &fakeInterfaceProvider{})
+	svc.Iwinfo, svc.WirelessStatus = backhaulCapableProviders()
+
+	prof := minimalProfile()
+	entry := backhaulEntry("radio0")
+	entry.MeshBackhaul.BandwidthMhz = 20
+	entry.MeshBackhaul.Channel = 14 // runApplySetup bypasses the proto lte 11 rule (no interceptor)
+	prof.Aps = []*setupv1.RadioApProfile{entry}
+
+	err := runApplySetup(t, svc, prof)
+	requireConnectCode(t, err, connect.CodeInvalidArgument)
+	assert.Contains(t, err.Error(), "not a 2.4 GHz channel")
+}
+
+func TestApplySetup_AcceptsBackhaulChannelAndWidth(t *testing.T) {
+	cfg := setupBLOSTestConfig(t, "setup:\n  enabled: true\n")
+	svc, _ := newFullSetupService(t, cfg)
+
+	prof := minimalProfile()
+	entry := backhaulEntry("radio0")
+	entry.MeshBackhaul.BandwidthMhz = 40
+	entry.MeshBackhaul.Channel = 6
+	prof.Aps = []*setupv1.RadioApProfile{entry}
+
+	require.NoError(t, svc.ApplySetupForTest(context.Background(), prof, &streamCollector{}),
+		"a legal channel/width pair must pass validation and apply")
+}
