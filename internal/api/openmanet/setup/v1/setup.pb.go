@@ -470,11 +470,21 @@ func (x *WifiStaProfile) GetEncryption() v1.WifiEncryption {
 // MeshBackhaulProfile turns a non-HaLow radio into a second batman-adv
 // mesh link (UCI network batmesh1) instead of a client AP. The link is
 // always WPA3 (SAE) with its own mesh ID and passphrase; every node on
-// the 2.4 GHz backhaul must share both.
+// the 2.4 GHz backhaul must share both, plus the channel and width.
 type MeshBackhaulProfile struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MeshId        string                 `protobuf:"bytes,1,opt,name=mesh_id,json=meshId,proto3" json:"mesh_id,omitempty"`
-	Passphrase    string                 `protobuf:"bytes,2,opt,name=passphrase,proto3" json:"passphrase,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	MeshId     string                 `protobuf:"bytes,1,opt,name=mesh_id,json=meshId,proto3" json:"mesh_id,omitempty"`
+	Passphrase string                 `protobuf:"bytes,2,opt,name=passphrase,proto3" json:"passphrase,omitempty"`
+	// Radio width for the backhaul link. 0 keeps the daemon's fixed
+	// default (HE20); otherwise 20 or 40 (HE20 / HE40).
+	BandwidthMhz uint32 `protobuf:"varint,3,opt,name=bandwidth_mhz,json=bandwidthMhz,proto3" json:"bandwidth_mhz,omitempty"`
+	// 2.4 GHz channel, 1..11. 0 keeps the daemon's fixed default (8). The
+	// handler rejects a non-zero channel with a zero bandwidth_mhz and the
+	// reverse.
+	Channel uint32 `protobuf:"varint,4,opt,name=channel,proto3" json:"channel,omitempty"`
+	// Regulatory country written to the backhaul radio. Empty leaves the
+	// radio's current country untouched.
+	CountryCode   string `protobuf:"bytes,5,opt,name=country_code,json=countryCode,proto3" json:"country_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -519,6 +529,27 @@ func (x *MeshBackhaulProfile) GetMeshId() string {
 func (x *MeshBackhaulProfile) GetPassphrase() string {
 	if x != nil {
 		return x.Passphrase
+	}
+	return ""
+}
+
+func (x *MeshBackhaulProfile) GetBandwidthMhz() uint32 {
+	if x != nil {
+		return x.BandwidthMhz
+	}
+	return 0
+}
+
+func (x *MeshBackhaulProfile) GetChannel() uint32 {
+	if x != nil {
+		return x.Channel
+	}
+	return 0
+}
+
+func (x *MeshBackhaulProfile) GetCountryCode() string {
+	if x != nil {
+		return x.CountryCode
 	}
 	return ""
 }
@@ -1609,12 +1640,15 @@ const file_openmanet_setup_v1_setup_proto_rawDesc = "" +
 	"\n" +
 	"encryption\x18\x04 \x01(\x0e2(.openmanet.wifi_config.v1.WifiEncryptionB\n" +
 	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\n" +
-	"encryption\"d\n" +
+	"encryption\"\xf6\x01\n" +
 	"\x13MeshBackhaulProfile\x12\"\n" +
 	"\amesh_id\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18 R\x06meshId\x12)\n" +
 	"\n" +
 	"passphrase\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\b\x18?R\n" +
-	"passphrase\"\xcc\x02\n" +
+	"passphrase\x120\n" +
+	"\rbandwidth_mhz\x18\x03 \x01(\rB\v\xbaH\b*\x060\x000\x140(R\fbandwidthMhz\x12!\n" +
+	"\achannel\x18\x04 \x01(\rB\a\xbaH\x04*\x02\x18\vR\achannel\x12;\n" +
+	"\fcountry_code\x18\x05 \x01(\tB\x18\xbaH\x15r\x13\x18\x032\x0f^([A-Z]{2,3})?$R\vcountryCode\"\xcc\x02\n" +
 	"\x0eRadioApProfile\x12&\n" +
 	"\n" +
 	"radio_name\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tradioName\x12\x18\n" +

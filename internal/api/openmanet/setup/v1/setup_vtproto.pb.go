@@ -50,6 +50,9 @@ func (m *MeshBackhaulProfile) CloneVT() *MeshBackhaulProfile {
 	r := new(MeshBackhaulProfile)
 	r.MeshId = m.MeshId
 	r.Passphrase = m.Passphrase
+	r.BandwidthMhz = m.BandwidthMhz
+	r.Channel = m.Channel
+	r.CountryCode = m.CountryCode
 	if len(m.unknownFields) > 0 {
 		r.unknownFields = make([]byte, len(m.unknownFields))
 		copy(r.unknownFields, m.unknownFields)
@@ -395,6 +398,15 @@ func (this *MeshBackhaulProfile) EqualVT(that *MeshBackhaulProfile) bool {
 		return false
 	}
 	if this.Passphrase != that.Passphrase {
+		return false
+	}
+	if this.BandwidthMhz != that.BandwidthMhz {
+		return false
+	}
+	if this.Channel != that.Channel {
+		return false
+	}
+	if this.CountryCode != that.CountryCode {
 		return false
 	}
 	return string(this.unknownFields) == string(that.unknownFields)
@@ -970,6 +982,23 @@ func (m *MeshBackhaulProfile) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	if m.unknownFields != nil {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
+	}
+	if len(m.CountryCode) > 0 {
+		i -= len(m.CountryCode)
+		copy(dAtA[i:], m.CountryCode)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CountryCode)))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.Channel != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Channel))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.BandwidthMhz != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.BandwidthMhz))
+		i--
+		dAtA[i] = 0x18
 	}
 	if len(m.Passphrase) > 0 {
 		i -= len(m.Passphrase)
@@ -1925,6 +1954,23 @@ func (m *MeshBackhaulProfile) MarshalToSizedBufferVTStrict(dAtA []byte) (int, er
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if len(m.CountryCode) > 0 {
+		i -= len(m.CountryCode)
+		copy(dAtA[i:], m.CountryCode)
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(len(m.CountryCode)))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.Channel != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.Channel))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.BandwidthMhz != 0 {
+		i = protohelpers.EncodeVarint(dAtA, i, uint64(m.BandwidthMhz))
+		i--
+		dAtA[i] = 0x18
+	}
 	if len(m.Passphrase) > 0 {
 		i -= len(m.Passphrase)
 		copy(dAtA[i:], m.Passphrase)
@@ -2834,6 +2880,16 @@ func (m *MeshBackhaulProfile) SizeVT() (n int) {
 	if l > 0 {
 		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
 	}
+	if m.BandwidthMhz != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.BandwidthMhz))
+	}
+	if m.Channel != 0 {
+		n += 1 + protohelpers.SizeOfVarint(uint64(m.Channel))
+	}
+	l = len(m.CountryCode)
+	if l > 0 {
+		n += 1 + l + protohelpers.SizeOfVarint(uint64(l))
+	}
 	n += len(m.unknownFields)
 	return n
 }
@@ -3446,6 +3502,76 @@ func (m *MeshBackhaulProfile) UnmarshalVT(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.Passphrase = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field BandwidthMhz", wireType)
+			}
+			m.BandwidthMhz = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.BandwidthMhz |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Channel", wireType)
+			}
+			m.Channel = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Channel |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CountryCode", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.CountryCode = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -5964,6 +6090,80 @@ func (m *MeshBackhaulProfile) UnmarshalVTUnsafe(dAtA []byte) error {
 				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
 			}
 			m.Passphrase = stringValue
+			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field BandwidthMhz", wireType)
+			}
+			m.BandwidthMhz = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.BandwidthMhz |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Channel", wireType)
+			}
+			m.Channel = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Channel |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CountryCode", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return protohelpers.ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return protohelpers.ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			var stringValue string
+			if intStringLen > 0 {
+				stringValue = unsafe.String(&dAtA[iNdEx], intStringLen)
+			}
+			m.CountryCode = stringValue
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
