@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -57,6 +58,30 @@ type WifiConfigService struct {
 	GetMeshNeighbors func() (*batmanadv.Neighbors, error)
 
 	mu sync.Mutex // serializes UCI writes
+}
+
+// RadioSettingsUpdate is one radio's new settings inside a batch apply.
+type RadioSettingsUpdate struct {
+	Settings  *wificonfigv1.RadioSettings
+	RadioName string
+}
+
+// RadioApplier is the slice of WifiConfigService other handlers use to
+// read and write radio settings under the same UCI write lock.
+type RadioApplier interface {
+	CurrentRadioSettings(radioName string) (*wificonfigv1.RadioSettings, error)
+	ApplyRadioSettingsBatch(updates []RadioSettingsUpdate) error
+}
+
+// stageWriteError reports a UCI write failure while staging radio
+// settings. UpdateRadioSettings surfaces it as Success=false with the
+// message (its historical contract) instead of an RPC error.
+type stageWriteError struct {
+	msg string
+}
+
+func (e *stageWriteError) Error() string {
+	return e.msg
 }
 
 func (s *WifiConfigService) parseBatHosts(path string) (*batmanadv.BatHosts, error) {
@@ -188,24 +213,55 @@ func (s *WifiConfigService) GetRadioStatus(ctx context.Context, req *wificonfigv
 func (s *WifiConfigService) GetRadioSettings(_ context.Context, req *wificonfigv1.GetRadioSettingsRequest) (*wificonfigv1.GetRadioSettingsResponse, error) {
 	s.Log.Debug().Str("radio", req.GetRadioName()).Msg("GetRadioSettings request received")
 
-	dev, err := network.GetWirelessDeviceByNameWithReader(req.GetRadioName(), s.ConfigReader)
+	settings, band, err := s.readRadioSettings(req.GetRadioName())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("read device config: %w", err))
+		return nil, err
+	}
+
+	// Populate available options for dropdowns.
+	return &wificonfigv1.GetRadioSettingsResponse{
+		Settings:             settings,
+		AvailableChannels:    availableChannelsForBand(band),
+		AvailableBandwidths:  availableBandwidthsForBand(band),
+		AvailableEncryptions: availableEncryptions(),
+	}, nil
+}
+
+// CurrentRadioSettings returns the radio's stored settings (password
+// omitted, like GetRadioSettings) for callers that overlay a change on
+// top of them.
+func (s *WifiConfigService) CurrentRadioSettings(radioName string) (*wificonfigv1.RadioSettings, error) {
+	settings, _, err := s.readRadioSettings(radioName)
+
+	return settings, err
+}
+
+// readRadioSettings reads the device and linked iface for radioName.
+// Errors are connect errors: CodeNotFound when no iface links to the
+// radio, CodeInternal for UCI read failures.
+func (s *WifiConfigService) readRadioSettings(radioName string) (*wificonfigv1.RadioSettings, wificonfigv1.WifiBand, error) {
+	dev, err := network.GetWirelessDeviceByNameWithReader(radioName, s.ConfigReader)
+	if err != nil {
+		return nil, wificonfigv1.WifiBand_WIFI_BAND_UNSPECIFIED,
+			connect.NewError(connect.CodeInternal, fmt.Errorf("read device config: %w", err))
 	}
 
 	ifaceSections, err := s.ConfigReader.GetSections(wirelessConfig, "wifi-iface")
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list wifi-iface sections: %w", err))
+		return nil, wificonfigv1.WifiBand_WIFI_BAND_UNSPECIFIED,
+			connect.NewError(connect.CodeInternal, fmt.Errorf("list wifi-iface sections: %w", err))
 	}
 
-	ifaceName := findLinkedIface(req.GetRadioName(), ifaceSections, s.ConfigReader)
+	ifaceName := findLinkedIface(radioName, ifaceSections, s.ConfigReader)
 	if ifaceName == "" {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no interface linked to radio %q", req.GetRadioName()))
+		return nil, wificonfigv1.WifiBand_WIFI_BAND_UNSPECIFIED,
+			connect.NewError(connect.CodeNotFound, fmt.Errorf("no interface linked to radio %q", radioName))
 	}
 
 	iface, err := network.GetWirelessIfaceByNameWithReader(ifaceName, s.ConfigReader)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("read iface config: %w", err))
+		return nil, wificonfigv1.WifiBand_WIFI_BAND_UNSPECIFIED,
+			connect.NewError(connect.CodeInternal, fmt.Errorf("read iface config: %w", err))
 	}
 
 	txPower, _ := strconv.Atoi(dev.TxPower)
@@ -231,17 +287,7 @@ func (s *WifiConfigService) GetRadioSettings(_ context.Context, req *wificonfigv
 		settings.Disabled = boolPtr(true)
 	}
 
-	band := WifiBandToProto(dev.Band)
-
-	// Populate available options for dropdowns.
-	resp := &wificonfigv1.GetRadioSettingsResponse{
-		Settings:             settings,
-		AvailableChannels:    availableChannelsForBand(band),
-		AvailableBandwidths:  availableBandwidthsForBand(band),
-		AvailableEncryptions: availableEncryptions(),
-	}
-
-	return resp, nil
+	return settings, WifiBandToProto(dev.Band), nil
 }
 
 // rejectNonMeshModeOnMorse enforces that a type=morse (HaLow)
@@ -287,32 +333,79 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	settings := req.GetSettings()
-	if settings == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("settings are required"))
+	if err := s.stageRadioSettings(req.GetRadioName(), req.GetSettings()); err != nil {
+		var sw *stageWriteError
+		if errors.As(err, &sw) {
+			return &wificonfigv1.UpdateRadioSettingsResponse{Success: false, Message: strPtr(sw.msg)}, nil
+		}
+
+		return nil, err
 	}
 
-	radioName := req.GetRadioName()
+	// Reload the wireless subsystem so changes take effect.
+	if err := s.ConfigReader.ReloadConfig(); err != nil {
+		return &wificonfigv1.UpdateRadioSettingsResponse{
+			Success: false,
+			Message: strPtr(fmt.Sprintf("config committed but reload failed: %v", err)),
+		}, nil
+	}
+
+	return &wificonfigv1.UpdateRadioSettingsResponse{Success: true}, nil
+}
+
+// ApplyRadioSettingsBatch stages every update under one lock and
+// reloads wireless once. Any staging error aborts before the reload;
+// UCI writes already staged for earlier radios are committed by the
+// per-radio setters and are not rolled back — callers re-read state on
+// error.
+func (s *WifiConfigService) ApplyRadioSettingsBatch(updates []RadioSettingsUpdate) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, u := range updates {
+		if err := s.stageRadioSettings(u.RadioName, u.Settings); err != nil {
+			return fmt.Errorf("stage %s: %w", u.RadioName, err)
+		}
+	}
+
+	if err := s.ConfigReader.ReloadConfig(); err != nil {
+		return fmt.Errorf("reload wireless: %w", err)
+	}
+
+	return nil
+}
+
+// stageRadioSettings writes the device and iface options for one radio.
+// The caller holds s.mu. Validation and lookup failures are connect
+// errors; UCI write failures are *stageWriteError.
+func (s *WifiConfigService) stageRadioSettings(radioName string, settings *wificonfigv1.RadioSettings) error { //nolint:gocognit,gocyclo // one linear staging sequence; splitting it hides the write order
+	if settings == nil {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("settings are required"))
+	}
 
 	if err := s.rejectNonMeshModeOnMorse(radioName, settings.GetMode()); err != nil {
-		return nil, err
+		return err
 	}
 
 	// Find the linked interface section.
 	ifaceSections, err := s.ConfigReader.GetSections(wirelessConfig, "wifi-iface")
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list wifi-iface sections: %w", err))
+		return connect.NewError(connect.CodeInternal, fmt.Errorf("list wifi-iface sections: %w", err))
 	}
 
 	ifaceName := findLinkedIface(radioName, ifaceSections, s.ConfigReader)
 	if ifaceName == "" {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no interface linked to radio %q", radioName))
+		return connect.NewError(connect.CodeNotFound, fmt.Errorf("no interface linked to radio %q", radioName))
 	}
 
-	// Build device config update.
+	// Build device config update. A tx_power of 0 means "unset": leave
+	// the UCI option alone rather than forcing 0 dBm.
 	devCfg := &network.UCIWirelessDevice{
 		Channel: settings.GetChannel(),
-		TxPower: strconv.Itoa(int(settings.GetTxPower())),
+	}
+
+	if settings.GetTxPower() > 0 {
+		devCfg.TxPower = strconv.Itoa(int(settings.GetTxPower()))
 	}
 
 	if htmode := ProtoToWifiHTMode(settings.GetBandwidth()); htmode != "" {
@@ -324,10 +417,7 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 	}
 
 	if err := network.SetWirelessDeviceConfigWithReader(radioName, devCfg, s.ConfigReader); err != nil {
-		return &wificonfigv1.UpdateRadioSettingsResponse{
-			Success: false,
-			Message: strPtr(fmt.Sprintf("failed to update device config: %v", err)),
-		}, nil
+		return &stageWriteError{msg: fmt.Sprintf("failed to update device config: %v", err)}
 	}
 
 	// Build interface config update.
@@ -371,7 +461,7 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 				if err != nil {
 					s.Log.Warn().Err(err).Str("radio", radioName).Msg("no batmesh network available")
 
-					return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+					return connect.NewError(connect.CodeFailedPrecondition, err)
 				}
 
 				ifaceCfg.Network = unused
@@ -387,21 +477,10 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 	ifaceCfg.Disabled = ifaceDisabledValue(settings)
 
 	if err := network.SetWirelessIfaceConfigWithReader(ifaceName, ifaceCfg, s.ConfigReader); err != nil {
-		return &wificonfigv1.UpdateRadioSettingsResponse{
-			Success: false,
-			Message: strPtr(fmt.Sprintf("failed to update iface config: %v", err)),
-		}, nil
+		return &stageWriteError{msg: fmt.Sprintf("failed to update iface config: %v", err)}
 	}
 
-	// Reload the wireless subsystem so changes take effect.
-	if err := s.ConfigReader.ReloadConfig(); err != nil {
-		return &wificonfigv1.UpdateRadioSettingsResponse{
-			Success: false,
-			Message: strPtr(fmt.Sprintf("config committed but reload failed: %v", err)),
-		}, nil
-	}
-
-	return &wificonfigv1.UpdateRadioSettingsResponse{Success: true}, nil
+	return nil
 }
 
 // ListConnectedClients returns all clients connected to an AP-mode radio.

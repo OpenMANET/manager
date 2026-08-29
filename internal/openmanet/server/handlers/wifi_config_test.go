@@ -17,6 +17,8 @@ import (
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -64,6 +66,7 @@ type fakeConfigReader struct {
 	sectionTypes map[string]map[string]string
 	commitCalled bool
 	reloadCalled bool
+	reloadCalls  int
 	commitError  error
 	reloadError  error
 	setTypeError error
@@ -169,6 +172,7 @@ func (f *fakeConfigReader) Commit() error {
 
 func (f *fakeConfigReader) ReloadConfig() error {
 	f.reloadCalled = true
+	f.reloadCalls++
 
 	return f.reloadError
 }
@@ -1875,4 +1879,93 @@ func TestWifiModeRoundTrip(t *testing.T) {
 	if got := handlers.ProtoToWifiMode(wificonfigv1.WifiMode_WIFI_MODE_UNSPECIFIED); got != "" {
 		t.Errorf("ProtoToWifiMode(UNSPECIFIED) = %q, want empty string", got)
 	}
+}
+
+func TestCurrentRadioSettings_MatchesGetRadioSettings(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+
+	viaRPC, err := svc.GetRadioSettings(context.Background(), &wificonfigv1.GetRadioSettingsRequest{RadioName: "radio3"})
+	require.NoError(t, err)
+
+	cur, err := svc.CurrentRadioSettings("radio3")
+	require.NoError(t, err)
+
+	assert.Equal(t, viaRPC.GetSettings().GetMeshId(), cur.GetMeshId())
+	assert.Equal(t, viaRPC.GetSettings().GetChannel(), cur.GetChannel())
+	assert.Equal(t, viaRPC.GetSettings().GetTxPower(), cur.GetTxPower())
+	assert.Equal(t, viaRPC.GetSettings().GetMode(), cur.GetMode())
+	assert.Nil(t, cur.Password, "passwords are never read back")
+}
+
+func TestCurrentRadioSettings_UnknownRadio(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+
+	_, err := svc.CurrentRadioSettings("radio9")
+
+	var cerr *connect.Error
+	require.ErrorAs(t, err, &cerr)
+	assert.Equal(t, connect.CodeNotFound, cerr.Code())
+}
+
+func TestApplyRadioSettingsBatch_TwoRadiosOneReload(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	err := svc.ApplyRadioSettingsBatch([]handlers.RadioSettingsUpdate{
+		{RadioName: "radio2", Settings: &wificonfigv1.RadioSettings{Ssid: "ap-new", Channel: "6", TxPower: 15}},
+		{RadioName: "radio3", Settings: &wificonfigv1.RadioSettings{Ssid: "mesh-new", MeshId: strPtr("mesh-new"), Channel: "28", TxPower: 14}},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, reader.reloadCalls, "one reload for the whole batch")
+
+	ch, _ := reader.Get("wireless", "radio2", "channel")
+	assert.Equal(t, []string{"6"}, ch)
+
+	meshID, _ := reader.Get("wireless", "default_radio3", "mesh_id")
+	assert.Equal(t, []string{"mesh-new"}, meshID)
+}
+
+func TestApplyRadioSettingsBatch_StageErrorSkipsReload(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	err := svc.ApplyRadioSettingsBatch([]handlers.RadioSettingsUpdate{
+		{RadioName: "radio2", Settings: &wificonfigv1.RadioSettings{Ssid: "ap-new", Channel: "6", TxPower: 15}},
+		{RadioName: "radio9", Settings: &wificonfigv1.RadioSettings{Ssid: "ghost", Channel: "1", TxPower: 15}},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "radio9")
+	assert.Equal(t, 0, reader.reloadCalls, "a failed batch must not reload")
+}
+
+func TestApplyRadioSettingsBatch_ReloadErrorSurfaces(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	reader.reloadError = errors.New("wifi reload failed")
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	err := svc.ApplyRadioSettingsBatch([]handlers.RadioSettingsUpdate{
+		{RadioName: "radio2", Settings: &wificonfigv1.RadioSettings{Ssid: "ap-new", Channel: "6", TxPower: 15}},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "wifi reload failed")
+}
+
+func TestUpdateRadioSettings_ZeroTxPowerLeavesUCIUntouched(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings:  &wificonfigv1.RadioSettings{Ssid: "ap-new", Channel: "6", TxPower: 0},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetSuccess())
+
+	tx, _ := reader.Get("wireless", "radio2", "txpower")
+	assert.Equal(t, []string{"20"}, tx, "tx_power 0 means 'unset' and must not force 0 dBm")
 }
