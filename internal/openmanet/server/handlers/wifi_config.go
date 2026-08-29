@@ -421,23 +421,18 @@ func (s *WifiConfigService) stageRadioSettings(radioName string, settings *wific
 	}
 
 	// Build interface config update.
-	ifaceCfg := &network.UCIWirelessIface{
-		SSID: settings.GetSsid(),
-	}
+	ifaceCfg := &network.UCIWirelessIface{}
 
 	if settings.Password != nil && settings.GetPassword() != "" {
 		ifaceCfg.Key = settings.GetPassword()
-	}
-
-	if settings.MeshId != nil {
-		ifaceCfg.MeshID = settings.GetMeshId()
 	}
 
 	if enc := ProtoToWifiEncryption(settings.GetEncryption()); enc != "" {
 		ifaceCfg.Encryption = enc
 	}
 
-	if mode := ProtoToWifiMode(settings.GetMode()); mode != "" {
+	mode := ProtoToWifiMode(settings.GetMode())
+	if mode != "" {
 		ifaceCfg.Mode = mode
 
 		switch mode {
@@ -474,10 +469,60 @@ func (s *WifiConfigService) stageRadioSettings(radioName string, settings *wific
 		}
 	}
 
+	if err := s.stageIfaceIdentity(ifaceName, mode, settings, ifaceCfg); err != nil {
+		return err
+	}
+
 	ifaceCfg.Disabled = ifaceDisabledValue(settings)
 
 	if err := network.SetWirelessIfaceConfigWithReader(ifaceName, ifaceCfg, s.ConfigReader); err != nil {
 		return &stageWriteError{msg: fmt.Sprintf("failed to update iface config: %v", err)}
+	}
+
+	return nil
+}
+
+// stageIfaceIdentity stages the network-name option that matches the
+// iface's effective mode and clears the other one. A mode=mesh
+// wifi-iface carries mesh_id only: the frontend mirrors mesh_id into
+// ssid to satisfy the proto's ssid min_len, and an AP section being
+// converted already has an ssid — either one left in the section keeps
+// the radio from coming up. AP and STA ifaces carry ssid only. The
+// effective mode is the requested one, else the mode already on the
+// section, so a channel-only edit of a mesh iface (which still has to
+// send an ssid) never re-introduces it. Other modes keep the legacy
+// write-what-was-sent behavior. Del on a missing option is a no-op.
+func (s *WifiConfigService) stageIfaceIdentity(ifaceName, mode string, settings *wificonfigv1.RadioSettings, ifaceCfg *network.UCIWirelessIface) error {
+	if mode == "" {
+		if vals, ok := s.ConfigReader.Get(wirelessConfig, ifaceName, wifiOptionMode); ok && len(vals) > 0 {
+			mode = vals[0]
+		}
+	}
+
+	switch mode {
+	case uciModeMesh:
+		// Clients that only know ssid still get a usable mesh: the
+		// network name lands in mesh_id.
+		ifaceCfg.MeshID = settings.GetSsid()
+		if settings.GetMeshId() != "" {
+			ifaceCfg.MeshID = settings.GetMeshId()
+		}
+
+		if err := s.ConfigReader.Del(wirelessConfig, ifaceName, wifiOptionSSID); err != nil {
+			return &stageWriteError{msg: fmt.Sprintf("failed to clear ssid on mesh iface: %v", err)}
+		}
+	case uciModeAP, uciModeSTA:
+		ifaceCfg.SSID = settings.GetSsid()
+
+		if err := s.ConfigReader.Del(wirelessConfig, ifaceName, wifiOptionMeshID); err != nil {
+			return &stageWriteError{msg: fmt.Sprintf("failed to clear mesh_id on %s iface: %v", mode, err)}
+		}
+	default:
+		ifaceCfg.SSID = settings.GetSsid()
+
+		if settings.MeshId != nil {
+			ifaceCfg.MeshID = settings.GetMeshId()
+		}
 	}
 
 	return nil

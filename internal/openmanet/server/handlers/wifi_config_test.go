@@ -1969,3 +1969,130 @@ func TestUpdateRadioSettings_ZeroTxPowerLeavesUCIUntouched(t *testing.T) {
 	tx, _ := reader.Get("wireless", "radio2", "txpower")
 	assert.Equal(t, []string{"20"}, tx, "tx_power 0 means 'unset' and must not force 0 dBm")
 }
+
+// A mode=mesh wifi-iface must carry mesh_id only. The frontend mirrors
+// mesh_id into ssid to satisfy the proto's ssid min_len, and the AP
+// section being converted already has an ssid; either one left in the
+// section keeps the radio from coming up.
+func TestUpdateRadioSettings_MeshMode_WritesMeshIDNotSSID(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:       "backhaul",
+			MeshId:     strPtr("backhaul"),
+			Password:   strPtr("meshsecret"),
+			Channel:    "6",
+			Mode:       wificonfigv1.WifiMode_WIFI_MODE_MESH,
+			Encryption: wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE,
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetSuccess(), "message: %v", resp.GetMessage())
+
+	mode, _ := reader.Get("wireless", "default_radio2", "mode")
+	assert.Equal(t, []string{"mesh"}, mode)
+
+	meshID, _ := reader.Get("wireless", "default_radio2", "mesh_id")
+	assert.Equal(t, []string{"backhaul"}, meshID)
+
+	ssid, hasSSID := reader.Get("wireless", "default_radio2", "ssid")
+	assert.False(t, hasSSID, "ssid must not be written on a mesh iface, got %v", ssid)
+}
+
+// An edit that leaves mode unspecified on an iface already in mesh mode
+// (channel/txpower change) still carries an ssid because the proto
+// requires one; it must not be written, and a stale ssid already on
+// the section must be cleared.
+func TestUpdateRadioSettings_MeshIface_UnspecifiedMode_DropsStaleSSID(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// Fixture default_radio3 is mode=mesh with both ssid and mesh_id.
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio3",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "openmanet-mesh",
+			MeshId:  strPtr("openmanet-mesh"),
+			Channel: "28",
+			TxPower: 14,
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetSuccess(), "message: %v", resp.GetMessage())
+
+	mode, _ := reader.Get("wireless", "default_radio3", "mode")
+	assert.Equal(t, []string{"mesh"}, mode, "mode must be left alone when unspecified")
+
+	meshID, _ := reader.Get("wireless", "default_radio3", "mesh_id")
+	assert.Equal(t, []string{"openmanet-mesh"}, meshID)
+
+	ssid, hasSSID := reader.Get("wireless", "default_radio3", "ssid")
+	assert.False(t, hasSSID, "stale ssid must be cleared from a mesh iface, got %v", ssid)
+}
+
+// The inverse: switching a mesh iface back to AP drops the stale
+// mesh_id so the AP section only carries its ssid.
+func TestUpdateRadioSettings_APMode_DropsStaleMeshID(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// Turn default_radio2 into a mesh iface first (radio3 is HaLow and
+	// rejects AP mode, so the round trip has to happen on radio2).
+	require.NoError(t, reader.SetType("wireless", "default_radio2", "mode", uci.TypeOption, "mesh"))
+	require.NoError(t, reader.SetType("wireless", "default_radio2", "mesh_id", uci.TypeOption, "backhaul"))
+	require.NoError(t, reader.SetType("wireless", "default_radio2", "network", uci.TypeOption, "batmesh1"))
+	require.NoError(t, reader.Del("wireless", "default_radio2", "ssid"))
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:       "openmanet",
+			Password:   strPtr("testsecret"),
+			Channel:    "6",
+			Mode:       wificonfigv1.WifiMode_WIFI_MODE_AP,
+			Encryption: wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK2,
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetSuccess(), "message: %v", resp.GetMessage())
+
+	mode, _ := reader.Get("wireless", "default_radio2", "mode")
+	assert.Equal(t, []string{"ap"}, mode)
+
+	ssid, _ := reader.Get("wireless", "default_radio2", "ssid")
+	assert.Equal(t, []string{"openmanet"}, ssid)
+
+	meshID, hasMeshID := reader.Get("wireless", "default_radio2", "mesh_id")
+	assert.False(t, hasMeshID, "stale mesh_id must be cleared from an AP iface, got %v", meshID)
+}
+
+// A client that only knows ssid still gets a usable mesh iface: the
+// network name lands in mesh_id, never in ssid.
+func TestUpdateRadioSettings_MeshMode_SSIDOnlyBecomesMeshID(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "backhaul",
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetSuccess(), "message: %v", resp.GetMessage())
+
+	meshID, _ := reader.Get("wireless", "default_radio2", "mesh_id")
+	assert.Equal(t, []string{"backhaul"}, meshID)
+
+	ssid, hasSSID := reader.Get("wireless", "default_radio2", "ssid")
+	assert.False(t, hasSSID, "ssid must not be written on a mesh iface, got %v", ssid)
+}
