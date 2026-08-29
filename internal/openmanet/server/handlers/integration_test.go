@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ import (
 	commsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/comms/v1/commsv1connect"
 	logsv1 "github.com/openmanet/openmanetd/internal/api/openmanet/logs/v1"
 	logsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/logs/v1/logsv1connect"
+	meshjoinconnect "github.com/openmanet/openmanetd/internal/api/openmanet/mesh_join/v1/mesh_joinv1connect"
 	meshtopoconnect "github.com/openmanet/openmanetd/internal/api/openmanet/mesh_topology/v1/mesh_topologyv1connect"
 	niv1 "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1"
 	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
@@ -40,6 +42,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/config"
 	"github.com/openmanet/openmanetd/internal/gpsd"
 	"github.com/openmanet/openmanetd/internal/logs"
+	"github.com/openmanet/openmanetd/internal/meshjoin"
 	"github.com/openmanet/openmanetd/internal/network"
 	"github.com/openmanet/openmanetd/internal/openmanet/server/handlers"
 	"github.com/rs/zerolog"
@@ -1548,4 +1551,35 @@ func TestIntegration_ApplySetup_RollbackRestoresFlags(t *testing.T) {
 		"rollback must restore the deleted landing homepage")
 	assert.Empty(t, tr.getOne("luci", "wizard", "used"),
 		"rollback must undo the wizard's luci.wizard.used=1 write")
+}
+
+// newMeshJoinTestServer serves only MeshJoinService over the seeded
+// wireless tree from mesh_join_test.go.
+func newMeshJoinTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	mux.Handle(meshjoinconnect.NewMeshJoinServiceHandler(&handlers.MeshJoinService{
+		Log:          zerolog.Nop(),
+		ConfigReader: newMeshJoinReader(),
+		Hostname:     func() (string, error) { return "alpha", nil },
+	}, connect.WithInterceptors(validate.NewInterceptor())))
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	return srv
+}
+
+func TestIntegration_GetMeshJoinQR(t *testing.T) {
+	srv := newMeshJoinTestServer(t)
+	client := meshjoinconnect.NewMeshJoinServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	resp, err := client.GetMeshJoinQR(context.Background(), &emptypb.Empty{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "field-mesh", resp.GetPayload().GetHalow().GetMeshId())
+	assert.Equal(t, "field-mesh-2g", resp.GetPayload().GetBackhaul().GetMeshId())
+	assert.True(t, strings.HasPrefix(resp.GetPayloadText(), meshjoin.Prefix))
+	assert.True(t, strings.HasPrefix(resp.GetSvg(), "<svg "))
 }
