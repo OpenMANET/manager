@@ -7,6 +7,7 @@ import { createClient } from '@connectrpc/connect';
 import { transport } from '../services/connectClient.js';
 import { WifiConfigService } from '../gen/openmanet/wifi_config/v1/wifi_config_service_pb.js';
 import { WifiMode, WifiEncryption } from '../gen/openmanet/wifi_config/v1/wifi_config_pb.js';
+import { MeshJoinRadioRole, MeshJoinRadioStatus } from '../gen/openmanet/mesh_join/v1/mesh_join_pb.js';
 import { POWER_LEVELS, dBmToLevel, levelToDbm } from './SettingsWireless.power.js';
 import LatSelect from '../components/LatSelect.jsx';
 import MeshJoinQR from '../components/MeshJoinQR.jsx';
@@ -648,8 +649,8 @@ export default function SettingsWireless() {
       };
       const resp = await applyMeshJoin(request);
       const parts = (resp.radios ?? []).map(r => {
-        const role = r.role === 2 ? 'backhaul' : 'HaLow';
-        return r.status === 2 ? `${role} skipped (${r.reason})` : `${r.radioName} (${role}) applied`;
+        const role = r.role === MeshJoinRadioRole.BACKHAUL ? 'backhaul' : 'HaLow';
+        return r.status === MeshJoinRadioStatus.SKIPPED ? `${role} skipped (${r.reason})` : `${r.radioName} (${role}) applied`;
       });
       setJoinStatus({ busy: false, ok: `Joined ${join.sourceHostname || 'mesh'}: ${parts.join(', ')}. Wireless is reloading.`, error: null });
       setJoin(null);
