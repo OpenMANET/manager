@@ -12,6 +12,7 @@ import { useSetup, SETUP_ACTIONS } from '../../contexts/SetupContext.jsx';
 import { apDefaults } from '../../contexts/apDefaults.js';
 import { WifiEncryption } from '../../gen/openmanet/wifi_config/v1/wifi_config_pb.js';
 import { ENCRYPTION_LABELS } from './labels.js';
+import { BACKHAUL_BANDWIDTHS, BACKHAUL_CHANNELS_2G } from './meshChannels.js';
 
 // Same three secured choices the LuCI mesh wizard offers (psk2,
 // sae-mixed, sae) plus the open modes. PSK_MIXED (WPA1+WPA2) stays in
@@ -38,6 +39,15 @@ function radioMode(ap) {
   if (ap.enabled) return 'ap';
   return 'off';
 }
+
+const BACKHAUL_BANDWIDTH_OPTIONS = [
+  { value: 0, label: 'Default (20 MHz)' },
+  ...BACKHAUL_BANDWIDTHS.map(mhz => ({ value: mhz, label: `${mhz} MHz` })),
+];
+const BACKHAUL_CHANNEL_OPTIONS = [
+  { value: 0, label: 'Default (8)' },
+  ...BACKHAUL_CHANNELS_2G.map(ch => ({ value: ch, label: String(ch) })),
+];
 
 export default function StepAPs({ status }) {
   const { state, dispatch } = useSetup();
@@ -80,13 +90,13 @@ export default function StepAPs({ status }) {
       </p>
 
       {apRadios.map(radio => (
-        <APRow key={radio.name} radio={radio} state={state} dispatch={dispatch} />
+        <APRow key={radio.name} radio={radio} state={state} dispatch={dispatch} status={status} />
       ))}
     </div>
   );
 }
 
-function APRow({ radio, state, dispatch }) {
+function APRow({ radio, state, dispatch, status }) {
   const ap = state.aps.find(a => a.radioName === radio.name) ?? apDefaults(radio.name);
   const mode = radioMode(ap);
   const modes = radio.supportsMeshBackhaul
@@ -94,9 +104,10 @@ function APRow({ radio, state, dispatch }) {
     : RADIO_MODES.filter(m => m.value !== 'backhaul');
 
   const setField = (field, value) => {
+    const clearsScan = field.startsWith('backhaul') ? { backhaulFromScan: false } : {};
     dispatch({
       type: SETUP_ACTIONS.SET_AP,
-      value: { ...ap, [field]: value, radioName: radio.name },
+      value: { ...ap, ...clearsScan, [field]: value, radioName: radio.name },
     });
   };
 
@@ -182,10 +193,14 @@ function APRow({ radio, state, dispatch }) {
       {mode === 'backhaul' && (
         <>
           <div className="setup-help">
-            Second batman-adv mesh link on this radio — WPA3 (SAE), channel 8.
-            Give it its own mesh ID and passphrase; every node on the 2.4 GHz
-            backhaul must share both.
+            Second batman-adv mesh link on this radio — WPA3 (SAE). Every
+            node on the 2.4 GHz backhaul must share the mesh ID, passphrase,
+            channel and width.
           </div>
+
+          {ap.backhaulFromScan && (
+            <div className="lat-alert ok">Filled from {state.meshJoin?.sourceHostname || 'a scanned code'}&apos;s code.</div>
+          )}
 
           <div className="lat-field">
             <label htmlFor={`setup-backhaul-id-${radio.name}`}>Backhaul mesh ID</label>
@@ -216,6 +231,40 @@ function APRow({ radio, state, dispatch }) {
             {backhaulPassTooShort && (
               <div className="setup-error">Passphrase must be at least 8 characters.</div>
             )}
+          </div>
+
+          <div className="lat-field">
+            <label>Backhaul bandwidth</label>
+            <LatSelect
+              ariaLabel="Backhaul bandwidth"
+              value={ap.backhaulBandwidthMhz ?? 0}
+              options={BACKHAUL_BANDWIDTH_OPTIONS}
+              onChange={(v) => setField('backhaulBandwidthMhz', v)}
+            />
+          </div>
+
+          <div className="lat-field">
+            <label>Backhaul channel</label>
+            <LatSelect
+              ariaLabel="Backhaul channel"
+              value={ap.backhaulChannel ?? 0}
+              options={BACKHAUL_CHANNEL_OPTIONS}
+              onChange={(v) => setField('backhaulChannel', v)}
+            />
+            <div className="setup-help">Set bandwidth and channel together, or leave both at Default.</div>
+          </div>
+
+          <div className="lat-field">
+            <label>Backhaul country</label>
+            <LatSelect
+              ariaLabel="Backhaul country"
+              value={ap.backhaulCountryCode ?? ''}
+              options={[
+                { value: '', label: `Same as mesh radio (${state.mesh.countryCode || 'unset'})` },
+                ...(status?.countries ?? []).map(c => ({ value: c.code, label: `${c.code} — ${c.name || c.code}` })),
+              ]}
+              onChange={(v) => setField('backhaulCountryCode', v)}
+            />
           </div>
         </>
       )}

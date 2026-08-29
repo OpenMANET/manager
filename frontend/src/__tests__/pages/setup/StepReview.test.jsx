@@ -271,4 +271,74 @@ describe('TestStepReviewMeshBackhaul', () => {
     expect(await screen.findByText(/32 characters or fewer/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^apply$/i })).toBeDisabled();
   });
+
+  function TunedBackhaulHarness() {
+    const { dispatch } = useSetup();
+    useEffect(() => {
+      dispatch({ type: SETUP_ACTIONS.SET_HOSTNAME, value: 'node1' });
+      dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'radioName', value: 'radio1' });
+      dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'meshId', value: 'mesh1' });
+      dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'countryCode', value: 'US' });
+      dispatch({ type: SETUP_ACTIONS.SET_ADMIN_PASSWORD, value: 'longenough123' });
+      dispatch({ type: SETUP_ACTIONS.SET_ADMIN_PASSWORD_CONFIRM, value: 'longenough123' });
+      dispatch({ type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio0', mode: 'backhaul' });
+      dispatch({
+        type: SETUP_ACTIONS.SET_AP,
+        value: {
+          radioName: 'radio0', backhaulMeshId: 'bh-2g', backhaulPassphrase: 'backhaulpass',
+          backhaulBandwidthMhz: 40, backhaulChannel: 6, backhaulCountryCode: 'GB',
+        },
+      });
+    }, [dispatch]);
+    return <StepReview />;
+  }
+
+  it('serialises the backhaul tuning fields and shows them in the summary', async () => {
+    applyState.applySetup = vi.fn(() => fakeStream([
+      { phase: Phase.TERMINAL, result: { success: true } },
+    ]));
+
+    render(<SetupProvider><TunedBackhaulHarness /></SetupProvider>);
+
+    expect(await screen.findByText('6 · 40 MHz · GB')).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: /^apply$/i }));
+
+    await waitFor(() => expect(applyState.applySetup).toHaveBeenCalledTimes(1));
+    const entry = applyState.applySetup.mock.calls[0][0].profile.aps.find(a => a.radioName === 'radio0');
+    expect(entry.meshBackhaul).toMatchObject({ meshId: 'bh-2g', passphrase: 'backhaulpass', bandwidthMhz: 40, channel: 6, countryCode: 'GB' });
+  });
+
+  it('sends zero tuning fields when the operator kept the defaults', async () => {
+    applyState.applySetup = vi.fn(() => fakeStream([
+      { phase: Phase.TERMINAL, result: { success: true } },
+    ]));
+
+    render(<SetupProvider><BackhaulHarness passphrase="backhaulpass" /></SetupProvider>);
+
+    fireEvent.click(await screen.findByRole('button', { name: /^apply$/i }));
+    await waitFor(() => expect(applyState.applySetup).toHaveBeenCalledTimes(1));
+    const entry = applyState.applySetup.mock.calls[0][0].profile.aps.find(a => a.radioName === 'radio0');
+    expect(entry.meshBackhaul).toMatchObject({ bandwidthMhz: 0, channel: 0, countryCode: '' });
+  });
+
+  it('blocks Apply when only one of channel / bandwidth is set', async () => {
+    function HalfTunedHarness() {
+      const { dispatch } = useSetup();
+      useEffect(() => {
+        dispatch({ type: SETUP_ACTIONS.SET_HOSTNAME, value: 'node1' });
+        dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'radioName', value: 'radio1' });
+        dispatch({ type: SETUP_ACTIONS.SET_MESH_FIELD, field: 'countryCode', value: 'US' });
+        dispatch({ type: SETUP_ACTIONS.SET_ADMIN_PASSWORD, value: 'longenough123' });
+        dispatch({ type: SETUP_ACTIONS.SET_ADMIN_PASSWORD_CONFIRM, value: 'longenough123' });
+        dispatch({ type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio0', mode: 'backhaul' });
+        dispatch({ type: SETUP_ACTIONS.SET_AP, value: { radioName: 'radio0', backhaulMeshId: 'bh-2g', backhaulPassphrase: 'backhaulpass', backhaulChannel: 6 } });
+      }, [dispatch]);
+      return <StepReview />;
+    }
+
+    render(<SetupProvider><HalfTunedHarness /></SetupProvider>);
+
+    expect(await screen.findByText(/set bandwidth and channel together/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^apply$/i })).toBeDisabled();
+  });
 });

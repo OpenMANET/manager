@@ -29,6 +29,7 @@ import StepAPs from './setup/StepAPs.jsx';
 import StepPassword from './setup/StepPassword.jsx';
 import StepReview from './setup/StepReview.jsx';
 import SetupBeforeUnloadGuard from './setup/SetupBeforeUnloadGuard.jsx';
+import { meshJoinIssues } from './setup/meshChannels.js';
 import './SetupWizard.css';
 
 const STEP_DEFS = [
@@ -150,6 +151,7 @@ function SetupWizardShell() {
 
   const isFirst = currentIndex === 0;
   const isLast  = currentIndex === steps.length - 1;
+  const meshBlocked = step.key === 'mesh' && meshJoinIssues(state, status).length > 0;
 
   const labels = steps.map(s => s.label);
 
@@ -189,6 +191,8 @@ function SetupWizardShell() {
             type="button"
             className="lat-btn primary"
             onClick={goNext}
+            disabled={meshBlocked}
+            title={meshBlocked ? 'Fix the scanned values first' : undefined}
           >
             Next
           </button>

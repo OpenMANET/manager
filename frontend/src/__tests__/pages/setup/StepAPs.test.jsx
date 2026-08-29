@@ -115,3 +115,21 @@ describe('StepAPsRadioMode', () => {
     expect(screen.getByText('Passphrase must be at least 8 characters.')).toBeInTheDocument();
   });
 });
+
+describe('StepAPsBackhaulTuning', () => {
+  it('offers bandwidth, channel and country once a radio is the backhaul', () => {
+    renderStep(); // status with radio0 supportsMeshBackhaul: true
+    fireEvent.click(screen.getByRole('radio', { name: 'Mesh backhaul' }));
+    expect(screen.getByRole('button', { name: 'Backhaul bandwidth' }).textContent).toContain('Default (20 MHz)');
+    expect(screen.getByRole('button', { name: 'Backhaul channel' }).textContent).toContain('Default (8)');
+    expect(screen.getByRole('button', { name: 'Backhaul country' })).toBeInTheDocument();
+  });
+
+  it('lists the 2.4 GHz channels', () => {
+    renderStep();
+    fireEvent.click(screen.getByRole('radio', { name: 'Mesh backhaul' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Backhaul channel' }));
+    const labels = screen.getAllByRole('option').map(o => o.textContent);
+    expect(labels).toEqual(['Default (8)', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']);
+  });
+});

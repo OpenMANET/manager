@@ -40,6 +40,7 @@ export const initialState = {
     bandwidthMhz: 2,
     channel:      42,
     countryCode:  '',
+    fromScan:     false,
   },
   uplink: {
     type:           UplinkType.UNSPECIFIED,
@@ -59,6 +60,10 @@ export const initialState = {
   // seeds it from the browser or the device's current zone, or the user
   // picks one on the Identity step.
   timezone: '',
+  // Set by APPLY_MESH_JOIN when a scanned code was applied; null until
+  // then. Drives the "Scanned from X" review row and the backhaul-skip
+  // notice on StepMesh.
+  meshJoin: null,
 };
 
 export const SETUP_ACTIONS = {
@@ -67,6 +72,7 @@ export const SETUP_ACTIONS = {
   SET_MESHPOINT_MODE:     'SET_MESHPOINT_MODE',
   SET_MESHGATE_MODE:      'SET_MESHGATE_MODE',
   SET_MESH_FIELD:         'SET_MESH_FIELD',
+  APPLY_MESH_JOIN:        'APPLY_MESH_JOIN',
   SET_UPLINK_TYPE:        'SET_UPLINK_TYPE',
   SET_UPLINK_FIELD:       'SET_UPLINK_FIELD',
   SET_UPLINK_WIRELESS:    'SET_UPLINK_WIRELESS',
@@ -113,8 +119,12 @@ export function reducer(state, action) {
     case SETUP_ACTIONS.SET_MESHGATE_MODE:
       return { ...state, meshgateMode: action.value };
 
-    case SETUP_ACTIONS.SET_MESH_FIELD:
-      return { ...state, mesh: { ...state.mesh, [action.field]: action.value } };
+    case SETUP_ACTIONS.SET_MESH_FIELD: {
+      // Any manual edit (other than picking the radio) ends the
+      // scanned-values hold so the snap-to-legal effects resume.
+      const fromScan = action.field === 'radioName' ? state.mesh.fromScan : false;
+      return { ...state, mesh: { ...state.mesh, [action.field]: action.value, fromScan } };
+    }
 
     case SETUP_ACTIONS.SET_UPLINK_TYPE:
       return { ...state, uplink: { ...state.uplink, type: action.value } };
@@ -240,6 +250,59 @@ export function reducer(state, action) {
         }
       }
 
+      return next;
+    }
+
+    case SETUP_ACTIONS.APPLY_MESH_JOIN: {
+      // A scanned code fills the mesh slice and, when it carries a
+      // backhaul, switches the first capable 2.4 GHz radio (never the
+      // STA uplink radio) to backhaul with the scanned tuning. Values
+      // are marked fromScan so StepMesh/StepAPs do not snap them.
+      const { payload, radios = [] } = action;
+      const h = payload.halow;
+      const next = {
+        ...state,
+        mesh: {
+          ...state.mesh,
+          meshId:       h.meshId,
+          passphrase:   h.passphrase,
+          encryption:   h.encryption,
+          bandwidthMhz: h.bandwidthMhz,
+          channel:      h.channel,
+          countryCode:  h.countryCode || state.mesh.countryCode,
+          fromScan:     true,
+        },
+      };
+      const meshJoin = { sourceHostname: payload.sourceHostname ?? '', backhaulRadio: '', backhaulSkippedReason: '' };
+
+      if (payload.backhaul) {
+        const uplinkRadio = state.uplink.wireless.radioName;
+        const target = radios.find(r => r.supportsMeshBackhaul && !r.isHalow && r.name !== uplinkRadio);
+        if (target) {
+          const b = payload.backhaul;
+          const existing = state.aps.find(ap => ap.radioName === target.name) ?? apDefaults(target.name);
+          const updated = {
+            ...existing,
+            enabled:              false,
+            meshBackhaul:         true,
+            backhaulMeshId:       b.meshId,
+            backhaulPassphrase:   b.passphrase,
+            backhaulBandwidthMhz: b.bandwidthMhz,
+            backhaulChannel:      b.channel,
+            backhaulCountryCode:  b.countryCode || h.countryCode || '',
+            backhaulFromScan:     true,
+          };
+          next.aps = state.aps
+            .filter(ap => ap.radioName !== target.name)
+            .map(ap => (ap.meshBackhaul ? { ...ap, meshBackhaul: false } : ap));
+          next.aps.push(updated);
+          meshJoin.backhaulRadio = target.name;
+        } else {
+          meshJoin.backhaulSkippedReason = 'no-capable-radio';
+        }
+      }
+
+      next.meshJoin = meshJoin;
       return next;
     }
 

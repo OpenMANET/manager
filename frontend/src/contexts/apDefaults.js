@@ -17,5 +17,13 @@ export function apDefaults(radioName) {
     meshBackhaul:       false,
     backhaulMeshId:     '',
     backhaulPassphrase: '',
+    // Backhaul radio tuning. 0 / '' keep the daemon's fixed defaults
+    // (channel 8, HE20, country untouched).
+    backhaulBandwidthMhz: 0,
+    backhaulChannel:      0,
+    backhaulCountryCode:  '',
+    // True while the values above came from a scanned code and have
+    // not been edited; gates the snap-to-legal effects.
+    backhaulFromScan:     false,
   };
 }

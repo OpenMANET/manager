@@ -39,6 +39,7 @@ import {
   UPLINK_TYPE_LABELS,
   ENCRYPTION_LABELS,
 } from './labels.js';
+import { meshJoinIssues } from './meshChannels.js';
 
 // Phase metadata: each tuple is [enum, label] in the canonical order
 // the events arrive. Phase 99 (TERMINAL) is excluded from the list and
@@ -75,7 +76,7 @@ function rebootNotice(hostname) {
   return `The device reboots itself about 2–3 minutes after apply and comes back on its final mesh address; ${mdns} keeps working.`;
 }
 
-export default function StepReview() {
+export default function StepReview({ status }) {
   const { state } = useSetup();
   const [phaseMap, setPhaseMap] = useState({});  // phase enum → 'started'|'done'|'failed'
   const [phaseError, setPhaseError] = useState(null); // {phase, message}
@@ -169,7 +170,7 @@ export default function StepReview() {
     return <AmbiguousPanel state={state} />;
   }
 
-  const blockers = applyBlockers(state);
+  const blockers = applyBlockers(state, status);
 
   return (
     <div className="setup-step">
@@ -236,7 +237,7 @@ function statusKey(status) {
 
 // applyBlockers returns the list of human-readable reasons the user
 // cannot click Apply yet. Empty array means good to go.
-function applyBlockers(state) {
+function applyBlockers(state, status) {
   const out = [];
   if (!state.hostname) {
     out.push('Hostname is empty (Step 1).');
@@ -266,6 +267,15 @@ function applyBlockers(state) {
     if (ap.backhaulMeshId && ap.backhaulMeshId.length > 32) {
       out.push(`Mesh backhaul on ${ap.radioName} mesh ID must be 32 characters or fewer (Wi-Fi step).`);
     }
+  }
+  for (const ap of state.aps) {
+    if (!ap.meshBackhaul) continue;
+    if ((ap.backhaulChannel || 0) === 0 !== ((ap.backhaulBandwidthMhz || 0) === 0)) {
+      out.push(`Mesh backhaul on ${ap.radioName}: set bandwidth and channel together or leave both at Default (Wi-Fi step).`);
+    }
+  }
+  for (const msg of meshJoinIssues(state, status)) {
+    out.push(`${msg} (Step 2).`);
   }
   return out;
 }
@@ -298,8 +308,11 @@ function profileToProto(state) {
       encryption: a.enabled ? a.encryption : WifiEncryption.SAE,
       meshBackhaul: a.meshBackhaul
         ? create(MeshBackhaulProfileSchema, {
-            meshId:     a.backhaulMeshId,
-            passphrase: a.backhaulPassphrase,
+            meshId:       a.backhaulMeshId,
+            passphrase:   a.backhaulPassphrase,
+            bandwidthMhz: a.backhaulBandwidthMhz || 0,
+            channel:      a.backhaulChannel || 0,
+            countryCode:  a.backhaulCountryCode || '',
           })
         : undefined,
     })),
@@ -367,6 +380,9 @@ function ReviewSummary({ state }) {
       )}
       <div className="kv"><span className="k">Mesh radio</span><span className="v">{state.mesh.radioName}</span></div>
       <div className="kv"><span className="k">Mesh ID</span><span className="v">{state.mesh.meshId}</span></div>
+      {state.meshJoin && (
+        <div className="kv"><span className="k">Source</span><span className="v accent">scanned from {state.meshJoin.sourceHostname || 'another node'}</span></div>
+      )}
       <div className="kv">
         <span className="k">Country</span>
         <span className="v">{state.mesh.countryCode || '(not set)'}</span>
@@ -391,6 +407,12 @@ function ReviewSummary({ state }) {
         <span className="k">Mesh backhaul</span>
         <span className="v">{backhaul ? `${backhaul.radioName}: ${backhaul.backhaulMeshId}` : 'none'}</span>
       </div>
+      {backhaul && (
+        <div className="kv">
+          <span className="k">Backhaul channel</span>
+          <span className="v">{backhaul.backhaulChannel || 8} · {backhaul.backhaulBandwidthMhz || 20} MHz · {backhaul.backhaulCountryCode || state.mesh.countryCode || '—'}</span>
+        </div>
+      )}
     </>
   );
 }
