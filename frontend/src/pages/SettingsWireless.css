@@ -244,6 +244,28 @@
   color: var(--muted);
 }
 
+/* share mesh ------------------------------------------------------------- */
+.share-mesh .share-mesh-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 18px;
+}
+
+.share-mesh .share-mesh-join {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.share-mesh .share-mesh-help {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.share-mesh .share-mesh-join-btn {
+  min-height: 44px;
+}
+
 /* mobile ----------------------------------------------------------------- */
 @media (max-width: 640px) {
   .settings-wireless-list {
@@ -270,5 +292,8 @@
   .power-hint {
     flex-direction: column;
     gap: 2px;
+  }
+  .share-mesh .share-mesh-grid {
+    grid-template-columns: 1fr;
   }
 }

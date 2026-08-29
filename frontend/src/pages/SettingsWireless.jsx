@@ -2,13 +2,17 @@
 // SettingsWireless.jsx — Wireless radio configuration tab
 // =============================================================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@connectrpc/connect';
 import { transport } from '../services/connectClient.js';
 import { WifiConfigService } from '../gen/openmanet/wifi_config/v1/wifi_config_service_pb.js';
-import { WifiMode } from '../gen/openmanet/wifi_config/v1/wifi_config_pb.js';
+import { WifiMode, WifiEncryption } from '../gen/openmanet/wifi_config/v1/wifi_config_pb.js';
 import { POWER_LEVELS, dBmToLevel, levelToDbm } from './SettingsWireless.power.js';
 import LatSelect from '../components/LatSelect.jsx';
+import MeshJoinQR from '../components/MeshJoinQR.jsx';
+import QrScanInput from '../components/QrScanInput.jsx';
+import { applyMeshJoin } from '../services/meshJoinApi.js';
+import { checkMeshCredentials, htModeForBandwidth, bandwidthMhzForHTMode } from '../utils/meshJoin.js';
 import './SettingsWireless.css';
 
 const wifiClient = createClient(WifiConfigService, transport);
@@ -77,6 +81,38 @@ function settingsEqual(a, b) {
     (a.mode ?? 0) === (b.mode ?? 0)
   );
 }
+
+// fieldsFromCredentials maps scanned MeshCredentials onto RadioSettings
+// draft fields. Bandwidth picks the radio's advertised HT mode of that
+// width so the select shows a real option.
+function fieldsFromCredentials(c, availOpts) {
+  return {
+    mode:       WifiMode.MESH,
+    meshId:     c.meshId,
+    ssid:       c.meshId,
+    password:   c.passphrase,
+    encryption: c.encryption,
+    channel:    String(c.channel),
+    bandwidth:  htModeForBandwidth(c.bandwidthMhz, availOpts?.bandwidths ?? []),
+    country:    c.countryCode,
+    disabled:   false,
+  };
+}
+
+// credentialsFromDraft is the inverse: what the operator reviewed (and
+// maybe edited) is what ApplyMeshJoin receives.
+function credentialsFromDraft(draft) {
+  return {
+    meshId:       draft.meshId ?? '',
+    passphrase:   draft.password ?? '',
+    encryption:   draft.encryption ?? WifiEncryption.UNSPECIFIED,
+    bandwidthMhz: bandwidthMhzForHTMode(draft.bandwidth),
+    channel:      Number(draft.channel) || 0,
+    countryCode:  (draft.country ?? '').toUpperCase(),
+  };
+}
+
+const BACKHAUL_SKIPPED = 'Backhaul skipped: no 2.4 GHz radio is in mesh mode. Switch one to mesh and scan again.';
 
 function PowerSelector({ valueDbm, onChange, hint }) {
   const selected = dBmToLevel(valueDbm);
@@ -155,7 +191,7 @@ function formatBitrate(bps) {
   return `${(Number(bps) / 1_000).toFixed(0)} Kbps`;
 }
 
-function RadioCard({ radio }) {
+function RadioCard({ radio, prefill, reloadKey = 0, onCardChange }) {
   const [status, setStatus] = useState(null);
   const [original, setOriginal] = useState(null);
   const [draft, setDraft] = useState(null);
@@ -216,6 +252,25 @@ function RadioCard({ radio }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (expanded) loadConnected();
   }, [expanded, loadConnected]);
+
+  useEffect(() => {
+    // Re-read after a join wrote this radio (reloadKey bumps).
+    if (reloadKey === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadCard();
+  }, [reloadKey, loadCard]);
+
+  useEffect(() => {
+    // Scanned credentials land in the draft; the operator still presses
+    // Join mesh (or Save) before anything is written.
+    if (!prefill) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDraft(prev => (prev ? { ...prev, ...prefill.fields } : prev));
+  }, [prefill]);
+
+  useEffect(() => {
+    onCardChange?.(radio.name, { draft, availOpts, band: radio.band });
+  }, [draft, availOpts, radio.name, radio.band, onCardChange]);
 
   const update = (field, value) => {
     setDraft(prev => ({ ...prev, [field]: value }));
@@ -460,6 +515,12 @@ export default function SettingsWireless() {
   const [radios, setRadios] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // Per-radio draft + option lists reported by each RadioCard.
+  const [cards, setCards] = useState({});
+  // Held scan: which radios it targets and what was prefilled.
+  const [join, setJoin] = useState(null);
+  const [joinStatus, setJoinStatus] = useState({ busy: false, ok: null, error: null });
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const fetchRadios = useCallback(async () => {
     try {
@@ -485,17 +546,153 @@ export default function SettingsWireless() {
     fetchRadios();
   }, [fetchRadios]);
 
+  const onCardChange = useCallback((radioName, info) => {
+    setCards(prev => ({ ...prev, [radioName]: info }));
+  }, []);
+
+  const handleDecoded = useCallback((payload) => {
+    const halowRadio = radios.find(r => r.band === BAND_S1G);
+    const backhaulRadio = radios.find(r => r.band !== BAND_S1G && isMeshMode(cards[r.name]?.draft?.mode));
+    const nonce = Date.now();
+    const prefills = {};
+    if (halowRadio) {
+      prefills[halowRadio.name] = { nonce, fields: fieldsFromCredentials(payload.halow, cards[halowRadio.name]?.availOpts) };
+    }
+    if (payload.backhaul && backhaulRadio) {
+      prefills[backhaulRadio.name] = { nonce, fields: fieldsFromCredentials(payload.backhaul, cards[backhaulRadio.name]?.availOpts) };
+    }
+    setJoin({
+      sourceHostname: payload.sourceHostname ?? '',
+      halowRadio: halowRadio?.name ?? '',
+      backhaulRadio: backhaulRadio?.name ?? '',
+      hasBackhaul: Boolean(payload.backhaul),
+      prefills,
+    });
+    setJoinStatus({ busy: false, ok: null, error: null });
+  }, [radios, cards]);
+
+  // Issues against the *current drafts*, so an operator's fix clears them.
+  const issues = useMemo(() => {
+    if (!join) return [];
+    const out = [];
+    const check = (radioName, isHalow) => {
+      const card = cards[radioName];
+      if (!card?.draft) return;
+      const creds = credentialsFromDraft(card.draft);
+      const opts = {
+        isHalow,
+        channels: card.availOpts?.channels ?? [],
+        bandwidths: (card.availOpts?.bandwidths ?? []).map(bandwidthMhzForHTMode).filter(Boolean),
+        countryMaxLen: 2,
+      };
+      for (const issue of checkMeshCredentials(creds, opts)) {
+        out.push(`${radioName}: ${issue.message}`);
+      }
+    };
+    if (join.halowRadio) check(join.halowRadio, true);
+    if (join.backhaulRadio) check(join.backhaulRadio, false);
+    return out;
+  }, [join, cards]);
+
+  const doJoin = async () => {
+    if (!join?.halowRadio) return;
+    setJoinStatus({ busy: true, ok: null, error: null });
+    try {
+      const request = {
+        payload: {
+          sourceHostname: join.sourceHostname,
+          halow: credentialsFromDraft(cards[join.halowRadio].draft),
+          backhaul: join.backhaulRadio ? credentialsFromDraft(cards[join.backhaulRadio].draft) : undefined,
+        },
+        halowRadio: join.halowRadio,
+        backhaulRadio: join.backhaulRadio,
+      };
+      const resp = await applyMeshJoin(request);
+      const parts = (resp.radios ?? []).map(r => {
+        const role = r.role === 2 ? 'backhaul' : 'HaLow';
+        return r.status === 2 ? `${role} skipped (${r.reason})` : `${r.radioName} (${role}) applied`;
+      });
+      setJoinStatus({ busy: false, ok: `Joined ${join.sourceHostname || 'mesh'}: ${parts.join(', ')}. Wireless is reloading.`, error: null });
+      setJoin(null);
+      setRefreshKey(k => k + 1);
+    } catch (e) {
+      setJoinStatus({ busy: false, ok: null, error: 'Join failed: ' + e.message });
+    }
+  };
+
+  const filledSummary = join && join.halowRadio
+    ? `Filled ${join.halowRadio} (HaLow)${join.backhaulRadio ? ` and ${join.backhaulRadio} (backhaul)` : ''} from ${join.sourceHostname || 'the code'}. Review each radio, then press Join mesh.`
+    : null;
+  const backhaulSkipped = join && join.hasBackhaul && !join.backhaulRadio;
+
   return (
     <div className="settings-wireless">
       <h2 className="settings-h2">◇ Wireless Radios</h2>
       {error && <div className="settings-banner crit">{error}</div>}
       {loading ? (
         <div className="settings-loading"><div className="spinner"></div>Loading radios…</div>
-      ) : radios.length === 0 ? (
-        <div className="lat-panel"><div className="empty-row">No radios detected.</div></div>
       ) : (
         <div className="settings-wireless-list">
-          {radios.map(r => <RadioCard key={r.name} radio={r} />)}
+          <div className="lat-panel share-mesh">
+            <div className="panel-head">
+              <h3>Share Mesh</h3>
+              <div className="actions">
+                <button type="button" onClick={() => setRefreshKey(k => k + 1)}>refresh</button>
+              </div>
+            </div>
+            <div className="share-mesh-grid">
+              <MeshJoinQR refreshKey={refreshKey} />
+              <div className="share-mesh-join">
+                <h3>Join from QR</h3>
+                <div className="share-mesh-help">
+                  Photograph another node&apos;s Share Mesh code. Fields fill in below;
+                  nothing changes until you press Join mesh.
+                </div>
+                <QrScanInput onDecoded={handleDecoded} />
+                {join && !join.halowRadio && (
+                  <div className="lat-alert crit">This node has no HaLow radio to join with.</div>
+                )}
+                {filledSummary && <div className="lat-alert ok">{filledSummary}</div>}
+                {backhaulSkipped && <div className="lat-alert warn">{BACKHAUL_SKIPPED}</div>}
+                {issues.length > 0 && (
+                  <div className="lat-alert warn">
+                    {issues.map(msg => <div key={msg}>{msg}</div>)}
+                  </div>
+                )}
+                {join?.halowRadio && (
+                  <button
+                    type="button"
+                    className="lat-btn primary share-mesh-join-btn"
+                    onClick={doJoin}
+                    disabled={issues.length > 0 || joinStatus.busy}
+                  >
+                    {joinStatus.busy ? 'Joining…' : 'Join mesh'}
+                  </button>
+                )}
+                {join?.halowRadio && (
+                  <div className="share-mesh-help">
+                    Writes both radios and reloads wireless once. Your connection may drop while the radios restart.
+                  </div>
+                )}
+                {joinStatus.ok && <div className="lat-alert ok">{joinStatus.ok}</div>}
+                {joinStatus.error && <div className="lat-alert crit">{joinStatus.error}</div>}
+              </div>
+            </div>
+          </div>
+
+          {radios.length === 0 ? (
+            <div className="lat-panel"><div className="empty-row">No radios detected.</div></div>
+          ) : (
+            radios.map(r => (
+              <RadioCard
+                key={r.name}
+                radio={r}
+                prefill={join?.prefills[r.name]}
+                reloadKey={refreshKey}
+                onCardChange={onCardChange}
+              />
+            ))
+          )}
         </div>
       )}
     </div>

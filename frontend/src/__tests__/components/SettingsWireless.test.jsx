@@ -2,12 +2,12 @@
 // SettingsWireless.test.jsx — Tests for the Wireless settings page
 // =============================================================================
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react';
 
 const {
   mockListRadios, mockGetRadioStatus, mockGetRadioSettings, mockUpdateRadioSettings,
-  mockListConnectedClients, mockListMeshPeers,
+  mockListConnectedClients, mockListMeshPeers, mockGetMeshJoinQR, mockApplyMeshJoin,
 } = vi.hoisted(() => ({
   mockListRadios: vi.fn(),
   mockGetRadioStatus: vi.fn(),
@@ -15,23 +15,40 @@ const {
   mockUpdateRadioSettings: vi.fn(),
   mockListConnectedClients: vi.fn(),
   mockListMeshPeers: vi.fn(),
+  mockGetMeshJoinQR: vi.fn(),
+  mockApplyMeshJoin: vi.fn(),
 }));
 
-vi.mock('@connectrpc/connect', () => ({
-  createClient: () => ({
-    listRadios: mockListRadios,
-    getRadioStatus: mockGetRadioStatus,
-    getRadioSettings: mockGetRadioSettings,
-    updateRadioSettings: mockUpdateRadioSettings,
-    listConnectedClients: mockListConnectedClients,
-    listMeshPeers: mockListMeshPeers,
-  }),
-}));
+vi.mock('@connectrpc/connect', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    createClient: () => ({
+      listRadios: mockListRadios,
+      getRadioStatus: mockGetRadioStatus,
+      getRadioSettings: mockGetRadioSettings,
+      updateRadioSettings: mockUpdateRadioSettings,
+      listConnectedClients: mockListConnectedClients,
+      listMeshPeers: mockListMeshPeers,
+      getMeshJoinQR: mockGetMeshJoinQR,
+      applyMeshJoin: mockApplyMeshJoin,
+    }),
+  };
+});
 
 vi.mock('../../services/connectClient.js', () => ({ transport: {} }));
 
+import { samplePayload, encodePayload } from '../meshJoinFixtures.js';
 import SettingsWireless from '../../pages/SettingsWireless.jsx';
 import { dBmToLevel, levelToDbm } from '../../pages/SettingsWireless.power.js';
+
+// The existing suites in this file don't touch mesh join at all, but the
+// Share Mesh panel (MeshJoinQR) is now always rendered, so every test needs
+// a safe default for the two new RPCs.
+beforeEach(() => {
+  mockGetMeshJoinQR.mockResolvedValue(QR_RESPONSE);
+  mockApplyMeshJoin.mockResolvedValue({ radios: [] });
+});
 
 afterEach(() => {
   cleanup();
@@ -42,6 +59,8 @@ afterEach(() => {
   mockUpdateRadioSettings.mockReset();
   mockListConnectedClients.mockReset();
   mockListMeshPeers.mockReset();
+  mockGetMeshJoinQR.mockReset();
+  mockApplyMeshJoin.mockReset();
 });
 
 const RADIO_AP = {
@@ -68,6 +87,45 @@ const SETTINGS_AP = {
   availableBandwidths: [1, 2, 5],
   availableEncryptions: [1, 2, 5],
 };
+
+const QR_RESPONSE = {
+  payloadText: 'OPENMANET1:AAAA',
+  svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>',
+  payload: {
+    sourceHostname: 'bravo',
+    halow: { meshId: 'bravo-mesh', passphrase: 'bravo-pass-1', encryption: 1, bandwidthMhz: 2, channel: 42, countryCode: 'US' },
+  },
+};
+
+const SETTINGS_S1G = {
+  settings: { ssid: 'old-mesh', meshId: 'old-mesh', channel: '42', bandwidth: 15, txPower: 14, encryption: 1, country: 'US', mode: 2 },
+  availableChannels: ['12', '28', '44'],
+  availableBandwidths: [14, 15, 16, 17],
+  availableEncryptions: [1],
+};
+
+const SETTINGS_2G_MESH = {
+  settings: { ssid: 'old-2g', meshId: 'old-2g', channel: '8', bandwidth: 10, txPower: 20, encryption: 1, country: 'US', mode: 2 },
+  availableChannels: ['1', '6', '8', '11'],
+  availableBandwidths: [1, 2, 5],
+  availableEncryptions: [1, 2],
+};
+
+const STATUS_S1G = { active: true, ssid: 'old-mesh', mode: 'Mesh', wifiMode: 2, channel: 42, bandwidth: '2 MHz', encryption: 'WPA3-SAE', txPower: 14, meshPeers: 1 };
+
+// settingsFor routes getRadioSettings by radio name.
+function settingsFor(map) {
+  mockGetRadioSettings.mockImplementation(({ radioName }) => Promise.resolve(map[radioName]));
+}
+
+function pasteCode(text) {
+  fireEvent.click(screen.getByRole('button', { name: 'Paste code' }));
+  fireEvent.change(screen.getByLabelText('Code text'), { target: { value: text } });
+  fireEvent.click(screen.getByRole('button', { name: 'Use code' }));
+}
+
+// The default `availableBandwidths` above are Lattice enum ints:
+// 14..17 = S1G 1/2/4/8 MHz, 1 = NOHT, 2 = HT20, 5 = HT40, 10 = HE20.
 
 // ── pure helpers ───────────────────────────────────────────────────────────
 
@@ -387,5 +445,111 @@ describe('TestSettingsWirelessEnableToggle', () => {
     fireEvent.click(screen.getByText('Save'));
     await waitFor(() => expect(mockUpdateRadioSettings).toHaveBeenCalledTimes(1));
     expect(mockUpdateRadioSettings.mock.calls[0][0].settings.disabled).toBe(true);
+  });
+});
+
+describe('TestSettingsWirelessShareMesh', () => {
+  function renderMeshNode({ backhaulMode = 2 } = {}) {
+    mockListRadios.mockResolvedValue({ radios: [RADIO_S1G, RADIO_AP] });
+    mockGetRadioStatus.mockImplementation(({ radioName }) =>
+      Promise.resolve({ status: radioName === 'radio0' ? STATUS_S1G : STATUS_AP }));
+    settingsFor({
+      radio0: SETTINGS_S1G,
+      radio2: { ...SETTINGS_2G_MESH, settings: { ...SETTINGS_2G_MESH.settings, mode: backhaulMode } },
+    });
+    mockGetMeshJoinQR.mockResolvedValue(QR_RESPONSE);
+    mockApplyMeshJoin.mockResolvedValue({ radios: [
+      { radioName: 'radio0', role: 1, status: 1 },
+      { radioName: 'radio2', role: 2, status: 1 },
+    ] });
+    render(<SettingsWireless />);
+    return waitFor(() => screen.getByText('bravo-mesh'));
+  }
+
+  it('shows this node\'s QR summary in the Share Mesh panel', async () => {
+    await renderMeshNode();
+    expect(screen.getByText('Share Mesh')).toBeInTheDocument();
+    expect(screen.getByText('bravo')).toBeInTheDocument();
+  });
+
+  it('fills the HaLow and mesh-mode 2.4 GHz drafts from a pasted code', async () => {
+    await renderMeshNode();
+    pasteCode(encodePayload(samplePayload()));
+
+    await waitFor(() => expect(screen.getByDisplayValue('field-mesh')).toBeInTheDocument());
+    expect(screen.getByDisplayValue('field-mesh-2g')).toBeInTheDocument();
+    expect(screen.getByText(/Filled radio0 \(HaLow\) and radio2 \(backhaul\) from alpha/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Join mesh' })).not.toBeDisabled();
+  });
+
+  it('sends one ApplyMeshJoin built from the drafts and names both radios', async () => {
+    await renderMeshNode();
+    pasteCode(encodePayload(samplePayload()));
+    await waitFor(() => screen.getByDisplayValue('field-mesh'));
+
+    // Operator edits the HaLow channel before joining; the edit must be what is sent.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Channel' })[0]);
+    fireEvent.click(screen.getByRole('option', { name: '28' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Join mesh' }));
+
+    await waitFor(() => expect(mockApplyMeshJoin).toHaveBeenCalledTimes(1));
+    const req = mockApplyMeshJoin.mock.calls[0][0];
+    expect(req.halowRadio).toBe('radio0');
+    expect(req.backhaulRadio).toBe('radio2');
+    expect(req.payload.halow.meshId).toBe('field-mesh');
+    expect(req.payload.halow.passphrase).toBe('correct-horse');
+    expect(req.payload.halow.channel).toBe(28);
+    expect(req.payload.halow.bandwidthMhz).toBe(8);
+    expect(req.payload.backhaul.meshId).toBe('field-mesh-2g');
+    expect(req.payload.backhaul.bandwidthMhz).toBe(20);
+    expect(mockUpdateRadioSettings).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(screen.getByText(/Joined alpha/)).toBeInTheDocument());
+    expect(mockGetMeshJoinQR).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips the backhaul when no 2.4 GHz radio is in mesh mode', async () => {
+    await renderMeshNode({ backhaulMode: 1 });
+    pasteCode(encodePayload(samplePayload()));
+    await waitFor(() => screen.getByDisplayValue('field-mesh'));
+
+    expect(screen.getByText(/Backhaul skipped: no 2\.4 GHz radio is in mesh mode/)).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('field-mesh-2g')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Join mesh' }));
+    await waitFor(() => expect(mockApplyMeshJoin).toHaveBeenCalledTimes(1));
+    expect(mockApplyMeshJoin.mock.calls[0][0].backhaulRadio).toBe('');
+    expect(mockApplyMeshJoin.mock.calls[0][0].payload.backhaul).toBeUndefined();
+  });
+
+  it('warns on a channel the radio does not list and blocks Join mesh', async () => {
+    await renderMeshNode();
+    const payload = samplePayload();
+    payload.halow.channel = 99;
+    pasteCode(encodePayload(payload));
+    await waitFor(() => screen.getByDisplayValue('field-mesh'));
+
+    expect(screen.getByText(/radio0: Channel 99 is not legal at 8 MHz in US/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Join mesh' })).toBeDisabled();
+  });
+
+  it('shows the server rejection when ApplyMeshJoin fails', async () => {
+    await renderMeshNode();
+    mockApplyMeshJoin.mockRejectedValue(new Error('radio0: channel 44 is not legal at 8 MHz in EU'));
+    pasteCode(encodePayload(samplePayload()));
+    await waitFor(() => screen.getByDisplayValue('field-mesh'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Join mesh' }));
+    await waitFor(() => expect(screen.getByText(/Join failed: radio0: channel 44/)).toBeInTheDocument());
+  });
+
+  it('per-radio Save still uses UpdateRadioSettings', async () => {
+    await renderMeshNode();
+    mockUpdateRadioSettings.mockResolvedValue({ success: true });
+    fireEvent.change(screen.getByDisplayValue('old-mesh'), { target: { value: 'renamed' } });
+    fireEvent.click(screen.getAllByText('Save')[0]);
+    await waitFor(() => expect(mockUpdateRadioSettings).toHaveBeenCalledTimes(1));
+    expect(mockApplyMeshJoin).not.toHaveBeenCalled();
   });
 });
