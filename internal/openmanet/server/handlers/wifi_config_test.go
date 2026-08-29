@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -198,6 +199,7 @@ func newTestWifiConfigService(t *testing.T) *handlers.WifiConfigService {
 		WirelessStatus: &fakeWirelessStatusProvider{status: map[string]*network.WirelessRadioStatus{}},
 		ConfigReader:   newWifiConfigMockReader(),
 		DHCPLeases:     &fakeDHCPLeaseProvider{leases: &network.DHCPLeasesResponse{}},
+		ReloadServices: func(context.Context) error { return nil },
 		GetMeshNeighbors: func() (*batmanadv.Neighbors, error) {
 			return &batmanadv.Neighbors{}, nil
 		},
@@ -248,6 +250,13 @@ func newWifiConfigMockReader() *fakeConfigReader {
 					"encryption": {"sae"},
 				},
 			},
+			// A wizard-configured node: bat0 plus the primary hardif.
+			// batmesh1 is deliberately absent so mesh-mode tests can
+			// prove the handler creates it.
+			"network": {
+				"bat0":     {"proto": {"batadv"}},
+				"batmesh0": {"proto": {"batadv_hardif"}, "master": {"bat0"}},
+			},
 		},
 		sectionTypes: map[string]map[string]string{
 			"wireless": {
@@ -256,8 +265,37 @@ func newWifiConfigMockReader() *fakeConfigReader {
 				"default_radio2": "wifi-iface",
 				"default_radio3": "wifi-iface",
 			},
+			"network": {
+				"bat0":     "interface",
+				"batmesh0": "interface",
+			},
 		},
 	}
+}
+
+// fakeRadioReloader stands in for WifiConfigService.ReloadServices.
+type fakeRadioReloader struct {
+	mu       sync.Mutex
+	calls    int
+	err      error
+	lastLive bool // ctx.Err() == nil when invoked
+}
+
+func (f *fakeRadioReloader) Reload(ctx context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.calls++
+	f.lastLive = ctx.Err() == nil
+
+	return f.err
+}
+
+func (f *fakeRadioReloader) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.calls
 }
 
 func newTestWirelessStatus() map[string]*network.WirelessRadioStatus {
@@ -1911,14 +1949,17 @@ func TestApplyRadioSettingsBatch_TwoRadiosOneReload(t *testing.T) {
 	reader := newWifiConfigMockReader()
 	svc := newTestWifiConfigService(t)
 	svc.ConfigReader = reader
+	rl := &fakeRadioReloader{}
+	svc.ReloadServices = rl.Reload
 
-	err := svc.ApplyRadioSettingsBatch([]handlers.RadioSettingsUpdate{
+	err := svc.ApplyRadioSettingsBatch(context.Background(), []handlers.RadioSettingsUpdate{
 		{RadioName: "radio2", Settings: &wificonfigv1.RadioSettings{Ssid: "ap-new", Channel: "6", TxPower: 15}},
 		{RadioName: "radio3", Settings: &wificonfigv1.RadioSettings{Ssid: "mesh-new", MeshId: strPtr("mesh-new"), Channel: "28", TxPower: 14}},
 	})
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, reader.reloadCalls, "one reload for the whole batch")
+	assert.Equal(t, 1, rl.count(), "one service reload for the whole batch")
 
 	ch, _ := reader.Get("wireless", "radio2", "channel")
 	assert.Equal(t, []string{"6"}, ch)
@@ -1931,13 +1972,16 @@ func TestApplyRadioSettingsBatch_StageErrorSkipsReload(t *testing.T) {
 	reader := newWifiConfigMockReader()
 	svc := newTestWifiConfigService(t)
 	svc.ConfigReader = reader
+	rl := &fakeRadioReloader{}
+	svc.ReloadServices = rl.Reload
 
-	err := svc.ApplyRadioSettingsBatch([]handlers.RadioSettingsUpdate{
+	err := svc.ApplyRadioSettingsBatch(context.Background(), []handlers.RadioSettingsUpdate{
 		{RadioName: "radio2", Settings: &wificonfigv1.RadioSettings{Ssid: "ap-new", Channel: "6", TxPower: 15}},
 		{RadioName: "radio9", Settings: &wificonfigv1.RadioSettings{Ssid: "ghost", Channel: "1", TxPower: 15}},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "radio9")
+	assert.Equal(t, 0, rl.count(), "no service reload when staging fails")
 	assert.Equal(t, 0, reader.reloadCalls, "a failed batch must not reload")
 }
 
@@ -1947,7 +1991,7 @@ func TestApplyRadioSettingsBatch_ReloadErrorSurfaces(t *testing.T) {
 	svc := newTestWifiConfigService(t)
 	svc.ConfigReader = reader
 
-	err := svc.ApplyRadioSettingsBatch([]handlers.RadioSettingsUpdate{
+	err := svc.ApplyRadioSettingsBatch(context.Background(), []handlers.RadioSettingsUpdate{
 		{RadioName: "radio2", Settings: &wificonfigv1.RadioSettings{Ssid: "ap-new", Channel: "6", TxPower: 15}},
 	})
 	require.Error(t, err)
@@ -2095,4 +2139,141 @@ func TestUpdateRadioSettings_MeshMode_SSIDOnlyBecomesMeshID(t *testing.T) {
 
 	ssid, hasSSID := reader.Get("wireless", "default_radio2", "ssid")
 	assert.False(t, hasSSID, "ssid must not be written on a mesh iface, got %v", ssid)
+}
+
+// The committed config has to reach netifd: a UCI commit alone leaves
+// the radio on its old settings until reboot.
+func TestUpdateRadioSettings_ReloadsServicesAfterCommit(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+	rl := &fakeRadioReloader{}
+	svc.ReloadServices = rl.Reload
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings:  &wificonfigv1.RadioSettings{Ssid: "openmanet", Channel: "6"},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetSuccess(), "message: %v", resp.GetMessage())
+	assert.Equal(t, 1, rl.count())
+}
+
+func TestUpdateRadioSettings_ReloadFailureReportsMessage(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+	rl := &fakeRadioReloader{err: errors.New("reload_config: exit status 1")}
+	svc.ReloadServices = rl.Reload
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings:  &wificonfigv1.RadioSettings{Ssid: "openmanet", Channel: "6"},
+	})
+	require.NoError(t, err)
+	assert.False(t, resp.GetSuccess())
+	assert.Contains(t, resp.GetMessage(), "reload_config: exit status 1")
+}
+
+// The reload can drop the operator's own connection, which cancels the
+// request context; the reload must still run to completion on a live
+// context rather than being killed midway.
+func TestUpdateRadioSettings_ReloadSurvivesCancelledContext(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+	rl := &fakeRadioReloader{}
+	svc.ReloadServices = rl.Reload
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	resp, err := svc.UpdateRadioSettings(ctx, &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings:  &wificonfigv1.RadioSettings{Ssid: "openmanet", Channel: "6"},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetSuccess(), "message: %v", resp.GetMessage())
+	assert.Equal(t, 1, rl.count())
+	assert.True(t, rl.lastLive, "reload must run on a context detached from the request")
+}
+
+func TestUpdateRadioSettings_UnspecifiedModeSkipsHardifGuard(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	delete(reader.data["network"], "bat0")
+	delete(reader.sectionTypes["network"], "bat0")
+
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// A channel-only edit on the AP radio never touches batman.
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings:  &wificonfigv1.RadioSettings{Ssid: "openmanet", Channel: "6"},
+	})
+	require.NoError(t, err)
+	assert.True(t, resp.GetSuccess(), "message: %v", resp.GetMessage())
+}
+
+// Binding a mesh iface to batmesh1 is useless unless network.batmesh1
+// exists as a batadv_hardif on bat0; the wizard creates both, a
+// factory image has neither.
+func TestUpdateRadioSettings_MeshMode_CreatesMissingBatmeshHardif(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	_, has := reader.Get("wireless", "network", "batmesh1")
+	require.False(t, has)
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "backhaul",
+			MeshId:  strPtr("backhaul"),
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetSuccess(), "message: %v", resp.GetMessage())
+
+	net, _ := reader.Get("wireless", "default_radio2", "network")
+	assert.Equal(t, []string{"batmesh1"}, net)
+
+	proto, _ := reader.Get("network", "batmesh1", "proto")
+	assert.Equal(t, []string{"batadv_hardif"}, proto)
+
+	master, _ := reader.Get("network", "batmesh1", "master")
+	assert.Equal(t, []string{"bat0"}, master)
+
+	assert.Equal(t, "interface", reader.sectionTypes["network"]["batmesh1"])
+}
+
+func TestUpdateRadioSettings_MeshMode_NoBatmanDevice_FailedPrecondition(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	delete(reader.data["network"], "bat0")
+	delete(reader.sectionTypes["network"], "bat0")
+
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+	rl := &fakeRadioReloader{}
+	svc.ReloadServices = rl.Reload
+
+	_, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "backhaul",
+			MeshId:  strPtr("backhaul"),
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+
+	var cerr *connect.Error
+	require.ErrorAs(t, err, &cerr)
+	assert.Equal(t, connect.CodeFailedPrecondition, cerr.Code())
+	assert.Contains(t, cerr.Message(), "bat0")
+
+	// Precondition failures must not leave partial writes or reload.
+	ch, _ := reader.Get("wireless", "radio2", "channel")
+	assert.Equal(t, []string{"1"}, ch, "device config must not be written")
+
+	mode, _ := reader.Get("wireless", "default_radio2", "mode")
+	assert.Equal(t, []string{"ap"}, mode)
+	assert.Equal(t, 0, rl.count())
 }

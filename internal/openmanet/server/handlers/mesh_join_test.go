@@ -317,7 +317,7 @@ func (f *fakeRadioApplier) CurrentRadioSettings(radioName string) (*wificonfigv1
 	return cp, nil
 }
 
-func (f *fakeRadioApplier) ApplyRadioSettingsBatch(updates []handlers.RadioSettingsUpdate) error {
+func (f *fakeRadioApplier) ApplyRadioSettingsBatch(_ context.Context, updates []handlers.RadioSettingsUpdate) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

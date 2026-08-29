@@ -330,7 +330,7 @@ function RadioCard({ radio, prefill, reloadKey = 0, onCardChange }) {
         settings: payload,
       });
       if (resp.success === false) throw new Error(resp.message || 'Update failed');
-      setSuccess('Settings saved. Wireless subsystem reloading.');
+      setSuccess('Settings saved. Wireless is restarting; your connection may drop if you are on this radio.');
       setTimeout(() => loadCard(), 2000);
     } catch (e) {
       setError('Save failed: ' + e.message);
@@ -652,7 +652,7 @@ export default function SettingsWireless() {
         const role = r.role === MeshJoinRadioRole.BACKHAUL ? 'backhaul' : 'HaLow';
         return r.status === MeshJoinRadioStatus.SKIPPED ? `${role} skipped (${r.reason})` : `${r.radioName} (${role}) applied`;
       });
-      setJoinStatus({ busy: false, ok: `Joined ${join.sourceHostname || 'mesh'}: ${parts.join(', ')}. Wireless is reloading.`, error: null });
+      setJoinStatus({ busy: false, ok: `Joined ${join.sourceHostname || 'mesh'}: ${parts.join(', ')}. Wireless is restarting; your connection may drop.`, error: null });
       setJoin(null);
       setRefreshKey(k => k + 1);
     } catch (e) {

@@ -1414,6 +1414,43 @@ func SetupBatmanInterfaceOnDevice(reader ConfigReader, deviceName string) error 
 	return nil
 }
 
+// BatmanDeviceExists reports whether network.<name> exists as a
+// batman-adv device (proto=batadv). Radio handlers use it to refuse a
+// mesh binding on a node that never ran setup.
+func BatmanDeviceExists(reader ConfigReader, name string) bool {
+	if !batmanInterfaceExists(reader, name) {
+		return false
+	}
+
+	proto, ok := reader.Get(networkConfigName, name, optionProto)
+
+	return ok && len(proto) > 0 && proto[0] == batadvProto
+}
+
+// EnsureBatmanHardifInterface creates network.<ifaceName> as a
+// batadv_hardif on deviceName when it does not exist and reports
+// whether it did so. An existing section is left untouched, whatever
+// its options. Does not commit.
+func EnsureBatmanHardifInterface(reader ConfigReader, ifaceName, deviceName string) (bool, error) {
+	if batmanInterfaceExists(reader, ifaceName) {
+		return false, nil
+	}
+
+	if err := reader.AddSection(networkConfigName, ifaceName, networkInterfaceType); err != nil {
+		return false, fmt.Errorf("creating %s: %w", ifaceName, err)
+	}
+
+	if err := reader.SetType(networkConfigName, ifaceName, optionProto, uci.TypeOption, batadvHardifProto); err != nil {
+		return false, fmt.Errorf("setting %s.proto: %w", ifaceName, err)
+	}
+
+	if err := reader.SetType(networkConfigName, ifaceName, "master", uci.TypeOption, deviceName); err != nil {
+		return false, fmt.Errorf("setting %s.master: %w", ifaceName, err)
+	}
+
+	return true, nil
+}
+
 // RemoveAllBatadvInterfaces deletes every network interface whose
 // proto is `batadv` or `batadv_hardif`. Called by the reset phase so
 // stale batman state from a previous run cannot conflict with new

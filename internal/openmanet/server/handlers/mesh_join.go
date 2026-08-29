@@ -161,7 +161,7 @@ type joinTarget struct {
 // ApplyMeshJoin joins this node to the meshes in a scanned payload.
 // Every target is resolved and validated before the first UCI write;
 // wireless is reloaded once by the batch apply.
-func (s *MeshJoinService) ApplyMeshJoin(_ context.Context, req *meshjoinv1.ApplyMeshJoinRequest) (*meshjoinv1.ApplyMeshJoinResponse, error) {
+func (s *MeshJoinService) ApplyMeshJoin(ctx context.Context, req *meshjoinv1.ApplyMeshJoinRequest) (*meshjoinv1.ApplyMeshJoinResponse, error) {
 	s.Log.Debug().Msg("ApplyMeshJoin request received")
 
 	if s.Radios == nil {
@@ -220,7 +220,7 @@ func (s *MeshJoinService) ApplyMeshJoin(_ context.Context, req *meshjoinv1.Apply
 		updates = append(updates, RadioSettingsUpdate{RadioName: tgt.radio, Settings: settings})
 	}
 
-	if err := s.Radios.ApplyRadioSettingsBatch(updates); err != nil {
+	if err := s.Radios.ApplyRadioSettingsBatch(ctx, updates); err != nil {
 		s.Log.Error().Err(err).Msg("Failed to apply mesh join")
 
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("apply radio settings: %w", err))

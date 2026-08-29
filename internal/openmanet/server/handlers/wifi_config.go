@@ -56,9 +56,17 @@ type WifiConfigService struct {
 	DHCPLeases     LeaseProvider
 	// GetMeshNeighbors can be overridden for testing; defaults to batmanadv.GetMeshNeighbors.
 	GetMeshNeighbors func() (*batmanadv.Neighbors, error)
+	// ReloadServices hands the committed UCI to the running system after
+	// a radio write. nil falls back to network.ForceReloadConfig
+	// (`reload_config`), which has procd reload `network` for the changed
+	// wireless/network configs so netifd re-syncs the radios.
+	ReloadServices func(ctx context.Context) error
 
 	mu sync.Mutex // serializes UCI writes
 }
+
+// reloadServicesTimeout bounds the detached reload_config run.
+const reloadServicesTimeout = 30 * time.Second
 
 // RadioSettingsUpdate is one radio's new settings inside a batch apply.
 type RadioSettingsUpdate struct {
@@ -70,7 +78,7 @@ type RadioSettingsUpdate struct {
 // read and write radio settings under the same UCI write lock.
 type RadioApplier interface {
 	CurrentRadioSettings(radioName string) (*wificonfigv1.RadioSettings, error)
-	ApplyRadioSettingsBatch(updates []RadioSettingsUpdate) error
+	ApplyRadioSettingsBatch(ctx context.Context, updates []RadioSettingsUpdate) error
 }
 
 // stageWriteError reports a UCI write failure while staging radio
@@ -327,7 +335,7 @@ func ifaceDisabledValue(settings *wificonfigv1.RadioSettings) string {
 }
 
 // UpdateRadioSettings applies new configuration to a radio.
-func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonfigv1.UpdateRadioSettingsRequest) (*wificonfigv1.UpdateRadioSettingsResponse, error) {
+func (s *WifiConfigService) UpdateRadioSettings(ctx context.Context, req *wificonfigv1.UpdateRadioSettingsRequest) (*wificonfigv1.UpdateRadioSettingsResponse, error) {
 	s.Log.Debug().Str("radio", req.GetRadioName()).Msg("UpdateRadioSettings request received")
 
 	s.mu.Lock()
@@ -342,8 +350,7 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 		return nil, err
 	}
 
-	// Reload the wireless subsystem so changes take effect.
-	if err := s.ConfigReader.ReloadConfig(); err != nil {
+	if err := s.applyCommitted(ctx); err != nil {
 		return &wificonfigv1.UpdateRadioSettingsResponse{
 			Success: false,
 			Message: strPtr(fmt.Sprintf("config committed but reload failed: %v", err)),
@@ -354,11 +361,10 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 }
 
 // ApplyRadioSettingsBatch stages every update under one lock and
-// reloads wireless once. Any staging error aborts before the reload;
-// UCI writes already staged for earlier radios are committed by the
-// per-radio setters and are not rolled back — callers re-read state on
-// error.
-func (s *WifiConfigService) ApplyRadioSettingsBatch(updates []RadioSettingsUpdate) error {
+// reloads once. Any staging error aborts before the reload; UCI writes
+// already staged for earlier radios are committed by the per-radio
+// setters and are not rolled back — callers re-read state on error.
+func (s *WifiConfigService) ApplyRadioSettingsBatch(ctx context.Context, updates []RadioSettingsUpdate) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -368,8 +374,39 @@ func (s *WifiConfigService) ApplyRadioSettingsBatch(updates []RadioSettingsUpdat
 		}
 	}
 
-	if err := s.ConfigReader.ReloadConfig(); err != nil {
+	if err := s.applyCommitted(ctx); err != nil {
 		return fmt.Errorf("reload wireless: %w", err)
+	}
+
+	return nil
+}
+
+// applyCommitted makes the committed UCI take effect: it re-reads the
+// daemon's in-memory tree from disk, then hands the change to the
+// system. The second step is what actually restarts the radios — the
+// go-uci reload alone only refreshes this process's view, and the
+// device would sit on its old wireless config until reboot.
+//
+// The system reload runs on a context detached from the request: it
+// can drop the operator's own connection (they may be on the radio
+// being reconfigured), and a canceled request context would kill
+// reload_config midway.
+func (s *WifiConfigService) applyCommitted(ctx context.Context) error {
+	if err := s.ConfigReader.ReloadConfig(); err != nil {
+		return fmt.Errorf("re-read uci: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reloadServicesTimeout)
+	defer cancel()
+
+	s.Log.Info().Msg("Reloading network services to apply wireless config")
+
+	if s.ReloadServices != nil {
+		return s.ReloadServices(ctx)
+	}
+
+	if err := network.ForceReloadConfig(ctx); err != nil {
+		return fmt.Errorf("reload_config: %w", err)
 	}
 
 	return nil
@@ -385,6 +422,18 @@ func (s *WifiConfigService) stageRadioSettings(radioName string, settings *wific
 
 	if err := s.rejectNonMeshModeOnMorse(radioName, settings.GetMode()); err != nil {
 		return err
+	}
+
+	mode := ProtoToWifiMode(settings.GetMode())
+
+	// A mesh iface only carries traffic once its batadv_hardif hangs
+	// off bat0. Refuse before writing anything on a node that never
+	// ran setup rather than commit a binding that can never come up.
+	if mode == uciModeMesh && !network.BatmanDeviceExists(s.ConfigReader, network.BatmanDeviceName) {
+		s.Log.Warn().Str("radio", radioName).Msg("Rejecting mesh mode: no batman-adv device")
+
+		return connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("batman-adv device %q is not configured; run setup first", network.BatmanDeviceName))
 	}
 
 	// Find the linked interface section.
@@ -431,7 +480,6 @@ func (s *WifiConfigService) stageRadioSettings(radioName string, settings *wific
 		ifaceCfg.Encryption = enc
 	}
 
-	mode := ProtoToWifiMode(settings.GetMode())
 	if mode != "" {
 		ifaceCfg.Mode = mode
 
@@ -451,6 +499,8 @@ func (s *WifiConfigService) stageRadioSettings(radioName string, settings *wific
 				currentNet = vals[0]
 			}
 
+			batmesh := currentNet
+
 			if !strings.HasPrefix(currentNet, "batmesh") {
 				unused, err := findUnusedBatmesh(s.ConfigReader, ifaceName)
 				if err != nil {
@@ -460,6 +510,20 @@ func (s *WifiConfigService) stageRadioSettings(radioName string, settings *wific
 				}
 
 				ifaceCfg.Network = unused
+				batmesh = unused
+			}
+
+			// The wizard creates both hardifs; a factory image or a
+			// hand-edited network config may lack this one. The
+			// wireless reader shares the UCI tree, so the section is
+			// committed together with the iface below.
+			created, err := network.EnsureBatmanHardifInterface(s.ConfigReader, batmesh, network.BatmanDeviceName)
+			if err != nil {
+				return &stageWriteError{msg: fmt.Sprintf("failed to create network.%s: %v", batmesh, err)}
+			}
+
+			if created {
+				s.Log.Info().Str("network", batmesh).Msg("Created batadv_hardif for mesh radio")
 			}
 
 		case uciModeAP, uciModeSTA:
