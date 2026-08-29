@@ -1598,12 +1598,18 @@ func batmanGwModeForRole(role setupv1.MeshRole) string {
 
 // ── Phase 11: mesh11sd announcements ─────────────────────────────────────────
 
-// runMesh11sd writes mesh_fwding=0 (batman-adv handles forwarding)
-// and mesh_gate_announcements per the user's role choice.
+// runMesh11sd writes mesh_fwding=0 and mesh_nolearn=1 (batman-adv
+// handles forwarding and path discovery, so the 802.11s driver must
+// neither forward nor learn paths) and mesh_gate_announcements per the
+// user's role choice.
 func (s *SetupService) runMesh11sd(_ context.Context, stream applySetupStream, profile *setupv1.MeshNodeProfile) error {
 	return s.runPhase(stream, setupv1.ApplySetupResponse_PHASE_MESH11SD,
 		"writing mesh11sd announcements", func() error {
 			if err := network.SetMeshFwding(s.UCI, "0"); err != nil {
+				return err
+			}
+
+			if err := network.SetMeshNolearn(s.UCI, "1"); err != nil {
 				return err
 			}
 

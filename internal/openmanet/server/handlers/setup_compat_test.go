@@ -745,6 +745,23 @@ func TestCompat_Mesh11sdFwdingDisabled(t *testing.T) {
 		"mesh11sd.mesh_fwding must be 0 — batman-adv handles forwarding")
 }
 
+// TestCompat_Mesh11sdNolearnEnabled asserts mesh_nolearn=1 on every
+// role: batman-adv owns path discovery, so the 802.11s driver must not
+// learn mesh paths from received frames.
+func TestCompat_Mesh11sdNolearnEnabled(t *testing.T) {
+	for name, profile := range map[string]*setupv1.MeshNodeProfile{
+		"gate":  gateRouterEthProfile(),
+		"point": pointExtenderProfile(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			tr := runScenarioApply(t, profile)
+			assert.Equal(t, "1",
+				tr.getOne("mesh11sd", "mesh_params", "mesh_nolearn"),
+				"mesh11sd.mesh_nolearn must be 1 — batman-adv handles path discovery")
+		})
+	}
+}
+
 // TestCompat_HostnameWritten asserts the wizard invokes the
 // hostname setter with the profile's hostname. The fake setter records
 // calls without writing to UCI, so we assert against its call log

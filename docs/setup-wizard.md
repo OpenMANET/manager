@@ -27,6 +27,11 @@ The wizard snapshots and can roll back these UCI configs:
 
 Highlights that are easy to miss:
 
+- **`mesh11sd`** — the wizard writes `mesh_params.mesh_fwding=0` and
+  `mesh_params.mesh_nolearn=1` on every role because batman-adv owns
+  forwarding and path discovery; leaving the 802.11s driver to forward or
+  learn paths fights batman-adv. `mesh_gate_announcements` follows the role
+  (1 on a gate, 0 on a point) and `setup.enabled` is flipped to 1.
 - **`luci`** — the wizard marks `luci.wizard.used=1` and deletes
   `luci.main.homepage` when it still points at a first-boot wizard page
   (`admin/morse/landing` or `admin/selectwizard`). Without this, LuCI keeps
