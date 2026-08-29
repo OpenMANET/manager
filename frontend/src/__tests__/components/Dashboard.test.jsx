@@ -299,6 +299,7 @@ describe('TestDashboardPanels', () => {
       expect(screen.getByText('MEM')).toBeTruthy();
       expect(screen.getByText('OVERLAY')).toBeTruthy();
       expect(screen.getByText('2d 14h 23m')).toBeTruthy();
+      expect(screen.getByText('MorseMicro HaLowLink 2')).toBeTruthy();
       expect(screen.getByText('5.15.150')).toBeTruthy();
       expect(screen.getByText('OpenWrt 23.05.3 / OpenMANET 1.7.0')).toBeTruthy();
       expect(screen.getByText('mipsel_24kc')).toBeTruthy();
@@ -306,6 +307,10 @@ describe('TestDashboardPanels', () => {
     // 3 pbars: CPU, MEM, OVERLAY. LOAD 1M and HW Rev were removed because
     // neither field is surfaced by the current system-status handler.
     expect(container.querySelectorAll('.pbar').length).toBe(3);
+    // Board model sits directly under Uptime and above Kernel.
+    const keys = Array.from(container.querySelectorAll('.dashboard-resources-kv .kv .k'))
+      .map((el) => el.textContent);
+    expect(keys.slice(0, 3)).toEqual(['Uptime', 'Model', 'Kernel']);
     expect(screen.queryByText('LOAD 1M')).toBeNull();
     expect(screen.queryByText('HW Rev')).toBeNull();
   });

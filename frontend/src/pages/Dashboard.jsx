@@ -693,6 +693,7 @@ export default function DashboardPage() {
             </div>
             <div className="dashboard-resources-kv">
               <div className="kv"><span className="k">Uptime</span><span className="v accent">{formatUptime(data?.systemResources?.uptime)}</span></div>
+              <div className="kv"><span className="k">Model</span><span className="v">{data?.deviceInfo?.model || '—'}</span></div>
               <div className="kv"><span className="k">Kernel</span><span className="v">{data?.deviceInfo?.kernel || '—'}</span></div>
               <div className="kv"><span className="k">Firmware</span><span className="v">{data?.deviceInfo?.firmware || '—'}</span></div>
               <div className="kv"><span className="k">Arch</span><span className="v">{data?.deviceInfo?.architecture || '—'}</span></div>
