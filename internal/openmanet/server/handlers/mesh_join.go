@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
 	meshjoinv1 "github.com/openmanet/openmanetd/internal/api/openmanet/mesh_join/v1"
 	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
@@ -107,6 +108,26 @@ func (s *MeshJoinService) GetMeshJoinQR(_ context.Context, _ *emptypb.Empty) (*m
 	}
 
 	payload.SourceHostname = hostname
+
+	// Defense-in-depth: validate the fully assembled payload against the
+	// proto's buf.validate constraints before encoding, so a QR is never
+	// minted from a payload the receiver would reject. This catches
+	// constraint violations the field-level validateCredentials pass does
+	// not (e.g. a malformed country_code read from UCI). GetMeshJoinQR is
+	// a rare, operator-triggered call, so building the validator per call
+	// is acceptable.
+	validator, err := protovalidate.New()
+	if err != nil {
+		s.Log.Error().Err(err).Msg("Failed to create payload validator")
+
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("new validator: %w", err))
+	}
+
+	if validateErr := validator.Validate(payload); validateErr != nil {
+		s.Log.Error().Err(validateErr).Msg("Assembled mesh join payload failed validation")
+
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("validate payload: %w", validateErr))
+	}
 
 	text, err := meshjoin.Encode(payload)
 	if err != nil {

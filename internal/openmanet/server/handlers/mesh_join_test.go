@@ -233,6 +233,23 @@ func TestGetMeshJoinQR_UnknownHTMode(t *testing.T) {
 	assert.Equal(t, connect.CodeInternal, cerr.Code())
 }
 
+func TestGetMeshJoinQR_InvalidCountryRejectedByValidator(t *testing.T) {
+	// A malformed country (digit) survives credentialsFromIface (which
+	// uppercases it and does not check the country) but must be caught by
+	// the assembled-payload protovalidate pass, which enforces the
+	// country_code pattern ^([A-Z]{2,3})?$.
+	reader := newMeshJoinReader()
+	require.NoError(t, reader.SetType("wireless", "radio3", "country", 0, "us1"))
+
+	svc := newTestMeshJoinService(reader)
+
+	_, err := svc.GetMeshJoinQR(context.Background(), &emptypb.Empty{})
+
+	var cerr *connect.Error
+	require.ErrorAs(t, err, &cerr)
+	assert.Equal(t, connect.CodeInternal, cerr.Code())
+}
+
 func TestGetMeshJoinQR_HostnameError(t *testing.T) {
 	svc := newTestMeshJoinService(newMeshJoinReader())
 	svc.Hostname = func() (string, error) { return "", errors.New("gethostname: boom") }
