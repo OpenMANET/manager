@@ -978,8 +978,9 @@ func TestListMeshPeers_WithPeers(t *testing.T) {
 	}
 
 	batNeighbors := batmanadv.Neighbors{
-		{HardIfname: "phy1-mesh0", NeighAddress: "c8:3e:1a:7b:00:a3", Throughput: 42, LastSeenMsecs: 200},
-		{HardIfname: "phy1-mesh0", NeighAddress: "c8:3e:1a:7b:00:d7", Throughput: 28, LastSeenMsecs: 400},
+		// Throughput is what `batctl nj` prints: kbit/s.
+		{HardIfname: "phy1-mesh0", NeighAddress: "c8:3e:1a:7b:00:a3", Throughput: 22200, LastSeenMsecs: 200},
+		{HardIfname: "phy1-mesh0", NeighAddress: "c8:3e:1a:7b:00:d7", Throughput: 7100, LastSeenMsecs: 400},
 	}
 	svc.GetMeshNeighbors = func() (*batmanadv.Neighbors, error) {
 		return &batNeighbors, nil
@@ -1033,9 +1034,10 @@ func TestListMeshPeers_WithPeers(t *testing.T) {
 		t.Errorf("peer 1 signal: got %d, want %d", p1.GetSignalDbm(), -61)
 	}
 
-	// Throughput: batman-adv reports in 100kbit/s units → /10 = Mbps
-	if p1.GetThroughputMbps() != 4.2 {
-		t.Errorf("peer 1 throughput: got %f, want %f", p1.GetThroughputMbps(), 4.2)
+	// Throughput: batctl nj reports kbit/s → /1000 = Mbps. A 2.4 GHz
+	// HT20 link reads ~22 Mbps; the old /10 showed it as 2220 Mbps.
+	if p1.GetThroughputMbps() != 22.2 {
+		t.Errorf("peer 1 throughput: got %f, want %f", p1.GetThroughputMbps(), 22.2)
 	}
 
 	p2 := peerMap["c8:3e:1a:7b:00:d7"]
@@ -1047,8 +1049,8 @@ func TestListMeshPeers_WithPeers(t *testing.T) {
 		t.Errorf("peer 2 hostname: got %q, want %q", p2.GetHostname(), "HaLowLink2-d7e4")
 	}
 
-	if p2.GetThroughputMbps() != 2.8 {
-		t.Errorf("peer 2 throughput: got %f, want %f", p2.GetThroughputMbps(), 2.8)
+	if p2.GetThroughputMbps() != 7.1 {
+		t.Errorf("peer 2 throughput: got %f, want %f", p2.GetThroughputMbps(), 7.1)
 	}
 }
 

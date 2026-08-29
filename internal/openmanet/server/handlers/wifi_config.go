@@ -646,10 +646,12 @@ func (s *WifiConfigService) buildMeshPeerList(
 		hostname := batHosts.GetHostByMAC(mac)
 
 		peer := &wificonfigv1.MeshPeer{
-			Hostname:       hostname,
-			MacAddress:     mac,
-			SignalDbm:      int32(signalByMAC[mac]),
-			ThroughputMbps: float64(n.Throughput) / 10.0, // batman-adv reports in 100kbit/s
+			Hostname:   hostname,
+			MacAddress: mac,
+			SignalDbm:  int32(signalByMAC[mac]),
+			// `batctl nj` emits BATADV_ATTR_THROUGHPUT, which the kernel
+			// scales to kbit/s before putting it on netlink.
+			ThroughputMbps: float64(n.Throughput) / 1000.0,
 			LastSeen:       durationpb.New(time.Duration(n.LastSeenMsecs) * time.Millisecond),
 		}
 
