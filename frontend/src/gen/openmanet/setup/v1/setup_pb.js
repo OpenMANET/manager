@@ -155,8 +155,11 @@ export const MeshPointModeSchema = /*@__PURE__*/
  * MeshPointMode is the device-mode sub-selection when role == MESH_POINT.
  * Maps to UCI network.wizard.device_mode_meshpoint.
  *
- * BRIDGE is intentionally omitted: bypasses batman-adv, which is always on
- * in the OpenMANET wizard.
+ * EXTENDER is what the LuCI wizard calls "bridge": the ethernet ports are
+ * bridged into br-ahwlan with one DHCP pool on ahwlan, and batman-adv still
+ * runs underneath. NONE has no LuCI-reachable equivalent and is rejected by
+ * the handler until the daemon's address-reservation worker can leave a
+ * DHCP-client ahwlan alone (see validateProfile in setup.go).
  *
  * @generated from enum openmanet.setup.v1.MeshPointMode
  */

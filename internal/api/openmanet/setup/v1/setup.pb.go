@@ -80,8 +80,11 @@ func (MeshRole) EnumDescriptor() ([]byte, []int) {
 // MeshPointMode is the device-mode sub-selection when role == MESH_POINT.
 // Maps to UCI network.wizard.device_mode_meshpoint.
 //
-// BRIDGE is intentionally omitted: bypasses batman-adv, which is always on
-// in the OpenMANET wizard.
+// EXTENDER is what the LuCI wizard calls "bridge": the ethernet ports are
+// bridged into br-ahwlan with one DHCP pool on ahwlan, and batman-adv still
+// runs underneath. NONE has no LuCI-reachable equivalent and is rejected by
+// the handler until the daemon's address-reservation worker can leave a
+// DHCP-client ahwlan alone (see validateProfile in setup.go).
 type MeshPointMode int32
 
 const (
@@ -799,6 +802,10 @@ func (x *MeshRadioConfig) GetCountryCode() string {
 //     and must NOT equal any aps[].radio_name with enabled=true
 //     (concurrent AP+STA on the same radio is rejected; chipset support
 //     varies and the wizard is not the place to find out)
+//   - neither aps[].radio_name nor WifiStaProfile.radio_name may name a
+//     wifi-device with type=morse (HaLow): those radios only ever carry
+//     mesh-mode interfaces, and every aps[] entry stages an AP section
+//     whether enabled or not
 //   - MeshRadioConfig.channel must be a legal channel for the chosen
 //     bandwidth on the chosen radio
 //   - device_mode oneof must match role (MESH_GATE -> meshgate_mode,
