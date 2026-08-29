@@ -2,7 +2,7 @@
 // SettingsWireless.jsx — Wireless radio configuration tab
 // =============================================================================
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@connectrpc/connect';
 import { transport } from '../services/connectClient.js';
 import { WifiConfigService } from '../gen/openmanet/wifi_config/v1/wifi_config_service_pb.js';
@@ -100,8 +100,23 @@ function fieldsFromCredentials(c, availOpts) {
 }
 
 // credentialsFromDraft is the inverse: what the operator reviewed (and
-// maybe edited) is what ApplyMeshJoin receives.
+// maybe edited) is what ApplyMeshJoin receives. draft can be null when the
+// target radio's GetRadioSettings hasn't resolved yet (or errors
+// persistently, e.g. a radio with no linked iface) — return a safe
+// empty-ish object rather than throwing on draft.meshId. Callers should
+// still avoid invoking this with a null draft (see doJoin's own guard);
+// this is the second line of defense.
 function credentialsFromDraft(draft) {
+  if (!draft) {
+    return {
+      meshId:       '',
+      passphrase:   '',
+      encryption:   WifiEncryption.UNSPECIFIED,
+      bandwidthMhz: 0,
+      channel:      0,
+      countryCode:  '',
+    };
+  }
   return {
     meshId:       draft.meshId ?? '',
     passphrase:   draft.password ?? '',
@@ -203,6 +218,10 @@ function RadioCard({ radio, prefill, reloadKey = 0, onCardChange }) {
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  // Tracks the prefill.nonce already merged into the draft so a re-render
+  // triggered by an operator edit (which changes `draft` but not
+  // prefill.nonce) never re-clobbers the field with the scanned value.
+  const appliedPrefillNonceRef = useRef(null);
 
   const isS1G = radio.band === BAND_S1G;
 
@@ -262,11 +281,18 @@ function RadioCard({ radio, prefill, reloadKey = 0, onCardChange }) {
 
   useEffect(() => {
     // Scanned credentials land in the draft; the operator still presses
-    // Join mesh (or Save) before anything is written.
-    if (!prefill) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // Join mesh (or Save) before anything is written. If the draft hasn't
+    // finished loading yet when the scan lands, hold the prefill and apply
+    // it once loadCard resolves — otherwise the merge below is a no-op
+    // against a null draft and the scanned values are silently dropped.
+    // Track the last-applied nonce so this effect (which also re-fires on
+    // every subsequent draft change, including operator edits) applies a
+    // given prefill exactly once.
+    if (!prefill || !draft) return;
+    if (appliedPrefillNonceRef.current === prefill.nonce) return;
+    appliedPrefillNonceRef.current = prefill.nonce;
     setDraft(prev => (prev ? { ...prev, ...prefill.fields } : prev));
-  }, [prefill]);
+  }, [prefill, draft]);
 
   useEffect(() => {
     onCardChange?.(radio.name, { draft, availOpts, band: radio.band });
@@ -577,7 +603,14 @@ export default function SettingsWireless() {
     const out = [];
     const check = (radioName, isHalow) => {
       const card = cards[radioName];
-      if (!card?.draft) return;
+      if (!card?.draft) {
+        // GetRadioSettings for this target hasn't resolved yet (or errors
+        // persistently, e.g. a radio with no linked iface). Block Join
+        // rather than silently treating "no draft" as "no issue" — see
+        // credentialsFromDraft, which would otherwise be called with null.
+        out.push(`${radioName}: still loading — wait a moment`);
+        return;
+      }
       const creds = credentialsFromDraft(card.draft);
       const opts = {
         isHalow,
@@ -596,13 +629,19 @@ export default function SettingsWireless() {
 
   const doJoin = async () => {
     if (!join?.halowRadio) return;
+    const halowDraft = cards[join.halowRadio]?.draft;
+    const backhaulDraft = join.backhaulRadio ? cards[join.backhaulRadio]?.draft : null;
+    // Belt and suspenders: the Join button is already disabled by `issues`
+    // while a named target's draft hasn't loaded, but never dereference a
+    // null draft here regardless of how doJoin gets invoked.
+    if (!halowDraft || (join.backhaulRadio && !backhaulDraft)) return;
     setJoinStatus({ busy: true, ok: null, error: null });
     try {
       const request = {
         payload: {
           sourceHostname: join.sourceHostname,
-          halow: credentialsFromDraft(cards[join.halowRadio].draft),
-          backhaul: join.backhaulRadio ? credentialsFromDraft(cards[join.backhaulRadio].draft) : undefined,
+          halow: credentialsFromDraft(halowDraft),
+          backhaul: join.backhaulRadio ? credentialsFromDraft(backhaulDraft) : undefined,
         },
         halowRadio: join.halowRadio,
         backhaulRadio: join.backhaulRadio,

@@ -552,4 +552,81 @@ describe('TestSettingsWirelessShareMesh', () => {
     await waitFor(() => expect(mockUpdateRadioSettings).toHaveBeenCalledTimes(1));
     expect(mockApplyMeshJoin).not.toHaveBeenCalled();
   });
+
+  // M1 regression: the HaLow (or backhaul) target's GetRadioSettings never
+  // resolves, so its draft stays null forever. Join mesh must stay blocked
+  // instead of calling credentialsFromDraft(null).
+  it('blocks Join mesh while a named target radio\'s draft has not loaded', async () => {
+    mockListRadios.mockResolvedValue({ radios: [RADIO_S1G, RADIO_AP] });
+    mockGetRadioStatus.mockImplementation(({ radioName }) =>
+      Promise.resolve({ status: radioName === 'radio0' ? STATUS_S1G : STATUS_AP }));
+    mockGetRadioSettings.mockImplementation(({ radioName }) => {
+      // radio0 (the HaLow target) never resolves — mirrors a radio with no
+      // linked iface, where GetRadioSettings persistently errors and the
+      // card's draft never leaves null.
+      if (radioName === 'radio0') return Promise.reject(new Error('not found'));
+      return Promise.resolve({ ...SETTINGS_2G_MESH, settings: { ...SETTINGS_2G_MESH.settings, mode: 2 } });
+    });
+    mockGetMeshJoinQR.mockResolvedValue(QR_RESPONSE);
+    render(<SettingsWireless />);
+    await waitFor(() => screen.getByText('bravo-mesh'));
+
+    pasteCode(encodePayload(samplePayload()));
+
+    const joinBtn = await waitFor(() => screen.getByRole('button', { name: 'Join mesh' }));
+    await waitFor(() => expect(screen.getByText(/radio0: still loading — wait a moment/)).toBeInTheDocument());
+    expect(joinBtn).toBeDisabled();
+
+    fireEvent.click(joinBtn);
+    expect(mockApplyMeshJoin).not.toHaveBeenCalled();
+  });
+
+  // M1 regression: a scan that lands before the target radio's draft has
+  // loaded must still end up applied once loadCard resolves.
+  it('re-applies a prefill once the target radio\'s draft finishes loading', async () => {
+    mockListRadios.mockResolvedValue({ radios: [RADIO_S1G, RADIO_AP] });
+    mockGetRadioStatus.mockImplementation(({ radioName }) =>
+      Promise.resolve({ status: radioName === 'radio0' ? STATUS_S1G : STATUS_AP }));
+
+    let resolveHalowSettings;
+    const halowSettingsPromise = new Promise(resolve => { resolveHalowSettings = resolve; });
+    mockGetRadioSettings.mockImplementation(({ radioName }) => {
+      if (radioName === 'radio0') return halowSettingsPromise;
+      return Promise.resolve({ ...SETTINGS_2G_MESH, settings: { ...SETTINGS_2G_MESH.settings, mode: 2 } });
+    });
+    mockGetMeshJoinQR.mockResolvedValue(QR_RESPONSE);
+    render(<SettingsWireless />);
+    await waitFor(() => screen.getByText('bravo-mesh'));
+
+    // The scan lands while radio0's draft is still null.
+    pasteCode(encodePayload(samplePayload()));
+    await waitFor(() => expect(screen.getByText(/radio0: still loading — wait a moment/)).toBeInTheDocument());
+    expect(screen.queryByDisplayValue('field-mesh')).toBeNull();
+
+    // radio0's GetRadioSettings finally resolves; the held prefill must be
+    // merged onto the newly-loaded draft.
+    resolveHalowSettings(SETTINGS_S1G);
+
+    await waitFor(() => expect(screen.getByDisplayValue('field-mesh')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Join mesh' })).not.toBeDisabled();
+  });
+
+  // M1 regression: once a nonce has been applied, a later operator edit
+  // (which changes the draft but not prefill.nonce) must not be reverted
+  // by a spurious prefill re-apply.
+  it('does not revert an operator edit made after a scan (once-per-nonce guard)', async () => {
+    await renderMeshNode();
+    pasteCode(encodePayload(samplePayload()));
+    await waitFor(() => screen.getByDisplayValue('field-mesh'));
+
+    fireEvent.change(screen.getByDisplayValue('field-mesh'), { target: { value: 'operator-typed' } });
+    await waitFor(() => expect(screen.getByDisplayValue('operator-typed')).toBeInTheDocument());
+    expect(screen.queryByDisplayValue('field-mesh')).toBeNull();
+
+    // A second, unrelated draft change re-fires the prefill effect again
+    // (draft is a dependency); the once-per-nonce guard must hold.
+    fireEvent.change(screen.getByDisplayValue('correct-horse'), { target: { value: 'operator-pass' } });
+    await waitFor(() => expect(screen.getByDisplayValue('operator-pass')).toBeInTheDocument());
+    expect(screen.getByDisplayValue('operator-typed')).toBeInTheDocument();
+  });
 });
