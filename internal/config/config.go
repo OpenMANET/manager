@@ -56,7 +56,7 @@ const (
 	// The previous 8.0 was compensating for hardware headroom the bench
 	// showed does not exist (the ADC clips first) and hard-clipped every
 	// sample at or above 4096 counts. Key comms.micGain.
-	DefaultCommsMicGain       float32       = 2.0
+	DefaultCommsMicGain float32 = 2.0
 	// DefaultCommsAudioSpeakerVolume is the hardware speaker (DAC) volume
 	// percent applied when comms.audio.speakerVolume is unset. 100% maps to
 	// the CM108B DAC maximum of 0 dB — the chip has no positive playback
