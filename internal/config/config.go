@@ -41,14 +41,14 @@ const (
 	// advertised so the reservation worker stops treating them as taken
 	// (ledger D4). Zero disables expiry: rows then live until
 	// resetDBOnStart. Key alfred.nodeExpiry, a Go duration string ("24h").
-	DefaultAlfredNodeExpiry                          time.Duration = 24 * time.Hour
-	DefaultCommsEnable                               bool          = false
-	DefaultCommsProtocol                             string        = "rtp"
-	DefaultCommsDebug                                bool          = false
-	DefaultCommsLoopback                             bool          = false
-	DefaultCommsTrace                                bool          = false
-	DefaultCommsControlSource                        string        = "openvlm"
-	DefaultCommsMicGain                              float32       = 8.0
+	DefaultAlfredNodeExpiry   time.Duration = 24 * time.Hour
+	DefaultCommsEnable        bool          = false
+	DefaultCommsProtocol      string        = "rtp"
+	DefaultCommsDebug         bool          = false
+	DefaultCommsLoopback      bool          = false
+	DefaultCommsTrace         bool          = false
+	DefaultCommsControlSource string        = "openvlm"
+	DefaultCommsMicGain       float32       = 8.0
 	// DefaultCommsAudioSpeakerVolume is the hardware speaker (DAC) volume
 	// percent applied when comms.audio.speakerVolume is unset. 100% maps to
 	// the CM108B DAC maximum of 0 dB — the chip has no positive playback
@@ -56,23 +56,23 @@ const (
 	// the leave-untouched sentinel used for the mic) closes the fleet split
 	// where units provisioned with OpenVLM <= 1.0.2 boot at -10 dB from the
 	// EEPROM while >= 1.0.3 units boot at 0 dB. Key comms.audio.speakerVolume.
-	DefaultCommsAudioSpeakerVolume                   int           = 100
-	DefaultCommsNanoPTTEnable                        bool          = false
-	DefaultCommsNanoPTTDevicePath                    string        = "/dev/hidraw0/*"
-	DefaultCommsNanoPTTDeviceName                    string        = ""
-	DefaultCommsBluetoothPttEnable                   bool          = false
-	DefaultCommsBluetoothPttBluetoothAudioDeviceHint string        = ""
-	DefaultCommsBluetoothPttBluetoothInputDevice     string        = ""
-	DefaultCommsBluetoothPttBluetoothOutputDevice    string        = ""
-	DefaultCommsGPIOSelectorEnable                   bool          = true
-	DefaultResetDBOnStart                            bool          = false
-	DefaultEnableGNSS                                bool          = false
-	DefaultGNSSSendAsNMEA                            bool          = false
-	DefaultGNSSSendAsCoT                             bool          = false
-	DefaultGNSSCoTUID                                string        = ""
-	DefaultGNSSSource                                string        = "internal"
-	DefaultEnableBLOS                                bool          = false
-	DefaultBLOSStatusWorkerInterval                  int           = 30 // seconds
+	DefaultCommsAudioSpeakerVolume                   int    = 100
+	DefaultCommsNanoPTTEnable                        bool   = false
+	DefaultCommsNanoPTTDevicePath                    string = "/dev/hidraw0/*"
+	DefaultCommsNanoPTTDeviceName                    string = ""
+	DefaultCommsBluetoothPttEnable                   bool   = false
+	DefaultCommsBluetoothPttBluetoothAudioDeviceHint string = ""
+	DefaultCommsBluetoothPttBluetoothInputDevice     string = ""
+	DefaultCommsBluetoothPttBluetoothOutputDevice    string = ""
+	DefaultCommsGPIOSelectorEnable                   bool   = true
+	DefaultResetDBOnStart                            bool   = false
+	DefaultEnableGNSS                                bool   = false
+	DefaultGNSSSendAsNMEA                            bool   = false
+	DefaultGNSSSendAsCoT                             bool   = false
+	DefaultGNSSCoTUID                                string = ""
+	DefaultGNSSSource                                string = "internal"
+	DefaultEnableBLOS                                bool   = false
+	DefaultBLOSStatusWorkerInterval                  int    = 30 // seconds
 	// DefaultMeshTopologyDeltaSampleInterval is how often the mesh
 	// topology delta tracker polls batadv-vis for a new snapshot. 5
 	// seconds is a compromise between granularity (the UI panel claims
