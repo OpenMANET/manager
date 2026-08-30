@@ -16,7 +16,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 const setupState = { getSetupStatus: vi.fn() };
@@ -84,13 +84,22 @@ function fireBeforeUnload() {
   return event;
 }
 
+// The guard re-registers its beforeunload listener in a passive effect
+// keyed on wizard state. findByTestId resolves on the commit that
+// hydrates the HaLow radio, which can land a tick before that effect
+// runs (React's scheduler vs RTL's settle timer — it lost under CI
+// load). Poll until the listener is really armed instead of assuming
+// the first render after hydration is enough.
+async function waitForGuardArmed() {
+  await waitFor(() => expect(fireBeforeUnload().defaultPrevented).toBe(true));
+}
+
 describe('TestSetupWizardSkipDisarmsGuard', () => {
   it('control: the guard is armed once a HaLow radio is auto-filled', async () => {
     renderWizard();
     await screen.findByTestId('step-identity');
 
-    const event = fireBeforeUnload();
-    expect(event.defaultPrevented).toBe(true);
+    await waitForGuardArmed();
   });
 
   it('confirming "Skip for now" disarms the guard before navigating away', async () => {
@@ -103,6 +112,9 @@ describe('TestSetupWizardSkipDisarmsGuard', () => {
     try {
       renderWizard();
       await screen.findByTestId('step-identity');
+      // Prove the guard was armed before Skip, otherwise a never-armed
+      // guard would pass the disarm assertion vacuously.
+      await waitForGuardArmed();
 
       fireEvent.click(screen.getByRole('button', { name: /skip for now/i }));
       const dialog = screen.getByRole('alertdialog', { name: /skip setup confirmation/i });
