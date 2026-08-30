@@ -26,7 +26,8 @@ func newAudioTestConfig(t *testing.T, yamlContent string) *Config {
 func TestCommsAudio_Defaults_Unset(t *testing.T) {
 	c := newAudioTestConfig(t, "comms:\n  enable: false\n")
 
-	assert.Equal(t, -1, c.GetCommsAudioSpeakerVolume())
+	assert.Equal(t, DefaultCommsAudioSpeakerVolume, c.GetCommsAudioSpeakerVolume(),
+		"unset speaker volume defaults to 100% so every EEPROM vintage boots at full DAC level")
 	assert.Equal(t, -1, c.GetCommsAudioMicVolume())
 
 	_, set := c.GetCommsAudioAGC()
@@ -115,5 +116,6 @@ func TestPersistCommsAudio_PartialWritesOnlyProvidedFields(t *testing.T) {
 	assert.NotContains(t, content, "speakerVolume")
 	assert.NotContains(t, content, "micVolume")
 
-	assert.Equal(t, -1, c.GetCommsAudioSpeakerVolume(), "unwritten field stays unset")
+	assert.Equal(t, DefaultCommsAudioSpeakerVolume, c.GetCommsAudioSpeakerVolume(),
+		"unwritten speaker volume falls back to the 100% default")
 }

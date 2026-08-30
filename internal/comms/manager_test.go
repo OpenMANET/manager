@@ -272,7 +272,9 @@ func TestMixerStartupUpdate_Unconfigured_DefaultsAGCOff(t *testing.T) {
 	cfg := config.NewWithoutWatch(v)
 
 	u := mixerStartupUpdate(cfg)
-	assert.Nil(t, u.SpeakerPct, "unset speakerVolume must stay nil")
+	require.NotNil(t, u.SpeakerPct,
+		"unset speakerVolume applies the 100% policy default so playback level does not depend on the EEPROM vintage")
+	assert.Equal(t, config.DefaultCommsAudioSpeakerVolume, *u.SpeakerPct)
 	assert.Nil(t, u.MicPct, "unset micVolume must stay nil")
 	require.NotNil(t, u.AGC, "AGC defaults to disabled when comms.audio.agc is unset")
 	assert.False(t, *u.AGC)
@@ -347,9 +349,12 @@ func TestBuildCommsConfig_MixerStartupWiring_PicksUpLateConfig(t *testing.T) {
 
 	cfg := config.NewWithoutWatch(v)
 
-	// Built while comms.audio is unconfigured: only the AGC off default.
+	// Built while comms.audio is unconfigured: the speaker carries the
+	// 100% policy default until an operator persists a value.
 	u := mixerStartupUpdate(cfg)
-	assert.Nil(t, u.SpeakerPct, "no speaker value before one is persisted")
+	require.NotNil(t, u.SpeakerPct)
+	assert.Equal(t, config.DefaultCommsAudioSpeakerVolume, *u.SpeakerPct,
+		"speaker defaults to 100% before one is persisted")
 
 	// An operator persists a mixer value mid-run. This is the same
 	// v.Set + reload sequence Config.PersistCommsAudio performs when the

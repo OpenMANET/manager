@@ -862,12 +862,17 @@ button presses or an out-of-band `alsamixer` session.
 ### Startup behavior
 
 The manager wires `CommsConfig.AudioMixerStartup` to re-apply the
-persisted `comms.audio.*` values via `Volume.ApplyStartup`. Volume keys
-are apply-only-when-set: absent keys leave those controls untouched.
-AGC is policy rather than passthrough — it is applied on every startup,
-defaulting to **disabled** when `comms.audio.agc` is unset, so the
-CM108B's automatic capture gain never rides along silently on a fresh
-install or after a USB replug resets the chip. The re-apply runs once
+persisted `comms.audio.*` values via `Volume.ApplyStartup`. The mic
+volume key is apply-only-when-set: absent keys leave that control
+untouched. The speaker volume and AGC are policy rather than
+passthrough — both are applied on every startup. The speaker defaults
+to **100%** when `comms.audio.speakerVolume` is unset (the CM108B DAC
+maxes out at 0 dB, so 100% cannot over-drive), which closes the fleet
+split where units provisioned with OpenVLM ≤ 1.0.2 boot at −10 dB from
+the EEPROM while ≥ 1.0.3 units boot at 0 dB. AGC defaults to
+**disabled** when `comms.audio.agc` is unset, so the CM108B's automatic
+capture gain never rides along silently on a fresh install or after a
+USB replug resets the chip. The re-apply runs once
 after `control.DetectAndSetALSACard` in `Start()`, and again after every
 successful in-run audio recovery (a USB replug resets the card's mixer
 state). `ApplyStartup` applies the speaker, mic, and AGC fields as three
