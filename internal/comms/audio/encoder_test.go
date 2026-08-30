@@ -1000,3 +1000,36 @@ drainTap:
 		t.Errorf("sink received %d frames, want 3 with gate open", got)
 	}
 }
+
+// TestMicGainQ8_HighSideClamp pins the overflow guard: q must never
+// exceed maxGainQ8 (65536), the largest Q8 gain for which int32(v)*q
+// cannot wrap for any int16 sample (worst case -32768 * 65536 ==
+// math.MinInt32 exactly).
+func TestMicGainQ8_HighSideClamp(t *testing.T) {
+	tests := []struct {
+		name string
+		gain float32
+		want int32
+	}{
+		{"at clamp boundary 256x", 256.0, 65536},
+		{"just above boundary", 256.5, 65536},
+		{"absurd gain", 1e6, 65536},
+		{"float to int32 overflow gain", 1e30, 65536},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, micGainQ8(tc.gain))
+		})
+	}
+}
+
+// TestMicGainQ8_ClampedGainNoOverflow proves the clamped worst case
+// stays in int32 range end to end: the most negative sample at the
+// maximum Q8 gain reaches the soft knee without wrapping.
+func TestMicGainQ8_ClampedGainNoOverflow(t *testing.T) {
+	q := micGainQ8(1e30)
+	v := int16(-32768)
+	scaled := (int32(v) * q) >> gainQ8Shift
+	assert.Equal(t, int32(-8388608), scaled) // MinInt32 >> 8, no wrap
+	assert.Equal(t, int16(-32759), softKnee(scaled))
+}

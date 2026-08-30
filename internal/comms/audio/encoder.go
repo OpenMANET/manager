@@ -51,6 +51,14 @@ const broadcastEncoderChanDepth = 10
 const (
 	unityGainQ8 int32 = 256
 	gainQ8Shift int32 = 8
+
+	// maxGainQ8 caps the Q8 gain at 256x, the largest value for which
+	// int32(v)*q cannot wrap for any int16 sample: the worst case,
+	// -32768 * 65536, is exactly math.MinInt32. Above this the encode
+	// loop's int32 product would overflow before the soft knee runs,
+	// turning a misconfigured comms.micGain into wrap-around noise
+	// instead of a railed-but-intelligible signal.
+	maxGainQ8 int32 = 65536
 )
 
 // Soft-knee limiter constants. Post-gain samples inside ±kneeStart pass
@@ -95,13 +103,21 @@ func softKnee(s int32) int16 {
 // gain", matching the previous float implementation's gain > 0 guard. A
 // positive gain small enough to round to 0 is clamped to 1 (the smallest
 // non-silent Q8 step) so a configured near-zero gain attenuates instead
-// of muting outright.
+// of muting outright. Gains above 256x clamp to maxGainQ8 so the encode
+// loop's int32 product cannot overflow; the comparison happens in
+// float64 BEFORE the int32 conversion because converting an
+// out-of-range float to int32 is implementation-dependent in Go.
 func micGainQ8(gain float32) int32 {
 	if gain <= 0 {
 		return unityGainQ8
 	}
 
-	q := int32(math.Round(float64(gain) * 256))
+	scaled := math.Round(float64(gain) * 256)
+	if scaled >= float64(maxGainQ8) {
+		return maxGainQ8
+	}
+
+	q := int32(scaled)
 	if q < 1 {
 		return 1
 	}
