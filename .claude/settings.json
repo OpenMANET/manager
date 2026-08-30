@@ -121,6 +121,15 @@
       }
     ]
   },
+  "sandbox": {
+    "permissions": {
+      "read": {
+        "allow": [
+          "~/.config/gh"
+        ]
+      }
+    }
+  },
   "enabledPlugins": {
     "gopls-lsp@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,

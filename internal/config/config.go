@@ -4,6 +4,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
@@ -11,50 +12,59 @@ import (
 
 // Default configuration values
 const (
-	DefaultMeshNetInterface                   string = "br-ahwlan"
-	DefaultDBFile                             string = "/etc/openmanetd/openmanetd.db"
-	DefaultAlfredMode                         string = "primary"
-	DefaultAlfredBatInterface                 string = "bat0"
-	DefaultBatmanMulticastEnhancementsEnabled bool   = true
-	// DefaultBatmanMulticastForceflood controls batman-adv's multicast mode.
-	// When true, every multicast frame is flooded to every mesh node. When
-	// false, batman-adv uses IGMP/MLD snooping to deliver each group only to
-	// nodes that have joined it. Voice (continuous, per-channel subscribers)
-	// costs dramatically less bandwidth and CPU under snooping; ATAK CoT
-	// (all-nodes group) is still delivered because every node joins it.
-	// Operators can force-flood explicitly via batman.multicastForceflood
-	// when reliability over raw efficiency is required.
-	DefaultBatmanMulticastForceflood                 bool    = false
-	DefaultAlfredSocketPath                          string  = "/var/run/alfred.sock"
-	DefaultAlfredEnable                              bool    = true
-	DefaultAlfredDataTypeGateway                     bool    = true
-	DefaultAlfredDataTypeNode                        bool    = true
-	DefaultAlfredDataTypePosition                    bool    = true
-	DefaultAlfredDataTypeAddressReserv               bool    = true
-	DefaultAlfredDataTypeMeshNeighbors               bool    = true
-	DefaultCommsEnable                               bool    = false
-	DefaultCommsProtocol                             string  = "rtp"
-	DefaultCommsDebug                                bool    = false
-	DefaultCommsLoopback                             bool    = false
-	DefaultCommsTrace                                bool    = false
-	DefaultCommsControlSource                        string  = "openvlm"
-	DefaultCommsMicGain                              float32 = 8.0
-	DefaultCommsNanoPTTEnable                        bool    = false
-	DefaultCommsNanoPTTDevicePath                    string  = "/dev/hidraw0/*"
-	DefaultCommsNanoPTTDeviceName                    string  = ""
-	DefaultCommsBluetoothPttEnable                   bool    = false
-	DefaultCommsBluetoothPttBluetoothAudioDeviceHint string  = ""
-	DefaultCommsBluetoothPttBluetoothInputDevice     string  = ""
-	DefaultCommsBluetoothPttBluetoothOutputDevice    string  = ""
-	DefaultCommsGPIOSelectorEnable                   bool    = true
-	DefaultResetDBOnStart                            bool    = false
-	DefaultEnableGNSS                                bool    = false
-	DefaultGNSSSendAsNMEA                            bool    = false
-	DefaultGNSSSendAsCoT                             bool    = false
-	DefaultGNSSCoTUID                                string  = ""
-	DefaultGNSSSource                                string  = "internal"
-	DefaultEnableBLOS                                bool    = false
-	DefaultBLOSStatusWorkerInterval                  int     = 30 // seconds
+	DefaultMeshNetInterface   string = "br-ahwlan"
+	DefaultDBFile             string = "/etc/openmanetd/openmanetd.db"
+	DefaultAlfredMode         string = "primary"
+	DefaultAlfredBatInterface string = "bat0"
+	// DefaultBatmanMulticastForceflood controls batman-adv's multicast mode
+	// through the bat0 `multicast_mode` UCI option, which the kernel defines
+	// as the negation of forceflood: true writes multicast_mode=0 and every
+	// node classic-floods every multicast frame; false writes
+	// multicast_mode=1 and batman-adv's IGMP/MLD-snooping optimisations
+	// deliver each group only to nodes that announced membership. The
+	// default is true (classic flooding): it is the value the LuCI wizard
+	// and both fixture captures leave on the device, and it keeps comms RTP
+	// audible without every listener gossiping IGMP/MLD membership across
+	// the mesh. Decision D7 (2026-08-27): keep the key, fix the mapping,
+	// default true. Operators can set batman.multicastForceflood: false to
+	// turn the optimisations on. Mapping: network.MulticastModeForForceflood.
+	DefaultBatmanMulticastForceflood   bool   = true
+	DefaultAlfredSocketPath            string = "/var/run/alfred.sock"
+	DefaultAlfredEnable                bool   = true
+	DefaultAlfredDataTypeGateway       bool   = true
+	DefaultAlfredDataTypeNode          bool   = true
+	DefaultAlfredDataTypePosition      bool   = true
+	DefaultAlfredDataTypeAddressReserv bool   = true
+	DefaultAlfredDataTypeMeshNeighbors bool   = true
+	// DefaultAlfredNodeExpiry is how long a peer may stay silent before its
+	// mesh_nodes row is dropped, releasing the address and DHCP window it
+	// advertised so the reservation worker stops treating them as taken
+	// (ledger D4). Zero disables expiry: rows then live until
+	// resetDBOnStart. Key alfred.nodeExpiry, a Go duration string ("24h").
+	DefaultAlfredNodeExpiry                          time.Duration = 24 * time.Hour
+	DefaultCommsEnable                               bool          = false
+	DefaultCommsProtocol                             string        = "rtp"
+	DefaultCommsDebug                                bool          = false
+	DefaultCommsLoopback                             bool          = false
+	DefaultCommsTrace                                bool          = false
+	DefaultCommsControlSource                        string        = "openvlm"
+	DefaultCommsMicGain                              float32       = 8.0
+	DefaultCommsNanoPTTEnable                        bool          = false
+	DefaultCommsNanoPTTDevicePath                    string        = "/dev/hidraw0/*"
+	DefaultCommsNanoPTTDeviceName                    string        = ""
+	DefaultCommsBluetoothPttEnable                   bool          = false
+	DefaultCommsBluetoothPttBluetoothAudioDeviceHint string        = ""
+	DefaultCommsBluetoothPttBluetoothInputDevice     string        = ""
+	DefaultCommsBluetoothPttBluetoothOutputDevice    string        = ""
+	DefaultCommsGPIOSelectorEnable                   bool          = true
+	DefaultResetDBOnStart                            bool          = false
+	DefaultEnableGNSS                                bool          = false
+	DefaultGNSSSendAsNMEA                            bool          = false
+	DefaultGNSSSendAsCoT                             bool          = false
+	DefaultGNSSCoTUID                                string        = ""
+	DefaultGNSSSource                                string        = "internal"
+	DefaultEnableBLOS                                bool          = false
+	DefaultBLOSStatusWorkerInterval                  int           = 30 // seconds
 	// DefaultMeshTopologyDeltaSampleInterval is how often the mesh
 	// topology delta tracker polls batadv-vis for a new snapshot. 5
 	// seconds is a compromise between granularity (the UI panel claims
@@ -209,6 +219,7 @@ type Config struct {
 	CommsAudioMicControl                      string
 	CommsAudioAGCControl                      string
 	onChangeCallbacks                         []func(*Config)
+	AlfredNodeExpiry                          time.Duration
 	BLOSStatusWorkerInterval                  int
 	MeshTopologyDeltaSampleInterval           int
 	MeshTopologyMaxDeltaSamples               int
@@ -231,7 +242,6 @@ type Config struct {
 	CommsMicGain                              float32
 	AlfredDataTypeAddressReserv               bool
 	AlfredDataTypeNode                        bool
-	BatmanMulticastEnhancementsEnabled        bool
 	BatmanMulticastForceflood                 bool
 	CommsDebug                                bool
 	CommsGPIOSelectorEnable                   bool
@@ -356,12 +366,6 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.GNSSSource = DefaultGNSSSource
 	}
 
-	if c.v.IsSet("batman.multicastEnhancementsEnabled") {
-		c.BatmanMulticastEnhancementsEnabled = c.v.GetBool("batman.multicastEnhancementsEnabled")
-	} else {
-		c.BatmanMulticastEnhancementsEnabled = DefaultBatmanMulticastEnhancementsEnabled
-	}
-
 	if c.v.IsSet("batman.multicastForceflood") {
 		c.BatmanMulticastForceflood = c.v.GetBool("batman.multicastForceflood")
 	} else {
@@ -423,6 +427,8 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 	} else {
 		c.AlfredDataTypeMeshNeighbors = DefaultAlfredDataTypeMeshNeighbors
 	}
+
+	c.AlfredNodeExpiry = parseDurationOrDefault(c.v.GetString("alfred.nodeExpiry"), DefaultAlfredNodeExpiry)
 
 	// Load comms configuration
 	if c.v.IsSet("comms.enable") {
@@ -871,14 +877,6 @@ func (c *Config) GetResetDBOnStart() bool {
 	return c.ResetDBOnStart
 }
 
-// GetEnableBatmanMulticastEnhancements returns whether batman-adv multicast enhancements are enabled.
-func (c *Config) GetEnableBatmanMulticastEnhancements() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.BatmanMulticastEnhancementsEnabled
-}
-
 // GetBatmanMulticastForceflood returns whether batman-adv multicast forceflood is enabled.
 func (c *Config) GetBatmanMulticastForceflood() bool {
 	c.mu.RLock()
@@ -969,6 +967,16 @@ func (c *Config) GetAlfredDataTypeMeshNeighbors() bool {
 	defer c.mu.RUnlock()
 
 	return c.AlfredDataTypeMeshNeighbors
+}
+
+// GetAlfredNodeExpiry returns how long a silent peer stays in mesh_nodes
+// before its row (and the address it reserved) is dropped. Zero disables
+// expiry.
+func (c *Config) GetAlfredNodeExpiry() time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.AlfredNodeExpiry
 }
 
 // GetCommsEnable returns whether the comms subsystem is enabled.
@@ -1535,4 +1543,21 @@ func (c *Config) GetTerminalShell() string {
 	defer c.mu.RUnlock()
 
 	return c.TerminalShell
+}
+
+// parseDurationOrDefault parses a Go duration string, returning def when
+// the value is empty, unparsable, or negative. "0" is an explicit,
+// accepted zero. The config package has no logger, so a bad value is
+// defaulted silently; the config tests pin that.
+func parseDurationOrDefault(raw string, def time.Duration) time.Duration {
+	if raw == "" {
+		return def
+	}
+
+	d, err := time.ParseDuration(raw)
+	if err != nil || d < 0 {
+		return def
+	}
+
+	return d
 }

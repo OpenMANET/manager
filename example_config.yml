@@ -1,4 +1,21 @@
 logLevel: info
+alfred:
+  # Peers gossip their mesh address and DHCP window over Alfred; the daemon
+  # keeps them in its database and never reuses what a known peer holds.
+  # nodeExpiry drops a peer not heard for this long so a node that left the
+  # mesh releases its address and pool. Go duration string ("24h", "30m");
+  # 0 keeps rows until resetDBOnStart. Default 24h.
+  nodeExpiry: 24h
+batman:
+  # batman-adv multicast handling on bat0. multicastForceflood=true (the
+  # default and the shipped state) writes bat0.multicast_mode=0, so every
+  # node classic-floods every multicast frame — comms RTP stays audible
+  # without listeners gossiping IGMP/MLD membership across the mesh. Set it
+  # to false to write multicast_mode=1 and turn on batman-adv's
+  # IGMP/MLD-snooping optimisations, which deliver each multicast group only
+  # to nodes that announced membership. The daemon reconciles bat0's
+  # multicast_mode from this value on every boot. Default true.
+  multicastForceflood: true
 gnss:
   enable: true
   # source selects which position provider feeds the GNSS subsystem:

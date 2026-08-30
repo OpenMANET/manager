@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"math"
 
 	serviceproto "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1"
 	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
@@ -84,10 +85,12 @@ func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*s
 				Throughput:      int32(station.TransmitBitrate),
 			}
 
-			// Enrich with batman-adv neighbor data if available
+			// Enrich with batman-adv neighbor data if available. The
+			// station bitrate above is bit/s; batctl nj reports kbit/s,
+			// so scale it to keep the field in one unit for consumers.
 			if batNeighbor := batNeighbors.FindByNeighAddress(station.HardwareAddr.String()); batNeighbor != nil {
 				neighbor.LastSeen = int64(batNeighbor.LastSeenMsecs)
-				neighbor.Throughput = int32(batNeighbor.Throughput)
+				neighbor.Throughput = kbpsToBps(batNeighbor.Throughput)
 			}
 
 			protoNeighbors = append(protoNeighbors, neighbor)
@@ -97,4 +100,20 @@ func (m *MeshService) ListMeshNeighbors(_ context.Context, _ *emptypb.Empty) (*s
 	return &serviceproto.ListMeshNeighborsResponse{
 		Neighbors: protoNeighbors,
 	}, nil
+}
+
+// kbpsToBps converts a batman-adv throughput (kbit/s, as emitted by
+// `batctl nj`) to bit/s for MeshNeighbor.throughput, which otherwise
+// carries the nl80211 station bitrate in bit/s. Saturates at
+// math.MaxInt32 rather than wrapping on a multi-gigabit hardif.
+func kbpsToBps(kbps int) int32 {
+	if kbps <= 0 {
+		return 0
+	}
+
+	if kbps > math.MaxInt32/1000 {
+		return math.MaxInt32
+	}
+
+	return int32(kbps * 1000) //nolint:gosec // bounded above
 }

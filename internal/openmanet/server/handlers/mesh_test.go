@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"context"
 	"errors"
+	"math"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -182,4 +183,47 @@ func TestListMeshNeighbors_FieldMapping(t *testing.T) {
 	assert.Equal(t, int32(-65), n.GetSignal(), "Signal maps to Signal")
 	assert.Equal(t, int32(54000), n.GetThroughput(), "TransmitBitrate maps to Throughput (no batman-adv enrichment)")
 	assert.Equal(t, "9c:ef:d5:f9:80:4d", n.GetHardwareAddress(), "HardwareAddr maps to HardwareAddress")
+}
+
+// MeshNeighbor.throughput carries the nl80211 station bitrate in
+// bit/s; when batman-adv enrichment replaces it, the `batctl nj`
+// value (kbit/s) must be scaled to the same unit, and a multi-gigabit
+// hardif must saturate rather than wrap the int32.
+func TestListMeshNeighbors_BatmanThroughputScaledToBps(t *testing.T) {
+	tests := map[string]struct {
+		kbps int
+		want int32
+	}{
+		"2.4 GHz HT20 link":  {kbps: 22200, want: 22_200_000},
+		"halow link":         {kbps: 7100, want: 7_100_000},
+		"multi-gigabit wire": {kbps: 10_000_000, want: math.MaxInt32},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			meshIface := makeInterface("mesh0", wifi.InterfaceTypeMeshPoint)
+			station := makeStation("9c:ef:d5:f9:80:4d", -65)
+
+			fw := &fakeWireless{
+				meshInterfaces: []*wifi.Interface{meshIface},
+				stationInfo:    []*wifi.StationInfo{station},
+			}
+			svc := newMeshService(fw, func(_ string) (*batmanadv.BatHosts, error) {
+				return batmanadv.ParseBatHostsFile(fixtureBatHostsPath())
+			})
+			svc.GetMeshNeighbors = func() (*batmanadv.Neighbors, error) {
+				return &batmanadv.Neighbors{
+					{HardIfname: "mesh0", NeighAddress: "9c:ef:d5:f9:80:4d", Throughput: tc.kbps, LastSeenMsecs: 300},
+				}, nil
+			}
+
+			resp, err := svc.ListMeshNeighbors(context.Background(), &emptypb.Empty{})
+			require.NoError(t, err)
+			require.Len(t, resp.GetNeighbors(), 1)
+
+			n := resp.GetNeighbors()[0]
+			assert.Equal(t, tc.want, n.GetThroughput())
+			assert.Equal(t, int64(300), n.GetLastSeen())
+		})
+	}
 }

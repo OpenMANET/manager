@@ -7,6 +7,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/digineo/go-uci/v2"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGetWirelessMeshPassphraseFromPath(t *testing.T) {
@@ -875,5 +878,149 @@ func TestWhitelistDeviceFields_PropagatesDelError(t *testing.T) {
 
 	if err := WhitelistDeviceFields(reader, "radio4", WizardWifiDeviceWhitelist); err == nil {
 		t.Errorf("expected propagated error")
+	}
+}
+
+func TestMeshLink_Section(t *testing.T) {
+	link := MeshLink{Radio: "radio0", Network: BatmanSecondaryIface}
+
+	assert.Equal(t, "batmesh1_radio0", link.Section())
+	assert.NotEqual(t, "default_radio0", link.Section(),
+		"the link section must never be the AP section the wizard writes on the same radio")
+	assert.Equal(t, "batmesh0_radio2", MeshLink{Radio: "radio2", Network: BatmanPrimaryIface}.Section(),
+		"the name is keyed by the hardif, not hard-wired to batmesh1")
+}
+
+func TestMeshLink_IfaceConfig(t *testing.T) {
+	link := MeshLink{
+		Radio:         "radio0",
+		Network:       BatmanSecondaryIface,
+		MeshID:        "backhaul",
+		Key:           "secretkey999",
+		RSSIThreshold: SecondaryMeshRSSIThreshold,
+	}
+
+	want := &UCIWirelessIface{
+		Device:            "radio0",
+		Network:           "batmesh1",
+		Mode:              "mesh",
+		MeshID:            "backhaul",
+		Key:               "secretkey999",
+		MeshFwding:        "0",
+		MeshRSSIThreshold: "-80",
+		Encryption:        "sae",
+	}
+
+	assert.Equal(t, want, link.IfaceConfig())
+}
+
+func TestMeshLink_IfaceConfig_NoThreshold(t *testing.T) {
+	got := MeshLink{Radio: "radio2", Network: BatmanPrimaryIface, MeshID: "m", Key: "k"}.IfaceConfig()
+
+	assert.Empty(t, got.MeshRSSIThreshold, "an empty threshold must not be written")
+	assert.Equal(t, "batmesh0", got.Network)
+}
+
+// seedIface adds a wifi-iface with the given device and mode to the
+// wireless mock; an empty mode leaves the option unset.
+func seedIface(t *testing.T, reader *mockConfigReader, name, device, mode string) {
+	t.Helper()
+
+	if err := reader.AddSection("wireless", name, "wifi-iface"); err != nil {
+		t.Fatalf("AddSection %s: %v", name, err)
+	}
+
+	if err := reader.SetType("wireless", name, "device", uci.TypeOption, device); err != nil {
+		t.Fatalf("SetType %s.device: %v", name, err)
+	}
+
+	if mode == "" {
+		return
+	}
+
+	if err := reader.SetType("wireless", name, "mode", uci.TypeOption, mode); err != nil {
+		t.Fatalf("SetType %s.mode: %v", name, err)
+	}
+}
+
+func TestRemoveNonMeshIfacesOnMorseDevices_DeletesAPAndSTAOnMorseOnly(t *testing.T) {
+	reader := newWirelessMockReader()
+	// radio4 is the fixture's morse radio (default_radio4 is its mesh
+	// iface); radio1 is mac80211 (default_radio1 is a mesh backhaul).
+	seedIface(t, reader, "meshap_radio4", "radio4", "ap")
+	seedIface(t, reader, "sta_radio4", "radio4", "sta")
+	seedIface(t, reader, "nomode_radio4", "radio4", "")
+	seedIface(t, reader, "ap_radio1", "radio1", "ap")
+
+	removed, err := RemoveNonMeshIfacesOnMorseDevices(reader)
+	if err != nil {
+		t.Fatalf("RemoveNonMeshIfacesOnMorseDevices: %v", err)
+	}
+
+	want := map[string]bool{"meshap_radio4": true, "sta_radio4": true, "nomode_radio4": true}
+	if len(removed) != len(want) {
+		t.Fatalf("removed = %v, want the three non-mesh radio4 ifaces", removed)
+	}
+
+	for _, name := range removed {
+		if !want[name] {
+			t.Errorf("unexpected removal %s", name)
+		}
+
+		if _, ok := reader.Get("wireless", name, "device"); ok {
+			t.Errorf("%s still present after removal", name)
+		}
+	}
+
+	for _, name := range []string{"default_radio4", "default_radio1", "ap_radio1"} {
+		if _, ok := reader.Get("wireless", name, "device"); !ok {
+			t.Errorf("%s must survive: mesh on morse, or any mode on mac80211", name)
+		}
+	}
+}
+
+func TestRemoveNonMeshIfacesOnMorseDevices_NoMorseRadioIsNoop(t *testing.T) {
+	reader := newWirelessMockReader()
+	delete(reader.data["wireless"], "radio4")
+	delete(reader.sectionTypes["wireless"], "radio4")
+	seedIface(t, reader, "ap_radio1", "radio1", "ap")
+
+	removed, err := RemoveNonMeshIfacesOnMorseDevices(reader)
+	if err != nil {
+		t.Fatalf("RemoveNonMeshIfacesOnMorseDevices: %v", err)
+	}
+
+	if len(removed) != 0 {
+		t.Errorf("removed = %v, want nothing without a morse radio", removed)
+	}
+
+	if reader.delSectionCall != "" {
+		t.Errorf("DelSection called (%s) with no morse radio present", reader.delSectionCall)
+	}
+}
+
+func TestRemoveNonMeshIfacesOnMorseDevices_PropagatesDelSectionError(t *testing.T) {
+	reader := newWirelessMockReader()
+	seedIface(t, reader, "meshap_radio4", "radio4", "ap")
+	reader.delSectionErr = errors.New("del failed")
+
+	if _, err := RemoveNonMeshIfacesOnMorseDevices(reader); err == nil {
+		t.Error("expected propagated DelSection error")
+	}
+}
+
+func TestIsMorseDevice(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	if !IsMorseDevice(reader, "radio4") {
+		t.Error("radio4 (type=morse) must be reported as morse")
+	}
+
+	if IsMorseDevice(reader, "radio1") {
+		t.Error("radio1 (type=mac80211) must not be reported as morse")
+	}
+
+	if IsMorseDevice(reader, "radio9") {
+		t.Error("unknown device must not be reported as morse")
 	}
 }

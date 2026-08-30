@@ -6,6 +6,7 @@ import (
 
 	"github.com/digineo/go-uci/v2"
 	"github.com/openmanet/openmanetd/internal/network"
+	"github.com/stretchr/testify/assert"
 )
 
 // internalFakeReader is a minimal in-memory ConfigReader used to exercise
@@ -239,3 +240,15 @@ func (e *errReader) DelSection(config, section string) error {
 }
 func (e *errReader) Commit() error       { return nil }
 func (e *errReader) ReloadConfig() error { return nil }
+
+// TestBandwidthToHTMode_RoundTripsThroughNetwork pins the wizard's
+// bandwidth→htmode table to network.HTModeBandwidthMHz, which the QR
+// handler uses in the other direction.
+func TestBandwidthToHTMode_RoundTripsThroughNetwork(t *testing.T) {
+	for _, mhz := range []uint32{1, 2, 4, 8, 20, 40, 80, 160} {
+		htmode := bandwidthToHTMode(mhz)
+		got, ok := network.HTModeBandwidthMHz(htmode)
+		assert.True(t, ok, "htmode %q for %d MHz must be known to network", htmode, mhz)
+		assert.Equal(t, mhz, got, "htmode %q must map back to %d MHz", htmode, mhz)
+	}
+}

@@ -43,6 +43,8 @@ require (
 
 require github.com/warthog618/go-gpiocdev v0.9.1
 
+require github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+
 require (
 	buf.build/go/protovalidate v1.3.0
 	cel.dev/expr v0.25.2 // indirect

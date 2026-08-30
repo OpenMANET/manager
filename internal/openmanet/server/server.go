@@ -14,6 +14,7 @@ import (
 	dashboardconnect "github.com/openmanet/openmanetd/internal/api/openmanet/dashboard/v1/dashboardv1connect"
 	gnssconnect "github.com/openmanet/openmanetd/internal/api/openmanet/gnss/v1/gnssv1connect"
 	logsconnect "github.com/openmanet/openmanetd/internal/api/openmanet/logs/v1/logsv1connect"
+	meshjoinconnect "github.com/openmanet/openmanetd/internal/api/openmanet/mesh_join/v1/mesh_joinv1connect"
 	meshtopoconnect "github.com/openmanet/openmanetd/internal/api/openmanet/mesh_topology/v1/mesh_topologyv1connect"
 	niconnect "github.com/openmanet/openmanetd/internal/api/openmanet/network_interface/v1/network_interfacev1connect"
 	services "github.com/openmanet/openmanetd/internal/api/openmanet/service/v1/servicev1connect"
@@ -209,6 +210,7 @@ func NewAPIServer(cfg APIServer) *APIServer {
 		HostnameSetter: cfg.SetupHostnameSetter,
 		Reloader:       cfg.SetupReloader,
 		Iwinfo:         iwinfo.NewClient(),
+		WirelessStatus: network.NewDefaultWirelessStatusProvider(),
 		Interfaces:     interfaces,
 		RNG:            cfg.SetupRNG,
 	}, connect.WithInterceptors(validateInterceptor)))
@@ -246,6 +248,16 @@ func NewAPIServer(cfg APIServer) *APIServer {
 	}
 
 	api.Handle(wificonfigconnect.NewWifiConfigServiceHandler(wifiSvc, connect.WithInterceptors(validateInterceptor)))
+
+	// MeshJoinService shares this node's mesh credentials as a QR code
+	// and joins the node from a scanned code. It reads the same UCI
+	// wireless tree the wifi service does. Session-gated like every
+	// other settings RPC (not in isAPISkipPath).
+	api.Handle(meshjoinconnect.NewMeshJoinServiceHandler(&handlers.MeshJoinService{
+		Log:          cfg.Log.With().Str("service", "mesh_join").Logger(),
+		ConfigReader: wifiSvc.ConfigReader,
+		Radios:       wifiSvc,
+	}, connect.WithInterceptors(validateInterceptor)))
 
 	api.Handle(logsconnect.NewLogsServiceHandler(&handlers.LogsService{
 		Log:     cfg.Log,

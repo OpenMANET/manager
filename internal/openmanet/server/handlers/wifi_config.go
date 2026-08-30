@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -55,8 +56,40 @@ type WifiConfigService struct {
 	DHCPLeases     LeaseProvider
 	// GetMeshNeighbors can be overridden for testing; defaults to batmanadv.GetMeshNeighbors.
 	GetMeshNeighbors func() (*batmanadv.Neighbors, error)
+	// ReloadServices hands the committed UCI to the running system after
+	// a radio write. nil falls back to network.ForceReloadConfig
+	// (`reload_config`), which has procd reload `network` for the changed
+	// wireless/network configs so netifd re-syncs the radios.
+	ReloadServices func(ctx context.Context) error
 
 	mu sync.Mutex // serializes UCI writes
+}
+
+// reloadServicesTimeout bounds the detached reload_config run.
+const reloadServicesTimeout = 30 * time.Second
+
+// RadioSettingsUpdate is one radio's new settings inside a batch apply.
+type RadioSettingsUpdate struct {
+	Settings  *wificonfigv1.RadioSettings
+	RadioName string
+}
+
+// RadioApplier is the slice of WifiConfigService other handlers use to
+// read and write radio settings under the same UCI write lock.
+type RadioApplier interface {
+	CurrentRadioSettings(radioName string) (*wificonfigv1.RadioSettings, error)
+	ApplyRadioSettingsBatch(ctx context.Context, updates []RadioSettingsUpdate) error
+}
+
+// stageWriteError reports a UCI write failure while staging radio
+// settings. UpdateRadioSettings surfaces it as Success=false with the
+// message (its historical contract) instead of an RPC error.
+type stageWriteError struct {
+	msg string
+}
+
+func (e *stageWriteError) Error() string {
+	return e.msg
 }
 
 func (s *WifiConfigService) parseBatHosts(path string) (*batmanadv.BatHosts, error) {
@@ -188,24 +221,55 @@ func (s *WifiConfigService) GetRadioStatus(ctx context.Context, req *wificonfigv
 func (s *WifiConfigService) GetRadioSettings(_ context.Context, req *wificonfigv1.GetRadioSettingsRequest) (*wificonfigv1.GetRadioSettingsResponse, error) {
 	s.Log.Debug().Str("radio", req.GetRadioName()).Msg("GetRadioSettings request received")
 
-	dev, err := network.GetWirelessDeviceByNameWithReader(req.GetRadioName(), s.ConfigReader)
+	settings, band, err := s.readRadioSettings(req.GetRadioName())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("read device config: %w", err))
+		return nil, err
+	}
+
+	// Populate available options for dropdowns.
+	return &wificonfigv1.GetRadioSettingsResponse{
+		Settings:             settings,
+		AvailableChannels:    availableChannelsForBand(band),
+		AvailableBandwidths:  availableBandwidthsForBand(band),
+		AvailableEncryptions: availableEncryptions(),
+	}, nil
+}
+
+// CurrentRadioSettings returns the radio's stored settings (password
+// omitted, like GetRadioSettings) for callers that overlay a change on
+// top of them.
+func (s *WifiConfigService) CurrentRadioSettings(radioName string) (*wificonfigv1.RadioSettings, error) {
+	settings, _, err := s.readRadioSettings(radioName)
+
+	return settings, err
+}
+
+// readRadioSettings reads the device and linked iface for radioName.
+// Errors are connect errors: CodeNotFound when no iface links to the
+// radio, CodeInternal for UCI read failures.
+func (s *WifiConfigService) readRadioSettings(radioName string) (*wificonfigv1.RadioSettings, wificonfigv1.WifiBand, error) {
+	dev, err := network.GetWirelessDeviceByNameWithReader(radioName, s.ConfigReader)
+	if err != nil {
+		return nil, wificonfigv1.WifiBand_WIFI_BAND_UNSPECIFIED,
+			connect.NewError(connect.CodeInternal, fmt.Errorf("read device config: %w", err))
 	}
 
 	ifaceSections, err := s.ConfigReader.GetSections(wirelessConfig, "wifi-iface")
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list wifi-iface sections: %w", err))
+		return nil, wificonfigv1.WifiBand_WIFI_BAND_UNSPECIFIED,
+			connect.NewError(connect.CodeInternal, fmt.Errorf("list wifi-iface sections: %w", err))
 	}
 
-	ifaceName := findLinkedIface(req.GetRadioName(), ifaceSections, s.ConfigReader)
+	ifaceName := findLinkedIface(radioName, ifaceSections, s.ConfigReader)
 	if ifaceName == "" {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no interface linked to radio %q", req.GetRadioName()))
+		return nil, wificonfigv1.WifiBand_WIFI_BAND_UNSPECIFIED,
+			connect.NewError(connect.CodeNotFound, fmt.Errorf("no interface linked to radio %q", radioName))
 	}
 
 	iface, err := network.GetWirelessIfaceByNameWithReader(ifaceName, s.ConfigReader)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("read iface config: %w", err))
+		return nil, wificonfigv1.WifiBand_WIFI_BAND_UNSPECIFIED,
+			connect.NewError(connect.CodeInternal, fmt.Errorf("read iface config: %w", err))
 	}
 
 	txPower, _ := strconv.Atoi(dev.TxPower)
@@ -231,48 +295,166 @@ func (s *WifiConfigService) GetRadioSettings(_ context.Context, req *wificonfigv
 		settings.Disabled = boolPtr(true)
 	}
 
-	band := WifiBandToProto(dev.Band)
+	return settings, WifiBandToProto(dev.Band), nil
+}
 
-	// Populate available options for dropdowns.
-	resp := &wificonfigv1.GetRadioSettingsResponse{
-		Settings:             settings,
-		AvailableChannels:    availableChannelsForBand(band),
-		AvailableBandwidths:  availableBandwidthsForBand(band),
-		AvailableEncryptions: availableEncryptions(),
+// rejectNonMeshModeOnMorse enforces that a type=morse (HaLow)
+// wifi-device only ever carries mesh-mode ifaces: it returns a
+// CodeInvalidArgument error when the request would turn one into an
+// AP, STA, ad-hoc, or monitor iface. An unspecified mode
+// (channel/txpower-only edits) or mesh passes.
+func (s *WifiConfigService) rejectNonMeshModeOnMorse(radioName string, mode wificonfigv1.WifiMode) error {
+	if mode == wificonfigv1.WifiMode_WIFI_MODE_UNSPECIFIED || mode == wificonfigv1.WifiMode_WIFI_MODE_MESH {
+		return nil
 	}
 
-	return resp, nil
+	if !network.IsMorseDevice(s.ConfigReader, radioName) {
+		return nil
+	}
+
+	s.Log.Warn().Str("radio", radioName).Stringer("mode", mode).
+		Msg("Rejecting non-mesh mode on HaLow radio")
+
+	return connect.NewError(connect.CodeInvalidArgument,
+		fmt.Errorf("radio %q is a HaLow (type=morse) wifi-device, which only carries mesh interfaces", radioName))
+}
+
+// ifaceDisabledValue maps the optional `disabled` flag to its UCI
+// value. Empty means the flag was not sent and the option is left
+// unchanged (SetWirelessIfaceConfigWithReader skips empty fields).
+func ifaceDisabledValue(settings *wificonfigv1.RadioSettings) string {
+	if settings.Disabled == nil {
+		return ""
+	}
+
+	if settings.GetDisabled() {
+		return "1"
+	}
+
+	return "0"
 }
 
 // UpdateRadioSettings applies new configuration to a radio.
-func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonfigv1.UpdateRadioSettingsRequest) (*wificonfigv1.UpdateRadioSettingsResponse, error) {
+func (s *WifiConfigService) UpdateRadioSettings(ctx context.Context, req *wificonfigv1.UpdateRadioSettingsRequest) (*wificonfigv1.UpdateRadioSettingsResponse, error) {
 	s.Log.Debug().Str("radio", req.GetRadioName()).Msg("UpdateRadioSettings request received")
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	settings := req.GetSettings()
-	if settings == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("settings are required"))
+	if err := s.stageRadioSettings(req.GetRadioName(), req.GetSettings()); err != nil {
+		var sw *stageWriteError
+		if errors.As(err, &sw) {
+			return &wificonfigv1.UpdateRadioSettingsResponse{Success: false, Message: strPtr(sw.msg)}, nil
+		}
+
+		return nil, err
 	}
 
-	radioName := req.GetRadioName()
+	if err := s.applyCommitted(ctx); err != nil {
+		return &wificonfigv1.UpdateRadioSettingsResponse{
+			Success: false,
+			Message: strPtr(fmt.Sprintf("config committed but reload failed: %v", err)),
+		}, nil
+	}
+
+	return &wificonfigv1.UpdateRadioSettingsResponse{Success: true}, nil
+}
+
+// ApplyRadioSettingsBatch stages every update under one lock and
+// reloads once. Any staging error aborts before the reload; UCI writes
+// already staged for earlier radios are committed by the per-radio
+// setters and are not rolled back — callers re-read state on error.
+func (s *WifiConfigService) ApplyRadioSettingsBatch(ctx context.Context, updates []RadioSettingsUpdate) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, u := range updates {
+		if err := s.stageRadioSettings(u.RadioName, u.Settings); err != nil {
+			return fmt.Errorf("stage %s: %w", u.RadioName, err)
+		}
+	}
+
+	if err := s.applyCommitted(ctx); err != nil {
+		return fmt.Errorf("reload wireless: %w", err)
+	}
+
+	return nil
+}
+
+// applyCommitted makes the committed UCI take effect: it re-reads the
+// daemon's in-memory tree from disk, then hands the change to the
+// system. The second step is what actually restarts the radios — the
+// go-uci reload alone only refreshes this process's view, and the
+// device would sit on its old wireless config until reboot.
+//
+// The system reload runs on a context detached from the request: it
+// can drop the operator's own connection (they may be on the radio
+// being reconfigured), and a canceled request context would kill
+// reload_config midway.
+func (s *WifiConfigService) applyCommitted(ctx context.Context) error {
+	if err := s.ConfigReader.ReloadConfig(); err != nil {
+		return fmt.Errorf("re-read uci: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reloadServicesTimeout)
+	defer cancel()
+
+	s.Log.Info().Msg("Reloading network services to apply wireless config")
+
+	if s.ReloadServices != nil {
+		return s.ReloadServices(ctx)
+	}
+
+	if err := network.ForceReloadConfig(ctx); err != nil {
+		return fmt.Errorf("reload_config: %w", err)
+	}
+
+	return nil
+}
+
+// stageRadioSettings writes the device and iface options for one radio.
+// The caller holds s.mu. Validation and lookup failures are connect
+// errors; UCI write failures are *stageWriteError.
+func (s *WifiConfigService) stageRadioSettings(radioName string, settings *wificonfigv1.RadioSettings) error { //nolint:gocognit,gocyclo // one linear staging sequence; splitting it hides the write order
+	if settings == nil {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("settings are required"))
+	}
+
+	if err := s.rejectNonMeshModeOnMorse(radioName, settings.GetMode()); err != nil {
+		return err
+	}
+
+	mode := ProtoToWifiMode(settings.GetMode())
+
+	// A mesh iface only carries traffic once its batadv_hardif hangs
+	// off bat0. Refuse before writing anything on a node that never
+	// ran setup rather than commit a binding that can never come up.
+	if mode == uciModeMesh && !network.BatmanDeviceExists(s.ConfigReader, network.BatmanDeviceName) {
+		s.Log.Warn().Str("radio", radioName).Msg("Rejecting mesh mode: no batman-adv device")
+
+		return connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("batman-adv device %q is not configured; run setup first", network.BatmanDeviceName))
+	}
 
 	// Find the linked interface section.
 	ifaceSections, err := s.ConfigReader.GetSections(wirelessConfig, "wifi-iface")
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list wifi-iface sections: %w", err))
+		return connect.NewError(connect.CodeInternal, fmt.Errorf("list wifi-iface sections: %w", err))
 	}
 
 	ifaceName := findLinkedIface(radioName, ifaceSections, s.ConfigReader)
 	if ifaceName == "" {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no interface linked to radio %q", radioName))
+		return connect.NewError(connect.CodeNotFound, fmt.Errorf("no interface linked to radio %q", radioName))
 	}
 
-	// Build device config update.
+	// Build device config update. A tx_power of 0 means "unset": leave
+	// the UCI option alone rather than forcing 0 dBm.
 	devCfg := &network.UCIWirelessDevice{
 		Channel: settings.GetChannel(),
-		TxPower: strconv.Itoa(int(settings.GetTxPower())),
+	}
+
+	if settings.GetTxPower() > 0 {
+		devCfg.TxPower = strconv.Itoa(int(settings.GetTxPower()))
 	}
 
 	if htmode := ProtoToWifiHTMode(settings.GetBandwidth()); htmode != "" {
@@ -284,30 +466,21 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 	}
 
 	if err := network.SetWirelessDeviceConfigWithReader(radioName, devCfg, s.ConfigReader); err != nil {
-		return &wificonfigv1.UpdateRadioSettingsResponse{
-			Success: false,
-			Message: strPtr(fmt.Sprintf("failed to update device config: %v", err)),
-		}, nil
+		return &stageWriteError{msg: fmt.Sprintf("failed to update device config: %v", err)}
 	}
 
 	// Build interface config update.
-	ifaceCfg := &network.UCIWirelessIface{
-		SSID: settings.GetSsid(),
-	}
+	ifaceCfg := &network.UCIWirelessIface{}
 
 	if settings.Password != nil && settings.GetPassword() != "" {
 		ifaceCfg.Key = settings.GetPassword()
-	}
-
-	if settings.MeshId != nil {
-		ifaceCfg.MeshID = settings.GetMeshId()
 	}
 
 	if enc := ProtoToWifiEncryption(settings.GetEncryption()); enc != "" {
 		ifaceCfg.Encryption = enc
 	}
 
-	if mode := ProtoToWifiMode(settings.GetMode()); mode != "" {
+	if mode != "" {
 		ifaceCfg.Mode = mode
 
 		switch mode {
@@ -326,15 +499,31 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 				currentNet = vals[0]
 			}
 
+			batmesh := currentNet
+
 			if !strings.HasPrefix(currentNet, "batmesh") {
 				unused, err := findUnusedBatmesh(s.ConfigReader, ifaceName)
 				if err != nil {
 					s.Log.Warn().Err(err).Str("radio", radioName).Msg("no batmesh network available")
 
-					return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+					return connect.NewError(connect.CodeFailedPrecondition, err)
 				}
 
 				ifaceCfg.Network = unused
+				batmesh = unused
+			}
+
+			// The wizard creates both hardifs; a factory image or a
+			// hand-edited network config may lack this one. The
+			// wireless reader shares the UCI tree, so the section is
+			// committed together with the iface below.
+			created, err := network.EnsureBatmanHardifInterface(s.ConfigReader, batmesh, network.BatmanDeviceName)
+			if err != nil {
+				return &stageWriteError{msg: fmt.Sprintf("failed to create network.%s: %v", batmesh, err)}
+			}
+
+			if created {
+				s.Log.Info().Str("network", batmesh).Msg("Created batadv_hardif for mesh radio")
 			}
 
 		case uciModeAP, uciModeSTA:
@@ -344,30 +533,63 @@ func (s *WifiConfigService) UpdateRadioSettings(_ context.Context, req *wificonf
 		}
 	}
 
-	if settings.Disabled != nil {
-		if settings.GetDisabled() {
-			ifaceCfg.Disabled = "1"
-		} else {
-			ifaceCfg.Disabled = "0"
+	if err := s.stageIfaceIdentity(ifaceName, mode, settings, ifaceCfg); err != nil {
+		return err
+	}
+
+	ifaceCfg.Disabled = ifaceDisabledValue(settings)
+
+	if err := network.SetWirelessIfaceConfigWithReader(ifaceName, ifaceCfg, s.ConfigReader); err != nil {
+		return &stageWriteError{msg: fmt.Sprintf("failed to update iface config: %v", err)}
+	}
+
+	return nil
+}
+
+// stageIfaceIdentity stages the network-name option that matches the
+// iface's effective mode and clears the other one. A mode=mesh
+// wifi-iface carries mesh_id only: the frontend mirrors mesh_id into
+// ssid to satisfy the proto's ssid min_len, and an AP section being
+// converted already has an ssid — either one left in the section keeps
+// the radio from coming up. AP and STA ifaces carry ssid only. The
+// effective mode is the requested one, else the mode already on the
+// section, so a channel-only edit of a mesh iface (which still has to
+// send an ssid) never re-introduces it. Other modes keep the legacy
+// write-what-was-sent behavior. Del on a missing option is a no-op.
+func (s *WifiConfigService) stageIfaceIdentity(ifaceName, mode string, settings *wificonfigv1.RadioSettings, ifaceCfg *network.UCIWirelessIface) error {
+	if mode == "" {
+		if vals, ok := s.ConfigReader.Get(wirelessConfig, ifaceName, wifiOptionMode); ok && len(vals) > 0 {
+			mode = vals[0]
 		}
 	}
 
-	if err := network.SetWirelessIfaceConfigWithReader(ifaceName, ifaceCfg, s.ConfigReader); err != nil {
-		return &wificonfigv1.UpdateRadioSettingsResponse{
-			Success: false,
-			Message: strPtr(fmt.Sprintf("failed to update iface config: %v", err)),
-		}, nil
+	switch mode {
+	case uciModeMesh:
+		// Clients that only know ssid still get a usable mesh: the
+		// network name lands in mesh_id.
+		ifaceCfg.MeshID = settings.GetSsid()
+		if settings.GetMeshId() != "" {
+			ifaceCfg.MeshID = settings.GetMeshId()
+		}
+
+		if err := s.ConfigReader.Del(wirelessConfig, ifaceName, wifiOptionSSID); err != nil {
+			return &stageWriteError{msg: fmt.Sprintf("failed to clear ssid on mesh iface: %v", err)}
+		}
+	case uciModeAP, uciModeSTA:
+		ifaceCfg.SSID = settings.GetSsid()
+
+		if err := s.ConfigReader.Del(wirelessConfig, ifaceName, wifiOptionMeshID); err != nil {
+			return &stageWriteError{msg: fmt.Sprintf("failed to clear mesh_id on %s iface: %v", mode, err)}
+		}
+	default:
+		ifaceCfg.SSID = settings.GetSsid()
+
+		if settings.MeshId != nil {
+			ifaceCfg.MeshID = settings.GetMeshId()
+		}
 	}
 
-	// Reload the wireless subsystem so changes take effect.
-	if err := s.ConfigReader.ReloadConfig(); err != nil {
-		return &wificonfigv1.UpdateRadioSettingsResponse{
-			Success: false,
-			Message: strPtr(fmt.Sprintf("config committed but reload failed: %v", err)),
-		}, nil
-	}
-
-	return &wificonfigv1.UpdateRadioSettingsResponse{Success: true}, nil
+	return nil
 }
 
 // ListConnectedClients returns all clients connected to an AP-mode radio.
@@ -612,10 +834,12 @@ func (s *WifiConfigService) buildMeshPeerList(
 		hostname := batHosts.GetHostByMAC(mac)
 
 		peer := &wificonfigv1.MeshPeer{
-			Hostname:       hostname,
-			MacAddress:     mac,
-			SignalDbm:      int32(signalByMAC[mac]),
-			ThroughputMbps: float64(n.Throughput) / 10.0, // batman-adv reports in 100kbit/s
+			Hostname:   hostname,
+			MacAddress: mac,
+			SignalDbm:  int32(signalByMAC[mac]),
+			// `batctl nj` emits BATADV_ATTR_THROUGHPUT, which the kernel
+			// scales to kbit/s before putting it on netlink.
+			ThroughputMbps: float64(n.Throughput) / 1000.0,
 			LastSeen:       durationpb.New(time.Duration(n.LastSeenMsecs) * time.Millisecond),
 		}
 
@@ -882,6 +1106,8 @@ func WifiEncryptionToProto(s string) wificonfigv1.WifiEncryption {
 		return wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK
 	case "psk-mixed":
 		return wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK_MIXED
+	case "sae-mixed":
+		return wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE_MIXED
 	case "none":
 		return wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_NONE
 	case "owe":
@@ -902,6 +1128,8 @@ func ProtoToWifiEncryption(e wificonfigv1.WifiEncryption) string {
 		return "psk"
 	case wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_PSK_MIXED:
 		return "psk-mixed"
+	case wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_SAE_MIXED:
+		return "sae-mixed"
 	case wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_NONE:
 		return "none"
 	case wificonfigv1.WifiEncryption_WIFI_ENCRYPTION_OWE:

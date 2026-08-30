@@ -34,7 +34,9 @@ type MeshNeighbor struct {
 	Signal int32 `protobuf:"varint,4,opt,name=signal,proto3" json:"signal,omitempty"`
 	// Last seen in miliseconds
 	LastSeen int64 `protobuf:"varint,5,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
-	// throughput to the neighbor node.
+	// Throughput to the neighbor node in bit/s: the nl80211 station transmit
+	// bitrate, replaced by the batman-adv link throughput (from `batctl nj`,
+	// kbit/s scaled up) when the neighbor is known to batman-adv.
 	Throughput    int32 `protobuf:"varint,6,opt,name=throughput,proto3" json:"throughput,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

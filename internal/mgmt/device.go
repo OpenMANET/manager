@@ -3,47 +3,19 @@ package mgmt
 import (
 	"context"
 	"fmt"
-	"strings"
 
-	batmanadv "github.com/openmanet/openmanetd/internal/batman-adv"
 	"github.com/openmanet/openmanetd/internal/iwinfo"
 	"github.com/openmanet/openmanetd/internal/network"
 )
 
 const (
-	// Interface MTU for interfaces
+	// Interface MTU for interfaces. The bridge and ethernet values are
+	// shared with the setup wizard, which persists them in UCI; the
+	// netlink pass below still applies them at every start.
 	defaultMeshInterfaceMTU     int = 1500
 	defaultBatmanInterfaceMTU   int = 1460
-	defaultAhwlanInterfaceMTU   int = 1460
-	defaultEthernetInterfaceMTU int = 1460
-
-	igmpSnoopingEnabled      = "1"
-	multicastQuerierEnabled  = "1"
-	multicastQuerierDisabled = "0"
-
-	// wifiModeMesh is the wifi-iface `mode` value used by 802.11s mesh
-	// interfaces (e.g. batmesh0/batmesh1).
-	wifiModeMesh = "mesh"
-
-	// batMesh1RSSIThreshold is the mesh_rssi_threshold (dBm) applied to the
-	// 2.4 GHz batmesh1 interface. wpa_supplicant treats -255..-1 as a dBm
-	// floor for accepting a mesh peer, 0 as "no threshold", and 1 as "leave
-	// the driver default alone".
-	//
-	// batmesh1 exists to carry traffic between nodes close enough for 2.4 GHz
-	// to be decisively faster than the 900 MHz batmesh0 (S1G/HaLow) link, not
-	// to extend range. batmesh0 owns range. So the threshold is set at the
-	// crossover point rather than at the edge of usability: a 2.4 GHz link
-	// that is merely *reachable* is worse than no 2.4 GHz link at all, because
-	// batman-adv will use it and the low MCS rate consumes airtime out of all
-	// proportion to the traffic it carries.
-	//
-	// -80 dBm holds HE20 MCS2/MCS3 (~14-20 Mbps of real throughput) with a few
-	// dB of fade margin for mobile nodes, against roughly 1-4 Mbps from a
-	// 2 MHz HaLow channel -- several times faster, which is the bar. Dropping
-	// to -85 would admit MCS0/MCS1 links at ~4-9 Mbps that flap under motion
-	// and are not worth preferring over batmesh0.
-	batMesh1RSSIThreshold = "-80"
+	defaultAhwlanInterfaceMTU   int = network.DefaultBridgeMTU
+	defaultEthernetInterfaceMTU int = network.DefaultEthernetMTU
 )
 
 // setTransportInterfaceMTU sets the MTU (Maximum Transmission Unit) for all
@@ -139,20 +111,24 @@ func (m *ManagementConfig) setupBatMesh1Interface(ctx context.Context) error {
 	)
 }
 
-// setupBatMesh1InterfaceWithDeps configures a new 2.4 GHz batman-adv batmesh1
-// wireless interface. It is idempotent: if batmesh1configured is already set to
-// true the method returns immediately. The method:
+// setupBatMesh1InterfaceWithDeps configures the 2.4 GHz secondary
+// batman-adv mesh link (network batmesh1) when the wizard did not. It is
+// idempotent: if batmesh1configured is already set the method returns
+// immediately. The method:
 //
-//  1. Returns without changes when batmesh1 is already configured.
-//  2. Correlates each 2.4 GHz UCI radio with its runtime interface and selects
-//     a single radio backed by an MT7915 or MT7916 chipset.
-//  3. Locates an existing wifi-iface with mode=mesh and borrows its mesh_id and
-//     key values.
-//  4. Creates the new wifi-iface with network=batmesh1, mode=mesh,
-//     mesh_fwding=0, mesh_rssi_threshold=-80, encryption=sae, and the
-//     borrowed credentials.
-//  5. Updates the matched 2g radio with channel=8 and htmode=HE20.
-//  6. Marks batmesh1 as configured.
+//  1. Returns without changes when batmesh1 is already configured (the
+//     wizard stages the flag to 1 when the operator chose the backhaul).
+//  2. Correlates each 2.4 GHz UCI radio with its runtime interface and
+//     selects a single radio backed by a chipset that
+//     network.SupportsSecondaryMeshLink accepts.
+//  3. Leaves the radio alone when its AP section (default_<radio>) is
+//     enabled — the operator's AP wins over the fallback link.
+//  4. Locates an existing wifi-iface with mode=mesh and borrows its
+//     mesh_id and key values.
+//  5. Creates wifi-iface <batmesh1>_<radio> from network.MeshLink so the
+//     section can never collide with the AP section on the same radio.
+//  6. Updates the matched 2g radio with the secondary-link channel and
+//     width, then marks batmesh1 as configured.
 func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 	ctx context.Context,
 	openmanetReader network.OpenMANETConfigReader,
@@ -199,7 +175,7 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 		}
 
 		hardwareName := network.ResolveWirelessRadioHardwareName(section, status, allInfo)
-		if !strings.Contains(hardwareName, "MT7915") && !strings.Contains(hardwareName, "MT7916") {
+		if !network.SupportsSecondaryMeshLink(hardwareName) {
 			continue
 		}
 
@@ -218,7 +194,15 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 		return nil
 	}
 
-	// Step 3: find mesh credentials from an existing mesh wifi-iface.
+	// Step 3: an enabled AP on the radio wins. The operator (or the
+	// wizard) chose it; never move its channel or add a link beside it.
+	if radioHostsEnabledAP(radioSection, wirelessReader) {
+		m.Log.Info().Str("radio", radioSection).Msg("Radio hosts an enabled AP; leaving it alone, no batmesh1 link written")
+
+		return nil
+	}
+
+	// Step 4: find mesh credentials from an existing mesh wifi-iface.
 	ifaceSections, err := wirelessReader.GetSections("wireless", "wifi-iface")
 	if err != nil {
 		return fmt.Errorf("get wifi-iface sections: %w", err)
@@ -232,7 +216,7 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 			continue
 		}
 
-		if iface.Mode == wifiModeMesh {
+		if iface.Mode == network.WifiModeMesh {
 			meshID = iface.MeshID
 			meshKey = iface.Key
 
@@ -244,30 +228,37 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 		return fmt.Errorf("no existing wifi-iface with mode=mesh found; cannot determine mesh credentials")
 	}
 
-	newIfaceSection := "default_" + radioSection
+	link := network.MeshLink{
+		Radio:         radioSection,
+		Network:       network.BatmanSecondaryIface,
+		MeshID:        meshID,
+		Key:           meshKey,
+		RSSIThreshold: network.SecondaryMeshRSSIThreshold,
+	}
+	newIfaceSection := link.Section()
 
-	// Step 4: create the new wifi-iface.
-	newIface := &network.UCIWirelessIface{
-		Device:            radioSection,
-		Network:           "batmesh1",
-		Mode:              wifiModeMesh,
-		MeshID:            meshID,
-		Key:               meshKey,
-		MeshFwding:        "0",
-		MeshRSSIThreshold: batMesh1RSSIThreshold,
-		Encryption:        "sae",
+	// Step 5: create the new wifi-iface.
+	if err := network.SetWirelessIfaceConfigWithReader(newIfaceSection, link.IfaceConfig(), wirelessReader); err != nil {
+		return fmt.Errorf("create wifi-iface %s: %w", newIfaceSection, err)
 	}
 
-	if err := network.SetWirelessIfaceConfigWithReader(newIfaceSection, newIface, wirelessReader); err != nil {
-		return fmt.Errorf("create wifi-iface %s: %w", newIfaceSection, err)
+	// SetWirelessIfaceConfigWithReader only writes non-empty struct
+	// fields, and MeshLink.IfaceConfig().Disabled is always empty. If
+	// this section already carried disabled=1 from a prior wizard run
+	// (e.g. a wizard re-run's reset phase disabled every wifi-iface and
+	// no backhaul was re-chosen), that stale value would otherwise
+	// survive the rewrite and leave the link permanently dead even
+	// though batmesh1configured gets set below. Clear it explicitly.
+	if err := wirelessReader.Del("wireless", newIfaceSection, "disabled"); err != nil {
+		return fmt.Errorf("clear disabled on %s: %w", newIfaceSection, err)
 	}
 
 	m.Log.Info().Str("section", newIfaceSection).Str("device", radioSection).Msg("Created batmesh1 wifi-iface")
 
-	// Step 5: update the 2g radio device.
+	// Step 6: update the 2g radio device.
 	radioUpdate := &network.UCIWirelessDevice{
-		Channel:  "8",
-		HTMode:   "HE20",
+		Channel:  network.SecondaryMeshChannel2G,
+		HTMode:   network.SecondaryMeshHTMode2G,
 		Disabled: "0",
 	}
 
@@ -275,7 +266,7 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 		return fmt.Errorf("update wifi-device %s: %w", radioSection, err)
 	}
 
-	m.Log.Info().Str("section", radioSection).Str("channel", "8").Str("htmode", "HE20").Str("disabled", "0").Msg("Updated 2g radio for batmesh1")
+	m.Log.Info().Str("section", radioSection).Str("channel", network.SecondaryMeshChannel2G).Str("htmode", network.SecondaryMeshHTMode2G).Str("disabled", "0").Msg("Updated 2g radio for batmesh1")
 
 	// Step 6: mark batmesh1 as configured.
 	if err := network.SetBatMesh1ConfiguredWithReader(openmanetReader); err != nil {
@@ -290,11 +281,28 @@ func (m *ManagementConfig) setupBatMesh1InterfaceWithDeps(
 	return nil
 }
 
-// configureBatmanForceflood persists the batman-adv multicast forceflood
-// setting to the UCI network config so it survives reboots. The UCI option
-// name is `multicast_mode` on the bat0 interface section — this is the
-// batadv proto handler's option that maps to the kernel's multicast
-// forceflood behavior. A subsequent network reload applies the change.
+// radioHostsEnabledAP reports whether the AP section for radio
+// ("default_<radio>", the name both the factory image and the wizard
+// use) exists with mode=ap and is not disabled.
+func radioHostsEnabledAP(radio string, reader network.ConfigReader) bool {
+	iface, err := network.GetWirelessIfaceByNameWithReader("default_"+radio, reader)
+	if err != nil {
+		return false
+	}
+
+	return iface.Mode == "ap" && iface.Disabled != "1"
+}
+
+// configureBatmanForceflood persists the batman-adv multicast mode derived
+// from batman.multicastForceflood to the bat0 interface section of the UCI
+// network config so it survives reboots. The UCI option is `multicast_mode`,
+// which OpenWrt's batadv proto handler passes straight to batctl; the
+// kernel defines it as the negation of forceflood, so forceflood=true
+// writes "0" (classic flooding) and false writes "1" (IGMP/MLD-snooping
+// optimisations) — see network.MulticastModeForForceflood. A subsequent
+// network reload applies the change. The write is change-only: when bat0
+// already carries the wanted value nothing is committed and no reload is
+// issued.
 func (m *ManagementConfig) configureBatmanForceflood(ctx context.Context) error {
 	return m.configureBatmanForcefloodWithDeps(
 		ctx,
@@ -311,77 +319,29 @@ func (m *ManagementConfig) configureBatmanForcefloodWithDeps(
 	reader network.ConfigReader,
 	reloadFn func(context.Context) error,
 ) error {
-	val := "0"
-	if m.BatmanMulticastForceflood {
-		val = "1"
+	want := network.MulticastModeForForceflood(m.BatmanMulticastForceflood)
+	current := network.MulticastModeWithReader(reader, m.BatInterface)
+
+	if current == want {
+		m.Log.Debug().
+			Str("interface", m.BatInterface).
+			Str("multicast_mode", want).
+			Msg("batman-adv multicast_mode already persisted; skipping commit and reload")
+
+		return nil
 	}
 
 	if err := network.SetNetworkConfigWithReader(m.BatInterface, &network.UCINetwork{
-		MulticastMode: val,
+		MulticastMode: want,
 	}, reader); err != nil {
 		return fmt.Errorf("set multicast_mode on %s: %w", m.BatInterface, err)
 	}
 
-	m.Log.Debug().
-		Str("interface", m.BatInterface).
-		Str("multicast_mode", val).
-		Msg("Persisted batman-adv multicast_mode (forceflood) to UCI")
-
-	if err := reloadFn(ctx); err != nil {
-		return fmt.Errorf("reload config: %w", err)
-	}
-
-	return nil
-}
-
-// configureDeviceMulticast configures IGMP snooping and multicast querier
-// settings on the network device identified by ManagementConfig.IFace.
-// Gateway status is determined by querying batman-adv via BatInterface.
-func (m *ManagementConfig) configureDeviceMulticast(ctx context.Context) error { //nolint:unused
-	return m.configureDeviceMulticastWithDeps(
-		ctx,
-		network.NewUCINetworkConfigReader(),
-		batmanadv.GetMeshConfig,
-		network.ForceReloadConfig,
-	)
-}
-
-// configureDeviceMulticastWithDeps is the testable implementation of
-// configureDeviceMulticast. Dependencies are injected so the function can be
-// unit-tested without a real OpenWrt environment.
-func (m *ManagementConfig) configureDeviceMulticastWithDeps(
-	ctx context.Context,
-	reader network.ConfigReader,
-	getMeshConfig func(string) (*batmanadv.MeshConfig, error),
-	reloadFn func(context.Context) error,
-) error {
-	device, err := network.GetDeviceByNameWithReader(m.IFace, reader)
-	if err != nil {
-		return fmt.Errorf("get device %s: %w", m.IFace, err)
-	}
-
-	meshCfg, err := getMeshConfig(m.BatInterface)
-	if err != nil {
-		return fmt.Errorf("get mesh config: %w", err)
-	}
-
-	device.IgmpSnooping = igmpSnoopingEnabled
-
-	if meshCfg.IsGatewayMode() {
-		device.MulticastQuerier = multicastQuerierEnabled
-	} else {
-		device.MulticastQuerier = multicastQuerierDisabled
-	}
-
-	if err := network.SetDeviceConfigWithReader(m.IFace, device, reader); err != nil {
-		return fmt.Errorf("set device config %s: %w", m.IFace, err)
-	}
-
 	m.Log.Info().
-		Str("device", m.IFace).
-		Str("igmp_snooping", device.IgmpSnooping).
-		Str("multicast_querier", device.MulticastQuerier).
-		Msg("Configured device multicast settings")
+		Str("interface", m.BatInterface).
+		Str("previous", current).
+		Str("multicast_mode", want).
+		Msg("Persisted batman-adv multicast_mode (forceflood) to UCI")
 
 	if err := reloadFn(ctx); err != nil {
 		return fmt.Errorf("reload config: %w", err)

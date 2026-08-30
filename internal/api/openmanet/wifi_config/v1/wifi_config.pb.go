@@ -153,6 +153,11 @@ const (
 	WifiEncryption_WIFI_ENCRYPTION_PSK_MIXED   WifiEncryption = 4
 	WifiEncryption_WIFI_ENCRYPTION_NONE        WifiEncryption = 5
 	WifiEncryption_WIFI_ENCRYPTION_OWE         WifiEncryption = 6
+	// WPA2/WPA3 transition mode: OpenWrt maps sae-mixed to
+	// auth_type=psk-sae (WPA2-PSK and WPA3-SAE both accepted). This is
+	// the "WPA2/WPA3 mixed" the LuCI mesh wizard offers; psk-mixed is
+	// WPA1+WPA2 and must not be labelled as WPA3.
+	WifiEncryption_WIFI_ENCRYPTION_SAE_MIXED WifiEncryption = 7
 )
 
 // Enum value maps for WifiEncryption.
@@ -165,6 +170,7 @@ var (
 		4: "WIFI_ENCRYPTION_PSK_MIXED",
 		5: "WIFI_ENCRYPTION_NONE",
 		6: "WIFI_ENCRYPTION_OWE",
+		7: "WIFI_ENCRYPTION_SAE_MIXED",
 	}
 	WifiEncryption_value = map[string]int32{
 		"WIFI_ENCRYPTION_UNSPECIFIED": 0,
@@ -174,6 +180,7 @@ var (
 		"WIFI_ENCRYPTION_PSK_MIXED":   4,
 		"WIFI_ENCRYPTION_NONE":        5,
 		"WIFI_ENCRYPTION_OWE":         6,
+		"WIFI_ENCRYPTION_SAE_MIXED":   7,
 	}
 )
 
@@ -897,7 +904,7 @@ const file_openmanet_wifi_config_v1_wifi_config_proto_rawDesc = "" +
 	"\xaa\xd1\xf9\xd6\x03\x04mesh\x12\x1c\n" +
 	"\rWIFI_MODE_STA\x10\x03\x1a\t\xaa\xd1\xf9\xd6\x03\x03sta\x12 \n" +
 	"\x0fWIFI_MODE_ADHOC\x10\x04\x1a\v\xaa\xd1\xf9\xd6\x03\x05adhoc\x12$\n" +
-	"\x11WIFI_MODE_MONITOR\x10\x05\x1a\r\xaa\xd1\xf9\xd6\x03\amonitor*\x99\x02\n" +
+	"\x11WIFI_MODE_MONITOR\x10\x05\x1a\r\xaa\xd1\xf9\xd6\x03\amonitor*\xc9\x02\n" +
 	"\x0eWifiEncryption\x12\x1f\n" +
 	"\x1bWIFI_ENCRYPTION_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x13WIFI_ENCRYPTION_SAE\x10\x01\x1a\t\xaa\xd1\xf9\xd6\x03\x03sae\x12$\n" +
@@ -907,7 +914,8 @@ const file_openmanet_wifi_config_v1_wifi_config_proto_rawDesc = "" +
 	"\x19WIFI_ENCRYPTION_PSK_MIXED\x10\x04\x1a\x0f\xaa\xd1\xf9\xd6\x03\tpsk-mixed\x12$\n" +
 	"\x14WIFI_ENCRYPTION_NONE\x10\x05\x1a\n" +
 	"\xaa\xd1\xf9\xd6\x03\x04none\x12\"\n" +
-	"\x13WIFI_ENCRYPTION_OWE\x10\x06\x1a\t\xaa\xd1\xf9\xd6\x03\x03owe*\xaa\x05\n" +
+	"\x13WIFI_ENCRYPTION_OWE\x10\x06\x1a\t\xaa\xd1\xf9\xd6\x03\x03owe\x12.\n" +
+	"\x19WIFI_ENCRYPTION_SAE_MIXED\x10\a\x1a\x0f\xaa\xd1\xf9\xd6\x03\tsae-mixed*\xaa\x05\n" +
 	"\n" +
 	"WifiHTMode\x12\x1c\n" +
 	"\x18WIFI_HT_MODE_UNSPECIFIED\x10\x00\x12!\n" +
