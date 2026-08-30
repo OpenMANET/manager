@@ -28,7 +28,8 @@ func TestCommsAudio_Defaults_Unset(t *testing.T) {
 
 	assert.Equal(t, DefaultCommsAudioSpeakerVolume, c.GetCommsAudioSpeakerVolume(),
 		"unset speaker volume defaults to 100% so every EEPROM vintage boots at full DAC level")
-	assert.Equal(t, -1, c.GetCommsAudioMicVolume())
+	assert.Equal(t, DefaultCommsAudioMicVolume, c.GetCommsAudioMicVolume(),
+		"unset mic volume defaults to 100% so capture level is deterministic at startup")
 
 	_, set := c.GetCommsAudioAGC()
 	assert.False(t, set)

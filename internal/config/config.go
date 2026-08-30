@@ -64,7 +64,15 @@ const (
 	// the leave-untouched sentinel used for the mic) closes the fleet split
 	// where units provisioned with OpenVLM <= 1.0.2 boot at -10 dB from the
 	// EEPROM while >= 1.0.3 units boot at 0 dB. Key comms.audio.speakerVolume.
-	DefaultCommsAudioSpeakerVolume                   int    = 100
+	DefaultCommsAudioSpeakerVolume int = 100
+	// DefaultCommsAudioMicVolume is the hardware mic capture (ADC) volume
+	// percent applied when comms.audio.micVolume is unset. 100% maps onto
+	// the full ALSA range the chip advertises — +23 dB on the CM108B, well
+	// above the +8 dB EEPROM boot value — making the capture level
+	// deterministic at startup regardless of EEPROM vintage or prior
+	// alsamixer state. Operator decision 2026-08-30. Key
+	// comms.audio.micVolume.
+	DefaultCommsAudioMicVolume                       int    = 100
 	DefaultCommsNanoPTTEnable                        bool   = false
 	DefaultCommsNanoPTTDevicePath                    string = "/dev/hidraw0/*"
 	DefaultCommsNanoPTTDeviceName                    string = ""
@@ -741,20 +749,17 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsCaptureFramesPerBuffer = DefaultCommsCaptureFramesPerBuffer
 	}
 
-	// Load comms hardware audio mixer levels. Mic and AGC keys are
-	// IsSet-guarded with no defaults: an absent key means the daemon never
-	// touches that hardware control at startup (preserving card defaults
-	// and manual alsamixer state). -1 is the "unset" sentinel for the mic
-	// volume field. The speaker volume is policy, not passthrough: it
-	// defaults to DefaultCommsAudioSpeakerVolume so playback level does not
-	// depend on which OpenVLM EEPROM image a unit was provisioned with.
+	// Load comms hardware audio mixer levels. Both volume levels are
+	// policy, not passthrough: unset keys apply the 100% defaults so
+	// speaker and capture levels do not depend on which OpenVLM EEPROM
+	// image a unit was provisioned with or on prior alsamixer state.
 	// Out-of-range values are silently clamped to [0, 100].
 	c.CommsAudioSpeakerVolume = DefaultCommsAudioSpeakerVolume
 	if c.v.IsSet("comms.audio.speakerVolume") {
 		c.CommsAudioSpeakerVolume = clampPct(c.v.GetInt("comms.audio.speakerVolume"))
 	}
 
-	c.CommsAudioMicVolume = -1
+	c.CommsAudioMicVolume = DefaultCommsAudioMicVolume
 	if c.v.IsSet("comms.audio.micVolume") {
 		c.CommsAudioMicVolume = clampPct(c.v.GetInt("comms.audio.micVolume"))
 	}
@@ -1424,7 +1429,8 @@ func (c *Config) GetCommsAudioSpeakerVolume() int {
 }
 
 // GetCommsAudioMicVolume returns the persisted hardware mic capture volume
-// percent, or -1 when comms.audio.micVolume is not set.
+// percent, or DefaultCommsAudioMicVolume (100) when comms.audio.micVolume
+// is not set.
 func (c *Config) GetCommsAudioMicVolume() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

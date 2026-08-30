@@ -863,27 +863,29 @@ hardware currently holds, which may have drifted from that baseline via
 button presses or an out-of-band `alsamixer` session.
 
 One consequence worth flagging for future gain-staging work (2026-08-30
-bench): once `comms.audio.micVolume` has been persisted — a single UI
-slider touch is enough — every daemon start and audio recovery rewrites
-"Mic Capture Volume", silently overriding whatever boot value the
-OpenVLM EEPROM (`adc-init-volume`) programmed. Today both agree, so this
-is harmless; any future scheme that raises the EEPROM ADC boot gain must
-account for persisted per-node mic volume clamping it back.
+bench): every daemon start and audio recovery writes "Mic Capture
+Volume" — the 100% policy default when `comms.audio.micVolume` is
+unset, the persisted value once a UI slider has touched it — so the
+OpenVLM EEPROM's ADC boot value (`adc-init-volume`) never survives past
+comms startup. Any future scheme that tunes capture gain through the
+EEPROM must change this policy default, or the daemon will clamp it
+back on every boot.
 
 ### Startup behavior
 
 The manager wires `CommsConfig.AudioMixerStartup` to re-apply the
-persisted `comms.audio.*` values via `Volume.ApplyStartup`. The mic
-volume key is apply-only-when-set: absent keys leave that control
-untouched. The speaker volume and AGC are policy rather than
-passthrough — both are applied on every startup. The speaker defaults
-to **100%** when `comms.audio.speakerVolume` is unset (the CM108B DAC
-maxes out at 0 dB, so 100% cannot over-drive), which closes the fleet
-split where units provisioned with OpenVLM ≤ 1.0.2 boot at −10 dB from
-the EEPROM while ≥ 1.0.3 units boot at 0 dB. AGC defaults to
-**disabled** when `comms.audio.agc` is unset, so the CM108B's automatic
-capture gain never rides along silently on a fresh install or after a
-USB replug resets the chip. The re-apply runs once
+persisted `comms.audio.*` values via `Volume.ApplyStartup`. All three
+fields are policy rather than passthrough — applied on every startup.
+Speaker and mic volume default to **100%** when unset, so hardware
+levels are deterministic regardless of EEPROM vintage or prior
+alsamixer state: for the speaker this closes the fleet split where
+units provisioned with OpenVLM ≤ 1.0.2 boot at −10 dB from the EEPROM
+while ≥ 1.0.3 units boot at 0 dB (the DAC maxes out at 0 dB, so 100%
+cannot over-drive); for the mic, 100% maps to the CM108B ADC's +23 dB
+maximum, overriding the EEPROM's +8 dB boot value by design. AGC
+defaults to **disabled** when `comms.audio.agc` is unset, so the
+CM108B's automatic capture gain never rides along silently on a fresh
+install or after a USB replug resets the chip. The re-apply runs once
 after `control.DetectAndSetALSACard` in `Start()`, and again after every
 successful in-run audio recovery (a USB replug resets the card's mixer
 state). `ApplyStartup` applies the speaker, mic, and AGC fields as three

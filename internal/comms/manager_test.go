@@ -275,7 +275,9 @@ func TestMixerStartupUpdate_Unconfigured_DefaultsAGCOff(t *testing.T) {
 	require.NotNil(t, u.SpeakerPct,
 		"unset speakerVolume applies the 100% policy default so playback level does not depend on the EEPROM vintage")
 	assert.Equal(t, config.DefaultCommsAudioSpeakerVolume, *u.SpeakerPct)
-	assert.Nil(t, u.MicPct, "unset micVolume must stay nil")
+	require.NotNil(t, u.MicPct,
+		"unset micVolume applies the 100% policy default so capture level is deterministic at startup")
+	assert.Equal(t, config.DefaultCommsAudioMicVolume, *u.MicPct)
 	require.NotNil(t, u.AGC, "AGC defaults to disabled when comms.audio.agc is unset")
 	assert.False(t, *u.AGC)
 }
@@ -289,7 +291,9 @@ func TestMixerStartupUpdate_BuildsPartialUpdate(t *testing.T) {
 	u := mixerStartupUpdate(cfg)
 	require.NotNil(t, u.SpeakerPct)
 	assert.Equal(t, 80, *u.SpeakerPct)
-	assert.Nil(t, u.MicPct, "unset micVolume must stay nil")
+	require.NotNil(t, u.MicPct,
+		"unset micVolume applies the 100% policy default so capture level is deterministic at startup")
+	assert.Equal(t, config.DefaultCommsAudioMicVolume, *u.MicPct)
 	require.NotNil(t, u.AGC)
 	assert.False(t, *u.AGC)
 }
