@@ -46,6 +46,12 @@ export async function decodeImageFile(file) {
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    // Canvas disabled or the browser is out of 2d contexts; without one
+    // there is nothing to decode, so say so instead of a null deref.
+    if (typeof bitmap.close === 'function') bitmap.close();
+    throw new MeshJoinError('no-canvas', MESH_JOIN_ERROR_MESSAGES['no-canvas']);
+  }
   ctx.drawImage(bitmap, 0, 0, w, h);
   const { data } = ctx.getImageData(0, 0, w, h);
   if (typeof bitmap.close === 'function') bitmap.close();

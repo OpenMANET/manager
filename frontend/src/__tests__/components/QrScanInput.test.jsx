@@ -81,6 +81,17 @@ describe('QrScanInputPhoto', () => {
     expect(props.onDecoded).not.toHaveBeenCalled();
   });
 
+  it('reports a clear error when the canvas has no 2d context', async () => {
+    HTMLCanvasElement.prototype.getContext = () => null;
+    const { props } = renderInput();
+    pickPhoto();
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.getByRole('alert').textContent).toMatch(/cannot decode photos/);
+    expect(props.onError).toHaveBeenCalledWith(expect.stringMatching(/cannot decode photos/));
+    expect(props.onDecoded).not.toHaveBeenCalled();
+    expect(mockJsQR).not.toHaveBeenCalled();
+  });
+
   it('reports a foreign QR code', async () => {
     mockJsQR.mockReturnValue({ data: 'WIFI:S:cafe;P:latte;;' });
     renderInput();

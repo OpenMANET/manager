@@ -29,6 +29,7 @@ export const MESH_JOIN_ERROR_MESSAGES = {
   'not-mesh-join':       'This QR code is not an OpenMANET mesh code.',
   'unsupported-version': 'This code is from a newer OpenMANET build. Update this node first.',
   'corrupt':             'Code unreadable. Retake the photo or paste the code text.',
+  'no-canvas':           'This browser cannot decode photos here. Paste the code text instead.',
 };
 
 function fail(code) {
