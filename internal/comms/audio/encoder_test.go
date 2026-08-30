@@ -472,6 +472,56 @@ func TestBroadcastEncoder_UnityGainSkipsLoop(t *testing.T) {
 	}
 }
 
+func TestBroadcastEncoder_GainAppliesQ8Fraction(t *testing.T) {
+	// 1.5 is exactly representable in Q8 (384/256); 1000 * 1.5 = 1500.
+	be, enc := newGainTestEncoder(t, 1.5)
+	go be.encodeLoop()
+
+	frame := make([]int16, audiopool.FrameSize)
+	for i := range frame {
+		frame[i] = 1000
+	}
+
+	be.captureCallback(frame)
+
+	close(be.encCh)
+	<-be.done
+
+	require.NotNil(t, enc.captured)
+
+	for i, v := range enc.captured {
+		if v != 1500 {
+			t.Fatalf("captured[%d] = %d, want 1500 (1.5x gain)", i, v)
+		}
+	}
+}
+
+func TestBroadcastEncoder_GainQuantizesToQ8(t *testing.T) {
+	// The gain is fixed point with 1/256 resolution: 1.001 rounds to
+	// 256/256 = unity, so samples pass through unchanged. The float
+	// implementation would have produced 30030 here.
+	be, enc := newGainTestEncoder(t, 1.001)
+	go be.encodeLoop()
+
+	frame := make([]int16, audiopool.FrameSize)
+	for i := range frame {
+		frame[i] = 30000
+	}
+
+	be.captureCallback(frame)
+
+	close(be.encCh)
+	<-be.done
+
+	require.NotNil(t, enc.captured)
+
+	for i, v := range enc.captured {
+		if v != 30000 {
+			t.Fatalf("captured[%d] = %d, want 30000 (1.001 quantizes to unity in Q8)", i, v)
+		}
+	}
+}
+
 // ─── VOX tap branches ─────────────────────────────────────────────────────────
 
 // TestBroadcastEncoder_TapDeliversFrameWhenLoaded verifies that when a VOX

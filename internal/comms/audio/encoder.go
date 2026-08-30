@@ -13,6 +13,7 @@ package audio
 
 import (
 	"fmt"
+	"math"
 	"sync/atomic"
 	"time"
 
@@ -42,6 +43,34 @@ const frameDuration = time.Duration(audiopool.FrameSize) * time.Second /
 // framesDropped and surfaced in the per-cycle Debug log so a regression
 // is loud, not silent.
 const broadcastEncoderChanDepth = 10
+
+// TX mic gain is applied in Q8 fixed point: gainQ8 = round(gain * 256),
+// so the resolution is 1/256 (~0.034 dB steps) and unity is exactly 256.
+// Q8 keeps the per-sample loop integer-only, which matters on the mipsle
+// softfloat production targets (mt7621/mt76x8 have no FPU).
+const (
+	unityGainQ8 int32 = 256
+	gainQ8Shift int32 = 8
+)
+
+// micGainQ8 converts the float config gain to its Q8 representation.
+// Non-positive gains read as unity — MicGain unset (zero value) means "no
+// gain", matching the previous float implementation's gain > 0 guard. A
+// positive gain small enough to round to 0 is clamped to 1 (the smallest
+// non-silent Q8 step) so a configured near-zero gain attenuates instead
+// of muting outright.
+func micGainQ8(gain float32) int32 {
+	if gain <= 0 {
+		return unityGainQ8
+	}
+
+	q := int32(math.Round(float64(gain) * 256))
+	if q < 1 {
+		return 1
+	}
+
+	return q
+}
 
 // SendFn delivers an Opus payload to every send-enabled multicast port.
 // The parent comms package binds it to its sendToAllPorts helper at
@@ -309,11 +338,14 @@ func (be *BroadcastEncoder) encodeOne(fp *[]int16) {
 
 	pcm := *fp
 
-	gain := be.deps.MicGain
-	if gain != 1.0 && gain > 0 {
-		// Apply gain in int32 space with hard clipping to int16 range.
+	if q := micGainQ8(be.deps.MicGain); q != unityGainQ8 {
+		// Apply gain in Q8 fixed point with hard clipping to int16
+		// range. The loop is integer-only: on mipsle softfloat targets
+		// the previous float32 multiply emitted ~4 800 software-float
+		// runtime calls per frame; the one float→Q8 conversion above is
+		// per frame, not per sample.
 		for i, v := range pcm {
-			scaled := float32(v) * gain
+			scaled := (int32(v) * q) >> gainQ8Shift
 			if scaled > 32767 {
 				scaled = 32767
 			} else if scaled < -32768 {
