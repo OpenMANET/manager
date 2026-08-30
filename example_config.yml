@@ -49,15 +49,18 @@ comms:
   # captureLatencyMs: 60
   # Hardware audio mixer levels applied to the OpenVLM sound card at comms
   # startup and adjustable at runtime via the CommsService audio-mixer API.
-  # Volume keys are optional: when absent the daemon never touches that
-  # hardware control. Values set through the API are persisted here.
+  # Both volume keys default to 100 so hardware levels do not depend on
+  # the EEPROM image a unit was provisioned with: speaker 100 is the
+  # CM108B DAC's 0 dB maximum (no positive gain, cannot over-drive); mic
+  # 100 is the ADC's +23 dB maximum. Values set through the API are
+  # persisted here.
   # audio:
-  #   speakerVolume: 80     # playback volume percent [0-100]
-  #   micVolume: 60         # capture volume percent [0-100]
+  #   speakerVolume: 100    # playback volume percent [0-100]; default 100
+  #   micVolume: 100        # capture volume percent [0-100]; default 100
   #   agc: false            # CM108B Auto Gain Control; when on, the chip
   #                         # adjusts capture gain itself and manual
   #                         # micVolume changes may appear ineffective.
-  #                         # Unlike the volume keys, AGC is enforced every
+  #                         # Like the volume keys, AGC is enforced every
   #                         # startup: unset means disabled
   #   speakerControl: ""    # raw ALSA element-name overrides; leave unset
   #   micControl: ""        # to use the built-in candidate lists

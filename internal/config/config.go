@@ -41,30 +41,54 @@ const (
 	// advertised so the reservation worker stops treating them as taken
 	// (ledger D4). Zero disables expiry: rows then live until
 	// resetDBOnStart. Key alfred.nodeExpiry, a Go duration string ("24h").
-	DefaultAlfredNodeExpiry                          time.Duration = 24 * time.Hour
-	DefaultCommsEnable                               bool          = false
-	DefaultCommsProtocol                             string        = "rtp"
-	DefaultCommsDebug                                bool          = false
-	DefaultCommsLoopback                             bool          = false
-	DefaultCommsTrace                                bool          = false
-	DefaultCommsControlSource                        string        = "openvlm"
-	DefaultCommsMicGain                              float32       = 8.0
-	DefaultCommsNanoPTTEnable                        bool          = false
-	DefaultCommsNanoPTTDevicePath                    string        = "/dev/hidraw0/*"
-	DefaultCommsNanoPTTDeviceName                    string        = ""
-	DefaultCommsBluetoothPttEnable                   bool          = false
-	DefaultCommsBluetoothPttBluetoothAudioDeviceHint string        = ""
-	DefaultCommsBluetoothPttBluetoothInputDevice     string        = ""
-	DefaultCommsBluetoothPttBluetoothOutputDevice    string        = ""
-	DefaultCommsGPIOSelectorEnable                   bool          = true
-	DefaultResetDBOnStart                            bool          = false
-	DefaultEnableGNSS                                bool          = false
-	DefaultGNSSSendAsNMEA                            bool          = false
-	DefaultGNSSSendAsCoT                             bool          = false
-	DefaultGNSSCoTUID                                string        = ""
-	DefaultGNSSSource                                string        = "internal"
-	DefaultEnableBLOS                                bool          = false
-	DefaultBLOSStatusWorkerInterval                  int           = 30 // seconds
+	DefaultAlfredNodeExpiry   time.Duration = 24 * time.Hour
+	DefaultCommsEnable        bool          = false
+	DefaultCommsProtocol      string        = "rtp"
+	DefaultCommsDebug         bool          = false
+	DefaultCommsLoopback      bool          = false
+	DefaultCommsTrace         bool          = false
+	DefaultCommsControlSource string        = "openvlm"
+	// DefaultCommsMicGain is the TX digital gain applied after the ADC,
+	// in Q8 fixed point with a soft-knee limiter (see comms/audio). 2.0 is
+	// the 2026-08-30 bench residual: at the OpenVLM's shipped +20 dB
+	// analog gain a loud talker's speech body (~9.5k ADC counts) stays
+	// under the 24576 knee, leaving the knee for plosives and transients.
+	// The previous 8.0 was compensating for hardware headroom the bench
+	// showed does not exist (the ADC clips first) and hard-clipped every
+	// sample at or above 4096 counts. Key comms.micGain.
+	DefaultCommsMicGain float32 = 2.0
+	// DefaultCommsAudioSpeakerVolume is the hardware speaker (DAC) volume
+	// percent applied when comms.audio.speakerVolume is unset. 100% maps to
+	// the CM108B DAC maximum of 0 dB — the chip has no positive playback
+	// gain, so full scale cannot over-drive. A fixed default (rather than
+	// the leave-untouched sentinel used for the mic) closes the fleet split
+	// where units provisioned with OpenVLM <= 1.0.2 boot at -10 dB from the
+	// EEPROM while >= 1.0.3 units boot at 0 dB. Key comms.audio.speakerVolume.
+	DefaultCommsAudioSpeakerVolume int = 100
+	// DefaultCommsAudioMicVolume is the hardware mic capture (ADC) volume
+	// percent applied when comms.audio.micVolume is unset. 100% maps onto
+	// the full ALSA range the chip advertises — +23 dB on the CM108B, well
+	// above the +8 dB EEPROM boot value — making the capture level
+	// deterministic at startup regardless of EEPROM vintage or prior
+	// alsamixer state. Operator decision 2026-08-30. Key
+	// comms.audio.micVolume.
+	DefaultCommsAudioMicVolume                       int    = 100
+	DefaultCommsNanoPTTEnable                        bool   = false
+	DefaultCommsNanoPTTDevicePath                    string = "/dev/hidraw0/*"
+	DefaultCommsNanoPTTDeviceName                    string = ""
+	DefaultCommsBluetoothPttEnable                   bool   = false
+	DefaultCommsBluetoothPttBluetoothAudioDeviceHint string = ""
+	DefaultCommsBluetoothPttBluetoothInputDevice     string = ""
+	DefaultCommsBluetoothPttBluetoothOutputDevice    string = ""
+	DefaultCommsGPIOSelectorEnable                   bool   = true
+	DefaultResetDBOnStart                            bool   = false
+	DefaultEnableGNSS                                bool   = false
+	DefaultGNSSSendAsNMEA                            bool   = false
+	DefaultGNSSSendAsCoT                             bool   = false
+	DefaultGNSSCoTUID                                string = ""
+	DefaultGNSSSource                                string = "internal"
+	DefaultEnableBLOS                                bool   = false
+	DefaultBLOSStatusWorkerInterval                  int    = 30 // seconds
 	// DefaultMeshTopologyDeltaSampleInterval is how often the mesh
 	// topology delta tracker polls batadv-vis for a new snapshot. 5
 	// seconds is a compromise between granularity (the UI panel claims
@@ -725,17 +749,17 @@ func (c *Config) reload() { //nolint:gocognit,gocyclo
 		c.CommsCaptureFramesPerBuffer = DefaultCommsCaptureFramesPerBuffer
 	}
 
-	// Load comms hardware audio mixer levels. All keys are IsSet-guarded
-	// with no defaults: an absent key means the daemon never touches that
-	// hardware control at startup (preserving card defaults and manual
-	// alsamixer state). -1 is the "unset" sentinel for the volume fields.
+	// Load comms hardware audio mixer levels. Both volume levels are
+	// policy, not passthrough: unset keys apply the 100% defaults so
+	// speaker and capture levels do not depend on which OpenVLM EEPROM
+	// image a unit was provisioned with or on prior alsamixer state.
 	// Out-of-range values are silently clamped to [0, 100].
-	c.CommsAudioSpeakerVolume = -1
+	c.CommsAudioSpeakerVolume = DefaultCommsAudioSpeakerVolume
 	if c.v.IsSet("comms.audio.speakerVolume") {
 		c.CommsAudioSpeakerVolume = clampPct(c.v.GetInt("comms.audio.speakerVolume"))
 	}
 
-	c.CommsAudioMicVolume = -1
+	c.CommsAudioMicVolume = DefaultCommsAudioMicVolume
 	if c.v.IsSet("comms.audio.micVolume") {
 		c.CommsAudioMicVolume = clampPct(c.v.GetInt("comms.audio.micVolume"))
 	}
@@ -1395,7 +1419,8 @@ func (c *Config) GetCommsCaptureFramesPerBuffer() int {
 }
 
 // GetCommsAudioSpeakerVolume returns the persisted hardware speaker volume
-// percent, or -1 when comms.audio.speakerVolume is not set.
+// percent, or DefaultCommsAudioSpeakerVolume (100) when
+// comms.audio.speakerVolume is not set.
 func (c *Config) GetCommsAudioSpeakerVolume() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -1404,7 +1429,8 @@ func (c *Config) GetCommsAudioSpeakerVolume() int {
 }
 
 // GetCommsAudioMicVolume returns the persisted hardware mic capture volume
-// percent, or -1 when comms.audio.micVolume is not set.
+// percent, or DefaultCommsAudioMicVolume (100) when comms.audio.micVolume
+// is not set.
 func (c *Config) GetCommsAudioMicVolume() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

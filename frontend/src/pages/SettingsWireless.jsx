@@ -307,8 +307,13 @@ function RadioCard({ radio, prefill, reloadKey = 0, onCardChange }) {
     setDraft(prev => {
       const next = { ...prev, mode: newMode };
       // When switching INTO mesh, seed mesh_id from ssid so the operator
-      // doesn't have to retype the network name.
-      if (isMeshMode(newMode) && !next.meshId) next.meshId = prev.ssid;
+      // doesn't have to retype the network name, and select WPA3-SAE: mesh
+      // links in OpenMANET are always SAE (see network.wifiEncryptionSAE),
+      // so the operator should not have to pick it by hand.
+      if (isMeshMode(newMode)) {
+        if (!next.meshId) next.meshId = prev.ssid;
+        next.encryption = WifiEncryption.SAE;
+      }
       return next;
     });
   };

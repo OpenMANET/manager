@@ -86,11 +86,14 @@ func (m *CommsManager) buildCommsConfig() *CommsConfig {
 }
 
 // mixerStartupUpdate translates persisted comms.audio values into an
-// alsa.Update. Volume keys are apply-only-when-set: an absent key leaves
-// that hardware control untouched. AGC is policy, not passthrough — it is
-// always applied, defaulting to disabled when comms.audio.agc is unset, so
-// the CM108B's automatic capture gain never rides along silently on a
-// fresh install or after a USB replug resets the chip.
+// alsa.Update. All three fields are policy, not passthrough — always
+// applied. Speaker and mic volume default to 100% when unset
+// (config.DefaultCommsAudioSpeakerVolume / DefaultCommsAudioMicVolume) so
+// hardware levels do not depend on the EEPROM image a unit was
+// provisioned with or on prior alsamixer state, and AGC defaults to
+// disabled when comms.audio.agc is unset, so the CM108B's automatic
+// capture gain never rides along silently on a fresh install or after a
+// USB replug resets the chip.
 func mixerStartupUpdate(cfg *config.Config) alsa.Update {
 	var u alsa.Update
 

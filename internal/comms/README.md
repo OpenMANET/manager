@@ -261,7 +261,10 @@ malgo capture callback (audio thread, every 20 ms) — func(in []int16)
 
 encodeLoop goroutine (separate goroutine)
   └─ for fp := range encCh:
-       ├─ apply MicGain in int16 space, clamp to [-32768, 32767]
+       ├─ apply MicGain in integer Q8 (1/256 steps), soft-knee limited:
+       │     samples inside ±24576 (0.75 FS) pass through; above the knee
+       │     a rational curve compresses toward the rail instead of
+       │     flat-topping
        ├─ recordEncodeDuration around deps.Encoder.EncodeS16(pcm, buf)
        │     on error: encodeErrors++, log Debug, drop frame
        │     on first over-budget cycle: one-shot Warn
@@ -859,13 +862,28 @@ re-applied on startup, while `GetAudioMixer` always reports whatever the
 hardware currently holds, which may have drifted from that baseline via
 button presses or an out-of-band `alsamixer` session.
 
+One consequence worth flagging for future gain-staging work (2026-08-30
+bench): every daemon start and audio recovery writes "Mic Capture
+Volume" — the 100% policy default when `comms.audio.micVolume` is
+unset, the persisted value once a UI slider has touched it — so the
+OpenVLM EEPROM's ADC boot value (`adc-init-volume`) never survives past
+comms startup. Any future scheme that tunes capture gain through the
+EEPROM must change this policy default, or the daemon will clamp it
+back on every boot.
+
 ### Startup behavior
 
 The manager wires `CommsConfig.AudioMixerStartup` to re-apply the
-persisted `comms.audio.*` values via `Volume.ApplyStartup`. Volume keys
-are apply-only-when-set: absent keys leave those controls untouched.
-AGC is policy rather than passthrough — it is applied on every startup,
-defaulting to **disabled** when `comms.audio.agc` is unset, so the
+persisted `comms.audio.*` values via `Volume.ApplyStartup`. All three
+fields are policy rather than passthrough — applied on every startup.
+Speaker and mic volume default to **100%** when unset, so hardware
+levels are deterministic regardless of EEPROM vintage or prior
+alsamixer state: for the speaker this closes the fleet split where
+units provisioned with OpenVLM ≤ 1.0.2 boot at −10 dB from the EEPROM
+while ≥ 1.0.3 units boot at 0 dB (the DAC maxes out at 0 dB, so 100%
+cannot over-drive); for the mic, 100% maps to the CM108B ADC's +23 dB
+maximum, overriding the EEPROM's +8 dB boot value by design. AGC
+defaults to **disabled** when `comms.audio.agc` is unset, so the
 CM108B's automatic capture gain never rides along silently on a fresh
 install or after a USB replug resets the chip. The re-apply runs once
 after `control.DetectAndSetALSACard` in `Start()`, and again after every
@@ -945,7 +963,12 @@ comms:
   debug: false
   trace: false
   loopback: true
-  micGain: 8.0               # float32; >1 amplifies, <1 attenuates
+  micGain: 2.0               # >1 amplifies, <1 attenuates; applied in
+                             # Q8 fixed point (1/256 resolution) with a
+                             # soft-knee limiter above 0.75 full scale.
+                             # Default 2.0 is the 2026-08-30 bench
+                             # residual for the OpenVLM at its shipped
+                             # +20 dB analog gain
   encoderComplexity: 5       # 1..10 (defaults to 5)
   packetLossPerc: 20         # initial Opus FEC level; clamped [10,40].
                              # Used as the FEC adapter's lower bound; the
