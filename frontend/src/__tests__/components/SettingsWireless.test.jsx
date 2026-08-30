@@ -427,6 +427,43 @@ describe('TestSettingsWirelessModeSelector', () => {
     expect(callArg.settings.meshId).toBe('openmanet');
     expect(callArg.settings.ssid).toBe('openmanet'); // mirrored
   });
+
+  it('switching to mesh auto-selects WPA3-SAE encryption', async () => {
+    mockListRadios.mockResolvedValue({ radios: [RADIO_AP] });
+    mockGetRadioStatus.mockResolvedValue({ status: STATUS_AP });
+    mockGetRadioSettings.mockResolvedValue(SETTINGS_AP); // encryption: 2 (WPA2-PSK)
+    mockUpdateRadioSettings.mockResolvedValue({ success: true });
+
+    render(<SettingsWireless />);
+    await waitFor(() => screen.getByDisplayValue('openmanet'));
+    expect(screen.getByRole('button', { name: 'Encryption' })).toHaveTextContent('WPA2-PSK');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mode' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Mesh' }));
+
+    expect(screen.getByRole('button', { name: 'Encryption' })).toHaveTextContent('WPA3-SAE');
+    fireEvent.click(screen.getByText('Save'));
+
+    await waitFor(() => expect(mockUpdateRadioSettings).toHaveBeenCalledTimes(1));
+    const callArg = mockUpdateRadioSettings.mock.calls[0][0];
+    expect(callArg.settings.mode).toBe(2);
+    expect(callArg.settings.encryption).toBe(1); // WPA3-SAE
+  });
+
+  it('switching away from mesh leaves encryption untouched', async () => {
+    mockListRadios.mockResolvedValue({ radios: [RADIO_AP] });
+    mockGetRadioStatus.mockResolvedValue({ status: STATUS_AP });
+    mockGetRadioSettings.mockResolvedValue(SETTINGS_AP);
+    mockUpdateRadioSettings.mockResolvedValue({ success: true });
+
+    render(<SettingsWireless />);
+    await waitFor(() => screen.getByDisplayValue('openmanet'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mode' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Station' }));
+
+    expect(screen.getByRole('button', { name: 'Encryption' })).toHaveTextContent('WPA2-PSK');
+  });
 });
 
 describe('TestSettingsWirelessEnableToggle', () => {
