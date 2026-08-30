@@ -378,8 +378,11 @@ func newGainTestEncoder(t *testing.T, gain float32) (*BroadcastEncoder, *gainCap
 	return be, enc
 }
 
-func TestBroadcastEncoder_GainClipsPositiveOverflow(t *testing.T) {
-	be, enc := newGainTestEncoder(t, 4.0) // gain * 10000 = 40000 > 32767
+func TestBroadcastEncoder_SoftKneeCompressesPositiveOverflow(t *testing.T) {
+	// gain * 10000 = 40000, past the 24576 knee. The rational knee maps
+	// it to 24576 + 8191*15424/(15424+8191) = 29925 — compressed below
+	// the rail instead of flat-topped at 32767.
+	be, enc := newGainTestEncoder(t, 4.0)
 	go be.encodeLoop()
 
 	frame := make([]int16, audiopool.FrameSize)
@@ -395,14 +398,16 @@ func TestBroadcastEncoder_GainClipsPositiveOverflow(t *testing.T) {
 	require.NotNil(t, enc.captured)
 
 	for i, v := range enc.captured {
-		if v != 32767 {
-			t.Fatalf("captured[%d] = %d, want 32767 (clipped)", i, v)
+		if v != 29925 {
+			t.Fatalf("captured[%d] = %d, want 29925 (soft knee)", i, v)
 		}
 	}
 }
 
-func TestBroadcastEncoder_GainClipsNegativeOverflow(t *testing.T) {
-	be, enc := newGainTestEncoder(t, 4.0) // gain * -10000 = -40000 < -32768
+func TestBroadcastEncoder_SoftKneeCompressesNegativeOverflow(t *testing.T) {
+	// gain * -10000 = -40000: same curve with the negative rail's radius
+	// (8192, one step wider), landing at -29926, not -32768.
+	be, enc := newGainTestEncoder(t, 4.0)
 	go be.encodeLoop()
 
 	frame := make([]int16, audiopool.FrameSize)
@@ -418,8 +423,58 @@ func TestBroadcastEncoder_GainClipsNegativeOverflow(t *testing.T) {
 	require.NotNil(t, enc.captured)
 
 	for i, v := range enc.captured {
-		if v != -32768 {
-			t.Fatalf("captured[%d] = %d, want -32768 (clipped)", i, v)
+		if v != -29926 {
+			t.Fatalf("captured[%d] = %d, want -29926 (soft knee)", i, v)
+		}
+	}
+}
+
+func TestBroadcastEncoder_SoftKneePassesBelowKnee(t *testing.T) {
+	// gain * 12000 = 24000, under the 24576 knee: bit-identical to plain
+	// Q8 gain, no compression.
+	be, enc := newGainTestEncoder(t, 2.0)
+	go be.encodeLoop()
+
+	frame := make([]int16, audiopool.FrameSize)
+	for i := range frame {
+		frame[i] = 12000
+	}
+
+	be.captureCallback(frame)
+
+	close(be.encCh)
+	<-be.done
+
+	require.NotNil(t, enc.captured)
+
+	for i, v := range enc.captured {
+		if v != 24000 {
+			t.Fatalf("captured[%d] = %d, want 24000 (below knee, uncompressed)", i, v)
+		}
+	}
+}
+
+func TestBroadcastEncoder_SoftKneeNeverExceedsFullScale(t *testing.T) {
+	// Full-scale input at 8x gain: 32767*8 = 262136 must compress to at
+	// most 32767, and stay above the knee (monotonic).
+	be, enc := newGainTestEncoder(t, 8.0)
+	go be.encodeLoop()
+
+	frame := make([]int16, audiopool.FrameSize)
+	for i := range frame {
+		frame[i] = 32767
+	}
+
+	be.captureCallback(frame)
+
+	close(be.encCh)
+	<-be.done
+
+	require.NotNil(t, enc.captured)
+
+	for i, v := range enc.captured {
+		if v <= 24576 {
+			t.Fatalf("captured[%d] = %d, want > 24576 (above knee)", i, v)
 		}
 	}
 }

@@ -53,6 +53,43 @@ const (
 	gainQ8Shift int32 = 8
 )
 
+// Soft-knee limiter constants. Post-gain samples inside ±kneeStart pass
+// through untouched; beyond it the rational curve
+//
+//	y = knee + r*d/(d+r), d = |s| - knee, r = rail - knee
+//
+// compresses the overshoot smoothly toward the rail instead of
+// flat-topping. The curve is continuous with slope 1 at the knee (no
+// step in level where compression begins) and approaches the rail
+// asymptotically, so square-wave harmonics from hard clipping are gone;
+// above the knee the transfer is still nonlinear — gentle compression,
+// not transparency. Integer-only: the divide runs only on samples past
+// the knee, which is the rare loud-talker case.
+const (
+	kneeStart int32 = 24576             // 0.75 * 32768
+	kneePosR  int32 = 32767 - kneeStart // radius to the positive rail
+	kneeNegR  int32 = 32768 - kneeStart // radius to the negative rail
+)
+
+// softKnee maps a post-gain int32 sample onto int16 range with the
+// soft-knee curve above. The int64 intermediates keep r*d exact for any
+// gain the config can express.
+func softKnee(s int32) int16 {
+	if s > kneeStart {
+		d := int64(s - kneeStart)
+
+		return int16(int64(kneeStart) + int64(kneePosR)*d/(d+int64(kneePosR)))
+	}
+
+	if s < -kneeStart {
+		d := -int64(s) - int64(kneeStart)
+
+		return int16(-(int64(kneeStart) + int64(kneeNegR)*d/(d+int64(kneeNegR))))
+	}
+
+	return int16(s)
+}
+
 // micGainQ8 converts the float config gain to its Q8 representation.
 // Non-positive gains read as unity — MicGain unset (zero value) means "no
 // gain", matching the previous float implementation's gain > 0 guard. A
@@ -330,7 +367,7 @@ func (be *BroadcastEncoder) encodeLoop() {
 }
 
 // encodeOne processes a single captured frame: applies mic gain in the
-// integer domain (clipping to int16 range), encodes via EncodeS16, and
+// integer domain (soft-knee limited to int16 range), encodes via EncodeS16, and
 // ships the payload via Deps.Send. Pool buffers are released via defer so
 // a panic in the encoder still returns them.
 func (be *BroadcastEncoder) encodeOne(fp *[]int16) {
@@ -339,20 +376,13 @@ func (be *BroadcastEncoder) encodeOne(fp *[]int16) {
 	pcm := *fp
 
 	if q := micGainQ8(be.deps.MicGain); q != unityGainQ8 {
-		// Apply gain in Q8 fixed point with hard clipping to int16
-		// range. The loop is integer-only: on mipsle softfloat targets
-		// the previous float32 multiply emitted ~4 800 software-float
-		// runtime calls per frame; the one float→Q8 conversion above is
-		// per frame, not per sample.
+		// Apply gain in Q8 fixed point, limited by the soft knee. The
+		// loop is integer-only: on mipsle softfloat targets the previous
+		// float32 multiply emitted ~4 800 software-float runtime calls
+		// per frame; the one float→Q8 conversion above is per frame,
+		// not per sample.
 		for i, v := range pcm {
-			scaled := (int32(v) * q) >> gainQ8Shift
-			if scaled > 32767 {
-				scaled = 32767
-			} else if scaled < -32768 {
-				scaled = -32768
-			}
-
-			pcm[i] = int16(scaled)
+			pcm[i] = softKnee((int32(v) * q) >> gainQ8Shift)
 		}
 	}
 

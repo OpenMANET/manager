@@ -261,7 +261,10 @@ malgo capture callback (audio thread, every 20 ms) — func(in []int16)
 
 encodeLoop goroutine (separate goroutine)
   └─ for fp := range encCh:
-       ├─ apply MicGain in int16 space, clamp to [-32768, 32767]
+       ├─ apply MicGain in integer Q8 (1/256 steps), soft-knee limited:
+       │     samples inside ±24576 (0.75 FS) pass through; above the knee
+       │     a rational curve compresses toward the rail instead of
+       │     flat-topping
        ├─ recordEncodeDuration around deps.Encoder.EncodeS16(pcm, buf)
        │     on error: encodeErrors++, log Debug, drop frame
        │     on first over-budget cycle: one-shot Warn
@@ -950,7 +953,9 @@ comms:
   debug: false
   trace: false
   loopback: true
-  micGain: 8.0               # float32; >1 amplifies, <1 attenuates
+  micGain: 8.0               # >1 amplifies, <1 attenuates; applied in
+                             # Q8 fixed point (1/256 resolution) with a
+                             # soft-knee limiter above 0.75 full scale
   encoderComplexity: 5       # 1..10 (defaults to 5)
   packetLossPerc: 20         # initial Opus FEC level; clamped [10,40].
                              # Used as the FEC adapter's lower bound; the
