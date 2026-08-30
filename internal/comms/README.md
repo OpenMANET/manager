@@ -862,6 +862,14 @@ re-applied on startup, while `GetAudioMixer` always reports whatever the
 hardware currently holds, which may have drifted from that baseline via
 button presses or an out-of-band `alsamixer` session.
 
+One consequence worth flagging for future gain-staging work (2026-08-30
+bench): once `comms.audio.micVolume` has been persisted — a single UI
+slider touch is enough — every daemon start and audio recovery rewrites
+"Mic Capture Volume", silently overriding whatever boot value the
+OpenVLM EEPROM (`adc-init-volume`) programmed. Today both agree, so this
+is harmless; any future scheme that raises the EEPROM ADC boot gain must
+account for persisted per-node mic volume clamping it back.
+
 ### Startup behavior
 
 The manager wires `CommsConfig.AudioMixerStartup` to re-apply the
@@ -953,9 +961,12 @@ comms:
   debug: false
   trace: false
   loopback: true
-  micGain: 8.0               # >1 amplifies, <1 attenuates; applied in
+  micGain: 2.0               # >1 amplifies, <1 attenuates; applied in
                              # Q8 fixed point (1/256 resolution) with a
-                             # soft-knee limiter above 0.75 full scale
+                             # soft-knee limiter above 0.75 full scale.
+                             # Default 2.0 is the 2026-08-30 bench
+                             # residual for the OpenVLM at its shipped
+                             # +20 dB analog gain
   encoderComplexity: 5       # 1..10 (defaults to 5)
   packetLossPerc: 20         # initial Opus FEC level; clamped [10,40].
                              # Used as the FEC adapter's lower bound; the

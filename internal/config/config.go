@@ -48,7 +48,15 @@ const (
 	DefaultCommsLoopback      bool          = false
 	DefaultCommsTrace         bool          = false
 	DefaultCommsControlSource string        = "openvlm"
-	DefaultCommsMicGain       float32       = 8.0
+	// DefaultCommsMicGain is the TX digital gain applied after the ADC,
+	// in Q8 fixed point with a soft-knee limiter (see comms/audio). 2.0 is
+	// the 2026-08-30 bench residual: at the OpenVLM's shipped +20 dB
+	// analog gain a loud talker's speech body (~9.5k ADC counts) stays
+	// under the 24576 knee, leaving the knee for plosives and transients.
+	// The previous 8.0 was compensating for hardware headroom the bench
+	// showed does not exist (the ADC clips first) and hard-clipped every
+	// sample at or above 4096 counts. Key comms.micGain.
+	DefaultCommsMicGain       float32       = 2.0
 	// DefaultCommsAudioSpeakerVolume is the hardware speaker (DAC) volume
 	// percent applied when comms.audio.speakerVolume is unset. 100% maps to
 	// the CM108B DAC maximum of 0 dB — the chip has no positive playback

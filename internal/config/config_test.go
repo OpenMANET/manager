@@ -780,6 +780,17 @@ func TestGetCommsBluetoothPttBluetoothAudioDeviceHint(t *testing.T) {
 	}
 }
 
+// TestDefaultCommsMicGain pins the bench-derived residual (2026-08-30):
+// at the chip's shipped +20 dB analog gain, a loud talker's speech body
+// measures ~9.5k ADC counts, so 2.0 keeps it under the 24576 soft knee —
+// the knee stays reserved for plosives and transients. The previous 8.0
+// hard-clipped every sample at or above 4096 counts.
+func TestDefaultCommsMicGain(t *testing.T) {
+	if DefaultCommsMicGain != 2.0 {
+		t.Fatalf("DefaultCommsMicGain = %v, want 2.0 (bench residual)", DefaultCommsMicGain)
+	}
+}
+
 func TestGetCommsMicGain(t *testing.T) {
 	tests := []struct {
 		name     string
