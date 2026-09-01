@@ -616,22 +616,22 @@ func ifaceOptionFields(cfg *UCIWirelessIface) []struct {
 		field  *string
 		option string
 	}{
-		{&cfg.Device, networkDeviceType},
-		{&cfg.Network, networkConfigName},
-		{&cfg.Mode, wirelessOptionMode},
-		{&cfg.Key, wirelessOptionKey},
-		{&cfg.MeshID, wirelessOptionMeshID},
-		{&cfg.MeshFwding, wirelessOptionMeshFwding},
-		{&cfg.MeshRSSIThreshold, wirelessOptionMeshRSSIThreshold},
-		{&cfg.Encryption, wirelessOptionEncryption},
-		{&cfg.SSID, wirelessOptionSSID},
-		{&cfg.BeaconInt, wirelessOptionBeaconInt},
-		{&cfg.Disabled, wirelessOptionDisabled},
-		{&cfg.McastRate, wirelessOptionMcastRate},
-		{&cfg.MeshNolearn, wirelessOptionMeshNolearn},
-		{&cfg.MeshRetryTimeout, wirelessOptionMeshRetryTimeout},
-		{&cfg.MeshConfirmTimeout, wirelessOptionMeshConfirmTimeout},
-		{&cfg.MeshHoldingTimeout, wirelessOptionMeshHoldingTimeout},
+		{field: &cfg.Device, option: networkDeviceType},
+		{field: &cfg.Network, option: networkConfigName},
+		{field: &cfg.Mode, option: wirelessOptionMode},
+		{field: &cfg.Key, option: wirelessOptionKey},
+		{field: &cfg.MeshID, option: wirelessOptionMeshID},
+		{field: &cfg.MeshFwding, option: wirelessOptionMeshFwding},
+		{field: &cfg.MeshRSSIThreshold, option: wirelessOptionMeshRSSIThreshold},
+		{field: &cfg.Encryption, option: wirelessOptionEncryption},
+		{field: &cfg.SSID, option: wirelessOptionSSID},
+		{field: &cfg.BeaconInt, option: wirelessOptionBeaconInt},
+		{field: &cfg.Disabled, option: wirelessOptionDisabled},
+		{field: &cfg.McastRate, option: wirelessOptionMcastRate},
+		{field: &cfg.MeshNolearn, option: wirelessOptionMeshNolearn},
+		{field: &cfg.MeshRetryTimeout, option: wirelessOptionMeshRetryTimeout},
+		{field: &cfg.MeshConfirmTimeout, option: wirelessOptionMeshConfirmTimeout},
+		{field: &cfg.MeshHoldingTimeout, option: wirelessOptionMeshHoldingTimeout},
 	}
 }
 
