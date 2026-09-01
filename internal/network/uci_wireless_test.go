@@ -901,14 +901,19 @@ func TestMeshLink_IfaceConfig(t *testing.T) {
 	}
 
 	want := &UCIWirelessIface{
-		Device:            "radio0",
-		Network:           "batmesh1",
-		Mode:              "mesh",
-		MeshID:            "backhaul",
-		Key:               "secretkey999",
-		MeshFwding:        "0",
-		MeshRSSIThreshold: "-80",
-		Encryption:        "sae",
+		Device:             "radio0",
+		Network:            "batmesh1",
+		Mode:               "mesh",
+		MeshID:             "backhaul",
+		Key:                "secretkey999",
+		MeshFwding:         "0",
+		MeshRSSIThreshold:  "-80",
+		Encryption:         "sae",
+		McastRate:          "24000",
+		MeshNolearn:        "1",
+		MeshRetryTimeout:   "255",
+		MeshConfirmTimeout: "255",
+		MeshHoldingTimeout: "255",
 	}
 
 	assert.Equal(t, want, link.IfaceConfig())
@@ -1058,6 +1063,21 @@ func TestUCIWirelessIface_ApplySecondaryMeshPolicy_MatchesPolicyOptions(t *testi
 		if !ok || len(vals) != 1 || vals[0] != p.Value {
 			t.Errorf("%s: got %v (ok=%v), want [%s]", p.Option, vals, ok, p.Value)
 		}
+	}
+}
+
+func TestMeshLink_IfaceConfig_CarriesSecondaryPolicy(t *testing.T) {
+	cfg := MeshLink{Radio: "radio1", Network: "batmesh1", MeshID: "m", Key: "k", RSSIThreshold: "-80"}.IfaceConfig()
+
+	want := &UCIWirelessIface{
+		Device: "radio1", Network: "batmesh1", Mode: "mesh", MeshID: "m", Key: "k",
+		MeshFwding: "0", MeshRSSIThreshold: "-80", Encryption: "sae",
+		McastRate: "24000", MeshNolearn: "1",
+		MeshRetryTimeout: "255", MeshConfirmTimeout: "255", MeshHoldingTimeout: "255",
+	}
+
+	if !reflect.DeepEqual(cfg, want) {
+		t.Fatalf("IfaceConfig:\n got %+v\nwant %+v", cfg, want)
 	}
 }
 

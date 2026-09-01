@@ -45,8 +45,12 @@ Highlights that are easy to miss:
   daemon's fixed defaults (`channel 8`, `htmode HE20`, country untouched);
   otherwise the wizard writes the operator's channel, `HE20`/`HE40` and
   country to the backhaul radio. Channel and width must be set together.
-  A code scanned on the mesh step fills these (see
-  [mesh-join-qr.md](mesh-join-qr.md)).
+  The link's `wifi-iface` also always carries the daemon's fixed tuning:
+  `mcast_rate 24000`, `mesh_nolearn 1`, and `mesh_retry_timeout`,
+  `mesh_confirm_timeout`, `mesh_holding_timeout` at `255`
+  (`network.SecondaryMeshPolicyOptions`). The daemon adds any of these that
+  an older section lacks on its next start. A code scanned on the mesh step
+  fills the profile fields (see [mesh-join-qr.md](mesh-join-qr.md)).
 - **HaLow radios carry mesh only** — a `wifi-device` with `type 'morse'`
   never gets an AP or STA `wifi-iface`. The wizard rejects a profile that names
   one as an AP or wireless-uplink radio, the reset phase deletes any non-mesh

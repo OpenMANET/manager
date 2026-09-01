@@ -994,7 +994,8 @@ func (s *SetupService) writeSTAIface(w *setupv1.WifiStaProfile) error {
 // what the daemon's boot-time fallback (mgmt.setupBatMesh1Interface)
 // would — with the operator's own mesh ID and passphrase instead of
 // borrowed HaLow credentials — and the section can never collide with
-// default_<radio>. The radio moves to the operator's channel/width/
+// default_<radio>. The link carries the secondary-mesh tuning from
+// network.MeshLink.IfaceConfig. The radio moves to the operator's channel/width/
 // country when the profile carries them, else to the link's fixed
 // defaults (channel 8, HE20, country untouched).
 // Raw SetType calls only; phase 12 commits.
@@ -1022,6 +1023,11 @@ func (s *SetupService) writeMeshBackhaulIface(ap *setupv1.RadioApProfile) error 
 		{wifiOptionMeshFwding, cfg.MeshFwding},
 		{wifiOptionMeshRSSI, cfg.MeshRSSIThreshold},
 		{wifiOptionEncryption, cfg.Encryption},
+		{wifiOptionMcastRate, cfg.McastRate},
+		{wifiOptionMeshNolearn, cfg.MeshNolearn},
+		{wifiOptionMeshRetryTimeout, cfg.MeshRetryTimeout},
+		{wifiOptionMeshConfirmTimeout, cfg.MeshConfirmTimeout},
+		{wifiOptionMeshHoldingTimeout, cfg.MeshHoldingTimeout},
 	}
 
 	for _, ow := range ifaceWrites {
@@ -1109,19 +1115,24 @@ const (
 // section writes. Centralized so goconst is satisfied and so a rename
 // is a single edit.
 const (
-	wifiOptionDevice     = "device"
-	wifiOptionMode       = "mode"
-	wifiOptionNetwork    = "network"
-	wifiOptionKey        = "key"
-	wifiOptionEncryption = "encryption"
-	wifiOptionSSID       = "ssid"
-	wifiOptionMeshID     = "mesh_id"
-	wifiOptionMeshFwding = "mesh_fwding"
-	wifiOptionMeshRSSI   = "mesh_rssi_threshold"
-	wifiOptionChannel    = "channel"
-	wifiOptionHTMode     = "htmode"
-	wifiOptionDisabled   = "disabled"
-	wifiNetworkAhwlan    = "ahwlan"
+	wifiOptionDevice             = "device"
+	wifiOptionMode               = "mode"
+	wifiOptionNetwork            = "network"
+	wifiOptionKey                = "key"
+	wifiOptionEncryption         = "encryption"
+	wifiOptionSSID               = "ssid"
+	wifiOptionMeshID             = "mesh_id"
+	wifiOptionMeshFwding         = "mesh_fwding"
+	wifiOptionMeshRSSI           = "mesh_rssi_threshold"
+	wifiOptionMcastRate          = "mcast_rate"
+	wifiOptionMeshNolearn        = "mesh_nolearn"
+	wifiOptionMeshRetryTimeout   = "mesh_retry_timeout"
+	wifiOptionMeshConfirmTimeout = "mesh_confirm_timeout"
+	wifiOptionMeshHoldingTimeout = "mesh_holding_timeout"
+	wifiOptionChannel            = "channel"
+	wifiOptionHTMode             = "htmode"
+	wifiOptionDisabled           = "disabled"
+	wifiNetworkAhwlan            = "ahwlan"
 )
 
 // classifyScenario folds (role × device_mode × uplink_type) into one

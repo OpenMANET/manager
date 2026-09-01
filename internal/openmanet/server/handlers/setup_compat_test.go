@@ -1424,6 +1424,22 @@ func TestCompat_MeshBackhaul_WritesMeshLinkOptionSet(t *testing.T) {
 	assert.Empty(t, tr.getOne("wireless", "radio0", "disabled"))
 }
 
+// TestCompat_MeshBackhaul_WritesSecondaryMeshPolicy pins the five tuning
+// options the daemon owns on the 2.4 GHz link by value, independent of
+// the IfaceConfig comparison above, so a constant change is a visible
+// diff here.
+func TestCompat_MeshBackhaul_WritesSecondaryMeshPolicy(t *testing.T) {
+	tr := runScenarioApply(t, pointExtenderBackhaulProfile())
+
+	section := network.MeshLink{Radio: "radio0", Network: network.BatmanSecondaryIface}.Section()
+
+	assert.Equal(t, "24000", tr.getOne("wireless", section, "mcast_rate"))
+	assert.Equal(t, "1", tr.getOne("wireless", section, "mesh_nolearn"))
+	assert.Equal(t, "255", tr.getOne("wireless", section, "mesh_retry_timeout"))
+	assert.Equal(t, "255", tr.getOne("wireless", section, "mesh_confirm_timeout"))
+	assert.Equal(t, "255", tr.getOne("wireless", section, "mesh_holding_timeout"))
+}
+
 // TestCompat_MeshBackhaul_KeepsAPSectionDisabled asserts default_<radio>
 // stays present but off, with no credentials, so the daemon's fallback
 // and a later settings edit both see an intact, inert AP section.

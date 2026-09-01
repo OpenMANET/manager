@@ -594,6 +594,13 @@ func TestSetupBatMesh1Interface_Success(t *testing.T) {
 		t.Errorf("Encryption: got %q, want %q", newIface.Encryption, "sae")
 	}
 
+	for _, p := range network.SecondaryMeshPolicyOptions() {
+		vals, ok := wireless.Get("wireless", "batmesh1_radio1", p.Option)
+		if !ok || len(vals) != 1 || vals[0] != p.Value {
+			t.Errorf("%s: got %v (ok=%v), want %s", p.Option, vals, ok, p.Value)
+		}
+	}
+
 	// Verify radio1 was updated.
 	radio, rerr := network.GetWirelessDeviceByNameWithReader("radio1", wireless)
 	if rerr != nil {
