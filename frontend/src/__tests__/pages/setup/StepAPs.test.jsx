@@ -9,12 +9,12 @@
 // capable (SetupRadio.supports_mesh_backhaul), and choosing it swaps
 // the AP form for the backhaul mesh ID + passphrase fields.
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 
 import StepAPs from '../../../pages/setup/StepAPs.jsx';
-import { SetupProvider } from '../../../contexts/SetupContext.jsx';
+import { SetupProvider, useSetup, SETUP_ACTIONS } from '../../../contexts/SetupContext.jsx';
 
 const STATUS = {
   radios: [
@@ -147,5 +147,20 @@ describe('StepAPsBackhaulTuning', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Backhaul channel' }));
     fireEvent.click(screen.getByRole('option', { name: '1' }));
     expect(screen.getByText('Occupies ch 1 · 2402–2422 MHz')).toBeInTheDocument();
+  });
+
+  function OutOfRangeChannelHarness() {
+    const { dispatch } = useSetup();
+    useEffect(() => {
+      dispatch({ type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: 'radio0', mode: 'backhaul' });
+      dispatch({ type: SETUP_ACTIONS.SET_AP, value: { radioName: 'radio0', backhaulBandwidthMhz: 20, backhaulChannel: 14 } });
+    }, [dispatch]);
+    return <StepAPs status={STATUS} />;
+  }
+
+  it('hides the footprint line when the channel is outside 1-11', () => {
+    render(<SetupProvider><OutOfRangeChannelHarness /></SetupProvider>);
+    expect(screen.getByRole('button', { name: 'Backhaul channel' })).toBeInTheDocument();
+    expect(screen.queryByText(/^Occupies/)).toBeNull();
   });
 });

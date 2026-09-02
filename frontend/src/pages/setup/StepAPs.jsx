@@ -255,7 +255,7 @@ function APRow({ radio, state, dispatch, status }) {
               options={BACKHAUL_CHANNEL_OPTIONS}
               onChange={(v) => setField('backhaulChannel', v)}
             />
-            <div className="setup-help">Occupies {footprint}</div>
+            {footprint && <div className="setup-help">Occupies {footprint}</div>}
             <div className="setup-help">Set bandwidth and channel together, or leave both at Default.</div>
           </div>
 
