@@ -2,6 +2,7 @@ package mgmt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/openmanet/openmanetd/internal/iwinfo"
@@ -25,9 +26,15 @@ const (
 // the error is logged and the process continues with the remaining interfaces.
 // A successful MTU update is also logged at the Info level.
 //
-// Returns an error if the mesh interfaces cannot be retrieved from WirelessConfig,
-// otherwise returns nil even if individual interface MTU updates fail.
+// Returns an error if WirelessConfig is nil (NewManager tolerated a failed
+// nl80211 init) or if the mesh interfaces cannot be retrieved from
+// WirelessConfig, otherwise returns nil even if individual interface MTU
+// updates fail.
 func (m *ManagementConfig) setTransportInterfaceMTU() error {
+	if m.WirelessConfig == nil {
+		return errors.New("wireless config unavailable (nl80211 init failed); skipping transport MTU pass")
+	}
+
 	wirelessInterfaces, err := m.WirelessConfig.GetMeshInterfaces()
 	if err != nil {
 		return err

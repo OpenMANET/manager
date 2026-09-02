@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/digineo/go-uci/v2"
 	"github.com/openmanet/openmanetd/internal/network"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -217,8 +219,9 @@ func TestFindUnusedBatmesh_GetSectionsErrorPropagates(t *testing.T) {
 }
 
 type errReader struct {
-	inner *internalFakeReader
-	err   error
+	inner  *internalFakeReader
+	err    error
+	delErr error
 }
 
 func (e *errReader) Get(config, section, option string) ([]string, bool) {
@@ -230,6 +233,10 @@ func (e *errReader) SetType(config, section, option string, t uci.OptionType, va
 	return e.inner.SetType(config, section, option, t, values...)
 }
 func (e *errReader) Del(config, section, option string) error {
+	if e.delErr != nil {
+		return e.delErr
+	}
+
 	return e.inner.Del(config, section, option)
 }
 func (e *errReader) AddSection(config, section, typ string) error {
@@ -240,6 +247,26 @@ func (e *errReader) DelSection(config, section string) error {
 }
 func (e *errReader) Commit() error       { return nil }
 func (e *errReader) ReloadConfig() error { return nil }
+
+// TestClearMeshOnlyOptions_DelErrorReturnsStageWriteError pins
+// clearMeshOnlyOptions' error path: a failing Del must surface as a
+// *stageWriteError (UpdateRadioSettings' historical Success=false
+// contract) naming the option that failed to clear, not a bare RPC error.
+func TestClearMeshOnlyOptions_DelErrorReturnsStageWriteError(t *testing.T) {
+	r := &errReader{inner: newInternalFakeReader(), delErr: errors.New("boom")}
+	svc := &WifiConfigService{ConfigReader: r, Log: zerolog.Nop()}
+
+	err := svc.clearMeshOnlyOptions("default_radio2")
+
+	var sw *stageWriteError
+	if !errors.As(err, &sw) {
+		t.Fatalf("expected *stageWriteError, got %T (%v)", err, err)
+	}
+
+	if !strings.Contains(sw.Error(), wifiOptionMeshFwding) {
+		t.Fatalf("expected error to mention %q, got %q", wifiOptionMeshFwding, sw.Error())
+	}
+}
 
 // TestBandwidthToHTMode_RoundTripsThroughNetwork pins the wizard's
 // bandwidth→htmode table to network.HTModeBandwidthMHz, which the QR

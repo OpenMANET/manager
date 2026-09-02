@@ -492,7 +492,8 @@ func resolveGOMAXPROCS(cfgVal int, prof board.ExecutionProfile) int {
 }
 
 // buildWifiProvider constructs the TTL-bounded wireless cache shared by
-// the API handlers and the instrumentation snapshotter, or returns nil
+// the API handlers, the instrumentation snapshotter, and the netlink
+// interface classifier (interfaceProvider.WifiInterfaces), or returns nil
 // when alfred is disabled (manager is nil) or when mgmt.NewManager
 // tolerated a failed nl80211 init (manager.WirelessConfig is nil, e.g.
 // the family is absent or the driver isn't loaded). NewManager logs

@@ -346,6 +346,18 @@ func newTestManagementConfig() *ManagementConfig {
 
 // ── tests ────────────────────────────────────────────────────────────────────
 
+func TestSetTransportInterfaceMTU_NilWirelessConfigReturnsError(t *testing.T) {
+	m := newTestManagementConfig()
+	m.WirelessConfig = nil
+
+	// NewManager keeps running when nl80211 init fails; Start must not
+	// dereference the nil client on the way to the MTU pass.
+	err := m.setTransportInterfaceMTU()
+	if err == nil {
+		t.Fatal("expected an error for a nil WirelessConfig, got nil")
+	}
+}
+
 func TestSetupBatMesh1Interface_AlreadyConfigured(t *testing.T) {
 	m := newTestManagementConfig()
 	openmanet := newFakeOpenMANETReader()
