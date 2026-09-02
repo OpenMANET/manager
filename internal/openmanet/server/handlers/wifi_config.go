@@ -272,13 +272,19 @@ func (s *WifiConfigService) readRadioSettings(radioName string) (*wificonfigv1.R
 			connect.NewError(connect.CodeInternal, fmt.Errorf("read iface config: %w", err))
 	}
 
-	txPower, _ := strconv.Atoi(dev.TxPower)
+	// ParseInt with bitSize 32 rejects values that int32 cannot hold;
+	// a parse failure leaves tx_power at 0, which the API treats as
+	// "unset" (the frontend seeds a display value from live status).
+	var txPower int32
+	if v, err := strconv.ParseInt(dev.TxPower, 10, 32); err == nil {
+		txPower = int32(v)
+	}
 
 	settings := &wificonfigv1.RadioSettings{
 		Ssid:       iface.SSID,
 		Channel:    dev.Channel,
 		Bandwidth:  WifiHTModeToProto(dev.HTMode),
-		TxPower:    int32(txPower), //nolint:gosec // value originates from UCI config
+		TxPower:    txPower,
 		Encryption: WifiEncryptionToProto(iface.Encryption),
 		Mode:       WifiModeToProto(iface.Mode),
 	}
@@ -544,6 +550,16 @@ func (s *WifiConfigService) stageRadioSettings(ctx context.Context, radioName st
 		}
 	}
 
+	// Drop the mesh-only options a previous mesh life left behind so the
+	// section reads like a fresh AP/STA iface. Pulled out of the switch
+	// above (rather than nested in its AP/STA case) to keep that if/switch
+	// tree under the nestif complexity gate.
+	if mode == uciModeAP || mode == uciModeSTA {
+		if clearErr := s.clearMeshOnlyOptions(ifaceName); clearErr != nil {
+			return clearErr
+		}
+	}
+
 	effMode := s.effectiveIfaceMode(ifaceName, mode)
 
 	// The admission floor only means something on a mesh iface, and the
@@ -604,6 +620,35 @@ func (s *WifiConfigService) stageSecondaryMeshPolicy(ctx context.Context, radioN
 	}
 
 	cfg.ApplySecondaryMeshPolicy()
+}
+
+// meshOnlyOptions lists the wifi-iface options that only mean something
+// on a mode=mesh section: the 802.11s forwarding switch, the admission
+// floor, and the batmesh1 tuning policy. mesh_id is handled by
+// stageIfaceIdentity.
+func meshOnlyOptions() []string {
+	policy := network.SecondaryMeshPolicyOptions()
+	opts := make([]string, 0, len(policy)+2)
+	opts = append(opts, wifiOptionMeshFwding, wifiOptionMeshRSSI)
+
+	for _, p := range policy {
+		opts = append(opts, p.Option)
+	}
+
+	return opts
+}
+
+// clearMeshOnlyOptions deletes meshOnlyOptions from ifaceName. Del on a
+// missing option is a no-op, so an iface that was never mesh is left
+// exactly as it was.
+func (s *WifiConfigService) clearMeshOnlyOptions(ifaceName string) error {
+	for _, opt := range meshOnlyOptions() {
+		if err := s.ConfigReader.Del(wirelessConfig, ifaceName, opt); err != nil {
+			return &stageWriteError{msg: fmt.Sprintf("failed to clear %s on %s: %v", opt, ifaceName, err)}
+		}
+	}
+
+	return nil
 }
 
 // effectiveIfaceMode returns the requested mode, else the mode already

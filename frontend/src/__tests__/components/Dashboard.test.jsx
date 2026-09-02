@@ -78,6 +78,12 @@ beforeEach(() => {
   mockGetBLOSStatus.mockResolvedValue({ blosEnabled: true });
   mockListBLOSPeers.mockResolvedValue({ peers: [] });
   mockListNetworkInterfaces.mockResolvedValue({ interfaces: [] });
+  // The module mock's default is consumed by the first test that sets
+  // neighbors; re-arm it so later tests never inherit another test's mesh.
+  fetchMeshStatus.mockResolvedValue({
+    status: { connected: false, neighbors: 0, mesh_interfaces: 0, is_gateway: false },
+    nodes: [], neighbors: [], interfaces: [],
+  });
 });
 
 afterEach(() => {

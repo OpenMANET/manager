@@ -55,10 +55,19 @@ const MESH_RSSI_OPTIONS = [-85, -80, -75, -70].map(dbm => ({
   label: dbm === MESH_RSSI_DEFAULT_DBM ? `${dbm} dBm (default)` : `${dbm} dBm`,
 }));
 
+// Shown when UCI carries no mesh_rssi_threshold at all (a radio that
+// went mesh before the setting existed): the daemon default applies but
+// nothing is written until the operator picks a value.
+const MESH_RSSI_UNSET_OPTION = {
+  value: null,
+  label: `Not set (daemon default ${MESH_RSSI_DEFAULT_DBM} dBm)`,
+};
+
 // meshRssiOptions keeps a stored value that is not one of the four
 // choices (a hand-edited UCI option) visible instead of showing "—".
 function meshRssiOptions(current) {
-  if (current == null || MESH_RSSI_OPTIONS.some(o => o.value === current)) return MESH_RSSI_OPTIONS;
+  if (current == null) return [MESH_RSSI_UNSET_OPTION, ...MESH_RSSI_OPTIONS];
+  if (MESH_RSSI_OPTIONS.some(o => o.value === current)) return MESH_RSSI_OPTIONS;
   return [{ value: current, label: `${current} dBm (current)` }, ...MESH_RSSI_OPTIONS];
 }
 
@@ -356,10 +365,9 @@ function RadioCard({ radio, prefill, reloadKey = 0, onCardChange }) {
       if (isMeshMode(payload.mode) && payload.meshId) {
         payload.ssid = payload.meshId;
       }
-      // An unchanged floor sends nothing so the UCI option is left alone
-      // (an unset or hand-edited value never round-trips through the
-      // proto's -85..-70 bound).
-      if (payload.meshRssiThreshold === original?.meshRssiThreshold) {
+      // An unset or unchanged floor sends nothing so the UCI option is
+      // left alone (null must never reach the optional int32 field).
+      if (payload.meshRssiThreshold == null || payload.meshRssiThreshold === original?.meshRssiThreshold) {
         delete payload.meshRssiThreshold;
       }
       const resp = await wifiClient.updateRadioSettings({
@@ -541,7 +549,7 @@ function RadioCard({ radio, prefill, reloadKey = 0, onCardChange }) {
               <label>Peer admission floor</label>
               <LatSelect
                 ariaLabel="Peer admission floor"
-                value={draft.meshRssiThreshold ?? MESH_RSSI_DEFAULT_DBM}
+                value={draft.meshRssiThreshold ?? null}
                 onChange={v => update('meshRssiThreshold', v)}
                 options={floorOptions}
               />

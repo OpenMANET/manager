@@ -346,6 +346,18 @@ func newTestManagementConfig() *ManagementConfig {
 
 // ── tests ────────────────────────────────────────────────────────────────────
 
+func TestSetTransportInterfaceMTU_NilWirelessConfigReturnsError(t *testing.T) {
+	m := newTestManagementConfig()
+	m.WirelessConfig = nil
+
+	// NewManager keeps running when nl80211 init fails; Start must not
+	// dereference the nil client on the way to the MTU pass.
+	err := m.setTransportInterfaceMTU()
+	if err == nil {
+		t.Fatal("expected an error for a nil WirelessConfig, got nil")
+	}
+}
+
 func TestSetupBatMesh1Interface_AlreadyConfigured(t *testing.T) {
 	m := newTestManagementConfig()
 	openmanet := newFakeOpenMANETReader()
@@ -1257,6 +1269,32 @@ func TestReconcileBatMesh1Options_IgnoresPrimaryLinkAndAPs(t *testing.T) {
 
 	if wireless.commitCalls != 0 || reload.calls != 0 {
 		t.Errorf("no commit/reload expected, got commit=%d reload=%d", wireless.commitCalls, reload.calls)
+	}
+}
+
+func TestReconcileBatMesh1Options_SkipsDisabledSection(t *testing.T) {
+	m := newTestManagementConfig()
+	wireless := newFakeWirelessReader()
+	wireless.seedWifiDevice("radio1", "2g", "8", "HE40")
+	wireless.seedBatMesh1Iface("batmesh1_radio1", "radio1")
+	_ = wireless.SetType("wireless", "batmesh1_radio1", "disabled", uci.TypeOption, "1")
+
+	reload := &reloadRecorder{}
+
+	err := m.reconcileBatMesh1OptionsWithDeps(context.Background(), wireless,
+		makeIwinfoWithHardware("wlan1", "MediaTek MT7915AN"), wirelessStatusForRadio(t, "radio1", "wlan1"), reload.fn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	assertPolicyAbsent(t, wireless, "batmesh1_radio1")
+
+	if wireless.commitCalls != 0 {
+		t.Errorf("commitCalls: got %d, want 0 (a disabled section must not be touched)", wireless.commitCalls)
+	}
+
+	if reload.calls != 0 {
+		t.Errorf("reload calls: got %d, want 0", reload.calls)
 	}
 }
 
