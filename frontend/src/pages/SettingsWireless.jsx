@@ -45,6 +45,23 @@ const HT_MODE_LABELS = {
   14: 'S1G 1 MHz', 15: 'S1G 2 MHz', 16: 'S1G 4 MHz', 17: 'S1G 8 MHz',
 };
 
+// Peer admission floor choices for a 2.4 GHz mesh radio (UCI
+// mesh_rssi_threshold). -80 is what setup writes
+// (network.SecondaryMeshRSSIThreshold); the proto bounds updates to
+// -85..-70.
+const MESH_RSSI_DEFAULT_DBM = -80;
+const MESH_RSSI_OPTIONS = [-85, -80, -75, -70].map(dbm => ({
+  value: dbm,
+  label: dbm === MESH_RSSI_DEFAULT_DBM ? `${dbm} dBm (default)` : `${dbm} dBm`,
+}));
+
+// meshRssiOptions keeps a stored value that is not one of the four
+// choices (a hand-edited UCI option) visible instead of showing "—".
+function meshRssiOptions(current) {
+  if (current == null || MESH_RSSI_OPTIONS.some(o => o.value === current)) return MESH_RSSI_OPTIONS;
+  return [{ value: current, label: `${current} dBm (current)` }, ...MESH_RSSI_OPTIONS];
+}
+
 function isMeshMode(mode) {
   return mode === WifiMode.MESH;
 }
@@ -79,7 +96,8 @@ function settingsEqual(a, b) {
     (a.country ?? '') === (b.country ?? '') &&
     a.encryption === b.encryption &&
     (a.disabled ?? false) === (b.disabled ?? false) &&
-    (a.mode ?? 0) === (b.mode ?? 0)
+    (a.mode ?? 0) === (b.mode ?? 0) &&
+    (a.meshRssiThreshold ?? null) === (b.meshRssiThreshold ?? null)
   );
 }
 
@@ -309,10 +327,18 @@ function RadioCard({ radio, prefill, reloadKey = 0, onCardChange }) {
       // When switching INTO mesh, seed mesh_id from ssid so the operator
       // doesn't have to retype the network name, and select WPA3-SAE: mesh
       // links in OpenMANET are always SAE (see network.wifiEncryptionSAE),
-      // so the operator should not have to pick it by hand.
+      // so the operator should not have to pick it by hand. The admission
+      // floor is seeded the same way (the stored value, else the daemon
+      // default) so a settings-page AP→mesh flip writes what setup would;
+      // leaving mesh restores the stored value so a round trip stays clean.
       if (isMeshMode(newMode)) {
         if (!next.meshId) next.meshId = prev.ssid;
         next.encryption = WifiEncryption.SAE;
+        if (next.meshRssiThreshold == null) {
+          next.meshRssiThreshold = original?.meshRssiThreshold ?? MESH_RSSI_DEFAULT_DBM;
+        }
+      } else {
+        next.meshRssiThreshold = original?.meshRssiThreshold;
       }
       return next;
     });
@@ -329,6 +355,12 @@ function RadioCard({ radio, prefill, reloadKey = 0, onCardChange }) {
       const payload = { ...draft };
       if (isMeshMode(payload.mode) && payload.meshId) {
         payload.ssid = payload.meshId;
+      }
+      // An unchanged floor sends nothing so the UCI option is left alone
+      // (an unset or hand-edited value never round-trips through the
+      // proto's -85..-70 bound).
+      if (payload.meshRssiThreshold === original?.meshRssiThreshold) {
+        delete payload.meshRssiThreshold;
       }
       const resp = await wifiClient.updateRadioSettings({
         radioName: radio.name,
@@ -372,6 +404,8 @@ function RadioCard({ radio, prefill, reloadKey = 0, onCardChange }) {
   const dirty = !settingsEqual(original, draft);
   const enabled = !(draft?.disabled ?? false);
   const mesh = isMeshMode(draft?.mode);
+  const showFloor = mesh && !isS1G;
+  const floorOptions = meshRssiOptions(draft?.meshRssiThreshold);
 
   return (
     <div className={`lat-panel radio-card${enabled ? '' : ' disabled-card'}`}>
@@ -501,6 +535,19 @@ function RadioCard({ radio, prefill, reloadKey = 0, onCardChange }) {
               onChange={e => update('country', e.target.value.toUpperCase())}
             />
           </div>
+
+          {showFloor && (
+            <div className="lat-field">
+              <label>Peer admission floor</label>
+              <LatSelect
+                ariaLabel="Peer admission floor"
+                value={draft.meshRssiThreshold ?? MESH_RSSI_DEFAULT_DBM}
+                onChange={v => update('meshRssiThreshold', v)}
+                options={floorOptions}
+              />
+              <span className="hint">2.4 GHz peers heard below this are not admitted</span>
+            </div>
+          )}
 
           <PowerSelector
             valueDbm={draft.txPower}

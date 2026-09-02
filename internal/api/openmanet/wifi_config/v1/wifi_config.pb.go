@@ -546,9 +546,17 @@ type RadioSettings struct {
 	// Whether the radio is disabled.
 	Disabled *bool `protobuf:"varint,9,opt,name=disabled,proto3,oneof" json:"disabled,omitempty"`
 	// Operating mode. UNSPECIFIED means "do not change" on updates.
-	Mode          WifiMode `protobuf:"varint,10,opt,name=mode,proto3,enum=openmanet.wifi_config.v1.WifiMode" json:"mode,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Mode WifiMode `protobuf:"varint,10,opt,name=mode,proto3,enum=openmanet.wifi_config.v1.WifiMode" json:"mode,omitempty"`
+	// Peer admission floor in dBm for a mesh-mode iface: wpa_supplicant
+	// refuses to peer with a station heard below it (UCI
+	// mesh_rssi_threshold). The daemon writes -80 for the 2.4 GHz
+	// secondary link at setup; -85 admits weaker peers in open terrain,
+	// -70 drops marginal ones in dense sites. Unset on an update leaves
+	// the UCI option alone; unset on a read means the option is absent or
+	// the iface is not mesh.
+	MeshRssiThreshold *int32 `protobuf:"varint,11,opt,name=mesh_rssi_threshold,json=meshRssiThreshold,proto3,oneof" json:"mesh_rssi_threshold,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *RadioSettings) Reset() {
@@ -649,6 +657,13 @@ func (x *RadioSettings) GetMode() WifiMode {
 		return x.Mode
 	}
 	return WifiMode_WIFI_MODE_UNSPECIFIED
+}
+
+func (x *RadioSettings) GetMeshRssiThreshold() int32 {
+	if x != nil && x.MeshRssiThreshold != nil {
+		return *x.MeshRssiThreshold
+	}
+	return 0
 }
 
 // ConnectedClient represents an AP-connected wireless client.
@@ -850,7 +865,7 @@ const file_openmanet_wifi_config_v1_wifi_config_proto_rawDesc = "" +
 	"\n" +
 	"mesh_peers\x18\n" +
 	" \x01(\x05R\tmeshPeers\x12?\n" +
-	"\twifi_mode\x18\v \x01(\x0e2\".openmanet.wifi_config.v1.WifiModeR\bwifiMode\"\xd9\x04\n" +
+	"\twifi_mode\x18\v \x01(\x0e2\".openmanet.wifi_config.v1.WifiModeR\bwifiMode\"\xce\x05\n" +
 	"\rRadioSettings\x12;\n" +
 	"\x04ssid\x18\x01 \x01(\tB'\xbaH$r\"\x10\x01\x18 \x92\x02\topenmanet\x92\x02\x0fmy-wifi-networkR\x04ssid\x126\n" +
 	"\amesh_id\x18\x02 \x01(\tB\x18\xbaH\x15r\x13\x18 \x92\x02\x0eopenmanet-meshH\x00R\x06meshId\x88\x01\x01\x12(\n" +
@@ -866,13 +881,15 @@ const file_openmanet_wifi_config_v1_wifi_config_proto_rawDesc = "" +
 	"encryption\x12\x1f\n" +
 	"\bdisabled\x18\t \x01(\bH\x03R\bdisabled\x88\x01\x01\x126\n" +
 	"\x04mode\x18\n" +
-	" \x01(\x0e2\".openmanet.wifi_config.v1.WifiModeR\x04modeB\n" +
+	" \x01(\x0e2\".openmanet.wifi_config.v1.WifiModeR\x04mode\x12[\n" +
+	"\x13mesh_rssi_threshold\x18\v \x01(\x05B&\xbaH#\x1a!@\xb0\xff\xff\xff\xff\xff\xff\xff\xff\x01\x18\xba\xff\xff\xff\xff\xff\xff\xff\xff\x01(\xab\xff\xff\xff\xff\xff\xff\xff\xff\x01H\x04R\x11meshRssiThreshold\x88\x01\x01B\n" +
 	"\n" +
 	"\b_mesh_idB\v\n" +
 	"\t_passwordB\n" +
 	"\n" +
 	"\b_countryB\v\n" +
-	"\t_disabled\"\xe6\x01\n" +
+	"\t_disabledB\x16\n" +
+	"\x14_mesh_rssi_threshold\"\xe6\x01\n" +
 	"\x0fConnectedClient\x12\x1a\n" +
 	"\bhostname\x18\x01 \x01(\tR\bhostname\x12\x1f\n" +
 	"\vmac_address\x18\x02 \x01(\tR\n" +
