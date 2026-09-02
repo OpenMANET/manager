@@ -286,9 +286,15 @@ func Start(staticFS fs.FS) {
 		SetupRNG:            setupRNG,
 	}
 
-	if manager != nil {
+	// buildWifiProvider returns nil when the manager is absent or its
+	// nl80211 client failed to initialize; both consumers then stay
+	// unset (name-based interface classification, no wifi handlers)
+	// instead of dereferencing a nil WirelessConfig. Reading the
+	// classifier through the cache also folds its Interfaces() walk
+	// into the one the handlers already share.
+	if wifiProvider != nil {
 		apiServer.Wifi = wifiProvider
-		interfaceProvider.WifiInterfaces = manager.WirelessConfig.Interfaces
+		interfaceProvider.WifiInterfaces = wifiProvider.Interfaces
 	}
 
 	api := server.NewAPIServer(apiServer)
