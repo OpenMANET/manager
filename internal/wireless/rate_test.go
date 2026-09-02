@@ -48,14 +48,17 @@ func TestSummarizeRate(t *testing.T) {
 			},
 			want: wireless.RateSummary{BitrateKbps: 866700, WidthMHz: 80, MCS: 9, NSS: 2, PHY: wireless.PHYVHT},
 		},
-		"eht320 mcs13 2ss": {
+		"eht160 mcs13 1ss": {
+			// Bitrate kept within a 32-bit int (5_764_700_000 overflows
+			// int on mipsle/other 32-bit targets); EHT160 MCS13 1SS is
+			// a real rate that still exercises the EHT branch.
 			ri: wifi.RateInfo{
-				Bitrate:        5_764_700_000,
+				Bitrate:        1_441_100_000,
 				ModulationType: wifi.RateModulationInfoTypeEHT,
-				Modulation:     wifi.EHTModulationInfo{BaseModulationInfo: wifi.BaseModulationInfo{MCS: 13, NSS: 2}},
-				ChannelWidth:   wifi.ChannelWidth320,
+				Modulation:     wifi.EHTModulationInfo{BaseModulationInfo: wifi.BaseModulationInfo{MCS: 13, NSS: 1}},
+				ChannelWidth:   wifi.ChannelWidth160,
 			},
-			want: wireless.RateSummary{BitrateKbps: 5_764_700, WidthMHz: 320, MCS: 13, NSS: 2, PHY: wireless.PHYEHT},
+			want: wireless.RateSummary{BitrateKbps: 1_441_100, WidthMHz: 160, MCS: 13, NSS: 1, PHY: wireless.PHYEHT},
 		},
 		"legacy 54m has no mcs": {
 			ri: wifi.RateInfo{
@@ -104,7 +107,12 @@ func TestSummarizeRate(t *testing.T) {
 		"fallback saturates at int32": {
 			ri:       wifi.RateInfo{},
 			fallback: math.MaxInt,
-			want:     wireless.RateSummary{BitrateKbps: math.MaxInt32, WidthMHz: 0, MCS: -1, NSS: -1, PHY: wireless.PHYUnknown},
+			// On 64-bit, MaxInt/1000 exceeds MaxInt32 and kbps() clamps
+			// to MaxInt32. On 32-bit, MaxInt == MaxInt32 and MaxInt/1000
+			// never reaches the clamp, so the expectation must be
+			// computed the same way kbps() computes it rather than
+			// hardcoded to MaxInt32.
+			want: wireless.RateSummary{BitrateKbps: min(math.MaxInt/1000, math.MaxInt32), WidthMHz: 0, MCS: -1, NSS: -1, PHY: wireless.PHYUnknown},
 		},
 	}
 

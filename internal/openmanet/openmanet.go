@@ -487,11 +487,18 @@ func resolveGOMAXPROCS(cfgVal int, prof board.ExecutionProfile) int {
 
 // buildWifiProvider constructs the TTL-bounded wireless cache shared by
 // the API handlers and the instrumentation snapshotter, or returns nil
-// when alfred is disabled (manager is nil). Building the cache once
-// here and handing the same pointer to both consumers means the
-// snapshot adds no netlink polling of its own.
+// when alfred is disabled (manager is nil) or when mgmt.NewManager
+// tolerated a failed nl80211 init (manager.WirelessConfig is nil, e.g.
+// the family is absent or the driver isn't loaded). NewManager logs
+// and continues in that case rather than failing startup, so wrapping
+// a nil WirelessConfig here would hand the cache a nil *wifi.Client
+// and panic on the first Refresh; returning nil instead leaves the API
+// and the snapshot with no wifi provider, same as before this cache
+// existed. Building the cache once here and handing the same pointer
+// to both consumers means the snapshot adds no netlink polling of its
+// own.
 func buildWifiProvider(manager *mgmt.ManagementConfig) *handlers.CachedWirelessProvider {
-	if manager == nil {
+	if manager == nil || manager.WirelessConfig == nil {
 		return nil
 	}
 
