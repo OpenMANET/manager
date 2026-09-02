@@ -13,6 +13,7 @@ import (
 	wificonfigv1 "github.com/openmanet/openmanetd/internal/api/openmanet/wifi_config/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 // newValidator creates a protovalidate.Validator and fails the test on error.
@@ -353,4 +354,47 @@ func TestValidation_MeshBackhaulProfile_RadioFields(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ── UpdateRadioSettingsRequest.settings.mesh_rssi_threshold ──────────────────
+
+func radioSettingsWithFloor(dbm *int32) *wificonfigv1.UpdateRadioSettingsRequest {
+	return &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:              "openmanet",
+			MeshRssiThreshold: dbm,
+		},
+	}
+}
+
+func TestValidation_UpdateRadioSettingsRequest_MeshRssiThresholdOutOfRange(t *testing.T) {
+	v := newValidator(t)
+
+	for _, dbm := range []int32{-86, -69, 0, -255} {
+		dbm := dbm
+		t.Run(fmt.Sprintf("dbm_%d", dbm), func(t *testing.T) {
+			err := v.Validate(radioSettingsWithFloor(proto.Int32(dbm)))
+			assert.Error(t, err, "mesh_rssi_threshold %d is outside [-85,-70] and must fail validation", dbm)
+		})
+	}
+}
+
+func TestValidation_UpdateRadioSettingsRequest_MeshRssiThresholdInRange(t *testing.T) {
+	v := newValidator(t)
+
+	for _, dbm := range []int32{-85, -80, -70} {
+		dbm := dbm
+		t.Run(fmt.Sprintf("dbm_%d", dbm), func(t *testing.T) {
+			err := v.Validate(radioSettingsWithFloor(proto.Int32(dbm)))
+			assert.NoError(t, err, "mesh_rssi_threshold %d must pass validation", dbm)
+		})
+	}
+}
+
+func TestValidation_UpdateRadioSettingsRequest_MeshRssiThresholdUnset(t *testing.T) {
+	v := newValidator(t)
+
+	err := v.Validate(radioSettingsWithFloor(nil))
+	assert.NoError(t, err, "unset leaves UCI alone and must validate")
 }

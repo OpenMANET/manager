@@ -544,7 +544,16 @@ func (s *WifiConfigService) stageRadioSettings(ctx context.Context, radioName st
 		}
 	}
 
-	if err := s.stageIfaceIdentity(ifaceName, mode, settings, ifaceCfg); err != nil {
+	effMode := s.effectiveIfaceMode(ifaceName, mode)
+
+	// The admission floor only means something on a mesh iface. Unset
+	// leaves the UCI option alone (SetWirelessIfaceConfigWithReader
+	// skips empty fields).
+	if settings.MeshRssiThreshold != nil && effMode == uciModeMesh {
+		ifaceCfg.MeshRSSIThreshold = strconv.Itoa(int(settings.GetMeshRssiThreshold()))
+	}
+
+	if err := s.stageIfaceIdentity(ifaceName, effMode, settings, ifaceCfg); err != nil {
 		return err
 	}
 
@@ -596,23 +605,32 @@ func (s *WifiConfigService) stageSecondaryMeshPolicy(ctx context.Context, radioN
 	cfg.ApplySecondaryMeshPolicy()
 }
 
+// effectiveIfaceMode returns the requested mode, else the mode already
+// on the wifi-iface section, else "".
+func (s *WifiConfigService) effectiveIfaceMode(ifaceName, mode string) string {
+	if mode != "" {
+		return mode
+	}
+
+	if vals, ok := s.ConfigReader.Get(wirelessConfig, ifaceName, wifiOptionMode); ok && len(vals) > 0 {
+		return vals[0]
+	}
+
+	return ""
+}
+
 // stageIfaceIdentity stages the network-name option that matches the
 // iface's effective mode and clears the other one. A mode=mesh
 // wifi-iface carries mesh_id only: the frontend mirrors mesh_id into
 // ssid to satisfy the proto's ssid min_len, and an AP section being
 // converted already has an ssid — either one left in the section keeps
-// the radio from coming up. AP and STA ifaces carry ssid only. The
-// effective mode is the requested one, else the mode already on the
-// section, so a channel-only edit of a mesh iface (which still has to
-// send an ssid) never re-introduces it. Other modes keep the legacy
-// write-what-was-sent behavior. Del on a missing option is a no-op.
+// the radio from coming up. AP and STA ifaces carry ssid only. mode is
+// the effective mode from effectiveIfaceMode (requested, else the one
+// already on the section), so a channel-only edit of a mesh iface
+// (which still has to send an ssid) never re-introduces it. Other modes
+// keep the legacy write-what-was-sent behavior. Del on a missing option
+// is a no-op.
 func (s *WifiConfigService) stageIfaceIdentity(ifaceName, mode string, settings *wificonfigv1.RadioSettings, ifaceCfg *network.UCIWirelessIface) error {
-	if mode == "" {
-		if vals, ok := s.ConfigReader.Get(wirelessConfig, ifaceName, wifiOptionMode); ok && len(vals) > 0 {
-			mode = vals[0]
-		}
-	}
-
 	switch mode {
 	case uciModeMesh:
 		// Clients that only know ssid still get a usable mesh: the

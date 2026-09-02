@@ -20,6 +20,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -2495,4 +2496,91 @@ func TestGetRadioSettings_APMode_OmitsMeshRSSIThreshold(t *testing.T) {
 	resp, err := svc.GetRadioSettings(context.Background(), &wificonfigv1.GetRadioSettingsRequest{RadioName: "radio2"})
 	require.NoError(t, err)
 	assert.Nil(t, resp.GetSettings().MeshRssiThreshold, "a stale option on an AP iface is not reported")
+}
+
+func TestUpdateRadioSettings_MeshMode_WritesMeshRSSIThreshold(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio3",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:              "mesh-ssid",
+			Channel:           "42",
+			Mode:              wificonfigv1.WifiMode_WIFI_MODE_MESH,
+			MeshRssiThreshold: proto.Int32(-75),
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetSuccess(), resp.GetMessage())
+
+	vals, ok := reader.Get("wireless", "default_radio3", "mesh_rssi_threshold")
+	require.True(t, ok, "mesh_rssi_threshold must be written on the mesh iface")
+	assert.Equal(t, []string{"-75"}, vals)
+}
+
+func TestUpdateRadioSettings_MeshIface_UnspecifiedMode_WritesMeshRSSIThreshold(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// No mode sent: the iface is already mode=mesh in UCI, so the
+	// effective mode is mesh and the floor is staged.
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio3",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:              "mesh-ssid",
+			Channel:           "42",
+			MeshRssiThreshold: proto.Int32(-70),
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetSuccess(), resp.GetMessage())
+
+	vals, ok := reader.Get("wireless", "default_radio3", "mesh_rssi_threshold")
+	require.True(t, ok, "effective mode comes from UCI when the request omits it")
+	assert.Equal(t, []string{"-70"}, vals)
+}
+
+func TestUpdateRadioSettings_MeshMode_UnsetLeavesMeshRSSIThreshold(t *testing.T) {
+	reader := meshRSSIFixture(t, "default_radio3", "-80")
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio3",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "mesh-ssid",
+			Channel: "44",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetSuccess(), resp.GetMessage())
+
+	vals, ok := reader.Get("wireless", "default_radio3", "mesh_rssi_threshold")
+	require.True(t, ok, "an update without the field must not remove the option")
+	assert.Equal(t, []string{"-80"}, vals)
+}
+
+func TestUpdateRadioSettings_APMode_IgnoresMeshRSSIThreshold(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:              "openmanet",
+			Channel:           "6",
+			Mode:              wificonfigv1.WifiMode_WIFI_MODE_AP,
+			MeshRssiThreshold: proto.Int32(-75),
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetSuccess(), resp.GetMessage())
+
+	_, ok := reader.Get("wireless", "default_radio2", "mesh_rssi_threshold")
+	assert.False(t, ok, "the floor is meaningless on an AP iface and must not be written")
 }
