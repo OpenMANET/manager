@@ -12,7 +12,7 @@ import { useSetup, SETUP_ACTIONS } from '../../contexts/SetupContext.jsx';
 import { apDefaults } from '../../contexts/apDefaults.js';
 import { WifiEncryption } from '../../gen/openmanet/wifi_config/v1/wifi_config_pb.js';
 import { ENCRYPTION_LABELS } from './labels.js';
-import { BACKHAUL_BANDWIDTHS, BACKHAUL_CHANNELS_2G } from './meshChannels.js';
+import { BACKHAUL_BANDWIDTHS, BACKHAUL_CHANNELS_2G, backhaulFootprint, formatBackhaulFootprint } from './meshChannels.js';
 
 // Same three secured choices the LuCI mesh wizard offers (psk2,
 // sae-mixed, sae) plus the open modes. PSK_MIXED (WPA1+WPA2) stays in
@@ -41,7 +41,7 @@ function radioMode(ap) {
 }
 
 const BACKHAUL_BANDWIDTH_OPTIONS = [
-  { value: 0, label: 'Default (20 MHz)' },
+  { value: 0, label: 'Default (40 MHz)' },
   ...BACKHAUL_BANDWIDTHS.map(mhz => ({ value: mhz, label: `${mhz} MHz` })),
 ];
 const BACKHAUL_CHANNEL_OPTIONS = [
@@ -110,6 +110,10 @@ function APRow({ radio, state, dispatch, status }) {
       value: { ...ap, ...clearsScan, [field]: value, radioName: radio.name },
     });
   };
+
+  const footprint = formatBackhaulFootprint(
+    backhaulFootprint(ap.backhaulChannel || 8, ap.backhaulBandwidthMhz || 40),
+  );
 
   const setMode = (value) => {
     dispatch({ type: SETUP_ACTIONS.SET_RADIO_MODE, radioName: radio.name, mode: value });
@@ -251,6 +255,7 @@ function APRow({ radio, state, dispatch, status }) {
               options={BACKHAUL_CHANNEL_OPTIONS}
               onChange={(v) => setField('backhaulChannel', v)}
             />
+            <div className="setup-help">Occupies {footprint}</div>
             <div className="setup-help">Set bandwidth and channel together, or leave both at Default.</div>
           </div>
 

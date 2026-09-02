@@ -120,7 +120,7 @@ describe('StepAPsBackhaulTuning', () => {
   it('offers bandwidth, channel and country once a radio is the backhaul', () => {
     renderStep(); // status with radio0 supportsMeshBackhaul: true
     fireEvent.click(screen.getByRole('radio', { name: 'Mesh backhaul' }));
-    expect(screen.getByRole('button', { name: 'Backhaul bandwidth' }).textContent).toContain('Default (20 MHz)');
+    expect(screen.getByRole('button', { name: 'Backhaul bandwidth' }).textContent).toContain('Default (40 MHz)');
     expect(screen.getByRole('button', { name: 'Backhaul channel' }).textContent).toContain('Default (8)');
     expect(screen.getByRole('button', { name: 'Backhaul country' })).toBeInTheDocument();
   });
@@ -131,5 +131,21 @@ describe('StepAPsBackhaulTuning', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Backhaul channel' }));
     const labels = screen.getAllByRole('option').map(o => o.textContent);
     expect(labels).toEqual(['Default (8)', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']);
+  });
+
+  it('shows the spectrum footprint for the default channel and width', () => {
+    renderStep();
+    fireEvent.click(screen.getByRole('radio', { name: 'Mesh backhaul' }));
+    expect(screen.getByText('Occupies ch 8 + ch 4 · 2417–2457 MHz')).toBeInTheDocument();
+  });
+
+  it('updates the footprint when the operator picks 20 MHz on channel 1', () => {
+    renderStep();
+    fireEvent.click(screen.getByRole('radio', { name: 'Mesh backhaul' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Backhaul bandwidth' }));
+    fireEvent.click(screen.getByRole('option', { name: '20 MHz' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Backhaul channel' }));
+    fireEvent.click(screen.getByRole('option', { name: '1' }));
+    expect(screen.getByText('Occupies ch 1 · 2402–2422 MHz')).toBeInTheDocument();
   });
 });

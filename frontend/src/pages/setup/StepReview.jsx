@@ -410,7 +410,7 @@ function ReviewSummary({ state }) {
       {backhaul && (
         <div className="kv">
           <span className="k">Backhaul channel</span>
-          <span className="v">{backhaul.backhaulChannel || 8} · {backhaul.backhaulBandwidthMhz || 20} MHz · {backhaul.backhaulCountryCode || state.mesh.countryCode || '—'}</span>
+          <span className="v">{backhaul.backhaulChannel || 8} · {backhaul.backhaulBandwidthMhz || 40} MHz · {backhaul.backhaulCountryCode || state.mesh.countryCode || '—'}</span>
         </div>
       )}
     </>

@@ -315,6 +315,7 @@ describe('TestStepReviewMeshBackhaul', () => {
 
     render(<SetupProvider><BackhaulHarness passphrase="backhaulpass" /></SetupProvider>);
 
+    expect(await screen.findByText(/^8 · 40 MHz · /)).toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: /^apply$/i }));
     await waitFor(() => expect(applyState.applySetup).toHaveBeenCalledTimes(1));
     const entry = applyState.applySetup.mock.calls[0][0].profile.aps.find(a => a.radioName === 'radio0');

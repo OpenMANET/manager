@@ -55,6 +55,37 @@ export function bandwidthsForCountry(countryEntry) {
 export const BACKHAUL_BANDWIDTHS = [20, 40];
 export const BACKHAUL_CHANNELS_2G = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 
+// backhaulFootprint describes the 2.4 GHz spectrum a backhaul choice
+// occupies. channel is 1..11; bandwidthMhz is 20 or 40. At 40 MHz the
+// primary pairs with a secondary four channels away: channels 1-7 pair
+// upward (HT40+), 8-11 pair downward (HT40-), so any 40 MHz pair covers
+// half the band. Returns null for any other input. The pairing is what
+// OpenWrt's mesh path is expected to pick under noscan; the driver makes
+// the final call on air.
+export function backhaulFootprint(channel, bandwidthMhz) {
+  if (!BACKHAUL_CHANNELS_2G.includes(channel) || !BACKHAUL_BANDWIDTHS.includes(bandwidthMhz)) return null;
+  const primaryMhz = 2407 + 5 * channel;
+  if (bandwidthMhz === 20) {
+    return { channel, secondary: null, startMhz: primaryMhz - 10, endMhz: primaryMhz + 10 };
+  }
+  const secondary = channel <= 7 ? channel + 4 : channel - 4;
+  const secondaryMhz = 2407 + 5 * secondary;
+  return {
+    channel,
+    secondary,
+    startMhz: Math.min(primaryMhz, secondaryMhz) - 10,
+    endMhz: Math.max(primaryMhz, secondaryMhz) + 10,
+  };
+}
+
+// formatBackhaulFootprint renders backhaulFootprint for the wizard:
+// "ch 8 + ch 4 · 2417–2457 MHz" at 40 MHz, "ch 8 · 2437–2457 MHz" at 20.
+export function formatBackhaulFootprint(fp) {
+  if (!fp) return '';
+  const chans = fp.secondary == null ? `ch ${fp.channel}` : `ch ${fp.channel} + ch ${fp.secondary}`;
+  return `${chans} · ${fp.startMhz}–${fp.endMhz} MHz`;
+}
+
 // meshJoinIssues lists what a scanned code asks for that this device
 // cannot accept. Only scanned values are checked (mesh.fromScan /
 // ap.backhaulFromScan); manual entry is guarded by the snap effects.
@@ -81,7 +112,7 @@ export function meshJoinIssues(state, status) {
     if (!ap.meshBackhaul || !ap.backhaulFromScan) continue;
     const creds = {
       meshId: ap.backhaulMeshId, passphrase: ap.backhaulPassphrase, encryption: WifiEncryption.SAE,
-      bandwidthMhz: ap.backhaulBandwidthMhz || 20, channel: ap.backhaulChannel || 8, countryCode: ap.backhaulCountryCode,
+      bandwidthMhz: ap.backhaulBandwidthMhz || 40, channel: ap.backhaulChannel || 8, countryCode: ap.backhaulCountryCode,
     };
     const opts = { isHalow: false, bandwidths: BACKHAUL_BANDWIDTHS, channels: BACKHAUL_CHANNELS_2G };
     for (const issue of checkMeshCredentials(creds, opts)) out.push(`${ap.radioName}: ${issue.message}`);
