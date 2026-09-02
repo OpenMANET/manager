@@ -2480,6 +2480,15 @@ func TestGetRadioSettings_MeshRSSIThreshold_UnparsableOmitted(t *testing.T) {
 	assert.Nil(t, resp.GetSettings().MeshRssiThreshold, "a non-numeric option is not reported")
 }
 
+func TestGetRadioSettings_MeshRSSIThreshold_OverflowOmitted(t *testing.T) {
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = meshRSSIFixture(t, "default_radio3", "2147483648")
+
+	resp, err := svc.GetRadioSettings(context.Background(), &wificonfigv1.GetRadioSettingsRequest{RadioName: "radio3"})
+	require.NoError(t, err)
+	assert.Nil(t, resp.GetSettings().MeshRssiThreshold, "a value outside int32 is not reported (never wrapped)")
+}
+
 func TestGetRadioSettings_MeshRSSIThreshold_OutOfRangeReported(t *testing.T) {
 	svc := newTestWifiConfigService(t)
 	svc.ConfigReader = meshRSSIFixture(t, "default_radio3", "-90")

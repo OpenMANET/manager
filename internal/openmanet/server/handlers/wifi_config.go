@@ -296,11 +296,11 @@ func (s *WifiConfigService) readRadioSettings(radioName string) (*wificonfigv1.R
 	}
 
 	// The admission floor only means something on a mesh iface. Report
-	// whatever UCI holds when it parses; protovalidate bounds updates,
-	// not reads.
+	// whatever UCI holds when it parses as an int32; protovalidate
+	// bounds updates, not reads.
 	if iface.Mode == uciModeMesh {
-		if v, err := strconv.Atoi(iface.MeshRSSIThreshold); err == nil {
-			settings.MeshRssiThreshold = int32Ptr(v)
+		if v, err := strconv.ParseInt(iface.MeshRSSIThreshold, 10, 32); err == nil {
+			settings.MeshRssiThreshold = int32Ptr(int32(v))
 		}
 	}
 
@@ -1306,8 +1306,6 @@ func boolPtr(b bool) *bool {
 	return &b
 }
 
-func int32Ptr(v int) *int32 {
-	p := int32(v)
-
-	return &p
+func int32Ptr(v int32) *int32 {
+	return &v
 }
