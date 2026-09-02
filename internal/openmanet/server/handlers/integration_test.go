@@ -237,6 +237,11 @@ func TestIntegration_ListMeshNeighbors(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.GetNeighbors(), 1)
 	assert.Equal(t, "aa:bb:cc:dd:ee:ff", resp.GetNeighbors()[0].GetHardwareAddress())
+
+	n := resp.GetNeighbors()[0]
+	assert.Equal(t, "mesh0", n.GetInterface())
+	assert.Equal(t, int32(54), n.GetTx().GetBitrateKbps(), "no rate attrs on the fixture: kbit/s from the plain bitrate")
+	assert.Equal(t, serviceproto.LinkRate_PHY_UNSPECIFIED, n.GetTx().GetPhy())
 }
 
 // ── MeshTopologyService ───────────────────────────────────────────────────────

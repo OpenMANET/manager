@@ -305,6 +305,18 @@ func makeStation(macStr string, signal int) *wifi.StationInfo {
 	}
 }
 
+// makeStationWithRate creates a wifi.StationInfo carrying nl80211 rate
+// attributes for both directions.
+func makeStationWithRate(macStr string, signal int, tx, rx wifi.RateInfo) *wifi.StationInfo {
+	st := makeStation(macStr, signal)
+	st.TransmitRateInfo = tx
+	st.ReceiveRateInfo = rx
+	st.TransmitBitrate = tx.Bitrate
+	st.ReceiveBitrate = rx.Bitrate
+
+	return st
+}
+
 // ── fakeGNSSProvider ────────────────────────────────────────────────────────
 
 type fakeGNSSProvider struct {
