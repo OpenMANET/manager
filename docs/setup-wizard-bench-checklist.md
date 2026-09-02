@@ -19,7 +19,9 @@ done. None of them is a CI acceptance criterion; they are field checks.
 - With the 2.4 GHz AP enabled, the daemon leaves `default_<radio>` alone on
   first boot (no silent AP→mesh conversion).
 - With a mesh backhaul chosen, the radio comes up in mesh mode on channel 8 /
-  HE20 under `batmesh1_<radio>`.
+  HE40 under `batmesh1_<radio>`. `iw dev <mesh-if> info` shows `width: 40 MHz`
+  with `center1` 10 MHz below the channel 8 frequency (2447 → 2437 MHz, i.e.
+  paired with channel 4).
 - The radio's iwinfo hardware name resolves at wizard time on a factory image so
   the wizard offers "mesh backhaul" only where the daemon would accept it.
 

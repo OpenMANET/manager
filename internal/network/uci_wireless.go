@@ -152,9 +152,20 @@ const (
 
 	// SecondaryMeshChannel2G and SecondaryMeshHTMode2G are the radio
 	// settings applied to the 2.4 GHz radio that carries the secondary
-	// batman-adv link (batmesh1): channel 8, 20 MHz HE.
+	// batman-adv link (batmesh1): channel 8, 40 MHz HE.
+	//
+	// 40 MHz is the default because the link's job is a stable ~100 Mbps
+	// between nearby nodes. At HE40 that floor is met around 2SS MCS 4-5
+	// (~103-138 Mbps PHY), rates that hold at -65..-70 dBm on a moving
+	// node. At HE20 the same throughput needs MCS 9-11 (256/1024-QAM),
+	// which demands ~8-10 dB more SNR and collapses under motion. The
+	// ~3 dB wideband noise penalty of 40 MHz is smaller than the MCS
+	// margin it buys. A 40 MHz pair occupies half the 2.4 GHz band, so
+	// 20 MHz stays selectable in the wizard for congested spectrum.
+	// OpenWrt 24.10 wifi-scripts set noscan for any radio carrying a mesh
+	// iface, which is what allows a >20 MHz mesh on 2.4 GHz.
 	SecondaryMeshChannel2G = "8"
-	SecondaryMeshHTMode2G  = "HE20"
+	SecondaryMeshHTMode2G  = "HE40"
 
 	// SecondaryMeshRSSIThreshold is the mesh_rssi_threshold (dBm) applied
 	// to the 2.4 GHz secondary link. wpa_supplicant treats -255..-1 as a

@@ -42,7 +42,7 @@ Highlights that are easy to miss:
   are the wizard's half of the two-stage addressing design below.
 - **2.4 GHz mesh backhaul tuning** — `MeshBackhaulProfile` carries optional
   `bandwidth_mhz`, `channel` and `country_code`. Zero / empty values keep the
-  daemon's fixed defaults (`channel 8`, `htmode HE20`, country untouched);
+  daemon's fixed defaults (`channel 8`, `htmode HE40`, country untouched);
   otherwise the wizard writes the operator's channel, `HE20`/`HE40` and
   country to the backhaul radio. Channel and width must be set together.
   The link's `wifi-iface` also always carries the daemon's fixed tuning:

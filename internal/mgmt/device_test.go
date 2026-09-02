@@ -611,8 +611,8 @@ func TestSetupBatMesh1Interface_Success(t *testing.T) {
 		t.Errorf("Channel: got %q, want %q", radio.Channel, "8")
 	}
 
-	if radio.HTMode != "HE20" {
-		t.Errorf("HTMode: got %q, want %q", radio.HTMode, "HE20")
+	if radio.HTMode != "HE40" {
+		t.Errorf("HTMode: got %q, want %q", radio.HTMode, "HE40")
 	}
 
 	// Verify band=2g is preserved (was set during seed).

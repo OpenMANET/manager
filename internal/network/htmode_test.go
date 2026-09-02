@@ -44,8 +44,9 @@ func TestHTModeBandwidthMHz(t *testing.T) {
 }
 
 func TestSecondaryMeshHTMode(t *testing.T) {
+	assert.Equal(t, "HE40", SecondaryMeshHTMode2G, "the secondary link defaults to 40 MHz HE")
 	assert.Equal(t, SecondaryMeshHTMode2G, SecondaryMeshHTMode(0), "zero keeps the fixed default")
-	assert.Equal(t, "HE20", SecondaryMeshHTMode(20))
+	assert.Equal(t, "HE20", SecondaryMeshHTMode(20), "20 MHz stays selectable for congested spectrum")
 	assert.Equal(t, "HE40", SecondaryMeshHTMode(40))
 	assert.Empty(t, SecondaryMeshHTMode(80), "only 20 and 40 MHz are 2.4 GHz widths")
 	assert.Empty(t, SecondaryMeshHTMode(8))

@@ -18,7 +18,7 @@ export function apDefaults(radioName) {
     backhaulMeshId:     '',
     backhaulPassphrase: '',
     // Backhaul radio tuning. 0 / '' keep the daemon's fixed defaults
-    // (channel 8, HE20, country untouched).
+    // (channel 8, HE40, country untouched).
     backhaulBandwidthMhz: 0,
     backhaulChannel:      0,
     backhaulCountryCode:  '',

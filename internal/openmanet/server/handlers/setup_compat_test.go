@@ -1516,6 +1516,20 @@ func TestCompat_MeshBackhaul_WritesOperatorChannelWidthCountry(t *testing.T) {
 	assert.Equal(t, "GB", tr.getOne("wireless", "radio0", "country"))
 }
 
+// TestCompat_MeshBackhaul_Explicit20MHzWritesHE20 pins that 20 MHz stays
+// selectable as the congested-spectrum fallback now that the default is
+// 40 MHz.
+func TestCompat_MeshBackhaul_Explicit20MHzWritesHE20(t *testing.T) {
+	prof := pointExtenderBackhaulProfile()
+	prof.Aps[0].MeshBackhaul.BandwidthMhz = 20
+	prof.Aps[0].MeshBackhaul.Channel = 1
+
+	tr := runScenarioApply(t, prof)
+
+	assert.Equal(t, "1", tr.getOne("wireless", "radio0", "channel"))
+	assert.Equal(t, "HE20", tr.getOne("wireless", "radio0", "htmode"))
+}
+
 // TestCompat_MeshBackhaul_ZeroFieldsKeepDefaults pins that the new
 // fields at their zero values reproduce the pre-existing writes and
 // leave the radio's country exactly as the reader seeded it.
