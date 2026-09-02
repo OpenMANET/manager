@@ -221,8 +221,9 @@ func (l MeshLink) Section() string {
 
 // IfaceConfig returns the wifi-iface option set for the link: the hardif
 // binding, mode=mesh, the credentials, mesh_fwding=0 (batman-adv does
-// the forwarding), the RSSI threshold when set, encryption=sae, and the
-// secondary-link tuning from ApplySecondaryMeshPolicy.
+// the forwarding), the RSSI threshold when set, encryption=sae, and,
+// when the link is the secondary hardif (BatmanSecondaryIface), the
+// tuning from ApplySecondaryMeshPolicy.
 func (l MeshLink) IfaceConfig() *UCIWirelessIface {
 	cfg := &UCIWirelessIface{
 		Device:            l.Radio,
@@ -234,7 +235,9 @@ func (l MeshLink) IfaceConfig() *UCIWirelessIface {
 		MeshRSSIThreshold: l.RSSIThreshold,
 		Encryption:        wifiEncryptionSAE,
 	}
-	cfg.ApplySecondaryMeshPolicy()
+	if l.Network == BatmanSecondaryIface {
+		cfg.ApplySecondaryMeshPolicy()
+	}
 
 	return cfg
 }

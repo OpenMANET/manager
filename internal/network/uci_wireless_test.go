@@ -924,6 +924,11 @@ func TestMeshLink_IfaceConfig_NoThreshold(t *testing.T) {
 
 	assert.Empty(t, got.MeshRSSIThreshold, "an empty threshold must not be written")
 	assert.Equal(t, "batmesh0", got.Network)
+	assert.Empty(t, got.McastRate, "primary link must not carry secondary policy")
+	assert.Empty(t, got.MeshNolearn, "primary link must not carry secondary policy")
+	assert.Empty(t, got.MeshRetryTimeout, "primary link must not carry secondary policy")
+	assert.Empty(t, got.MeshConfirmTimeout, "primary link must not carry secondary policy")
+	assert.Empty(t, got.MeshHoldingTimeout, "primary link must not carry secondary policy")
 }
 
 // seedIface adds a wifi-iface with the given device and mode to the
