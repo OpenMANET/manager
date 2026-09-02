@@ -196,6 +196,8 @@ func TestListMeshNeighbors_BatmanThroughputScaledToBps(t *testing.T) {
 	}{
 		"2.4 GHz HT20 link":  {kbps: 22200, want: 22_200_000},
 		"halow link":         {kbps: 7100, want: 7_100_000},
+		"zero throughput":     {kbps: 0, want: 0},
+		"negative throughput": {kbps: -1, want: 0},
 		"multi-gigabit wire": {kbps: 10_000_000, want: math.MaxInt32},
 	}
 
