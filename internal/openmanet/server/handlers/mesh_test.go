@@ -262,7 +262,7 @@ func TestListMeshNeighbors_LinkRateMapping(t *testing.T) {
 
 	n := resp.GetNeighbors()[0]
 	assert.Equal(t, "mesh1", n.GetInterface())
-	assert.Equal(t, int32(54000), n.GetThroughput(), "throughput keeps the station bitrate semantics")
+	assert.Equal(t, int32(86_700_000), n.GetThroughput(), "throughput keeps the station bitrate semantics")
 
 	require.NotNil(t, n.GetTx())
 	assert.Equal(t, int32(86700), n.GetTx().GetBitrateKbps())

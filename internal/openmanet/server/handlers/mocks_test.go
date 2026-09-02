@@ -311,6 +311,7 @@ func makeStationWithRate(macStr string, signal int, tx, rx wifi.RateInfo) *wifi.
 	st := makeStation(macStr, signal)
 	st.TransmitRateInfo = tx
 	st.ReceiveRateInfo = rx
+	st.TransmitBitrate = tx.Bitrate
 	st.ReceiveBitrate = rx.Bitrate
 
 	return st

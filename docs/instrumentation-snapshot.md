@@ -52,7 +52,8 @@ Every snapshot is a single JSON object with this shape:
     { "name": "comms",       "data": { ... } },
     { "name": "blos",        "data": { ... } },
     { "name": "sysupgrade",  "data": { ... } },
-    { "name": "audio_mixer", "data": { ... } }
+    { "name": "audio_mixer", "data": { ... } },
+    { "name": "wireless",    "data": { ... } }
   ]
 }
 ```
@@ -61,7 +62,7 @@ Every snapshot is a single JSON object with this shape:
 |---|---|---|
 | `schema_version` | string | Semver of the envelope schema. Bump minor for additive fields, major for breaking changes. The current value is `1.6.0`. |
 | `captured_at_start` | RFC3339 timestamp | Wall-clock time when the capture loop began reading counters. |
-| `captured_at_end` | RFC3339 timestamp | Wall-clock time when the capture loop finished. The difference `captured_at_end - captured_at_start` bounds the counter-read skew window; in practice this is microseconds. |
+| `captured_at_end` | RFC3339 timestamp | Wall-clock time when the capture loop finished. The difference `captured_at_end - captured_at_start` bounds the counter-read skew window; in practice this is microseconds, but it can stretch into milliseconds when the `wireless` section's cache is cold (the first `Refresh` after the 5 s TTL walks netlink under the registry mutex). |
 | `daemon.version` | string | openmanetd build version. Empty until the build system populates it. |
 | `daemon.hostname` | string | The result of `os.Hostname()` at daemon startup. |
 | `daemon.pid` | int | Unix process ID. |
@@ -362,9 +363,9 @@ section is registered only when the mesh management workers are running
 | `…stations[*].signal_dbm` | int32 | dBm | Signal of the last received PPDU from this peer (`NL80211_STA_INFO_SIGNAL`). |
 | `…stations[*].signal_avg_dbm` | int32 | dBm | Driver-averaged signal (`NL80211_STA_INFO_SIGNAL_AVG`); the value the mesh admission floor (`mesh_rssi_threshold`) is compared against. |
 | `…stations[*].tx_bitrate_kbps` | int32 | kbit/s | Rate the local radio last transmitted to this peer with. When the driver reports no rate attributes this is the plain station bitrate and `tx_phy` is empty. |
-| `…stations[*].tx_phy` | string | — | Modulation family of the TX rate: `legacy` (802.11a/b/g), `ht` (n), `vht` (ac), `he` (ax), `eht` (be), or `""` when unknown. S1G/HaLow rates report as `ht` with widths 1–16. |
+| `…stations[*].tx_phy` | string | — | Modulation family of the TX rate: `legacy` (802.11a/b/g), `ht` (n), `vht` (ac), `he` (ax), `eht` (be), or `""` when unknown. S1G/HaLow rates report width 1–16 with `legacy` or `ht` depending on which attributes the driver emits; `mcs` is −1 until the parser learns the S1G attributes. |
 | `…stations[*].tx_width_mhz` | int32 | MHz | Channel width the TX rate used: 1/2/4/8/16 (S1G), 20/40/80/160/320; 160 for 80+80. 0 when unknown. |
-| `…stations[*].tx_mcs` | int32 | index | MCS of the TX rate. -1 for legacy rates and when not reported. |
+| `…stations[*].tx_mcs` | int32 | index | MCS of the TX rate. -1 for legacy rates and when not reported. HT indexes are per-stream (`MCS = HT_MCS % 8`, `NSS = HT_MCS/8 + 1`): an HT40 2SS MCS15 link renders as `tx_mcs: 7` with `tx_nss: 2`, while `iw station dump` prints `MCS 15`. |
 | `…stations[*].tx_nss` | int32 | count | Spatial streams of the TX rate. -1 when not reported. |
 | `…stations[*].rx_bitrate_kbps`, `rx_phy`, `rx_width_mhz`, `rx_mcs`, `rx_nss` | as TX | as TX | The same five fields for the rate the peer last used towards this radio. |
 | `…stations[*].tx_retries` | int64 | count | Cumulative frames the driver retransmitted to this peer (`NL80211_STA_INFO_TX_RETRIES`). |
@@ -503,7 +504,8 @@ thumb in order and flag anything that fits.
    radios disagree on width, or `noscan` is missing on one side. Expect
    roughly a third of the ~100 Mbps ceiling the batmesh1 tuning targets.
    Compare `htmode` on both nodes before touching anything else. A
-   `mesh0` (HaLow) station reporting `ht` at 1–16 MHz is normal.
+   `mesh0` (HaLow) station at 1–16 MHz is normal whichever of
+   `legacy`/`ht` it reports.
 20. **Rate/RSSI mismatch.** `tx_mcs ≤ 2` with `signal_dbm > −70` on an
    `he` or `ht` link means rate control is backing off for interference
    or retries, not distance. Read `tx_retries` and `tx_failed` deltas
@@ -522,7 +524,9 @@ the first atomic load and the last, the system keeps running — so
 derived values that combine multiple counters (e.g. `encode_dur_sum_ns /
 encode_dur_count`) may be off by one frame. The window is bounded
 exactly by `captured_at_end - captured_at_start`, typically a few
-microseconds. When comparing deltas across two snapshots, treat values
+microseconds — though it can reach milliseconds on a cold `wireless`
+cache, where the first `Refresh` after the 5 s TTL walks netlink under
+the registry mutex. When comparing deltas across two snapshots, treat values
 that moved by less than ~50 as within the skew noise floor.
 
 No producer-side locks are added for capture; this is an explicit
