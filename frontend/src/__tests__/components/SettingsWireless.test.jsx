@@ -705,14 +705,24 @@ describe('TestSettingsWirelessPeerFloor', () => {
     expect(screen.getByText('2.4 GHz peers heard below this are not admitted')).toBeInTheDocument();
   });
 
-  it('shows -80 (default) when unset and sends nothing until changed', async () => {
+  it('shows "Not set" when unset and sends nothing until changed', async () => {
     await render2GMesh();
-    expect(screen.getByRole('button', { name: FLOOR })).toHaveTextContent('-80 dBm (default)');
+    expect(screen.getByRole('button', { name: FLOOR })).toHaveTextContent('Not set (daemon default -80 dBm)');
 
     pickChannel('6');
     const sent = await saveAndGetSettings();
     expect(sent.channel).toBe('6');
     expect('meshRssiThreshold' in sent).toBe(false);
+  });
+
+  it('lets the operator pin the daemon default on an unset radio', async () => {
+    await render2GMesh();
+    fireEvent.click(screen.getByRole('button', { name: FLOOR }));
+    fireEvent.click(screen.getByRole('option', { name: '-80 dBm (default)' }));
+    expect(screen.getByRole('button', { name: FLOOR })).toHaveTextContent('-80 dBm (default)');
+
+    const sent = await saveAndGetSettings();
+    expect(sent.meshRssiThreshold).toBe(-80);
   });
 
   it('sends the chosen floor on save', async () => {
