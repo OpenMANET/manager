@@ -31,15 +31,15 @@ func HTModeBandwidthMHz(htmode string) (uint32, bool) {
 
 // SecondaryMeshHTMode returns the htmode written to the 2.4 GHz radio
 // that carries the secondary batman-adv link for the given width. 0
-// keeps the fixed default (SecondaryMeshHTMode2G); 20 and 40 select the
-// HE mode of that width, matching the MT7915/MT7916 chipsets the link
-// is gated on. Any other width returns "".
+// keeps the fixed default (SecondaryMeshHTMode2G, 40 MHz); 20 and 40
+// select the HE mode of that width, matching the MT7915/MT7916 chipsets
+// the link is gated on. Any other width returns "".
 func SecondaryMeshHTMode(bandwidthMHz uint32) string {
 	switch bandwidthMHz {
-	case 0, 20:
+	case 0, 40:
 		return SecondaryMeshHTMode2G
-	case 40:
-		return "HE40"
+	case 20:
+		return "HE20"
 	default:
 		return ""
 	}
