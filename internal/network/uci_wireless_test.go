@@ -901,14 +901,19 @@ func TestMeshLink_IfaceConfig(t *testing.T) {
 	}
 
 	want := &UCIWirelessIface{
-		Device:            "radio0",
-		Network:           "batmesh1",
-		Mode:              "mesh",
-		MeshID:            "backhaul",
-		Key:               "secretkey999",
-		MeshFwding:        "0",
-		MeshRSSIThreshold: "-80",
-		Encryption:        "sae",
+		Device:             "radio0",
+		Network:            "batmesh1",
+		Mode:               "mesh",
+		MeshID:             "backhaul",
+		Key:                "secretkey999",
+		MeshFwding:         "0",
+		MeshRSSIThreshold:  "-80",
+		Encryption:         "sae",
+		McastRate:          "24000",
+		MeshNolearn:        "1",
+		MeshRetryTimeout:   "255",
+		MeshConfirmTimeout: "255",
+		MeshHoldingTimeout: "255",
 	}
 
 	assert.Equal(t, want, link.IfaceConfig())
@@ -919,6 +924,11 @@ func TestMeshLink_IfaceConfig_NoThreshold(t *testing.T) {
 
 	assert.Empty(t, got.MeshRSSIThreshold, "an empty threshold must not be written")
 	assert.Equal(t, "batmesh0", got.Network)
+	assert.Empty(t, got.McastRate, "primary link must not carry secondary policy")
+	assert.Empty(t, got.MeshNolearn, "primary link must not carry secondary policy")
+	assert.Empty(t, got.MeshRetryTimeout, "primary link must not carry secondary policy")
+	assert.Empty(t, got.MeshConfirmTimeout, "primary link must not carry secondary policy")
+	assert.Empty(t, got.MeshHoldingTimeout, "primary link must not carry secondary policy")
 }
 
 // seedIface adds a wifi-iface with the given device and mode to the
@@ -1022,5 +1032,217 @@ func TestIsMorseDevice(t *testing.T) {
 
 	if IsMorseDevice(reader, "radio9") {
 		t.Error("unknown device must not be reported as morse")
+	}
+}
+
+// --- Secondary mesh policy ---
+
+func TestSecondaryMeshPolicyOptions_ValuesAndOrder(t *testing.T) {
+	got := SecondaryMeshPolicyOptions()
+
+	want := []SecondaryMeshPolicyOption{
+		{Option: "mcast_rate", Value: "24000"},
+		{Option: "mesh_nolearn", Value: "1"},
+		{Option: "mesh_retry_timeout", Value: "255"},
+		{Option: "mesh_confirm_timeout", Value: "255"},
+		{Option: "mesh_holding_timeout", Value: "255"},
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("SecondaryMeshPolicyOptions: got %v, want %v", got, want)
+	}
+}
+
+func TestUCIWirelessIface_ApplySecondaryMeshPolicy_MatchesPolicyOptions(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	cfg := &UCIWirelessIface{Device: "radio1", Network: "batmesh1", Mode: "mesh"}
+	cfg.ApplySecondaryMeshPolicy()
+
+	if err := SetWirelessIfaceConfigWithReader("batmesh1_radio1", cfg, reader); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, p := range SecondaryMeshPolicyOptions() {
+		vals, ok := reader.Get("wireless", "batmesh1_radio1", p.Option)
+		if !ok || len(vals) != 1 || vals[0] != p.Value {
+			t.Errorf("%s: got %v (ok=%v), want [%s]", p.Option, vals, ok, p.Value)
+		}
+	}
+}
+
+func TestMeshLink_IfaceConfig_CarriesSecondaryPolicy(t *testing.T) {
+	cfg := MeshLink{Radio: "radio1", Network: "batmesh1", MeshID: "m", Key: "k", RSSIThreshold: "-80"}.IfaceConfig()
+
+	want := &UCIWirelessIface{
+		Device: "radio1", Network: "batmesh1", Mode: "mesh", MeshID: "m", Key: "k",
+		MeshFwding: "0", MeshRSSIThreshold: "-80", Encryption: "sae",
+		McastRate: "24000", MeshNolearn: "1",
+		MeshRetryTimeout: "255", MeshConfirmTimeout: "255", MeshHoldingTimeout: "255",
+	}
+
+	if !reflect.DeepEqual(cfg, want) {
+		t.Fatalf("IfaceConfig:\n got %+v\nwant %+v", cfg, want)
+	}
+}
+
+func TestSetWirelessIfaceConfigWithReader_RoundTripsPolicyFields(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	cfg := &UCIWirelessIface{
+		Device:             "radio1",
+		Network:            "batmesh1",
+		Mode:               "mesh",
+		McastRate:          "12000",
+		MeshNolearn:        "0",
+		MeshRetryTimeout:   "100",
+		MeshConfirmTimeout: "101",
+		MeshHoldingTimeout: "102",
+	}
+
+	if err := SetWirelessIfaceConfigWithReader("batmesh1_radio1", cfg, reader); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, err := GetWirelessIfaceByNameWithReader("batmesh1_radio1", reader)
+	if err != nil {
+		t.Fatalf("unexpected error reading back: %v", err)
+	}
+
+	if got.McastRate != "12000" || got.MeshNolearn != "0" ||
+		got.MeshRetryTimeout != "100" || got.MeshConfirmTimeout != "101" || got.MeshHoldingTimeout != "102" {
+		t.Errorf("policy fields did not round-trip: %+v", got)
+	}
+}
+
+func TestSetWirelessIfaceConfigWithReader_SkipsEmptyPolicyFields(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	cfg := &UCIWirelessIface{Device: "radio1", Network: "batmesh1", Mode: "mesh"}
+
+	if err := SetWirelessIfaceConfigWithReader("batmesh1_radio1", cfg, reader); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, p := range SecondaryMeshPolicyOptions() {
+		if _, ok := reader.Get("wireless", "batmesh1_radio1", p.Option); ok {
+			t.Errorf("%s must not be written when the field is empty", p.Option)
+		}
+	}
+}
+
+func TestWhitelistInterfaceFields_RemovesPolicyOptions(t *testing.T) {
+	reader := newWirelessMockReader()
+
+	cfg := &UCIWirelessIface{Device: "radio1", Network: "batmesh1", Mode: "mesh", Key: "k", Encryption: "sae"}
+	cfg.ApplySecondaryMeshPolicy()
+
+	if err := SetWirelessIfaceConfigWithReader("batmesh1_radio1", cfg, reader); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := WhitelistInterfaceFields(reader, "batmesh1_radio1", WizardWifiIfaceWhitelist); err != nil {
+		t.Fatalf("WhitelistInterfaceFields: %v", err)
+	}
+
+	for _, p := range SecondaryMeshPolicyOptions() {
+		if _, ok := reader.Get("wireless", "batmesh1_radio1", p.Option); ok {
+			t.Errorf("%s must be removed by the wizard reset whitelist", p.Option)
+		}
+	}
+
+	if vals, ok := reader.Get("wireless", "batmesh1_radio1", "key"); !ok || vals[0] != "k" {
+		t.Errorf("key must survive the whitelist, got %v (ok=%v)", vals, ok)
+	}
+}
+
+func TestEnsureSecondaryMeshPolicyOptions_AddsAllWhenMissing(t *testing.T) {
+	reader := newWirelessMockReader()
+	_ = reader.AddSection("wireless", "batmesh1_radio1", "wifi-iface")
+	_ = reader.SetType("wireless", "batmesh1_radio1", "device", uci.TypeOption, "radio1")
+	_ = reader.SetType("wireless", "batmesh1_radio1", "network", uci.TypeOption, "batmesh1")
+	_ = reader.SetType("wireless", "batmesh1_radio1", "mode", uci.TypeOption, "mesh")
+
+	added, err := EnsureSecondaryMeshPolicyOptions(reader, "batmesh1_radio1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := []string{"mcast_rate", "mesh_nolearn", "mesh_retry_timeout", "mesh_confirm_timeout", "mesh_holding_timeout"}
+	if !reflect.DeepEqual(added, want) {
+		t.Errorf("added: got %v, want %v", added, want)
+	}
+
+	for _, p := range SecondaryMeshPolicyOptions() {
+		vals, ok := reader.Get("wireless", "batmesh1_radio1", p.Option)
+		if !ok || vals[0] != p.Value {
+			t.Errorf("%s: got %v (ok=%v), want %s", p.Option, vals, ok, p.Value)
+		}
+	}
+
+	if reader.commitCalled {
+		t.Error("EnsureSecondaryMeshPolicyOptions must not commit; the caller owns the commit")
+	}
+}
+
+func TestEnsureSecondaryMeshPolicyOptions_NoOpWhenPresent(t *testing.T) {
+	reader := newWirelessMockReader()
+	_ = reader.AddSection("wireless", "batmesh1_radio1", "wifi-iface")
+
+	for _, p := range SecondaryMeshPolicyOptions() {
+		_ = reader.SetType("wireless", "batmesh1_radio1", p.Option, uci.TypeOption, p.Value)
+	}
+
+	before := len(reader.setTypeCalls)
+
+	added, err := EnsureSecondaryMeshPolicyOptions(reader, "batmesh1_radio1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(added) != 0 {
+		t.Errorf("expected nothing added, got %v", added)
+	}
+
+	if len(reader.setTypeCalls) != before {
+		t.Errorf("expected no SetType calls, got %d new", len(reader.setTypeCalls)-before)
+	}
+}
+
+func TestEnsureSecondaryMeshPolicyOptions_PreservesOperatorValue(t *testing.T) {
+	reader := newWirelessMockReader()
+	_ = reader.AddSection("wireless", "batmesh1_radio1", "wifi-iface")
+	_ = reader.SetType("wireless", "batmesh1_radio1", "mcast_rate", uci.TypeOption, "12000")
+
+	added, err := EnsureSecondaryMeshPolicyOptions(reader, "batmesh1_radio1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := []string{"mesh_nolearn", "mesh_retry_timeout", "mesh_confirm_timeout", "mesh_holding_timeout"}
+	if !reflect.DeepEqual(added, want) {
+		t.Errorf("added: got %v, want %v", added, want)
+	}
+
+	vals, _ := reader.Get("wireless", "batmesh1_radio1", "mcast_rate")
+	if vals[0] != "12000" {
+		t.Errorf("operator mcast_rate must be preserved, got %v", vals)
+	}
+}
+
+func TestEnsureSecondaryMeshPolicyOptions_SetTypeError(t *testing.T) {
+	reader := newWirelessMockReader()
+	_ = reader.AddSection("wireless", "batmesh1_radio1", "wifi-iface")
+	reader.setTypeError = errors.New("boom")
+
+	_, err := EnsureSecondaryMeshPolicyOptions(reader, "batmesh1_radio1")
+	if err == nil || !strings.Contains(err.Error(), "mcast_rate") {
+		t.Fatalf("expected wrapped mcast_rate error, got %v", err)
+	}
+}
+
+func TestEnsureSecondaryMeshPolicyOptions_EmptySection(t *testing.T) {
+	if _, err := EnsureSecondaryMeshPolicyOptions(newWirelessMockReader(), ""); err == nil {
+		t.Fatal("expected error for empty section name")
 	}
 }

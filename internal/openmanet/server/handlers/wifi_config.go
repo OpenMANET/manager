@@ -341,7 +341,7 @@ func (s *WifiConfigService) UpdateRadioSettings(ctx context.Context, req *wifico
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.stageRadioSettings(req.GetRadioName(), req.GetSettings()); err != nil {
+	if err := s.stageRadioSettings(ctx, req.GetRadioName(), req.GetSettings()); err != nil {
 		var sw *stageWriteError
 		if errors.As(err, &sw) {
 			return &wificonfigv1.UpdateRadioSettingsResponse{Success: false, Message: strPtr(sw.msg)}, nil
@@ -369,7 +369,7 @@ func (s *WifiConfigService) ApplyRadioSettingsBatch(ctx context.Context, updates
 	defer s.mu.Unlock()
 
 	for _, u := range updates {
-		if err := s.stageRadioSettings(u.RadioName, u.Settings); err != nil {
+		if err := s.stageRadioSettings(ctx, u.RadioName, u.Settings); err != nil {
 			return fmt.Errorf("stage %s: %w", u.RadioName, err)
 		}
 	}
@@ -415,7 +415,7 @@ func (s *WifiConfigService) applyCommitted(ctx context.Context) error {
 // stageRadioSettings writes the device and iface options for one radio.
 // The caller holds s.mu. Validation and lookup failures are connect
 // errors; UCI write failures are *stageWriteError.
-func (s *WifiConfigService) stageRadioSettings(radioName string, settings *wificonfigv1.RadioSettings) error { //nolint:gocognit,gocyclo // one linear staging sequence; splitting it hides the write order
+func (s *WifiConfigService) stageRadioSettings(ctx context.Context, radioName string, settings *wificonfigv1.RadioSettings) error { //nolint:gocognit,gocyclo // one linear staging sequence; splitting it hides the write order
 	if settings == nil {
 		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("settings are required"))
 	}
@@ -526,6 +526,8 @@ func (s *WifiConfigService) stageRadioSettings(radioName string, settings *wific
 				s.Log.Info().Str("network", batmesh).Msg("Created batadv_hardif for mesh radio")
 			}
 
+			s.stageSecondaryMeshPolicy(ctx, radioName, batmesh, ifaceCfg)
+
 		case uciModeAP, uciModeSTA:
 			// Coming back from mesh (or any other state) — rebind to
 			// the AP bridge so the iface joins br-ahwlan.
@@ -544,6 +546,45 @@ func (s *WifiConfigService) stageRadioSettings(radioName string, settings *wific
 	}
 
 	return nil
+}
+
+// radioSupportsSecondaryMesh reports whether radioName is backed by a
+// chipset the daemon tunes as the 2.4 GHz secondary link (MT7915 /
+// MT7916, per network.SupportsSecondaryMeshLink). A lookup failure logs
+// at Warn and counts as unsupported: a mode change must never fail
+// because iwinfo or ubus was unavailable.
+func (s *WifiConfigService) radioSupportsSecondaryMesh(ctx context.Context, radioName string) bool {
+	if s.IwinfoClient == nil || s.WirelessStatus == nil {
+		return false
+	}
+
+	allInfo, err := s.IwinfoClient.GetInfoForAll(ctx)
+	if err != nil {
+		s.Log.Warn().Err(err).Str("radio", radioName).Msg("iwinfo unavailable; skipping secondary mesh tuning")
+
+		return false
+	}
+
+	status, err := s.WirelessStatus.GetWirelessStatus(ctx)
+	if err != nil {
+		s.Log.Warn().Err(err).Str("radio", radioName).Msg("wireless status unavailable; skipping secondary mesh tuning")
+
+		return false
+	}
+
+	return network.SupportsSecondaryMeshLink(network.ResolveWirelessRadioHardwareName(radioName, status, allInfo))
+}
+
+// stageSecondaryMeshPolicy copies the daemon's batmesh1 tuning
+// (mcast_rate, mesh_nolearn, plink timers) onto cfg when the mesh iface
+// binds to the secondary hardif on an MT7915/MT7916 radio. The HaLow
+// primary and any other hardif are left alone.
+func (s *WifiConfigService) stageSecondaryMeshPolicy(ctx context.Context, radioName, batmesh string, cfg *network.UCIWirelessIface) {
+	if batmesh != network.BatmanSecondaryIface || !s.radioSupportsSecondaryMesh(ctx, radioName) {
+		return
+	}
+
+	cfg.ApplySecondaryMeshPolicy()
 }
 
 // stageIfaceIdentity stages the network-name option that matches the
