@@ -43,7 +43,7 @@ Every snapshot is a single JSON object with this shape:
 
 ```json
 {
-  "schema_version": "1.5.0",
+  "schema_version": "1.6.0",
   "captured_at_start": "2026-04-09T12:34:56.789012345Z",
   "captured_at_end":   "2026-04-09T12:34:56.789013101Z",
   "daemon": { ... },
@@ -59,7 +59,7 @@ Every snapshot is a single JSON object with this shape:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `schema_version` | string | Semver of the envelope schema. Bump minor for additive fields, major for breaking changes. The current value is `1.5.0`. |
+| `schema_version` | string | Semver of the envelope schema. Bump minor for additive fields, major for breaking changes. The current value is `1.6.0`. |
 | `captured_at_start` | RFC3339 timestamp | Wall-clock time when the capture loop began reading counters. |
 | `captured_at_end` | RFC3339 timestamp | Wall-clock time when the capture loop finished. The difference `captured_at_end - captured_at_start` bounds the counter-read skew window; in practice this is microseconds. |
 | `daemon.version` | string | openmanetd build version. Empty until the build system populates it. |
@@ -312,6 +312,65 @@ read.
 | `agc_known` | bool | Whether the Auto Gain Control switch has been observed at all. When false, `agc_enabled` is meaningless. |
 | `agc_enabled` | bool | Last known Auto Gain Control state. When true, the CM108B adjusts capture gain itself and manual mic volume changes may appear ineffective. |
 
+### `wireless` — mesh station rates
+
+Every mesh-point wifi interface with the stations the driver currently
+knows (`iw station dump` data via nl80211), read through the same
+TTL-bounded wireless cache the API handlers use. Values are therefore at
+most `DefaultWirelessCacheTTL` (5 s) old, and the netlink refresh that
+fills them is shared with — not added to — the API's own polling. The
+section is registered only when the mesh management workers are running
+(`alfred.enable`); on a daemon without them the section is absent.
+
+```json
+{
+  "interfaces": [
+    {
+      "name": "mesh1",
+      "stations": [
+        {
+          "mac": "9c:ef:d5:f9:80:4d",
+          "signal_dbm": -61,
+          "signal_avg_dbm": -63,
+          "tx_bitrate_kbps": 86700,
+          "tx_phy": "he",
+          "tx_width_mhz": 40,
+          "tx_mcs": 7,
+          "tx_nss": 2,
+          "rx_bitrate_kbps": 72200,
+          "rx_phy": "ht",
+          "rx_width_mhz": 20,
+          "rx_mcs": 7,
+          "rx_nss": 1,
+          "tx_retries": 12,
+          "tx_failed": 3,
+          "inactive_ms": 1500
+        }
+      ]
+    },
+    { "name": "mesh0", "stations": [] }
+  ]
+}
+```
+
+| Field | Type | Unit | Meaning |
+|---|---|---|---|
+| `error` | string | — | Present only when the wifi interface list could not be read (nl80211 failure); `interfaces` is then empty. |
+| `interfaces[*].name` | string | — | Linux interface name of a mesh-point (802.11s) interface. AP and station interfaces are not listed. |
+| `interfaces[*].error` | string | — | Present only when the station dump for this interface failed; `stations` is then empty and the other interfaces are still reported. |
+| `interfaces[*].stations[*].mac` | string | — | Peer MAC, lowercase colon-separated. Empty when the driver returned an address that is not 6 bytes. |
+| `…stations[*].signal_dbm` | int32 | dBm | Signal of the last received PPDU from this peer (`NL80211_STA_INFO_SIGNAL`). |
+| `…stations[*].signal_avg_dbm` | int32 | dBm | Driver-averaged signal (`NL80211_STA_INFO_SIGNAL_AVG`); the value the mesh admission floor (`mesh_rssi_threshold`) is compared against. |
+| `…stations[*].tx_bitrate_kbps` | int32 | kbit/s | Rate the local radio last transmitted to this peer with. When the driver reports no rate attributes this is the plain station bitrate and `tx_phy` is empty. |
+| `…stations[*].tx_phy` | string | — | Modulation family of the TX rate: `legacy` (802.11a/b/g), `ht` (n), `vht` (ac), `he` (ax), `eht` (be), or `""` when unknown. S1G/HaLow rates report as `ht` with widths 1–16. |
+| `…stations[*].tx_width_mhz` | int32 | MHz | Channel width the TX rate used: 1/2/4/8/16 (S1G), 20/40/80/160/320; 160 for 80+80. 0 when unknown. |
+| `…stations[*].tx_mcs` | int32 | index | MCS of the TX rate. -1 for legacy rates and when not reported. |
+| `…stations[*].tx_nss` | int32 | count | Spatial streams of the TX rate. -1 when not reported. |
+| `…stations[*].rx_bitrate_kbps`, `rx_phy`, `rx_width_mhz`, `rx_mcs`, `rx_nss` | as TX | as TX | The same five fields for the rate the peer last used towards this radio. |
+| `…stations[*].tx_retries` | int64 | count | Cumulative frames the driver retransmitted to this peer (`NL80211_STA_INFO_TX_RETRIES`). |
+| `…stations[*].tx_failed` | int64 | count | Cumulative frames that exhausted retries to this peer (`NL80211_STA_INFO_TX_FAILED`). |
+| `…stations[*].inactive_ms` | int64 | milliseconds | Time since the driver last saw traffic from this peer. |
+
 ## Interpretation heuristics for LLM triage
 
 When a snapshot is provided for analysis, apply the following rules of
@@ -437,6 +496,24 @@ thumb in order and flag anything that fits.
    `frame_drops` means the playback buffer is contended — check whether
    the active port's stream is running
    (`comms.ports[*].receive_enabled`).
+19. **2.4 GHz link fell back to HT.** On a `mesh1` (batmesh1) station,
+   `wireless.interfaces[*].stations[*].tx_phy` of `"ht"` or
+   `tx_width_mhz` of 20 while `signal_dbm` is above −70 means the HE40
+   configured by setup did not negotiate: the peer lacks HE, the two
+   radios disagree on width, or `noscan` is missing on one side. Expect
+   roughly a third of the ~100 Mbps ceiling the batmesh1 tuning targets.
+   Compare `htmode` on both nodes before touching anything else. A
+   `mesh0` (HaLow) station reporting `ht` at 1–16 MHz is normal.
+20. **Rate/RSSI mismatch.** `tx_mcs ≤ 2` with `signal_dbm > −70` on an
+   `he` or `ht` link means rate control is backing off for interference
+   or retries, not distance. Read `tx_retries` and `tx_failed` deltas
+   across two snapshots: rising `tx_failed` with a strong signal points
+   at a hidden node or a co-channel neighbor, not at range.
+21. **Admission floor at work.** A station with `signal_avg_dbm` below
+   the configured `mesh_rssi_threshold` (−80 by default) that persists
+   across snapshots is a peering that predates the threshold write;
+   `inactive_ms` growing without bound means the peer is gone and the
+   plink will time out on its own.
 
 ## Skew note
 
