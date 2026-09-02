@@ -127,8 +127,11 @@ type UCIWirelessIface struct {
 	Disabled          string `uci:"option disabled"`
 
 	// Secondary-link tuning written by ApplySecondaryMeshPolicy. Empty
-	// values are skipped on write and never deleted, so a section that
-	// already carries an operator-chosen value keeps it.
+	// values are skipped on write and the setter never deletes options.
+	// The startup reconcile (EnsureSecondaryMeshPolicyOptions) adds only
+	// what is missing, so a hand-edited value survives a boot; the wizard
+	// and the wireless settings handler re-assert the full set on every
+	// write they make.
 	McastRate          string `uci:"option mcast_rate"`
 	MeshNolearn        string `uci:"option mesh_nolearn"`
 	MeshRetryTimeout   string `uci:"option mesh_retry_timeout"`

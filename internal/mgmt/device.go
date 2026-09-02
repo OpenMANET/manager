@@ -301,7 +301,10 @@ func radioHostsEnabledAP(radio string, reader network.ConfigReader) bool {
 // but never overwrites, and commits plus reloads once only when at
 // least one option was written. It does not depend on
 // batmesh1configured: wizard-, fallback- and settings-written sections
-// are all candidates.
+// are all candidates. An iwinfo or wireless-status lookup failure is
+// logged at Warn and skips the pass for this start, matching the
+// settings handler and the boot fallback; UCI read/write and reload
+// failures are returned.
 func (m *ManagementConfig) reconcileBatMesh1Options(ctx context.Context) error {
 	return m.reconcileBatMesh1OptionsWithDeps(
 		ctx,
@@ -342,12 +345,22 @@ func (m *ManagementConfig) reconcileBatMesh1OptionsWithDeps(
 		if hardware == nil {
 			hardware, err = resolveRadioHardware(ctx, iwinfoProvider, wirelessStatus)
 			if err != nil {
-				return err
+				m.Log.Warn().Err(err).Msg("Radio hardware lookup unavailable; skipping batmesh1 tuning reconcile this start")
+
+				return nil
 			}
 		}
 
-		if !network.SupportsSecondaryMeshLink(hardware[iface.Device]) {
+		hw := hardware[iface.Device]
+		if hw == "" {
 			m.Log.Debug().Str("section", section).Str("radio", iface.Device).
+				Msg("batmesh1 radio hardware name unresolved (radio not up yet?); will retry next start")
+
+			continue
+		}
+
+		if !network.SupportsSecondaryMeshLink(hw) {
+			m.Log.Debug().Str("section", section).Str("radio", iface.Device).Str("hardware", hw).
 				Msg("batmesh1 section is not on an MT7915/MT7916 radio; leaving tuning alone")
 
 			continue

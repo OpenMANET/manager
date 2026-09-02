@@ -1310,7 +1310,7 @@ func TestReconcileBatMesh1Options_IfaceSectionsError(t *testing.T) {
 	}
 }
 
-func TestReconcileBatMesh1Options_WirelessStatusError(t *testing.T) {
+func TestReconcileBatMesh1Options_WirelessStatusError_SkipsThisStart(t *testing.T) {
 	m := newTestManagementConfig()
 	wireless := newFakeWirelessReader()
 	wireless.seedWifiDevice("radio1", "2g", "8", "HE20")
@@ -1321,9 +1321,60 @@ func TestReconcileBatMesh1Options_WirelessStatusError(t *testing.T) {
 	err := m.reconcileBatMesh1OptionsWithDeps(context.Background(), wireless,
 		makeIwinfoWithHardware("wlan1", "MediaTek MT7915AN"),
 		&fakeWirelessStatusProvider{Err: errors.New("ubus down")}, reload.fn)
-	if err == nil || !strings.Contains(err.Error(), "ubus down") {
-		t.Fatalf("expected wrapped status error, got %v", err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	assertPolicyAbsent(t, wireless, "batmesh1_radio1")
+
+	if wireless.commitCalls != 0 || reload.calls != 0 {
+		t.Errorf("no commit/reload expected, got commit=%d reload=%d", wireless.commitCalls, reload.calls)
+	}
+}
+
+func TestReconcileBatMesh1Options_IwinfoError_SkipsThisStart(t *testing.T) {
+	m := newTestManagementConfig()
+	wireless := newFakeWirelessReader()
+	wireless.seedWifiDevice("radio1", "2g", "8", "HE20")
+	wireless.seedBatMesh1Iface("batmesh1_radio1", "radio1")
+
+	reload := &reloadRecorder{}
+
+	err := m.reconcileBatMesh1OptionsWithDeps(context.Background(), wireless,
+		&fakeIwinfo{infoMapErr: errors.New("iwinfo down")},
+		wirelessStatusForRadio(t, "radio1", "wlan1"), reload.fn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	assertPolicyAbsent(t, wireless, "batmesh1_radio1")
+
+	if wireless.commitCalls != 0 || reload.calls != 0 {
+		t.Errorf("no commit/reload expected, got commit=%d reload=%d", wireless.commitCalls, reload.calls)
+	}
+}
+
+func TestReconcileBatMesh1Options_SkipsUnresolvedHardware(t *testing.T) {
+	m := newTestManagementConfig()
+	wireless := newFakeWirelessReader()
+	wireless.seedWifiDevice("radio1", "2g", "8", "HE20")
+	wireless.seedBatMesh1Iface("batmesh1_radio1", "radio1")
+
+	reload := &reloadRecorder{}
+
+	// iwinfo knows only a different ifname (wlan9), so the radio1 ->
+	// wlan1 mapping from wirelessStatusForRadio never resolves to a
+	// hardware name.
+	err := m.reconcileBatMesh1OptionsWithDeps(context.Background(), wireless,
+		makeIwinfoWithHardware("wlan9", "MediaTek MT7915AN"),
+		wirelessStatusForRadio(t, "radio1", "wlan1"), reload.fn)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	assertPolicyAbsent(t, wireless, "batmesh1_radio1")
+
+	if wireless.commitCalls != 0 || reload.calls != 0 {
+		t.Errorf("no commit/reload expected, got commit=%d reload=%d", wireless.commitCalls, reload.calls)
+	}
 }
