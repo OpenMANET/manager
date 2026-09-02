@@ -45,7 +45,7 @@ type APIServer struct {
 	Log                   zerolog.Logger
 	DB                    *models.Queries
 	ApiServer             *http.Server
-	Wifi                  *mgmt.WirelessConfig
+	Wifi                  mgmt.WirelessProvider
 	GPS                   *gpsd.GPSService
 	BLOSManager           blos.BLOSLifecycle
 	CommsManager          comms.CommsLifecycle
@@ -101,11 +101,10 @@ func NewAPIServer(cfg APIServer) *APIServer {
 
 	// Wrap the wireless netlink provider with a TTL cache so
 	// Interfaces() + per-iface StationInfo() are fetched once per TTL
-	// and shared across all handlers that read wifi state.
-	var wifi mgmt.WirelessProvider
-	if cfg.Wifi != nil {
-		wifi = handlers.NewCachedWirelessProvider(cfg.Wifi, handlers.DefaultWirelessCacheTTL)
-	}
+	// and shared across all handlers that read wifi state. The daemon
+	// normally passes an already-cached provider (shared with the
+	// instrumentation snapshotter), which is reused as is.
+	wifi := handlers.EnsureCachedWireless(cfg.Wifi)
 
 	nodeSvc := &handlers.NodeService{
 		DB:  cfg.DB,

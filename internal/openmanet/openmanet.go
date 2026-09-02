@@ -34,6 +34,7 @@ import (
 	"github.com/openmanet/openmanetd/internal/terminal"
 	"github.com/openmanet/openmanetd/internal/util/board"
 	"github.com/openmanet/openmanetd/internal/util/logger"
+	"github.com/openmanet/openmanetd/internal/wireless"
 	"github.com/rs/zerolog"
 )
 
@@ -151,11 +152,16 @@ func Start(staticFS fs.FS) {
 		PersistentLogDir:    "/etc/openmanetd/sysupgrade",
 	})
 
+	// One TTL-bounded wireless cache serves both the API handlers and
+	// the instrumentation snapshotter, so the snapshot adds no netlink
+	// polling of its own. manager is nil when alfred is disabled.
+	wifiProvider := buildWifiProvider(manager)
+
 	// Wire the instrumentation snapshot registry and conditionally spawn
 	// the periodic worker. The registry is always constructed (cheap) but
 	// the worker goroutine is only started when the config flag is true,
 	// so a disabled deployment pays nothing beyond the adapter structs.
-	startInstrumentationWorker(ctx, cfg, blosManager, sysupgradeMgr, mixerVol, log)
+	startInstrumentationWorker(ctx, cfg, blosManager, sysupgradeMgr, mixerVol, wifiProvider, log)
 
 	// BatctlSnapshotter owns one background goroutine that refreshes the
 	// outputs of batctl oj / nj / mj / gwj plus /tmp/bat-hosts every 5s.
@@ -281,7 +287,7 @@ func Start(staticFS fs.FS) {
 	}
 
 	if manager != nil {
-		apiServer.Wifi = manager.WirelessConfig
+		apiServer.Wifi = wifiProvider
 		interfaceProvider.WifiInterfaces = manager.WirelessConfig.Interfaces
 	}
 
@@ -341,12 +347,13 @@ func Start(staticFS fs.FS) {
 }
 
 // startInstrumentationWorker constructs the instrumentation snapshot
-// registry, registers the comms and BLOS adapters, and starts the
-// periodic worker goroutine when the config flag is enabled. The
-// registry itself is cheap; only the worker has runtime cost. Errors
-// during setup are logged but never fatal — a misconfigured snapshot
-// subsystem must not prevent the daemon from serving traffic.
-func startInstrumentationWorker(ctx context.Context, cfg *config.Config, blosManager *blos.BLOSManager, sysupgradeMgr *sysupgrade.Manager, mixerVol *alsa.Volume, log zerolog.Logger) {
+// registry, registers the comms, BLOS, sysupgrade and wireless
+// adapters, and starts the periodic worker goroutine when the config
+// flag is enabled. The registry itself is cheap; only the worker has
+// runtime cost. Errors during setup are logged but never fatal — a
+// misconfigured snapshot subsystem must not prevent the daemon from
+// serving traffic.
+func startInstrumentationWorker(ctx context.Context, cfg *config.Config, blosManager *blos.BLOSManager, sysupgradeMgr *sysupgrade.Manager, mixerVol *alsa.Volume, wifiProvider *handlers.CachedWirelessProvider, log zerolog.Logger) {
 	if !cfg.GetInstrumentationEnable() {
 		return
 	}
@@ -387,6 +394,16 @@ func startInstrumentationWorker(ctx context.Context, cfg *config.Config, blosMan
 	if sysupgradeMgr != nil {
 		if err = reg.Register("sysupgrade", &sysupgrade.Snapshotter{Manager: sysupgradeMgr}); err != nil {
 			log.Error().Err(err).Msg("instrumentation: failed to register sysupgrade snapshotter")
+
+			return
+		}
+	}
+
+	// A typed nil must never reach the Provider interface field, so the
+	// section is registered only when the cache exists.
+	if wifiProvider != nil {
+		if err = reg.Register("wireless", &wireless.Snapshotter{Provider: wifiProvider}); err != nil {
+			log.Error().Err(err).Msg("instrumentation: failed to register wireless snapshotter")
 
 			return
 		}
@@ -466,6 +483,19 @@ func resolveGOMAXPROCS(cfgVal int, prof board.ExecutionProfile) int {
 	}
 
 	return prof.GOMAXPROCS
+}
+
+// buildWifiProvider constructs the TTL-bounded wireless cache shared by
+// the API handlers and the instrumentation snapshotter, or returns nil
+// when alfred is disabled (manager is nil). Building the cache once
+// here and handing the same pointer to both consumers means the
+// snapshot adds no netlink polling of its own.
+func buildWifiProvider(manager *mgmt.ManagementConfig) *handlers.CachedWirelessProvider {
+	if manager == nil {
+		return nil
+	}
+
+	return handlers.NewCachedWirelessProvider(manager.WirelessConfig, handlers.DefaultWirelessCacheTTL)
 }
 
 // startMeshNeighborsSnapshotter constructs and starts the
