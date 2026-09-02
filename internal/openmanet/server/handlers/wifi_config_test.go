@@ -2277,3 +2277,161 @@ func TestUpdateRadioSettings_MeshMode_NoBatmanDevice_FailedPrecondition(t *testi
 	assert.Equal(t, []string{"ap"}, mode)
 	assert.Equal(t, 0, rl.count())
 }
+
+// secondaryMeshCapableProviders returns iwinfo + wireless status fakes
+// that report radio2 as an MT7915 with runtime interface phy2-ap0.
+func secondaryMeshCapableProviders(hardware string) (*fakeIwinfoProvider, *fakeWirelessStatusProvider) {
+	iw := &fakeIwinfoProvider{infoByDevice: map[string]*iwinfo.InterfaceInfo{
+		"phy2-ap0": {Hardware: iwinfo.HardwareInfo{Name: hardware}},
+	}}
+	ws := &fakeWirelessStatusProvider{status: map[string]*network.WirelessRadioStatus{
+		"radio2": {Interfaces: []network.WirelessRadioInterface{{Ifname: "phy2-ap0"}}},
+	}}
+
+	return iw, ws
+}
+
+func assertSecondaryMeshPolicy(t *testing.T, reader *fakeConfigReader, section string, want bool) {
+	t.Helper()
+
+	for _, p := range network.SecondaryMeshPolicyOptions() {
+		vals, ok := reader.Get("wireless", section, p.Option)
+		if want {
+			if !ok || len(vals) != 1 || vals[0] != p.Value {
+				t.Errorf("%s: got %v (ok=%v), want %s", p.Option, vals, ok, p.Value)
+			}
+
+			continue
+		}
+
+		if ok {
+			t.Errorf("%s must not be written, got %v", p.Option, vals)
+		}
+	}
+}
+
+func TestUpdateRadioSettings_MeshOnBatmesh1_MT7915_WritesSecondaryPolicy(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+	svc.IwinfoClient, svc.WirelessStatus = secondaryMeshCapableProviders("MediaTek MT7915AN")
+
+	// default_radio2 moves from ahwlan to the only free hardif, batmesh1.
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:    "mesh-ssid",
+			Channel: "6",
+			Mode:    wificonfigv1.WifiMode_WIFI_MODE_MESH,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !resp.GetSuccess() {
+		t.Fatalf("expected success, got message: %v", resp.GetMessage())
+	}
+
+	assertSecondaryMeshPolicy(t, reader, "default_radio2", true)
+}
+
+func TestUpdateRadioSettings_MeshOnBatmesh1_MT7916_WritesSecondaryPolicy(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+	svc.IwinfoClient, svc.WirelessStatus = secondaryMeshCapableProviders("MediaTek MT7916")
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings:  &wificonfigv1.RadioSettings{Ssid: "mesh-ssid", Channel: "6", Mode: wificonfigv1.WifiMode_WIFI_MODE_MESH},
+	})
+	if err != nil || !resp.GetSuccess() {
+		t.Fatalf("expected success, err=%v msg=%v", err, resp.GetMessage())
+	}
+
+	assertSecondaryMeshPolicy(t, reader, "default_radio2", true)
+}
+
+func TestUpdateRadioSettings_MeshOnBatmesh1_UnsupportedChipset_SkipsPolicy(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+	svc.IwinfoClient, svc.WirelessStatus = secondaryMeshCapableProviders("Qualcomm Atheros QCA9880")
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings:  &wificonfigv1.RadioSettings{Ssid: "mesh-ssid", Channel: "6", Mode: wificonfigv1.WifiMode_WIFI_MODE_MESH},
+	})
+	if err != nil || !resp.GetSuccess() {
+		t.Fatalf("expected success, err=%v msg=%v", err, resp.GetMessage())
+	}
+
+	vals, ok := reader.Get("wireless", "default_radio2", "network")
+	if !ok || vals[0] != "batmesh1" {
+		t.Fatalf("radio2 must still bind to batmesh1, got %v (ok=%v)", vals, ok)
+	}
+
+	assertSecondaryMeshPolicy(t, reader, "default_radio2", false)
+}
+
+func TestUpdateRadioSettings_MeshOnBatmesh0_SkipsPolicy(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	// default_radio3 already sits on batmesh0 (the HaLow primary); the
+	// policy is for the secondary link only, whatever the chipset.
+	iw := &fakeIwinfoProvider{infoByDevice: map[string]*iwinfo.InterfaceInfo{
+		"wlan3": {Hardware: iwinfo.HardwareInfo{Name: "MediaTek MT7915AN"}},
+	}}
+	svc.IwinfoClient = iw
+	svc.WirelessStatus = &fakeWirelessStatusProvider{status: map[string]*network.WirelessRadioStatus{
+		"radio3": {Interfaces: []network.WirelessRadioInterface{{Ifname: "wlan3"}}},
+	}}
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio3",
+		Settings:  &wificonfigv1.RadioSettings{Ssid: "mesh-ssid", Channel: "42", Mode: wificonfigv1.WifiMode_WIFI_MODE_MESH},
+	})
+	if err != nil || !resp.GetSuccess() {
+		t.Fatalf("expected success, err=%v msg=%v", err, resp.GetMessage())
+	}
+
+	assertSecondaryMeshPolicy(t, reader, "default_radio3", false)
+}
+
+func TestUpdateRadioSettings_MeshOnBatmesh1_IwinfoError_SkipsPolicyButSucceeds(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+	svc.IwinfoClient = &fakeIwinfoProvider{infoErr: errors.New("iwinfo down")}
+	_, svc.WirelessStatus = secondaryMeshCapableProviders("MediaTek MT7915AN")
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings:  &wificonfigv1.RadioSettings{Ssid: "mesh-ssid", Channel: "6", Mode: wificonfigv1.WifiMode_WIFI_MODE_MESH},
+	})
+	if err != nil || !resp.GetSuccess() {
+		t.Fatalf("a telemetry failure must not fail the mode change, err=%v msg=%v", err, resp.GetMessage())
+	}
+
+	assertSecondaryMeshPolicy(t, reader, "default_radio2", false)
+}
+
+func TestUpdateRadioSettings_APMode_SkipsPolicy(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+	svc.IwinfoClient, svc.WirelessStatus = secondaryMeshCapableProviders("MediaTek MT7915AN")
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio2",
+		Settings:  &wificonfigv1.RadioSettings{Ssid: "test-ap", Channel: "6", Mode: wificonfigv1.WifiMode_WIFI_MODE_AP},
+	})
+	if err != nil || !resp.GetSuccess() {
+		t.Fatalf("expected success, err=%v msg=%v", err, resp.GetMessage())
+	}
+
+	assertSecondaryMeshPolicy(t, reader, "default_radio2", false)
+}

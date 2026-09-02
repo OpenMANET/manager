@@ -1449,7 +1449,7 @@ func integrationMinimalProfile() *setupv1.MeshNodeProfile {
 }
 
 func TestIntegration_ApplySetup_MeshBackhaul(t *testing.T) {
-	srv := newSetupTestServer(t, "setup:\n  enabled: true\n")
+	srv, reader := newSetupTestServerWithReader(t, "setup:\n  enabled: true\n")
 	client := setupconnect.NewSetupServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
 
 	prof := integrationMinimalProfile()
@@ -1477,6 +1477,15 @@ func TestIntegration_ApplySetup_MeshBackhaul(t *testing.T) {
 
 	require.NoError(t, stream.Err(), "a backhaul on a capable radio must apply end to end")
 	assert.True(t, sawValidateDone, "validation must accept the backhaul entry")
+
+	// The link section carries the daemon's secondary-mesh tuning
+	// through the real ConnectRPC + interceptor + commit path.
+	tr := &uciTree{reader: reader}
+	section := network.MeshLink{Radio: "radio0", Network: network.BatmanSecondaryIface}.Section()
+
+	for _, p := range network.SecondaryMeshPolicyOptions() {
+		assert.Equal(t, p.Value, tr.getOne("wireless", section, p.Option), p.Option)
+	}
 }
 
 // TestIntegration_ApplySetup_WritesLuciAndOpenmanetdFlags drives the

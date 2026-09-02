@@ -109,6 +109,10 @@ func (m *ManagementConfig) Start(ctx context.Context) {
 		m.Log.Error().Err(err).Msg("Failed to setup batmesh1 interface")
 	}
 
+	if err := m.reconcileBatMesh1Options(ctx); err != nil {
+		m.Log.Error().Err(err).Msg("Failed to reconcile batmesh1 tuning options")
+	}
+
 	client, err := alfred.NewClient(alfred.WithSocketPath(m.SocketPath))
 	if err != nil {
 		m.Log.Fatal().Err(err).Msg("Failed to create Alfred client")
