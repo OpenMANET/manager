@@ -667,3 +667,130 @@ describe('TestSettingsWirelessShareMesh', () => {
     expect(screen.getByDisplayValue('operator-typed')).toBeInTheDocument();
   });
 });
+
+describe('TestSettingsWirelessPeerFloor', () => {
+  const FLOOR = 'Peer admission floor';
+  const STATUS_2G_MESH = {
+    ...STATUS_AP, mode: 'Mesh', wifiMode: 2, ssid: 'old-2g', meshPeers: 1, connectedClients: 0,
+  };
+
+  // render2GMesh mounts one 2.4 GHz radio already in mesh mode, with the
+  // given RadioSettings overrides, and waits for the card to load.
+  async function render2GMesh(settingsOverride = {}) {
+    mockListRadios.mockResolvedValue({ radios: [RADIO_AP] });
+    mockGetRadioStatus.mockResolvedValue({ status: STATUS_2G_MESH });
+    mockGetRadioSettings.mockResolvedValue({
+      ...SETTINGS_2G_MESH,
+      settings: { ...SETTINGS_2G_MESH.settings, ...settingsOverride },
+    });
+    mockUpdateRadioSettings.mockResolvedValue({ success: true });
+    render(<SettingsWireless />);
+    await waitFor(() => screen.getByDisplayValue('old-2g'));
+  }
+
+  function pickChannel(ch) {
+    fireEvent.click(screen.getByRole('button', { name: 'Channel' }));
+    fireEvent.click(screen.getByRole('option', { name: ch }));
+  }
+
+  async function saveAndGetSettings() {
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(mockUpdateRadioSettings).toHaveBeenCalledTimes(1));
+    return mockUpdateRadioSettings.mock.calls[0][0].settings;
+  }
+
+  it('shows the stored floor on a 2.4 GHz mesh radio', async () => {
+    await render2GMesh({ meshRssiThreshold: -75 });
+    expect(screen.getByRole('button', { name: FLOOR })).toHaveTextContent('-75 dBm');
+    expect(screen.getByText('2.4 GHz peers heard below this are not admitted')).toBeInTheDocument();
+  });
+
+  it('shows -80 (default) when unset and sends nothing until changed', async () => {
+    await render2GMesh();
+    expect(screen.getByRole('button', { name: FLOOR })).toHaveTextContent('-80 dBm (default)');
+
+    pickChannel('6');
+    const sent = await saveAndGetSettings();
+    expect(sent.channel).toBe('6');
+    expect('meshRssiThreshold' in sent).toBe(false);
+  });
+
+  it('sends the chosen floor on save', async () => {
+    await render2GMesh();
+    fireEvent.click(screen.getByRole('button', { name: FLOOR }));
+    fireEvent.click(screen.getByRole('option', { name: '-70 dBm' }));
+    expect(screen.getByRole('button', { name: FLOOR })).toHaveTextContent('-70 dBm');
+
+    const sent = await saveAndGetSettings();
+    expect(sent.meshRssiThreshold).toBe(-70);
+  });
+
+  it('keeps a hand-edited value visible and does not resend it unchanged', async () => {
+    await render2GMesh({ meshRssiThreshold: -90 });
+    expect(screen.getByRole('button', { name: FLOOR })).toHaveTextContent('-90 dBm (current)');
+
+    pickChannel('6');
+    const sent = await saveAndGetSettings();
+    expect('meshRssiThreshold' in sent).toBe(false);
+  });
+
+  it('hides the floor on an AP-mode radio', async () => {
+    mockListRadios.mockResolvedValue({ radios: [RADIO_AP] });
+    mockGetRadioStatus.mockResolvedValue({ status: STATUS_AP });
+    mockGetRadioSettings.mockResolvedValue(SETTINGS_AP);
+    render(<SettingsWireless />);
+    await waitFor(() => screen.getByDisplayValue('openmanet'));
+
+    expect(screen.queryByRole('button', { name: FLOOR })).toBeNull();
+  });
+
+  it('hides the floor on a HaLow mesh radio', async () => {
+    mockListRadios.mockResolvedValue({ radios: [RADIO_S1G] });
+    mockGetRadioStatus.mockResolvedValue({ status: STATUS_S1G });
+    mockGetRadioSettings.mockResolvedValue(SETTINGS_S1G);
+    render(<SettingsWireless />);
+    await waitFor(() => screen.getByDisplayValue('old-mesh'));
+
+    expect(screen.queryByRole('button', { name: FLOOR })).toBeNull();
+  });
+
+  it('seeds -80 when an AP radio is switched to mesh', async () => {
+    mockListRadios.mockResolvedValue({ radios: [RADIO_AP] });
+    mockGetRadioStatus.mockResolvedValue({ status: STATUS_AP });
+    mockGetRadioSettings.mockResolvedValue(SETTINGS_AP);
+    mockUpdateRadioSettings.mockResolvedValue({ success: true });
+    render(<SettingsWireless />);
+    await waitFor(() => screen.getByDisplayValue('openmanet'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mode' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Mesh' }));
+    expect(screen.getByRole('button', { name: FLOOR })).toHaveTextContent('-80 dBm (default)');
+
+    const sent = await saveAndGetSettings();
+    expect(sent.mode).toBe(2);
+    expect(sent.meshRssiThreshold).toBe(-80);
+  });
+
+  it('restores the stored floor across a mesh → AP → mesh flip', async () => {
+    await render2GMesh({ meshRssiThreshold: -75 });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mode' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Access Point' }));
+    expect(screen.queryByRole('button', { name: FLOOR })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mode' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Mesh' }));
+    expect(screen.getByRole('button', { name: FLOOR })).toHaveTextContent('-75 dBm');
+  });
+
+  it('does not resend the floor when the radio is flipped to AP', async () => {
+    await render2GMesh({ meshRssiThreshold: -75 });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mode' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Access Point' }));
+
+    const sent = await saveAndGetSettings();
+    expect(sent.mode).toBe(1);
+    expect('meshRssiThreshold' in sent).toBe(false);
+  });
+});
