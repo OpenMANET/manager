@@ -1049,6 +1049,7 @@ func (s *SetupService) writeMeshBackhaulIface(ap *setupv1.RadioApProfile) error 
 
 	radioWrites := []optionWrite{
 		{wifiOptionChannel, channel},
+		// MeshBackhaulProfile.bandwidth_mhz in setup.proto still documents the old HE20 default; fix it with the next setup.proto change (proto/ is a submodule).
 		{wifiOptionHTMode, network.SecondaryMeshHTMode(bh.GetBandwidthMhz())},
 	}
 

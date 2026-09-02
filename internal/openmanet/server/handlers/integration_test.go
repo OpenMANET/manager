@@ -1486,6 +1486,10 @@ func TestIntegration_ApplySetup_MeshBackhaul(t *testing.T) {
 	for _, p := range network.SecondaryMeshPolicyOptions() {
 		assert.Equal(t, p.Value, tr.getOne("wireless", section, p.Option), p.Option)
 	}
+
+	assert.Equal(t, network.SecondaryMeshChannel2G, tr.getOne("wireless", "radio0", "channel"))
+	assert.Equal(t, network.SecondaryMeshHTMode2G, tr.getOne("wireless", "radio0", "htmode"),
+		"a zero-width backhaul profile must land the daemon's default width")
 }
 
 // TestIntegration_ApplySetup_WritesLuciAndOpenmanetdFlags drives the
