@@ -1922,6 +1922,7 @@ func TestWifiModeRoundTrip(t *testing.T) {
 
 func TestCurrentRadioSettings_MatchesGetRadioSettings(t *testing.T) {
 	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = meshRSSIFixture(t, "default_radio3", "-75")
 
 	viaRPC, err := svc.GetRadioSettings(context.Background(), &wificonfigv1.GetRadioSettingsRequest{RadioName: "radio3"})
 	require.NoError(t, err)
@@ -1933,6 +1934,8 @@ func TestCurrentRadioSettings_MatchesGetRadioSettings(t *testing.T) {
 	assert.Equal(t, viaRPC.GetSettings().GetChannel(), cur.GetChannel())
 	assert.Equal(t, viaRPC.GetSettings().GetTxPower(), cur.GetTxPower())
 	assert.Equal(t, viaRPC.GetSettings().GetMode(), cur.GetMode())
+	assert.Equal(t, viaRPC.GetSettings().GetMeshRssiThreshold(), cur.GetMeshRssiThreshold())
+	assert.Equal(t, int32(-75), cur.GetMeshRssiThreshold())
 	assert.Nil(t, cur.Password, "passwords are never read back")
 }
 
@@ -2504,10 +2507,10 @@ func TestUpdateRadioSettings_MeshMode_WritesMeshRSSIThreshold(t *testing.T) {
 	svc.ConfigReader = reader
 
 	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
-		RadioName: "radio3",
+		RadioName: "radio2",
 		Settings: &wificonfigv1.RadioSettings{
 			Ssid:              "mesh-ssid",
-			Channel:           "42",
+			Channel:           "6",
 			Mode:              wificonfigv1.WifiMode_WIFI_MODE_MESH,
 			MeshRssiThreshold: proto.Int32(-75),
 		},
@@ -2515,7 +2518,7 @@ func TestUpdateRadioSettings_MeshMode_WritesMeshRSSIThreshold(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, resp.GetSuccess(), resp.GetMessage())
 
-	vals, ok := reader.Get("wireless", "default_radio3", "mesh_rssi_threshold")
+	vals, ok := reader.Get("wireless", "default_radio2", "mesh_rssi_threshold")
 	require.True(t, ok, "mesh_rssi_threshold must be written on the mesh iface")
 	assert.Equal(t, []string{"-75"}, vals)
 }
@@ -2525,20 +2528,23 @@ func TestUpdateRadioSettings_MeshIface_UnspecifiedMode_WritesMeshRSSIThreshold(t
 	svc := newTestWifiConfigService(t)
 	svc.ConfigReader = reader
 
-	// No mode sent: the iface is already mode=mesh in UCI, so the
-	// effective mode is mesh and the floor is staged.
+	// Make default_radio2 a stored mesh iface first, then send an
+	// update without Mode: the effective mode still resolves to mesh
+	// from UCI, so the floor is staged.
+	require.NoError(t, reader.SetType("wireless", "default_radio2", "mode", uci.TypeOption, "mesh"))
+
 	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
-		RadioName: "radio3",
+		RadioName: "radio2",
 		Settings: &wificonfigv1.RadioSettings{
 			Ssid:              "mesh-ssid",
-			Channel:           "42",
+			Channel:           "6",
 			MeshRssiThreshold: proto.Int32(-70),
 		},
 	})
 	require.NoError(t, err)
 	require.True(t, resp.GetSuccess(), resp.GetMessage())
 
-	vals, ok := reader.Get("wireless", "default_radio3", "mesh_rssi_threshold")
+	vals, ok := reader.Get("wireless", "default_radio2", "mesh_rssi_threshold")
 	require.True(t, ok, "effective mode comes from UCI when the request omits it")
 	assert.Equal(t, []string{"-70"}, vals)
 }
@@ -2583,4 +2589,25 @@ func TestUpdateRadioSettings_APMode_IgnoresMeshRSSIThreshold(t *testing.T) {
 
 	_, ok := reader.Get("wireless", "default_radio2", "mesh_rssi_threshold")
 	assert.False(t, ok, "the floor is meaningless on an AP iface and must not be written")
+}
+
+func TestUpdateRadioSettings_MorseRadio_IgnoresMeshRSSIThreshold(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+		RadioName: "radio3",
+		Settings: &wificonfigv1.RadioSettings{
+			Ssid:              "mesh-ssid",
+			Channel:           "42",
+			Mode:              wificonfigv1.WifiMode_WIFI_MODE_MESH,
+			MeshRssiThreshold: proto.Int32(-75),
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.GetSuccess(), resp.GetMessage())
+
+	_, ok := reader.Get("wireless", "default_radio3", "mesh_rssi_threshold")
+	assert.False(t, ok, "the HaLow floor is not operator-tunable; the field is ignored on a morse radio")
 }

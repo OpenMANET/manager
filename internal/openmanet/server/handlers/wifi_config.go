@@ -546,10 +546,11 @@ func (s *WifiConfigService) stageRadioSettings(ctx context.Context, radioName st
 
 	effMode := s.effectiveIfaceMode(ifaceName, mode)
 
-	// The admission floor only means something on a mesh iface. Unset
-	// leaves the UCI option alone (SetWirelessIfaceConfigWithReader
-	// skips empty fields).
-	if settings.MeshRssiThreshold != nil && effMode == uciModeMesh {
+	// The admission floor only means something on a mesh iface, and the
+	// HaLow (type=morse) link owns range: its floor is not operator-
+	// tunable, so the field is ignored there. Unset leaves the UCI
+	// option alone (SetWirelessIfaceConfigWithReader skips empty fields).
+	if settings.MeshRssiThreshold != nil && effMode == uciModeMesh && !network.IsMorseDevice(s.ConfigReader, radioName) {
 		ifaceCfg.MeshRSSIThreshold = strconv.Itoa(int(settings.GetMeshRssiThreshold()))
 	}
 
