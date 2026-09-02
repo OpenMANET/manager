@@ -293,6 +293,122 @@ func radioHostsEnabledAP(radio string, reader network.ConfigReader) bool {
 	return iface.Mode == "ap" && iface.Disabled != "1"
 }
 
+// reconcileBatMesh1Options adds any daemon-owned tuning option
+// (network.SecondaryMeshPolicyOptions: mcast_rate, mesh_nolearn and the
+// three plink timers) that an existing batmesh1 wifi-iface lacks, so a
+// node configured before those options existed picks them up on its
+// next start. It applies only to sections on MT7915/MT7916 radios, adds
+// but never overwrites, and commits plus reloads once only when at
+// least one option was written. It does not depend on
+// batmesh1configured: wizard-, fallback- and settings-written sections
+// are all candidates.
+func (m *ManagementConfig) reconcileBatMesh1Options(ctx context.Context) error {
+	return m.reconcileBatMesh1OptionsWithDeps(
+		ctx,
+		network.NewUCIWirelessConfigReader(),
+		iwinfo.NewClient(),
+		network.NewDefaultWirelessStatusProvider(),
+		network.ForceReloadConfig,
+	)
+}
+
+// reconcileBatMesh1OptionsWithDeps is the testable implementation of
+// reconcileBatMesh1Options. Hardware lookups run lazily, only once a
+// batmesh1 mesh section is found, so nodes without a secondary link pay
+// no iwinfo/ubus round trip.
+func (m *ManagementConfig) reconcileBatMesh1OptionsWithDeps(
+	ctx context.Context,
+	wirelessReader network.ConfigReader,
+	iwinfoProvider iwinfo.IwinfoProvider,
+	wirelessStatus network.WirelessStatusProvider,
+	reloadFn func(context.Context) error,
+) error {
+	ifaceSections, err := wirelessReader.GetSections("wireless", "wifi-iface")
+	if err != nil {
+		return fmt.Errorf("get wifi-iface sections: %w", err)
+	}
+
+	var (
+		hardware map[string]string // radio section -> iwinfo hardware name
+		written  bool
+	)
+
+	for _, section := range ifaceSections {
+		iface, ierr := network.GetWirelessIfaceByNameWithReader(section, wirelessReader)
+		if ierr != nil || iface.Network != network.BatmanSecondaryIface || iface.Mode != network.WifiModeMesh {
+			continue
+		}
+
+		if hardware == nil {
+			hardware, err = resolveRadioHardware(ctx, iwinfoProvider, wirelessStatus)
+			if err != nil {
+				return err
+			}
+		}
+
+		if !network.SupportsSecondaryMeshLink(hardware[iface.Device]) {
+			m.Log.Debug().Str("section", section).Str("radio", iface.Device).
+				Msg("batmesh1 section is not on an MT7915/MT7916 radio; leaving tuning alone")
+
+			continue
+		}
+
+		added, aerr := network.EnsureSecondaryMeshPolicyOptions(wirelessReader, section)
+		if aerr != nil {
+			return fmt.Errorf("reconcile %s: %w", section, aerr)
+		}
+
+		if len(added) == 0 {
+			continue
+		}
+
+		written = true
+
+		m.Log.Info().Str("section", section).Strs("options", added).Msg("Added missing batmesh1 tuning options")
+	}
+
+	if !written {
+		m.Log.Debug().Msg("batmesh1 tuning options already present; nothing to reconcile")
+
+		return nil
+	}
+
+	if err := wirelessReader.Commit(); err != nil {
+		return fmt.Errorf("commit wireless after batmesh1 reconcile: %w", err)
+	}
+
+	if err := reloadFn(ctx); err != nil {
+		return fmt.Errorf("reload after batmesh1 reconcile: %w", err)
+	}
+
+	return nil
+}
+
+// resolveRadioHardware returns each UCI radio's iwinfo hardware name,
+// keyed by radio section, using one iwinfo and one ubus round trip.
+func resolveRadioHardware(
+	ctx context.Context,
+	iwinfoProvider iwinfo.IwinfoProvider,
+	wirelessStatus network.WirelessStatusProvider,
+) (map[string]string, error) {
+	allInfo, err := iwinfoProvider.GetInfoForAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get iwinfo for all devices: %w", err)
+	}
+
+	status, err := wirelessStatus.GetWirelessStatus(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get wireless status: %w", err)
+	}
+
+	out := make(map[string]string, len(status))
+	for radio := range status {
+		out[radio] = network.ResolveWirelessRadioHardwareName(radio, status, allInfo)
+	}
+
+	return out, nil
+}
+
 // configureBatmanForceflood persists the batman-adv multicast mode derived
 // from batman.multicastForceflood to the bat0 interface section of the UCI
 // network config so it survives reboots. The UCI option is `multicast_mode`,
