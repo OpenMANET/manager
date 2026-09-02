@@ -272,13 +272,19 @@ func (s *WifiConfigService) readRadioSettings(radioName string) (*wificonfigv1.R
 			connect.NewError(connect.CodeInternal, fmt.Errorf("read iface config: %w", err))
 	}
 
-	txPower, _ := strconv.Atoi(dev.TxPower)
+	// ParseInt with bitSize 32 rejects values that int32 cannot hold;
+	// a parse failure leaves tx_power at 0, which the API treats as
+	// "unset" (the frontend seeds a display value from live status).
+	var txPower int32
+	if v, err := strconv.ParseInt(dev.TxPower, 10, 32); err == nil {
+		txPower = int32(v)
+	}
 
 	settings := &wificonfigv1.RadioSettings{
 		Ssid:       iface.SSID,
 		Channel:    dev.Channel,
 		Bandwidth:  WifiHTModeToProto(dev.HTMode),
-		TxPower:    int32(txPower), //nolint:gosec // value originates from UCI config
+		TxPower:    txPower,
 		Encryption: WifiEncryptionToProto(iface.Encryption),
 		Mode:       WifiModeToProto(iface.Mode),
 	}

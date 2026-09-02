@@ -2489,6 +2489,18 @@ func TestGetRadioSettings_MeshRSSIThreshold_OverflowOmitted(t *testing.T) {
 	assert.Nil(t, resp.GetSettings().MeshRssiThreshold, "a value outside int32 is not reported (never wrapped)")
 }
 
+func TestGetRadioSettings_TxPowerOverflowReadsAsUnset(t *testing.T) {
+	reader := newWifiConfigMockReader()
+	require.NoError(t, reader.SetType("wireless", "radio2", "txpower", uci.TypeOption, "2147483648"))
+
+	svc := newTestWifiConfigService(t)
+	svc.ConfigReader = reader
+
+	resp, err := svc.GetRadioSettings(context.Background(), &wificonfigv1.GetRadioSettingsRequest{RadioName: "radio2"})
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), resp.GetSettings().GetTxPower(), "a value outside int32 reads as unset, never wrapped")
+}
+
 func TestGetRadioSettings_MeshRSSIThreshold_OutOfRangeReported(t *testing.T) {
 	svc := newTestWifiConfigService(t)
 	svc.ConfigReader = meshRSSIFixture(t, "default_radio3", "-90")
