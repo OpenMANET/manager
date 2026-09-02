@@ -300,11 +300,11 @@ func radioHostsEnabledAP(radio string, reader network.ConfigReader) bool {
 // next start. It applies only to sections on MT7915/MT7916 radios, adds
 // but never overwrites, and commits plus reloads once only when at
 // least one option was written. It does not depend on
-// batmesh1configured: wizard-, fallback- and settings-written sections
-// are all candidates. An iwinfo or wireless-status lookup failure is
-// logged at Warn and skips the pass for this start, matching the
-// settings handler and the boot fallback; UCI read/write and reload
-// failures are returned.
+// batmesh1configured: wizard-, fallback- and settings-written enabled
+// sections are all candidates; a disabled=1 section is skipped. An iwinfo
+// or wireless-status lookup failure is logged at Warn and skips the pass
+// for this start, matching the settings handler and the boot fallback;
+// UCI read/write and reload failures are returned.
 func (m *ManagementConfig) reconcileBatMesh1Options(ctx context.Context) error {
 	return m.reconcileBatMesh1OptionsWithDeps(
 		ctx,
@@ -339,6 +339,14 @@ func (m *ManagementConfig) reconcileBatMesh1OptionsWithDeps(
 	for _, section := range ifaceSections {
 		iface, ierr := network.GetWirelessIfaceByNameWithReader(section, wirelessReader)
 		if ierr != nil || iface.Network != network.BatmanSecondaryIface || iface.Mode != network.WifiModeMesh {
+			continue
+		}
+
+		// A disabled section is not on the air; writing tuning into it
+		// would only buy a wifi reload. It is reconciled once enabled.
+		if iface.Disabled == "1" {
+			m.Log.Debug().Str("section", section).Msg("batmesh1 section disabled; leaving tuning alone")
+
 			continue
 		}
 
