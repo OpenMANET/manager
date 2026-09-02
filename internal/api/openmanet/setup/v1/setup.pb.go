@@ -476,7 +476,7 @@ type MeshBackhaulProfile struct {
 	MeshId     string                 `protobuf:"bytes,1,opt,name=mesh_id,json=meshId,proto3" json:"mesh_id,omitempty"`
 	Passphrase string                 `protobuf:"bytes,2,opt,name=passphrase,proto3" json:"passphrase,omitempty"`
 	// Radio width for the backhaul link. 0 keeps the daemon's fixed
-	// default (HE20); otherwise 20 or 40 (HE20 / HE40).
+	// default (HE40); otherwise 20 or 40 (HE20 / HE40).
 	BandwidthMhz uint32 `protobuf:"varint,3,opt,name=bandwidth_mhz,json=bandwidthMhz,proto3" json:"bandwidth_mhz,omitempty"`
 	// 2.4 GHz channel, 1..11. 0 keeps the daemon's fixed default (8). The
 	// handler rejects a non-zero channel with a zero bandwidth_mhz and the

@@ -997,7 +997,7 @@ func (s *SetupService) writeSTAIface(w *setupv1.WifiStaProfile) error {
 // default_<radio>. The link carries the secondary-mesh tuning from
 // network.MeshLink.IfaceConfig. The radio moves to the operator's channel/width/
 // country when the profile carries them, else to the link's fixed
-// defaults (channel 8, HE20, country untouched).
+// defaults (channel 8, HE40, country untouched).
 // Raw SetType calls only; phase 12 commits.
 func (s *SetupService) writeMeshBackhaulIface(ap *setupv1.RadioApProfile) error {
 	link := network.MeshLink{
@@ -1049,7 +1049,6 @@ func (s *SetupService) writeMeshBackhaulIface(ap *setupv1.RadioApProfile) error 
 
 	radioWrites := []optionWrite{
 		{wifiOptionChannel, channel},
-		// MeshBackhaulProfile.bandwidth_mhz in setup.proto still documents the old HE20 default; fix it with the next setup.proto change (proto/ is a submodule).
 		{wifiOptionHTMode, network.SecondaryMeshHTMode(bh.GetBandwidthMhz())},
 	}
 
