@@ -2632,3 +2632,63 @@ func TestUpdateRadioSettings_MorseRadio_IgnoresMeshRSSIThreshold(t *testing.T) {
 	_, ok := reader.Get("wireless", "default_radio3", "mesh_rssi_threshold")
 	assert.False(t, ok, "the HaLow floor is not operator-tunable; the field is ignored on a morse radio")
 }
+
+func TestUpdateRadioSettings_MeshToAPOrSTA_ClearsMeshOnlyOptions(t *testing.T) {
+	modes := map[string]wificonfigv1.WifiMode{
+		"ap":  wificonfigv1.WifiMode_WIFI_MODE_AP,
+		"sta": wificonfigv1.WifiMode_WIFI_MODE_STA,
+	}
+
+	for name, mode := range modes {
+		t.Run(name, func(t *testing.T) {
+			reader := newWifiConfigMockReader()
+
+			// default_radio2 lived a mesh life: hardif binding plus every
+			// mesh-only option the daemon writes.
+			seed := map[string]string{
+				"mode":                "mesh",
+				"network":             "batmesh1",
+				"mesh_id":             "old-mesh",
+				"mesh_fwding":         "0",
+				"mesh_rssi_threshold": "-80",
+			}
+			for _, p := range network.SecondaryMeshPolicyOptions() {
+				seed[p.Option] = p.Value
+			}
+
+			for k, v := range seed {
+				require.NoError(t, reader.SetType("wireless", "default_radio2", k, uci.TypeOption, v))
+			}
+
+			svc := newTestWifiConfigService(t)
+			svc.ConfigReader = reader
+
+			resp, err := svc.UpdateRadioSettings(context.Background(), &wificonfigv1.UpdateRadioSettingsRequest{
+				RadioName: "radio2",
+				Settings: &wificonfigv1.RadioSettings{
+					Ssid:    "openmanet",
+					Channel: "6",
+					Mode:    mode,
+				},
+			})
+			require.NoError(t, err)
+			require.True(t, resp.GetSuccess(), resp.GetMessage())
+
+			for _, opt := range []string{
+				"mesh_id", "mesh_fwding", "mesh_rssi_threshold",
+				"mcast_rate", "mesh_nolearn", "mesh_retry_timeout", "mesh_confirm_timeout", "mesh_holding_timeout",
+			} {
+				_, ok := reader.Get("wireless", "default_radio2", opt)
+				assert.False(t, ok, "%s must be cleared when the iface leaves mesh mode", opt)
+			}
+
+			vals, ok := reader.Get("wireless", "default_radio2", "network")
+			require.True(t, ok)
+			assert.Equal(t, []string{"ahwlan"}, vals)
+
+			vals, ok = reader.Get("wireless", "default_radio2", "ssid")
+			require.True(t, ok)
+			assert.Equal(t, []string{"openmanet"}, vals)
+		})
+	}
+}
