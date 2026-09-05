@@ -106,7 +106,7 @@ internal/comms/
 │
 ├── gpio/                 Raven 5-position hardware selector (F3)
 │   ├── selector.go           Selector, Events(ctx), decodeChannel,
-│   │                         SelectorPins (PLACEHOLDER — see spec §8),
+│   │                         SelectorPins (BCM 17/27/22/24/10 → TG 1-5),
 │   │                         SelectorSnapshot, read-error breaker
 │   └── hardware.go           sole go-gpiocdev importer (cdev uAPI v2:
 │                             pull-up, both edges, kernel debounce)
@@ -1430,16 +1430,22 @@ A selection that changes nothing emits no event. The direction toggles
 
 - Raven-only (`board.GPIOSelectorSupported()`, model
   `BCM2711_RAVEN_USB`), operator-disable via `comms.gpioSelector.enable`.
-- Five lines (`SelectorPins` — **placeholders until confirmed against
-  the Raven schematic**), pull-up, active-low, both-edge kernel events
-  with kernel-side debounce (cdev uAPI v2, `go-gpiocdev`, pure Go). No
-  polling loop.
+- Five lines (`SelectorPins`, BCM GPIO 17, 27, 22, 24, 10 → talk
+  groups 1–5, confirmed against the Raven schematic 2026-09-05),
+  pull-up, active-low (switch common to GND: selected position reads
+  LOW, the rest HIGH), both-edge kernel events with kernel-side
+  debounce (cdev uAPI v2, `go-gpiocdev`, pure Go). No polling loop.
 - On each debounced edge the watcher re-reads all five lines:
   exactly one low → emit that channel; zero or several low (rotary in
   transit, wiring fault) → hold the last selection (`held_glitches`
   counter). Delivery is latest-wins depth 1. Ten consecutive read
   failures trip a breaker: channel closes, selector disabled, RPC/web
   selection unaffected.
+- The boot read is emitted first so the daemon adopts the physical
+  switch position (forwarded as `SourceInit`, no announcement). A boot
+  read with no single low line logs one warning with the raw values and
+  emits nothing — the daemon keeps its configured channel; later edge
+  glitches only bump the counter.
 - `hardware.go` is the only file that imports the library; tests run
   against the `lineGroup` fake via the `openFn` seam.
 
