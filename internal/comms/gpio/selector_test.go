@@ -3,6 +3,7 @@ package gpio
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -237,4 +238,125 @@ func waitValuesCall(t *testing.T, fl *fakeLines) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for a Values read")
 	}
+}
+
+// TestSelectorPins_RavenMapping pins the confirmed Raven wiring: BCM
+// GPIO numbers (gpiochip0 line offsets on BCM2711), position i selecting
+// talk group i+1. A regression to the pre-schematic placeholders or a
+// duplicated line would silently break the switch in the field.
+func TestSelectorPins_RavenMapping(t *testing.T) {
+	assert.Equal(t, [5]int{17, 27, 22, 24, 10}, SelectorPins)
+
+	seen := make(map[int]struct{}, len(SelectorPins))
+
+	for i, pin := range SelectorPins {
+		assert.GreaterOrEqual(t, pin, 0, "position %d", i+1)
+		assert.LessOrEqual(t, pin, 27, "position %d: BCM2711 header exposes GPIO0-27", i+1)
+
+		_, dup := seen[pin]
+		assert.False(t, dup, "GPIO%d wired to two positions", pin)
+
+		seen[pin] = struct{}{}
+	}
+}
+
+// logCapture is a goroutine-safe zerolog sink. wrote receives one token
+// per Write so tests can wait for a log line without sleeping.
+type logCapture struct {
+	mu    sync.Mutex
+	buf   strings.Builder
+	n     int
+	wrote chan struct{}
+}
+
+func (l *logCapture) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	l.buf.Write(p)
+	l.n++
+	l.mu.Unlock()
+
+	select {
+	case l.wrote <- struct{}{}:
+	default:
+	}
+
+	return len(p), nil
+}
+
+func (l *logCapture) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.buf.String()
+}
+
+func (l *logCapture) writes() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.n
+}
+
+func (l *logCapture) wait(t *testing.T) {
+	t.Helper()
+
+	select {
+	case <-l.wrote:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for a log line")
+	}
+}
+
+// TestSelector_BootGlitchWarnsOnce pins the boot-time diagnostic: when the
+// first read finds no single low line (switch between detents, harness
+// unplugged) the watcher warns once with the raw values and emits nothing,
+// so the daemon keeps its configured channel. Later in-transit glitches
+// stay silent (counter only), and a subsequent clean position still flows.
+func TestSelector_BootGlitchWarnsOnce(t *testing.T) {
+	s, fl, handler := newFakeSelector([5]int{1, 1, 1, 1, 1})
+	fl.valuesCalled = make(chan struct{}, 8)
+
+	logs := &logCapture{wrote: make(chan struct{}, 8)}
+	s.Log = zerolog.New(logs)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	events, err := s.Events(ctx)
+	require.NoError(t, err)
+	waitValuesCall(t, fl)
+
+	logs.wait(t)
+	assert.Contains(t, logs.String(), `"level":"warn"`)
+	assert.Contains(t, logs.String(), "at boot")
+	assert.Contains(t, logs.String(), `"values":[1,1,1,1,1]`)
+
+	select {
+	case v := <-events:
+		t.Fatalf("boot glitch emitted %d; want no selection", v)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// A later wiring glitch is counted, not logged.
+	fl.set([5]int{0, 0, 1, 1, 1})
+	(*handler)()
+	waitValuesCall(t, fl)
+
+	select {
+	case <-logs.wrote:
+		t.Fatalf("edge glitch logged: %s", logs.String())
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// A clean position still selects.
+	fl.set([5]int{1, 1, 0, 1, 1})
+	(*handler)()
+
+	assert.Equal(t, 3, recvChannel(t, events))
+	assert.Equal(t, 1, logs.writes(), "only the boot read warns")
+
+	var snap SelectorSnapshot
+
+	s.Snapshot(&snap)
+	assert.Equal(t, int64(2), snap.HeldGlitches)
 }

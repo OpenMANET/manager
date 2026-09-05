@@ -23,13 +23,15 @@ const (
 )
 
 // SelectorPins maps selector position → GPIO line offset on the Raven's
-// BCM2711 pinctrl. Position i selects talk group i+1. Lines are
-// requested as inputs, pull-up biased, active-low (switch common to
-// GND), both-edge events.
+// BCM2711 pinctrl, confirmed against the Raven schematic 2026-09-05.
+// Values are BCM GPIO numbers, which equal gpiochip0 line offsets on
+// BCM2711. Position i selects talk group i+1: GPIO17 → 1, GPIO27 → 2,
+// GPIO22 → 3, GPIO24 → 4, GPIO10 → 5.
 //
-// PLACEHOLDER values — MUST be confirmed against the Raven schematic
-// before this branch merges (spec §8).
-var SelectorPins = [5]int{5, 6, 13, 19, 26} //nolint:gochecknoglobals // hardware constant table
+// Lines are requested as inputs with pull-up bias and both-edge events.
+// The switch common is tied to GND, so the selected position reads LOW
+// (active) and every other position reads HIGH (inactive).
+var SelectorPins = [5]int{17, 27, 22, 24, 10} //nolint:gochecknoglobals // hardware constant table
 
 // lineGroup is the consumer-side view of the requested lines.
 type lineGroup interface {
@@ -93,6 +95,7 @@ func (s *Selector) watch(ctx context.Context, lines lineGroup, edge <-chan struc
 	var (
 		last      int
 		errStreak int
+		booted    bool
 	)
 
 	read := func() bool {
@@ -110,6 +113,13 @@ func (s *Selector) watch(ctx context.Context, lines lineGroup, edge <-chan struc
 		if ch == 0 {
 			// Rotary in transit or wiring fault: hold last selection.
 			s.heldGlitches.Add(1)
+
+			if !booted {
+				// Boot has no last selection to hold, so the daemon stays
+				// on its configured channel. Say so once for field triage.
+				s.Log.Warn().Ints("values", vals).
+					Msg("gpio: no single active selector line at boot; keeping configured channel")
+			}
 
 			return true
 		}
@@ -139,6 +149,8 @@ func (s *Selector) watch(ctx context.Context, lines lineGroup, edge <-chan struc
 	if !read() { // boot onto the physical switch position
 		return
 	}
+
+	booted = true
 
 	for {
 		select {
